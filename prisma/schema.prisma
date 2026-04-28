@@ -1,0 +1,387 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/gartenbau_albrecht/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  name               String?
+  email              String              @unique
+  emailVerified      DateTime?
+  image              String?
+  password           String?
+  role               String              @default("user") // user, admin
+  acceptedTermsAt    DateTime?
+  // ── Tester / Trial fields (Phase 1: separation prep) ──
+  // Soft-only: null = unlimited / no trial; if set, UI shows banner.
+  // Login and usage are NEVER blocked by these fields.
+  trialEndDate       DateTime?
+  trialNote          String?
+  // ── Block U: Technical account status (separate from compliance request status) ──
+  // Rein additiv. Default 'active' damit bestehende Zeilen unbetroffen bleiben.
+  // Werte: 'active' | 'cancelled' | 'blocked' | 'anonymized'
+  // Login/Layout/`requireUserId` werten DIESEN Status (nicht das ComplianceRequest-Status-Feld).
+  accountStatus           String    @default("active")
+  // Wenn gesetzt UND in der Vergangenheit → Login wird abgelehnt. Wenn null → kein Auto-Ablauf.
+  accessEndsAt            DateTime?
+  blockedAt               DateTime?
+  blockedReason           String?
+  cancellationAcceptedAt  DateTime?
+  deletionRequestedAt     DateTime?
+  deletionCompletedAt     DateTime?
+  anonymizedAt            DateTime?
+  anonymizedBy            String?   // userId des Admins, der anonymisiert hat
+  accounts           Account[]
+  sessions           Session[]
+  customers          Customer[]
+  services           Service[]
+  orders             Order[]
+  invoices           Invoice[]
+  offers             Offer[]
+  companySettings    CompanySettings[]
+  consentRecords     ConsentRecord[]
+  complianceRequests ComplianceRequest[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Customer {
+  id             String    @id @default(cuid())
+  customerNumber String?   @unique
+  name           String
+  address        String?
+  plz            String?
+  city           String?
+  country        String    @default("CH") // Paket O: ISO-2 country code (CH, DE, AT, FR, IT, LI) or "OTHER" for manual
+  phone          String?
+  email          String?
+  notes          String?
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id])
+  orders         Order[]
+  invoices       Invoice[]
+  offers         Offer[]
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Service {
+  id           String   @id @default(cuid())
+  name         String
+  defaultPrice Float
+  unit         String   @default("Stunde") // Stunde, Pauschal, Meter
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  description String
+  serviceName String?
+  status      String   @default("Offen") // Offen, In Bearbeitung, Erledigt
+  priceType   String   @default("Stundensatz") // Stundensatz, Pauschal
+  unitPrice   Float    @default(50)
+  quantity    Float    @default(1)
+  totalPrice  Float    @default(0)  // NETTO total (subtotal across all OrderItems)
+  // VAT is now persisted on the order and carried forward into derived Offer/Invoice.
+  // vatRate: percentage (e.g. 8.1). 0 means VAT disabled on this order.
+  // vatAmount = totalPrice * vatRate / 100 (precomputed at save time)
+  // total     = totalPrice + vatAmount    (precomputed at save time, i.e. gross)
+  vatRate     Float    @default(8.1)
+  vatAmount   Float    @default(0)
+  total       Float    @default(0)
+  date        DateTime @default(now())
+  notes          String?
+  specialNotes   String?
+  needsReview    Boolean  @default(false)
+  reviewReasons  String[] @default([])
+  hinweisLevel   String   @default("none") // none, info, important, warning
+  mediaUrl       String?
+  mediaType      String?
+  imageUrls       String[] @default([])
+  thumbnailUrls   String[] @default([])
+  audioTranscript String?
+  // Stage I — Audio usage tracking (nullable, additive). Both fields are optional
+  // so existing rows are unaffected and the prod schema-promotion via
+  // `prisma db push` is loss-less.
+  // audioDurationSec: detected length of the WhatsApp voice message (rounded
+  //   integer seconds). NULL for non-audio orders or when the duration could
+  //   not be parsed (rare; fail-open from Stage H).
+  // audioTranscriptionStatus: lifecycle marker for billing/usage analytics.
+  //   Values used by the WhatsApp pipeline:
+  //     'transcribed'        — Whisper produced a transcript (≤60 s)
+  //     'failed'             — Whisper / FFmpeg failed even though duration ≤60 s
+  //     'skipped_too_long'   — Stage H 60 s cost-cap (no LLM call)
+  //   NULL for non-audio orders.
+  audioDurationSec        Int?
+  audioTranscriptionStatus String?
+  invoiceId      String?
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  offerId     String?
+  offer       Offer?   @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  items       OrderItem[]
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model OrderItem {
+  id          String @id @default(cuid())
+  orderId     String
+  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  serviceName String
+  description String @default("")
+  quantity    Float  @default(1)
+  unit        String @default("Stunde")
+  unitPrice   Float
+  totalPrice  Float
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   @unique
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  items         InvoiceItem[]
+  subtotal      Float    @default(0)
+  vatRate       Float    @default(7.7)
+  vatAmount     Float    @default(0)
+  total         Float    @default(0)
+  status        String   @default("Entwurf") // Entwurf, Offen, Gesendet, Bezahlt, Erledigt
+  invoiceDate   DateTime @default(now())
+  dueDate       DateTime?
+  notes         String?
+  sourceOfferId String?
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  archivedPdfPath String?   // Immutable S3 key of the archived PDF snapshot (set once when status → Erledigt)
+  deletedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float   @default(1)
+  unit        String  @default("Stunde")
+  unitPrice   Float
+  totalPrice  Float
+}
+
+model Offer {
+  id          String   @id @default(cuid())
+  offerNumber String   @unique
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders      Order[]
+  items       OfferItem[]
+  subtotal    Float    @default(0)
+  vatRate     Float    @default(7.7)
+  vatAmount   Float    @default(0)
+  total       Float    @default(0)
+  status      String   @default("Entwurf") // Entwurf, Gesendet, Angenommen, Abgelehnt
+  offerDate   DateTime @default(now())
+  validUntil  DateTime?
+  notes       String?
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model OfferItem {
+  id          String @id @default(cuid())
+  offerId     String
+  offer       Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float  @default(1)
+  unit        String @default("Stunde")
+  unitPrice   Float
+  totalPrice  Float
+}
+
+model Counter {
+  id      String @id @default(cuid())
+  name    String @unique
+  value   Int    @default(0)
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  userEmail    String?
+  userRole     String?
+  action       String   // LOGIN, LOGIN_FAILED, SIGNUP, PASSWORD_RESET, CUSTOMER_CREATE, etc.
+  area         String   // AUTH, CUSTOMER, ORDER, OFFER, INVOICE, SETTINGS, UPLOAD, ACCOUNT, COMPLIANCE
+  targetType   String?  // Customer, Order, Offer, Invoice, etc.
+  targetId     String?
+  success      Boolean  @default(true)
+  details      String?  // JSON with safe additional info (no passwords/tokens)
+  ipAddress    String?
+  userAgent    String?  // Browser/client user-agent string (truncated)
+  source       String?  // 'web' | 'pwa' | 'api' | 'whatsapp' | 'telegram' | 'system'
+  errorMessage String?  // Short failure reason for filtering (full detail still in `details`)
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([action])
+  @@index([area])
+  @@index([success])
+  @@index([source])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// EU/CH-Compliance: consent tracking & request workflow (Block N)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Records a single acceptance of a legal/policy document by a user.
+ * One row per acceptance event — never updated, only inserted, so we get
+ * an immutable audit trail of what the user accepted, when, from where
+ * and which document version was active at the time.
+ */
+model ConsentRecord {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType    String   // 'privacy_policy' | 'terms' | 'avv'
+  documentVersion String   // e.g. "1.0-draft", "2025-04"
+  acceptedAt      DateTime @default(now())
+  ipAddress       String?
+  userAgent       String?
+
+  @@index([userId])
+  @@index([documentType])
+}
+
+/**
+ * User-initiated compliance request: data export, data deletion, or
+ * account cancellation. We never auto-execute deletion to respect legal
+ * retention obligations (Schweiz: 10 Jahre Aufbewahrung Geschäftsbücher,
+ * EU: GoBD/HGB equivalents). Admin processes the request manually.
+ */
+model ComplianceRequest {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String    // 'data_export' | 'data_deletion' | 'account_cancellation'
+  status      String    @default("open") // 'open' | 'in_progress' | 'completed' | 'rejected'
+  notes       String?   // user's optional note when filing the request
+  adminNotes  String?   // admin response / processing notes
+  requestedAt DateTime  @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  // Block T-auto — Felder für die automatische Datenexport-Pipeline.
+  // Bleiben null bei type ≠ data_export. Werden vom POST /api/compliance/requests
+  // gesetzt, sobald die ZIP gebaut, in S3 abgelegt und die Bereit-Mail versandt wurde.
+  exportFileKey         String?    // S3-Key (NIE öffentlich; Download nur via Server-Stream)
+  exportReadyAt         DateTime?  // Zeitpunkt, an dem ZIP erfolgreich vorbereitet wurde
+  exportExpiresAt       DateTime?  // 72h nach exportReadyAt — Server liefert danach 410
+  downloadedAt          DateTime?  // Letzter erfolgreicher Download des Owners
+  exportGeneratedAt     DateTime?  // Zeitpunkt der ZIP-Erzeugung (kann == exportReadyAt sein)
+  exportGenerationError String?    // Fehlerkurztext, wenn Generierung fehlschlug
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([requestedAt])
+}
+
+model CompanySettings {
+  id               String  @id @default(cuid())
+  userId           String?
+  user             User?   @relation(fields: [userId], references: [id])
+  firmenname       String  @default("")
+  firmaRechtlich   String?
+  ansprechpartner  String?
+  telefon          String?
+  telefon2         String?
+  email            String?
+  supportEmail     String?
+  webseite         String?
+  strasse          String?
+  hausnummer       String?
+  plz              String?
+  ort              String?
+  iban             String?
+  bank             String?
+  mwstAktiv        Boolean @default(false)
+  mwstNummer       String?
+  mwstSatz         Float?
+  mwstHinweis      String?
+  testModus        Boolean @default(true)
+  branche          String  @default("Gartenbau")
+  hauptsprache     String  @default("Deutsch")
+  // Document/template settings (Paket: Settings restructure)
+  documentTemplate String  @default("classic")
+  letterheadUrl    String?
+  letterheadName   String?
+  letterheadVisible Boolean @default(true)
+  whatsappIntakeNumber String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}

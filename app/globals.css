@@ -1,0 +1,226 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 155 20% 95%;
+    --secondary-foreground: 160 30% 15%;
+
+    --muted: 150 10% 95%;
+    --muted-foreground: 150 5% 45%;
+
+    --accent: 155 20% 93%;
+    --accent-foreground: 160 30% 15%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 150 10% 88%;
+    --input: 150 10% 88%;
+    --ring: 160 84% 39%;
+
+    --radius: 0.625rem;
+    --radius-sm: calc(0.625rem - 4px);
+    --radius-lg: calc(0.625rem + 4px);
+    --radius-full: 9999px;
+
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-2xl: 48px;
+    --spacing-3xl: 64px;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 1px 3px 0 rgb(0 0 0 / 0.06);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+
+    --duration-fast: 150ms;
+    --duration-normal: 250ms;
+    --duration-slow: 350ms;
+
+    --chart-1: 160 84% 39%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 25 95% 53%;
+    --chart-4: 197 37% 24%;
+    --chart-5: 43 74% 66%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+
+    --card: 240 10% 5.9%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 10% 5.9%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 160 10% 15%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 160 5% 15%;
+    --muted-foreground: 155 5% 60%;
+
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 263 70% 50%;
+
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.15), 0 1px 2px -1px rgb(0 0 0 / 0.15);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.2), 0 2px 4px -2px rgb(0 0 0 / 0.15);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.25), 0 4px 6px -4px rgb(0 0 0 / 0.15);
+
+    --chart-1: 263 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.2);
+    color: hsl(var(--primary));
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background-color: transparent; }
+  ::-webkit-scrollbar-thumb { background-color: hsl(var(--border)); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background-color: hsl(var(--muted-foreground) / 0.5); }
+}
+
+@layer utilities {
+  /* Hide scrollbar */
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Mobile tap reliability: disable iOS 300ms delay + remove tap-highlight flash
+     so repeated taps are not needed. Apply to interactive list cards / tappable areas.
+     Also suppress long-press text-selection / iOS callout menu which can intercept
+     the first tap on Android/iOS. */
+  .tap-safe {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Inputs / selects / textareas inside a .tap-safe region must remain selectable
+     and editable — only the outer tap target is user-select: none. */
+  .tap-safe input,
+  .tap-safe textarea,
+  .tap-safe select,
+  .tap-safe [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Prevent mobile auto-zoom on input focus inside dialogs.
+   iOS Safari & Android Chrome auto-zoom the viewport when an input/select/textarea
+   has font-size < 16px. This makes dialogs appear "too zoomed" and combined with
+   overflow-x-hidden clips content, blocking horizontal pan.
+   Using max() preserves any intentionally larger font-size. */
+[role="dialog"] input,
+[role="dialog"] select,
+[role="dialog"] textarea {
+  font-size: max(16px, 1em) !important;
+}
+
+/* Landscape orientation (any width) and wide-enough viewports:
+   Force the duplicate-check 2-column split in dialogs so Orders/Offers/Invoices
+   and the Customers-duplicate dialog render side-by-side consistently. */
+@media (min-width: 520px), (orientation: landscape) and (min-width: 480px) {
+  [role="dialog"] .dupcheck-split {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 1rem !important;
+  }
+  [role="dialog"] .dupcheck-form-col {
+    max-height: none !important;
+  }
+}
+
+/* PWA standalone mode: respect safe areas (notch, home indicator) */
+@media all and (display-mode: standalone) {
+  body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  header.sticky { top: env(safe-area-inset-top); }
+}
+
+/* Landscape mobile: compact UI */
+@media (orientation: landscape) and (max-height: 500px) {
+  [role="dialog"] {
+    max-height: 98vh !important;
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+  [role="dialog"] h2 { font-size: 0.875rem; }
+  /* Compact header in landscape */
+  header.sticky { height: 2.5rem !important; min-height: 2.5rem !important; }
+  header.sticky button, header.sticky a { transform: scale(0.9); }
+  /* Tighter main content padding */
+  main { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+  /* Tighter dialog content spacing in landscape */
+  [role="dialog"] .space-y-4 > * + * { margin-top: 0.5rem; }
+  [role="dialog"] .space-y-2 > * + * { margin-top: 0.25rem; }
+}
+
+@layer utilities {
+
+  /* Hero background */
+  .hero-gradient {
+    background:
+      radial-gradient(ellipse 60% 50% at 50% -10%, hsl(262 83% 58% / 0.12), transparent),
+      radial-gradient(ellipse 40% 40% at 80% 0%, hsl(280 80% 60% / 0.08), transparent),
+      radial-gradient(ellipse 40% 30% at 20% 10%, hsl(240 80% 60% / 0.06), transparent);
+  }
+
+  .dark .hero-gradient {
+    background:
+      radial-gradient(ellipse 60% 50% at 50% -10%, hsl(263 70% 50% / 0.2), transparent),
+      radial-gradient(ellipse 40% 40% at 80% 0%, hsl(280 80% 60% / 0.1), transparent),
+      radial-gradient(ellipse 40% 30% at 20% 10%, hsl(240 80% 60% / 0.08), transparent);
+  }
+}
