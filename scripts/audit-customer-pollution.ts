@@ -185,7 +185,6 @@ findings.push({
 });
 
 suspiciousCount++;
-```
 
 }
 
