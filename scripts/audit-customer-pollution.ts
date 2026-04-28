@@ -125,7 +125,6 @@ for (const c of customers) {
 const reasons: string[] = [];
 const phoneDigits = (c.phone || '').replace(/\D+/g, '');
 
-```
 if (phoneDigits) {
   if (TWILIO_SANDBOX_DIGITS.some((d: string) => phoneDigits === d || phoneDigits.endsWith(d))) {
     reasons.push('phone_is_twilio_sandbox');
