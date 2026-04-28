@@ -126,7 +126,6 @@ const reasons: string[] = [];
 const phoneDigits = (c.phone || '').replace(/\D+/g, '');
 const isFallback = (c.name || '').trimStart().startsWith('⚠️ Unbekannt');
 
-```
 if (phoneDigits) {
   if (TWILIO_SANDBOX_DIGITS.some((d: string) => phoneDigits === d || phoneDigits.endsWith(d))) {
     reasons.push('phone_is_twilio_sandbox');
