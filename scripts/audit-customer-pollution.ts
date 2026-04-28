@@ -22,26 +22,35 @@ const SUSPICIOUS_YEAR_LIKE_PLZ = /^20[2-3]\d$/;
 
 function looksSuspiciousCity(c: string | null | undefined): { suspicious: boolean; reason: string } {
 if (!c) return { suspicious: false, reason: '' };
+
 const t = c.trim();
+
 if (!t) return { suspicious: false, reason: '' };
 if (t.length < 2) return { suspicious: true, reason: 'city_too_short' };
 if (/^\d+$/.test(t)) return { suspicious: true, reason: 'city_digits_only' };
 if (/^T\d/.test(t)) return { suspicious: true, reason: 'city_looks_like_iso_time' };
+
 return { suspicious: false, reason: '' };
 }
 
 function maskPhone(p: string | null | undefined): string {
 if (!p) return '';
+
 const t = p.trim();
+
 if (t.length <= 4) return '****';
+
 return `${t.slice(0, 3)}***${t.slice(-2)}`;
 }
 
 function maskName(n: string | null | undefined): string {
 if (!n) return '';
+
 const t = n.trim();
+
 if (t.startsWith('⚠️ Unbekannt')) return t;
 if (t.length <= 2) return `${t[0] || '?'}*`;
+
 return `${t[0]}***${t[t.length - 1]}`;
 }
 
@@ -59,14 +68,20 @@ return Array.from(years);
 
 function phoneTailMatchesNotes(phoneDigits: string, notesText: string): boolean {
 if (!phoneDigits || phoneDigits.length < 6) return false;
+
 const tail = phoneDigits.slice(-6);
 const noteDigits = notesText.replace(/\D+/g, '');
+
 return noteDigits.includes(tail);
 }
 
 function csvEscape(s: string | null | undefined): string {
 const t = (s ?? '').toString();
-if (/[",\n\r]/.test(t)) return `"${t.replace(/"/g, '""')}"`;
+
+if (/[",\n\r]/.test(t)) {
+return `"${t.replace(/"/g, '""')}"`;
+}
+
 return t;
 }
 
