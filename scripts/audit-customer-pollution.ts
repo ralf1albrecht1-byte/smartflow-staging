@@ -49,9 +49,11 @@ function extractIsoYearsFromText(text: string): string[] {
 const years = new Set<string>();
 const re = /\b(20\d{2})-\d{2}-\d{2}/g;
 let m: RegExpExecArray | null;
+
 while ((m = re.exec(text)) !== null) {
 years.add(m[1]);
 }
+
 return Array.from(years);
 }
 
@@ -69,7 +71,8 @@ return t;
 }
 
 async function main(): Promise<void> {
-const databaseUrl = AUDIT_DB === 'prod'
+const databaseUrl =
+AUDIT_DB === 'prod'
 ? process.env.PROD_DATABASE_URL
 : process.env.DATABASE_URL;
 
@@ -126,6 +129,7 @@ const reasons: string[] = [];
 const phoneDigits = (c.phone || '').replace(/\D+/g, '');
 const isFallback = (c.name || '').trimStart().startsWith('⚠️ Unbekannt');
 
+```
 if (phoneDigits) {
   if (TWILIO_SANDBOX_DIGITS.some((d: string) => phoneDigits === d || phoneDigits.endsWith(d))) {
     reasons.push('phone_is_twilio_sandbox');
@@ -139,6 +143,7 @@ if (c.plz && SUSPICIOUS_YEAR_LIKE_PLZ.test(String(c.plz).trim())) {
 }
 
 const cityCheck = looksSuspiciousCity(c.city);
+
 if (cityCheck.suspicious) {
   reasons.push(cityCheck.reason);
   suspiciousCityCount++;
@@ -166,6 +171,7 @@ if (phoneDigits && phoneDigits.length >= 6) {
 
   if (c.plz && SUSPICIOUS_YEAR_LIKE_PLZ.test(String(c.plz).trim())) {
     const years = extractIsoYearsFromText(allNotes);
+
     if (years.includes(String(c.plz).trim())) {
       reasons.push('plz_matches_iso_year_in_notes');
     }
@@ -185,6 +191,7 @@ findings.push({
 });
 
 suspiciousCount++;
+```
 
 }
 
@@ -207,7 +214,7 @@ const csvHeader = [
 const csvRows = findings.map((f: Finding) =>
 [
 f.customerId,
-f.userId,
+f.userId || '',
 csvEscape(f.nameMasked),
 f.nameStartsWithFallback ? 'true' : 'false',
 csvEscape(f.phoneMasked),
@@ -242,7 +249,7 @@ const md = [
 '| customerId | userId | name | fallback? | phone | plz | city | reasons |',
 '|---|---|---|---|---|---|---|---|',
 ...findings.slice(0, 50).map((f: Finding) =>
-`| \`${f.customerId}` | `${f.userId}` | ${f.nameMasked || '—'} | ${f.nameStartsWithFallback ? 'yes' : 'no'} | ${f.phoneMasked || '—'} | ${f.plz || '—'} | ${f.city || '—'} | ${f.reasons.join(', ')} |`,
+`| ${f.customerId} | ${f.userId || '—'} | ${f.nameMasked || '—'} | ${f.nameStartsWithFallback ? 'yes' : 'no'} | ${f.phoneMasked || '—'} | ${f.plz || '—'} | ${f.city || '—'} | ${f.reasons.join(', ')} |`,
 ),
 '',
 '## What this audit does NOT do',
