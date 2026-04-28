@@ -1,8 +1,9 @@
-
 /* eslint-disable no-console */
 /**
 
 * scripts/audit-customer-pollution.ts
+*
+* READ-ONLY audit script.
   */
 
 import { PrismaClient } from '@prisma/client';
@@ -138,12 +139,10 @@ if (c.plz && SUSPICIOUS_YEAR_LIKE_PLZ.test(String(c.plz).trim())) {
   yearLikePlzCount++;
 }
 
-{
-  const cityCheck = looksSuspiciousCity(c.city);
-  if (cityCheck.suspicious) {
-    reasons.push(cityCheck.reason);
-    suspiciousCityCount++;
-  }
+const cityCheck = looksSuspiciousCity(c.city);
+if (cityCheck.suspicious) {
+  reasons.push(cityCheck.reason);
+  suspiciousCityCount++;
 }
 
 if (reasons.length === 0) continue;
@@ -155,6 +154,7 @@ if (phoneDigits && phoneDigits.length >= 6) {
   });
 
   const allNotes = orders.map((o: { notes: string | null }) => o.notes || '').join('\n');
+
   const metaLines = allNotes
     .split(/\r?\n/)
     .filter((l: string) => /\[META\]/i.test(l) || /Telefon\s*\(Absender/i.test(l) || /^\s*Telefon\s*:/i.test(l))
@@ -184,6 +184,7 @@ findings.push({
   address: c.address,
   reasons,
 });
+
 suspiciousCount++;
 ```
 
