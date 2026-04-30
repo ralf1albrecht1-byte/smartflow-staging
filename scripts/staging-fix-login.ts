@@ -1,12 +1,5 @@
-/**
-
-* scripts/staging-fix-login.ts
-*
-* Run on Railway staging:
-* npx tsx scripts/staging-fix-login.ts
-  */
-  import { PrismaClient } from '@prisma/client';
-  import bcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const ADMIN_EMAIL = '[smiley.albi@web.de](mailto:smiley.albi@web.de)';
 const ADMIN_PASSWORD = '1234Test';
@@ -33,13 +26,11 @@ let dbName = '(unknown)';
 try {
 const parsed = new URL(dbUrl);
 dbHost = parsed.hostname;
-dbName = parsed.pathname.replace(/^//, '') || '(default)';
+dbName = parsed.pathname.startsWith('/') ? parsed.pathname.slice(1) : parsed.pathname;
+if (!dbName) dbName = '(default)';
 } catch {
-const hostMatch = dbUrl.match(/@([^:/]+)/);
-const nameMatch = dbUrl.match(//([^/?]+)(?:?|$)/);
-
-dbHost = hostMatch?.[1] || '(unknown)';
-dbName = nameMatch?.[1] || '(unknown)';
+dbHost = '(unknown)';
+dbName = '(unknown)';
 }
 
 const KNOWN_PROD_HOSTS = ['db-37f1be1ce.db004.hosteddb.reai.io'];
@@ -53,10 +44,10 @@ process.exit(1);
 }
 
 console.log('\n── Staging Login Diagnostic & Fix ─────────────────────────────');
-console.log(`APP_ENV:  ${process.env.APP_ENV}`);
-console.log(`DB Host:  ${dbHost}`);
-console.log(`DB Name:  ${dbName}`);
-console.log(`Target:   ${ADMIN_EMAIL}`);
+console.log(`APP_ENV: ${process.env.APP_ENV}`);
+console.log(`DB Host: ${dbHost}`);
+console.log(`DB Name: ${dbName}`);
+console.log(`Target: ${ADMIN_EMAIL}`);
 console.log();
 
 const prisma = new PrismaClient();
@@ -75,7 +66,7 @@ orderBy: [
 if (!user) {
 const hash = await bcrypt.hash(ADMIN_PASSWORD, 10);
 
-```
+
 user = await prisma.user.create({
   data: {
     email: ADMIN_EMAIL,
@@ -90,47 +81,33 @@ user = await prisma.user.create({
 
 fixes.push('Created staging admin user');
 console.log('✅ User created:', user.id);
-```
+
 
 } else {
-console.log('✅ User found:', user.id);
-
-```
 const newHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
-const updateData: any = {
-  password: newHash,
-  email: ADMIN_EMAIL,
-  name: user.name || ADMIN_NAME,
-  role: 'admin',
-  emailVerified: user.emailVerified || new Date(),
-  accountStatus: 'active',
-  accessEndsAt: null,
-  blockedAt: null,
-  blockedReason: null,
-  anonymizedAt: null,
-  anonymizedBy: null,
-};
+
 
 await prisma.user.update({
   where: { id: user.id },
-  data: updateData,
+  data: {
+    password: newHash,
+    email: ADMIN_EMAIL,
+    name: user.name || ADMIN_NAME,
+    role: 'admin',
+    emailVerified: user.emailVerified || new Date(),
+    accountStatus: 'active',
+    accessEndsAt: null,
+    blockedAt: null,
+    blockedReason: null,
+    anonymizedAt: null,
+    anonymizedBy: null,
+  } as any,
 });
 
 fixes.push('Updated staging admin login fields');
-console.log('✅ User updated');
-```
+console.log('✅ User updated:', user.id);
 
-}
 
-let consentVersion = '1.0';
-
-try {
-const mod = await import('../lib/legal-versions');
-if (typeof mod.getCurrentVersion === 'function') {
-consentVersion = mod.getCurrentVersion('terms');
-}
-} catch {
-// fallback stays 1.0
 }
 
 for (const docType of ['terms', 'privacy', 'avv'] as const) {
@@ -138,35 +115,20 @@ const existing = await prisma.consentRecord.findFirst({
 where: { userId: user.id, documentType: docType },
 });
 
-```
 if (!existing) {
   await prisma.consentRecord.create({
     data: {
       userId: user.id,
       documentType: docType,
-      documentVersion: consentVersion,
+      documentVersion: 'legal-2026-04-29',
       userAgent: 'staging-fix-script',
     } as any,
   });
 
   fixes.push(`Created missing consent: ${docType}`);
 }
-```
 
-}
 
-const allUsers = await prisma.user.findMany({
-where: { email: { equals: ADMIN_EMAIL, mode: 'insensitive' } },
-select: { id: true, email: true, emailVerified: true, createdAt: true },
-orderBy: { createdAt: 'asc' },
-});
-
-if (allUsers.length > 1) {
-console.log(`\n⚠️ WARNING: ${allUsers.length} users found with this email.`);
-console.log('This script does not delete users.');
-allUsers.forEach((u, i) => {
-console.log(`[${i}] id=${u.id} email=${u.email} verified=${u.emailVerified} created=${u.createdAt}`);
-});
 }
 
 console.log('\n── SUMMARY ─────────────────────────────────────────');
