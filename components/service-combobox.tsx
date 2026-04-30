@@ -98,7 +98,7 @@ export function ServiceCombobox({
     const existing = services.find(s => s.name.trim().toLowerCase() === normalizedName.toLowerCase());
     if (existing) {
       toast.info(`Leistung "${existing.name}" existiert bereits`);
-      onChange(existing.name, existing);
+      onChange(existing.name);
       return;
     }
 
@@ -119,7 +119,7 @@ export function ServiceCombobox({
       setJustSaved(true);
       // Notify parent so the services list gets refreshed and item gets linked
       onServiceCreated?.(newService);
-      onChange(newService.name, newService);
+      onChange(newService.name);
     } catch (err) {
       toast.error('Leistung konnte nicht gespeichert werden');
     } finally {
