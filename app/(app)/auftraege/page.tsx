@@ -583,7 +583,7 @@ export default function AuftraegePage() {
   };
 
   const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption) => {
-    const svc = svcOpt ?? services?.find((s: ServiceDef) => s.name === name);
+   const svc = svcOpt;
     setFormItems(prev => prev.map((item, i) => {
       if (i !== index) return item;
       if (svc) return { ...item, serviceName: name, unitPrice: String(svc.defaultPrice ?? 0), unit: svc.unit ?? 'Stunde' };
