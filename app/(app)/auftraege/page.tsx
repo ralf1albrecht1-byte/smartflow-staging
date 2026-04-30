@@ -583,29 +583,38 @@ export default function AuftraegePage() {
   };
 
 const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption) => {
-const svc = svcOpt;
+  const svc = svcOpt;
 
-setFormItems(prev => prev.map((item, i) => {
-if (i !== index) return item;
+  setFormItems(prev =>
+    prev.map((item, i) => {
+      if (i !== index) return item;
 
-if (svc) {
-  return {
-    ...item,
-    serviceName: svc.name,
-    unitPrice: item.unitPrice || String(svc.defaultPrice ?? 0),
-    unit: item.unit || svc.unit || 'Stunde',
-  };
-}
+      if (svc) {
+        return {
+          ...item,
+          serviceName: svc.name,
+          unitPrice: item.unitPrice || String(svc.defaultPrice ?? 0),
+          unit: item.unit || svc.unit || 'Stunde',
+        };
+      }
 
-if (!name) {
-  return { ...item, serviceName: '', unitPrice: '', quantity: '', unit: 'Stunde' };
-}
+      if (!name) {
+        return {
+          ...item,
+          serviceName: '',
+          unitPrice: '',
+          quantity: '',
+          unit: 'Stunde',
+        };
+      }
 
-return { ...item, serviceName: name };
-
-}));
+      return {
+        ...item,
+        serviceName: name,
+      };
+    })
+  );
 };
-
 
   const handleServiceCreated = (newSvc: ServiceOption) => {
     setServices(prev => [...prev, newSvc as any].sort((a, b) => (a?.name ?? '').localeCompare(b?.name ?? '', 'de', { sensitivity: 'base' })));
