@@ -96,7 +96,7 @@
     "lucide-react": "0.446.0",
     "mapbox-gl": "1.13.3",
     "music-metadata": "^11.12.3",
-    "next": "14.2.28",
+    "next": "14.2.35",
     "next-auth": "4.24.11",
     "next-themes": "0.3.0",
     "plotly.js": "2.35.3",
