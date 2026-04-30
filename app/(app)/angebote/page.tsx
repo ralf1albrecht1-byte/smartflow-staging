@@ -5,6 +5,7 @@ import { FileCheck, Plus, Download, Trash2, Loader2, Undo2, AlertTriangle, Volum
 import { sendPdfToBusinessWhatsApp } from '@/lib/whatsapp-share';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
 import { CommunicationBlock, CommunicationChips, resolveCommunicationData, stripForwardedMessage } from '@/components/communication-block';
+import { ServiceCombobox, ServiceOption } from '@/components/service-combobox';
 import { autoFillCustomerFromNotes } from '@/lib/extract-from-notes';
 import { mergeCustomerIntoForm, isFallbackCustomerName } from '@/lib/customer-form';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,7 +44,7 @@ export default function AngebotePage() {
   const router = useRouter();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [searchText, setSearchText] = useState('');
-  const [statusFilter, setStatusFilter] = useState('Aktive');
+  const [statusFilter, setStatusFilter] = useState('Alle');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name' | 'amount'>('newest');
   const [visibleCount, setVisibleCount] = useState(30);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -332,6 +333,26 @@ export default function AngebotePage() {
     setItems([...items, { description: svc?.name ?? '', quantity: '1', unit: svc?.unit ?? 'Stunde', unitPrice: String(svc?.defaultPrice ?? 0) }]);
   };
 
+  const onItemServiceSelect = (idx: number, name: string, svcOpt?: ServiceOption) => {
+    const svc = svcOpt ?? services?.find((s: any) => s.name === name);
+    if (svc) {
+      updateItem(idx, 'description', svc.name);
+      updateItem(idx, 'unitPrice', String(svc.defaultPrice ?? 0));
+      updateItem(idx, 'unit', svc.unit ?? 'Stunde');
+    } else if (!name) {
+      updateItem(idx, 'description', '');
+      updateItem(idx, 'unitPrice', '');
+      updateItem(idx, 'quantity', '');
+      updateItem(idx, 'unit', 'Stunde');
+    } else {
+      updateItem(idx, 'description', name);
+    }
+  };
+
+  const handleServiceCreated = (newSvc: ServiceOption) => {
+    setServices((prev: any[]) => [...prev, newSvc].sort((a, b) => (a?.name ?? '').localeCompare(b?.name ?? '', 'de', { sensitivity: 'base' })));
+  };
+
   const subtotal = items?.reduce((sum: number, item: OfferItem) => sum + Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0), 0) ?? 0;
   const vatAmount = subtotal * (vatRate / 100);
   const total = subtotal + vatAmount;
@@ -519,7 +540,11 @@ export default function AngebotePage() {
       });
       if (invRes.ok) {
         const invoice = await invRes.json();
-        toast.success(`Rechnung ${invoice.invoiceNumber} erstellt`);
+        if (invoice.existed) {
+          toast.info(`Rechnung ${invoice.invoiceNumber} existiert bereits — wird geöffnet`);
+        } else {
+          toast.success(`Rechnung ${invoice.invoiceNumber} erstellt`);
+        }
 
         // Update offer status to "Angenommen"
         if (offerId) {
@@ -691,7 +716,11 @@ export default function AngebotePage() {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'Angenommen' }),
         });
-        toast.success(`Rechnung ${invoice.invoiceNumber} erstellt — Angebot als Angenommen markiert`);
+        if (invoice.existed) {
+          toast.info(`Rechnung ${invoice.invoiceNumber} existiert bereits — wird geöffnet`);
+        } else {
+          toast.success(`Rechnung ${invoice.invoiceNumber} erstellt — Angebot als Angenommen markiert`);
+        }
         window.location.href = '/rechnungen';
       } else {
         toast.error('Rechnung konnte nicht erstellt werden');
@@ -709,7 +738,7 @@ export default function AngebotePage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2"><FileCheck className="w-7 h-7 text-primary" /> Angebote</h1>
-          <p className="text-muted-foreground mt-1">{offers?.length ?? 0} Angebote</p>
+          <p className="text-muted-foreground mt-1">{offers?.filter((o: Offer) => o.status !== 'Angenommen').length ?? 0} Angebote</p>
         </div>
         <Button onClick={openNewOffer}><Plus className="w-4 h-4 mr-1" />Neues Angebot</Button>
       </div>
@@ -719,8 +748,8 @@ export default function AngebotePage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Name, Ort, Leistung, Angebots-Nr…" className="pl-10 h-9 text-sm" value={searchText} onChange={(e: any) => setSearchText(e?.target?.value ?? '')} />
         </div>
-        <select className="flex rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9" value={statusFilter} onChange={(e: any) => setStatusFilter(e?.target?.value ?? 'Aktive')}>
-          <option value="Aktive">Aktive Angebote</option>
+        <select className="flex rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9" value={statusFilter} onChange={(e: any) => setStatusFilter(e?.target?.value ?? 'Alle')}>
+          <option value="Alle">Status: Alle</option>
           <option value="Entwurf">Entwurf</option>
           <option value="Gesendet">Gesendet</option>
           <option value="Angenommen">Angenommen</option>
@@ -737,8 +766,11 @@ export default function AngebotePage() {
       <div className="space-y-1.5">
         {(() => {
           const filteredOffers = offers.filter((off: Offer) => {
-            if (statusFilter === 'Aktive') { if (!ACTIVE_OFFER_STATUSES.includes(off.status)) return false; }
-            else if (statusFilter !== 'Alle' && off.status !== statusFilter) return false;
+            // "Alle" = active workflow offers only (matches Dashboard count logic).
+            // "Angenommen" offers have been forwarded to Rechnungen — hide them
+            // from the default view but keep them accessible via explicit filter.
+            if (statusFilter === 'Alle' && off.status === 'Angenommen') return false;
+            if (statusFilter !== 'Alle' && off.status !== statusFilter) return false;
             const s = searchText?.toLowerCase() ?? '';
             if (!s) return true;
             const itemNames = off.items?.map((it: any) => it.description).filter(Boolean).join(' ') || '';
@@ -1000,34 +1032,52 @@ export default function AngebotePage() {
               )}
             </div>
 
-            <div className="space-y-3">
-              <Label className="text-base font-semibold">Leistungen</Label>
-              {items?.map((item: OfferItem, idx: number) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-12 sm:col-span-4">
-                    <select className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm mb-1" value={item?.description ?? ''} onChange={(e: any) => {
-                      const val = e?.target?.value ?? '';
-                      const svc = services?.find((s: any) => s.name === val);
-                      if (svc) { updateItem(idx, 'description', svc.name); updateItem(idx, 'unitPrice', String(svc.defaultPrice ?? 0)); updateItem(idx, 'unit', svc.unit ?? 'Stunde'); }
-                      else updateItem(idx, 'description', val);
-                    }}>
-                      <option value="">Leistung wählen...</option>
-                      {services?.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                    </select>
-                    <Input placeholder="Oder manuell eingeben" value={item?.description ?? ''} onChange={(e: any) => updateItem(idx, 'description', e?.target?.value ?? '')} />
+            <div>
+              <Label className="mb-2 block">Leistungen *</Label>
+              <div className="space-y-3">
+                {items?.map((item: OfferItem, idx: number) => (
+                  <div key={idx} className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <ServiceCombobox
+                        value={item?.description ?? ''}
+                        services={services as ServiceOption[]}
+                        onChange={(name, svc) => onItemServiceSelect(idx, name, svc)}
+                        onServiceCreated={handleServiceCreated}
+                        currentPrice={item?.unitPrice != null ? String(item.unitPrice) : undefined}
+                        currentUnit={item?.unit}
+                        contextLabel="Angebot"
+                      />
+                      {items?.length > 1 && (
+                        <button onClick={() => removeItem(idx)} className="text-destructive hover:text-destructive/80 p-1 shrink-0" title="Leistung entfernen">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <Label className="text-xs">Einheit</Label>
+                        <select className="flex w-full rounded-md border border-input bg-background px-2 py-1.5" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? 'Stunde')}>
+                          <option value="Stunde">Stunde</option><option value="Pauschal">Pauschal</option><option value="Meter">Meter</option><option value="Stück">Stück</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Preis (CHF)</Label>
+                        <Input type="number" step="0.05" className="h-8" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '0')} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Menge</Label>
+                        <Input type="number" step="0.25" className="h-8" value={item?.quantity ?? ''} onChange={(e: any) => updateItem(idx, 'quantity', e?.target?.value ?? '1')} />
+                      </div>
+                    </div>
+                    <div className="text-left sm:text-right text-xs text-muted-foreground">
+                      = CHF {(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0)).toFixed(2)}
+                    </div>
                   </div>
-                  <div className="col-span-3 sm:col-span-2"><Input type="number" step="0.25" placeholder="Menge" value={item?.quantity ?? ''} onChange={(e: any) => updateItem(idx, 'quantity', e?.target?.value ?? '')} /></div>
-                  <div className="col-span-3 sm:col-span-2">
-                    <select className="flex w-full rounded-md border border-input bg-background px-2 py-2 text-sm" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? '')}>
-                      <option>Stunde</option><option>Pauschal</option><option>Meter</option><option>Stück</option>
-                    </select>
-                  </div>
-                  <div className="col-span-3 sm:col-span-2"><Input type="number" step="0.05" placeholder="Preis" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '')} /></div>
-                  <div className="col-span-2 sm:col-span-1 text-right font-mono text-sm">{(Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0)).toFixed(2)}</div>
-                  <div className="col-span-1">{items?.length > 1 && <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeItem(idx)}><Trash2 className="w-3 h-3" /></Button>}</div>
-                </div>
-              )) ?? []}
-              <Button variant="outline" size="sm" onClick={addItem}><Plus className="w-3 h-3 mr-1" />Leistung hinzufügen</Button>
+                )) ?? []}
+              </div>
+              <Button variant="outline" size="sm" className="mt-2 w-full" onClick={addItem}>
+                <Plus className="w-3.5 h-3.5 mr-1" />Weitere Leistung hinzufügen
+              </Button>
             </div>
 
             <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
@@ -1080,6 +1130,7 @@ export default function AngebotePage() {
                 onApplyPlzSuggestion={(plz) => setNewCust((p: any) => ({ ...p, plz: plz ?? '' }))}
                 onTakeoverCustomer={async (match: DuplicateMatch) => {
                   if (!editOfferId) return;
+                  const oldCustomerId = form.customerId; // capture before overwrite
                   const res = await fetch(`/api/offers/${editOfferId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -1112,6 +1163,18 @@ export default function AngebotePage() {
                   setEditingCustomer(false);
                   setDupCheckOpen(false);
                   toast.success(`Kunde übernommen: ${match.customerNumber ? match.customerNumber + ' · ' : ''}${match.name}`);
+                  // Fire-and-forget: cleanup old customer if it has no remaining active docs
+                  if (oldCustomerId && oldCustomerId !== match.id) {
+                    fetch(`/api/customers/${oldCustomerId}/cleanup-after-takeover`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ keptCustomerId: match.id }),
+                    }).then(r => r.json()).then(res => {
+                      if (res?.cleaned) {
+                        setCustomers((prev: Customer[]) => prev.filter((c) => c.id !== oldCustomerId));
+                      }
+                    }).catch(() => { /* silent — non-critical */ });
+                  }
                 }}
                 onMergeComplete={async (r) => {
                   setForm((f: any) => ({ ...f, customerId: r.survivingCustomerId }));

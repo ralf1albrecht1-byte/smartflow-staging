@@ -106,7 +106,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
   try {
     const existing = await prisma.invoice.findFirst({ where: { id: params?.id, userId } });
     if (!existing) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
-    await prisma.order.updateMany({ where: { invoiceId: params?.id }, data: { invoiceId: null } });
+    // Soft-delete the invoice — do NOT null invoiceId on linked orders to prevent them from resurfacing in active orders list
     await prisma.invoice.update({ where: { id: params?.id }, data: { deletedAt: new Date() } });
     const su = await getSessionUser();
     logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'INVOICE_DELETE', area: 'INVOICES', targetType: 'Invoice', targetId: params?.id, request });

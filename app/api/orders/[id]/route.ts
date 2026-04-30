@@ -45,16 +45,21 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     let totalPrice = 0;
     let primaryServiceName = data?.serviceName;
     let primaryPriceType = data?.priceType;
-    let primaryUnitPrice = Number(data?.unitPrice ?? 50);
-    let primaryQuantity = Number(data?.quantity ?? 1);
+    // Only set price/quantity when caller explicitly provided them — prevents
+    // overwriting existing DB values with defaults on partial updates (e.g. customerId-only).
+    let primaryUnitPrice: number | undefined = data?.unitPrice !== undefined ? Number(data.unitPrice) : undefined;
+    let primaryQuantity: number | undefined = data?.quantity !== undefined ? Number(data.quantity) : undefined;
     if (items && items.length > 0) {
       totalPrice = items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1)), 0);
       primaryServiceName = items[0].serviceName ?? primaryServiceName;
       primaryPriceType = items[0].unit ?? primaryPriceType;
       primaryUnitPrice = Number(items[0].unitPrice ?? 50);
       primaryQuantity = Number(items[0].quantity ?? 1);
-    } else {
-      totalPrice = primaryQuantity * primaryUnitPrice;
+    } else if (primaryUnitPrice !== undefined || primaryQuantity !== undefined) {
+      // Only recalculate totalPrice when price fields are explicitly provided
+      const up = primaryUnitPrice ?? Number(existing?.unitPrice ?? 50);
+      const qty = primaryQuantity ?? Number(existing?.quantity ?? 1);
+      totalPrice = qty * up;
     }
     if (items) { await prisma.orderItem.deleteMany({ where: { orderId: params?.id } }); }
 
@@ -71,14 +76,15 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       effectiveVatRate = existing?.vatRate == null ? 8.1 : Number(existing.vatRate);
     }
 
-    // Re-derive net totalPrice when items are (re)computed; else carry forward existing net.
-    // Then compute vatAmount and gross total so saved values always stay consistent.
-    //   - items is an array (any length): recompute totalPrice from the submitted line items
-    //   - items missing:                  partial update (e.g. status change) → preserve totalPrice
+    // Re-derive net totalPrice when items or price fields are (re)computed;
+    // else carry forward existing net. Pure metadata updates (e.g. customerId-only)
+    // must NOT recalculate or overwrite existing price/total values.
     const hasItemsField = Array.isArray(items);
-    const netTotal = hasItemsField ? totalPrice : Number(existing?.totalPrice ?? 0);
-    const effectiveVatAmount = netTotal * effectiveVatRate / 100;
-    const effectiveTotal = netTotal + effectiveVatAmount;
+    const hasPriceFields = primaryUnitPrice !== undefined || primaryQuantity !== undefined;
+    const shouldRecalculate = hasItemsField || hasPriceFields || data?.vatRate !== undefined;
+    const netTotal = hasItemsField ? totalPrice : hasPriceFields ? totalPrice : Number(existing?.totalPrice ?? 0);
+    const effectiveVatAmount = shouldRecalculate ? netTotal * effectiveVatRate / 100 : undefined;
+    const effectiveTotal = shouldRecalculate ? netTotal + (effectiveVatAmount ?? 0) : undefined;
 
     // Guard: reject reassignment to an archived customer
     if (data?.customerId && data.customerId !== existing.customerId) {
@@ -91,12 +97,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         customerId: data?.customerId, description: data?.description, serviceName: primaryServiceName,
         status: data?.status, priceType: primaryPriceType, unitPrice: primaryUnitPrice,
         quantity: primaryQuantity,
-        // totalPrice only updates if items were provided (existing behavior preserved)
-        ...(items ? { totalPrice } : {}),
-        // VAT always re-persists alongside whichever net total the row now has
-        vatRate: effectiveVatRate,
-        vatAmount: effectiveVatAmount,
-        total: effectiveTotal,
+        // totalPrice only updates if items or price fields were provided
+        ...(hasItemsField || hasPriceFields ? { totalPrice } : {}),
+        // VAT only re-persists when prices/items/vatRate changed — not on metadata-only updates
+        ...(shouldRecalculate ? { vatRate: effectiveVatRate, vatAmount: effectiveVatAmount, total: effectiveTotal } : {}),
         date: data?.date ? new Date(data.date) : undefined,
         notes: data?.notes, specialNotes: data?.specialNotes,
         needsReview: data?.needsReview !== undefined ? data.needsReview : undefined,

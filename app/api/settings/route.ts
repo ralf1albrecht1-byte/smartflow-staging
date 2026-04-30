@@ -72,7 +72,7 @@ export async function PUT(request: Request) {
         const n = normalizePhoneE164(raw);
         if (!n) {
           return NextResponse.json(
-            { error: 'Ungültige Hauptnummer. Bitte im internationalen Format eingeben (z.B. +41 76 123 45 67).', field: 'telefon' },
+            { error: 'Ungültige Telefonnummer. Bitte im internationalen Format eingeben (z.B. +41 76 123 45 67).', field: 'telefon' },
             { status: 400 }
           );
         }
@@ -96,32 +96,59 @@ export async function PUT(request: Request) {
       }
     }
 
-    // 2) Reject if both numbers are the SAME normalized value
+    // 2) WhatsApp intake number — normalize early so we can cross-check
+    let normalizedWhatsapp: string | null | undefined = undefined;
+    const whatsappProvided = rawWhatsappIntakeNumber !== undefined;
+    if (whatsappProvided) {
+      const raw = (rawWhatsappIntakeNumber ?? '').toString().trim();
+      if (!raw) {
+        normalizedWhatsapp = null;
+      } else {
+        const n = normalizePhoneE164(raw);
+        if (!n) {
+          return NextResponse.json(
+            { error: 'Ungültige Hauptnummer. Bitte im internationalen Format eingeben (z.B. +41 76 123 45 67).', field: 'whatsappIntakeNumber' },
+            { status: 400 }
+          );
+        }
+        normalizedWhatsapp = n;
+      }
+    }
+
+    // 3) Reject if Hauptnummer and Zweitnummer are the SAME normalized value
+    if (normalizedWhatsapp && normalizedTelefon2 && normalizedWhatsapp === normalizedTelefon2) {
+      return NextResponse.json(
+        { error: 'Hauptnummer und Zweitnummer dürfen nicht identisch sein.', field: 'telefon2' },
+        { status: 400 }
+      );
+    }
+    // Also check telefon vs telefon2 for legacy compat
     if (normalizedTelefon && normalizedTelefon2 && normalizedTelefon === normalizedTelefon2) {
       return NextResponse.json(
-        { error: 'Hauptnummer und zweite Nummer dürfen nicht identisch sein.', field: 'telefon2' },
+        { error: 'Hauptnummer und Zweitnummer dürfen nicht identisch sein.', field: 'telefon2' },
         { status: 400 }
       );
     }
 
-    // 3) Uniqueness: the same normalized number must not be used by a DIFFERENT account.
-    //    This is the routing-safety guarantee for webhooks (phone-resolver picks ONE account).
-    const numbersToCheck: Array<{ field: 'telefon' | 'telefon2'; value: string }> = [];
-    if (normalizedTelefon) numbersToCheck.push({ field: 'telefon', value: normalizedTelefon });
+    // 4) Uniqueness: only WhatsApp intake numbers must be unique cross-account.
+    //    telefon (business phone) is intentionally excluded — it may be shared
+    //    across companies (e.g. same office number).
+    const numbersToCheck: Array<{ field: string; value: string }> = [];
+    if (normalizedWhatsapp) numbersToCheck.push({ field: 'whatsappIntakeNumber', value: normalizedWhatsapp });
     if (normalizedTelefon2) numbersToCheck.push({ field: 'telefon2', value: normalizedTelefon2 });
 
     for (const { field, value } of numbersToCheck) {
       const conflicts = await prisma.companySettings.findMany({
         where: {
           userId: { not: userId },
-          OR: [{ telefon: value }, { telefon2: value }],
+          OR: [{ whatsappIntakeNumber: value }, { telefon2: value }],
         },
         select: { id: true, userId: true },
       });
       if (conflicts.length > 0) {
         return NextResponse.json(
           {
-            error: `Diese Telefonnummer ist bereits einem anderen Account zugeordnet und kann nicht doppelt vergeben werden.`,
+            error: `Diese Nummer ist bereits einem anderen Account zugeordnet und kann nicht doppelt vergeben werden.`,
             field,
             conflicting: value,
           },
@@ -162,22 +189,8 @@ export async function PUT(request: Request) {
     if (rawLetterheadName !== undefined) settingsData.letterheadName = rawLetterheadName ? String(rawLetterheadName) : null;
     if (rawLetterheadVisible !== undefined) settingsData.letterheadVisible = !!rawLetterheadVisible;
 
-    // WhatsApp intake number — normalize with E.164 when provided
-    if (rawWhatsappIntakeNumber !== undefined) {
-      const raw = (rawWhatsappIntakeNumber ?? '').toString().trim();
-      if (!raw) {
-        settingsData.whatsappIntakeNumber = null;
-      } else {
-        const n = normalizePhoneE164(raw);
-        if (!n) {
-          return NextResponse.json(
-            { error: 'Ungültige WhatsApp-Empfangsnummer. Bitte im internationalen Format eingeben (z.B. +41 76 123 45 67).', field: 'whatsappIntakeNumber' },
-            { status: 400 }
-          );
-        }
-        settingsData.whatsappIntakeNumber = n;
-      }
-    }
+    // WhatsApp intake number — already normalized above in step 2
+    if (whatsappProvided) settingsData.whatsappIntakeNumber = normalizedWhatsapp;
 
     // Find existing settings for this user
     let existing = await prisma.companySettings.findFirst({ where: { userId } });

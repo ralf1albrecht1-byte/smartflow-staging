@@ -71,8 +71,12 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       return NextResponse.json(offer);
     }
 
-    // Simple status/notes update
-    const offer = await prisma.offer.update({ where: { id: params?.id }, data: { status: data?.status, notes: data?.notes }, include: { customer: true, items: true } });
+    // Simple update (status/notes/customerId — no items recalculation)
+    const simpleData: Record<string, any> = {};
+    if (data?.customerId) simpleData.customerId = data.customerId;
+    if (data?.status !== undefined) simpleData.status = data.status;
+    if (data?.notes !== undefined) simpleData.notes = data.notes;
+    const offer = await prisma.offer.update({ where: { id: params?.id }, data: simpleData, include: { customer: true, items: true } });
     const su = await getSessionUser();
     logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'OFFER_UPDATE', area: 'OFFERS', targetType: 'Offer', targetId: params?.id, request });
     return NextResponse.json(offer);
