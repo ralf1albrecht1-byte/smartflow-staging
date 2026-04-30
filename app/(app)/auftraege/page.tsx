@@ -586,7 +586,13 @@ export default function AuftraegePage() {
    const svc = svcOpt;
     setFormItems(prev => prev.map((item, i) => {
       if (i !== index) return item;
-      if (svc) return { ...item, serviceName: name, unitPrice: String(svc.defaultPrice ?? 0), unit: svc.unit ?? 'Stunde' };
+      if (svc) return {
+...item,
+serviceName: svc.name,
+unitPrice: item.unitPrice || String(svc.defaultPrice ?? 0),
+unit: item.unit || svc.unit || 'Stunde',
+};
+
       if (!name) return { ...item, serviceName: '', unitPrice: '', quantity: '', unit: 'Stunde' };
       return { ...item, serviceName: name };
     }));
