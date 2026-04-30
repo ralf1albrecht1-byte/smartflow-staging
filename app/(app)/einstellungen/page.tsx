@@ -5,7 +5,7 @@ import {
   FlaskConical, RotateCcw, AlertTriangle, Phone, LifeBuoy, Trash2, LogOut, KeyRound,
   Eye, EyeOff, FileText, Languages, User2, ShieldCheck, UploadCloud, Image as ImageIcon,
   CheckCircle2, XCircle, Palette, ScrollText, Database, Send, FileX, Lock, Globe, Info,
-  Download, Clock, AlertCircle,
+  Download, Clock, AlertCircle, ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -88,13 +88,13 @@ const TEMPLATES: Array<{ key: string; label: string; tagline: string; swatch: st
 
 const SECTIONS = [
   { key: 'daten',           label: 'Meine Daten',                icon: User2 },
-  { key: 'telefon',         label: 'Telefonnummern',             icon: Phone },
+  { key: 'telefon',         label: 'WhatsApp Eingang',           icon: Phone },
   { key: 'dokumente',       label: 'Dokumente & Rechnungen',     icon: FileText },
   { key: 'sprache',         label: 'Sprache & Kommunikation',    icon: Languages },
   { key: 'support',         label: 'Tool-Support',               icon: LifeBuoy },
   { key: 'nummern',         label: 'Nummern & Testmodus',        icon: FlaskConical },
   { key: 'konto',           label: 'Konto & Sicherheit',         icon: ShieldCheck },
-  { key: 'datenschutz',     label: 'Datenschutz & Compliance',   icon: ScrollText },
+  { key: 'datenschutz',     label: 'Rechtliches & Datenschutz',  icon: ScrollText },
   { key: 'daten_kuendigung', label: 'Daten & Kündigung',         icon: Database },
 ] as const;
 
@@ -373,13 +373,13 @@ export default function EinstellungenPage() {
     setSaving(true);
     setFieldErrors({});
     try {
-      // Paket A: client-side pre-check — catch the "same number twice" case
+      // Client-side pre-check — catch the "same number twice" case
       // before hitting the API, so we give instant feedback without a round-trip.
-      const t1 = form.telefon ? normalizePhoneE164(form.telefon) : null;
+      const t1 = form.whatsappIntakeNumber ? normalizePhoneE164(form.whatsappIntakeNumber) : null;
       const t2 = form.telefon2 ? normalizePhoneE164(form.telefon2) : null;
       if (t1 && t2 && t1 === t2) {
-        setFieldErrors({ telefon2: 'Hauptnummer und zweite Nummer dürfen nicht identisch sein.' });
-        toast({ title: 'Fehler', description: 'Hauptnummer und zweite Nummer dürfen nicht identisch sein.', variant: 'destructive' });
+        setFieldErrors({ telefon2: 'Hauptnummer und Zweitnummer dürfen nicht identisch sein.' });
+        toast({ title: 'Fehler', description: 'Hauptnummer und Zweitnummer dürfen nicht identisch sein.', variant: 'destructive' });
         setSaving(false);
         return;
       }
@@ -764,42 +764,77 @@ export default function EinstellungenPage() {
                 </p>
                 <Input type="email" value={form.email || ''} onChange={e => updateField('email', e.target.value || null)} placeholder="E-Mail-Adresse" />
               </div>
-            </div>
-          </SectionShell>
 
-          {/* SECTION: TELEFONNUMMERN — PAKET A, UI unchanged */}
-          <SectionShell id="telefon" sectionKey="telefon" activeSection={activeSection} open={openSections.telefon} toggle={() => setOpenSections(p => ({ ...p, telefon: !p.telefon }))} title="Telefonnummern" icon={Phone}>
-            <p className="text-xs text-muted-foreground">
-              Die <span className="font-semibold">Hauptnummer</span> ist die Referenznummer Ihres Accounts. Eingehende WhatsApp-Nachrichten und Anrufe werden anhand dieser Nummer Ihrem Account zugeordnet. Bitte im internationalen Format angeben (z.B. +41 76 623 27 23).
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              {/* Geschäftliche Telefonnummer */}
               <div>
-                <Label>
-                  Hauptnummer <span className="text-muted-foreground text-xs font-normal">(Referenznummer)</span>
-                </Label>
+                <Label>Geschäftliche Telefonnummer <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
+                <p className="text-xs text-muted-foreground mb-1.5">
+                  Diese Nummer erscheint auf Angeboten und Rechnungen.
+                </p>
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    type="checkbox"
+                    id="telefon-same-as-whatsapp"
+                    checked={!!form.whatsappIntakeNumber && form.telefon === form.whatsappIntakeNumber}
+                    onChange={e => {
+                      if (e.target.checked && form.whatsappIntakeNumber) {
+                        updateField('telefon', form.whatsappIntakeNumber);
+                      } else {
+                        updateField('telefon', null);
+                      }
+                    }}
+                    className="rounded border-input"
+                  />
+                  <label htmlFor="telefon-same-as-whatsapp" className="text-xs text-muted-foreground cursor-pointer select-none">
+                    Gleiche Nummer wie WhatsApp-Hauptnummer verwenden
+                  </label>
+                </div>
                 <Input
                   value={form.telefon || ''}
-                  onChange={e => {
-                    updateField('telefon', e.target.value || null);
-                    if (fieldErrors.telefon) setFieldErrors(prev => ({ ...prev, telefon: '' }));
-                  }}
-                  placeholder="Telefonnummer"
-                  aria-invalid={!!fieldErrors.telefon}
-                  className={fieldErrors.telefon ? 'border-destructive focus-visible:ring-destructive' : ''}
+                  onChange={e => updateField('telefon', e.target.value || null)}
+                  placeholder="+41 76 123 45 67"
+                  disabled={!!form.whatsappIntakeNumber && form.telefon === form.whatsappIntakeNumber}
                   onBlur={e => {
                     if (e.target.value) updateField('telefon', normalizePhone(e.target.value));
                   }}
                 />
-                {fieldErrors.telefon && (
-                  <p className="text-xs text-destructive mt-1">{fieldErrors.telefon}</p>
+              </div>
+            </div>
+          </SectionShell>
+
+          {/* SECTION: WHATSAPP EINGANG */}
+          <SectionShell id="telefon" sectionKey="telefon" activeSection={activeSection} open={openSections.telefon} toggle={() => setOpenSections(p => ({ ...p, telefon: !p.telefon }))} title="WhatsApp Eingang" icon={Phone}>
+            <p className="text-xs text-muted-foreground">
+              Sende WhatsApp-Nachrichten an diese Nummer. Daraus erstellt Smartflow automatisch Aufträge. Bitte im internationalen Format angeben (z.B. +41 76 123 45 67).
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <Label>
+                  Hauptnummer <span className="text-destructive text-xs font-normal">*</span>
+                </Label>
+                <Input
+                  value={form.whatsappIntakeNumber || ''}
+                  onChange={e => {
+                    updateField('whatsappIntakeNumber', e.target.value || null);
+                    if (fieldErrors.whatsappIntakeNumber) setFieldErrors(prev => ({ ...prev, whatsappIntakeNumber: '' }));
+                  }}
+                  placeholder="+41 76 123 45 67"
+                  aria-invalid={!!fieldErrors.whatsappIntakeNumber}
+                  className={fieldErrors.whatsappIntakeNumber ? 'border-destructive focus-visible:ring-destructive' : ''}
+                  onBlur={e => {
+                    if (e.target.value) updateField('whatsappIntakeNumber', normalizePhone(e.target.value));
+                  }}
+                />
+                {fieldErrors.whatsappIntakeNumber && (
+                  <p className="text-xs text-destructive mt-1">{fieldErrors.whatsappIntakeNumber}</p>
                 )}
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Diese Nummer wird für die Zuordnung eingehender Nachrichten verwendet.
+                  Sende WhatsApp-Nachrichten an diese Nummer. Daraus erstellt Smartflow automatisch Aufträge.
                 </p>
               </div>
               <div>
                 <Label>
-                  Zweite Nummer <span className="text-muted-foreground text-xs font-normal">(optional)</span>
+                  Zweitnummer <span className="text-muted-foreground text-xs font-normal">(optional)</span>
                 </Label>
                 <Input
                   value={form.telefon2 || ''}
@@ -807,7 +842,7 @@ export default function EinstellungenPage() {
                     updateField('telefon2', e.target.value || null);
                     if (fieldErrors.telefon2) setFieldErrors(prev => ({ ...prev, telefon2: '' }));
                   }}
-                  placeholder="Zweite Telefonnummer"
+                  placeholder="Zweite Nummer (Fallback)"
                   aria-invalid={!!fieldErrors.telefon2}
                   className={fieldErrors.telefon2 ? 'border-destructive focus-visible:ring-destructive' : ''}
                   onBlur={e => {
@@ -821,38 +856,6 @@ export default function EinstellungenPage() {
                   Optional — wird zusätzlich zur Hauptnummer für die Zuordnung herangezogen.
                 </p>
               </div>
-            </div>
-
-            {/* WhatsApp Empfangsnummer */}
-            <div className="mt-5 pt-4 border-t border-border/50">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-base">📱</span>
-                <Label className="mb-0 text-sm font-semibold">WhatsApp-Empfangsnummer</Label>
-              </div>
-              <p className="text-xs text-muted-foreground mb-3">
-                Die Nummer, an die Ihre Kunden WhatsApp-Nachrichten, Fotos und Sprachnachrichten senden. Diese Nummer empfängt eingehende Aufträge im Business Manager und wird auch für „PDF an WhatsApp senden" verwendet. Wenn dieses Feld leer ist, wird automatisch die <strong>Hauptnummer (Telefon)</strong> verwendet.
-              </p>
-              <Input
-                value={form.whatsappIntakeNumber || ''}
-                onChange={e => {
-                  updateField('whatsappIntakeNumber', e.target.value || null);
-                  if (fieldErrors.whatsappIntakeNumber) setFieldErrors(prev => ({ ...prev, whatsappIntakeNumber: '' }));
-                }}
-                placeholder="+41 76 123 45 67"
-                aria-invalid={!!fieldErrors.whatsappIntakeNumber}
-                className={fieldErrors.whatsappIntakeNumber ? 'border-destructive focus-visible:ring-destructive' : ''}
-                onBlur={e => {
-                  if (e.target.value) updateField('whatsappIntakeNumber', normalizePhone(e.target.value));
-                }}
-              />
-              {fieldErrors.whatsappIntakeNumber && (
-                <p className="text-xs text-destructive mt-1">{fieldErrors.whatsappIntakeNumber}</p>
-              )}
-              {!form.whatsappIntakeNumber && (
-                <div className="mt-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                  <span aria-hidden>ℹ️</span> WhatsApp-Auftragseingang wird vorbereitet. Sobald die Smartflow-WhatsApp-Freigabe abgeschlossen ist, kann der automatische Auftragseingang aktiviert werden.
-                </div>
-              )}
             </div>
 
             {/* Smartflow-System-Info — read-only, nicht editierbar */}
@@ -1472,13 +1475,34 @@ export default function EinstellungenPage() {
             </div>
           </SectionShell>
 
-          {/* ─── Block N: Datenschutz & Compliance ─── */}
-          <SectionShell id="datenschutz" sectionKey="datenschutz" activeSection={activeSection} open={openSections.datenschutz} toggle={() => setOpenSections(p => ({ ...p, datenschutz: !p.datenschutz }))} title="Datenschutz &amp; Compliance" icon={ScrollText}>
+          {/* ─── Block N: Rechtliches & Datenschutz ─── */}
+          <SectionShell id="datenschutz" sectionKey="datenschutz" activeSection={activeSection} open={openSections.datenschutz} toggle={() => setOpenSections(p => ({ ...p, datenschutz: !p.datenschutz }))} title="Rechtliches &amp; Datenschutz" icon={ScrollText}>
             <div className="space-y-4">
               <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900 flex items-start gap-2">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                 <div>
-                  <strong>Vorlage / Entwurf:</strong> Alle hier verlinkten Dokumente sind Platzhalter und müssen vor produktiver Nutzung durch eine Fachperson für Datenschutz (Schweiz / EU) angepasst und freigegeben werden. Es liegen aktuell <em>keine</em> verbindlichen Endfassungen vor.
+                  <strong>Entwurf – wird vor dem regulären Verkauf professionell geprüft.</strong> Alle hier verlinkten Dokumente müssen vor dem kommerziellen Vollbetrieb durch eine Fachperson für Datenschutz (Schweiz / EU) finalisiert werden. Vollständige DSGVO/DSG-Konformität wird nicht beansprucht.
+                </div>
+              </div>
+
+              {/* Rechtliche Dokumente — Links */}
+              <div>
+                <h4 className="text-sm font-semibold flex items-center gap-2 mb-2"><ExternalLink className="w-4 h-4 text-blue-600" /> Rechtliche Dokumente</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    { href: '/agb', label: 'AGB / Nutzungsbedingungen', desc: 'Allgemeine Geschäftsbedingungen' },
+                    { href: '/datenschutz', label: 'App-Datenschutzhinweise', desc: 'Datenschutzerklärung für das Tool' },
+                    { href: '/avv', label: 'AVV / Auftragsverarbeitung', desc: 'Auftragsverarbeitungs-Vereinbarung' },
+                    { href: '/unterauftragnehmer', label: 'Unterauftragnehmer', desc: 'Eingesetzte Drittanbieter' },
+                  ].map((doc) => (
+                    <a key={doc.href} href={doc.href} target="_blank" rel="noopener noreferrer" className="flex items-start gap-2.5 rounded-md border p-3 hover:bg-muted/40 transition-colors group">
+                      <ExternalLink className="w-3.5 h-3.5 mt-0.5 text-muted-foreground group-hover:text-primary flex-shrink-0" />
+                      <div>
+                        <div className="text-sm font-medium group-hover:text-primary transition-colors">{doc.label}</div>
+                        <div className="text-xs text-muted-foreground">{doc.desc}</div>
+                      </div>
+                    </a>
+                  ))}
                 </div>
               </div>
 

@@ -26,7 +26,7 @@ async function main() {
     console.log(`  - ${a.email} (id=${a.id}, status=${a.accountStatus}, anonymized=${a.anonymizedAt ? 'yes' : 'no'})`);
   }
 
-  const activeAdmins = allAdmins.filter(a => a.accountStatus === 'active' && !a.anonymizedAt);
+  const activeAdmins = allAdmins.filter((a: any) => a.accountStatus === 'active' && !a.anonymizedAt);
   console.log(`\nActive admin count: ${activeAdmins.length}`);
 
   // Test A: With multiple active admins, hasOtherActiveAdmin should always return true
@@ -84,8 +84,8 @@ async function main() {
   console.log('\n--- Scenario C: Verify block route logic for last-admin scenario ---');
   
   // 1) Verify smiley.albi exists as admin
-  const smiley = allAdmins.find(a => a.email === 'smiley.albi@web.de');
-  const secondAdmin = allAdmins.find(a => a.email === 'test_block_u_second_admin@example.test');
+  const smiley = allAdmins.find((a: any) => a.email === 'smiley.albi@web.de');
+  const secondAdmin = allAdmins.find((a: any) => a.email === 'test_block_u_second_admin@example.test');
   
   if (!smiley || !secondAdmin) {
     console.log('FAIL: Missing required admin(s)');

@@ -106,11 +106,10 @@ export default function PapierkorbPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'delete', type: item.type, id: item.id }),
       });
-      if (res.ok) { toast.success('Endgültig gelöscht'); load(); }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success === true) { toast.success('Endgültig gelöscht'); load(); }
       else {
-        const data = await res.json().catch(() => null);
         toast.error(data?.error || 'Fehler beim Löschen');
-        // Reload so stale list (item no longer in trash / or blocked) self-corrects
         load();
       }
     } catch { toast.error('Fehler beim Löschen'); } finally { setActionId(null); }
@@ -125,10 +124,20 @@ export default function PapierkorbPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'empty' }),
       });
-      if (res.ok) { toast.success('Papierkorb geleert'); load(); }
-      else {
-        const data = await res.json().catch(() => null);
-        toast.error(data?.error || 'Fehler beim Leeren');
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success === true) {
+        const d = data.deleted;
+        const parts: string[] = [];
+        if (d?.orders > 0) parts.push(`${d.orders} Aufträge`);
+        if (d?.offers > 0) parts.push(`${d.offers} Angebote`);
+        if (d?.invoices > 0) parts.push(`${d.invoices} Rechnungen`);
+        if (d?.customers > 0) parts.push(`${d.customers} Kunden`);
+        const summary = parts.length > 0 ? parts.join(', ') + ' gelöscht' : 'Papierkorb geleert';
+        toast.success(summary);
+        load();
+      } else {
+        toast.error(data?.error || 'Fehler beim Leeren des Papierkorbs');
+        load();
       }
     } catch { toast.error('Fehler beim Leeren'); } finally { setActionId(null); }
   };

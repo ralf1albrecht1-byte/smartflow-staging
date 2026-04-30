@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { ClipboardList, Plus, Trash2, Search, Loader2, AlertTriangle, FileText, FileCheck, Volume2, ImageIcon, X, Mail, MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
 import { CommunicationBlock, CommunicationChips } from '@/components/communication-block';
+import { ServiceCombobox, ServiceOption } from '@/components/service-combobox';
 import { autoFillCustomerFromNotes } from '@/lib/extract-from-notes';
 import { mergeCustomerIntoForm, isFallbackCustomerName } from '@/lib/customer-form';
 import { Card, CardContent } from '@/components/ui/card';
@@ -75,8 +76,8 @@ const createEmptyItem = (): FormItem => ({
   key: Math.random().toString(36).slice(2),
   serviceName: '',
   unit: 'Stunde',
-  unitPrice: '50',
-  quantity: '1',
+  unitPrice: '',
+  quantity: '',
 });
 
 const emptyForm = {
@@ -401,16 +402,16 @@ export default function AuftraegePage() {
         key: Math.random().toString(36).slice(2),
         serviceName: item.serviceName ?? '',
         unit: item.unit ?? 'Stunde',
-        unitPrice: String(item.unitPrice ?? 50),
-        quantity: String(item.quantity ?? 1),
+        unitPrice: String(item.unitPrice ?? 0),
+        quantity: String(item.quantity ?? 0),
       })));
     } else {
       setFormItems([{
         key: Math.random().toString(36).slice(2),
         serviceName: o.serviceName ?? '',
         unit: o.priceType ?? 'Stunde',
-        unitPrice: String(o.unitPrice ?? 50),
-        quantity: String(o.quantity ?? 1),
+        unitPrice: String(o.unitPrice ?? 0),
+        quantity: String(o.quantity ?? 0),
       }]);
     }
     if (opts?.openCustomerSection && o.customerId) {
@@ -581,13 +582,18 @@ export default function AuftraegePage() {
     }
   };
 
-  const onItemServiceSelect = (index: number, name: string) => {
-    const svc = services?.find((s: ServiceDef) => s.name === name);
+  const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption) => {
+    const svc = svcOpt ?? services?.find((s: ServiceDef) => s.name === name);
     setFormItems(prev => prev.map((item, i) => {
       if (i !== index) return item;
-      if (svc) return { ...item, serviceName: name, unitPrice: String(svc.defaultPrice ?? 50), unit: svc.unit ?? 'Stunde' };
+      if (svc) return { ...item, serviceName: name, unitPrice: String(svc.defaultPrice ?? 0), unit: svc.unit ?? 'Stunde' };
+      if (!name) return { ...item, serviceName: '', unitPrice: '', quantity: '', unit: 'Stunde' };
       return { ...item, serviceName: name };
     }));
+  };
+
+  const handleServiceCreated = (newSvc: ServiceOption) => {
+    setServices(prev => [...prev, newSvc as any].sort((a, b) => (a?.name ?? '').localeCompare(b?.name ?? '', 'de', { sensitivity: 'base' })));
   };
 
   const updateItem = (index: number, field: keyof FormItem, value: string) => {
@@ -1263,18 +1269,16 @@ export default function AuftraegePage() {
                 {formItems.map((item, index) => (
                   <div key={item.key} className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
-                      <select
-                        className="flex flex-1 min-w-0 rounded-md border border-input bg-background px-2 sm:px-3 py-2 text-sm truncate"
+                      <ServiceCombobox
                         value={item.serviceName}
-                        onChange={(e: any) => onItemServiceSelect(index, e?.target?.value ?? '')}
-                      >
-                        <option value="">Leistung wählen...</option>
-                        {services?.map((s: ServiceDef) => (
-                          <option key={s.id} value={s.name}>{s.name} (CHF {Number(s.defaultPrice ?? 0).toFixed(2)}/{s.unit})</option>
-                        ))}
-                      </select>
+                        services={services as ServiceOption[]}
+                        onChange={(name, svc) => onItemServiceSelect(index, name, svc)}
+                        onServiceCreated={handleServiceCreated}
+                        currentPrice={item.unitPrice}
+                        currentUnit={item.unit}
+                      />
                       {formItems.length > 1 && (
-                        <button onClick={() => removeItem(index)} className="text-destructive hover:text-destructive/80 p-1" title="Leistung entfernen">
+                        <button onClick={() => removeItem(index)} className="text-destructive hover:text-destructive/80 p-1 shrink-0" title="Leistung entfernen">
                           <X className="w-4 h-4" />
                         </button>
                       )}
@@ -1374,8 +1378,10 @@ export default function AuftraegePage() {
                   // "Diesen Kunden übernehmen" — full customer replacement:
                   // 1. Persist customerId change on the order via API
                   // 2. Update local form + customer display
-                  // 3. Show toast + close panel
+                  // 3. Cleanup: soft-delete old customer if it has no more active docs
+                  // 4. Show toast + close panel
                   if (!editId) return;
+                  const oldCustomerId = form.customerId; // capture before overwrite
                   const res = await fetch(`/api/orders/${editId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -1422,6 +1428,18 @@ export default function AuftraegePage() {
                   setEditingCustomer(false);
                   setDupCheckOpen(false);
                   toast.success(`Kunde übernommen: ${match.customerNumber ? match.customerNumber + ' · ' : ''}${match.name}`);
+                  // Fire-and-forget: cleanup old customer if it has no remaining active docs
+                  if (oldCustomerId && oldCustomerId !== match.id) {
+                    fetch(`/api/customers/${oldCustomerId}/cleanup-after-takeover`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ keptCustomerId: match.id }),
+                    }).then(r => r.json()).then(res => {
+                      if (res?.cleaned) {
+                        setCustomers((prev: Customer[]) => prev.filter((c) => c.id !== oldCustomerId));
+                      }
+                    }).catch(() => { /* silent — non-critical */ });
+                  }
                 }}
                 onMergeComplete={async (r) => {
                   // After merge the backend may have kept the OTHER record

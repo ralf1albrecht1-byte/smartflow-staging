@@ -63,6 +63,32 @@ export async function POST(request: Request) {
     // Fehlermeldung. So sieht der User, WARUM der Login abgelehnt wurde.
     const eff = evaluateAccountStatus(user as any);
     if (!eff.canAccess) {
+      // Self-reactivation: only for cancelled / expired accounts.
+      // blocked & anonymized require admin intervention.
+      const reactivate = body?.reactivate === true;
+      const isReactivatable = eff.status === 'cancelled_expired';
+
+      if (reactivate && isReactivatable) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            accountStatus: 'active',
+            accessEndsAt: null,
+          },
+        });
+        logAuditAsync({
+          userId: user.id,
+          userEmail: email,
+          action: 'ACCOUNT_REACTIVATED',
+          area: 'AUTH',
+          success: true,
+          details: { previousStatus: eff.status, previousReason: eff.reason },
+          request,
+        });
+        // Return success — frontend will proceed with normal signIn()
+        return NextResponse.json({ success: true, reactivated: true });
+      }
+
       auditLoginBlockedByStatus({
         userId: user.id,
         email,
@@ -70,6 +96,17 @@ export async function POST(request: Request) {
         reason: eff.reason,
         request,
       });
+
+      // For reactivatable statuses, return a special code so the frontend
+      // can show the reactivation screen instead of a generic error.
+      if (isReactivatable) {
+        return NextResponse.json({
+          error: germanReason(eff.status, (user as any).accessEndsAt),
+          code: 'ACCOUNT_REACTIVATABLE',
+          reason: eff.status === 'cancelled_expired' ? 'expired' : 'cancelled',
+        }, { status: 403 });
+      }
+
       return NextResponse.json({
         error: germanReason(eff.status, (user as any).accessEndsAt),
         code: statusCode(eff.status),
