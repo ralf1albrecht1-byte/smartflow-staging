@@ -91,7 +91,7 @@ setQuery('');
 const handleSaveAsService = useCallback(async () => {
 if (!value.trim() || saving) return;
 
-```
+
 const normalizedName = value.trim().replace(/\s+/g, ' ');
 
 const existing = services.find(
@@ -136,7 +136,7 @@ try {
 } finally {
   setSaving(false);
 }
-```
+
 
 }, [value, saving, services, onChange, onServiceCreated, currentPrice, currentUnit]);
 
@@ -163,7 +163,6 @@ inputRef.current?.focus();
 tabIndex={-1}
 > <ChevronsUpDown className="w-3.5 h-3.5" /> </button> </div>
 
-```
     {isManual && (
       <button
         type="button"
@@ -237,7 +236,7 @@ tabIndex={-1}
     </div>
   )}
 </div>
-```
+
 
 );
 }
