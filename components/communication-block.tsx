@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage } from 'lucide-react';
 import { splitSpecialNotes, splitJobHints, detectCallbackRequest } from '@/lib/special-notes-utils';
 import { formatAudioDuration } from '@/lib/audio-format';
+import { TouchImageViewer } from '@/components/touch-image-viewer';
 
 // ─── Types ───
 export interface CommunicationData {
@@ -206,40 +207,53 @@ function Chip({ icon: Icon, label, color = 'default' }: { icon?: any; label: str
   );
 }
 
-/** Image gallery with thumbnails */
+/** Image gallery with thumbnails — click opens TouchImageViewer lightbox */
 function ImageGallery({ thumbUrls, fullUrls }: { thumbUrls: string[]; fullUrls: string[] }) {
   const [activeIdx, setActiveIdx] = useState(0);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const count = thumbUrls.length;
   if (count === 0) return null;
 
   if (count === 1) {
     return (
-      <a href={fullUrls[0] || thumbUrls[0]} target="_blank" rel="noopener noreferrer" className="block w-24 h-24 rounded-lg border overflow-hidden bg-muted">
-        <img src={thumbUrls[0]} alt="Kundenbild" className="w-full h-full object-cover" loading="lazy" />
-      </a>
+      <>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setActiveIdx(0); setViewerOpen(true); }}
+          className="block w-24 h-24 rounded-lg border overflow-hidden bg-muted cursor-pointer hover:ring-2 hover:ring-primary transition-all"
+        >
+          <img src={thumbUrls[0]} alt="Kundenbild" className="w-full h-full object-cover" loading="lazy" />
+        </button>
+        <TouchImageViewer open={viewerOpen} onOpenChange={setViewerOpen} urls={fullUrls.length > 0 ? fullUrls : thumbUrls} initialIndex={0} />
+      </>
     );
   }
 
   return (
     <div>
-      <div className="relative bg-muted rounded-lg border overflow-hidden" style={{ maxWidth: 300, aspectRatio: '4/3' }}>
-        <a href={fullUrls[activeIdx] || thumbUrls[activeIdx]} target="_blank" rel="noopener noreferrer">
-          <img src={fullUrls[activeIdx] || thumbUrls[activeIdx]} alt={`Bild ${activeIdx + 1}`} className="w-full h-full object-contain" loading="lazy" />
-        </a>
+      <div
+        className="relative bg-muted rounded-lg border overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary transition-all"
+        style={{ maxWidth: 300, aspectRatio: '4/3' }}
+        onClick={(e) => { e.stopPropagation(); setViewerOpen(true); }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewerOpen(true); } }}
+      >
+        <img src={fullUrls[activeIdx] || thumbUrls[activeIdx]} alt={`Bild ${activeIdx + 1}`} className="w-full h-full object-contain" loading="lazy" />
         {activeIdx > 0 && (
-          <button onClick={(e) => { e.stopPropagation(); setActiveIdx(i => i - 1); }} className="absolute left-1 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1 hover:bg-black/70">
+          <button type="button" onClick={(e) => { e.stopPropagation(); setActiveIdx(i => i - 1); }} className="absolute left-1 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1 hover:bg-black/70">
             <ChevronLeft className="w-4 h-4" />
           </button>
         )}
         {activeIdx < count - 1 && (
-          <button onClick={(e) => { e.stopPropagation(); setActiveIdx(i => i + 1); }} className="absolute right-1 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1 hover:bg-black/70">
+          <button type="button" onClick={(e) => { e.stopPropagation(); setActiveIdx(i => i + 1); }} className="absolute right-1 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1 hover:bg-black/70">
             <ChevronRight className="w-4 h-4" />
           </button>
         )}
       </div>
       <div className="flex gap-1.5 mt-1.5">
         {thumbUrls.map((url, i) => (
-          <button key={i} onClick={(e) => { e.stopPropagation(); setActiveIdx(i); }}
+          <button key={i} type="button" onClick={(e) => { e.stopPropagation(); setActiveIdx(i); }}
             className={`w-12 h-12 rounded border overflow-hidden bg-muted shrink-0 transition-all ${i === activeIdx ? 'ring-2 ring-primary border-primary' : 'opacity-60 hover:opacity-100'}`}
           >
             <img src={url} alt={`Vorschau ${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
@@ -247,6 +261,7 @@ function ImageGallery({ thumbUrls, fullUrls }: { thumbUrls: string[]; fullUrls: 
         ))}
       </div>
       <p className="text-[10px] text-muted-foreground mt-1">Bild {activeIdx + 1} / {count}</p>
+      <TouchImageViewer open={viewerOpen} onOpenChange={setViewerOpen} urls={fullUrls.length > 0 ? fullUrls : thumbUrls} initialIndex={activeIdx} />
     </div>
   );
 }

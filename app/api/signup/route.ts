@@ -17,6 +17,8 @@ export async function POST(request: Request) {
       // Block P — three separate compliance acceptances. Each becomes its own
       // ConsentRecord + audit event. `acceptedTerms` is back-compat fallback.
       acceptedAgb, acceptedDatenschutz, acceptedAvv, acceptedTerms,
+      // WhatsApp intake number — REQUIRED for new registrations.
+      whatsappIntakeNumber: rawWhatsappIntakeNumber,
       // Optional business contact fields captured directly at registration.
       // These map 1:1 onto CompanySettings columns — no parallel storage.
       telefon: rawTelefon,
@@ -56,6 +58,34 @@ export async function POST(request: Request) {
     }
     if (!avvOk) {
       return NextResponse.json({ error: 'Sie müssen die AVV / Auftragsverarbeitung akzeptieren' }, { status: 400 });
+    }
+
+    // ─── WhatsApp intake number: REQUIRED, normalize + validate ───
+    const whatsappRawStr = (rawWhatsappIntakeNumber ?? '').toString().trim();
+    if (!whatsappRawStr) {
+      return NextResponse.json(
+        { error: 'WhatsApp Nummer ist erforderlich.', field: 'whatsappIntakeNumber' },
+        { status: 400 }
+      );
+    }
+    const normalizedWhatsapp = normalizePhoneE164(whatsappRawStr);
+    if (!normalizedWhatsapp) {
+      return NextResponse.json(
+        { error: 'Ungültige WhatsApp Nummer. Bitte im internationalen Format eingeben (z.B. +41 76 123 45 67).', field: 'whatsappIntakeNumber' },
+        { status: 400 }
+      );
+    }
+
+    // WhatsApp number uniqueness: each intake number must be unique across all users.
+    const whatsappConflict = await prisma.companySettings.findFirst({
+      where: { whatsappIntakeNumber: normalizedWhatsapp },
+      select: { id: true },
+    });
+    if (whatsappConflict) {
+      return NextResponse.json(
+        { error: 'Diese WhatsApp Nummer ist bereits einem anderen Account zugeordnet.', field: 'whatsappIntakeNumber' },
+        { status: 409 }
+      );
     }
 
     // Case-insensitive duplicate check - protects against legacy mixed-case
@@ -137,7 +167,7 @@ export async function POST(request: Request) {
           acceptedTermsAt: new Date(),
         },
       });
-      const settingsData: Record<string, any> = { userId: createdUser.id };
+      const settingsData: Record<string, any> = { userId: createdUser.id, whatsappIntakeNumber: normalizedWhatsapp };
       if (normalizedTelefon) settingsData.telefon = normalizedTelefon;
       if (strasseTrim) settingsData.strasse = strasseTrim;
       if (hausnummerTrim) settingsData.hausnummer = hausnummerTrim;

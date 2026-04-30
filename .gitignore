@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.build/
+.env
+.env.*
+*.tsbuildinfo
+.DS_Store
+.logs/
+.deploy/
+reports/
+*.log
+.yarn/install-state.gz
+.yarn/build-state.yml

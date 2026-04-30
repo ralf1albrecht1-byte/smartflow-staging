@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { FileText, Plus, Download, Trash2, Loader2, Volume2, ImageIcon, AlertTriangle, Search, MoreVertical, Archive, ChevronLeft, ChevronRight, Undo2, MessageCircle } from 'lucide-react';
 import { sendPdfToBusinessWhatsApp } from '@/lib/whatsapp-share';
 import { CommunicationBlock, CommunicationChips, resolveCommunicationData, stripForwardedMessage } from '@/components/communication-block';
+import { ServiceCombobox, ServiceOption } from '@/components/service-combobox';
 import { autoFillCustomerFromNotes } from '@/lib/extract-from-notes';
 import { mergeCustomerIntoForm, isFallbackCustomerName } from '@/lib/customer-form';
 import { Card, CardContent } from '@/components/ui/card';
@@ -475,6 +476,26 @@ export default function RechnungenPage() {
     const updated = [...(items ?? [])];
     if (updated[i]) (updated[i] as any)[field] = value;
     setItems(updated);
+  };
+
+  const onItemServiceSelect = (idx: number, name: string, svcOpt?: ServiceOption) => {
+    const svc = svcOpt ?? services?.find((s: any) => s.name === name);
+    if (svc) {
+      updateItem(idx, 'description', svc.name);
+      updateItem(idx, 'unitPrice', String(svc.defaultPrice ?? 0));
+      updateItem(idx, 'unit', svc.unit ?? 'Stunde');
+    } else if (!name) {
+      updateItem(idx, 'description', '');
+      updateItem(idx, 'unitPrice', '');
+      updateItem(idx, 'quantity', '');
+      updateItem(idx, 'unit', 'Stunde');
+    } else {
+      updateItem(idx, 'description', name);
+    }
+  };
+
+  const handleServiceCreated = (newSvc: ServiceOption) => {
+    setServices((prev: any[]) => [...prev, newSvc].sort((a, b) => (a?.name ?? '').localeCompare(b?.name ?? '', 'de', { sensitivity: 'base' })));
   };
 
   const subtotal = items?.reduce((sum: number, item: InvoiceItem) => sum + Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0), 0) ?? 0;
@@ -992,28 +1013,46 @@ export default function RechnungenPage() {
             <div className="space-y-3">
               <Label className="text-base font-semibold">Leistungen</Label>
               {items?.map((item: InvoiceItem, idx: number) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-12 sm:col-span-4">
-                    <select className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm mb-1" value={item?.description ?? ''} onChange={(e: any) => {
-                      const val = e?.target?.value ?? '';
-                      const svc = services?.find((s: any) => s.name === val);
-                      if (svc) { updateItem(idx, 'description', svc.name); updateItem(idx, 'unitPrice', String(svc.defaultPrice ?? 0)); updateItem(idx, 'unit', svc.unit ?? 'Stunde'); }
-                      else updateItem(idx, 'description', val);
-                    }}>
-                      <option value="">Leistung wählen...</option>
-                      {services?.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                    </select>
-                    <Input placeholder="Oder manuell eingeben" value={item?.description ?? ''} onChange={(e: any) => updateItem(idx, 'description', e?.target?.value ?? '')} />
+                <div key={idx} className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2">
+                  {/* Row 1: Service name – full width */}
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <ServiceCombobox
+                        value={item?.description ?? ''}
+                        services={services as ServiceOption[]}
+                        onChange={(name, svc) => onItemServiceSelect(idx, name, svc)}
+                        onServiceCreated={handleServiceCreated}
+                        currentPrice={item?.unitPrice != null ? String(item.unitPrice) : undefined}
+                        currentUnit={item?.unit}
+                        contextLabel="Rechnung"
+                      />
+                    </div>
+                    {items?.length > 1 && (
+                      <Button variant="ghost" size="sm" className="text-destructive shrink-0 mt-1" onClick={() => removeItem(idx)}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    )}
                   </div>
-                  <div className="col-span-3 sm:col-span-2"><Input type="number" step="0.25" placeholder="Menge" value={item?.quantity ?? ''} onChange={(e: any) => updateItem(idx, 'quantity', e?.target?.value ?? '')} /></div>
-                  <div className="col-span-3 sm:col-span-2">
-                    <select className="flex w-full rounded-md border border-input bg-background px-2 py-2 text-sm" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? '')}>
-                      <option>Stunde</option><option>Pauschal</option><option>Meter</option><option>Stück</option>
-                    </select>
+                  {/* Row 2: Quantity, Unit, Price, Line total */}
+                  <div className="grid grid-cols-4 gap-2 items-end">
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground">Menge</Label>
+                      <Input type="number" step="0.25" placeholder="Menge" value={item?.quantity ?? ''} onChange={(e: any) => updateItem(idx, 'quantity', e?.target?.value ?? '')} />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground">Einheit</Label>
+                      <select className="flex w-full rounded-md border border-input bg-background px-2 py-2 text-sm" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? '')}>
+                        <option>Stunde</option><option>Pauschal</option><option>Meter</option><option>Stück</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground">Preis</Label>
+                      <Input type="number" step="0.05" placeholder="Preis" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '')} />
+                    </div>
+                    <div className="text-right font-mono text-sm pt-5">
+                      {(Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0)).toFixed(2)}
+                    </div>
                   </div>
-                  <div className="col-span-3 sm:col-span-2"><Input type="number" step="0.05" placeholder="Preis" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '')} /></div>
-                  <div className="col-span-2 sm:col-span-1 text-right font-mono text-sm">{(Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0)).toFixed(2)}</div>
-                  <div className="col-span-1">{items?.length > 1 && <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeItem(idx)}><Trash2 className="w-3 h-3" /></Button>}</div>
                 </div>
               )) ?? []}
               <Button variant="outline" size="sm" onClick={addItem}><Plus className="w-3 h-3 mr-1" />Leistung hinzufügen</Button>
@@ -1071,6 +1110,7 @@ export default function RechnungenPage() {
                 onApplyPlzSuggestion={(plz) => setNewCust((p: any) => ({ ...p, plz: plz ?? '' }))}
                 onTakeoverCustomer={async (match: DuplicateMatch) => {
                   if (!editingInvoice) return;
+                  const oldCustomerId = form.customerId; // capture before overwrite
                   const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -1103,6 +1143,18 @@ export default function RechnungenPage() {
                   setEditingCustomer(false);
                   setDupCheckOpen(false);
                   toast.success(`Kunde übernommen: ${match.customerNumber ? match.customerNumber + ' · ' : ''}${match.name}`);
+                  // Fire-and-forget: cleanup old customer if it has no remaining active docs
+                  if (oldCustomerId && oldCustomerId !== match.id) {
+                    fetch(`/api/customers/${oldCustomerId}/cleanup-after-takeover`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ keptCustomerId: match.id }),
+                    }).then(r => r.json()).then(res => {
+                      if (res?.cleaned) {
+                        setCustomers((prev: Customer[]) => prev.filter((c) => c.id !== oldCustomerId));
+                      }
+                    }).catch(() => { /* silent — non-critical */ });
+                  }
                 }}
                 onMergeComplete={async (r) => {
                   setForm((f: any) => ({ ...f, customerId: r.survivingCustomerId }));

@@ -55,6 +55,17 @@ export async function POST(request: Request) {
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
+    // Duplicate guard: if an invoice already exists for this sourceOfferId, return it
+    if (data?.sourceOfferId) {
+      const existing = await prisma.invoice.findFirst({
+        where: { sourceOfferId: data.sourceOfferId, userId, deletedAt: null },
+        include: { customer: true, items: true },
+      });
+      if (existing) {
+        return NextResponse.json({ ...existing, subtotal: Number(existing.subtotal ?? 0), vatAmount: Number(existing.vatAmount ?? 0), total: Number(existing.total ?? 0), existed: true });
+      }
+    }
+
     // Retry loop: guards against P2002 (unique constraint on invoiceNumber)
     // in case of a race condition between concurrent requests.
     let invoice: any = null;

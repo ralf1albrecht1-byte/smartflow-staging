@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { LayoutDashboard, ClipboardList, FileText, FileCheck, Plus, ArrowRight, Calendar, AlertTriangle, Users, HelpCircle, Copy, Check, Settings } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, FileText, FileCheck, Plus, ArrowRight, Calendar, AlertTriangle, Users, HelpCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -50,8 +50,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [whatsappNumber, setWhatsappNumber] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+
 
   useEffect(() => {
     let retries = 0;
@@ -68,31 +67,9 @@ export default function DashboardPage() {
       } catch {} finally { setLoading(false); }
     };
     loadDashboard();
-    // Load settings for WhatsApp number
-    fetch('/api/settings').then(r => r.json()).then(s => {
-      setWhatsappNumber(s?.whatsappIntakeNumber || null);
-    }).catch(() => {});
+
   }, []);
 
-  const copyNumber = () => {
-    if (!whatsappNumber) return;
-    navigator.clipboard.writeText(whatsappNumber).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {});
-  };
-
-  // Format phone for display: +41761234567 → +41 76 123 45 67
-  const formatPhone = (num: string) => {
-    if (!num) return '';
-    // Swiss numbers
-    const m = num.match(/^\+41(\d{2})(\d{3})(\d{2})(\d{2})$/);
-    if (m) return `+41 ${m[1]} ${m[2]} ${m[3]} ${m[4]}`;
-    // German numbers
-    const de = num.match(/^\+49(\d{3,4})(\d+)$/);
-    if (de) return `+49 ${de[1]} ${de[2]}`;
-    return num;
-  };
 
   const review = data?.review || { total: 0, incompleteCustomers: 0, uncertainAssignments: 0 };
 
@@ -192,52 +169,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* WhatsApp Intake Info Block */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
-        <Card className={`${whatsappNumber ? 'border-green-200 dark:border-green-800/50 bg-green-50/30 dark:bg-green-900/10' : 'border-amber-200 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-900/10'}`}>
-          <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${whatsappNumber ? 'bg-green-100 dark:bg-green-900/30' : 'bg-amber-100 dark:bg-amber-900/30'}`}>
-                  <span className="text-lg">📱</span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold flex items-center gap-1.5">WhatsApp-Auftragseingang</p>
-                  {whatsappNumber ? (
-                    <>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Kunden können WhatsApp-Nachrichten, Fotos und Sprachnachrichten an diese Nummer senden — sie werden automatisch als Aufträge erfasst.
-                      </p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="font-mono text-base font-bold text-foreground tracking-wide select-all">{formatPhone(whatsappNumber)}</span>
-                        <button
-                          type="button"
-                          onClick={copyNumber}
-                          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-background border border-input hover:bg-accent transition-colors shrink-0"
-                          title="Nummer kopieren"
-                        >
-                          {copied ? <><Check className="w-3.5 h-3.5 text-green-600" /><span className="text-green-700">Kopiert</span></> : <><Copy className="w-3.5 h-3.5 text-muted-foreground" /><span>Kopieren</span></>}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
-                      WhatsApp-Auftragseingang wird vorbereitet. Details in den <Link href="/einstellungen" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-100">Einstellungen</Link>.
-                    </p>
-                  )}
-                </div>
-              </div>
-              {whatsappNumber && (
-                <Link href="/einstellungen" className="shrink-0">
-                  <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground">
-                    <Settings className="w-3.5 h-3.5 mr-1" />Ändern
-                  </Button>
-                </Link>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
+
 
       {/* Stage I — Audio-Minuten-Karte */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}>

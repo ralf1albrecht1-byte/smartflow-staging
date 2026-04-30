@@ -21,11 +21,15 @@
  *
  * History (manual changelog — append-only):
  *   - 'v1' — Initial release. Used since first compliance block.
+ *   - 'legal-2026-04-29' — Enriched legal texts for soft-launch.
+ *     All three documents rewritten with full function coverage (WhatsApp,
+ *     Twilio, AI, audio, media, PDF, export, deletion, audit). Existing
+ *     users forced to re-accept on next login.
  */
 
-export const CURRENT_TERMS_VERSION = 'v1';
-export const CURRENT_PRIVACY_VERSION = 'v1';
-export const CURRENT_AVV_VERSION = 'v1';
+export const CURRENT_TERMS_VERSION = 'legal-2026-04-29';
+export const CURRENT_PRIVACY_VERSION = 'legal-2026-04-29';
+export const CURRENT_AVV_VERSION = 'legal-2026-04-29';
 
 export type LegalDocumentType = 'terms' | 'privacy' | 'avv';
 

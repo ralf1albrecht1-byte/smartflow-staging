@@ -20,6 +20,9 @@ function LoginForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showResendVerification, setShowResendVerification] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
+  // Reactivation state: shown when login detects an inactive but reactivatable account
+  const [showReactivation, setShowReactivation] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -30,6 +33,8 @@ function LoginForm() {
     acceptedAgb: false,
     acceptedDatenschutz: false,
     acceptedAvv: false,
+    // WhatsApp intake number — REQUIRED for new registrations.
+    whatsappIntakeNumber: '',
     // Optional business contact data captured directly during registration.
     // Maps 1:1 onto CompanySettings columns (telefon/strasse/hausnummer/plz/ort)
     // — single source of truth; users can still edit later in /einstellungen.
@@ -100,13 +105,20 @@ function LoginForm() {
           if (data?.code === 'EMAIL_NOT_VERIFIED') {
             toast.error('E-Mail noch nicht bestätigt.');
             setShowResendVerification(true);
+            setShowReactivation(false);
+          } else if (data?.code === 'ACCOUNT_REACTIVATABLE') {
+            // Show reactivation screen instead of error toast
+            setShowReactivation(true);
+            setShowResendVerification(false);
           } else if (data?.code && data.code.startsWith('ACCOUNT_')) {
             // Block U — show the specific German status reason from the pre-check.
             toast.error(data?.error || 'Ihr Konto ist nicht aktiv. Bitte kontaktieren Sie den Support.');
             setShowResendVerification(false);
+            setShowReactivation(false);
           } else {
             toast.error(data?.error || 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen.');
             setShowResendVerification(false);
+            setShowReactivation(false);
           }
           setLoading(false);
           return;
@@ -195,6 +207,60 @@ function LoginForm() {
           <CardDescription>{isLogin ? 'Willkommen zurück! Bitte anmelden.' : 'Neues Konto erstellen'}</CardDescription>
         </CardHeader>
         <CardContent>
+          {/* ─── Reactivation screen ─── */}
+          {showReactivation && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-3">
+                <h3 className="font-semibold text-amber-800 dark:text-amber-300">Dein Account ist inaktiv</h3>
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  Dein Zugang wurde beendet oder ist abgelaufen. Du kannst deinen Account jederzeit wieder aktivieren.
+                </p>
+                <Button
+                  className="w-full"
+                  disabled={reactivating}
+                  onClick={async () => {
+                    setReactivating(true);
+                    try {
+                      const res = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: form.email, password: form.password, reactivate: true }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (res.ok && data?.success) {
+                        toast.success('Account erfolgreich reaktiviert!');
+                        setShowReactivation(false);
+                        // Auto-login after reactivation
+                        const signInRes = await signIn('credentials', { email: form.email, password: form.password, redirect: false });
+                        if (signInRes?.error) {
+                          toast.error('Anmeldung fehlgeschlagen. Bitte erneut einloggen.');
+                        } else {
+                          router.replace('/dashboard');
+                        }
+                      } else {
+                        toast.error(data?.error || 'Reaktivierung fehlgeschlagen. Bitte erneut versuchen.');
+                      }
+                    } catch {
+                      toast.error('Ein Fehler ist aufgetreten. Bitte erneut versuchen.');
+                    } finally {
+                      setReactivating(false);
+                    }
+                  }}
+                >
+                  {reactivating ? 'Wird aktiviert...' : 'Weiter nutzen'}
+                </Button>
+              </div>
+              <button
+                type="button"
+                className="text-sm text-muted-foreground hover:text-primary transition-colors w-full text-center"
+                onClick={() => setShowReactivation(false)}
+              >
+                Zurück zum Login
+              </button>
+            </div>
+          )}
+          {/* ─── Normal login / signup form ─── */}
+          {!showReactivation && (<>
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
               <div className="space-y-2">
@@ -264,6 +330,29 @@ function LoginForm() {
                   )}
                 </div>
 
+                {/* ─── WhatsApp Auftragseingang (REQUIRED) ─── */}
+                <div className="pt-2 border-t border-border/40 space-y-2">
+                  <Label htmlFor="whatsappIntakeNumber">
+                    WhatsApp Nummer (für Auftragseingang) <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="whatsappIntakeNumber"
+                      type="tel"
+                      inputMode="tel"
+                      placeholder="+41 ..."
+                      className="pl-10"
+                      required
+                      value={form.whatsappIntakeNumber}
+                      onChange={(e: any) => setForm({ ...form, whatsappIntakeNumber: e.target.value })}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    An diese Nummer kannst du WhatsApp Nachrichten, Bilder und Sprachnachrichten senden. Daraus werden automatisch Aufträge erstellt.
+                  </p>
+                </div>
+
                 {/* ─── Geschäftskontakt (optional) ───
                     Visible and expanded directly on registration. Fields are saved to
                     CompanySettings (single source of truth) via /api/signup; users can
@@ -275,7 +364,7 @@ function LoginForm() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="telefon">Telefon</Label>
+                    <Label htmlFor="telefon">Geschäftliche Telefonnummer (für Angebote &amp; Rechnungen)</Label>
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
@@ -435,10 +524,11 @@ function LoginForm() {
             </Button>
           </form>
           <div className="mt-4 text-center">
-            <button type="button" className="text-sm text-muted-foreground hover:text-primary transition-colors" onClick={() => { setIsLogin(!isLogin); setForm({ email: form.email, password: '', confirmPassword: '', name: '', acceptedAgb: false, acceptedDatenschutz: false, acceptedAvv: false, telefon: '', strasse: '', hausnummer: '', plz: '', ort: '' }); }}>
+            <button type="button" className="text-sm text-muted-foreground hover:text-primary transition-colors" onClick={() => { setIsLogin(!isLogin); setForm({ email: form.email, password: '', confirmPassword: '', name: '', acceptedAgb: false, acceptedDatenschutz: false, acceptedAvv: false, whatsappIntakeNumber: '', telefon: '', strasse: '', hausnummer: '', plz: '', ort: '' }); }}>
               {isLogin ? 'Noch kein Konto? Registrieren' : 'Bereits registriert? Anmelden'}
             </button>
           </div>
+          </>)}
         </CardContent>
       </Card>
       <div className="absolute bottom-4 left-0 right-0 flex items-center justify-center gap-4 text-xs text-muted-foreground">
@@ -447,6 +537,8 @@ function LoginForm() {
         <Link href="/datenschutz" className="hover:text-foreground transition-colors">Datenschutz</Link>
         <span className="text-border">|</span>
         <Link href="/avv" className="hover:text-foreground transition-colors">AVV</Link>
+        <span className="text-border">|</span>
+        <Link href="/unterauftragnehmer" className="hover:text-foreground transition-colors">Unterauftragnehmer</Link>
       </div>
     </div>
   );

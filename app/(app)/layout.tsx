@@ -98,6 +98,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Link href="/agb" target="_blank" className="hover:text-foreground transition-colors">AGB</Link>
             <Link href="/datenschutz" target="_blank" className="hover:text-foreground transition-colors">Datenschutz</Link>
             <Link href="/avv" target="_blank" className="hover:text-foreground transition-colors">AVV</Link>
+            <Link href="/unterauftragnehmer" target="_blank" className="hover:text-foreground transition-colors">Unterauftragnehmer</Link>
           </div>
         </footer>
       </main>

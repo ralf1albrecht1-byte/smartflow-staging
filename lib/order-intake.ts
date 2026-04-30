@@ -789,7 +789,7 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
     : null;
   const finalService = matchedService || matchedByName;
 
-  const unitPrice = finalService ? Number(finalService.defaultPrice) : (Number(svc.unit_price) || 50);
+  const unitPrice = finalService ? Number(finalService.defaultPrice) : (Number(svc.unit_price) || 0);
   const unit = svc.unit || finalService?.unit || 'Stunde';
   const quantity = Number(svc.estimated_quantity) || 1;
   const totalPrice = unitPrice * quantity;
