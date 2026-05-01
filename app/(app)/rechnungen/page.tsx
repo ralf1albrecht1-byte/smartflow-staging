@@ -373,7 +373,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     setEditingInvoice(null);
     setVatRate(defaultVatRate);
     setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] });
-    setItems([getEmptyItem()]);
+    setItems([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
     setLinkedOrderData(null);
     setEditOrderCtx(null);
     setShowNewCustomer(false); setEditingCustomer(false);
@@ -410,7 +410,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     setItems(
       inv.items?.length > 0
         ? inv.items.map((it: any) => ({ description: it.description ?? '', quantity: String(it.quantity ?? 1), unit: it.unit ?? 'Stunde', unitPrice: String(it.unitPrice ?? 0) }))
-        : [getEmptyItem()]
+        : [{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]
     );
     if (opts?.openCustomerSection && inv.customerId) {
       // Stage E (deterministic flow): mark a pending request; the effect below
@@ -480,7 +480,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     if (!dialogOpen) setPendingOpenCustomerEditor(null);
   }, [dialogOpen]);
 
-const addItem = () => setItems([...items, getEmptyItem()]);
+  const addItem = () => setItems([...items, { description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
   const removeItem = (i: number) => setItems(items?.filter((_: any, idx: number) => idx !== i) ?? []);
   const updateItem = (i: number, field: string, value: string) => {
     const updated = [...(items ?? [])];
@@ -529,7 +529,7 @@ const addItem = () => setItems([...items, getEmptyItem()]);
     setSaving(true);
     try {
       const res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items, vatRate }) });
-      if (res.ok) { toast.success('Rechnung erstellt'); setDialogOpen(false); load(); setItems([getEmptyItem()]); setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] }); }
+      if (res.ok) { toast.success('Rechnung erstellt'); setDialogOpen(false); load(); setItems([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]); setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] }); }
       else toast.error('Fehler');
     } catch { toast.error('Fehler'); } finally { setSaving(false); }
   };

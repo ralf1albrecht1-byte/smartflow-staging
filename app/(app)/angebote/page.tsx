@@ -326,8 +326,9 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
   }, [searchParams]);
 
   // fromOrder auto-open removed — small dropdown now creates directly via API
-const addItem = () => setItems([...items, getEmptyItem()]);
-   const removeItem = (i: number) => setItems(items?.filter((_: any, idx: number) => idx !== i) ?? []);
+
+  const addItem = () => setItems([...items, { description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
+  const removeItem = (i: number) => setItems(items?.filter((_: any, idx: number) => idx !== i) ?? []);
   const updateItem = (i: number, field: string, value: string) => {
     const updated = [...(items ?? [])];
     if (updated[i]) (updated[i] as any)[field] = value;
@@ -395,7 +396,7 @@ const addItem = () => setItems([...items, getEmptyItem()]);
         unitPrice: String(i.unitPrice ?? 0),
       })));
     } else {
-      setItems([getEmptyItem()]);
+      setItems([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
     }
     if (opts?.openCustomerSection && off.customerId) {
       // Stage E (deterministic flow): mark a pending request; the effect below
@@ -469,7 +470,7 @@ const addItem = () => setItems([...items, getEmptyItem()]);
     setEditOfferId(null);
     setVatRate(defaultVatRate);
     setForm({ customerId: '', offerDate: new Date().toISOString().split('T')[0], validDays: '14', notes: '', status: 'Entwurf' });
-   setItems([getEmptyItem()]);
+    setItems([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
     setLinkedOrderData(null);
     setShowNewCustomer(false); setEditingCustomer(false);
     setDialogOpen(true);
