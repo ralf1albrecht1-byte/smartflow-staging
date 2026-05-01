@@ -169,12 +169,11 @@ tabIndex={-1}
         onClick={handleSaveAsService}
         disabled={
   saving ||
-  !manualName ||
+  !value ||
   !price ||
   Number(price) <= 0 ||
   !unit
-}
-        className="shrink-0 flex items-center gap-1 text-xs text-primary hover:text-primary/80 border border-primary/30 rounded-md px-2 py-1.5 hover:bg-primary/5 transition-colors disabled:opacity-50"
+}        className="shrink-0 flex items-center gap-1 text-xs text-primary hover:text-primary/80 border border-primary/30 rounded-md px-2 py-1.5 hover:bg-primary/5 transition-colors disabled:opacity-50"
         title="Als wiederverwendbare Leistung speichern"
       >
         {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
