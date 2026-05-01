@@ -31,7 +31,28 @@ export async function POST(request: Request) {
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
 
     const data = await request.json();
-    const service = await prisma.service.create({ data: { name: data?.name ?? '', defaultPrice: Number(data?.defaultPrice ?? 0), unit: data?.unit ?? 'Stunde', userId } });
+    const { name, defaultPrice, unit } = data
+
+if (!name || typeof name !== 'string') {
+  return NextResponse.json({ error: 'Name fehlt' }, { status: 400 })
+}
+
+if (defaultPrice === undefined || defaultPrice === null || isNaN(defaultPrice) || Number(defaultPrice) <= 0) {
+  return NextResponse.json({ error: 'Preis ungültig' }, { status: 400 })
+}
+
+if (!unit || typeof unit !== 'string') {
+  return NextResponse.json({ error: 'Einheit fehlt' }, { status: 400 })
+}
+
+const service = await prisma.service.create({
+  data: {
+    name,
+    defaultPrice: Number(defaultPrice),
+    unit,
+    userId
+  }
+});
     const su = await getSessionUser();
     logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SERVICE_CREATE', area: 'SERVICES', targetType: 'Service', targetId: service.id, request });
     return NextResponse.json(service);

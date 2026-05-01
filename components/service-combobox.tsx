@@ -115,8 +115,8 @@ try {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: normalizedName,
-      defaultPrice: currentPrice ? Number(currentPrice) || 0 : 0,
-      unit: currentUnit || 'Stunde',
+      defaultPrice: Number(currentPrice),
+unit: currentUnit,
     }),
   });
 
@@ -167,7 +167,13 @@ tabIndex={-1}
       <button
         type="button"
         onClick={handleSaveAsService}
-        disabled={saving}
+        disabled={
+  saving ||
+  !manualName ||
+  !price ||
+  Number(price) <= 0 ||
+  !unit
+}
         className="shrink-0 flex items-center gap-1 text-xs text-primary hover:text-primary/80 border border-primary/30 rounded-md px-2 py-1.5 hover:bg-primary/5 transition-colors disabled:opacity-50"
         title="Als wiederverwendbare Leistung speichern"
       >
