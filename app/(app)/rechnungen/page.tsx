@@ -89,7 +89,14 @@ export default function RechnungenPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [form, setForm] = useState({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] as string[] });
-  const [items, setItems] = useState<InvoiceItem[]>([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
+const getEmptyItem = (): InvoiceItem => ({
+  description: '',
+  quantity: '1',
+  unit: 'Stunde',
+  unitPrice: '',
+});
+
+const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
@@ -292,7 +299,10 @@ export default function RechnungenPage() {
     return () => document.removeEventListener('click', handler);
   }, [dropdownOpenId]);
   useEffect(() => {
-    if (searchParams?.get('new') === '1') setDialogOpen(true);
+    if (searchParams?.get('new') === '1' && searchParams?.get('fromOffer') !== '1') {
+  setItems([getEmptyItem()]);
+  setDialogOpen(true);
+}
     // Handle fromOffer: fetch offer's linked order data
     if (searchParams?.get('fromOffer') === '1') {
       const customerId = searchParams.get('customerId') ?? '';
@@ -1033,25 +1043,23 @@ export default function RechnungenPage() {
                       </Button>
                     )}
                   </div>
-                  {/* Row 2: Quantity, Unit, Price, Line total */}
-                  <div className="grid grid-cols-4 gap-2 items-end">
-                    <div>
-                      <Label className="text-[10px] text-muted-foreground">Menge</Label>
-                      <Input type="number" step="0.25" placeholder="Menge" value={item?.quantity ?? ''} onChange={(e: any) => updateItem(idx, 'quantity', e?.target?.value ?? '')} />
-                    </div>
-                    <div>
-                      <Label className="text-[10px] text-muted-foreground">Einheit</Label>
-                      <select className="flex w-full rounded-md border border-input bg-background px-2 py-2 text-sm" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? '')}>
-                        <option>Stunde</option><option>Pauschal</option><option>Meter</option><option>Stück</option>
-                      </select>
-                    </div>
+                  {/* Row 2: Unit, Price, Quantity */}
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+  <div>
+    <Label className="text-[10px] text-muted-foreground">Einheit</Label>
+    <select className="flex w-full rounded-md border border-input bg-background px-2 py-2 text-sm" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? '')}>
+      <option>Stunde</option><option>Pauschal</option><option>Meter</option><option>Stück</option>
+    </select>
+  </div>
+  <div>
+                        </div>
                     <div>
                       <Label className="text-[10px] text-muted-foreground">Preis</Label>
                       <Input type="number" step="0.05" placeholder="Preis" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '')} />
                     </div>
-                    <div className="text-right font-mono text-sm pt-5">
-                      {(Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0)).toFixed(2)}
-                    </div>
+                    <div className="text-right text-sm text-muted-foreground font-mono mt-2">
+  = CHF {(Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0)).toFixed(2)}
+</div>
                   </div>
                 </div>
               )) ?? []}

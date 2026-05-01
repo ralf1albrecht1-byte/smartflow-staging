@@ -54,7 +54,14 @@ export default function AngebotePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editOfferId, setEditOfferId] = useState<string | null>(null);
   const [form, setForm] = useState({ customerId: '', offerDate: new Date().toISOString().split('T')[0], validDays: '14', notes: '', status: 'Entwurf' });
-  const [items, setItems] = useState<OfferItem[]>([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
+const getEmptyItem = (): OfferItem => ({
+  description: '',
+  quantity: '1',
+  unit: 'Stunde',
+  unitPrice: '',
+});
+
+const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [fromOrderId, setFromOrderId] = useState<string | null>(null);
@@ -275,8 +282,7 @@ export default function AngebotePage() {
       setVatRate(defaultVatRate);
       const newForm = { customerId: custId || '', offerDate: new Date().toISOString().split('T')[0], validDays: '14', notes: '', status: 'Entwurf' };
       setForm(newForm);
-      setItems([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
-      setLinkedOrderData(null);
+      setItems([getEmptyItem()]);      setLinkedOrderData(null);
       setShowNewCustomer(false); setEditingCustomer(false);
       setDialogOpen(true);
       router.replace('/angebote', { scroll: false });
