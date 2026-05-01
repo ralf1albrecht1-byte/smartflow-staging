@@ -1273,10 +1273,42 @@ function TesterRow({ u, onChanged }: { u: any; onChanged: () => void }) {
   const [noteValue, setNoteValue] = useState(u.trialNote ?? '');
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [actionLoading, setActionLoading] = useState<'activate' | 'block' | 'extend' | null>(null);
 
   const isDirty =
     dateValue !== initialDate ||
     (noteValue ?? '') !== (u.trialNote ?? '');
+
+  const accountStatus = String(u.accountStatus || 'active').toLowerCase();
+  const isActive = accountStatus === 'active';
+  const isBlocked = accountStatus === 'blocked';
+  const isAnonymized = accountStatus === 'anonymized' || Boolean(u.anonymizedAt);
+
+  const formatUserDate = (value: string | null) => {
+    if (!value) return '—';
+    return new Date(value).toLocaleString('de-CH', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const accountStatusBadge = () => {
+    const statusMap: Record<string, { label: string; cls: string }> = {
+      active: { label: 'Aktiv', cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+      blocked: { label: 'Gesperrt', cls: 'bg-red-100 text-red-800 border-red-200' },
+      trial: { label: 'Trial', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
+      anonymized: { label: 'Anonymisiert', cls: 'bg-slate-200 text-slate-800 border-slate-300' },
+    };
+    const badge = statusMap[accountStatus] || {
+      label: accountStatus || 'Unbekannt',
+      cls: 'bg-slate-100 text-slate-700 border-slate-200',
+    };
+
+    return <Badge variant="outline" className={`text-[11px] ${badge.cls}`}>{badge.label}</Badge>;
+  };
 
   async function save() {
     if (!dateValue) {
@@ -1331,6 +1363,37 @@ function TesterRow({ u, onChanged }: { u: any; onChanged: () => void }) {
     }
   }
 
+  async function runAccountAction(action: 'activate' | 'block' | 'extend') {
+    try {
+      setActionLoading(action);
+      const endpoint =
+        action === 'activate'
+          ? 'activate'
+          : action === 'block'
+            ? 'block'
+            : 'extend-trial';
+
+      const res = await fetch(`/api/admin/users/${u.id}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload?.error || 'Aktion fehlgeschlagen');
+      }
+
+      if (action === 'activate') toast.success('Benutzer freigeschaltet.');
+      if (action === 'block') toast.success('Benutzer gesperrt.');
+      if (action === 'extend') toast.success('Trial um 7 Tage verlängert.');
+      onChanged();
+    } catch (e: any) {
+      toast.error(e?.message || 'Aktion fehlgeschlagen.');
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   return (
     <tr className="border-t hover:bg-muted/30">
       <td className="px-3 py-3 align-top">
@@ -1340,9 +1403,12 @@ function TesterRow({ u, onChanged }: { u: any; onChanged: () => void }) {
           Rolle: <span className="font-medium">{u.role}</span>
           {u.emailVerified ? ' • verifiziert' : ' • nicht verifiziert'}
         </div>
-        <div className="text-xs text-muted-foreground">
-          Registriert: {new Date(u.createdAt).toLocaleDateString('de-CH')}
-        </div>
+        <div className="text-xs text-muted-foreground">Registriert: {new Date(u.createdAt).toLocaleDateString('de-CH')}</div>
+        <div className="text-xs text-muted-foreground">Trial-Start: {formatUserDate(u.trialStart)}</div>
+        <div className="text-xs text-muted-foreground">Trial-Ende: {formatUserDate(u.trialEndDate)}</div>
+        <div className="text-xs text-muted-foreground flex items-center gap-1.5">Konto-Status: {accountStatusBadge()}</div>
+        <div className="text-xs text-muted-foreground">Abo-Status: {u.subscriptionStatus || '—'}{u.currentPeriodEnd ? ` (bis ${new Date(u.currentPeriodEnd).toLocaleDateString('de-CH')})` : ''}</div>
+        <div className="text-xs text-muted-foreground">Extra-Audio: {u.audioExtraMinutes ?? 0} Min</div>
       </td>
       <td className="px-3 py-3 align-top text-xs text-muted-foreground">
         <div>Kunden: <span className="font-medium text-foreground">{u.counts?.customers ?? 0}</span></div>
@@ -1351,7 +1417,34 @@ function TesterRow({ u, onChanged }: { u: any; onChanged: () => void }) {
         <div>Rechnungen: <span className="font-medium text-foreground">{u.counts?.invoices ?? 0}</span></div>
       </td>
       <td className="px-3 py-3 align-top">
-        {trialStatusBadge(u.trialStatus, u.daysRemaining)}
+        <div className="flex flex-col gap-2">
+          {trialStatusBadge(u.trialStatus, u.daysRemaining)}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => runAccountAction('activate')}
+              disabled={actionLoading !== null || isActive || isAnonymized}
+            >
+              {actionLoading === 'activate' ? 'Freischalten…' : 'Freischalten'}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => runAccountAction('block')}
+              disabled={actionLoading !== null || isBlocked || isAnonymized}
+            >
+              {actionLoading === 'block' ? 'Sperren…' : 'Sperren'}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => runAccountAction('extend')}
+              disabled={actionLoading !== null || isAnonymized}
+            >
+              {actionLoading === 'extend' ? 'Verlängern…' : 'Trial verlängern (+7 Tage)'}
+            </Button>
+          </div>
+        </div>
       </td>
       <td className="px-3 py-3 align-top">
         <div className="flex flex-col gap-2">
@@ -1468,8 +1561,8 @@ function TesterTab() {
                   <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-3 py-2 font-medium">Benutzer</th>
                     <th className="px-3 py-2 font-medium">Daten</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Testzugang</th>
+                    <th className="px-3 py-2 font-medium">Status & Aktionen</th>
+                    <th className="px-3 py-2 font-medium">Testzugang (manuell)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1487,10 +1580,103 @@ function TesterTab() {
 }
 
 
+function AudioMinuteRequestsTab() {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [actingId, setActingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/audio-minutes/request');
+      if (!res.ok) throw new Error('Laden fehlgeschlagen');
+      const data = await res.json();
+      setRequests(data.requests || []);
+    } catch (e: any) {
+      toast.error(e?.message || 'Audio-Anfragen konnten nicht geladen werden');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function act(requestId: string, action: 'approve' | 'reject') {
+    try {
+      setActingId(requestId);
+      const res = await fetch(`/api/audio-minutes/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Aktion fehlgeschlagen');
+      toast.success(action === 'approve' ? 'Anfrage freigegeben' : 'Anfrage abgelehnt');
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Aktion fehlgeschlagen');
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Audio-Minuten Anfragen</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="text-sm text-muted-foreground">Laden…</div>
+        ) : requests.length === 0 ? (
+          <div className="text-sm text-muted-foreground">Keine offenen oder historischen Anfragen.</div>
+        ) : (
+          <div className="space-y-2">
+            {requests.map((req) => (
+              <div key={req.id} className="border rounded-lg p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium">{req.user?.email || '—'} • {req.requestedMinutes} Minuten</div>
+                  <div className="text-xs text-muted-foreground">
+                    Status: {req.status} • Erstellt: {formatDate(req.createdAt)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Extra-Minuten aktuell: {req.user?.audioExtraMinutes ?? 0}
+                    {req.user?.trialStart ? ` • Trial-Start: ${formatDate(req.user.trialStart)}` : ''}
+                    {req.user?.trialEndDate ? ` • Trial-Ende: ${formatDate(req.user.trialEndDate)}` : ''}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => act(req.id, 'approve')}
+                    disabled={req.status !== 'open' || actingId === req.id}
+                  >
+                    Freigeben
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => act(req.id, 'reject')}
+                    disabled={req.status !== 'open' || actingId === req.id}
+                  >
+                    Ablehnen
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminPage() {
   const { data: session, status } = useSession() || {};
   const router = useRouter();
-  const [tab, setTab] = useState<'security' | 'logs' | 'compliance' | 'tester'>('security');
+  const [tab, setTab] = useState<'security' | 'logs' | 'compliance' | 'tester' | 'audio'>('security');
   const [stats, setStats] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(true);
 
@@ -1538,6 +1724,9 @@ export default function AdminPage() {
         <button onClick={() => setTab('tester')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'tester' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
           <Users className="w-4 h-4 inline mr-1.5" />Tester
         </button>
+        <button onClick={() => setTab('audio')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'audio' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+          <Activity className="w-4 h-4 inline mr-1.5" />Audio-Minuten
+        </button>
       </div>
 
       {tab === 'security' && (
@@ -1546,6 +1735,7 @@ export default function AdminPage() {
       {tab === 'logs' && <LogViewer />}
       {tab === 'compliance' && <ComplianceTab />}
       {tab === 'tester' && <TesterTab />}
+      {tab === 'audio' && <AudioMinuteRequestsTab />}
     </div>
   );
 }

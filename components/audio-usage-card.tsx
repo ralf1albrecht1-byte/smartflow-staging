@@ -1,10 +1,9 @@
 'use client';
-import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
-import { Mic, AlertTriangle, Sparkles } from 'lucide-react';
-import { toast } from 'sonner';
+import { Mic, AlertTriangle } from 'lucide-react';
+import { SubscribeButton } from '@/components/subscribe-button';
+import { RequestAudioMinutes } from '@/components/request-audio-minutes';
 
 export interface AudioUsageData {
   plan: 'Standard' | 'Pro';
@@ -31,8 +30,6 @@ export interface AudioUsageData {
  * show a Sonner toast "Demnächst verfügbar" instead of triggering Stripe.
  */
 export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null; loading?: boolean }) {
-  const [busy, setBusy] = useState(false);
-
   // Skeleton during initial load.
   if (loading || !data) {
     return (
@@ -62,16 +59,6 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
   const planNote = data.plan === 'Pro'
     ? `Pro: CHF ${data.monthlyPriceChf} / Monat · ${included} Min inklusive`
     : `Standard: CHF ${data.monthlyPriceChf} / Monat · ${included} Min inklusive`;
-
-  const handleComingSoon = (label: string) => {
-    if (busy) return;
-    setBusy(true);
-    toast.message('Demnächst verfügbar', {
-      description: `${label} wird mit der Stripe-Anbindung freigeschaltet.`,
-    });
-    // Re-enable after a short cooldown so users don't spam-toast.
-    setTimeout(() => setBusy(false), 1200);
-  };
 
   // Color tokens for the progress bar.
   const progressColorClass = overLimit
@@ -143,30 +130,11 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
             <p className="text-xs font-semibold text-red-800 dark:text-red-200 flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5" /> ⚠️ Audio-Limit erreicht.
             </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs h-8 justify-start"
-                onClick={() => handleComingSoon('Upgrade auf Pro')}
-                disabled={busy}
-                aria-label="Upgrade auf Pro – demnächst verfügbar"
-              >
-                <Sparkles className="w-3.5 h-3.5 mr-1" />
-                Upgrade auf Pro – CHF 79/Monat
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs h-8 justify-start"
-                onClick={() => handleComingSoon('Zusatz-Minuten')}
-                disabled={busy}
-                aria-label="Zusatz-Minuten aktivieren – demnächst verfügbar"
-              >
-                Zusatz-Minuten aktivieren – CHF {data.extraMinutePriceChf.toFixed(2)}/Minute
-              </Button>
+            <div className="flex flex-wrap gap-2">
+              <SubscribeButton />
+              <RequestAudioMinutes />
             </div>
-            <p className="text-[10px] text-muted-foreground italic">Demnächst verfügbar – Stripe-Anbindung folgt.</p>
+            <p className="text-[10px] text-muted-foreground italic">Zusatz-Minuten werden nach Admin-Freigabe gutgeschrieben.</p>
           </div>
         )}
         {nearLimit && (

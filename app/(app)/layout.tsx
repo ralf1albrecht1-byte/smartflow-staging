@@ -8,7 +8,8 @@ import TrialBanner from '@/components/trial-banner';
 import AccountStatusGuard from '@/components/account-status-guard';
 import Link from 'next/link';
 import { computeConsentStatus, needsReAcceptance } from '@/lib/legal-versions';
-import { evaluateAccountStatus, statusCode } from '@/lib/account-status';
+import { statusCode } from '@/lib/account-status';
+import { enforceProtectedApiAccess } from '@/lib/auth-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,17 +32,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // werfen wir die Session weg via `/api/auth/signout` und leiten zum Login.
   if (userId) {
     try {
-      const u = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          accountStatus: true,
-          accessEndsAt: true,
-          blockedAt: true,
-          blockedReason: true,
-          anonymizedAt: true,
-        },
-      });
-      const eff = evaluateAccountStatus(u as any);
+      const eff = await enforceProtectedApiAccess(userId);
       if (!eff.canAccess) {
         // Cookies löschen, damit das alte JWT nicht weiter genutzt werden kann.
         // NextAuth speichert den Session-Token unter `next-auth.session-token`
