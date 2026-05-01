@@ -65,12 +65,13 @@ return () => document.removeEventListener('mousedown', handler);
 }, []);
 
 const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-const val = e.target.value;
-setQuery(val);
-onChange(val);
-if (val.trim().length > 0) {
-  setOpen(false);
-}
+  const val = e.target.value;
+  setQuery(val);
+  onChange(val);
+  if (val.trim().length > 0) {
+    setOpen(false);
+  }
+};
 
 const handleSelect = (svc: ServiceOption) => {
 onChange(svc.name, svc);
