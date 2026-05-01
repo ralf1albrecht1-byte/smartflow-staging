@@ -65,8 +65,6 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           name: user.name,
           role: user.role || 'user',
-          accountStatus: (user as any).accountStatus || 'active',
-          trialStart: (user as any).trialStart ? (user as any).trialStart.toISOString() : null,
           trialEndDate: (user as any).trialEndDate ? (user as any).trialEndDate.toISOString() : null,
           trialNote: (user as any).trialNote || null,
         } as any;
@@ -80,8 +78,6 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = user.role;
-        token.accountStatus = user.accountStatus ?? 'active';
-        token.trialStart = user.trialStart ?? null;
         token.trialEndDate = user.trialEndDate ?? null;
         token.trialNote = user.trialNote ?? null;
       }
@@ -91,12 +87,10 @@ export const authOptions: NextAuthOptions = {
         try {
           const fresh = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { trialStart: true, trialEndDate: true, trialNote: true, role: true, accountStatus: true },
+            select: { trialEndDate: true, trialNote: true, role: true },
           });
           if (fresh) {
             token.role = fresh.role || token.role || 'user';
-            token.accountStatus = fresh.accountStatus || 'active';
-            token.trialStart = fresh.trialStart ? fresh.trialStart.toISOString() : null;
             token.trialEndDate = fresh.trialEndDate ? fresh.trialEndDate.toISOString() : null;
             token.trialNote = fresh.trialNote || null;
           }
@@ -111,8 +105,6 @@ export const authOptions: NextAuthOptions = {
       if (session?.user) {
         (session.user as any).id = token.id;
         (session.user as any).role = token.role;
-        (session.user as any).accountStatus = token.accountStatus ?? 'active';
-        (session.user as any).trialStart = token.trialStart ?? null;
         (session.user as any).trialEndDate = token.trialEndDate ?? null;
         (session.user as any).trialNote = token.trialNote ?? null;
       }

@@ -16,25 +16,21 @@
 import { prisma } from '@/lib/prisma';
 import { logAuditAsync, EVENTS, AREAS } from '@/lib/audit';
 
-export type RawAccountStatus = 'active' | 'trial' | 'cancelled' | 'blocked' | 'anonymized';
+export type RawAccountStatus = 'active' | 'cancelled' | 'blocked' | 'anonymized';
 
 export type EffectiveAccountStatus =
   | 'active'
-  | 'trial_active'
-  | 'trial_expired'
   | 'cancelled_active'   // Kündigung mit accessEndsAt in der Zukunft → darf noch login
   | 'cancelled_expired'  // Kündigung mit accessEndsAt in der Vergangenheit → blockiert
   | 'blocked'
   | 'anonymized';
 
 export interface AccountStatusUserShape {
-  role?: string | null;
   accountStatus?: string | null;
   accessEndsAt?: Date | string | null;
   blockedAt?: Date | string | null;
   blockedReason?: string | null;
   anonymizedAt?: Date | string | null;
-  trialEndDate?: Date | string | null;
 }
 
 /** Synchroner Status-Evaluator. Übergeben wird ein bereits geladener User. */
@@ -55,19 +51,6 @@ export function evaluateAccountStatus(
   }
   if (raw === 'blocked') {
     return { status: 'blocked', canAccess: false, reason: user.blockedReason || 'blocked' };
-  }
-  if (raw === 'trial') {
-    const isAdmin = (user.role || '').toLowerCase() === 'admin';
-    if (isAdmin) {
-      return { status: 'active', canAccess: true };
-    }
-    if (user.trialEndDate) {
-      const trialEnd = user.trialEndDate instanceof Date ? user.trialEndDate : new Date(user.trialEndDate);
-      if (!isNaN(trialEnd.getTime()) && trialEnd.getTime() <= now.getTime()) {
-        return { status: 'trial_expired', canAccess: false, reason: 'trial_expired' };
-      }
-    }
-    return { status: 'trial_active', canAccess: true };
   }
   // accessEndsAt: wenn gesetzt und in der Vergangenheit → abgelaufen.
   if (user.accessEndsAt) {
@@ -92,10 +75,6 @@ export function germanReason(status: EffectiveAccountStatus, accessEndsAt?: Date
       return 'Ihr Konto wurde gesperrt. Bitte kontaktieren Sie den Support.';
     case 'anonymized':
       return 'Dieses Konto wurde anonymisiert und ist nicht mehr verfügbar.';
-    case 'trial_expired':
-      return 'Ihr Testzugang ist abgelaufen. Account gesperrt – bitte kontaktieren.';
-    case 'trial_active':
-      return 'Ihr Testzugang ist aktiv.';
     case 'cancelled_expired':
       if (accessEndsAt) {
         try {
@@ -121,8 +100,6 @@ export function statusCode(status: EffectiveAccountStatus): string {
   switch (status) {
     case 'blocked': return 'ACCOUNT_BLOCKED';
     case 'anonymized': return 'ACCOUNT_ANONYMIZED';
-    case 'trial_expired': return 'TRIAL_EXPIRED';
-    case 'trial_active': return 'TRIAL_ACTIVE';
     case 'cancelled_expired': return 'ACCOUNT_EXPIRED';
     case 'cancelled_active': return 'ACCOUNT_CANCELLED_ACTIVE';
     default: return 'ACCOUNT_ACTIVE';
@@ -131,13 +108,11 @@ export function statusCode(status: EffectiveAccountStatus): string {
 
 /** Zusätzliche User-Felder, die wir für den Status-Check benötigen. */
 export const ACCOUNT_STATUS_USER_SELECT = {
-  role: true,
   accountStatus: true,
   accessEndsAt: true,
   blockedAt: true,
   blockedReason: true,
   anonymizedAt: true,
-  trialEndDate: true,
 } as const;
 
 /**

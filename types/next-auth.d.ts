@@ -18,8 +18,6 @@ declare module 'next-auth' {
       name?: string | null;
       image?: string | null;
       role: string;
-      accountStatus: string;
-      trialStart: string | null;
       trialEndDate: string | null;
       trialNote: string | null;
     };
@@ -30,8 +28,6 @@ declare module 'next-auth/jwt' {
   interface JWT {
     id: string;
     role: string;
-    accountStatus: string;
-    trialStart: string | null;
     trialEndDate: string | null;
     trialNote: string | null;
   }

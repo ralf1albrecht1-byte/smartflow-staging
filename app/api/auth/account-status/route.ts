@@ -14,8 +14,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getUserId } from '@/lib/get-session';
-import { statusCode } from '@/lib/account-status';
-import { enforceProtectedApiAccess } from '@/lib/auth-guard';
+import { getEffectiveStatusForUserId, statusCode } from '@/lib/account-status';
 
 export async function GET() {
   try {
@@ -24,10 +23,10 @@ export async function GET() {
       return NextResponse.json({ active: false, code: 'NO_SESSION' }, { status: 401 });
     }
 
-    const guard = await enforceProtectedApiAccess(userId);
-    if (!guard.canAccess) {
+    const eff = await getEffectiveStatusForUserId(userId);
+    if (!eff.canAccess) {
       return NextResponse.json(
-        { active: false, code: statusCode(guard.status) },
+        { active: false, code: statusCode(eff.status) },
         { status: 403 },
       );
     }
