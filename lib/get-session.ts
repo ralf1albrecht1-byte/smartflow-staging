@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { NextResponse } from 'next/server';
-import { getEffectiveStatusForUserId } from '@/lib/account-status';
+import { enforceProtectedApiAccess, BLOCKED_MESSAGE } from '@/lib/auth-guard';
 
 export async function getUserId(): Promise<string | null> {
   const session = await getServerSession(authOptions);
@@ -20,12 +20,13 @@ export async function requireUserId(): Promise<string> {
   // gegen den DB-Status geprüft werden. So greift Sperrung sofort, auch bei
   // noch gültigem JWT. Wirft 'ACCOUNT_INACTIVE' damit Aufrufer gezielt einen
   // 403 zurückgeben können (siehe `accountInactiveResponse()`).
-  const eff = await getEffectiveStatusForUserId(userId);
-  if (!eff.canAccess) {
+  const guard = await enforceProtectedApiAccess(userId);
+  if (!guard.canAccess) {
     const err: any = new Error('ACCOUNT_INACTIVE');
     err.code = 'ACCOUNT_INACTIVE';
-    err.effectiveStatus = eff.status;
-    err.reason = eff.reason;
+    err.effectiveStatus = guard.status;
+    err.reason = guard.reason;
+    err.userMessage = guard.message || BLOCKED_MESSAGE;
     throw err;
   }
   return userId;
@@ -45,7 +46,7 @@ export async function requireUserIdAllowInactive(): Promise<string> {
 /** Standardisierte 403-Antwort für blockierte Accounts. */
 export function accountInactiveResponse(message?: string) {
   return NextResponse.json(
-    { error: message || 'Ihr Konto ist nicht mehr aktiv. Bitte kontaktieren Sie den Support.', code: 'ACCOUNT_INACTIVE' },
+    { error: message || BLOCKED_MESSAGE, code: 'ACCOUNT_INACTIVE' },
     { status: 403 },
   );
 }
@@ -53,7 +54,7 @@ export function accountInactiveResponse(message?: string) {
 /** Hilfs-Wrapper für Catch-Blocks: behandelt UNAUTHORIZED + ACCOUNT_INACTIVE. */
 export function handleAuthError(err: any) {
   if (err?.code === 'ACCOUNT_INACTIVE' || err?.message === 'ACCOUNT_INACTIVE') {
-    return accountInactiveResponse();
+    return accountInactiveResponse(err?.userMessage);
   }
   return unauthorizedResponse();
 }
@@ -67,11 +68,13 @@ export async function requireAdmin(): Promise<string> {
   // Block U — auch ein Admin muss aktiv sein. Falls jemand einen Admin
   // anonymisiert/gesperrt hat, darf das alte JWT keine weiteren Admin-Aktionen
   // mehr durchführen.
-  const eff = await getEffectiveStatusForUserId(userId);
-  if (!eff.canAccess) {
+  const guard = await enforceProtectedApiAccess(userId);
+  if (!guard.canAccess) {
     const err: any = new Error('ACCOUNT_INACTIVE');
     err.code = 'ACCOUNT_INACTIVE';
-    err.effectiveStatus = eff.status;
+    err.effectiveStatus = guard.status;
+    err.reason = guard.reason;
+    err.userMessage = guard.message || BLOCKED_MESSAGE;
     throw err;
   }
   return userId;

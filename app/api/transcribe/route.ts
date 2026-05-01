@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
+import { deleteFile } from '@/lib/s3';
 
 export async function POST(request: Request) {
   try {
@@ -149,29 +150,43 @@ export async function POST(request: Request) {
           : mimeType.includes('wav')
             ? 'wav'
             : 'mp3';
-      const tmpKey = await uploadBufferToS3(
-        buffer,
-        `transcribe-tmp-${Date.now()}.${ext}`,
-        mimeType,
-        false,
-      );
-      const signedUrl = await getFileUrl(tmpKey, false);
+      let tempKeyToCleanup: string | null = null;
 
-      const compactMp3 = await convertAudioToCompactMp3(signedUrl);
-      if (compactMp3 && compactMp3.length > 0) {
-        llmAudioBase64 = compactMp3.toString('base64');
-        llmAudioFormat = 'mp3';
-        convertedToCompactMp3 = true;
-        convertedBytes = compactMp3.length;
-        console.log(
-          `[Transcribe] 🎚️ Compact MP3: ${(compactMp3.length / 1024).toFixed(0)}KB ` +
-          `(orig=${(buffer.length / 1024).toFixed(0)}KB)`,
+      try {
+        const tmpKey = await uploadBufferToS3(
+          buffer,
+          `transcribe-tmp-${Date.now()}.${ext}`,
+          mimeType,
+          false,
         );
-      } else {
-        console.warn(
-          `[Transcribe] ⚠️ Compact MP3 conversion failed — falling back to original ` +
-          `(${(buffer.length / 1024).toFixed(0)}KB, ${mimeType})`,
-        );
+        tempKeyToCleanup = tmpKey;
+        const signedUrl = await getFileUrl(tmpKey, false);
+
+        const compactMp3 = await convertAudioToCompactMp3(signedUrl);
+        if (compactMp3 && compactMp3.length > 0) {
+          llmAudioBase64 = compactMp3.toString('base64');
+          llmAudioFormat = 'mp3';
+          convertedToCompactMp3 = true;
+          convertedBytes = compactMp3.length;
+          console.log(
+            `[Transcribe] 🎚️ Compact MP3: ${(compactMp3.length / 1024).toFixed(0)}KB ` +
+            `(orig=${(buffer.length / 1024).toFixed(0)}KB)`,
+          );
+        } else {
+          console.warn(
+            `[Transcribe] ⚠️ Compact MP3 conversion failed — falling back to original ` +
+            `(${(buffer.length / 1024).toFixed(0)}KB, ${mimeType})`,
+          );
+        }
+      } finally {
+        if (tempKeyToCleanup) {
+          try {
+            await deleteFile(tempKeyToCleanup);
+            console.log(`[Transcribe] Cleaned up temp file: ${tempKeyToCleanup}`);
+          } catch (cleanupError) {
+            console.error(`[Transcribe] Failed to cleanup temp file ${tempKeyToCleanup}:`, cleanupError);
+          }
+        }
       }
     } catch (convErr: any) {
       console.warn(
