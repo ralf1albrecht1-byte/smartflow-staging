@@ -1044,28 +1044,31 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
                     )}
                   </div>
                   {/* Row 2: Unit, Price, Quantity */}
-<div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
   <div>
-    <Label className="text-[10px] text-muted-foreground">Einheit</Label>
-    <select className="flex w-full rounded-md border border-input bg-background px-2 py-2 text-sm" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? '')}>
-      <option>Stunde</option><option>Pauschal</option><option>Meter</option><option>Stück</option>
+    <Label className="text-xs">Einheit</Label>
+    <select className="flex w-full rounded-md border border-input bg-background px-2 py-1.5" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? 'Stunde')}>
+      <option value="Stunde">Stunde</option><option value="Pauschal">Pauschal</option><option value="Meter">Meter</option><option value="Stück">Stück</option>
     </select>
   </div>
   <div>
-                        </div>
-                    <div>
-                      <Label className="text-[10px] text-muted-foreground">Preis</Label>
-                      <Input type="number" step="0.05" placeholder="Preis" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '')} />
-                    </div>
-                    <div className="text-right text-sm text-muted-foreground font-mono mt-2">
-  = CHF {(Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0)).toFixed(2)}
+    <Label className="text-xs">Preis (CHF)</Label>
+    <Input type="number" step="0.05" className="h-8" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '0')} />
+  </div>
+  <div>
+    <Label className="text-xs">Menge</Label>
+    <Input type="number" step="0.25" className="h-8" value={item?.quantity ?? ''} onChange={(e: any) => updateItem(idx, 'quantity', e?.target?.value ?? '1')} />
+  </div>
 </div>
-                  </div>
-                </div>
-              )) ?? []}
-              <Button variant="outline" size="sm" onClick={addItem}><Plus className="w-3 h-3 mr-1" />Leistung hinzufügen</Button>
-            </div>
-
+<div className="text-left sm:text-right text-xs text-muted-foreground">
+  = CHF {(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0)).toFixed(2)}
+</div>
+</div>
+)) ?? []}
+<Button variant="outline" size="sm" className="mt-2 w-full" onClick={addItem}>
+  <Plus className="w-3.5 h-3.5 mr-1" />Weitere Leistung hinzufügen
+</Button>
+</div>
             <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
               <MwStControl vatRate={vatRate} onChange={setVatRate} />
               <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
