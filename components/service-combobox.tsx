@@ -68,8 +68,9 @@ const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 const val = e.target.value;
 setQuery(val);
 onChange(val);
-if (!open) setOpen(true);
-};
+if (val.trim().length > 0) {
+  setOpen(false);
+}
 
 const handleSelect = (svc: ServiceOption) => {
 onChange(svc.name, svc);
@@ -84,7 +85,11 @@ setOpen(false);
 };
 
 const handleInputFocus = () => {
-setOpen(true);
+if (!value) {
+  setOpen(true);
+} else {
+  setOpen(false);
+}
 setQuery('');
 };
 
