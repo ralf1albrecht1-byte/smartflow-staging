@@ -251,6 +251,7 @@ async function handleSubscriptionDeleted(tx: Tx, event: Stripe.Event) {
 
 async function handleSubscriptionCreated(tx: Tx, event: Stripe.Event) {
   const subscription = event.data.object as Stripe.Subscription;
+  const userIdFromMetadata = subscription.metadata?.userId || null;
   const userId = await findUserForSubscription(tx, subscription);
 
   if (!userId) {
@@ -262,7 +263,7 @@ async function handleSubscriptionCreated(tx: Tx, event: Stripe.Event) {
       eventId: event.id,
       subscriptionId: subscription.id,
       customerId,
-      metadataUserId: subscription.metadata?.userId || null,
+      metadataUserId: userIdFromMetadata,
     });
     return;
   }

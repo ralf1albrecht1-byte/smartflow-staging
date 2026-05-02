@@ -61,11 +61,11 @@ export async function POST(request: Request) {
       cancel_url: `${baseUrl}/pricing?canceled=true`,
       client_reference_id: userId,
       metadata: {
-        userId,
+        userId: userId,
       },
       subscription_data: {
         metadata: {
-          userId,
+          userId: userId,
           plan: mappedPlan || 'unknown',
         },
       },
