@@ -207,6 +207,7 @@ async function handleCheckoutCompleted(
 
 async function handleSubscriptionUpdated(tx: Tx, event: Stripe.Event) {
   const subscription = event.data.object as Stripe.Subscription;
+  const userIdFromMetadata = subscription.metadata?.userId || null;
   const userId = await findUserForSubscription(tx, subscription);
 
   if (!userId) {
@@ -218,7 +219,7 @@ async function handleSubscriptionUpdated(tx: Tx, event: Stripe.Event) {
       eventId: event.id,
       subscriptionId: subscription.id,
       customerId,
-      metadataUserId: subscription.metadata?.userId || null,
+      metadataUserId: userIdFromMetadata,
     });
     return;
   }
@@ -228,6 +229,7 @@ async function handleSubscriptionUpdated(tx: Tx, event: Stripe.Event) {
 
 async function handleSubscriptionDeleted(tx: Tx, event: Stripe.Event) {
   const subscription = event.data.object as Stripe.Subscription;
+  const userIdFromMetadata = subscription.metadata?.userId || null;
   const userId = await findUserForSubscription(tx, subscription);
 
   if (!userId) {
@@ -239,7 +241,7 @@ async function handleSubscriptionDeleted(tx: Tx, event: Stripe.Event) {
       eventId: event.id,
       subscriptionId: subscription.id,
       customerId,
-      metadataUserId: subscription.metadata?.userId || null,
+      metadataUserId: userIdFromMetadata,
     });
     return;
   }

@@ -56,12 +56,17 @@
    - duplicate events are skipped through `StripeWebhookEvent`
 5. Validate plan resolution on dashboard after webhook updates.
 
-## Deployment Strategy
+## Railway Deployment Strategy
 
 ### TEST Environment
-Currently uses `npx prisma db push` in railway.json for rapid iteration.
-No changes made to deployment config - existing strategy maintained.
+Currently configured in `railway.json` with:
+```
+"startCommand": "npx prisma db push && npm run start"
+```
 
-### STAGING/LIVE Environment
+This uses `db push` for rapid iteration in TEST only.
+Migrations do NOT auto-run - db push syncs schema directly.
+
+### STAGING/LIVE Environments
 Should use `npx prisma migrate deploy` for production safety.
-(Not modified in this implementation - out of scope for TEST-only changes)
+(Railway configuration for staging/live not modified - out of scope)

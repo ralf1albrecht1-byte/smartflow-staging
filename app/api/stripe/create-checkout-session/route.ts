@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       subscription_data: {
         metadata: {
           userId,
-          plan: mapPriceIdToPlan(priceId) || 'unknown',
+          plan: mappedPlan || 'unknown',
         },
       },
       customer: user.stripeCustomerId || undefined,
