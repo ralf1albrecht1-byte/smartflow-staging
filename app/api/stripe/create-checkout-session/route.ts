@@ -1,4 +1,4 @@
-```ts
+ts
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session'
@@ -52,4 +52,4 @@ export async function POST() {
     return NextResponse.json({ error: 'Error creating checkout session' }, { status: 500 })
   }
 }
-```
+
