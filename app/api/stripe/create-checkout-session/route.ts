@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     const successUrl = new URL('/dashboard?checkout=success', request.url).toString();
     const cancelUrl = new URL('/dashboard?checkout=cancelled', request.url).toString();
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionParams: any = {
       mode: 'subscription',
       line_items: [{ price: resolvedPriceId, quantity: 1 }],
       client_reference_id: userId,
@@ -57,12 +57,20 @@ export async function POST(request: Request) {
         userId,
         plan: mappedPlan,
       },
+      subscription_data: {
+        metadata: {
+          userId,
+          plan: mapPriceIdToPlan(priceId) || 'unknown',
+        },
+      },
       customer: user.stripeCustomerId || undefined,
       customer_email: user.stripeCustomerId ? undefined : user.email,
       success_url: successUrl,
       cancel_url: cancelUrl,
       allow_promotion_codes: true,
-    });
+    };
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     if (!session.url) {
       console.error('[stripe][checkout] Missing checkout URL', { userId, priceId, sessionId: session.id });

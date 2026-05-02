@@ -58,6 +58,10 @@
 
 ## Migration commands (do not run yet)
 
+**Deployment strategy note:**
+- **TEST** uses `prisma db push` for rapid iteration in this branch/environment.
+- **STAGING/LIVE** should use `prisma migrate deploy` (not changed here).
+
 ```bash
 # Generate migration locally (already prepared manually in this branch)
 # npx prisma migrate dev --name add_stripe_subscription

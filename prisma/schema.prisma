@@ -30,6 +30,7 @@ model User {
   subscriptionPlan      String?
   currentPeriodEnd      DateTime?
   trialEnd              DateTime?
+  cancelAtPeriodEnd     Boolean?  @default(false)
   // ── Block U: Technical account status (separate from compliance request status) ──
   // Rein additiv. Default 'active' damit bestehende Zeilen unbetroffen bleiben.
   // Werte: 'active' | 'inactive' | 'cancelled' | 'blocked' | 'anonymized'

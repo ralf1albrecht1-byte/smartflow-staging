@@ -11,6 +11,11 @@ export const config = { api: { bodyParser: false } };
 
 type Tx = Prisma.TransactionClient;
 
+type PrefetchedStripeData = {
+  checkoutSubscription?: Stripe.Subscription | null;
+  invoiceSucceededSubscription?: Stripe.Subscription | null;
+};
+
 function toDate(unixSeconds?: number | null): Date | null {
   if (!unixSeconds) return null;
   return new Date(unixSeconds * 1000);
@@ -20,6 +25,18 @@ function getSubscriptionPriceId(subscription: Stripe.Subscription): string | nul
   const item = subscription.items?.data?.[0];
   const priceId = item?.price?.id;
   return priceId || null;
+}
+
+function getCheckoutSessionSubscriptionId(session: Stripe.Checkout.Session): string | null {
+  return typeof session.subscription === 'string'
+    ? session.subscription
+    : session.subscription?.id || null;
+}
+
+function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  return typeof invoice.subscription === 'string'
+    ? invoice.subscription
+    : invoice.subscription?.id || null;
 }
 
 async function findUserIdForEvent(tx: Tx, params: {
@@ -50,6 +67,40 @@ async function findUserIdForEvent(tx: Tx, params: {
   return null;
 }
 
+async function findUserForSubscription(tx: Tx, subscription: Stripe.Subscription): Promise<string | null> {
+  const customerId = typeof subscription.customer === 'string'
+    ? subscription.customer
+    : subscription.customer?.id || null;
+
+  let user: { id: string } | null = null;
+
+  // 1) metadata.userId is the most reliable source.
+  if (subscription.metadata?.userId) {
+    user = await tx.user.findUnique({
+      where: { id: subscription.metadata.userId },
+      select: { id: true },
+    });
+  }
+
+  // 2) fallback by stripeCustomerId.
+  if (!user && customerId) {
+    user = await tx.user.findUnique({
+      where: { stripeCustomerId: customerId },
+      select: { id: true },
+    });
+  }
+
+  // 3) fallback by stripeSubscriptionId.
+  if (!user) {
+    user = await tx.user.findUnique({
+      where: { stripeSubscriptionId: subscription.id },
+      select: { id: true },
+    });
+  }
+
+  return user?.id || null;
+}
+
 async function applySubscriptionToUser(tx: Tx, userId: string, subscription: Stripe.Subscription) {
   const customerId = typeof subscription.customer === 'string'
     ? subscription.customer
@@ -69,86 +120,141 @@ async function applySubscriptionToUser(tx: Tx, userId: string, subscription: Str
       subscriptionPlan: mappedPlan || undefined,
       currentPeriodEnd: toDate(subscription.current_period_end) || undefined,
       trialEnd: toDate(subscription.trial_end) || undefined,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
       accountStatus,
     },
   });
 }
 
-async function processEvent(tx: Tx, stripe: Stripe, event: Stripe.Event) {
+async function handleCheckoutCompleted(
+  tx: Tx,
+  event: Stripe.Event,
+  prefetchedSubscription?: Stripe.Subscription | null,
+) {
+  const session = event.data.object as Stripe.Checkout.Session;
+  const userIdFromSession = session.metadata?.userId || session.client_reference_id || null;
+  const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id || null;
+  const subscriptionId = getCheckoutSessionSubscriptionId(session);
+
+  const userId = await findUserIdForEvent(tx, {
+    userId: userIdFromSession,
+    customerId,
+    subscriptionId,
+  });
+
+  if (!userId) {
+    console.warn('[stripe][webhook] checkout.session.completed: user not found', {
+      eventId: event.id,
+      userIdFromSession,
+      customerId,
+      subscriptionId,
+    });
+    return;
+  }
+
+  if (subscriptionId && prefetchedSubscription) {
+    await applySubscriptionToUser(tx, userId, prefetchedSubscription);
+    return;
+  }
+
+  await tx.user.update({
+    where: { id: userId },
+    data: {
+      stripeCustomerId: customerId || undefined,
+      accountStatus: 'active',
+    },
+  });
+}
+
+async function handleSubscriptionUpdated(tx: Tx, event: Stripe.Event) {
+  const subscription = event.data.object as Stripe.Subscription;
+  const userId = await findUserForSubscription(tx, subscription);
+
+  if (!userId) {
+    const customerId = typeof subscription.customer === 'string'
+      ? subscription.customer
+      : subscription.customer?.id || null;
+
+    console.warn('[stripe][webhook] subscription.updated: user not found', {
+      eventId: event.id,
+      subscriptionId: subscription.id,
+      customerId,
+      metadataUserId: subscription.metadata?.userId || null,
+    });
+    return;
+  }
+
+  await applySubscriptionToUser(tx, userId, subscription);
+}
+
+async function handleSubscriptionDeleted(tx: Tx, event: Stripe.Event) {
+  const subscription = event.data.object as Stripe.Subscription;
+  const userId = await findUserForSubscription(tx, subscription);
+
+  if (!userId) {
+    const customerId = typeof subscription.customer === 'string'
+      ? subscription.customer
+      : subscription.customer?.id || null;
+
+    console.warn('[stripe][webhook] subscription.deleted: user not found', {
+      eventId: event.id,
+      subscriptionId: subscription.id,
+      customerId,
+      metadataUserId: subscription.metadata?.userId || null,
+    });
+    return;
+  }
+
+  await applySubscriptionToUser(tx, userId, subscription);
+}
+
+async function handleSubscriptionCreated(tx: Tx, event: Stripe.Event) {
+  const subscription = event.data.object as Stripe.Subscription;
+  const userId = await findUserForSubscription(tx, subscription);
+
+  if (!userId) {
+    const customerId = typeof subscription.customer === 'string'
+      ? subscription.customer
+      : subscription.customer?.id || null;
+
+    console.warn('[stripe][webhook] subscription.created: user not found', {
+      eventId: event.id,
+      subscriptionId: subscription.id,
+      customerId,
+      metadataUserId: subscription.metadata?.userId || null,
+    });
+    return;
+  }
+
+  await applySubscriptionToUser(tx, userId, subscription);
+}
+
+async function processEvent(tx: Tx, event: Stripe.Event, prefetched: PrefetchedStripeData) {
   switch (event.type) {
     case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const userIdFromSession = session.metadata?.userId || session.client_reference_id || null;
-      const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id || null;
-      const subscriptionId = typeof session.subscription === 'string'
-        ? session.subscription
-        : session.subscription?.id || null;
-
-      const userId = await findUserIdForEvent(tx, {
-        userId: userIdFromSession,
-        customerId,
-        subscriptionId,
-      });
-
-      if (!userId) {
-        console.warn('[stripe][webhook] checkout.session.completed: user not found', {
-          eventId: event.id,
-          userIdFromSession,
-          customerId,
-          subscriptionId,
-        });
-        return;
-      }
-
-      if (subscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        await applySubscriptionToUser(tx, userId, subscription);
-        return;
-      }
-
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          stripeCustomerId: customerId || undefined,
-          accountStatus: 'active',
-        },
-      });
+      await handleCheckoutCompleted(tx, event, prefetched.checkoutSubscription);
       return;
     }
 
-    case 'customer.subscription.created':
-    case 'customer.subscription.updated':
+    case 'customer.subscription.created': {
+      await handleSubscriptionCreated(tx, event);
+      return;
+    }
+
+    case 'customer.subscription.updated': {
+      await handleSubscriptionUpdated(tx, event);
+      return;
+    }
+
     case 'customer.subscription.deleted': {
-      const subscription = event.data.object as Stripe.Subscription;
-      const customerId = typeof subscription.customer === 'string'
-        ? subscription.customer
-        : subscription.customer?.id || null;
-
-      const userId = await findUserIdForEvent(tx, {
-        customerId,
-        subscriptionId: subscription.id,
-      });
-
-      if (!userId) {
-        console.warn('[stripe][webhook] subscription event: user not found', {
-          eventId: event.id,
-          eventType: event.type,
-          subscriptionId: subscription.id,
-          customerId,
-        });
-        return;
-      }
-
-      await applySubscriptionToUser(tx, userId, subscription);
+      await handleSubscriptionDeleted(tx, event);
       return;
     }
 
     case 'invoice.payment_succeeded': {
       const invoice = event.data.object as Stripe.Invoice;
       const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id || null;
-      const subscriptionId = typeof invoice.subscription === 'string'
-        ? invoice.subscription
-        : invoice.subscription?.id || null;
+      const subscriptionId = getInvoiceSubscriptionId(invoice);
 
       const userId = await findUserIdForEvent(tx, {
         customerId,
@@ -168,14 +274,15 @@ async function processEvent(tx: Tx, stripe: Stripe, event: Stripe.Event) {
         accountStatus: 'active',
       };
 
-      if (subscriptionId) {
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      if (subscriptionId && prefetched.invoiceSucceededSubscription) {
+        const subscription = prefetched.invoiceSucceededSubscription;
         const priceId = getSubscriptionPriceId(subscription);
         updateData.stripeSubscriptionId = subscription.id;
         updateData.subscriptionStatus = subscription.status;
         updateData.subscriptionPlan = priceId ? mapPriceIdToPlan(priceId) || undefined : undefined;
         updateData.currentPeriodEnd = toDate(subscription.current_period_end) || undefined;
         updateData.trialEnd = toDate(subscription.trial_end) || undefined;
+        updateData.cancelAtPeriodEnd = subscription.cancel_at_period_end;
       } else {
         updateData.subscriptionStatus = 'active';
       }
@@ -190,9 +297,7 @@ async function processEvent(tx: Tx, stripe: Stripe, event: Stripe.Event) {
     case 'invoice.payment_failed': {
       const invoice = event.data.object as Stripe.Invoice;
       const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id || null;
-      const subscriptionId = typeof invoice.subscription === 'string'
-        ? invoice.subscription
-        : invoice.subscription?.id || null;
+      const subscriptionId = getInvoiceSubscriptionId(invoice);
 
       const userId = await findUserIdForEvent(tx, {
         customerId,
@@ -222,6 +327,28 @@ async function processEvent(tx: Tx, stripe: Stripe, event: Stripe.Event) {
       console.log('[stripe][webhook] Unhandled event type', event.type);
       return;
   }
+}
+
+async function prefetchStripeDataForEvent(stripe: Stripe, event: Stripe.Event): Promise<PrefetchedStripeData> {
+  const prefetched: PrefetchedStripeData = {};
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const subscriptionId = getCheckoutSessionSubscriptionId(session);
+    if (subscriptionId) {
+      prefetched.checkoutSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+    }
+  }
+
+  if (event.type === 'invoice.payment_succeeded') {
+    const invoice = event.data.object as Stripe.Invoice;
+    const subscriptionId = getInvoiceSubscriptionId(invoice);
+    if (subscriptionId) {
+      prefetched.invoiceSucceededSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+    }
+  }
+
+  return prefetched;
 }
 
 export async function POST(request: Request) {
@@ -263,6 +390,9 @@ export async function POST(request: Request) {
       }
     })();
 
+    // Important: fetch Stripe resources outside the DB transaction.
+    const prefetched = await prefetchStripeDataForEvent(stripe, event);
+
     const result = await prisma.$transaction(async (tx) => {
       try {
         await tx.stripeWebhookEvent.create({
@@ -292,7 +422,7 @@ export async function POST(request: Request) {
       }
 
       try {
-        await processEvent(tx, stripe, event);
+        await processEvent(tx, event, prefetched);
 
         await tx.stripeWebhookEvent.update({
           where: { stripeEventId: event.id },

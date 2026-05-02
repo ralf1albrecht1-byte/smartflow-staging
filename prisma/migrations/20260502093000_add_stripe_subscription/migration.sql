@@ -5,6 +5,7 @@ ADD COLUMN     "stripeCustomerId" TEXT,
 ADD COLUMN     "stripeSubscriptionId" TEXT,
 ADD COLUMN     "subscriptionPlan" TEXT,
 ADD COLUMN     "subscriptionStatus" TEXT,
+ADD COLUMN     "cancelAtPeriodEnd" BOOLEAN DEFAULT false,
 ADD COLUMN     "trialEnd" TIMESTAMP(3);
 
 -- CreateTable
