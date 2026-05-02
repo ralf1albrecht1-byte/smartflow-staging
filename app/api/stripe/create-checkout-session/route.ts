@@ -63,6 +63,12 @@ export async function POST(request: Request) {
       metadata: {
         userId: userId,
       },
+  subscription_data: {
+    metadata: {
+      userId: userId,
+      plan: mapPriceIdToPlan(priceId) || "unknown",
+    },
+  },
       subscription_data: {
         metadata: {
           userId: userId,
