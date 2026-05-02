@@ -57,7 +57,7 @@ model User {
   currentPeriodEnd      DateTime?
   trialEnd              DateTime?
   cancelAtPeriodEnd     Boolean   @default(false)
-
+}
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -391,9 +391,6 @@ model CompanySettings {
   whatsappIntakeNumber String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-}
-model CompanySettings {
-  ...
 }
 
 model StripeWebhookEvent {
