@@ -20,8 +20,8 @@ payment_method_types: ['card'],
     },
   ],
 
-  success_url: `${process.env.NEXT_PUBLIC_APP_URL}/success`,
-  cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/cancel`,
+  success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
+  cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
 })
 
 return NextResponse.json({ url: session.url })
