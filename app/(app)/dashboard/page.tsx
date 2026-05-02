@@ -91,16 +91,15 @@ export default function DashboardPage() {
             </Button>
           </Link>
 
-          {/* ✅ DAS IST DER NEUE BUTTON */}
-         {data?.subscription?.isActive !== true && (
-  <Button
-    size="sm"
-    onClick={handleCheckout}
-    className="w-full sm:w-auto justify-center bg-green-600 hover:bg-green-700 text-white"
-  >
-    Abo starten
-  </Button>
-)}      </div>
+                    {data?.subscription?.isActive !== true ? (
+            <Button
+              size="sm"
+              onClick={handleCheckout}
+              className="w-full sm:w-auto justify-center bg-green-600 hover:bg-green-700 text-white"
+            >
+              Abo starten
+            </Button>
+          ) : null}    </div>
     </div>
   );
 }
