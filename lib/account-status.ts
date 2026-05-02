@@ -9,14 +9,14 @@
  * `lib/get-session.ts`.
  *
  * Wichtige Invariante: ComplianceRequest.status (offen/in_progress/completed/
- * rejected) und User.accountStatus (active/cancelled/blocked/anonymized) sind
+ * rejected) und User.accountStatus (active/inactive/cancelled/blocked/anonymized) sind
  * komplett getrennte Felder. Das Setzen eines Compliance-Status ändert NIE
  * automatisch den Account-Status — nur explizite Admin-Aktionen tun das.
  */
 import { prisma } from '@/lib/prisma';
 import { logAuditAsync, EVENTS, AREAS } from '@/lib/audit';
 
-export type RawAccountStatus = 'active' | 'cancelled' | 'blocked' | 'anonymized';
+export type RawAccountStatus = 'active' | 'inactive' | 'cancelled' | 'blocked' | 'anonymized';
 
 export type EffectiveAccountStatus =
   | 'active'
@@ -51,6 +51,9 @@ export function evaluateAccountStatus(
   }
   if (raw === 'blocked') {
     return { status: 'blocked', canAccess: false, reason: user.blockedReason || 'blocked' };
+  }
+  if (raw === 'inactive') {
+    return { status: 'cancelled_expired', canAccess: false, reason: 'inactive' };
   }
   // accessEndsAt: wenn gesetzt und in der Vergangenheit → abgelaufen.
   if (user.accessEndsAt) {

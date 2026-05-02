@@ -63,14 +63,33 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
     ? `Pro: CHF ${data.monthlyPriceChf} / Monat · ${included} Min inklusive`
     : `Standard: CHF ${data.monthlyPriceChf} / Monat · ${included} Min inklusive`;
 
-  const handleComingSoon = (label: string) => {
+  const startCheckout = async (priceId: 'basic' | 'pro') => {
     if (busy) return;
-    setBusy(true);
-    toast.message('Demnächst verfügbar', {
-      description: `${label} wird mit der Stripe-Anbindung freigeschaltet.`,
-    });
-    // Re-enable after a short cooldown so users don't spam-toast.
-    setTimeout(() => setBusy(false), 1200);
+
+    try {
+      setBusy(true);
+
+      const response = await fetch('/api/stripe/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceId }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || !payload?.url) {
+        throw new Error(payload?.error || 'Stripe Checkout konnte nicht gestartet werden.');
+      }
+
+      window.location.href = payload.url;
+    } catch (error: any) {
+      console.error('[audio-usage-card] checkout failed', { message: error?.message });
+      toast.error('Checkout fehlgeschlagen', {
+        description: error?.message || 'Bitte versuche es in wenigen Minuten erneut.',
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Color tokens for the progress bar.
@@ -148,9 +167,9 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
                 size="sm"
                 variant="outline"
                 className="text-xs h-8 justify-start"
-                onClick={() => handleComingSoon('Upgrade auf Pro')}
+                onClick={() => startCheckout('pro')}
                 disabled={busy}
-                aria-label="Upgrade auf Pro – demnächst verfügbar"
+                aria-label="Upgrade auf Pro"
               >
                 <Sparkles className="w-3.5 h-3.5 mr-1" />
                 Upgrade auf Pro – CHF 79/Monat
@@ -159,14 +178,14 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
                 size="sm"
                 variant="outline"
                 className="text-xs h-8 justify-start"
-                onClick={() => handleComingSoon('Zusatz-Minuten')}
+                onClick={() => startCheckout('basic')}
                 disabled={busy}
-                aria-label="Zusatz-Minuten aktivieren – demnächst verfügbar"
+                aria-label="Zusatz-Minuten aktivieren"
               >
                 Zusatz-Minuten aktivieren – CHF {data.extraMinutePriceChf.toFixed(2)}/Minute
               </Button>
             </div>
-            <p className="text-[10px] text-muted-foreground italic">Demnächst verfügbar – Stripe-Anbindung folgt.</p>
+            <p className="text-[10px] text-muted-foreground italic">Sichere Bezahlung über Stripe Checkout.</p>
           </div>
         )}
         {nearLimit && (

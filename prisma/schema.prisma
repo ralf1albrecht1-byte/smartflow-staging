@@ -23,9 +23,16 @@ model User {
   // Login and usage are NEVER blocked by these fields.
   trialEndDate       DateTime?
   trialNote          String?
+  // ── Stripe subscription fields (Phase Stripe) ──
+  stripeCustomerId      String?  @unique
+  stripeSubscriptionId  String?  @unique
+  subscriptionStatus    String?
+  subscriptionPlan      String?
+  currentPeriodEnd      DateTime?
+  trialEnd              DateTime?
   // ── Block U: Technical account status (separate from compliance request status) ──
   // Rein additiv. Default 'active' damit bestehende Zeilen unbetroffen bleiben.
-  // Werte: 'active' | 'cancelled' | 'blocked' | 'anonymized'
+  // Werte: 'active' | 'inactive' | 'cancelled' | 'blocked' | 'anonymized'
   // Login/Layout/`requireUserId` werten DIESEN Status (nicht das ComplianceRequest-Status-Feld).
   accountStatus           String    @default("active")
   // Wenn gesetzt UND in der Vergangenheit → Login wird abgelehnt. Wenn null → kein Auto-Ablauf.
@@ -291,6 +298,21 @@ model AuditLog {
   @@index([area])
   @@index([success])
   @@index([source])
+}
+
+model StripeWebhookEvent {
+  id            String   @id @default(cuid())
+  stripeEventId String   @unique
+  eventType     String
+  processed     Boolean  @default(false)
+  processedAt   DateTime?
+  error         String?
+  payload       Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([eventType])
+  @@index([processed])
 }
 
 // ──────────────────────────────────────────────────────────────────────────
