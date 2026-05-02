@@ -56,7 +56,8 @@ model User {
   subscriptionPlan      String?
   currentPeriodEnd      DateTime?
   trialEnd              DateTime?
-  cancelAtPeriodEnd     Boolean   @default(false)
+ cancelAtPeriodEnd     Boolean   @default(false)
+}
 
 model Account {
   id                String  @id @default(cuid())
@@ -393,7 +394,7 @@ model CompanySettings {
   updatedAt        DateTime @updatedAt
 }
 model CompanySettings {
-  ...
+  
 }
 
 model StripeWebhookEvent {
