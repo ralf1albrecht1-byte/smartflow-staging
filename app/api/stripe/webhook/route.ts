@@ -14,6 +14,7 @@ type Tx = Prisma.TransactionClient;
 type PrefetchedStripeData = {
   checkoutSubscription?: Stripe.Subscription | null;
   invoiceSucceededSubscription?: Stripe.Subscription | null;
+  invoiceFailedSubscription?: Stripe.Subscription | null;
 };
 
 function toDate(unixSeconds?: number | null): Date | null {
@@ -101,6 +102,44 @@ async function findUserForSubscription(tx: Tx, subscription: Stripe.Subscription
   return user?.id || null;
 }
 
+async function findUserForInvoice(
+  tx: Tx,
+  invoice: Stripe.Invoice,
+  subscription?: Stripe.Subscription | null,
+): Promise<string | null> {
+  const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id || null;
+  const subscriptionId = getInvoiceSubscriptionId(invoice);
+
+  let user: { id: string } | null = null;
+
+  // 1) metadata.userId from subscription is the most reliable source.
+  const userIdFromMetadata = subscription?.metadata?.userId || null;
+  if (userIdFromMetadata) {
+    user = await tx.user.findUnique({
+      where: { id: userIdFromMetadata },
+      select: { id: true },
+    });
+  }
+
+  // 2) fallback by stripeCustomerId.
+  if (!user && customerId) {
+    user = await tx.user.findUnique({
+      where: { stripeCustomerId: customerId },
+      select: { id: true },
+    });
+  }
+
+  // 3) fallback by stripeSubscriptionId.
+  if (!user && subscriptionId) {
+    user = await tx.user.findUnique({
+      where: { stripeSubscriptionId: subscriptionId },
+      select: { id: true },
+    });
+  }
+
+  return user?.id || null;
+}
+
 async function applySubscriptionToUser(tx: Tx, userId: string, subscription: Stripe.Subscription) {
   const customerId = typeof subscription.customer === 'string'
     ? subscription.customer
@@ -120,7 +159,7 @@ async function applySubscriptionToUser(tx: Tx, userId: string, subscription: Str
       subscriptionPlan: mappedPlan || undefined,
       currentPeriodEnd: toDate(subscription.current_period_end) || undefined,
       trialEnd: toDate(subscription.trial_end) || undefined,
-      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
       accountStatus,
     },
   });
@@ -229,6 +268,85 @@ async function handleSubscriptionCreated(tx: Tx, event: Stripe.Event) {
   await applySubscriptionToUser(tx, userId, subscription);
 }
 
+async function handleInvoicePaymentSucceeded(
+  tx: Tx,
+  event: Stripe.Event,
+  prefetchedSubscription?: Stripe.Subscription | null,
+) {
+  const invoice = event.data.object as Stripe.Invoice;
+  const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id || null;
+  const subscriptionId = getInvoiceSubscriptionId(invoice);
+
+  const userId = await findUserForInvoice(tx, invoice, prefetchedSubscription);
+
+  if (!userId) {
+    console.warn('[stripe][webhook] invoice.payment_succeeded: user not found', {
+      eventId: event.id,
+      customerId,
+      subscriptionId,
+      metadataUserId: prefetchedSubscription?.metadata?.userId || null,
+    });
+    return;
+  }
+
+  const updateData: Prisma.UserUpdateInput = {
+    accountStatus: 'active',
+  };
+
+  if (subscriptionId && prefetchedSubscription) {
+    const priceId = getSubscriptionPriceId(prefetchedSubscription);
+    updateData.stripeSubscriptionId = prefetchedSubscription.id;
+    updateData.subscriptionStatus = prefetchedSubscription.status;
+    updateData.subscriptionPlan = priceId ? mapPriceIdToPlan(priceId) || undefined : undefined;
+    updateData.currentPeriodEnd = toDate(prefetchedSubscription.current_period_end) || undefined;
+    updateData.trialEnd = toDate(prefetchedSubscription.trial_end) || undefined;
+    updateData.cancelAtPeriodEnd = prefetchedSubscription.cancel_at_period_end || false;
+  } else {
+    updateData.subscriptionStatus = 'active';
+  }
+
+  await tx.user.update({
+    where: { id: userId },
+    data: updateData,
+  });
+}
+
+async function handleInvoicePaymentFailed(
+  tx: Tx,
+  event: Stripe.Event,
+  prefetchedSubscription?: Stripe.Subscription | null,
+) {
+  const invoice = event.data.object as Stripe.Invoice;
+  const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id || null;
+  const subscriptionId = getInvoiceSubscriptionId(invoice);
+
+  const userId = await findUserForInvoice(tx, invoice, prefetchedSubscription);
+
+  if (!userId) {
+    console.warn('[stripe][webhook] invoice.payment_failed: user not found', {
+      eventId: event.id,
+      customerId,
+      subscriptionId,
+      metadataUserId: prefetchedSubscription?.metadata?.userId || null,
+    });
+    return;
+  }
+
+  const updateData: Prisma.UserUpdateInput = {
+    subscriptionStatus: 'past_due',
+    accountStatus: 'active',
+  };
+
+  if (prefetchedSubscription) {
+    updateData.cancelAtPeriodEnd = prefetchedSubscription.cancel_at_period_end || false;
+  }
+
+  await tx.user.update({
+    where: { id: userId },
+    data: updateData,
+  });
+}
+
 async function processEvent(tx: Tx, event: Stripe.Event, prefetched: PrefetchedStripeData) {
   switch (event.type) {
     case 'checkout.session.completed': {
@@ -252,74 +370,12 @@ async function processEvent(tx: Tx, event: Stripe.Event, prefetched: PrefetchedS
     }
 
     case 'invoice.payment_succeeded': {
-      const invoice = event.data.object as Stripe.Invoice;
-      const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id || null;
-      const subscriptionId = getInvoiceSubscriptionId(invoice);
-
-      const userId = await findUserIdForEvent(tx, {
-        customerId,
-        subscriptionId,
-      });
-
-      if (!userId) {
-        console.warn('[stripe][webhook] invoice.payment_succeeded: user not found', {
-          eventId: event.id,
-          customerId,
-          subscriptionId,
-        });
-        return;
-      }
-
-      const updateData: Prisma.UserUpdateInput = {
-        accountStatus: 'active',
-      };
-
-      if (subscriptionId && prefetched.invoiceSucceededSubscription) {
-        const subscription = prefetched.invoiceSucceededSubscription;
-        const priceId = getSubscriptionPriceId(subscription);
-        updateData.stripeSubscriptionId = subscription.id;
-        updateData.subscriptionStatus = subscription.status;
-        updateData.subscriptionPlan = priceId ? mapPriceIdToPlan(priceId) || undefined : undefined;
-        updateData.currentPeriodEnd = toDate(subscription.current_period_end) || undefined;
-        updateData.trialEnd = toDate(subscription.trial_end) || undefined;
-        updateData.cancelAtPeriodEnd = subscription.cancel_at_period_end;
-      } else {
-        updateData.subscriptionStatus = 'active';
-      }
-
-      await tx.user.update({
-        where: { id: userId },
-        data: updateData,
-      });
+      await handleInvoicePaymentSucceeded(tx, event, prefetched.invoiceSucceededSubscription);
       return;
     }
 
     case 'invoice.payment_failed': {
-      const invoice = event.data.object as Stripe.Invoice;
-      const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id || null;
-      const subscriptionId = getInvoiceSubscriptionId(invoice);
-
-      const userId = await findUserIdForEvent(tx, {
-        customerId,
-        subscriptionId,
-      });
-
-      if (!userId) {
-        console.warn('[stripe][webhook] invoice.payment_failed: user not found', {
-          eventId: event.id,
-          customerId,
-          subscriptionId,
-        });
-        return;
-      }
-
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          subscriptionStatus: 'past_due',
-          accountStatus: 'active',
-        },
-      });
+      await handleInvoicePaymentFailed(tx, event, prefetched.invoiceFailedSubscription);
       return;
     }
 
@@ -345,6 +401,14 @@ async function prefetchStripeDataForEvent(stripe: Stripe, event: Stripe.Event): 
     const subscriptionId = getInvoiceSubscriptionId(invoice);
     if (subscriptionId) {
       prefetched.invoiceSucceededSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+    }
+  }
+
+  if (event.type === 'invoice.payment_failed') {
+    const invoice = event.data.object as Stripe.Invoice;
+    const subscriptionId = getInvoiceSubscriptionId(invoice);
+    if (subscriptionId) {
+      prefetched.invoiceFailedSubscription = await stripe.subscriptions.retrieve(subscriptionId);
     }
   }
 

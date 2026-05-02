@@ -56,16 +56,12 @@
    - duplicate events are skipped through `StripeWebhookEvent`
 5. Validate plan resolution on dashboard after webhook updates.
 
-## Migration commands (do not run yet)
+## Deployment Strategy
 
-**Deployment strategy note:**
-- **TEST** uses `prisma db push` for rapid iteration in this branch/environment.
-- **STAGING/LIVE** should use `prisma migrate deploy` (not changed here).
+### TEST Environment
+Currently uses `npx prisma db push` in railway.json for rapid iteration.
+No changes made to deployment config - existing strategy maintained.
 
-```bash
-# Generate migration locally (already prepared manually in this branch)
-# npx prisma migrate dev --name add_stripe_subscription
-
-# Apply in deployment pipeline when approved
-# npx prisma migrate deploy
-```
+### STAGING/LIVE Environment
+Should use `npx prisma migrate deploy` for production safety.
+(Not modified in this implementation - out of scope for TEST-only changes)

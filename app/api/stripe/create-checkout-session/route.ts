@@ -46,16 +46,22 @@ export async function POST(request: Request) {
 
     const stripe = getStripeClient();
 
-    const successUrl = new URL('/dashboard?checkout=success', request.url).toString();
-    const cancelUrl = new URL('/dashboard?checkout=cancelled', request.url).toString();
+    const baseUrl = new URL(request.url).origin;
 
     const sessionParams: any = {
       mode: 'subscription',
-      line_items: [{ price: resolvedPriceId, quantity: 1 }],
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: resolvedPriceId,
+          quantity: 1,
+        },
+      ],
+      success_url: `${baseUrl}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/pricing?canceled=true`,
       client_reference_id: userId,
       metadata: {
         userId,
-        plan: mappedPlan,
       },
       subscription_data: {
         metadata: {
@@ -65,8 +71,6 @@ export async function POST(request: Request) {
       },
       customer: user.stripeCustomerId || undefined,
       customer_email: user.stripeCustomerId ? undefined : user.email,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
       allow_promotion_codes: true,
     };
 
