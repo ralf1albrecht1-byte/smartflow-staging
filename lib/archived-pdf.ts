@@ -32,32 +32,6 @@ import { generateInvoiceHtml } from '@/lib/pdf-templates';
 
 // ── Internal: generate PDF buffer via external HTML→PDF API ──────────────
 async function generatePdfBuffer(invoice: any, companySettings: any): Promise<Buffer> {
-  const safeUrl = (value: unknown): string | null => {
-    if (!value || typeof value !== 'string') return null;
-    try {
-      const u = new URL(value);
-      const key = (u.pathname || '').replace(/^\/+/, '');
-      const tail = key.length > 24 ? `…${key.slice(-24)}` : key;
-      return `${u.origin}/…/${tail}`;
-    } catch {
-      return '[non-url-value]';
-    }
-  };
-
-  // TEMP DIAGNOSTIC: trace safe/sanitized settings fields for archived invoice PDF generation path.
-  console.log('[TEMP DIAGNOSTIC][archived-pdf/generatePdfBuffer] companySettings before generateInvoiceHtml', {
-    invoiceId: invoice?.id,
-    status: invoice?.status,
-    letterheadUrlPresent: !!companySettings?.letterheadUrl,
-    letterheadUrlSafe: safeUrl(companySettings?.letterheadUrl),
-    letterheadVisible: companySettings?.letterheadVisible,
-    logoUrlPresent: !!companySettings?.logoUrl,
-    logoUrlSafe: safeUrl(companySettings?.logoUrl),
-    companyLogoPresent: !!companySettings?.companyLogo,
-    companyLogoSafe: safeUrl(companySettings?.companyLogo),
-    showLogo: companySettings?.showLogo,
-  });
-
   const html_content = generateInvoiceHtml(
     {
       ...invoice,

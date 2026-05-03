@@ -35,7 +35,33 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
     const [offer, companySettings] = await Promise.all([
       prisma.offer.findFirst({ where: { id: params?.id, userId }, include: { customer: true, items: true } }),
-      prisma.companySettings.findFirst({ where: { userId } }),
+      prisma.companySettings.findFirst({
+        where: { userId },
+        select: {
+          firmenname: true,
+          firmaRechtlich: true,
+          ansprechpartner: true,
+          telefon: true,
+          telefon2: true,
+          email: true,
+          supportEmail: true,
+          webseite: true,
+          strasse: true,
+          hausnummer: true,
+          plz: true,
+          ort: true,
+          iban: true,
+          bank: true,
+          mwstAktiv: true,
+          mwstNummer: true,
+          mwstSatz: true,
+          mwstHinweis: true,
+          documentTemplate: true,
+          letterheadUrl: true,
+          letterheadName: true,
+          letterheadVisible: true,
+        },
+      }),
     ]);
 
     if (!offer) {
@@ -64,32 +90,6 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     console.log(`[PDF-SECURITY] ${route} | OWNERSHIP_OK | userId=${userId} | docOwner=${offer.userId} | docId=${offer.id} | offerNumber=${offer.offerNumber} | ts=${ts}`);
-
-    const safeUrl = (value: unknown): string | null => {
-      if (!value || typeof value !== 'string') return null;
-      try {
-        const u = new URL(value);
-        const key = (u.pathname || '').replace(/^\/+/, '');
-        const tail = key.length > 24 ? `…${key.slice(-24)}` : key;
-        return `${u.origin}/…/${tail}`;
-      } catch {
-        return '[non-url-value]';
-      }
-    };
-
-    // TEMP DIAGNOSTIC: trace safe/sanitized settings fields passed into Angebot PDF generation.
-    console.log('[TEMP DIAGNOSTIC][offer-pdf-route] companySettings before generateOfferHtml', {
-      offerId: offer.id,
-      userId,
-      letterheadUrlPresent: !!(companySettings as any)?.letterheadUrl,
-      letterheadUrlSafe: safeUrl((companySettings as any)?.letterheadUrl),
-      letterheadVisible: (companySettings as any)?.letterheadVisible,
-      logoUrlPresent: !!(companySettings as any)?.logoUrl,
-      logoUrlSafe: safeUrl((companySettings as any)?.logoUrl),
-      companyLogoPresent: !!(companySettings as any)?.companyLogo,
-      companyLogoSafe: safeUrl((companySettings as any)?.companyLogo),
-      showLogo: (companySettings as any)?.showLogo,
-    });
 
     const html_content = generateOfferHtml({
       ...offer,

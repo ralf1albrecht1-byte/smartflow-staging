@@ -262,100 +262,36 @@ function buildItemsRows(items: any[]): string {
     </tr>
   `).join('');
 }
-function safeDiagUrl(value: unknown): string | null {
-  if (!value || typeof value !== 'string') return null;
-  try {
-    const u = new URL(value);
-    const key = (u.pathname || '').replace(/^\/+/, '');
-    const tail = key.length > 24 ? `…${key.slice(-24)}` : key;
-    return `${u.origin}/…/${tail}`;
-  } catch {
-    return '[non-url-value]';
-  }
-}
-
 function resolveLetterheadUrl(c: CompanyInfo): string | null {
-  const resolved = c.letterheadUrl || c.logoUrl || c.companyLogo || c.companyLogoUrl || null;
-  // TEMP DIAGNOSTIC: trace URL resolution from canonical + legacy aliases (sanitized).
-  console.log('[TEMP DIAGNOSTIC][pdf-templates/resolveLetterheadUrl]', {
-    letterheadUrlPresent: !!c?.letterheadUrl,
-    letterheadUrlSafe: safeDiagUrl(c?.letterheadUrl),
-    logoUrlPresent: !!c?.logoUrl,
-    logoUrlSafe: safeDiagUrl(c?.logoUrl),
-    companyLogoPresent: !!c?.companyLogo,
-    companyLogoSafe: safeDiagUrl(c?.companyLogo),
-    companyLogoUrlPresent: !!c?.companyLogoUrl,
-    companyLogoUrlSafe: safeDiagUrl(c?.companyLogoUrl),
-    resolvedPresent: !!resolved,
-    resolvedSafe: safeDiagUrl(resolved),
-  });
-  return resolved;
+  return c.letterheadUrl || c.logoUrl || c.companyLogo || c.companyLogoUrl || null;
 }
 
 function resolveLetterheadVisible(c: CompanyInfo): boolean {
-  let resolved: boolean;
   if (c.letterheadVisible !== undefined && c.letterheadVisible !== null) {
-    resolved = c.letterheadVisible !== false;
-  } else if (c.logoVisible !== undefined && c.logoVisible !== null) {
-    resolved = c.logoVisible !== false;
-  } else if (c.showLogo !== undefined && c.showLogo !== null) {
-    resolved = c.showLogo !== false;
-  } else {
-    resolved = true;
+    return c.letterheadVisible !== false;
   }
-
-  // TEMP DIAGNOSTIC: trace visibility resolution from canonical + legacy aliases.
-  console.log('[TEMP DIAGNOSTIC][pdf-templates/resolveLetterheadVisible]', {
-    letterheadVisible: c?.letterheadVisible,
-    logoVisible: c?.logoVisible,
-    showLogo: c?.showLogo,
-    resolved,
-  });
-
-  return resolved;
+  if (c.logoVisible !== undefined && c.logoVisible !== null) {
+    return c.logoVisible !== false;
+  }
+  if (c.showLogo !== undefined && c.showLogo !== null) {
+    return c.showLogo !== false;
+  }
+  return true;
 }
 
 function letterheadVisible(c: CompanyInfo): boolean {
-  // Sicherheit / Byte-Identität: Fehlt die URL → unsichtbar.
-  // Explizit auf false gesetzter Toggle → unsichtbar.
-  // Legacy-Toggle aliases bleiben kompatibel.
   const resolvedUrl = resolveLetterheadUrl(c);
   const resolvedVisible = resolveLetterheadVisible(c);
-  const show = !!resolvedUrl && resolvedVisible;
-  // TEMP DIAGNOSTIC: final visibility gate used by all template renderers (sanitized).
-  console.log('[TEMP DIAGNOSTIC][pdf-templates/letterheadVisible]', {
-    resolvedUrlPresent: !!resolvedUrl,
-    resolvedUrlSafe: safeDiagUrl(resolvedUrl),
-    resolvedVisible,
-    show,
-    documentTemplate: c?.documentTemplate,
-  });
-  return show;
+  return !!resolvedUrl && resolvedVisible;
 }
 function letterheadImg(c: CompanyInfo, size: 'sm' | 'md' | 'lg' = 'md'): string {
   const url = resolveLetterheadUrl(c);
   const show = letterheadVisible(c);
   if (!url || !show) {
-    // TEMP DIAGNOSTIC: image tag not emitted for logo.
-    console.log('[TEMP DIAGNOSTIC][pdf-templates/letterheadImg] skipped', {
-      urlPresent: !!url,
-      urlSafe: safeDiagUrl(url),
-      show,
-      size,
-    });
     return '';
   }
   const h = size === 'sm' ? '42px' : size === 'lg' ? '80px' : '60px';
-  const html = `<img src="${url}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:220px;object-fit:contain;" />`;
-  // TEMP DIAGNOSTIC: image tag emitted for logo.
-  console.log('[TEMP DIAGNOSTIC][pdf-templates/letterheadImg] emitted', {
-    urlPresent: !!url,
-    urlSafe: safeDiagUrl(url),
-    show,
-    size,
-    height: h,
-  });
-  return html;
+  return `<img src="${url}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:220px;object-fit:contain;" />`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -741,21 +677,8 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
 // ──────────────────────────────────────────────────────────────────────────────
 
 export function generateInvoiceHtml(invoice: any, company?: CompanyInfo | null): string {
-  const c = company?.firmenname ? company : DEFAULT_COMPANY;
+  const c = company ?? DEFAULT_COMPANY;
   const tpl = pickTemplate(c);
-  // TEMP DIAGNOSTIC: trace safe/sanitized settings fields that reach invoice PDF renderer.
-  console.log('[TEMP DIAGNOSTIC][pdf-templates/generateInvoiceHtml] input', {
-    usedDefaultCompany: c === DEFAULT_COMPANY,
-    template: tpl,
-    letterheadUrlPresent: !!(c as any)?.letterheadUrl,
-    letterheadUrlSafe: safeDiagUrl((c as any)?.letterheadUrl),
-    letterheadVisible: (c as any)?.letterheadVisible,
-    logoUrlPresent: !!(c as any)?.logoUrl,
-    logoUrlSafe: safeDiagUrl((c as any)?.logoUrl),
-    companyLogoPresent: !!(c as any)?.companyLogo,
-    companyLogoSafe: safeDiagUrl((c as any)?.companyLogo),
-    showLogo: (c as any)?.showLogo,
-  });
   switch (tpl) {
     case 'modern':  return renderModernInvoice(invoice, c);
     case 'minimal': return renderMinimalInvoice(invoice, c);
@@ -766,21 +689,8 @@ export function generateInvoiceHtml(invoice: any, company?: CompanyInfo | null):
 }
 
 export function generateOfferHtml(offer: any, company?: CompanyInfo | null): string {
-  const c = company?.firmenname ? company : DEFAULT_COMPANY;
+  const c = company ?? DEFAULT_COMPANY;
   const tpl = pickTemplate(c);
-  // TEMP DIAGNOSTIC: trace safe/sanitized settings fields that reach offer PDF renderer.
-  console.log('[TEMP DIAGNOSTIC][pdf-templates/generateOfferHtml] input', {
-    usedDefaultCompany: c === DEFAULT_COMPANY,
-    template: tpl,
-    letterheadUrlPresent: !!(c as any)?.letterheadUrl,
-    letterheadUrlSafe: safeDiagUrl((c as any)?.letterheadUrl),
-    letterheadVisible: (c as any)?.letterheadVisible,
-    logoUrlPresent: !!(c as any)?.logoUrl,
-    logoUrlSafe: safeDiagUrl((c as any)?.logoUrl),
-    companyLogoPresent: !!(c as any)?.companyLogo,
-    companyLogoSafe: safeDiagUrl((c as any)?.companyLogo),
-    showLogo: (c as any)?.showLogo,
-  });
   switch (tpl) {
     case 'modern':  return renderModernOffer(offer, c);
     case 'minimal': return renderMinimalOffer(offer, c);

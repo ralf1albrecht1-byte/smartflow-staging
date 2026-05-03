@@ -22,33 +22,6 @@ export async function GET() {
     const envLabel = getEnvLabel();
     const whatsappEnabled = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
 
-    // TEMP DIAGNOSTIC: Trace safe/sanitized logo-related payload returned by GET /api/settings.
-    const diagSafeUrl = (value: unknown): string | null => {
-      if (!value || typeof value !== 'string') return null;
-      try {
-        const u = new URL(value);
-        const key = (u.pathname || '').replace(/^\/+/, '');
-        const tail = key.length > 24 ? `…${key.slice(-24)}` : key;
-        return `${u.origin}/…/${tail}`;
-      } catch {
-        // Do not print raw non-URL values (could contain internal paths/keys).
-        return '[non-url-value]';
-      }
-    };
-
-    console.log('[TEMP DIAGNOSTIC][GET /api/settings] sanitized logo fields', {
-      userId,
-      settingsId: settings?.id,
-      letterheadUrlPresent: !!(settings as any)?.letterheadUrl,
-      letterheadUrlSafe: diagSafeUrl((settings as any)?.letterheadUrl),
-      letterheadVisible: (settings as any)?.letterheadVisible,
-      logoUrlPresent: !!(settings as any)?.logoUrl,
-      logoUrlSafe: diagSafeUrl((settings as any)?.logoUrl),
-      companyLogoPresent: !!(settings as any)?.companyLogo,
-      companyLogoSafe: diagSafeUrl((settings as any)?.companyLogo),
-      showLogo: (settings as any)?.showLogo,
-    });
-
     return NextResponse.json({ ...settings, envLabel, whatsappEnabled });
   } catch (error) {
     console.error('GET /api/settings error:', error);

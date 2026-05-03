@@ -347,7 +347,7 @@ export default function EinstellungenPage() {
 
   async function loadSettings() {
     try {
-      const res = await fetch('/api/settings');
+      const res = await fetch('/api/settings', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         const mapped: CompanyData = mapSettingsData(data);
@@ -417,30 +417,6 @@ export default function EinstellungenPage() {
   }
 
   function mapSettingsData(data: any): CompanyData {
-    const safeUrl = (value: unknown): string | null => {
-      if (!value || typeof value !== 'string') return null;
-      try {
-        const u = new URL(value);
-        const key = (u.pathname || '').replace(/^\/+/, '');
-        const tail = key.length > 24 ? `…${key.slice(-24)}` : key;
-        return `${u.origin}/…/${tail}`;
-      } catch {
-        return '[non-url-value]';
-      }
-    };
-
-    // TEMP DIAGNOSTIC: trace incoming API payload before canonical mapping (sanitized).
-    console.log('[TEMP DIAGNOSTIC][einstellungen/mapSettingsData] input', {
-      letterheadUrlPresent: !!data?.letterheadUrl,
-      letterheadUrlSafe: safeUrl(data?.letterheadUrl),
-      letterheadVisible: data?.letterheadVisible,
-      logoUrlPresent: !!data?.logoUrl,
-      logoUrlSafe: safeUrl(data?.logoUrl),
-      companyLogoPresent: !!data?.companyLogo,
-      companyLogoSafe: safeUrl(data?.companyLogo),
-      showLogo: data?.showLogo,
-    });
-
     const mapped: CompanyData = {
       firmenname: data.firmenname || '',
       firmaRechtlich: data.firmaRechtlich || null,
@@ -474,16 +450,6 @@ export default function EinstellungenPage() {
             ? data.logoVisible !== false
             : data.showLogo !== false,
     };
-
-    // TEMP DIAGNOSTIC: trace mapped values used by settings UI + preview (sanitized).
-    console.log('[TEMP DIAGNOSTIC][einstellungen/mapSettingsData] output', {
-      letterheadUrlPresent: !!mapped.letterheadUrl,
-      letterheadUrlSafe: safeUrl(mapped.letterheadUrl),
-      letterheadVisible: mapped.letterheadVisible,
-      logoUrlPresent: !!data?.logoUrl,
-      companyLogoPresent: !!data?.companyLogo,
-      showLogo: data?.showLogo,
-    });
 
     return mapped;
   }
@@ -1139,30 +1105,6 @@ export default function EinstellungenPage() {
                 const showLogo = !!form.letterheadUrl && form.letterheadVisible;
                 const addrLine = [form.strasse, form.hausnummer].filter(Boolean).join(' ');
                 const plzLine = [form.plz, form.ort].filter(Boolean).join(' ');
-
-                const safeUrl = (value: unknown): string | null => {
-                  if (!value || typeof value !== 'string') return null;
-                  try {
-                    const u = new URL(value);
-                    const key = (u.pathname || '').replace(/^\/+/, '');
-                    const tail = key.length > 24 ? `…${key.slice(-24)}` : key;
-                    return `${u.origin}/…/${tail}`;
-                  } catch {
-                    return '[non-url-value]';
-                  }
-                };
-
-                // TEMP DIAGNOSTIC: trace runtime object received by Dokument-Vorschau rendering block (sanitized).
-                console.log('[TEMP DIAGNOSTIC][Dokument-Vorschau] rendering with settings', {
-                  letterheadUrlPresent: !!form.letterheadUrl,
-                  letterheadUrlSafe: safeUrl(form.letterheadUrl),
-                  letterheadVisible: form.letterheadVisible,
-                  logoUrlPresent: !!(form as any)?.logoUrl,
-                  companyLogoPresent: !!(form as any)?.companyLogo,
-                  showLogoLegacy: (form as any)?.showLogo,
-                  computedShowLogo: showLogo,
-                  documentTemplate: form.documentTemplate,
-                });
 
                 return (
                   <div className="flex justify-center bg-muted/30 rounded-md p-4">
