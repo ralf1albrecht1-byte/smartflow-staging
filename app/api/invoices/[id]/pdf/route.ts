@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateInvoiceHtml } from '@/lib/pdf-templates';
+import { toImageDataUrl } from '@/lib/pdf-image-data-url';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { getOrCreateArchivedPdf } from '@/lib/archived-pdf';
 import { logAuditAsync, EVENTS, AREAS } from '@/lib/audit';
@@ -129,13 +130,22 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     // ── Non-archived invoices only: live generation ──
+    const invoiceCompanySettings = companySettings
+      ? { ...companySettings }
+      : companySettings;
+
+    if (invoiceCompanySettings?.letterheadVisible === true && invoiceCompanySettings?.letterheadUrl) {
+      const letterheadDataUrl = await toImageDataUrl(invoiceCompanySettings.letterheadUrl);
+      invoiceCompanySettings.letterheadUrl = letterheadDataUrl;
+    }
+
     const html_content = generateInvoiceHtml({
       ...invoice,
       subtotal: Number(invoice?.subtotal ?? 0),
       vatAmount: Number(invoice?.vatAmount ?? 0),
       total: Number(invoice?.total ?? 0),
       items: invoice?.items?.map((i: any) => ({ ...i, quantity: Number(i?.quantity ?? 0), unitPrice: Number(i?.unitPrice ?? 0), totalPrice: Number(i?.totalPrice ?? 0) })),
-    }, companySettings);
+    }, invoiceCompanySettings);
 
     const createResponse = await fetch('https://apps.abacus.ai/api/createConvertHtmlToPdfRequest', {
       method: 'POST',

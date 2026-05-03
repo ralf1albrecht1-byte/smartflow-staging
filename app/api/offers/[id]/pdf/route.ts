@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateOfferHtml } from '@/lib/pdf-templates';
+import { toImageDataUrl } from '@/lib/pdf-image-data-url';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync, EVENTS, AREAS } from '@/lib/audit';
 
@@ -91,13 +92,22 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
     console.log(`[PDF-SECURITY] ${route} | OWNERSHIP_OK | userId=${userId} | docOwner=${offer.userId} | docId=${offer.id} | offerNumber=${offer.offerNumber} | ts=${ts}`);
 
+    const offerCompanySettings = companySettings
+      ? { ...companySettings }
+      : companySettings;
+
+    if (offerCompanySettings?.letterheadVisible === true && offerCompanySettings?.letterheadUrl) {
+      const letterheadDataUrl = await toImageDataUrl(offerCompanySettings.letterheadUrl);
+      offerCompanySettings.letterheadUrl = letterheadDataUrl;
+    }
+
     const html_content = generateOfferHtml({
       ...offer,
       subtotal: Number(offer?.subtotal ?? 0),
       vatAmount: Number(offer?.vatAmount ?? 0),
       total: Number(offer?.total ?? 0),
       items: offer?.items?.map((i: any) => ({ ...i, quantity: Number(i?.quantity ?? 0), unitPrice: Number(i?.unitPrice ?? 0), totalPrice: Number(i?.totalPrice ?? 0) })),
-    }, companySettings);
+    }, offerCompanySettings);
 
     const createResponse = await fetch('https://apps.abacus.ai/api/createConvertHtmlToPdfRequest', {
       method: 'POST',
