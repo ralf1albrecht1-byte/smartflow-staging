@@ -651,7 +651,7 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
 // ──────────────────────────────────────────────────────────────────────────────
 
 export function generateInvoiceHtml(invoice: any, company?: CompanyInfo | null): string {
-  const c = company?.firmenname ? company : DEFAULT_COMPANY;
+  const c = company ?? DEFAULT_COMPANY;
   const tpl = pickTemplate(c);
   switch (tpl) {
     case 'modern':  return renderModernInvoice(invoice, c);
@@ -663,7 +663,7 @@ export function generateInvoiceHtml(invoice: any, company?: CompanyInfo | null):
 }
 
 export function generateOfferHtml(offer: any, company?: CompanyInfo | null): string {
-  const c = company?.firmenname ? company : DEFAULT_COMPANY;
+  const c = company ?? DEFAULT_COMPANY;
   const tpl = pickTemplate(c);
   switch (tpl) {
     case 'modern':  return renderModernOffer(offer, c);
