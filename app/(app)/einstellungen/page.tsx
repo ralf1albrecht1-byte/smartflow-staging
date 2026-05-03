@@ -1102,7 +1102,8 @@ export default function EinstellungenPage() {
               </p>
               {(() => {
                 const selectedTemplate = TEMPLATES.find(t => t.key === form.documentTemplate) || TEMPLATES[0];
-                const showLogo = !!form.letterheadUrl && form.letterheadVisible;
+                const normalizedLetterheadUrl = typeof form.letterheadUrl === 'string' ? form.letterheadUrl.trim() : '';
+                const showLetterheadInPreview = form.letterheadVisible === true && normalizedLetterheadUrl.length > 0;
                 const addrLine = [form.strasse, form.hausnummer].filter(Boolean).join(' ');
                 const plzLine = [form.plz, form.ort].filter(Boolean).join(' ');
 
@@ -1123,22 +1124,26 @@ export default function EinstellungenPage() {
                           <p className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: selectedTemplate.swatch }}>Angebot</p>
                           <p className="text-[7px] text-gray-500">ANG-2026-001</p>
                         </div>
-                        {showLogo ? (
-                          <img
-                            src={form.letterheadUrl!}
-                            alt="Logo Vorschau"
-                            className="max-h-8 max-w-[70px] object-contain"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                          />
+                        {showLetterheadInPreview ? (
+                          <div className="h-8 w-[72px] rounded border border-gray-200 bg-white/95 p-1 flex items-center justify-center">
+                            <img
+                              src={normalizedLetterheadUrl}
+                              alt="Logo Vorschau"
+                              className="h-full w-full object-contain"
+                            />
+                          </div>
                         ) : (
-                          <p className="text-[9px] font-bold text-gray-800 text-right truncate max-w-[100px]">
-                            {form.firmenname || 'Firmenname'}
-                          </p>
+                          <div className="flex flex-col items-end gap-1 text-right">
+                            <div className="h-5 w-14 rounded bg-gray-200/90" />
+                            <p className="text-[8px] text-gray-500 max-w-[110px] truncate">
+                              {form.firmenname || 'Logo / Briefpapier'}
+                            </p>
+                          </div>
                         )}
                       </div>
                       {/* Company address block */}
                       <div className="px-4 text-[6px] leading-tight text-gray-600">
-                        {!showLogo && (form.firmenname || addrLine || plzLine) && (
+                        {!showLetterheadInPreview && (form.firmenname || addrLine || plzLine) && (
                           <p className="font-semibold text-gray-800">{form.firmenname}</p>
                         )}
                         {addrLine && <p>{addrLine}</p>}
