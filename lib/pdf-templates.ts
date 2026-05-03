@@ -92,7 +92,7 @@ function buildClassicCompanyBlock(c: CompanyInfo): string {
   return `
   <div class="company">
     ${showLogo
-      ? `<div style="margin-bottom:6px;">${letterheadImg(c, 'md')}</div>`
+      ? `<div style="margin-bottom:6px;">${letterheadImg(c, 'lg')}</div>`
       : `<div class="company-name">${c.firmenname || ''}</div>`
     }
     ${c.ansprechpartner ? `<div>${c.ansprechpartner}</div>` : ''}
@@ -290,7 +290,7 @@ function letterheadImg(c: CompanyInfo, size: 'sm' | 'md' | 'lg' = 'md'): string 
   if (!url || !show) {
     return '';
   }
-  const h = size === 'sm' ? '42px' : size === 'lg' ? '80px' : '60px';
+  const h = size === 'sm' ? '50px' : size === 'lg' ? '120px' : '80px';
   return `<img src="${url}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:220px;object-fit:contain;" />`;
 }
 
