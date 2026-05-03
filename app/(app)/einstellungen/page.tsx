@@ -1098,37 +1098,46 @@ export default function EinstellungenPage() {
                 <h4 className="text-sm font-semibold">Dokument-Vorschau</h4>
               </div>
               <p className="text-xs text-muted-foreground mb-3">
-                Visuelle Vorschau des Briefkopfs. Aktualisiert sich live bei Änderungen an Vorlage, Logo und Sichtbarkeit.
-              </p>
-              {(() => {
-                const selectedTemplate = TEMPLATES.find(t => t.key === form.documentTemplate) || TEMPLATES[0];
-<<<<<<< HEAD
-                const previewLogoUrl = form.letterheadUrl?.trim() || '';
-const showLogo = form.letterheadVisible === true && previewLogoUrl.length > 0;
-=======
-                const normalizedLetterheadUrl = typeof form.letterheadUrl === 'string' ? form.letterheadUrl.trim() : '';
-                const showLetterheadInPreview = form.letterheadVisible === true && normalizedLetterheadUrl.length > 0;
->>>>>>> 09a616fdf98cca9d849295a03a1474eb2d257622
-                const addrLine = [form.strasse, form.hausnummer].filter(Boolean).join(' ');
-                const plzLine = [form.plz, form.ort].filter(Boolean).join(' ');
+                Visuelle Vorschau des Briefkopfs. Aktualisiert sich live bei Änderungen an Vorlage, </p>{(() => {
+  const selectedTemplate =
+    TEMPLATES.find((t) => t.key === form.documentTemplate) || TEMPLATES[0];
 
-                return (
-                  <div className="flex justify-center bg-muted/30 rounded-md p-4">
-                    <div
-                      className="relative bg-white shadow-md rounded-sm overflow-hidden"
-                      style={{ width: '260px', aspectRatio: '210 / 297' }}
-                    >
-                      {/* Template accent bar */}
-                      <div
-                        className="absolute top-0 left-0 right-0"
-                        style={{ height: '6px', background: selectedTemplate.swatch }}
-                      />
-                      {/* Header area */}
-                      <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: selectedTemplate.swatch }}>Angebot</p>
-                          <p className="text-[7px] text-gray-500">ANG-2026-001</p>
-                        </div>
+  const previewLogoUrl = String(
+    form.letterheadUrl ||
+      (form as any).logoUrl ||
+      (form as any).companyLogoUrl ||
+      ''
+  ).trim();
+
+  const showLogo =
+    form.letterheadVisible === true && previewLogoUrl.length > 0;
+
+  const addrLine = [form.strasse, form.hausnummer].filter(Boolean).join(' ');
+  const plzLine = [form.plz, form.ort].filter(Boolean).join(' ');
+
+  return (
+    <div className="flex justify-center bg-muted/30 rounded-md p-4">
+      <div
+        className="relative bg-white shadow-md rounded-sm overflow-hidden"
+        style={{ width: '260px', aspectRatio: '210 / 297' }}
+      >
+        {/* Template accent bar */}
+        <div
+          className="absolute top-0 left-0 right-0"
+          style={{ height: '6px', background: selectedTemplate.swatch }}
+        />
+
+        {/* Header area */}
+        <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p
+              className="text-[9px] font-semibold uppercase tracking-wide"
+              style={{ color: selectedTemplate.swatch }}
+            >
+              Angebot
+            </p>
+            <p className="text-[7px] text-gray-500">ANG-2026-001</p>
+          </div>
 
 {showLogo ? (
   <img
