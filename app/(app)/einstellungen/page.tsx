@@ -1102,7 +1102,8 @@ export default function EinstellungenPage() {
               </p>
               {(() => {
                 const selectedTemplate = TEMPLATES.find(t => t.key === form.documentTemplate) || TEMPLATES[0];
-                const showLogo = !!form.letterheadUrl && form.letterheadVisible;
+                const previewLogoUrl = form.letterheadUrl?.trim() || '';
+const showLogo = form.letterheadVisible === true && previewLogoUrl.length > 0;
                 const addrLine = [form.strasse, form.hausnummer].filter(Boolean).join(' ');
                 const plzLine = [form.plz, form.ort].filter(Boolean).join(' ');
 
@@ -1125,11 +1126,10 @@ export default function EinstellungenPage() {
                         </div>
                         {showLogo ? (
                           <img
-                            src={form.letterheadUrl!}
+                            src={previewLogoUrl}
                             alt="Logo Vorschau"
                             className="max-h-8 max-w-[70px] object-contain"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                          />
+                                                      />
                         ) : (
                           <p className="text-[9px] font-bold text-gray-800 text-right truncate max-w-[100px]">
                             {form.firmenname || 'Firmenname'}
