@@ -42,9 +42,39 @@ export async function PUT(request: Request) {
       // New fields for document template + letterhead (Settings/Templates/Import paket)
       documentTemplate: rawDocumentTemplate, letterheadUrl: rawLetterheadUrl, letterheadName: rawLetterheadName,
       letterheadVisible: rawLetterheadVisible,
+      // Legacy aliases kept for backward compatibility (old clients)
+      logoUrl: rawLogoUrl, companyLogo: rawCompanyLogo, companyLogoUrl: rawCompanyLogoUrl,
+      logoVisible: rawLogoVisible, showLogo: rawShowLogo,
       // WhatsApp intake number
       whatsappIntakeNumber: rawWhatsappIntakeNumber,
     } = body;
+
+    const letterheadUrlProvided =
+      rawLetterheadUrl !== undefined ||
+      rawLogoUrl !== undefined ||
+      rawCompanyLogo !== undefined ||
+      rawCompanyLogoUrl !== undefined;
+
+    const resolvedRawLetterheadUrl =
+      rawLetterheadUrl !== undefined
+        ? rawLetterheadUrl
+        : rawLogoUrl !== undefined
+          ? rawLogoUrl
+          : rawCompanyLogo !== undefined
+            ? rawCompanyLogo
+            : rawCompanyLogoUrl;
+
+    const letterheadVisibleProvided =
+      rawLetterheadVisible !== undefined ||
+      rawLogoVisible !== undefined ||
+      rawShowLogo !== undefined;
+
+    const resolvedRawLetterheadVisible =
+      rawLetterheadVisible !== undefined
+        ? rawLetterheadVisible
+        : rawLogoVisible !== undefined
+          ? rawLogoVisible
+          : rawShowLogo;
 
     // Whitelist document template values. Fallback to 'classic' (byte-identical to pre-template behaviour).
     const ALLOWED_TEMPLATES = ['classic', 'modern', 'minimal', 'elegant'] as const;
@@ -186,8 +216,8 @@ export async function PUT(request: Request) {
     // Only touch template/letterhead fields when the caller provided them — legacy rows
     // must not lose their template selection on partial updates.
     if (documentTemplate !== undefined) settingsData.documentTemplate = documentTemplate;
-    if (rawLetterheadUrl !== undefined) {
-      const normalizedLetterhead = rawLetterheadUrl ? String(rawLetterheadUrl).trim() : '';
+    if (letterheadUrlProvided) {
+      const normalizedLetterhead = resolvedRawLetterheadUrl ? String(resolvedRawLetterheadUrl).trim() : '';
       if (!normalizedLetterhead) {
         settingsData.letterheadUrl = null;
       } else if (/^https?:\/\//i.test(normalizedLetterhead)) {
@@ -202,7 +232,7 @@ export async function PUT(request: Request) {
       }
     }
     if (rawLetterheadName !== undefined) settingsData.letterheadName = rawLetterheadName ? String(rawLetterheadName) : null;
-    if (rawLetterheadVisible !== undefined) settingsData.letterheadVisible = !!rawLetterheadVisible;
+    if (letterheadVisibleProvided) settingsData.letterheadVisible = !!resolvedRawLetterheadVisible;
 
     // WhatsApp intake number — already normalized above in step 2
     if (whatsappProvided) settingsData.whatsappIntakeNumber = normalizedWhatsapp;

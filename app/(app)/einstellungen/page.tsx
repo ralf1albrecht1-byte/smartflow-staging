@@ -441,9 +441,14 @@ export default function EinstellungenPage() {
       hauptsprache: data.hauptsprache || 'Deutsch',
       documentTemplate: data.documentTemplate || 'classic',
       whatsappIntakeNumber: data.whatsappIntakeNumber || null,
-      letterheadUrl: data.letterheadUrl || null,
+      letterheadUrl: data.letterheadUrl || data.logoUrl || data.companyLogo || data.companyLogoUrl || null,
       letterheadName: data.letterheadName || null,
-      letterheadVisible: data.letterheadVisible !== false,
+      letterheadVisible:
+        data.letterheadVisible !== undefined
+          ? data.letterheadVisible !== false
+          : data.logoVisible !== undefined
+            ? data.logoVisible !== false
+            : data.showLogo !== false,
     };
   }
 

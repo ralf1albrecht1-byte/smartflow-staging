@@ -23,6 +23,12 @@ export interface CompanyInfo {
   letterheadUrl?: string | null;
   letterheadName?: string | null;
   letterheadVisible?: boolean | null;
+  // Legacy aliases from older clients/settings payloads.
+  logoUrl?: string | null;
+  companyLogo?: string | null;
+  companyLogoUrl?: string | null;
+  logoVisible?: boolean | null;
+  showLogo?: boolean | null;
 }
 
 const DEFAULT_COMPANY: CompanyInfo = {
@@ -256,16 +262,28 @@ function buildItemsRows(items: any[]): string {
     </tr>
   `).join('');
 }
+function resolveLetterheadUrl(c: CompanyInfo): string | null {
+  return c.letterheadUrl || c.logoUrl || c.companyLogo || c.companyLogoUrl || null;
+}
+
+function resolveLetterheadVisible(c: CompanyInfo): boolean {
+  if (c.letterheadVisible !== undefined && c.letterheadVisible !== null) return c.letterheadVisible !== false;
+  if (c.logoVisible !== undefined && c.logoVisible !== null) return c.logoVisible !== false;
+  if (c.showLogo !== undefined && c.showLogo !== null) return c.showLogo !== false;
+  return true;
+}
+
 function letterheadVisible(c: CompanyInfo): boolean {
   // Sicherheit / Byte-Identität: Fehlt die URL → unsichtbar.
   // Explizit auf false gesetzter Toggle → unsichtbar.
-  // Alles andere (undefined/null/true) → sichtbar (kompatibel mit Altdaten).
-  return !!c.letterheadUrl && c.letterheadVisible !== false;
+  // Legacy-Toggle aliases bleiben kompatibel.
+  return !!resolveLetterheadUrl(c) && resolveLetterheadVisible(c);
 }
 function letterheadImg(c: CompanyInfo, size: 'sm' | 'md' | 'lg' = 'md'): string {
-  if (!letterheadVisible(c)) return '';
+  const url = resolveLetterheadUrl(c);
+  if (!url || !letterheadVisible(c)) return '';
   const h = size === 'sm' ? '42px' : size === 'lg' ? '80px' : '60px';
-  return `<img src="${c.letterheadUrl}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:220px;object-fit:contain;" />`;
+  return `<img src="${url}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:220px;object-fit:contain;" />`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
