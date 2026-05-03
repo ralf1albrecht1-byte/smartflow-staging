@@ -185,7 +185,21 @@ export async function PUT(request: Request) {
     // Only touch template/letterhead fields when the caller provided them — legacy rows
     // must not lose their template selection on partial updates.
     if (documentTemplate !== undefined) settingsData.documentTemplate = documentTemplate;
-    if (rawLetterheadUrl !== undefined) settingsData.letterheadUrl = rawLetterheadUrl ? String(rawLetterheadUrl) : null;
+    if (rawLetterheadUrl !== undefined) {
+      const normalizedLetterhead = rawLetterheadUrl ? String(rawLetterheadUrl).trim() : '';
+      if (!normalizedLetterhead) {
+        settingsData.letterheadUrl = null;
+      } else if (/^https?:\/\//i.test(normalizedLetterhead)) {
+        settingsData.letterheadUrl = normalizedLetterhead;
+      } else {
+        // Backward compatibility: some legacy rows stored cloud_storage_path instead of a URL.
+        const region = process.env.AWS_REGION || 'us-east-1';
+        const bucket = process.env.AWS_BUCKET_NAME || '';
+        settingsData.letterheadUrl = bucket
+          ? `https://${bucket}.s3.${region}.amazonaws.com/${normalizedLetterhead.replace(/^\/+/, '')}`
+          : normalizedLetterhead;
+      }
+    }
     if (rawLetterheadName !== undefined) settingsData.letterheadName = rawLetterheadName ? String(rawLetterheadName) : null;
     if (rawLetterheadVisible !== undefined) settingsData.letterheadVisible = !!rawLetterheadVisible;
 

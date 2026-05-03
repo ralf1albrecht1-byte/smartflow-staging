@@ -478,14 +478,15 @@ export default function EinstellungenPage() {
         body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: true }),
       });
       if (!signRes.ok) throw new Error('presign failed');
-      const { uploadUrl, cloud_storage_path, publicUrl } = await signRes.json();
+      const { uploadUrl, publicUrl } = await signRes.json();
 
-      const putHeaders: Record<string, string> = { 'Content-Type': file.type, 'Content-Disposition': 'attachment' };
+      const putHeaders: Record<string, string> = { 'Content-Type': file.type };
       const putRes = await fetch(uploadUrl, { method: 'PUT', headers: putHeaders, body: file });
-      if (!putRes.ok) throw new Error('upload failed');
+      if (!putRes.ok) throw new Error(`upload failed (${putRes.status})`);
 
       // Must be a public URL so the PDF engine's <img src=…> can resolve it.
-      const storedValue = publicUrl || cloud_storage_path;
+      if (!publicUrl) throw new Error('public URL missing for letterhead upload');
+      const storedValue = publicUrl;
 
       updateField('letterheadUrl', storedValue);
       updateField('letterheadName', file.name);

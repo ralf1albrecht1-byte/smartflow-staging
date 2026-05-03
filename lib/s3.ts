@@ -42,7 +42,6 @@ export async function generatePresignedUploadUrl(
     Bucket: bucketName,
     Key: cloud_storage_path,
     ContentType: contentType,
-    ContentDisposition: isPublic ? `attachment; filename="${fileName}"` : undefined,
   });
 
   const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
