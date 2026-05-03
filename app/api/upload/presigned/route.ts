@@ -5,6 +5,12 @@ import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-s
 import { logAuditAsync } from '@/lib/audit';
 
 export async function POST(request: Request) {
+  console.log(`[AWS Config Check] AWS_ACCESS_KEY_ID: ${!!process.env.AWS_ACCESS_KEY_ID}`);
+  console.log(`[AWS Config Check] AWS_SECRET_ACCESS_KEY: ${!!process.env.AWS_SECRET_ACCESS_KEY}`);
+  console.log(`[AWS Config Check] AWS_REGION: ${!!process.env.AWS_REGION}`);
+  console.log(`[AWS Config Check] AWS_BUCKET_NAME: ${!!process.env.AWS_BUCKET_NAME}`);
+  console.log(`[AWS Config Check] AWS_S3_BUCKET: ${!!process.env.AWS_S3_BUCKET}`);
+
   try {
     try { await requireUserId(); } catch { return unauthorizedResponse(); }
     const { fileName, contentType, isPublic } = await request.json();
@@ -25,7 +31,9 @@ export async function POST(request: Request) {
     logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'FILE_UPLOAD', area: 'UPLOAD', details: { fileName, contentType }, request });
     return NextResponse.json({ ...result, publicUrl });
   } catch (error: any) {
-    console.error('Presigned URL error:', error);
+    const errorName = error?.name ?? 'UnknownError';
+    const errorMessage = error?.message ?? 'No error message';
+    console.error(`[Presigned URL error] name: ${errorName}, message: ${errorMessage}`);
     return NextResponse.json({ error: 'Failed to generate upload URL' }, { status: 500 });
   }
 }
