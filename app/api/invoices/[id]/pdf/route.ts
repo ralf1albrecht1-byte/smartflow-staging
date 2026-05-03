@@ -103,6 +103,33 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     // ── Non-archived invoices only: live generation ──
+    const safeUrl = (value: unknown): string | null => {
+      if (!value || typeof value !== 'string') return null;
+      try {
+        const u = new URL(value);
+        const key = (u.pathname || '').replace(/^\/+/, '');
+        const tail = key.length > 24 ? `…${key.slice(-24)}` : key;
+        return `${u.origin}/…/${tail}`;
+      } catch {
+        return '[non-url-value]';
+      }
+    };
+
+    // TEMP DIAGNOSTIC: trace safe/sanitized settings fields passed into Rechnung PDF generation (live).
+    console.log('[TEMP DIAGNOSTIC][invoice-pdf-route/live] companySettings before generateInvoiceHtml', {
+      invoiceId: invoice.id,
+      userId,
+      status: invoice.status,
+      letterheadUrlPresent: !!(companySettings as any)?.letterheadUrl,
+      letterheadUrlSafe: safeUrl((companySettings as any)?.letterheadUrl),
+      letterheadVisible: (companySettings as any)?.letterheadVisible,
+      logoUrlPresent: !!(companySettings as any)?.logoUrl,
+      logoUrlSafe: safeUrl((companySettings as any)?.logoUrl),
+      companyLogoPresent: !!(companySettings as any)?.companyLogo,
+      companyLogoSafe: safeUrl((companySettings as any)?.companyLogo),
+      showLogo: (companySettings as any)?.showLogo,
+    });
+
     const html_content = generateInvoiceHtml({
       ...invoice,
       subtotal: Number(invoice?.subtotal ?? 0),
