@@ -1129,6 +1129,7 @@ const showLogo = form.letterheadVisible === true && previewLogoUrl.length > 0;
                           <p className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: selectedTemplate.swatch }}>Angebot</p>
                           <p className="text-[7px] text-gray-500">ANG-2026-001</p>
                         </div>
+
 {showLogo ? (
   <img
     src={previewLogoUrl}
@@ -1143,11 +1144,10 @@ const showLogo = form.letterheadVisible === true && previewLogoUrl.length > 0;
     </p>
   </div>
 )}
-                       
                       </div>
                       {/* Company address block */}
                       <div className="px-4 text-[6px] leading-tight text-gray-600">
-                        {!showLetterheadInPreview && (form.firmenname || addrLine || plzLine) && (
+                        {!showLogo &&(form.firmenname || addrLine || plzLine) && (
                           <p className="font-semibold text-gray-800">{form.firmenname}</p>
                         )}
                         {addrLine && <p>{addrLine}</p>}
