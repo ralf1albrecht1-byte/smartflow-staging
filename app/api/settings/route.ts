@@ -5,6 +5,7 @@ import { requireUserId, handleAuthError, getSessionUser } from '@/lib/get-sessio
 import { logAuditAsync } from '@/lib/audit';
 import { normalizePhoneE164 } from '@/lib/normalize';
 import { getEnvLabel } from '@/lib/env';
+import { getS3ResolvedConfig } from '@/lib/aws-config';
 
 export async function GET() {
   try {
@@ -193,10 +194,10 @@ export async function PUT(request: Request) {
         settingsData.letterheadUrl = normalizedLetterhead;
       } else {
         // Backward compatibility: some legacy rows stored cloud_storage_path instead of a URL.
-        const region = process.env.AWS_REGION || 'us-east-1';
-        const bucket = process.env.AWS_BUCKET_NAME || '';
-        settingsData.letterheadUrl = bucket
-          ? `https://${bucket}.s3.${region}.amazonaws.com/${normalizedLetterhead.replace(/^\/+/, '')}`
+        const { bucketName, region } = getS3ResolvedConfig();
+        const normalizedKey = normalizedLetterhead.replace(/^\/+/, '');
+        settingsData.letterheadUrl = bucketName
+          ? 'https://' + bucketName + '.s3.' + region + '.amazonaws.com/' + normalizedKey
           : normalizedLetterhead;
       }
     }

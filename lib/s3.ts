@@ -1,6 +1,6 @@
 import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createS3Client, getBucketConfig } from "./aws-config";
+import { createS3Client, getBucketConfig, getS3ResolvedConfig } from "./aws-config";
 
 const s3 = createS3Client();
 const { bucketName, folderPrefix } = getBucketConfig();
@@ -48,10 +48,17 @@ export async function generatePresignedUploadUrl(
   return { uploadUrl, cloud_storage_path };
 }
 
+export function buildPublicS3Url(key: string): string | null {
+  const normalizedKey = key.replace(/^\/+/, "");
+  const { bucketName: resolvedBucketName, region } = getS3ResolvedConfig();
+
+  if (!resolvedBucketName) return null;
+  return `https://${resolvedBucketName}.s3.${region}.amazonaws.com/${normalizedKey}`;
+}
+
 export async function getFileUrl(cloud_storage_path: string, isPublic: boolean) {
   if (isPublic) {
-    const region = process.env.AWS_REGION || 'us-east-1';
-    return `https://${bucketName}.s3.${region}.amazonaws.com/${cloud_storage_path}`;
+    return buildPublicS3Url(cloud_storage_path) ?? cloud_storage_path;
   }
   const command = new GetObjectCommand({
     Bucket: bucketName,
