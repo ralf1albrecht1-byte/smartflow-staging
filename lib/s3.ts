@@ -15,17 +15,17 @@ export async function uploadBufferToS3(
   // Use timestamp as a DIRECTORY prefix (not filename prefix) so the last URL
   // path segment is the clean filename. This matters because Twilio uses the
   // URL's last segment as the visible attachment name in WhatsApp.
-  const prefix = isPublic ? `${folderPrefix}public/uploads` : `${folderPrefix}uploads`;
+  const prefix = isPublic ? `${folderPref
+ix}public/uploads` : `${folderPrefix}uploads`;
   const cloud_storage_path = `${prefix}/${Date.now()}/${fileName}`;
 
-  const command = new PutObjectCommand({
-    Bucket: bucketName,
-    Key: cloud_storage_path,
-    Body: buffer,
-    ContentType: contentType,
-    ContentDisposition: isPublic ? `attachment; filename="${fileName}"` : undefined,
-  });
-
+const command = new PutObjectCommand({
+  Bucket: bucketName,
+  Key: cloud_storage_path,
+  ContentType: contentType,
+  ACL: isPublic ? 'public-read' : undefined,
+  ContentDisposition: isPublic ? 'inline' : undefined,
+});
   await s3.send(command);
   return cloud_storage_path;
 }
@@ -38,11 +38,13 @@ export async function generatePresignedUploadUrl(
   const prefix = isPublic ? `${folderPrefix}public/uploads` : `${folderPrefix}uploads`;
   const cloud_storage_path = `${prefix}/${Date.now()}/${fileName}`;
 
-  const command = new PutObjectCommand({
-    Bucket: bucketName,
-    Key: cloud_storage_path,
-    ContentType: contentType,
-  });
+ const command = new PutObjectCommand({
+  Bucket: bucketName,
+  Key: cloud_storage_path,
+  ContentType: contentType,
+  ACL: isPublic ? 'public-read' : undefined,
+  ContentDisposition: isPublic ? 'inline' : undefined,
+});
 
   const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
   return { uploadUrl, cloud_storage_path };
