@@ -15,7 +15,7 @@ export async function uploadBufferToS3(
   // Use timestamp as a DIRECTORY prefix (not filename prefix) so the last URL
   // path segment is the clean filename. This matters because Twilio uses the
   // URL's last segment as the visible attachment name in WhatsApp.
-  const prefix = isPublic ? `${folderPref
+  const prefix = isPublic ? `${folderPrefix}public/uploads` : `${folderPrefix}uploads`;
 ix}public/uploads` : `${folderPrefix}uploads`;
   const cloud_storage_path = `${prefix}/${Date.now()}/${fileName}`;
 
