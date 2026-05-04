@@ -49,6 +49,7 @@ currentPeriodEnd     DateTime?
   orders             Order[]
   invoices           Invoice[]
   offers             Offer[]
+  services        Service[]
   companySettings    CompanySettings[]
   consentRecords     ConsentRecord[]
   complianceRequests ComplianceRequest[]
