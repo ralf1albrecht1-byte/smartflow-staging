@@ -1,3 +1,5 @@
+// FORCE REDEPLOY - ACL FIX 2026-05-04
+
 import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createS3Client, getBucketConfig, getS3ResolvedConfig } from "./aws-config";
