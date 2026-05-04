@@ -1102,9 +1102,9 @@ export default function EinstellungenPage() {
   const selectedTemplate =
     TEMPLATES.find((t) => t.key === form.documentTemplate) || TEMPLATES[0];
 
- const previewLogoUrl = String(
-  form.letterheadUrl || ''
-).trim();const showLogo = previewLogoUrl.length > 0;
+const previewLogoUrl = String(form.letterheadUrl || '').trim();
+
+const showLogo = previewLogoUrl.length > 0;
   const addrLine = [form.strasse, form.hausnummer].filter(Boolean).join(' ');
   const plzLine = [form.plz, form.ort].filter(Boolean).join(' ');
 
@@ -1133,12 +1133,12 @@ export default function EinstellungenPage() {
           </div>
 
 {showLogo ? (
-  <img
-    src={previewLogoUrl}
-    alt="Logo Vorschau"
-   className="h-14 max-w-[140px] object-contain"
-  />
-) : (
+ <img
+  src={previewLogoUrl}
+  alt=""
+  className="h-14 max-w-[140px] object-contain"
+  referrerPolicy="no-referrer"
+/>) : (
   <div className="flex flex-col items-end gap-1 text-right">
     <div className="h-5 w-14 rounded bg-gray-200/90" />
     <p className="text-[8px] text-gray-500 max-w-[110px] truncate">
