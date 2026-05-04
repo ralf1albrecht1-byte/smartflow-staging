@@ -1098,8 +1098,8 @@ export default function EinstellungenPage() {
                 <h4 className="text-sm font-semibold">Dokument-Vorschau</h4>
               </div>
               <p className="text-xs text-muted-foreground mb-3">
-                Visuelle Vorschau des Briefkopfs. Aktualisiert sich live bei Änderungen an Vorlage, </p>{(() => {
-  const selectedTemplate =
+                Visuelle Vorschau des Briefkopfs. Aktualisiert sich live bei Änderungen an Vorlage, </p>
+{(() => {  const selectedTemplate =
     TEMPLATES.find((t) => t.key === form.documentTemplate) || TEMPLATES[0];
 
 const previewLogoUrl = String(form.letterheadUrl || '').trim();
