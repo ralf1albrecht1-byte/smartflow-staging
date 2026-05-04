@@ -1133,12 +1133,11 @@ const showLogo = previewLogoUrl.length > 0;
           </div>
 {previewLogoUrl && (
   <img
-    src={previewLogoUrl}
+    src={`/api/media?url=${encodeURIComponent(previewLogoUrl)}`}
     alt=""
     className="h-16 max-w-[160px] object-contain"
   />
-)}
-</div>                      {/* Company address block */}
+)}               {/* Company address block */}
                       <div className="px-4 text-[6px] leading-tight text-gray-600">
                         {!showLogo &&(form.firmenname || addrLine || plzLine) && (
                           <p className="font-semibold text-gray-800">{form.firmenname}</p>
