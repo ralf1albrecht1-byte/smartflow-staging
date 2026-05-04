@@ -1088,7 +1088,7 @@ export default function EinstellungenPage() {
               </div>
             </div>
 
-          {/* Dokument-Vorschau */}
+ {/* Dokument-Vorschau */}
 <div className="border rounded-lg p-4 mt-4">
   <div className="flex items-center gap-2 mb-1">
     <Eye className="w-4 h-4 text-primary" />
@@ -1096,8 +1096,102 @@ export default function EinstellungenPage() {
   </div>
 
   <p className="text-xs text-muted-foreground mb-3">
-    Vorschau wird nach dem Speichern angezeigt.
+    Visuelle Vorschau des Briefkopfs.
   </p>
+
+  <div className="flex justify-center bg-muted/30 rounded-md p-4">
+    <div
+      className="relative bg-white shadow-md rounded-sm overflow-hidden"
+      style={{ width: '260px', aspectRatio: '210 / 297' }}
+    >
+      <div
+        className="absolute top-0 left-0 right-0"
+        style={{
+          height: '6px',
+          background:
+            (TEMPLATES.find(t => t.key === form.documentTemplate) || TEMPLATES[0]).swatch,
+        }}
+      />
+
+      <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p
+            className="text-[9px] font-semibold uppercase tracking-wide"
+            style={{
+              color:
+                (TEMPLATES.find(t => t.key === form.documentTemplate) || TEMPLATES[0]).swatch,
+            }}
+          >
+            Angebot
+          </p>
+          <p className="text-[7px] text-gray-500">ANG-2026-001</p>
+        </div>
+
+        {form.letterheadUrl && form.letterheadVisible ? (
+          <img
+            src={form.letterheadUrl}
+            alt="Logo Vorschau"
+            className="h-14 max-w-[140px] object-contain"
+          />
+        ) : (
+          <div className="flex flex-col items-end gap-1 text-right">
+            <div className="h-5 w-14 rounded bg-gray-200/90" />
+            <p className="text-[8px] text-gray-500 max-w-[110px] truncate">
+              {form.firmenname || 'Logo / Briefpapier'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 text-[6px] leading-tight text-gray-600">
+        {form.firmenname && (
+          <p className="font-semibold text-gray-800">{form.firmenname}</p>
+        )}
+        {(form.strasse || form.hausnummer) && (
+          <p>{[form.strasse, form.hausnummer].filter(Boolean).join(' ')}</p>
+        )}
+        {(form.plz || form.ort) && (
+          <p>{[form.plz, form.ort].filter(Boolean).join(' ')}</p>
+        )}
+      </div>
+
+      <div className="mt-4 mx-4 space-y-1">
+        <div className="h-1 w-16 bg-gray-200 rounded" />
+        <div className="h-1 w-24 bg-gray-200 rounded" />
+        <div className="h-1 w-20 bg-gray-200 rounded" />
+      </div>
+
+      <div className="mt-4 mx-4 space-y-1.5">
+        {[0.9, 0.7, 0.8, 0.6].map((w, i) => (
+          <div key={i} className="flex items-center justify-between gap-2">
+            <div className="h-1 bg-gray-200 rounded flex-1" style={{ maxWidth: `${w * 100}%` }} />
+            <div className="h-1 w-6 bg-gray-300 rounded" />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 mx-4 pt-2 border-t flex items-center justify-between">
+        <div className="h-1 w-10 bg-gray-300 rounded" />
+        <div
+          className="h-1.5 w-10 rounded"
+          style={{
+            background:
+              (TEMPLATES.find(t => t.key === form.documentTemplate) || TEMPLATES[0]).swatch,
+          }}
+        />
+      </div>
+
+      <div
+        className="absolute bottom-0 left-0 right-0"
+        style={{
+          height: '3px',
+          background:
+            (TEMPLATES.find(t => t.key === form.documentTemplate) || TEMPLATES[0]).swatch,
+          opacity: 0.5,
+        }}
+      />
+    </div>
+  </div>
 </div>
           </SectionShell>
           {/* SECTION: SPRACHE & KOMMUNIKATION */}
