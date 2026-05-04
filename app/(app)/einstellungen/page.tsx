@@ -1131,24 +1131,14 @@ const showLogo = previewLogoUrl.length > 0;
             </p>
             <p className="text-[7px] text-gray-500">ANG-2026-001</p>
           </div>
-
-{showLogo ? (
-<img
-  src={previewLogoUrl}
-  alt=""
-  className="h-14 max-w-[140px] object-contain"
-  crossOrigin="anonymous"
-  referrerPolicy="no-referrer"
-/>
-  <div className="flex flex-col items-end gap-1 text-right">
-    <div className="h-5 w-14 rounded bg-gray-200/90" />
-    <p className="text-[8px] text-gray-500 max-w-[110px] truncate">
-      {form.firmenname || 'Logo / Briefpapier'}
-    </p>
-  </div>
+{previewLogoUrl && (
+  <img
+    src={previewLogoUrl}
+    alt=""
+    className="h-16 max-w-[160px] object-contain"
+  />
 )}
-                      </div>
-                      {/* Company address block */}
+</div>                      {/* Company address block */}
                       <div className="px-4 text-[6px] leading-tight text-gray-600">
                         {!showLogo &&(form.firmenname || addrLine || plzLine) && (
                           <p className="font-semibold text-gray-800">{form.firmenname}</p>
