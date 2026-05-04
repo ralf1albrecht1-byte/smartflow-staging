@@ -28,7 +28,7 @@ export async function uploadBufferToS3(
     Key: cloud_storage_path,
     Body: buffer,
     ContentType: contentType,
-    ACL: isPublic ? "public-read" : undefined,
+   
     ContentDisposition: isPublic ? "inline" : undefined,
   });
 
@@ -47,7 +47,7 @@ export async function generatePresignedUploadUrl(
     Bucket: bucketName,
     Key: cloud_storage_path,
     ContentType: contentType,
-    ACL: isPublic ? "public-read" : undefined,
+    
     ContentDisposition: isPublic ? "inline" : undefined,
   });
 
