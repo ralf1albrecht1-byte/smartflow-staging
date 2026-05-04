@@ -1136,7 +1136,7 @@ export default function EinstellungenPage() {
   <img
     src={previewLogoUrl}
     alt="Logo Vorschau"
-    className="max-h-8 max-w-[70px] object-contain"
+   className="h-14 max-w-[140px] object-contain"
   />
 ) : (
   <div className="flex flex-col items-end gap-1 text-right">
