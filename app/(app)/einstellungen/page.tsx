@@ -496,29 +496,8 @@ export default function EinstellungenPage() {
       const storedValue = publicUrl;
 
       updateField('letterheadUrl', storedValue);
-updateField('letterheadName', file.name);
-
-const saveRes = await fetch('/api/settings', {
-  method: 'PUT',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    ...form,
-    letterheadUrl: storedValue,
-    letterheadName: file.name,
-  }),
-});
-
-if (!saveRes.ok) {
-  throw new Error(`settings save failed (${saveRes.status})`);
-}
-
-const saved = await saveRes.json();
-const mapped = mapSettingsData(saved);
-setForm(mapped);
-setSavedData(mapped);
-setHasChanges(false);
-
-toast({ title: '✅ Hochgeladen', description: 'Logo wurde hochgeladen und gespeichert.' });
+      updateField('letterheadName', file.name);
+      toast({ title: '✅ Hochgeladen', description: 'Briefpapier wurde hinterlegt. Jetzt speichern, um zu übernehmen.' });
     } catch (e) {
       console.error('letterhead upload failed', e);
       toast({ title: 'Fehler', description: 'Upload fehlgeschlagen.', variant: 'destructive' });
