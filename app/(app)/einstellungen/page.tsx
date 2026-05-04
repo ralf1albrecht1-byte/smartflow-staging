@@ -1088,105 +1088,18 @@ export default function EinstellungenPage() {
               </div>
             </div>
 
-            {/* Dokument-Vorschau (A4 Mockup) — rein visuell, kein echtes PDF.
-                Spiegelt Template-Farbe, Logo (sofern hochgeladen & sichtbar)
-                und Firmennamen wider, damit Nutzer den Effekt vor dem Speichern
-                einschätzen können. */}
-            <div className="border rounded-lg p-4 mt-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Eye className="w-4 h-4 text-primary" />
-                <h4 className="text-sm font-semibold">Dokument-Vorschau</h4>
-              </div>
-              <p className="text-xs text-muted-foreground mb-3">
-                Visuelle Vorschau des Briefkopfs. Aktualisiert sich live bei Änderungen an Vorlage, </p>
-{(() => {  const selectedTemplate =
-    TEMPLATES.find((t) => t.key === form.documentTemplate) || TEMPLATES[0];
-
-const previewLogoUrl = String(form.letterheadUrl || '').trim();
-
-const showLogo = previewLogoUrl.length > 0;
-  const addrLine = [form.strasse, form.hausnummer].filter(Boolean).join(' ');
-  const plzLine = [form.plz, form.ort].filter(Boolean).join(' ');
-
-  return (
-    <div className="flex justify-center bg-muted/30 rounded-md p-4">
-      <div
-        className="relative bg-white shadow-md rounded-sm overflow-hidden"
-        style={{ width: '260px', aspectRatio: '210 / 297' }}
-      >
-        {/* Template accent bar */}
-        <div
-          className="absolute top-0 left-0 right-0"
-          style={{ height: '6px', background: selectedTemplate.swatch }}
-        />
-
-{/* Header area */}
-<div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">
-  <div className="min-w-0">
-    <p
-      className="text-[9px] font-semibold uppercase tracking-wide"
-      style={{ color: selectedTemplate.swatch }}
-    >
-      Angebot
-    </p>
-    <p className="text-[7px] text-gray-500">ANG-2026-001</p>
+          {/* Dokument-Vorschau */}
+<div className="border rounded-lg p-4 mt-4">
+  <div className="flex items-center gap-2 mb-1">
+    <Eye className="w-4 h-4 text-primary" />
+    <h4 className="text-sm font-semibold">Dokument-Vorschau</h4>
   </div>
 
-  <div className="flex items-end">
-  {previewLogoUrl && (
-    <img
-      src={`/api/media?url=${encodeURIComponent(previewLogoUrl)}`}
-      alt=""
-      className="h-16 max-w-[160px] object-contain"
-    />
-  )}
+  <p className="text-xs text-muted-foreground mb-3">
+    Vorschau wird nach dem Speichern angezeigt.
+  </p>
 </div>
-            {/* Company address block */}
-                      <div className="px-4 text-[6px] leading-tight text-gray-600">
-                        {!showLogo &&(form.firmenname || addrLine || plzLine) && (
-                          <p className="font-semibold text-gray-800">{form.firmenname}</p>
-                        )}
-                        {addrLine && <p>{addrLine}</p>}
-                        {plzLine && <p>{plzLine}</p>}
-                      </div>
-                      {/* Fake customer block */}
-                      <div className="mt-4 mx-4 space-y-1">
-                        <div className="h-1 w-16 bg-gray-200 rounded" />
-                        <div className="h-1 w-24 bg-gray-200 rounded" />
-                        <div className="h-1 w-20 bg-gray-200 rounded" />
-                      </div>
-                      {/* Fake line items */}
-                      <div className="mt-4 mx-4 space-y-1.5">
-                        {[0.9, 0.7, 0.8, 0.6].map((w, i) => (
-                          <div key={i} className="flex items-center justify-between gap-2">
-                            <div className="h-1 bg-gray-200 rounded flex-1" style={{ maxWidth: `${w * 100}%` }} />
-                            <div className="h-1 w-6 bg-gray-300 rounded" />
-                          </div>
-                        ))}
-                      </div>
-                      {/* Total */}
-                      <div className="mt-4 mx-4 pt-2 border-t flex items-center justify-between">
-                        <div className="h-1 w-10 bg-gray-300 rounded" />
-                        <div className="h-1.5 w-10 rounded" style={{ background: selectedTemplate.swatch }} />
-                      </div>
-                      {/* Footer accent */}
-                      <div
-                        className="absolute bottom-0 left-0 right-0"
-                        style={{ height: '3px', background: selectedTemplate.swatch, opacity: 0.5 }}
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
-              <p className="text-[11px] text-muted-foreground mt-2 text-center">
-                Aktuell ausgewählt: <span className="font-medium">{(TEMPLATES.find(t => t.key === form.documentTemplate) || TEMPLATES[0]).label}</span>
-                {form.letterheadUrl && (
-                  <> · Logo {form.letterheadVisible ? <span className="text-primary font-medium">sichtbar</span> : <span className="text-muted-foreground">ausgeblendet</span>}</>
-                )}
-              </p>
-            </div>
           </SectionShell>
-
           {/* SECTION: SPRACHE & KOMMUNIKATION */}
           <SectionShell id="sprache" sectionKey="sprache" activeSection={activeSection} open={openSections.sprache} toggle={() => setOpenSections(p => ({ ...p, sprache: !p.sprache }))} title="Sprache &amp; Kommunikation" icon={Languages}>
             <div>
