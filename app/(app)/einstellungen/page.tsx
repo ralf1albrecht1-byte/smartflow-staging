@@ -1130,7 +1130,9 @@ export default function EinstellungenPage() {
      <div className="flex flex-col items-end gap-1 text-right">
   <div className="h-5 w-14 rounded bg-gray-200" />
   <p className="text-[8px] text-gray-500 max-w-[110px] truncate">
-    {form.letterheadUrl && form.letterheadVisible ? form.letterheadName || 'Logo hinterlegt' : 'Logo / Briefpapier'}
+    {form.letterheadUrl && form.letterheadVisible ? {form.letterheadUrl && form.letterheadVisible
+  ? 'Logo hinterlegt'
+  : 'Kein Logo'}: 'Kein Logo'}
   </p>
 </div>
               
