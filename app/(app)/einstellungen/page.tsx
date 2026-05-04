@@ -485,15 +485,26 @@ export default function EinstellungenPage() {
         body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: true }),
       });
       if (!signRes.ok) throw new Error('presign failed');
-      const { uploadUrl, publicUrl } = await signRes.json();
+      const { uploadUrl, publicUrl, cloud_storage_path } = await signRes.json();
+
+let finalUrl = publicUrl;
+
+// Fallback wenn falsche URL (Upload-URL statt Bild-URL)
+if (!finalUrl || finalUrl.includes('X-Amz-') || finalUrl.includes('x-id=PutObject')) {
+  if (!cloud_storage_path) {
+    throw new Error('missing storage path');
+  }
+
+  finalUrl = `https://smartflowaiuploadsralf.s3.eu-central-1.amazonaws.com/${String(cloud_storage_path).replace(/^\/+/, '')}`;
+}
 
       const putHeaders: Record<string, string> = { 'Content-Type': file.type };
       const putRes = await fetch(uploadUrl, { method: 'PUT', headers: putHeaders, body: file });
       if (!putRes.ok) throw new Error(`upload failed (${putRes.status})`);
 
       // Must be a public URL so the PDF engine's <img src=…> can resolve it.
-      if (!publicUrl) throw new Error('public URL missing for letterhead upload');
-      const storedValue = publicUrl;
+    if (!finalUrl) throw new Error('public URL missing for letterhead upload');
+const storedValue = finalUrl;
 
       updateField('letterheadUrl', storedValue);
       updateField('letterheadName', file.name);
