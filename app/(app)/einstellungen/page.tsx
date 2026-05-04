@@ -1127,23 +1127,14 @@ export default function EinstellungenPage() {
           <p className="text-[7px] text-gray-500">ANG-2026-001</p>
         </div>
 
-        {form.letterheadUrl && form.letterheadVisible ? (
-          <img
-            src={form.letterheadUrl}
-            alt=""
-onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-            className="h-14 max-w-[140px] object-contain"
-          />
-        ) : (
-          <div className="flex flex-col items-end gap-1 text-right">
-            <div className="h-5 w-14 rounded bg-gray-200/90" />
-            <p className="text-[8px] text-gray-500 max-w-[110px] truncate">
-              {form.firmenname || 'Logo / Briefpapier'}
-            </p>
-          </div>
-        )}
-      </div>
-
+     <div className="flex flex-col items-end gap-1 text-right">
+  <div className="h-5 w-14 rounded bg-gray-200" />
+  <p className="text-[8px] text-gray-500 max-w-[110px] truncate">
+    {form.letterheadUrl && form.letterheadVisible ? form.letterheadName || 'Logo hinterlegt' : 'Logo / Briefpapier'}
+  </p>
+</div>
+              
+            </div>
       <div className="px-4 text-[6px] leading-tight text-gray-600">
         {form.firmenname && (
           <p className="font-semibold text-gray-800">{form.firmenname}</p>
