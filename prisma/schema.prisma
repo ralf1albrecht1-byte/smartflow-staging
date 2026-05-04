@@ -23,6 +23,12 @@ model User {
   // Login and usage are NEVER blocked by these fields.
   trialEndDate       DateTime?
   trialNote          String?
+// --- Stripe / Subscription 
+stripeCustomerId     String?   @unique
+stripeSubscriptionId String?   @unique
+subscriptionStatus   String?
+cancelAtPeriodEnd    Boolean   @default(false)
+currentPeriodEnd     DateTime?
   // ── Block U: Technical account status (separate from compliance request status) ──
   // Rein additiv. Default 'active' damit bestehende Zeilen unbetroffen bleiben.
   // Werte: 'active' | 'cancelled' | 'blocked' | 'anonymized'
@@ -40,7 +46,6 @@ model User {
   accounts           Account[]
   sessions           Session[]
   customers          Customer[]
-  services           Service[]
   orders             Order[]
   invoices           Invoice[]
   offers             Offer[]
