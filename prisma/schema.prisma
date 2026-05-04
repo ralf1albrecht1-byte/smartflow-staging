@@ -49,7 +49,7 @@ currentPeriodEnd     DateTime?
   orders             Order[]
   invoices           Invoice[]
   offers             Offer[]
-  services        Service[]
+  services      Service[] @relation("UserServices")
   companySettings    CompanySettings[]
   consentRecords     ConsentRecord[]
   complianceRequests ComplianceRequest[]
@@ -120,8 +120,7 @@ model Service {
   defaultPrice Float
   unit         String   @default("Stunde") // Stunde, Pauschal, Meter
   userId       String?
-  user         User?    @relation(fields: [userId], references: [id])
-  createdAt    DateTime @default(now())
+ user          User? @relation("UserServices", fields: [userId], references: [id])  createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([userId])
