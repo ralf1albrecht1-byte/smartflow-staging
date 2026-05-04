@@ -1103,8 +1103,8 @@ export default function EinstellungenPage() {
     TEMPLATES.find((t) => t.key === form.documentTemplate) || TEMPLATES[0];
 
  const previewLogoUrl = String(
-  (form as any).logoUrl || ''
-).trim();  const showLogo = previewLogoUrl.length > 0;
+  form.letterheadUrl || ''
+).trim();const showLogo = previewLogoUrl.length > 0;
   const addrLine = [form.strasse, form.hausnummer].filter(Boolean).join(' ');
   const plzLine = [form.plz, form.ort].filter(Boolean).join(' ');
 
