@@ -1130,7 +1130,8 @@ export default function EinstellungenPage() {
         {form.letterheadUrl && form.letterheadVisible ? (
           <img
             src={form.letterheadUrl}
-            alt="Logo Vorschau"
+            alt=""
+onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
             className="h-14 max-w-[140px] object-contain"
           />
         ) : (
