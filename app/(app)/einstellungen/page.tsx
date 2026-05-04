@@ -1120,24 +1120,28 @@ const showLogo = previewLogoUrl.length > 0;
           style={{ height: '6px', background: selectedTemplate.swatch }}
         />
 
-        {/* Header area */}
-        <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p
-              className="text-[9px] font-semibold uppercase tracking-wide"
-              style={{ color: selectedTemplate.swatch }}
-            >
-              Angebot
-            </p>
-            <p className="text-[7px] text-gray-500">ANG-2026-001</p>
-          </div>
-{previewLogoUrl && (
-  <img
-    src={`/api/media?url=${encodeURIComponent(previewLogoUrl)}`}
-    alt=""
-    className="h-16 max-w-[160px] object-contain"
-  />
-)}               {/* Company address block */}
+{/* Header area */}
+<div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2">
+  <div className="min-w-0">
+    <p
+      className="text-[9px] font-semibold uppercase tracking-wide"
+      style={{ color: selectedTemplate.swatch }}
+    >
+      Angebot
+    </p>
+    <p className="text-[7px] text-gray-500">ANG-2026-001</p>
+  </div>
+
+  <div className="flex items-end">
+  {previewLogoUrl && (
+    <img
+      src={`/api/media?url=${encodeURIComponent(previewLogoUrl)}`}
+      alt=""
+      className="h-16 max-w-[160px] object-contain"
+    />
+  )}
+</div>
+            {/* Company address block */}
                       <div className="px-4 text-[6px] leading-tight text-gray-600">
                         {!showLogo &&(form.firmenname || addrLine || plzLine) && (
                           <p className="font-semibold text-gray-800">{form.firmenname}</p>
