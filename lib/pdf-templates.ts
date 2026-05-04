@@ -290,8 +290,8 @@ function letterheadImg(c: CompanyInfo, size: 'sm' | 'md' | 'lg' = 'md'): string 
   if (!url || !show) {
     return '';
   }
-  const h = size === 'sm' ? '50px' : size === 'lg' ? '120px' : '80px';
-  return `<img src="${url}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:220px;object-fit:contain;" />`;
+  const h = size === 'sm' ? '65px' : size === 'lg' ? '145px' : '105px';
+  return `<img src="${url}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:260px;object-fit:contain;" />`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
