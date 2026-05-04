@@ -5,26 +5,33 @@ import { createS3Client, getBucketConfig, getS3ResolvedConfig } from "./aws-conf
 const s3 = createS3Client();
 const { bucketName, folderPrefix } = getBucketConfig();
 
-// Server-side direct upload to S3 (for webhook-received files)
+function cleanFileName(fileName: string): string {
+  return fileName.replace(/[^\w.\-äöüÄÖÜß]/g, "_");
+}
+
+function makeStoragePath(fileName: string, isPublic: boolean): string {
+  const safeFileName = cleanFileName(fileName);
+  const prefix = isPublic ? `${folderPrefix}public/uploads` : `${folderPrefix}uploads`;
+  return `${prefix}/${Date.now()}/${safeFileName}`;
+}
+
 export async function uploadBufferToS3(
   buffer: Buffer,
   fileName: string,
   contentType: string,
   isPublic = false
 ): Promise<string> {
-  // Use timestamp as a DIRECTORY prefix (not filename prefix) so the last URL
-  // path segment is the clean filename. This matters because Twilio uses the
-  // URL's last segment as the visible attachment name in WhatsApp.
-  const prefix = isPublic ? `${folderPrefix}public/uploads` : `${folderPrefix}uploads`;
-  const cloud_storage_path = `${prefix}/${Date.now()}/${fileName}`;
+  const cloud_storage_path = makeStoragePath(fileName, isPublic);
 
-const command = new PutObjectCommand({
-  Bucket: bucketName,
-  Key: cloud_storage_path,
-  ContentType: contentType,
-  ACL: isPublic ? 'public-read' : undefined,
-  ContentDisposition: isPublic ? 'inline' : undefined,
-});
+  const command = new PutObjectCommand({
+    Bucket: bucketName,
+    Key: cloud_storage_path,
+    Body: buffer,
+    ContentType: contentType,
+    ACL: isPublic ? "public-read" : undefined,
+    ContentDisposition: isPublic ? "inline" : undefined,
+  });
+
   await s3.send(command);
   return cloud_storage_path;
 }
@@ -34,16 +41,15 @@ export async function generatePresignedUploadUrl(
   contentType: string,
   isPublic = false
 ) {
-  const prefix = isPublic ? `${folderPrefix}public/uploads` : `${folderPrefix}uploads`;
-  const cloud_storage_path = `${prefix}/${Date.now()}/${fileName}`;
+  const cloud_storage_path = makeStoragePath(fileName, isPublic);
 
- const command = new PutObjectCommand({
-  Bucket: bucketName,
-  Key: cloud_storage_path,
-  ContentType: contentType,
-  ACL: isPublic ? 'public-read' : undefined,
-  ContentDisposition: isPublic ? 'inline' : undefined,
-});
+  const command = new PutObjectCommand({
+    Bucket: bucketName,
+    Key: cloud_storage_path,
+    ContentType: contentType,
+    ACL: isPublic ? "public-read" : undefined,
+    ContentDisposition: isPublic ? "inline" : undefined,
+  });
 
   const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
   return { uploadUrl, cloud_storage_path };
@@ -53,7 +59,7 @@ export function buildPublicS3Url(key: string): string | null {
   const normalizedKey = key.replace(/^\/+/, "");
   const { bucketName: resolvedBucketName, region } = getS3ResolvedConfig();
 
-  if (!resolvedBucketName) return null;
+  if (!resolvedBucketName || !region) return null;
   return `https://${resolvedBucketName}.s3.${region}.amazonaws.com/${normalizedKey}`;
 }
 
@@ -61,27 +67,30 @@ export async function getFileUrl(cloud_storage_path: string, isPublic: boolean) 
   if (isPublic) {
     return buildPublicS3Url(cloud_storage_path) ?? cloud_storage_path;
   }
+
   const command = new GetObjectCommand({
     Bucket: bucketName,
     Key: cloud_storage_path,
     ResponseContentDisposition: "attachment",
   });
-  // Short-lived signed URL (15 min). Ownership must be verified BEFORE calling this.
+
   return getSignedUrl(s3, command, { expiresIn: 900 });
 }
 
-// Download file content as Buffer directly from S3 (server-side only)
 export async function downloadBufferFromS3(cloud_storage_path: string): Promise<Buffer> {
   const command = new GetObjectCommand({
     Bucket: bucketName,
     Key: cloud_storage_path,
   });
+
   const response = await s3.send(command);
   const stream = response.Body as NodeJS.ReadableStream;
+
   const chunks: Buffer[] = [];
   for await (const chunk of stream) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
+
   return Buffer.concat(chunks);
 }
 
@@ -90,5 +99,6 @@ export async function deleteFile(cloud_storage_path: string) {
     Bucket: bucketName,
     Key: cloud_storage_path,
   });
+
   await s3.send(command);
 }
