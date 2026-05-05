@@ -41,6 +41,7 @@ if (event.type === 'checkout.session.completed') {
 const session = event.data.object as Stripe.Checkout.Session;
 const userId = session.client_reference_id || session.metadata?.userId;
 
+
   if (!userId) {
     console.error('Stripe webhook: missing userId on checkout.session.completed');
     return NextResponse.json({ received: true, skipped: 'missing_user_id' });
@@ -84,13 +85,12 @@ if (event.type === 'customer.subscription.updated') {
 
 if (event.type === 'customer.subscription.deleted') {
   const subscription = event.data.object as Stripe.Subscription;
-  const endedAt = toDateOrNull(subscription.ended_at) || new Date();
+  const endedAt = new Date();
 
   await prisma.user.updateMany({
     where: { stripeSubscriptionId: subscription.id },
     data: {
-      subscriptionStatus: subscription.status || 'canceled',
-      currentPeriodEnd: toDateOrNull(subscription.current_period_end),
+      subscriptionStatus: 'canceled',
       accountStatus: 'cancelled',
       accessEndsAt: endedAt,
       blockedAt: endedAt,
@@ -100,21 +100,7 @@ if (event.type === 'customer.subscription.deleted') {
 }
 
 if (event.type === 'invoice.payment_failed') {
-  const invoice = event.data.object as Stripe.Invoice;
-
-  const subscriptionId =
-    typeof invoice.subscription === 'string' ? invoice.subscription : null;
-
-  if (subscriptionId) {
-    await prisma.user.updateMany({
-      where: { stripeSubscriptionId: subscriptionId },
-      data: {
-        subscriptionStatus: 'past_due',
-      },
-    });
-  } else {
-    console.warn('Stripe webhook: invoice.payment_failed received without subscription id');
-  }
+  console.warn('Stripe webhook: invoice.payment_failed received');
 }
 
 return NextResponse.json({ received: true });
