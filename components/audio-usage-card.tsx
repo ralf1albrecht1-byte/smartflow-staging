@@ -142,9 +142,23 @@ export function AudioUsageCard({
               Testphase aktiv
             </span>
           ) : isActive ? (
-            <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-              Abo aktiv
-            </span>
+  <div className="flex items-center gap-2">
+    <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+      Abo aktiv
+    </span>
+
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={async () => {
+        await fetch('/api/stripe/cancel-subscription', { method: 'POST' });
+        window.location.reload();
+      }}
+    >
+      Kündigen
+    </Button>
+  </div>
+)
           ) : needsPaymentAttention ? (
             <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
               {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
