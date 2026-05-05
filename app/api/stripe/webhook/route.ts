@@ -1,3 +1,4 @@
+```ts
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
@@ -7,6 +8,10 @@ export const dynamic = 'force-dynamic';
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
 });
+
+function toDateOrNull(timestamp?: number | null): Date | null {
+  return typeof timestamp === 'number' ? new Date(timestamp * 1000) : null;
+}
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -55,7 +60,7 @@ export async function POST(req: NextRequest) {
           subscriptionStatus: subscription.status,
           stripeCustomerId: session.customer as string,
           stripeSubscriptionId: subscription.id,
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          currentPeriodEnd: toDateOrNull(subscription.current_period_end),
           accountStatus: 'active',
         },
       });
@@ -68,7 +73,7 @@ export async function POST(req: NextRequest) {
         where: { stripeSubscriptionId: subscription.id },
         data: {
           subscriptionStatus: subscription.status,
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          currentPeriodEnd: toDateOrNull(subscription.current_period_end),
         },
       });
     }
@@ -80,10 +85,24 @@ export async function POST(req: NextRequest) {
         where: { stripeSubscriptionId: subscription.id },
         data: {
           subscriptionStatus: subscription.status,
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          currentPeriodEnd: toDateOrNull(subscription.current_period_end),
           accountStatus: 'cancelled',
         },
       });
+    }
+
+    if (event.type === 'invoice.payment_failed') {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subscriptionId = invoice.subscription as string | null;
+
+      if (subscriptionId) {
+        await prisma.user.updateMany({
+          where: { stripeSubscriptionId: subscriptionId },
+          data: {
+            subscriptionStatus: 'past_due',
+          },
+        });
+      }
     }
 
     return NextResponse.json({ received: true });
@@ -92,3 +111,4 @@ export async function POST(req: NextRequest) {
     return new NextResponse('Server error', { status: 500 });
   }
 }
+```
