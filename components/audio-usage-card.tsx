@@ -18,6 +18,25 @@ export interface AudioUsageData {
   audioOrderCount?: number;
 }
 
+function formatTrialRemaining(currentPeriodEnd: string | null): string {
+  if (!currentPeriodEnd) return 'Testphase aktiv';
+
+  const end = new Date(currentPeriodEnd).getTime();
+  const now = Date.now();
+  const diffMs = end - now;
+
+  if (!Number.isFinite(end) || diffMs <= 0) return 'Testphase endet bald';
+
+  const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+  const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (hours <= 24) {
+    return `Noch ${hours} ${hours === 1 ? 'Stunde' : 'Stunden'} kostenlos`;
+  }
+
+  return `Noch ${days} Tage kostenlos`;
+}
+
 export function AudioUsageCard({
   data,
   loading,
@@ -46,6 +65,11 @@ export function AudioUsageCard({
       </Card>
     );
   }
+
+  const status = subscription?.status || null;
+  const isTrialing = status === 'trialing';
+  const isActive = status === 'active';
+  const needsPaymentAttention = status === 'past_due' || status === 'unpaid' || status === 'incomplete';
 
   const used = Math.max(0, data.usedMinutes || 0);
   const included = 20;
@@ -108,21 +132,38 @@ export function AudioUsageCard({
             <div className="min-w-0">
               <p className="text-sm font-semibold truncate">Audio-Minuten diesen Monat</p>
               <p className="text-[11px] text-muted-foreground truncate">
-                Standard-Abo · CHF 39 / Monat · 20 Min inklusive
+                Standard · CHF 39 / Monat · 20 Min inklusive
               </p>
             </div>
           </div>
 
-        {subscription?.isActive ? (
-  <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-    Abo aktiv
-  </span>
-) : (
-  <Button size="sm" onClick={handleCheckout} disabled={busy}>
-    {busy ? 'Öffne Stripe…' : 'Abo starten'}
-  </Button>
-)}
+          {isTrialing ? (
+            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+              Testphase aktiv
+            </span>
+          ) : isActive ? (
+            <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+              Abo aktiv
+            </span>
+          ) : needsPaymentAttention ? (
+            <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
+              {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={handleCheckout} disabled={busy}>
+              {busy ? 'Öffne Stripe…' : 'Abo starten'}
+            </Button>
+          )}
         </div>
+
+        {isTrialing && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <p className="text-sm font-semibold text-blue-900">Testphase aktiv</p>
+            <p className="text-xs text-blue-800">
+              {formatTrialRemaining(subscription?.currentPeriodEnd || null)}. Danach CHF 39 / Monat.
+            </p>
+          </div>
+        )}
 
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
           <div className="font-mono">
