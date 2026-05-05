@@ -41,7 +41,6 @@ if (event.type === 'checkout.session.completed') {
 const session = event.data.object as Stripe.Checkout.Session;
 const userId = session.client_reference_id || session.metadata?.userId;
 
-```
   if (!userId) {
     console.error('Stripe webhook: missing userId on checkout.session.completed');
     return NextResponse.json({ received: true, skipped: 'missing_user_id' });
@@ -119,7 +118,7 @@ if (event.type === 'invoice.payment_failed') {
 }
 
 return NextResponse.json({ received: true });
-```
+
 
 } catch (err) {
 console.error('Webhook processing error:', err);
