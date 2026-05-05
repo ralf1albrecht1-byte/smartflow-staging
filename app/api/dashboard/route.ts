@@ -43,7 +43,12 @@ export async function GET() {
         const stripeSub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
 
         subscriptionStatus = stripeSub.status;
-        currentPeriodEnd = new Date(stripeSub.current_period_end * 1000);
+       const stripeEnd =
+  stripeSub.status === 'trialing' && stripeSub.trial_end
+    ? stripeSub.trial_end
+    : stripeSub.current_period_end;
+
+currentPeriodEnd = new Date(stripeEnd * 1000);
 
         if (
           user.subscriptionStatus !== subscriptionStatus ||
