@@ -1,4 +1,3 @@
-```ts
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
@@ -6,109 +5,103 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-02-24.acacia',
+apiVersion: '2025-02-24.acacia',
 });
 
 function toDateOrNull(timestamp?: number | null): Date | null {
-  return typeof timestamp === 'number' ? new Date(timestamp * 1000) : null;
+if (typeof timestamp !== 'number') return null;
+
+const date = new Date(timestamp * 1000);
+return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.text();
-  const sig = req.headers.get('stripe-signature');
+const body = await req.text();
+const sig = req.headers.get('stripe-signature');
 
-  if (!sig) {
-    return new NextResponse('Missing stripe signature', { status: 400 });
-  }
-
-  let event: Stripe.Event;
-
-  try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    );
-  } catch (err) {
-    console.error('Webhook signature error:', err);
-    return new NextResponse('Webhook Error', { status: 400 });
-  }
-
-  try {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
-
-      const userId = session.client_reference_id || session.metadata?.userId;
-
-      if (!userId) {
-        console.error('Stripe webhook: missing userId on checkout.session.completed');
-        return NextResponse.json({ received: true, skipped: 'missing_user_id' });
-      }
-
-      const subscriptionId = session.subscription as string | null;
-
-      if (!subscriptionId) {
-        console.error('Stripe webhook: missing subscriptionId on checkout.session.completed');
-        return NextResponse.json({ received: true, skipped: 'missing_subscription_id' });
-      }
-
-      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          subscriptionStatus: subscription.status,
-          stripeCustomerId: session.customer as string,
-          stripeSubscriptionId: subscription.id,
-          currentPeriodEnd: toDateOrNull(subscription.current_period_end),
-          accountStatus: 'active',
-        },
-      });
-    }
-
-    if (event.type === 'customer.subscription.updated') {
-      const subscription = event.data.object as Stripe.Subscription;
-
-      await prisma.user.updateMany({
-        where: { stripeSubscriptionId: subscription.id },
-        data: {
-          subscriptionStatus: subscription.status,
-          currentPeriodEnd: toDateOrNull(subscription.current_period_end),
-        },
-      });
-    }
-
-    if (event.type === 'customer.subscription.deleted') {
-      const subscription = event.data.object as Stripe.Subscription;
-
-      await prisma.user.updateMany({
-        where: { stripeSubscriptionId: subscription.id },
-        data: {
-          subscriptionStatus: subscription.status,
-          currentPeriodEnd: toDateOrNull(subscription.current_period_end),
-          accountStatus: 'cancelled',
-        },
-      });
-    }
-
-    if (event.type === 'invoice.payment_failed') {
-      const invoice = event.data.object as Stripe.Invoice;
-      const subscriptionId = invoice.subscription as string | null;
-
-      if (subscriptionId) {
-        await prisma.user.updateMany({
-          where: { stripeSubscriptionId: subscriptionId },
-          data: {
-            subscriptionStatus: 'past_due',
-          },
-        });
-      }
-    }
-
-    return NextResponse.json({ received: true });
-  } catch (err) {
-    console.error('Webhook processing error:', err);
-    return new NextResponse('Server error', { status: 500 });
-  }
+if (!sig) {
+return new NextResponse('Missing stripe signature', { status: 400 });
 }
-```
+
+let event: Stripe.Event;
+
+try {
+event = stripe.webhooks.constructEvent(
+body,
+sig,
+process.env.STRIPE_WEBHOOK_SECRET!
+);
+} catch (err) {
+console.error('Webhook signature error:', err);
+return new NextResponse('Webhook Error', { status: 400 });
+}
+
+try {
+if (event.type === 'checkout.session.completed') {
+const session = event.data.object as Stripe.Checkout.Session;
+const userId = session.client_reference_id || session.metadata?.userId;
+
+
+  if (!userId) {
+    console.error('Stripe webhook: missing userId on checkout.session.completed');
+    return NextResponse.json({ received: true, skipped: 'missing_user_id' });
+  }
+
+  const subscriptionId = session.subscription as string | null;
+
+  if (!subscriptionId) {
+    console.error('Stripe webhook: missing subscriptionId on checkout.session.completed');
+    return NextResponse.json({ received: true, skipped: 'missing_subscription_id' });
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      subscriptionStatus: subscription.status,
+      stripeCustomerId: session.customer as string,
+      stripeSubscriptionId: subscription.id,
+      currentPeriodEnd: toDateOrNull(subscription.current_period_end),
+      accountStatus: 'active',
+    },
+  });
+}
+
+if (event.type === 'customer.subscription.updated') {
+  const subscription = event.data.object as Stripe.Subscription;
+
+  await prisma.user.updateMany({
+    where: { stripeSubscriptionId: subscription.id },
+    data: {
+      subscriptionStatus: subscription.status,
+      currentPeriodEnd: toDateOrNull(subscription.current_period_end),
+    },
+  });
+}
+
+if (event.type === 'customer.subscription.deleted') {
+  const subscription = event.data.object as Stripe.Subscription;
+
+  await prisma.user.updateMany({
+    where: { stripeSubscriptionId: subscription.id },
+    data: {
+      subscriptionStatus: subscription.status,
+      currentPeriodEnd: toDateOrNull(subscription.current_period_end),
+      accountStatus: 'cancelled',
+    },
+  });
+}
+
+if (event.type === 'invoice.payment_failed') {
+  console.warn('Stripe webhook: invoice.payment_failed received');
+}
+
+return NextResponse.json({ received: true });
+
+
+} catch (err) {
+console.error('Webhook processing error:', err);
+return new NextResponse('Server error', { status: 500 });
+}
+}
