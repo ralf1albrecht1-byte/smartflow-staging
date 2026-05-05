@@ -212,14 +212,16 @@ export default function EinstellungenPage() {
           const j = await res.clone().json();
           const r = j?.request || {};
          if (type === 'account_cancellation') {
-  const stripeCancelRes = await fetch('/api/stripe/cancel-subscription', {
+    const stripeCancelRes = await fetch('/api/stripe/cancel-subscription', {
     method: 'POST',
   });
 
   if (!stripeCancelRes.ok) {
     throw new Error('Stripe Kündigung fehlgeschlagen');
   }
-}          if (type === 'data_export') {
+}
+
+if (type === 'data_export') {
             if (r.exportFileKey && r.exportReadyAt) {
               successMsg =
                 'Datenexport ist bereit. Du findest den Download unter "Meine Anfragen". Eine Bestätigung wurde an deine E-Mail gesendet.';
