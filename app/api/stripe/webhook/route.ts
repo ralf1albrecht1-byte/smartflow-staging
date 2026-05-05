@@ -40,12 +40,22 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ received: true, skipped: 'missing_user_id' });
       }
 
+      const subscriptionId = session.subscription as string | null;
+
+      if (!subscriptionId) {
+        console.error('Stripe webhook: missing subscriptionId on checkout.session.completed');
+        return NextResponse.json({ received: true, skipped: 'missing_subscription_id' });
+      }
+
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
       await prisma.user.update({
         where: { id: userId },
         data: {
-          subscriptionStatus: 'active',
+          subscriptionStatus: subscription.status,
           stripeCustomerId: session.customer as string,
-          stripeSubscriptionId: session.subscription as string,
+          stripeSubscriptionId: subscription.id,
+          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
           accountStatus: 'active',
         },
       });
@@ -58,6 +68,7 @@ export async function POST(req: NextRequest) {
         where: { stripeSubscriptionId: subscription.id },
         data: {
           subscriptionStatus: subscription.status,
+          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
         },
       });
     }
@@ -69,6 +80,7 @@ export async function POST(req: NextRequest) {
         where: { stripeSubscriptionId: subscription.id },
         data: {
           subscriptionStatus: subscription.status,
+          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
           accountStatus: 'cancelled',
         },
       });
