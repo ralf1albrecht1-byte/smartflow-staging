@@ -69,7 +69,8 @@ export function AudioUsageCard({
   const status = subscription?.status || null;
   const isTrialing = status === 'trialing';
   const isActive = status === 'active';
-  const needsPaymentAttention = status === 'past_due' || status === 'unpaid' || status === 'incomplete';
+  const needsPaymentAttention =
+    status === 'past_due' || status === 'unpaid' || status === 'incomplete';
 
   const used = Math.max(0, data.usedMinutes || 0);
   const included = 20;
@@ -124,6 +125,8 @@ export function AudioUsageCard({
   return (
     <Card className={cardBorderClass}>
       <CardContent className="p-4 space-y-3">
+
+        {/* HEADER */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -137,28 +140,28 @@ export function AudioUsageCard({
             </div>
           </div>
 
+          {/* STATUS */}
           {isTrialing ? (
             <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
               Testphase aktiv
             </span>
           ) : isActive ? (
-  <div className="flex items-center gap-2">
-    <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-      Abo aktiv
-    </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                Abo aktiv
+              </span>
 
-    <Button
-      size="sm"
-      variant="outline"
-      onClick={async () => {
-        await fetch('/api/stripe/cancel-subscription', { method: 'POST' });
-        window.location.reload();
-      }}
-    >
-      Kündigen
-    </Button>
-  </div>
-)
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  await fetch('/api/stripe/cancel-subscription', { method: 'POST' });
+                  window.location.reload();
+                }}
+              >
+                Kündigen
+              </Button>
+            </div>
           ) : needsPaymentAttention ? (
             <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
               {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
@@ -170,6 +173,7 @@ export function AudioUsageCard({
           )}
         </div>
 
+        {/* TRIAL INFO */}
         {isTrialing && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-1">
             <p className="text-sm font-semibold text-blue-900">Testphase aktiv</p>
@@ -185,21 +189,16 @@ export function AudioUsageCard({
           </div>
         )}
 
+        {/* USAGE */}
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
           <div className="font-mono">
             <span className="text-2xl font-bold tabular-nums">{formatMinutes(used)}</span>
-            <span className="text-base text-muted-foreground"> / {formatMinutes(included)} Min genutzt</span>
+            <span className="text-base text-muted-foreground">
+              {' '} / {formatMinutes(included)} Min genutzt
+            </span>
           </div>
 
-          <span
-            className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
-              overLimit
-                ? 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800'
-                : nearLimit
-                ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-800'
-                : 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-800'
-            }`}
-          >
+          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border">
             {pctRaw}%
           </span>
         </div>
@@ -213,20 +212,23 @@ export function AudioUsageCard({
         )}
 
         {overLimit && (
-          <div className="rounded-lg border border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-900/20 p-3">
-            <p className="text-xs font-semibold text-red-800 dark:text-red-200 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5" /> Audio-Limit erreicht. Bitte Abo prüfen oder Support kontaktieren.
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+            <p className="text-xs font-semibold text-red-800 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Audio-Limit erreicht. Bitte Abo prüfen.
             </p>
           </div>
         )}
 
         {nearLimit && (
-          <div className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 p-2.5">
-            <p className="text-xs text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5" /> Du hast fast dein Audio-Limit erreicht.
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+            <p className="text-xs text-amber-800 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Du hast fast dein Audio-Limit erreicht.
             </p>
           </div>
         )}
+
       </CardContent>
     </Card>
   );
