@@ -974,6 +974,16 @@ function ComplianceTab() {
                             <Shield className="w-3.5 h-3.5" /> Konto-Aktionen
                           </div>
 
+<Button
+  size="sm"
+  variant="destructive"
+  onClick={() => openAnonymizeModal(req)}
+  disabled={isActing}
+>
+  Daten anonymisieren
+</Button>
+
+
                           {req.type === 'account_cancellation' && (
                             <div className="flex flex-wrap items-end gap-2">
                               <div className="flex flex-col gap-1">
@@ -1146,7 +1156,6 @@ function ComplianceTab() {
                         <div className="text-xs font-medium text-slate-700 flex items-center gap-1">
                           <Shield className="w-3.5 h-3.5" /> Konto-Aktionen
                         </div>
-
                         {/* Access end date */}
                         <div className="flex flex-wrap items-end gap-2">
                           <div className="flex flex-col gap-1">
