@@ -15,26 +15,45 @@ export async function POST() {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { stripeSubscriptionId: true },
+      select: {
+        stripeSubscriptionId: true,
+      },
     });
 
     if (!user?.stripeSubscriptionId) {
       return NextResponse.json(
-        { error: 'Kein aktives Abo gefunden.' },
+        { error: 'Kein aktives Stripe-Abo gefunden.' },
         { status: 400 }
       );
     }
 
-    await stripe.subscriptions.update(user.stripeSubscriptionId, {
+    const subscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
       cancel_at_period_end: true,
     });
 
-    return NextResponse.json({ success: true });
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        subscriptionStatus: subscription.status,
+        currentPeriodEnd: subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000)
+          : null,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      subscriptionStatus: subscription.status,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      currentPeriodEnd: subscription.current_period_end
+        ? new Date(subscription.current_period_end * 1000).toISOString()
+        : null,
+    });
   } catch (error: any) {
     console.error('Cancel subscription error:', error);
 
     return NextResponse.json(
-      { error: 'Kündigung fehlgeschlagen.' },
+      { error: error?.message || 'Kündigung fehlgeschlagen.' },
       { status: 500 }
     );
   }
