@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -9,6 +10,9 @@ import { shouldSendEmail, getEmailSuppressionReason, getAppEnv } from '@/lib/env
 import { getCurrentVersion, type LegalDocumentType } from '@/lib/legal-versions';
 import { normalizeEmail } from '@/lib/email-utils';
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+  apiVersion: '2025-02-24.acacia',
+});
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -298,11 +302,54 @@ export async function POST(request: Request) {
         });
       }
     }
+let checkoutUrl: string | null = null;
+
+try {
+  if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRICE_ID_MONTHLY) {
+    const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
+    const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+
+    const appUrl = forwardedHost
+      ? `${forwardedProto}://${forwardedHost}`
+      : (process.env.NEXTAUTH_URL || 'http://localhost:3000');
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: process.env.STRIPE_PRICE_ID_MONTHLY,
+          quantity: 1,
+        },
+      ],
+      subscription_data: {
+        trial_period_days: 7,
+        metadata: {
+          userId: user.id,
+          plan: 'standard',
+        },
+      },
+      client_reference_id: user.id,
+      metadata: {
+        userId: user.id,
+        plan: 'standard',
+        source: 'signup',
+      },
+      success_url: `${appUrl}/dashboard?stripe=success`,
+      cancel_url: `${appUrl}/login?stripe=cancelled`,
+    });
+
+    checkoutUrl = session.url || null;
+  }
+} catch (stripeError) {
+  console.error('Stripe signup checkout error:', stripeError);
+}
 
     return NextResponse.json({
-      success: true,
-      message: 'Registrierung erfolgreich. Bitte prüfen Sie Ihre E-Mail für den Bestätigungslink.',
-    });
+  success: true,
+  message: 'Registrierung erfolgreich.',
+  checkoutUrl,
+});
   } catch (error: any) {
     console.error('Signup error:', error);
     return NextResponse.json({ error: 'Registrierung fehlgeschlagen' }, { status: 500 });

@@ -180,14 +180,19 @@ function LoginForm() {
           body: JSON.stringify(form),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          toast.error(data?.error || 'Registrierung fehlgeschlagen');
-        } else {
-          toast.success(data?.message || 'Registrierung erfolgreich. Bitte prüfen Sie Ihre E-Mail.');
-          setIsLogin(true);
-          setForm({ ...form, password: '', confirmPassword: '', acceptedAgb: false, acceptedDatenschutz: false, acceptedAvv: false });
-        }
-      }
+       if (!res.ok) {
+  toast.error(data?.error || 'Registrierung fehlgeschlagen');
+} else {
+  if (data?.checkoutUrl) {
+    toast.success('Registrierung erfolgreich. Sie werden jetzt zur Zahlungsangabe weitergeleitet.');
+    window.location.href = data.checkoutUrl;
+    return;
+  }
+
+  toast.success(data?.message || 'Registrierung erfolgreich. Bitte prüfen Sie Ihre E-Mail.');
+  setIsLogin(true);
+  setForm({ ...form, password: '', confirmPassword: '', acceptedAgb: false, acceptedDatenschutz: false, acceptedAvv: false });
+}      }
     } catch (err: any) {
       console.error(err);
       toast.error('Ein Fehler ist aufgetreten');
