@@ -969,8 +969,7 @@ function ComplianceTab() {
                           Datenexport: keine Konto-Aktionen.
                           Kündigung: Stichtag + Sperren / Reaktivieren.
                           Löschung: Sperren / Reaktivieren + Anonymisieren. */}
-                      {req.type !== 'data_export' && u.id && !isAnonymized && (
-                        <div className="space-y-2 rounded-md bg-slate-50 border border-slate-200 p-2">
+                 {u.id && !isAnonymized && (               <div className="space-y-2 rounded-md bg-slate-50 border border-slate-200 p-2">
                           <div className="text-xs font-medium text-slate-700 flex items-center gap-1">
                             <Shield className="w-3.5 h-3.5" /> Konto-Aktionen
                           </div>
