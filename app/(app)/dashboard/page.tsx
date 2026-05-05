@@ -17,6 +17,12 @@ interface ReviewData {
 }
 
 interface DashboardData {
+  subscription?: {
+    isActive: boolean;
+    status: string | null;
+    stripeSubscriptionId: string | null;
+    currentPeriodEnd: string | null;
+  };
   activeOrders: number;
   activeOffers: number;
   totalInvoices: number;
