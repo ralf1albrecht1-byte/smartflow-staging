@@ -1,9 +1,10 @@
 'use client';
+
 import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { Mic, AlertTriangle, Sparkles } from 'lucide-react';
+import { Mic, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export interface AudioUsageData {
@@ -17,31 +18,14 @@ export interface AudioUsageData {
   audioOrderCount?: number;
 }
 
-/**
- * Stage I — Dashboard card showing this month's audio-minute usage.
- *
- * Visual hierarchy:
- *   1. Title + plan label
- *   2. Big used / included number
- *   3. Progress bar (color shifts amber ≥ 80 %, red ≥ 100 %)
- *   4. Plan price line
- *   5. Conditional warning + placeholder upgrade buttons (Stripe TODO)
- *
- * The upgrade / extra-minutes buttons are intentionally inert today — they
- * show a Sonner toast "Demnächst verfügbar" instead of triggering Stripe.
- */
 export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null; loading?: boolean }) {
   const [busy, setBusy] = useState(false);
 
-  // Skeleton during initial load.
   if (loading || !data) {
     return (
       <Card>
         <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="h-4 w-44 bg-muted rounded animate-pulse" />
-            <div className="h-5 w-16 bg-muted rounded-full animate-pulse" />
-          </div>
+          <div className="h-4 w-44 bg-muted rounded animate-pulse" />
           <div className="h-7 w-32 bg-muted rounded animate-pulse" />
           <div className="h-2 w-full bg-muted rounded animate-pulse" />
           <div className="h-3 w-64 bg-muted rounded animate-pulse" />
@@ -51,43 +35,50 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
   }
 
   const used = Math.max(0, data.usedMinutes || 0);
-  const included = Math.max(0, data.includedMinutes || 0);
-  const pctRaw = data.usagePercent || (included > 0 ? Math.round((used / included) * 100) : 0);
-  // Cap progress visual at 100 % even if the user has overflowed.
+  const included = 20;
+  const pctRaw = included > 0 ? Math.round((used / included) * 100) : 0;
   const pctClamped = Math.min(100, Math.max(0, pctRaw));
   const overLimit = pctRaw >= 100;
   const nearLimit = !overLimit && pctRaw >= 80;
 
-  const planLabel = data.plan;
-  const planNote = data.plan === 'Pro'
-    ? `Pro: CHF ${data.monthlyPriceChf} / Monat · ${included} Min inklusive`
-    : `Standard: CHF ${data.monthlyPriceChf} / Monat · ${included} Min inklusive`;
-
-  const handleComingSoon = (label: string) => {
+  const handleCheckout = async () => {
     if (busy) return;
-    setBusy(true);
-    toast.message('Demnächst verfügbar', {
-      description: `${label} wird mit der Stripe-Anbindung freigeschaltet.`,
-    });
-    // Re-enable after a short cooldown so users don't spam-toast.
-    setTimeout(() => setBusy(false), 1200);
+
+    try {
+      setBusy(true);
+
+      const res = await fetch('/api/stripe/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const result = await res.json().catch(() => null);
+
+      if (!res.ok || !result?.url) {
+        throw new Error(result?.error || 'Stripe Checkout konnte nicht gestartet werden.');
+      }
+
+      window.location.href = result.url;
+    } catch (error: any) {
+      toast.error('Abo konnte nicht gestartet werden', {
+        description: error?.message || 'Bitte später erneut versuchen.',
+      });
+      setBusy(false);
+    }
   };
 
-  // Color tokens for the progress bar.
   const progressColorClass = overLimit
     ? '[&>div]:bg-red-500'
     : nearLimit
     ? '[&>div]:bg-amber-500'
     : '[&>div]:bg-emerald-500';
 
-  // Card border tone follows the same severity ladder.
   const cardBorderClass = overLimit
     ? 'border-red-200 dark:border-red-800/60 bg-red-50/40 dark:bg-red-900/10'
     : nearLimit
     ? 'border-amber-200 dark:border-amber-800/60 bg-amber-50/40 dark:bg-amber-900/10'
     : 'border-border';
 
-  // Number formatting: show 1 decimal only if the value is fractional.
   const formatMinutes = (val: number): string => {
     if (!isFinite(val)) return '0';
     return Number.isInteger(val) ? `${val}` : val.toFixed(1).replace(/\.0$/, '');
@@ -96,8 +87,7 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
   return (
     <Card className={cardBorderClass}>
       <CardContent className="p-4 space-y-3">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
               <Mic className="w-4 h-4" />
@@ -105,19 +95,22 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
             <div className="min-w-0">
               <p className="text-sm font-semibold truncate">Audio-Minuten diesen Monat</p>
               <p className="text-[11px] text-muted-foreground truncate">
-                Plan: {planLabel}
-                {data.planIsFallback ? <span className="ml-1 italic">(angenommen)</span> : null}
+                Standard-Abo · CHF 39 / Monat · 20 Min inklusive
               </p>
             </div>
           </div>
+
+          <Button size="sm" onClick={handleCheckout} disabled={busy}>
+            {busy ? 'Öffne Stripe…' : 'Abo starten'}
+          </Button>
         </div>
 
-        {/* Big number + percent badge */}
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
           <div className="font-mono">
             <span className="text-2xl font-bold tabular-nums">{formatMinutes(used)}</span>
             <span className="text-base text-muted-foreground"> / {formatMinutes(included)} Min genutzt</span>
           </div>
+
           <span
             className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
               overLimit
@@ -131,48 +124,24 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
           </span>
         </div>
 
-        {/* Progress bar */}
         <Progress value={pctClamped} className={`h-2 ${progressColorClass}`} />
 
-        {/* Plan price note */}
-        <p className="text-[11px] text-muted-foreground">{planNote}</p>
+        <p className="text-[11px] text-muted-foreground">
+          Bei höherem Bedarf erstellen wir ein individuelles Angebot.
+        </p>
 
-        {/* Severity messages + upgrade placeholders */}
         {overLimit && (
-          <div className="rounded-lg border border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-900/20 p-3 space-y-2">
+          <div className="rounded-lg border border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-900/20 p-3">
             <p className="text-xs font-semibold text-red-800 dark:text-red-200 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5" /> ⚠️ Audio-Limit erreicht.
+              <AlertTriangle className="w-3.5 h-3.5" /> Audio-Limit erreicht. Bitte Abo prüfen oder Support kontaktieren.
             </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs h-8 justify-start"
-                onClick={() => handleComingSoon('Upgrade auf Pro')}
-                disabled={busy}
-                aria-label="Upgrade auf Pro – demnächst verfügbar"
-              >
-                <Sparkles className="w-3.5 h-3.5 mr-1" />
-                Upgrade auf Pro – CHF 79/Monat
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs h-8 justify-start"
-                onClick={() => handleComingSoon('Zusatz-Minuten')}
-                disabled={busy}
-                aria-label="Zusatz-Minuten aktivieren – demnächst verfügbar"
-              >
-                Zusatz-Minuten aktivieren – CHF {data.extraMinutePriceChf.toFixed(2)}/Minute
-              </Button>
-            </div>
-            <p className="text-[10px] text-muted-foreground italic">Demnächst verfügbar – Stripe-Anbindung folgt.</p>
           </div>
         )}
+
         {nearLimit && (
           <div className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 p-2.5">
             <p className="text-xs text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5" /> ⚠️ Du hast fast dein Audio-Limit erreicht.
+              <AlertTriangle className="w-3.5 h-3.5" /> Du hast fast dein Audio-Limit erreicht.
             </p>
           </div>
         )}
