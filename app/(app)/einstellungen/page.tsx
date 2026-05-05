@@ -211,6 +211,15 @@ export default function EinstellungenPage() {
         try {
           const j = await res.clone().json();
           const r = j?.request || {};
+         if (type === 'account_cancellation') {
+  try {
+    await fetch('/api/stripe/cancel-subscription', {
+      method: 'POST',
+    });
+  } catch (stripeCancelError) {
+    console.error('Stripe cancellation failed:', stripeCancelError);
+  }
+}
           if (type === 'data_export') {
             if (r.exportFileKey && r.exportReadyAt) {
               successMsg =
