@@ -41,7 +41,7 @@ if (event.type === 'checkout.session.completed') {
 const session = event.data.object as Stripe.Checkout.Session;
 const userId = session.client_reference_id || session.metadata?.userId;
 
-
+```
   if (!userId) {
     console.error('Stripe webhook: missing userId on checkout.session.completed');
     return NextResponse.json({ received: true, skipped: 'missing_user_id' });
@@ -64,6 +64,9 @@ const userId = session.client_reference_id || session.metadata?.userId;
       stripeSubscriptionId: subscription.id,
       currentPeriodEnd: toDateOrNull(subscription.current_period_end),
       accountStatus: 'active',
+      accessEndsAt: null,
+      blockedAt: null,
+      blockedReason: null,
     },
   });
 }
@@ -82,23 +85,41 @@ if (event.type === 'customer.subscription.updated') {
 
 if (event.type === 'customer.subscription.deleted') {
   const subscription = event.data.object as Stripe.Subscription;
+  const endedAt = toDateOrNull(subscription.ended_at) || new Date();
 
   await prisma.user.updateMany({
     where: { stripeSubscriptionId: subscription.id },
     data: {
-      subscriptionStatus: subscription.status,
+      subscriptionStatus: subscription.status || 'canceled',
       currentPeriodEnd: toDateOrNull(subscription.current_period_end),
       accountStatus: 'cancelled',
+      accessEndsAt: endedAt,
+      blockedAt: endedAt,
+      blockedReason: 'Abo beendet.',
     },
   });
 }
 
 if (event.type === 'invoice.payment_failed') {
-  console.warn('Stripe webhook: invoice.payment_failed received');
+  const invoice = event.data.object as Stripe.Invoice;
+
+  const subscriptionId =
+    typeof invoice.subscription === 'string' ? invoice.subscription : null;
+
+  if (subscriptionId) {
+    await prisma.user.updateMany({
+      where: { stripeSubscriptionId: subscriptionId },
+      data: {
+        subscriptionStatus: 'past_due',
+      },
+    });
+  } else {
+    console.warn('Stripe webhook: invoice.payment_failed received without subscription id');
+  }
 }
 
 return NextResponse.json({ received: true });
-
+```
 
 } catch (err) {
 console.error('Webhook processing error:', err);
