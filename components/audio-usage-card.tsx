@@ -18,7 +18,20 @@ export interface AudioUsageData {
   audioOrderCount?: number;
 }
 
-export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null; loading?: boolean }) {
+export function AudioUsageCard({
+  data,
+  loading,
+  subscription,
+}: {
+  data: AudioUsageData | null;
+  loading?: boolean;
+  subscription?: {
+    isActive: boolean;
+    status: string | null;
+    stripeSubscriptionId: string | null;
+    currentPeriodEnd: string | null;
+  } | null;
+}) {
   const [busy, setBusy] = useState(false);
 
   if (loading || !data) {
@@ -100,9 +113,15 @@ export function AudioUsageCard({ data, loading }: { data: AudioUsageData | null;
             </div>
           </div>
 
-          <Button size="sm" onClick={handleCheckout} disabled={busy}>
-            {busy ? 'Öffne Stripe…' : 'Abo starten'}
-          </Button>
+        {subscription?.isActive ? (
+  <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+    Abo aktiv
+  </span>
+) : (
+  <Button size="sm" onClick={handleCheckout} disabled={busy}>
+    {busy ? 'Öffne Stripe…' : 'Abo starten'}
+  </Button>
+)}
         </div>
 
         <div className="flex items-baseline justify-between gap-2 flex-wrap">

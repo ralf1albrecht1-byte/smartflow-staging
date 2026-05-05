@@ -173,10 +173,11 @@ export default function DashboardPage() {
 
       {/* Stage I — Audio-Minuten-Karte */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}>
-        <AudioUsageCard
-          data={data?.audioUsage ?? null}
-          loading={loading}
-        />
+     <AudioUsageCard
+  data={data?.audioUsage ?? null}
+  subscription={data?.subscription ?? null}
+  loading={loading}
+/>
       </motion.div>
 
       {/* Recent sections: Orders, Offers, Invoices */}
