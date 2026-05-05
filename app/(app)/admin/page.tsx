@@ -1211,10 +1211,10 @@ function ComplianceTab() {
                             variant="destructive"
                             onClick={() => { setAnonOpenForUserId(u.id); setUserAnonConfirmText(''); }}
                             disabled={isActing || isAdminTarget}
-                            title={isAdminTarget ? 'Admin-Konten können nicht anonymisiert werden.' : 'Persönliche Daten anonymisieren (endgültig)'}
+                            title={isAdminTarget ? 'Admin-Konten können nicht anonymisiert werden.' : 'Persönliche Konto anonymisieren (endgültig)'}
                           >
                             <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
-                            Daten anonymisieren
+                            Konto anonymisieren
                           </Button>
                         </div>
 
