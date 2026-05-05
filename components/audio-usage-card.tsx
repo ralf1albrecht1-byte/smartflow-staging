@@ -19,7 +19,7 @@ export interface AudioUsageData {
 }
 
 function formatTrialRemaining(currentPeriodEnd: string | null): string {
-  if (!currentPeriodEnd) return 'Testphase aktiv';
+  if (!currentPeriodEnd) return 'Noch wenige Tage kostenlos';
 
   const end = new Date(currentPeriodEnd).getTime();
   const now = Date.now();
@@ -157,10 +157,16 @@ export function AudioUsageCard({
         </div>
 
         {isTrialing && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-1">
             <p className="text-sm font-semibold text-blue-900">Testphase aktiv</p>
             <p className="text-xs text-blue-800">
-              {formatTrialRemaining(subscription?.currentPeriodEnd || null)}. Danach CHF 39 / Monat.
+              {formatTrialRemaining(subscription?.currentPeriodEnd || null)}.
+            </p>
+            <p className="text-xs text-blue-800">
+              Danach wird dein Abo automatisch für CHF 39 / Monat weitergeführt.
+            </p>
+            <p className="text-xs text-blue-800">
+              Keine Aktion erforderlich.
             </p>
           </div>
         )}
@@ -186,9 +192,11 @@ export function AudioUsageCard({
 
         <Progress value={pctClamped} className={`h-2 ${progressColorClass}`} />
 
-        <p className="text-[11px] text-muted-foreground">
-          Bei höherem Bedarf erstellen wir ein individuelles Angebot.
-        </p>
+        {!isTrialing && (
+          <p className="text-[11px] text-muted-foreground">
+            Bei höherem Bedarf erstellen wir ein individuelles Angebot.
+          </p>
+        )}
 
         {overLimit && (
           <div className="rounded-lg border border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-900/20 p-3">
