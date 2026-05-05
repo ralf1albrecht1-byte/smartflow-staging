@@ -10,6 +10,21 @@ export async function GET() {
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+const user = await prisma.user.findUnique({
+  where: { id: userId },
+  select: {
+    subscriptionStatus: true,
+    stripeSubscriptionId: true,
+    currentPeriodEnd: true,
+  },
+});
+
+const subscription = {
+  isActive: user?.subscriptionStatus === 'active',
+  status: user?.subscriptionStatus || null,
+  stripeSubscriptionId: user?.stripeSubscriptionId || null,
+  currentPeriodEnd: user?.currentPeriodEnd?.toISOString() || null,
+};
 
     // Run all counts sequentially to avoid pool exhaustion
 
@@ -124,7 +139,8 @@ export async function GET() {
       : 0;
 
     return NextResponse.json({
-      activeOrders: activeOrderCount,
+  subscription,
+  activeOrders: activeOrderCount,
       activeOffers: activeOfferCount,
       totalInvoices: activeInvoiceCount,
       // Stage I — Audio usage block consumed by the dashboard "Audio-Minuten
