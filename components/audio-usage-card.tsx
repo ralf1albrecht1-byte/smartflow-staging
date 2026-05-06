@@ -68,11 +68,12 @@ export function AudioUsageCard({
   data: AudioUsageData | null;
   loading?: boolean;
   subscription?: {
-    isActive: boolean;
-    status: string | null;
-    stripeSubscriptionId: string | null;
-    currentPeriodEnd: string | null;
-  } | null;
+  isActive: boolean;
+  status: string | null;
+  stripeSubscriptionId: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd?: boolean;
+} | null;
 }) {
   const [busy, setBusy] = useState(false);
 
