@@ -174,10 +174,13 @@ const { user, consentRecords } = await prisma.$transaction(async (tx: any) => {
     },
   });
 
-  const settingsData: Record<string, any> = {
-    userId: createdUser.id,
-    whatsappIntakeNumber: normalizedWhatsapp,
-  };
+const settingsData: Record<string, any> = {
+  userId: createdUser.id,
+  whatsappIntakeNumber: normalizedWhatsapp,
+  firmenname: name || '',
+  ansprechpartner: name || null,
+  email,
+};
 
   if (normalizedTelefon) settingsData.telefon = normalizedTelefon;
   if (strasseTrim) settingsData.strasse = strasseTrim;
