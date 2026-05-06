@@ -243,27 +243,12 @@ try {
   `;
 
   if (shouldSendEmail(email)) {
-    await fetch('https://apps.abacus.ai/api/sendNotificationEmail', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deployment_token: process.env.ABACUSAI_API_KEY,
-        app_id: process.env.WEB_APP_ID,
-        notification_id: process.env.NOTIF_ID_EMAIL_VERIFIZIERUNG,
-        subject: 'E-Mail Bestätigung - Business Manager',
-        body: htmlBody,
-        is_html: true,
-        recipient_email: email,
-        sender_email: `noreply@${(() => {
-          try {
-            return new URL(appUrl).hostname;
-          } catch {
-            return 'business-manager.app';
-          }
-        })()}`,
-        sender_alias: 'Business Manager',
-      }),
-    });
+await sendEmail({
+  to: email,
+  subject: 'E-Mail Bestätigung - Business Manager',
+  html: htmlBody,
+});
+  
   } else {
     const reason = getEmailSuppressionReason(email) || 'unknown';
 
