@@ -69,7 +69,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
   const [defaultVatRate, setDefaultVatRate] = useState(8.1);
   // Stage M.2: Business WhatsApp intake number used as recipient for
   // "PDF an WhatsApp senden". NEVER use Customer.phone for this feature.
-  const [businessWhatsappNumber, setBusinessWhatsappdf-templatepNumber] = useState<string | null>(null);
+ const [businessWhatsappNumber, setBusinessWhatsappNumber] = useState<string | null>(null);
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
 
   // New/edit customer inline
