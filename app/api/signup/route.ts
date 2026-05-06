@@ -9,6 +9,7 @@ import { normalizePhoneE164 } from '@/lib/normalize';
 import { shouldSendEmail, getEmailSuppressionReason, getAppEnv } from '@/lib/env';
 import { getCurrentVersion, type LegalDocumentType } from '@/lib/legal-versions';
 import { normalizeEmail } from '@/lib/email-utils';
+import { sendEmail } from '@/lib/mail';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 apiVersion: '2025-02-24.acacia',
