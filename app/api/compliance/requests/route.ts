@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSessionUser } from '@/lib/get-session';
@@ -6,6 +7,7 @@ import { logAuditAsync, EVENTS, AREAS } from '@/lib/audit';
 import { buildUserDataExport } from '@/lib/data-export';
 import { uploadBufferToS3 } from '@/lib/s3';
 import { shouldSendEmail, getEmailSuppressionReason, getAppEnv } from '@/lib/env';
+import { sendEmail } from '@/lib/mail';
 
 /**
  * Block T-auto — Automatische Datenexport-Pipeline.
@@ -38,7 +40,6 @@ const ALLOWED_TYPES = new Set(['data_export', 'data_deletion', 'account_cancella
 const ACTIVE_STATUSES = ['open', 'in_progress'] as const;
 
 const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_EMAIL || 'kontakt@smartflowai.ch';
-const MAIL_FROM = process.env.MAIL_FROM || 'onboarding@resend.dev';
 
 function typeEvent(type: string): string | null {
   if (type === 'data_export') return EVENTS.DATA_EXPORT_REQUESTED;
@@ -61,18 +62,6 @@ function typeSubject(type: string): string {
   return 'Neue Compliance-Anfrage';
 }
 
-/**
- * Block T-fix — User-Bestätigungsmail.
- * Liefert NotifId aus Env je Anfragetyp. Drei separate USER-Notification-Types,
- * damit Nutzer sie pro Typ ein-/ausschalten können (über Notification-Settings).
- */
-function typeUserConfirmNotifId(type: string): string | null {
-  if (type === 'data_export') return process.env.NOTIF_ID_DATENEXPORTBESTTIGUNG ?? null;
-  if (type === 'data_deletion') return process.env.NOTIF_ID_LSCHANFRAGEBESTTIGUNG ?? null;
-  if (type === 'account_cancellation') return process.env.NOTIF_ID_KNDIGUNGSANFRAGEBESTTIGUNG ?? null;
-  return null;
-}
-
 function typeUserConfirmSubject(type: string): string {
   if (type === 'data_export') return 'Deine Datenexport-Anfrage wurde empfangen';
   if (type === 'data_deletion') return 'Deine Löschanfrage wurde empfangen';
@@ -81,14 +70,15 @@ function typeUserConfirmSubject(type: string): string {
 }
 
 function buildUserConfirmEmailHtml(type: string): string {
-  // Inline-HTML — keine externen Templates, deploy-sicher.
   const intro =
     type === 'data_export'
-      ? 'wir haben deine Datenexport-Anfrage erhalten.<br>Wir prüfen die Anfrage und melden uns, sobald der Export vorbereitet ist.'
+      ? 'wir haben deine Datenexport-Anfrage erhalten.<br>Der Export wird vorbereitet. Sobald er bereit ist, erhältst du eine weitere E-Mail.'
       : type === 'data_deletion'
       ? 'wir haben deine Löschanfrage erhalten.<br>Diese wird manuell geprüft. Daten mit gesetzlichen Aufbewahrungspflichten bleiben entsprechend gesperrt erhalten.'
       : 'wir haben deine Kündigungsanfrage erhalten.<br>Wir prüfen sie und melden uns zum weiteren Vorgehen.';
+
   const subject = typeUserConfirmSubject(type);
+
   return `
 <!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title></head>
@@ -105,42 +95,24 @@ async function sendUserConfirmationEmail(opts: {
   userEmail: string;
 }): Promise<{ ok: true; suppressed?: boolean; reason?: string } | { ok: false; errorMessage: string }> {
   try {
-    // Phase 2 — env-based email guard. Production = no behaviour change.
     if (!shouldSendEmail(opts.userEmail)) {
       const reason = getEmailSuppressionReason(opts.userEmail) || 'unknown';
       console.log(`[compliance.userConfirm] suppressed by env env=${getAppEnv()} reason=${reason}`);
       return { ok: true, suppressed: true, reason };
     }
-    const apiKey = process.env.ABACUSAI_API_KEY;
-    const appId = process.env.WEB_APP_ID;
-    const notifId = typeUserConfirmNotifId(opts.type);
-    if (!apiKey || !appId || !notifId) {
-      return { ok: false, errorMessage: 'User confirmation email not configured (missing env)' };
-    }
-    const subject = typeUserConfirmSubject(opts.type);
-    const htmlBody = buildUserConfirmEmailHtml(opts.type);
-    const res = await fetch('https://apps.abacus.ai/api/sendNotificationEmail', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deployment_token: apiKey,
-        app_id: appId,
-        notification_id: notifId,
-        subject,
-        body: htmlBody,
-        is_html: true,
-        recipient_email: opts.userEmail,
-        sender_email: 'noreply@smartflowai.ch',
-        sender_alias: 'Smartflow AI',
-      }),
+
+    await sendEmail({
+      to: opts.userEmail,
+      subject: typeUserConfirmSubject(opts.type),
+      html: buildUserConfirmEmailHtml(opts.type),
     });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      return { ok: false, errorMessage: `HTTP ${res.status}: ${txt.slice(0, 200)}` };
-    }
+
     return { ok: true };
   } catch (err: any) {
-    return { ok: false, errorMessage: err?.message ? String(err.message).slice(0, 300) : 'unknown_error' };
+    return {
+      ok: false,
+      errorMessage: err?.message ? String(err.message).slice(0, 300) : 'unknown_error',
+    };
   }
 }
 
@@ -162,7 +134,9 @@ function buildExportReadyEmailHtml(opts: {
     hour: '2-digit',
     minute: '2-digit',
   });
+
   const subject = 'Dein Datenexport ist bereit';
+
   return `
 <!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title></head>
@@ -192,42 +166,24 @@ async function sendExportReadyEmail(opts: {
   expiresAt: Date;
 }): Promise<{ ok: true; suppressed?: boolean; reason?: string } | { ok: false; errorMessage: string }> {
   try {
-    // Phase 2 — env-based email guard. Production = no behaviour change.
     if (!shouldSendEmail(opts.userEmail)) {
       const reason = getEmailSuppressionReason(opts.userEmail) || 'unknown';
       console.log(`[compliance.exportReady] suppressed by env env=${getAppEnv()} reason=${reason}`);
       return { ok: true, suppressed: true, reason };
     }
-    const apiKey = process.env.ABACUSAI_API_KEY;
-    const appId = process.env.WEB_APP_ID;
-    const notifId = process.env.NOTIF_ID_DATENEXPORT_BEREIT;
-    if (!apiKey || !appId || !notifId) {
-      return { ok: false, errorMessage: 'Export-ready email not configured (missing env)' };
-    }
-    const subject = 'Dein Datenexport ist bereit';
-    const htmlBody = buildExportReadyEmailHtml({ expiresAt: opts.expiresAt });
-    const res = await fetch('https://apps.abacus.ai/api/sendNotificationEmail', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deployment_token: apiKey,
-        app_id: appId,
-        notification_id: notifId,
-        subject,
-        body: htmlBody,
-        is_html: true,
-        recipient_email: opts.userEmail,
-        sender_email: 'noreply@smartflowai.ch',
-        sender_alias: 'Smartflow AI',
-      }),
+
+    await sendEmail({
+      to: opts.userEmail,
+      subject: 'Dein Datenexport ist bereit',
+      html: buildExportReadyEmailHtml({ expiresAt: opts.expiresAt }),
     });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      return { ok: false, errorMessage: `HTTP ${res.status}: ${txt.slice(0, 200)}` };
-    }
+
     return { ok: true };
   } catch (err: any) {
-    return { ok: false, errorMessage: err?.message ? String(err.message).slice(0, 300) : 'unknown_error' };
+    return {
+      ok: false,
+      errorMessage: err?.message ? String(err.message).slice(0, 300) : 'unknown_error',
+    };
   }
 }
 
@@ -249,6 +205,7 @@ function buildEmailHtml(opts: {
   const label = typeLabel(opts.type);
   const ts = opts.createdAt.toLocaleString('de-CH', { timeZone: 'Europe/Zurich' });
   const company = opts.companyName ? escapeHtml(opts.companyName) : '<em>nicht hinterlegt</em>';
+
   return `
 <!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"><title>${escapeHtml(label)}</title></head>
@@ -292,33 +249,11 @@ async function sendComplianceNotificationEmail(opts: {
       return { ok: true, suppressed: true, reason };
     }
 
-    const resendApiKey = process.env.RESEND_API_KEY;
-
-    if (!resendApiKey) {
-      return { ok: false, errorMessage: 'Resend email not configured (missing RESEND_API_KEY)' };
-    }
-
-    const subject = typeSubject(opts.type);
-    const htmlBody = buildEmailHtml(opts);
-
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: MAIL_FROM,
-        to: ADMIN_NOTIFY_EMAIL,
-        subject,
-        html: htmlBody,
-      }),
+    await sendEmail({
+      to: ADMIN_NOTIFY_EMAIL,
+      subject: typeSubject(opts.type),
+      html: buildEmailHtml(opts),
     });
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      return { ok: false, errorMessage: `Resend HTTP ${res.status}: ${txt.slice(0, 300)}` };
-    }
 
     return { ok: true };
   } catch (err: any) {
@@ -328,6 +263,7 @@ async function sendComplianceNotificationEmail(opts: {
     };
   }
 }
+
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 });
@@ -337,6 +273,7 @@ export async function GET() {
       where: { userId: user.id },
       orderBy: { requestedAt: 'desc' },
     });
+
     return NextResponse.json({ requests });
   } catch (error) {
     console.error('GET compliance requests error:', error);
@@ -350,36 +287,32 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json().catch(() => null);
+
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Ungültige Anfrage' }, { status: 400 });
     }
+
     const type = String(body.type || '').toLowerCase();
     const notes = body.notes ? String(body.notes).slice(0, 1000) : null;
+
     if (!ALLOWED_TYPES.has(type)) {
       return NextResponse.json({ error: 'Anfragetyp nicht erlaubt' }, { status: 400 });
     }
 
-    // Block T — De-duplicate: refuse if an identical *active* request already
-    // exists. "Active" = open OR in_progress (see ACTIVE_STATUSES). Previously
-    // this only checked status === 'open', which let a user file a second
-    // request as soon as an admin moved an existing one to in_progress.
-    //
-    // Block T-auto — Sonderfall data_export: Wenn der Export der bestehenden
-    // in_progress-Anfrage bereits abgelaufen ist (72h Frist überschritten),
-    // erlauben wir eine NEUE Anfrage. Andernfalls würde der Nutzer permanent
-    // blockiert, bis ein Admin manuell den Status auf completed setzt.
     const existingActive = await prisma.complianceRequest.findFirst({
       where: { userId: user.id, type, status: { in: [...ACTIVE_STATUSES] } },
       orderBy: { requestedAt: 'desc' },
     });
+
     const nowForExpiryCheck = new Date();
+
     const existingExportExpired =
       type === 'data_export' &&
       !!existingActive &&
       !!existingActive.exportExpiresAt &&
       existingActive.exportExpiresAt.getTime() < nowForExpiryCheck.getTime();
+
     if (existingActive && !existingExportExpired) {
-      // Block R — explicit audit event so admins/operators can see UI dedup events.
       logAuditAsync({
         userId: user.id,
         userEmail: user.email,
@@ -397,13 +330,7 @@ export async function POST(request: Request) {
         },
         request,
       });
-      // No email is sent on the blocked-duplicate path — only the success path
-      // (after `prisma.complianceRequest.create`) reaches the email block.
-      //
-      // Block T-fix2 — Für data_export liefern wir den State-Snapshot zurück,
-      // damit das Frontend differenzierte Hinweise zeigen kann
-      // ("ist bereits bereit" / "wird vorbereitet" / "abgelaufen"). Für die
-      // anderen Typen reicht der Statusname für den Toast.
+
       const exportSnapshot =
         type === 'data_export'
           ? {
@@ -414,6 +341,7 @@ export async function POST(request: Request) {
               exportGenerationError: existingActive.exportGenerationError ?? null,
             }
           : null;
+
       return NextResponse.json(
         {
           error: 'Es gibt bereits eine offene Anfrage dieses Typs. Wir bearbeiten diese bereits.',
@@ -437,19 +365,21 @@ export async function POST(request: Request) {
       },
     });
 
-    // Pre-fetch companyName so it can be included in the audit log details.
     let companyName: string | null = null;
+
     try {
       const settings = await prisma.companySettings.findFirst({
         where: { userId: user.id },
         select: { firmenname: true },
       });
+
       companyName = settings?.firmenname?.trim() || null;
     } catch {
       // ignore — companyName remains null
     }
 
     const event = typeEvent(type);
+
     if (event) {
       logAuditAsync({
         userId: user.id,
@@ -465,9 +395,6 @@ export async function POST(request: Request) {
       });
     }
 
-    // Block R — generic COMPLIANCE_REQUEST_CREATED event (in addition to the
-    // type-specific event above) so the admin filter can show all
-    // compliance creates without union-filtering three event names.
     logAuditAsync({
       userId: user.id,
       userEmail: user.email,
@@ -481,7 +408,6 @@ export async function POST(request: Request) {
       request,
     });
 
-    // Block Q — Admin email notification (best-effort, never blocks request creation).
     try {
       const mailRes = await sendComplianceNotificationEmail({
         type,
@@ -489,6 +415,7 @@ export async function POST(request: Request) {
         companyName,
         createdAt: created.requestedAt ?? new Date(),
       });
+
       if (mailRes.ok) {
         logAuditAsync({
           userId: user.id,
@@ -499,7 +426,12 @@ export async function POST(request: Request) {
           targetType: 'ComplianceRequest',
           targetId: created.id,
           success: true,
-          details: { type, recipient: ADMIN_NOTIFY_EMAIL },
+          details: {
+            type,
+            recipient: ADMIN_NOTIFY_EMAIL,
+            suppressed: mailRes.suppressed ?? false,
+            reason: mailRes.reason ?? null,
+          },
           request,
         });
       } else {
@@ -518,7 +450,6 @@ export async function POST(request: Request) {
         });
       }
     } catch (mailErr: any) {
-      // Last-resort guard — never let email failures break request creation.
       try {
         logAuditAsync({
           userId: user.id,
@@ -538,14 +469,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // Block T-fix — User-Bestätigungsmail (zusätzlich zur Admin-Mail).
-    // Best-effort: schlägt der Versand fehl, wird das nur ge-auditet,
-    // der Antrag bleibt erfolgreich angelegt.
     try {
       const userMailRes = await sendUserConfirmationEmail({
         type,
         userEmail: user.email,
       });
+
       if (userMailRes.ok) {
         logAuditAsync({
           userId: user.id,
@@ -556,7 +485,12 @@ export async function POST(request: Request) {
           targetType: 'ComplianceRequest',
           targetId: created.id,
           success: true,
-          details: { type, recipient: user.email },
+          details: {
+            type,
+            recipient: user.email,
+            suppressed: userMailRes.suppressed ?? false,
+            reason: userMailRes.reason ?? null,
+          },
           request,
         });
       } else {
@@ -594,24 +528,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // ──────────────────────────────────────────────────────────────────
-    // Block T-auto — Automatische Datenexport-Pipeline.
-    // NUR für type === 'data_export'. Wir bauen die ZIP synchron, laden sie
-    // in S3 und schreiben Status/Felder zurück. Schlägt etwas fehl, wird
-    // exportGenerationError gesetzt und ein FAIL-Audit geschrieben — die
-    // Anfrage selbst bleibt aber bestehen, sodass der Admin sie sehen und
-    // ggf. manuell nachfahren kann.
-    //
-    // Hinweise:
-    //  • KEIN ZIP-Anhang per E-Mail.
-    //  • KEIN öffentlicher Download-Link — Stream nur über
-    //    GET /api/compliance/requests/[id]/download (Owner/Admin-Auth).
-    //  • Status springt open → in_progress, sobald ZIP bereit ist.
-    //  • Admin schliesst manuell auf completed.
-    // ──────────────────────────────────────────────────────────────────
     let finalRequest = created;
+
     if (type === 'data_export') {
-      // Audit: Pipeline gestartet.
       logAuditAsync({
         userId: user.id,
         userEmail: user.email,
@@ -631,36 +550,30 @@ export async function POST(request: Request) {
         request,
       });
 
-      // Status sofort auf in_progress, damit das UI während des Builds
-      // korrekt "Datenexport wird vorbereitet…" anzeigen kann.
       try {
         const inProg = await prisma.complianceRequest.update({
           where: { id: created.id },
           data: { status: 'in_progress' },
         });
+
         finalRequest = inProg;
       } catch (e) {
         console.error('DATA_EXPORT_AUTO: failed to bump status to in_progress', e);
       }
 
       try {
-        // 1. ZIP erzeugen.
         const pkg = await buildUserDataExport(user.id, { requestId: created.id });
 
-        // 2. In S3 ablegen — privater Bereich (NIE public).
         const cloud_storage_path = await uploadBufferToS3(
           pkg.buffer,
-          // Filename ist deterministisch + PII-frei.
-          // uploadBufferToS3 prepend-et automatisch Date.now()-,
-          // sodass wir mehrere Builds derselben Anfrage sauber unterscheiden.
           `compliance-exports/${created.id}/${pkg.filename}`,
           'application/zip',
-          false, // nicht public
+          false,
         );
 
-        // 3. ComplianceRequest mit allen Pipeline-Feldern aktualisieren.
         const now = new Date();
         const expiresAt = new Date(now.getTime() + EXPORT_EXPIRY_HOURS * 60 * 60 * 1000);
+
         const updated = await prisma.complianceRequest.update({
           where: { id: created.id },
           data: {
@@ -672,9 +585,9 @@ export async function POST(request: Request) {
             exportGenerationError: null,
           },
         });
+
         finalRequest = updated;
 
-        // 4. Audit DATA_EXPORT_PREPARED — strukturierte Felder gemäss Block T-fix.
         logAuditAsync({
           userId: user.id,
           userEmail: user.email,
@@ -701,9 +614,9 @@ export async function POST(request: Request) {
           request,
         });
 
-        // 5. Bereit-Mail an den Nutzer (best-effort).
         try {
           const ready = await sendExportReadyEmail({ userEmail: user.email, expiresAt });
+
           if (ready.ok) {
             logAuditAsync({
               userId: user.id,
@@ -720,6 +633,8 @@ export async function POST(request: Request) {
                 affectedUserEmail: user.email,
                 recipient: user.email,
                 timestampIso: new Date().toISOString(),
+                suppressed: ready.suppressed ?? false,
+                reason: ready.reason ?? null,
               },
               request,
             });
@@ -763,22 +678,26 @@ export async function POST(request: Request) {
               },
               request,
             });
-          } catch { /* swallow */ }
+          } catch {
+            // swallow
+          }
         }
       } catch (genErr: any) {
         const errMsg = genErr?.message ? String(genErr.message).slice(0, 300) : 'unknown_error';
+
         console.error('DATA_EXPORT_AUTO: generation failed', genErr);
-        // Fehler im Datensatz hinterlegen, damit Admin den Fehler sieht.
+
         try {
           const failed = await prisma.complianceRequest.update({
             where: { id: created.id },
             data: { exportGenerationError: errMsg },
           });
+
           finalRequest = failed;
         } catch (updErr) {
           console.error('DATA_EXPORT_AUTO: failed to persist generation error', updErr);
         }
-        // Audit FAIL.
+
         logAuditAsync({
           userId: user.id,
           userEmail: user.email,
