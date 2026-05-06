@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -75,6 +76,8 @@ export function AudioUsageCard({
   cancelAtPeriodEnd?: boolean;
 } | null;
 }) {
+  
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
 
   if (loading || !data) {
@@ -144,7 +147,7 @@ const handleReactivateSubscription = async () => {
     }
 
     toast.success('Abo wurde fortgesetzt.');
-    window.location.reload();
+    router.refresh();
   } catch (error: any) {
     toast.error('Abo konnte nicht fortgesetzt werden', {
       description: error?.message || 'Bitte später erneut versuchen.',
