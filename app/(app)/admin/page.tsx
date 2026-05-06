@@ -974,14 +974,6 @@ function ComplianceTab() {
                             <Shield className="w-3.5 h-3.5" /> Konto-Aktionen
                           </div>
 
-<Button
-  size="sm"
-  variant="destructive"
-  onClick={() => openAnonymizeModal(req)}
-  disabled={isActing}
->
-  Daten anonymisieren
-</Button>
 
 
                           {req.type === 'account_cancellation' && (
