@@ -128,6 +128,30 @@ export function AudioUsageCard({
     }
   };
 
+const handleReactivateSubscription = async () => {
+  try {
+    setBusy(true);
+
+    const res = await fetch('/api/stripe/reactivate-subscription', {
+      method: 'POST',
+    });
+
+    const result = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(result?.error || 'Abo konnte nicht fortgesetzt werden.');
+    }
+
+    toast.success('Abo wurde fortgesetzt.');
+    window.location.reload();
+  } catch (error: any) {
+    toast.error('Abo konnte nicht fortgesetzt werden', {
+      description: error?.message || 'Bitte später erneut versuchen.',
+    });
+    setBusy(false);
+  }
+};
+
   const progressColorClass = overLimit
     ? '[&>div]:bg-red-500'
     : nearLimit
@@ -168,12 +192,20 @@ export function AudioUsageCard({
             <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
               Testphase aktiv
             </span>
-          ) : isActive ? (
+          ) : isActive && subscription?.cancelAtPeriodEnd ? (
+  <Button
+    size="sm"
+    variant="outline"
+    onClick={handleReactivateSubscription}
+    disabled={busy}
+  >
+    {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
+  </Button>
+) : isActive ? (
   <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
     Abo aktiv
   </span>
-) : needsPaymentAttention ? (
-            <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
+) : needsPaymentAttention ? (            <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
               {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
             </Button>
           ) : (
@@ -191,7 +223,7 @@ export function AudioUsageCard({
               {formatTrialRemaining(subscription?.currentPeriodEnd || null)}
             </p>
             <p className="text-xs text-blue-800">
-              Danach wird dein Abo automatisch für CHF 39 / Monat weitergeführt
+              Danach wird dein Abo automatisch für CHF 39 monatlich weitergeführt.
             </p>
             <p className="text-xs text-blue-800">
               Keine Aktion erforderlich.

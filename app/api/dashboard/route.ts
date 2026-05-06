@@ -34,6 +34,7 @@ export async function GET() {
 
     let subscriptionStatus = user?.subscriptionStatus || null;
     let currentPeriodEnd = user?.currentPeriodEnd || null;
+    let cancelAtPeriodEnd = false;
 
     // Safety sync:
     // If Stripe says the subscription changed but the webhook did not update the DB yet,
@@ -43,6 +44,7 @@ export async function GET() {
         const stripeSub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
 
         subscriptionStatus = stripeSub.status;
+        cancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end);
        const stripeEnd =
   stripeSub.status === 'trialing' && stripeSub.trial_end
     ? stripeSub.trial_end
@@ -73,7 +75,9 @@ currentPeriodEnd = new Date(stripeEnd * 1000);
       status: subscriptionStatus,
       stripeSubscriptionId: user?.stripeSubscriptionId || null,
       currentPeriodEnd: currentPeriodEnd?.toISOString() || null,
-    };
+     cancelAtPeriodEnd,
+   };
+    
 
     const activeOrderCount = await prisma.order.count({
       where: { offerId: null, invoiceId: null, deletedAt: null, userId },
