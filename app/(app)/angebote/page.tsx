@@ -56,7 +56,7 @@ export default function AngebotePage() {
   const [form, setForm] = useState({ customerId: '', offerDate: new Date().toISOString().split('T')[0], validDays: '14', notes: '', status: 'Entwurf' });
 const getEmptyItem = (): OfferItem => ({
   description: '',
-  quantity: '1',
+  quantity: '',
   unit: 'Stunde',
   unitPrice: '',
 });
@@ -69,7 +69,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
   const [defaultVatRate, setDefaultVatRate] = useState(8.1);
   // Stage M.2: Business WhatsApp intake number used as recipient for
   // "PDF an WhatsApp senden". NEVER use Customer.phone for this feature.
-  const [businessWhatsappNumber, setBusinessWhatsappNumber] = useState<string | null>(null);
+  const [businessWhatsappNumber, setBusinessWhatsappdf-templatepNumber] = useState<string | null>(null);
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
 
   // New/edit customer inline
@@ -327,7 +327,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
 
   // fromOrder auto-open removed — small dropdown now creates directly via API
 
-  const addItem = () => setItems([...items, { description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
+  const addItem = () => setItems([...items, getEmptyItem()]);
   const removeItem = (i: number) => setItems(items?.filter((_: any, idx: number) => idx !== i) ?? []);
   const updateItem = (i: number, field: string, value: string) => {
     const updated = [...(items ?? [])];
@@ -396,7 +396,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
         unitPrice: String(i.unitPrice ?? 0),
       })));
     } else {
-      setItems([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
+    setItems([getEmptyItem()]);
     }
     if (opts?.openCustomerSection && off.customerId) {
       // Stage E (deterministic flow): mark a pending request; the effect below
@@ -470,7 +470,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
     setEditOfferId(null);
     setVatRate(defaultVatRate);
     setForm({ customerId: '', offerDate: new Date().toISOString().split('T')[0], validDays: '14', notes: '', status: 'Entwurf' });
-    setItems([{ description: '', quantity: '1', unit: 'Stunde', unitPrice: '50' }]);
+    setItems([getEmptyItem()]);
     setLinkedOrderData(null);
     setShowNewCustomer(false); setEditingCustomer(false);
     setDialogOpen(true);
