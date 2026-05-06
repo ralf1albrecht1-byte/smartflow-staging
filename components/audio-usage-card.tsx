@@ -19,22 +19,45 @@ export interface AudioUsageData {
 }
 
 function formatTrialRemaining(currentPeriodEnd: string | null): string {
-  if (!currentPeriodEnd) return 'Noch wenige Tage kostenlos';
+  if (!currentPeriodEnd) return 'Testphase aktiv';
 
-  const end = new Date(currentPeriodEnd).getTime();
+  const endDate = new Date(currentPeriodEnd);
+  const end = endDate.getTime();
   const now = Date.now();
   const diffMs = end - now;
 
-  if (!Number.isFinite(end) || diffMs <= 0) return 'Testphase endet bald';
+  const formattedEnd = endDate.toLocaleDateString('de-CH', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }) + ' um ' + endDate.toLocaleTimeString('de-CH', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }) + ' Uhr';
 
-  const hours = Math.ceil(diffMs / (1000 * 60 * 60));
-  const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  if (!Number.isFinite(end)) return 'Testphase aktiv';
 
-  if (hours <= 24) {
-    return `Noch ${hours} ${hours === 1 ? 'Stunde' : 'Stunden'} kostenlos`;
+  if (diffMs <= 0) {
+    return `Testphase beendet. Endete am ${formattedEnd}`;
   }
 
-  return `Noch ${days} Tage kostenlos`;
+  const totalMinutes = Math.floor(diffMs / (1000 * 60));
+  const totalHours = Math.floor(totalMinutes / 60);
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  const minutes = totalMinutes % 60;
+
+  let remainingText = '';
+
+  if (days > 0) {
+    remainingText = `Noch ${days} ${days === 1 ? 'Tag' : 'Tage'} und ${hours} ${hours === 1 ? 'Stunde' : 'Stunden'} kostenlos`;
+  } else if (totalHours > 0) {
+    remainingText = `Noch ${totalHours} ${totalHours === 1 ? 'Stunde' : 'Stunden'} kostenlos`;
+  } else {
+    remainingText = `Noch ${minutes} ${minutes === 1 ? 'Minute' : 'Minuten'} kostenlos`;
+  }
+
+  return `${remainingText}. Endet am ${formattedEnd}`;
 }
 
 export function AudioUsageCard({
@@ -165,10 +188,10 @@ export function AudioUsageCard({
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-1">
             <p className="text-sm font-semibold text-blue-900">Testphase aktiv</p>
             <p className="text-xs text-blue-800">
-              {formatTrialRemaining(subscription?.currentPeriodEnd || null)}.
+              {formatTrialRemaining(subscription?.currentPeriodEnd || null)}
             </p>
             <p className="text-xs text-blue-800">
-              Danach wird dein Abo automatisch für CHF 39 / Monat weitergeführt.
+              Danach wird dein Abo automatisch für CHF 39 / Monat weitergeführt
             </p>
             <p className="text-xs text-blue-800">
               Keine Aktion erforderlich.
