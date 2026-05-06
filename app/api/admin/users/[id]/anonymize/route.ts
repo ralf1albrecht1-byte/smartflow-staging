@@ -13,59 +13,95 @@
  *              (NUR Customer dieses Users)
  *   Sessions:  alle löschen
  *   Account:   OAuth-Verknüpfungen löschen
+ *   CompanySettings:
+ *              bleibt erhalten, aber blockierende Nummern werden entfernt:
+ *              whatsappIntakeNumber=null, telefon=null, telefon2=null
  *
  * Behalten wir bewusst:
  *   - Order, Invoice, Offer (legal retention)
  *   - AuditLog (Beweispflichten)
  *   - ConsentRecord (Compliance)
- *   - CompanySettings (mit verlinktem userId; bleibt für Buchhaltungsprüfung)
+ *   - CompanySettings-Datensatz mit userId (für Buchhaltungsprüfung)
  */
 export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin, getSessionUser, unauthorizedResponse, forbiddenResponse, accountInactiveResponse } from '@/lib/get-session';
+import {
+  requireAdmin,
+  getSessionUser,
+  unauthorizedResponse,
+  forbiddenResponse,
+  accountInactiveResponse,
+} from '@/lib/get-session';
 import { logAuditAsync, EVENTS, AREAS } from '@/lib/audit';
 import { hasOtherActiveAdmin } from '@/lib/account-status';
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   let adminId: string;
-  try { adminId = await requireAdmin(); } catch (e: any) {
+
+  try {
+    adminId = await requireAdmin();
+  } catch (e: any) {
     if (e?.code === 'ACCOUNT_INACTIVE') return accountInactiveResponse();
     if (e.message === 'FORBIDDEN') return forbiddenResponse();
     return unauthorizedResponse();
   }
+
   const admin = await getSessionUser();
   const targetId = params.id;
 
   if (adminId === targetId) {
-    return NextResponse.json({ error: 'Sie können Ihr eigenes Konto nicht anonymisieren.' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Sie können Ihr eigenes Konto nicht anonymisieren.' },
+      { status: 400 }
+    );
   }
 
   try {
     const body = await request.json().catch(() => ({}));
+
     if (body?.confirm !== 'ANONYMISIEREN') {
-      return NextResponse.json({ error: 'Bestätigung fehlt. Bitte tippen Sie „ANONYMISIEREN“ zur Bestätigung ein.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Bestätigung fehlt. Bitte tippen Sie „ANONYMISIEREN“ zur Bestätigung ein.' },
+        { status: 400 }
+      );
     }
-    const requestId: string | undefined = typeof body?.requestId === 'string' ? body.requestId : undefined;
+
+    const requestId: string | undefined =
+      typeof body?.requestId === 'string' ? body.requestId : undefined;
 
     const target = await prisma.user.findUnique({
       where: { id: targetId },
-      select: { id: true, email: true, name: true, role: true, accountStatus: true, anonymizedAt: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        accountStatus: true,
+        anonymizedAt: true,
+      },
     });
-    if (!target) return NextResponse.json({ error: 'Benutzer nicht gefunden.' }, { status: 404 });
+
+    if (!target) {
+      return NextResponse.json({ error: 'Benutzer nicht gefunden.' }, { status: 404 });
+    }
+
     if (target.anonymizedAt) {
       return NextResponse.json({ error: 'Konto ist bereits anonymisiert.' }, { status: 400 });
     }
 
     if ((target.role || '').toLowerCase() === 'admin') {
       const otherAdmins = await hasOtherActiveAdmin(targetId);
+
       if (!otherAdmins) {
-        return NextResponse.json({ error: 'Der letzte aktive Admin kann nicht anonymisiert werden.' }, { status: 400 });
+        return NextResponse.json(
+          { error: 'Der letzte aktive Admin kann nicht anonymisiert werden.' },
+          { status: 400 }
+        );
       }
     }
 
-    // STARTED-Audit BEVOR wir Daten anfassen — damit auch im Fehlerfall
-    // nachvollziehbar ist, was begonnen wurde.
     logAuditAsync({
       userId: adminId,
       userEmail: admin?.email || null,
@@ -85,6 +121,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     let customersUpdated = 0;
     let sessionsDeleted = 0;
     let accountsDeleted = 0;
+    let companySettingsUpdated = 0;
 
     try {
       await prisma.$transaction(async (tx: any) => {
@@ -104,12 +141,28 @@ export async function POST(request: Request, { params }: { params: { id: string 
         customersUpdated = cu.count;
 
         // 2) DB-Sessions löschen.
-        const sd = await tx.session.deleteMany({ where: { userId: targetId } });
+        const sd = await tx.session.deleteMany({
+          where: { userId: targetId },
+        });
         sessionsDeleted = sd.count;
 
         // 3) OAuth-Accounts löschen.
-        const ad = await tx.account.deleteMany({ where: { userId: targetId } });
+        const ad = await tx.account.deleteMany({
+          where: { userId: targetId },
+        });
         accountsDeleted = ad.count;
+
+        // 3b) CompanySettings-Nummern freigeben,
+        // damit anonymisierte Nutzer keine neue Registrierung blockieren.
+        const cs = await tx.companySettings.updateMany({
+          where: { userId: targetId },
+          data: {
+            whatsappIntakeNumber: null,
+            telefon: null,
+            telefon2: null,
+          },
+        });
+        companySettingsUpdated = cs.count;
 
         // 4) User-PII redigieren + Status setzen.
         await tx.user.update({
@@ -134,12 +187,16 @@ export async function POST(request: Request, { params }: { params: { id: string 
         if (requestId) {
           await tx.complianceRequest.updateMany({
             where: { id: requestId, userId: targetId },
-            data: { status: 'completed', completedAt: now },
+            data: {
+              status: 'completed',
+              completedAt: now,
+            },
           });
         }
       });
     } catch (txErr: any) {
       console.error('[admin/users/anonymize] transaction failed:', txErr);
+
       logAuditAsync({
         userId: adminId,
         userEmail: admin?.email || null,
@@ -153,7 +210,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
         details: { requestId: requestId || null },
         request,
       });
-      return NextResponse.json({ error: 'Anonymisierung fehlgeschlagen. Bitte versuchen Sie es erneut.' }, { status: 500 });
+
+      return NextResponse.json(
+        { error: 'Anonymisierung fehlgeschlagen. Bitte versuchen Sie es erneut.' },
+        { status: 500 }
+      );
     }
 
     logAuditAsync({
@@ -171,6 +232,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
         customersUpdated,
         sessionsDeleted,
         accountsDeleted,
+        companySettingsUpdated,
         requestId: requestId || null,
       },
       request,
@@ -183,10 +245,19 @@ export async function POST(request: Request, { params }: { params: { id: string 
         accountStatus: 'anonymized',
         anonymizedAt: now.toISOString(),
       },
-      stats: { customersUpdated, sessionsDeleted, accountsDeleted },
+      stats: {
+        customersUpdated,
+        sessionsDeleted,
+        accountsDeleted,
+        companySettingsUpdated,
+      },
     });
   } catch (error: any) {
     console.error('[admin/users/anonymize] error:', error);
-    return NextResponse.json({ error: 'Fehler bei der Anonymisierung.' }, { status: 500 });
+
+    return NextResponse.json(
+      { error: 'Fehler bei der Anonymisierung.' },
+      { status: 500 }
+    );
   }
 }
