@@ -37,7 +37,8 @@ const ALLOWED_TYPES = new Set(['data_export', 'data_deletion', 'account_cancella
  */
 const ACTIVE_STATUSES = ['open', 'in_progress'] as const;
 
-const ADMIN_NOTIFY_EMAIL = 'kontakt@smartflowai.ch';
+const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_EMAIL || 'kontakt@smartflowai.ch';
+const MAIL_FROM = process.env.MAIL_FROM || 'onboarding@resend.dev';
 
 function typeEvent(type: string): string | null {
   if (type === 'data_export') return EVENTS.DATA_EXPORT_REQUESTED;
@@ -285,47 +286,48 @@ async function sendComplianceNotificationEmail(opts: {
   createdAt: Date;
 }): Promise<{ ok: true; suppressed?: boolean; reason?: string } | { ok: false; errorMessage: string }> {
   try {
-    // Phase 2 — env-based email guard. Production = no behaviour change.
-    // Note: recipient is ADMIN_NOTIFY_EMAIL (kontakt@smartflowai.ch) — in
-    // Staging it must be on EMAIL_ALLOWLIST to actually fire.
     if (!shouldSendEmail(ADMIN_NOTIFY_EMAIL)) {
       const reason = getEmailSuppressionReason(ADMIN_NOTIFY_EMAIL) || 'unknown';
       console.log(`[compliance.adminNotify] suppressed by env env=${getAppEnv()} reason=${reason}`);
       return { ok: true, suppressed: true, reason };
     }
-    const apiKey = process.env.ABACUSAI_API_KEY;
-    const appId = process.env.WEB_APP_ID;
-    const notifId = process.env.NOTIF_ID_COMPLIANCEANFRAGE;
-    if (!apiKey || !appId || !notifId) {
-      return { ok: false, errorMessage: 'Email notifications not configured (missing env)' };
+
+    const resendApiKey = process.env.RESEND_API_KEY;
+
+    if (!resendApiKey) {
+      return { ok: false, errorMessage: 'Resend email not configured (missing RESEND_API_KEY)' };
     }
+
     const subject = typeSubject(opts.type);
     const htmlBody = buildEmailHtml(opts);
-    const res = await fetch('https://apps.abacus.ai/api/sendNotificationEmail', {
+
+    const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
-        deployment_token: apiKey,
-        app_id: appId,
-        notification_id: notifId,
+        from: MAIL_FROM,
+        to: ADMIN_NOTIFY_EMAIL,
         subject,
-        body: htmlBody,
-        is_html: true,
-        recipient_email: ADMIN_NOTIFY_EMAIL,
-        sender_email: 'noreply@smartflowai.ch',
-        sender_alias: 'Business Manager',
+        html: htmlBody,
       }),
     });
+
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      return { ok: false, errorMessage: `HTTP ${res.status}: ${txt.slice(0, 200)}` };
+      return { ok: false, errorMessage: `Resend HTTP ${res.status}: ${txt.slice(0, 300)}` };
     }
+
     return { ok: true };
   } catch (err: any) {
-    return { ok: false, errorMessage: err?.message ? String(err.message).slice(0, 300) : 'unknown_error' };
+    return {
+      ok: false,
+      errorMessage: err?.message ? String(err.message).slice(0, 300) : 'unknown_error',
+    };
   }
 }
-
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Nicht autorisiert' }, { status: 401 });
