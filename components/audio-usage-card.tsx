@@ -193,7 +193,12 @@ const handleReactivateSubscription = async () => {
             <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
               Testphase aktiv
             </span>
-          ) : isActive && subscription?.cancelAtPeriodEnd ? (
+ ) : isActive && subscription?.cancelAtPeriodEnd ? (
+<div className="flex items-center gap-2">
+  <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+    Kündigung geplant
+  </span>
+
   <Button
     size="sm"
     variant="outline"
@@ -202,6 +207,7 @@ const handleReactivateSubscription = async () => {
   >
     {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
   </Button>
+</div>
 ) : isActive ? (
   <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
     Abo aktiv
