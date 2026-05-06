@@ -25,6 +25,7 @@ export async function POST(request: Request) {
       select: {
         id: true,
         email: true,
+        role: true,
         stripeSubscriptionId: true,
         subscriptionStatus: true,
       },
@@ -59,17 +60,81 @@ export async function POST(request: Request) {
       cancel_at_period_end: false,
     });
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        subscriptionStatus: updated.status,
-        accountStatus: 'active',
-        blockedAt: null,
-        blockedReason: null,
-        accessEndsAt: updated.current_period_end
-          ? new Date(updated.current_period_end * 1000)
-          : null,
-      },
+    const currentPeriodEnd = updated.current_period_end
+      ? new Date(updated.current_period_end * 1000)
+      : null;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          subscriptionStatus: updated.status,
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd,
+          accountStatus: 'active',
+          blockedAt: null,
+          blockedReason: null,
+          accessEndsAt: currentPeriodEnd,
+          cancellationAcceptedAt: null,
+        },
+      });
+
+      const openCancellationRequests = await tx.complianceRequest.findMany({
+        where: {
+          userId: user.id,
+          type: 'account_cancellation',
+          status: {
+            in: ['open', 'in_progress'],
+          },
+        },
+        select: {
+          id: true,
+          adminNotes: true,
+        },
+      });
+
+      if (openCancellationRequests.length > 0) {
+        const autoNote = [
+          'Automatisch geschlossen:',
+          'Der User hat das Stripe-Abo über „Abo fortsetzen“ reaktiviert.',
+          `Stripe Subscription: ${user.stripeSubscriptionId}`,
+          `Zeitpunkt: ${new Date().toISOString()}`,
+        ].join('\n');
+
+        for (const request of openCancellationRequests) {
+          await tx.complianceRequest.update({
+            where: { id: request.id },
+            data: {
+              status: 'completed',
+              completedAt: new Date(),
+              adminNotes: request.adminNotes
+                ? `${request.adminNotes}\n\n${autoNote}`
+                : autoNote,
+            },
+          });
+        }
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId: user.id,
+          userEmail: user.email,
+          userRole: user.role || 'user',
+          action: 'SUBSCRIPTION_REACTIVATED',
+          area: 'ACCOUNT',
+          targetType: 'User',
+          targetId: user.id,
+          success: true,
+          source: 'web',
+          details: JSON.stringify({
+            stripeSubscriptionId: user.stripeSubscriptionId,
+            subscriptionStatus: updated.status,
+            cancelAtPeriodEnd: updated.cancel_at_period_end,
+            currentPeriodEnd: currentPeriodEnd?.toISOString() || null,
+            closedCancellationRequests: openCancellationRequests.length,
+          }),
+        },
+      });
     });
 
     return NextResponse.json({
@@ -77,9 +142,7 @@ export async function POST(request: Request) {
       message: 'Abo wurde fortgesetzt.',
       subscriptionStatus: updated.status,
       cancelAtPeriodEnd: updated.cancel_at_period_end,
-      currentPeriodEnd: updated.current_period_end
-        ? new Date(updated.current_period_end * 1000).toISOString()
-        : null,
+      currentPeriodEnd: currentPeriodEnd?.toISOString() || null,
     });
   } catch (error: any) {
     console.error('[stripe/reactivate-subscription] error:', error);

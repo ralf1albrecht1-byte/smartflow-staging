@@ -1,174 +1,350 @@
+generator client {
+provider = "prisma-client-js"
+binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
 
-export const dynamic = 'force-dynamic';
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
 
-import { NextResponse } from 'next/server';
-import Stripe from 'stripe';
-import { prisma } from '@/lib/prisma';
-import { requireUserId } from '@/lib/get-session';
+model User {
+  id                 String              @id @default(cuid())
+  name               String?
+  email              String              @unique
+  emailVerified      DateTime?
+  image              String?
+  password           String?
+  role               String              @default("user")
+  acceptedTermsAt    DateTime?
+  trialEndDate       DateTime?
+  trialNote          String?
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-02-24.acacia',
-});
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  subscriptionStatus   String?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  currentPeriodEnd     DateTime?
 
-export async function POST(request: Request) {
-  try {
-    const userId = await requireUserId();
+  accountStatus           String    @default("active")
+  accessEndsAt            DateTime?
+  blockedAt               DateTime?
+  blockedReason           String?
+  cancellationAcceptedAt  DateTime?
+  deletionRequestedAt     DateTime?
+  deletionCompletedAt     DateTime?
+  anonymizedAt            DateTime?
+  anonymizedBy            String?
 
-    if (!process.env.STRIPE_SECRET_KEY) {
-      return NextResponse.json(
-        { error: 'Stripe ist nicht konfiguriert.' },
-        { status: 500 }
-      );
-    }
+  accounts           Account[]
+  sessions           Session[]
+  customers          Customer[]
+  orders             Order[]
+  invoices           Invoice[]
+  offers             Offer[]
+  services           Service[] @relation("UserServices")
+  companySettings    CompanySettings[]
+  consentRecords     ConsentRecord[]
+  complianceRequests ComplianceRequest[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+}
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        stripeSubscriptionId: true,
-        subscriptionStatus: true,
-      },
-    });
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    if (!user?.stripeSubscriptionId) {
-      return NextResponse.json(
-        { error: 'Kein aktives Abo gefunden.' },
-        { status: 404 }
-      );
-    }
+  @@unique([provider, providerAccountId])
+}
 
-    const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
 
-    if (subscription.status === 'canceled') {
-      return NextResponse.json(
-        { error: 'Dieses Abo ist bereits beendet und kann nicht fortgesetzt werden.' },
-        { status: 400 }
-      );
-    }
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
 
-    if (!subscription.cancel_at_period_end) {
-      return NextResponse.json({
-        success: true,
-        message: 'Abo läuft bereits weiter.',
-        subscriptionStatus: subscription.status,
-        cancelAtPeriodEnd: false,
-      });
-    }
+  @@unique([identifier, token])
+}
 
-    const updated = await stripe.subscriptions.update(user.stripeSubscriptionId, {
-      cancel_at_period_end: false,
-    });
+model Customer {
+  id             String    @id @default(cuid())
+  customerNumber String?   @unique
+  name           String
+  address        String?
+  plz            String?
+  city           String?
+  country        String    @default("CH")
+  phone          String?
+  email          String?
+  notes          String?
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id])
+  orders         Order[]
+  invoices       Invoice[]
+  offers         Offer[]
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-    const currentPeriodEnd = updated.current_period_end
-      ? new Date(updated.current_period_end * 1000)
-      : null;
+  @@index([userId])
+}
 
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          subscriptionStatus: updated.status,
-          cancelAtPeriodEnd: false,
-          currentPeriodEnd,
-          accountStatus: 'active',
-          blockedAt: null,
-          blockedReason: null,
-          accessEndsAt: currentPeriodEnd,
-          cancellationAcceptedAt: null,
-        },
-      });
+model Service {
+  id           String   @id @default(cuid())
+  name         String
+  defaultPrice Float
+  unit         String   @default("Stunde")
+  userId       String?
+  user         User?    @relation("UserServices", fields: [userId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-      const openCancellationRequests = await tx.complianceRequest.findMany({
-        where: {
-          userId: user.id,
-          type: 'account_cancellation',
-          status: {
-            in: ['open', 'in_progress'],
-          },
-        },
-        select: {
-          id: true,
-          adminNotes: true,
-        },
-      });
+  @@index([userId])
+}
 
-      if (openCancellationRequests.length > 0) {
-        const autoNote = [
-          'Automatisch geschlossen:',
-          'Der User hat das Stripe-Abo über „Abo fortsetzen“ reaktiviert.',
-          `Stripe Subscription: ${user.stripeSubscriptionId}`,
-          `Zeitpunkt: ${new Date().toISOString()}`,
-        ].join('\n');
+model Order {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  description String
+  serviceName String?
+  status      String   @default("Offen")
+  priceType   String   @default("Stundensatz")
+  unitPrice   Float    @default(50)
+  quantity    Float    @default(1)
+  totalPrice  Float    @default(0)
+  vatRate     Float    @default(8.1)
+  vatAmount   Float    @default(0)
+  total       Float    @default(0)
+  date        DateTime @default(now())
+  notes          String?
+  specialNotes   String?
+  needsReview    Boolean  @default(false)
+  reviewReasons  String[] @default([])
+  hinweisLevel   String   @default("none")
+  mediaUrl       String?
+  mediaType      String?
+  imageUrls       String[] @default([])
+  thumbnailUrls   String[] @default([])
+  audioTranscript String?
+  audioDurationSec        Int?
+  audioTranscriptionStatus String?
+  invoiceId      String?
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  offerId     String?
+  offer       Offer?   @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  items       OrderItem[]
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-        for (const request of openCancellationRequests) {
-          await tx.complianceRequest.update({
-            where: { id: request.id },
-            data: {
-              status: 'completed',
-              completedAt: new Date(),
-              adminNotes: request.adminNotes
-                ? `${request.adminNotes}\n\n${autoNote}`
-                : autoNote,
-            },
-          });
-        }
-      }
+  @@index([userId])
+}
 
-      await tx.auditLog.create({
-        data: {
-          userId: user.id,
-          userEmail: user.email,
-          userRole: user.role || 'user',
-          action: 'SUBSCRIPTION_REACTIVATED',
-          area: 'ACCOUNT',
-          targetType: 'User',
-          targetId: user.id,
-          success: true,
-          source: 'web',
-          details: JSON.stringify({
-            stripeSubscriptionId: user.stripeSubscriptionId,
-            subscriptionStatus: updated.status,
-            cancelAtPeriodEnd: updated.cancel_at_period_end,
-            currentPeriodEnd: currentPeriodEnd?.toISOString() || null,
-            closedCancellationRequests: openCancellationRequests.length,
-          }),
-        },
-      });
-    });
+model OrderItem {
+  id          String @id @default(cuid())
+  orderId     String
+  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  serviceName String
+  description String @default("")
+  quantity    Float  @default(1)
+  unit        String @default("Stunde")
+  unitPrice   Float
+  totalPrice  Float
+}
 
-    return NextResponse.json({
-      success: true,
-      message: 'Abo wurde fortgesetzt.',
-      subscriptionStatus: updated.status,
-      cancelAtPeriodEnd: updated.cancel_at_period_end,
-      currentPeriodEnd: currentPeriodEnd?.toISOString() || null,
-    });
-  } catch (error: any) {
-    console.error('[stripe/reactivate-subscription] error:', error);
+model Invoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   @unique
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  items         InvoiceItem[]
+  subtotal      Float    @default(0)
+  vatRate       Float    @default(7.7)
+  vatAmount     Float    @default(0)
+  total         Float    @default(0)
+  status        String   @default("Entwurf")
+  invoiceDate   DateTime @default(now())
+  dueDate       DateTime?
+  notes         String?
+  sourceOfferId String?
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  archivedPdfPath String?
+  deletedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-    try {
-      await prisma.auditLog.create({
-        data: {
-          action: 'SUBSCRIPTION_REACTIVATION_FAILED',
-          area: 'ACCOUNT',
-          targetType: 'StripeSubscription',
-          success: false,
-          source: 'web',
-          errorMessage: error?.message || 'Abo konnte nicht fortgesetzt werden.',
-          details: JSON.stringify({
-            message: error?.message || null,
-          }),
-        },
-      });
-    } catch (auditError) {
-      console.error('[stripe/reactivate-subscription] audit error:', auditError);
-    }
+  @@index([userId])
+}
 
-    return NextResponse.json(
-      { error: error?.message || 'Abo konnte nicht fortgesetzt werden.' },
-      { status: 500 }
-    );
-  }
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float   @default(1)
+  unit        String  @default("Stunde")
+  unitPrice   Float
+  totalPrice  Float
+}
+
+model Offer {
+  id          String   @id @default(cuid())
+  offerNumber String   @unique
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders      Order[]
+  items       OfferItem[]
+  subtotal    Float    @default(0)
+  vatRate     Float    @default(7.7)
+  vatAmount   Float    @default(0)
+  total       Float    @default(0)
+  status      String   @default("Entwurf")
+  offerDate   DateTime @default(now())
+  validUntil  DateTime?
+  notes       String?
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model OfferItem {
+  id          String @id @default(cuid())
+  offerId     String
+  offer       Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float  @default(1)
+  unit        String @default("Stunde")
+  unitPrice   Float
+  totalPrice  Float
+}
+
+model Counter {
+  id      String @id @default(cuid())
+  name    String @unique
+  value   Int    @default(0)
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  userEmail    String?
+  userRole     String?
+  action       String
+  area         String
+  targetType   String?
+  targetId     String?
+  success      Boolean  @default(true)
+  details      String?
+  ipAddress    String?
+  userAgent    String?
+  source       String?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([action])
+  @@index([area])
+  @@index([success])
+  @@index([source])
+}
+
+model ConsentRecord {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType    String
+  documentVersion String
+  acceptedAt      DateTime @default(now())
+  ipAddress       String?
+  userAgent       String?
+
+  @@index([userId])
+  @@index([documentType])
+}
+
+model ComplianceRequest {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String
+  status      String    @default("open")
+  notes       String?
+  adminNotes  String?
+  requestedAt DateTime  @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  exportFileKey         String?
+  exportReadyAt         DateTime?
+  exportExpiresAt       DateTime?
+  downloadedAt          DateTime?
+  exportGeneratedAt     DateTime?
+  exportGenerationError String?
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([requestedAt])
+}
+
+model CompanySettings {
+  id               String  @id @default(cuid())
+  userId           String?
+  user             User?   @relation(fields: [userId], references: [id])
+  firmenname       String  @default("")
+  firmaRechtlich   String?
+  ansprechpartner  String?
+  telefon          String?
+  telefon2         String?
+  email            String?
+  supportEmail     String?
+  webseite         String?
+  strasse          String?
+  hausnummer       String?
+  plz              String?
+  ort              String?
+  iban             String?
+  bank             String?
+  mwstAktiv        Boolean @default(false)
+  mwstNummer       String?
+  mwstSatz         Float?
+  mwstHinweis      String?
+  testModus        Boolean @default(true)
+  branche          String  @default("Gartenbau")
+  hauptsprache     String  @default("Deutsch")
+  documentTemplate String  @default("classic")
+  letterheadUrl    String?
+  letterheadName   String?
+  letterheadVisible Boolean @default(true)
+  whatsappIntakeNumber String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
