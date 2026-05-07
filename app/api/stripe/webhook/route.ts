@@ -4,10 +4,15 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-apiVersion: '2025-02-24.acacia',
-});
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY fehlt');
+  }
 
+  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 function toDateOrNull(timestamp?: number | null): Date | null {
 if (typeof timestamp !== 'number') return null;
 
@@ -24,6 +29,7 @@ return new NextResponse('Missing stripe signature', { status: 400 });
 }
 
 let event: Stripe.Event;
+const stripe = getStripe();
 
 try {
 event = stripe.webhooks.constructEvent(

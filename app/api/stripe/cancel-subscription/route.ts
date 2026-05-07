@@ -5,10 +5,15 @@ import { requireUserId } from '@/lib/get-session';
 
 export const dynamic = 'force-dynamic';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-02-24.acacia',
-});
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY fehlt');
+  }
 
+  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 export async function POST() {
   try {
     const userId = await requireUserId();
@@ -27,7 +32,9 @@ export async function POST() {
       );
     }
 
-    const subscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
+    const stripe = getStripe();
+
+const subscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
       cancel_at_period_end: true,
     });
 

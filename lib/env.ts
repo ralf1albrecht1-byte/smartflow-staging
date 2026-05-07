@@ -112,6 +112,7 @@ const target = (targetEmail || '').trim().toLowerCase();
 if (!target) return false;
 
 return getEmailAllowlist().has(target);
+}
 /**
  * Reason string for audit logs when an email is suppressed by the guard.
  * Returns null when no suppression should occur.

@@ -8,9 +8,15 @@ import { isCustomerDataIncomplete } from '@/lib/customer-links';
 import { getCurrentPlan } from '@/lib/plan';
 import { getMonthlyAudioUsage } from '@/lib/audio-usage';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-02-24.acacia',
-});
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY fehlt');
+  }
+
+  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 
 export async function GET() {
   try {
@@ -41,6 +47,7 @@ export async function GET() {
     // the dashboard pulls the latest Stripe status once and keeps the UI correct.
     if (user?.stripeSubscriptionId && process.env.STRIPE_SECRET_KEY) {
       try {
+const stripe = getStripe();
         const stripeSub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
 
         subscriptionStatus = stripeSub.status;

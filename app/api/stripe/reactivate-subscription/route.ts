@@ -5,10 +5,15 @@ import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 import { requireUserId } from '@/lib/get-session';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-02-24.acacia',
-});
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY fehlt');
+  }
 
+  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
@@ -19,6 +24,7 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+const stripe = getStripe();
 
     const user = await prisma.user.findUnique({
       where: { id: userId },

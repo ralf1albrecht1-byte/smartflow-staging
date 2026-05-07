@@ -11,9 +11,15 @@ import { getCurrentVersion, type LegalDocumentType } from '@/lib/legal-versions'
 import { normalizeEmail } from '@/lib/email-utils';
 import { sendEmail } from '@/lib/mail';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-apiVersion: '2025-02-24.acacia',
-});
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY fehlt');
+  }
+
+  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 
 export async function POST(request: Request) {
 try {
@@ -319,8 +325,9 @@ try {
 
     const appUrl = forwardedHost
       ? `${forwardedProto}://${forwardedHost}`
-      : process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      : process.env.NEXTAUTH_URL || 'http://localhost:3000'; 
 
+    const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer_email: email,
