@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "preDeployCommand": "npx prisma db push",
+    "preDeployCommand": "npx prisma db push --accept-data-loss",
     "startCommand": "npm run start"
   }
 }
