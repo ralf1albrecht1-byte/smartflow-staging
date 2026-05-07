@@ -95,7 +95,10 @@ function getEmailAllowlist(): Set<string> {
  * IMPORTANT: With APP_ENV unset, this returns true for every recipient,
  * which preserves the current Production behaviour byte-for-byte.
  */
-export function shouldSendEmail(targetEmail: string | null | undefined): boolean {
+export function shouldSendEmail(
+  targetEmail: string | null | undefined,
+  purpose?: string
+): boolean {
   // Hard kill-switch (opt-in). Default: not set → not active.
   if ((process.env.EMAIL_ENABLED || '').toLowerCase() === 'false') return false;
 
@@ -104,12 +107,19 @@ export function shouldSendEmail(targetEmail: string | null | undefined): boolean
 
   if (env === 'development') return false;
 
-  // staging
-  const target = (targetEmail || '').trim().toLowerCase();
-  if (!target) return false;
-  return getEmailAllowlist().has(target);
+ // staging
+const target = (targetEmail || '').trim().toLowerCase();
+if (!target) return false;
+
+// allow verification emails in staging
+if (
+  purpose === 'verification' ||
+  purpose === 'resend-verification'
+) {
+  return true;
 }
 
+return getEmailAllowlist().has(target);
 /**
  * Reason string for audit logs when an email is suppressed by the guard.
  * Returns null when no suppression should occur.
