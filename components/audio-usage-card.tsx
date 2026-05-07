@@ -250,42 +250,42 @@ export function AudioUsageCard({
             </div>
           </div>
 
-          {isTrialing ? (
-            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-              Testphase aktiv
-            </span>
-          ) : isActive && isCancelledAtPeriodEnd ? (
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                Kündigung geplant
-              </span>
+          {isCancelledAtPeriodEnd ? (
+  <div className="flex items-center gap-2 flex-wrap justify-end">
+    <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+      Kündigung geplant
+    </span>
 
-              <Button size="sm" variant="outline" onClick={handleReactivateSubscription} disabled={busy}>
-                {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
-              </Button>
-            </div>
-          ) : isActive ? (
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                Abo aktiv
-              </span>
+    <Button size="sm" variant="outline" onClick={handleReactivateSubscription} disabled={busy}>
+      {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
+    </Button>
+  </div>
+) : isTrialing ? (
+  <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+    Testphase aktiv
+  </span>
+) : isActive ? (
+  <div className="flex items-center gap-2 flex-wrap justify-end">
+    <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+      Abo aktiv
+    </span>
 
-              <Button size="sm" variant="outline" onClick={handleCancelSubscription} disabled={busy}>
-                {busy ? 'Bitte warten…' : 'Abo kündigen'}
-              </Button>
-            </div>
-          ) : needsPaymentAttention ? (
-            <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
-              {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
-            </Button>
-          ) : (
-            <Button size="sm" onClick={handleCheckout} disabled={busy}>
-              {busy ? 'Öffne Stripe…' : 'Abo starten'}
-            </Button>
-          )}
+    <Button size="sm" variant="outline" onClick={handleCancelSubscription} disabled={busy}>
+      {busy ? 'Bitte warten…' : 'Abo kündigen'}
+    </Button>
+  </div>
+) : needsPaymentAttention ? (
+  <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
+    {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
+  </Button>
+) : (
+  <Button size="sm" onClick={handleCheckout} disabled={busy}>
+    {busy ? 'Öffne Stripe…' : 'Abo starten'}
+  </Button>
+)}
         </div>
 
-        {isTrialing && (
+        {isTrialing && !isCancelledAtPeriodEnd && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-1">
             <p className="text-sm font-semibold text-blue-900">Testphase aktiv</p>
             <p className="text-xs text-blue-800">
@@ -298,7 +298,7 @@ export function AudioUsageCard({
           </div>
         )}
 
-        {isActive && isCancelledAtPeriodEnd && (
+        {isCancelledAtPeriodEnd && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1">
             <p className="text-sm font-semibold text-amber-900">Kündigung geplant</p>
             <p className="text-xs text-amber-800">
