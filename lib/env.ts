@@ -125,7 +125,7 @@ return getEmailAllowlist().has(target);
  * Returns null when no suppression should occur.
  */
 export function getEmailSuppressionReason(targetEmail: string | null | undefined): string | null {
-  if (shouldSendEmail(targetEmail)) return null;
+  if (shouldSendEmail(targetEmail, 'verification')) return null;
   if ((process.env.EMAIL_ENABLED || '').toLowerCase() === 'false') return 'env_email_disabled';
   const env = getAppEnv();
   if (env === 'development') return 'env_development';
