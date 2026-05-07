@@ -19,6 +19,23 @@ export interface AudioUsageData {
   audioOrderCount?: number;
 }
 
+function formatDateTime(value: string | null): string {
+  if (!value) return '';
+
+  const date = new Date(value);
+
+  if (!Number.isFinite(date.getTime())) return '';
+
+  return `${date.toLocaleDateString('de-CH', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  })} um ${date.toLocaleTimeString('de-CH', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })} Uhr`;
+}
+
 function formatTrialRemaining(currentPeriodEnd: string | null): string {
   if (!currentPeriodEnd) return 'Testphase aktiv';
 
@@ -26,15 +43,7 @@ function formatTrialRemaining(currentPeriodEnd: string | null): string {
   const end = endDate.getTime();
   const now = Date.now();
   const diffMs = end - now;
-
-  const formattedEnd = endDate.toLocaleDateString('de-CH', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }) + ' um ' + endDate.toLocaleTimeString('de-CH', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }) + ' Uhr';
+  const formattedEnd = formatDateTime(currentPeriodEnd);
 
   if (!Number.isFinite(end)) return 'Testphase aktiv';
 
@@ -51,7 +60,9 @@ function formatTrialRemaining(currentPeriodEnd: string | null): string {
   let remainingText = '';
 
   if (days > 0) {
-    remainingText = `Noch ${days} ${days === 1 ? 'Tag' : 'Tage'} und ${hours} ${hours === 1 ? 'Stunde' : 'Stunden'} kostenlos`;
+    remainingText = `Noch ${days} ${days === 1 ? 'Tag' : 'Tage'} und ${hours} ${
+      hours === 1 ? 'Stunde' : 'Stunden'
+    } kostenlos`;
   } else if (totalHours > 0) {
     remainingText = `Noch ${totalHours} ${totalHours === 1 ? 'Stunde' : 'Stunden'} kostenlos`;
   } else {
@@ -69,14 +80,13 @@ export function AudioUsageCard({
   data: AudioUsageData | null;
   loading?: boolean;
   subscription?: {
-  isActive: boolean;
-  status: string | null;
-  stripeSubscriptionId: string | null;
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd?: boolean;
-} | null;
+    isActive: boolean;
+    status: string | null;
+    stripeSubscriptionId: string | null;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd?: boolean;
+  } | null;
 }) {
-  
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -96,8 +106,8 @@ export function AudioUsageCard({
   const status = subscription?.status || null;
   const isTrialing = status === 'trialing';
   const isActive = status === 'active';
-  const needsPaymentAttention =
-    status === 'past_due' || status === 'unpaid' || status === 'incomplete';
+  const isCancelledAtPeriodEnd = Boolean(subscription?.cancelAtPeriodEnd);
+  const needsPaymentAttention = status === 'past_due' || status === 'unpaid' || status === 'incomplete';
 
   const used = Math.max(0, data.usedMinutes || 0);
   const included = 20;
@@ -105,6 +115,19 @@ export function AudioUsageCard({
   const pctClamped = Math.min(100, Math.max(0, pctRaw));
   const overLimit = pctRaw >= 100;
   const nearLimit = !overLimit && pctRaw >= 80;
+
+  const formatMinutes = (val: number): string => {
+    if (!isFinite(val)) return '0';
+    return Number.isInteger(val) ? `${val}` : val.toFixed(1).replace(/\.0$/, '');
+  };
+
+  const refreshDashboard = () => {
+    router.refresh();
+
+    setTimeout(() => {
+      router.refresh();
+    }, 1200);
+  };
 
   const handleCheckout = async () => {
     if (busy) return;
@@ -132,52 +155,88 @@ export function AudioUsageCard({
     }
   };
 
-const handleReactivateSubscription = async () => {
-  try {
-    setBusy(true);
+  const handleCancelSubscription = async () => {
+    if (busy) return;
 
-    const res = await fetch('/api/stripe/reactivate-subscription', {
-      method: 'POST',
-    });
+    const confirmed = window.confirm(
+      'Abo wirklich kündigen? Dein Zugang bleibt bis zum Ende der aktuellen Laufzeit aktiv.',
+    );
 
-    const result = await res.json().catch(() => null);
+    if (!confirmed) return;
 
-    if (!res.ok) {
-      throw new Error(result?.error || 'Abo konnte nicht fortgesetzt werden.');
+    try {
+      setBusy(true);
+
+      const res = await fetch('/api/stripe/cancel-subscription', {
+        method: 'POST',
+      });
+
+      const result = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(result?.error || 'Abo konnte nicht gekündigt werden.');
+      }
+
+      toast.success('Kündigung geplant.', {
+        description: result?.currentPeriodEnd
+          ? `Dein Zugang bleibt bis ${formatDateTime(result.currentPeriodEnd)} aktiv.`
+          : 'Dein Zugang bleibt bis zum Periodenende aktiv.',
+      });
+
+      refreshDashboard();
+    } catch (error: any) {
+      toast.error('Abo konnte nicht gekündigt werden', {
+        description: error?.message || 'Bitte später erneut versuchen.',
+      });
+    } finally {
+      setBusy(false);
     }
+  };
 
-    toast.success('Abo wurde fortgesetzt.');
-    router.refresh();
-  } catch (error: any) {
-    toast.error('Abo konnte nicht fortgesetzt werden', {
-      description: error?.message || 'Bitte später erneut versuchen.',
-    });
-    setBusy(false);
-  }
-};
+  const handleReactivateSubscription = async () => {
+    if (busy) return;
+
+    try {
+      setBusy(true);
+
+      const res = await fetch('/api/stripe/reactivate-subscription', {
+        method: 'POST',
+      });
+
+      const result = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(result?.error || 'Abo konnte nicht fortgesetzt werden.');
+      }
+
+      toast.success('Abo wurde fortgesetzt.');
+      refreshDashboard();
+    } catch (error: any) {
+      toast.error('Abo konnte nicht fortgesetzt werden', {
+        description: error?.message || 'Bitte später erneut versuchen.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const progressColorClass = overLimit
     ? '[&>div]:bg-red-500'
     : nearLimit
-    ? '[&>div]:bg-amber-500'
-    : '[&>div]:bg-emerald-500';
+      ? '[&>div]:bg-amber-500'
+      : '[&>div]:bg-emerald-500';
 
   const cardBorderClass = overLimit
     ? 'border-red-200 dark:border-red-800/60 bg-red-50/40 dark:bg-red-900/10'
     : nearLimit
-    ? 'border-amber-200 dark:border-amber-800/60 bg-amber-50/40 dark:bg-amber-900/10'
-    : 'border-border';
+      ? 'border-amber-200 dark:border-amber-800/60 bg-amber-50/40 dark:bg-amber-900/10'
+      : 'border-border';
 
-  const formatMinutes = (val: number): string => {
-    if (!isFinite(val)) return '0';
-    return Number.isInteger(val) ? `${val}` : val.toFixed(1).replace(/\.0$/, '');
-  };
+  const periodEndLabel = formatDateTime(subscription?.currentPeriodEnd || null);
 
   return (
     <Card className={cardBorderClass}>
       <CardContent className="p-4 space-y-3">
-
-        {/* HEADER */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -191,31 +250,32 @@ const handleReactivateSubscription = async () => {
             </div>
           </div>
 
-          {/* STATUS */}
           {isTrialing ? (
             <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
               Testphase aktiv
             </span>
- ) : isActive && subscription?.cancelAtPeriodEnd ? (
-<div className="flex items-center gap-2">
-  <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-    Kündigung geplant
-  </span>
+          ) : isActive && isCancelledAtPeriodEnd ? (
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                Kündigung geplant
+              </span>
 
-  <Button
-    size="sm"
-    variant="outline"
-    onClick={handleReactivateSubscription}
-    disabled={busy}
-  >
-    {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
-  </Button>
-</div>
-) : isActive ? (
-  <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-    Abo aktiv
-  </span>
-) : needsPaymentAttention ? (            <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
+              <Button size="sm" variant="outline" onClick={handleReactivateSubscription} disabled={busy}>
+                {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
+              </Button>
+            </div>
+          ) : isActive ? (
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                Abo aktiv
+              </span>
+
+              <Button size="sm" variant="outline" onClick={handleCancelSubscription} disabled={busy}>
+                {busy ? 'Bitte warten…' : 'Abo kündigen'}
+              </Button>
+            </div>
+          ) : needsPaymentAttention ? (
+            <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
               {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
             </Button>
           ) : (
@@ -225,7 +285,6 @@ const handleReactivateSubscription = async () => {
           )}
         </div>
 
-        {/* TRIAL INFO */}
         {isTrialing && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-1">
             <p className="text-sm font-semibold text-blue-900">Testphase aktiv</p>
@@ -235,13 +294,36 @@ const handleReactivateSubscription = async () => {
             <p className="text-xs text-blue-800">
               Danach wird dein Abo automatisch für CHF 39 monatlich weitergeführt.
             </p>
-            <p className="text-xs text-blue-800">
-              Keine Aktion erforderlich.
+            <p className="text-xs text-blue-800">Keine Aktion erforderlich.</p>
+          </div>
+        )}
+
+        {isActive && isCancelledAtPeriodEnd && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1">
+            <p className="text-sm font-semibold text-amber-900">Kündigung geplant</p>
+            <p className="text-xs text-amber-800">
+              Dein Abo läuft noch bis {periodEndLabel || 'zum Ende der aktuellen Laufzeit'}.
+            </p>
+            <p className="text-xs text-amber-800">
+              Danach endet dein Zugriff automatisch. Du kannst das Abo vorher jederzeit fortsetzen.
             </p>
           </div>
         )}
 
-        {/* USAGE */}
+        {isActive && !isCancelledAtPeriodEnd && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-1">
+            <p className="text-sm font-semibold text-emerald-900">Abo aktiv</p>
+            <p className="text-xs text-emerald-800">
+              Dein Standard-Abo läuft aktiv für CHF 39 monatlich.
+            </p>
+            {periodEndLabel && (
+              <p className="text-xs text-emerald-800">
+                Aktuelle Periode läuft bis {periodEndLabel}.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
           <div className="font-mono">
             <span className="text-2xl font-bold tabular-nums">{formatMinutes(used)}</span>
@@ -280,7 +362,6 @@ const handleReactivateSubscription = async () => {
             </p>
           </div>
         )}
-
       </CardContent>
     </Card>
   );
