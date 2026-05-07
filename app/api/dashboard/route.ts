@@ -8,9 +8,15 @@ import { isCustomerDataIncomplete } from '@/lib/customer-links';
 import { getCurrentPlan } from '@/lib/plan';
 import { getMonthlyAudioUsage } from '@/lib/audio-usage';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-02-24.acacia',
-});
+function getStripe(): Stripe | null {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return null;
+  }
+
+  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 
 export async function GET() {
   try {
@@ -36,21 +42,21 @@ export async function GET() {
     let currentPeriodEnd = user?.currentPeriodEnd || null;
     let cancelAtPeriodEnd = false;
 
-    // Safety sync:
-    // If Stripe says the subscription changed but the webhook did not update the DB yet,
-    // the dashboard pulls the latest Stripe status once and keeps the UI correct.
-    if (user?.stripeSubscriptionId && process.env.STRIPE_SECRET_KEY) {
+    const stripe = getStripe();
+
+    if (user?.stripeSubscriptionId && stripe) {
       try {
         const stripeSub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
 
         subscriptionStatus = stripeSub.status;
         cancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end);
-       const stripeEnd =
-  stripeSub.status === 'trialing' && stripeSub.trial_end
-    ? stripeSub.trial_end
-    : stripeSub.current_period_end;
 
-currentPeriodEnd = new Date(stripeEnd * 1000);
+        const stripeEnd =
+          stripeSub.status === 'trialing' && stripeSub.trial_end
+            ? stripeSub.trial_end
+            : stripeSub.current_period_end;
+
+        currentPeriodEnd = new Date(stripeEnd * 1000);
 
         if (
           user.subscriptionStatus !== subscriptionStatus ||
@@ -75,9 +81,8 @@ currentPeriodEnd = new Date(stripeEnd * 1000);
       status: subscriptionStatus,
       stripeSubscriptionId: user?.stripeSubscriptionId || null,
       currentPeriodEnd: currentPeriodEnd?.toISOString() || null,
-     cancelAtPeriodEnd,
-   };
-    
+      cancelAtPeriodEnd,
+    };
 
     const activeOrderCount = await prisma.order.count({
       where: { offerId: null, invoiceId: null, deletedAt: null, userId },
@@ -170,6 +175,7 @@ currentPeriodEnd = new Date(stripeEnd * 1000);
     const plan = await getCurrentPlan(userId);
     const includedMinutes = plan.includedMinutes;
     const usedMinutes = audioUsage.receivedMinutes;
+
     const usagePercent = includedMinutes > 0
       ? Math.round((usedMinutes / includedMinutes) * 100)
       : 0;
@@ -218,6 +224,7 @@ currentPeriodEnd = new Date(stripeEnd * 1000);
     });
   } catch (error: any) {
     console.error('Dashboard error:', error);
+
     return NextResponse.json({ error: 'Fehler beim Laden' }, { status: 500 });
   }
 }

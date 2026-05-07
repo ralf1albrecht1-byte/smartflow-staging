@@ -5,9 +5,15 @@ import { requireUserId } from '@/lib/get-session';
 
 export const dynamic = 'force-dynamic';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-02-24.acacia',
-});
+function getStripe(): Stripe {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY fehlt');
+  }
+
+  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 
 export async function POST() {
   try {
@@ -23,9 +29,11 @@ export async function POST() {
     if (!user?.stripeSubscriptionId) {
       return NextResponse.json(
         { error: 'Kein aktives Stripe-Abo gefunden.' },
-        { status: 400 }
+        { status: 400 },
       );
     }
+
+    const stripe = getStripe();
 
     const subscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
       cancel_at_period_end: true,
@@ -54,7 +62,7 @@ export async function POST() {
 
     return NextResponse.json(
       { error: error?.message || 'Kündigung fehlgeschlagen.' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
