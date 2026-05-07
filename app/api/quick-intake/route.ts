@@ -7,6 +7,9 @@ import { verifyCustomerMatch } from '@/lib/customer-matching';
 import { sanitizeNewCustomerFields } from '@/lib/intake-sanitize';
 import { findExactDeterministicMatch, findNearExactDeterministicMatch } from '@/lib/exact-customer-match';
 import { logAuditAsync } from '@/lib/audit';
+function getOpenAiApiKey(): string | null {
+  return process.env.OPENAI_API_KEY || null;
+}
 
 export async function POST(request: Request) {
   try {
@@ -180,11 +183,11 @@ Respond with raw JSON only.
         userContent.push({ type: 'image_url', image_url: { url: `data:${aiImageMimeType};base64,${aiImageBase64}` } });
       }
 
-      const response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`,
+          'Authorization': `Bearer ${getOpenAiApiKey()}`,
         },
         body: JSON.stringify({
           model: imageBase64 ? 'gpt-4.1' : 'gpt-4.1-mini',
