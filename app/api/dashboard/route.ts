@@ -48,7 +48,7 @@ export async function GET() {
       try {
         const stripeSub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
 
-        subscriptionStatus = stripeSub.status;
+           subscriptionStatus = stripeSub.status;
         cancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end);
 
         const stripeEnd =
@@ -56,21 +56,35 @@ export async function GET() {
             ? stripeSub.trial_end
             : stripeSub.current_period_end;
 
-        currentPeriodEnd = new Date(stripeEnd * 1000);
+        currentPeriodEnd = stripeSub.status === 'canceled'
+          ? null
+          : new Date(stripeEnd * 1000);
 
-        if (
-          user.subscriptionStatus !== subscriptionStatus ||
-          user.currentPeriodEnd?.getTime() !== currentPeriodEnd.getTime()
-        ) {
-          await prisma.user.update({
-            where: { id: userId },
-            data: {
-              subscriptionStatus,
-              currentPeriodEnd,
-              stripeCustomerId: user.stripeCustomerId || (stripeSub.customer as string),
-            },
-          });
-        }
+        const nextUserData =
+          stripeSub.status === 'canceled'
+            ? {
+                subscriptionStatus,
+                cancelAtPeriodEnd: false,
+                currentPeriodEnd: null,
+                accountStatus: 'inactive',
+                accessEndsAt: null,
+                stripeCustomerId: user.stripeCustomerId || (stripeSub.customer as string),
+              }
+            : {
+                subscriptionStatus,
+                cancelAtPeriodEnd,
+                currentPeriodEnd,
+                accountStatus: stripeSub.status === 'active' || stripeSub.status === 'trialing'
+                  ? 'active'
+                  : undefined,
+                accessEndsAt: currentPeriodEnd,
+                stripeCustomerId: user.stripeCustomerId || (stripeSub.customer as string),
+              };
+
+        await prisma.user.update({
+          where: { id: userId },
+          data: nextUserData,
+        });
       } catch (stripeError) {
         console.error('Dashboard Stripe subscription sync failed:', stripeError);
       }
