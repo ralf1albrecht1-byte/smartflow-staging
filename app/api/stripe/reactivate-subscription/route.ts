@@ -41,9 +41,26 @@ export async function POST() {
 
     const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
 
-    if (subscription.status === 'canceled') {
+       if (subscription.status === 'canceled') {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          subscriptionStatus: 'canceled',
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: null,
+          accountStatus: 'inactive',
+          accessEndsAt: null,
+        },
+      });
+
       return NextResponse.json(
-        { error: 'Dieses Abo ist bereits beendet und kann nicht fortgesetzt werden.' },
+        {
+          error: 'Dieses Abo ist bereits beendet und kann nicht fortgesetzt werden. Bitte starte ein neues Abo.',
+          subscriptionStatus: 'canceled',
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: null,
+          requiresNewCheckout: true,
+        },
         { status: 400 },
       );
     }
