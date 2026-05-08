@@ -253,7 +253,8 @@ export function AudioUsageCard({
             </div>
           </div>
 
-          {isCancelledAtPeriodEnd ? (
+
+{isCancelledAtPeriodEnd ? (
   <div className="flex items-center gap-2 flex-wrap justify-end">
     <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
       Kündigung geplant
@@ -268,19 +269,9 @@ export function AudioUsageCard({
     Testphase aktiv
   </span>
 ) : isActive ? (
-  <div className="flex items-center gap-2 flex-wrap justify-end">
-    <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-      Abo aktiv
-    </span>
-
-    ) : isActive ? (
-  <div className="flex items-center gap-2 flex-wrap justify-end">
-    <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-      Abo aktiv
-    </span>
-  </div>
-) : needsPaymentAttention ? (
-  </div>
+  <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+    Abo aktiv
+  </span>
 ) : needsPaymentAttention ? (
   <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
     {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
@@ -314,19 +305,14 @@ export function AudioUsageCard({
           </div>
         )}
 
-        {isActive && !isCancelledAtPeriodEnd && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-1">
-            <p className="text-sm font-semibold text-emerald-900">Abo aktiv</p>
-            <p className="text-xs text-emerald-800">
-              Dein Standard-Abo läuft aktiv für CHF 39 monatlich.
-            </p>
-            {periodEndLabel && (
-              <p className="text-xs text-emerald-800">
-                Aktuelle Periode läuft bis {periodEndLabel}.
-              </p>
-            )}
-          </div>
-        )}
+       {isActive && !isCancelledAtPeriodEnd && (
+  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+    <p className="text-xs text-emerald-800">
+      Abo aktiv · Standard CHF 39 / Monat
+      {periodEndLabel ? ` · Periode bis ${periodEndLabel}` : ''}
+    </p>
+  </div>
+)}
 
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
           <div className="font-mono">
