@@ -641,53 +641,24 @@ export async function POST(request: Request) {
   }
 }
 
-function escapeXml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-// Convert audio to MP3 using FFmpeg API
+// Audio conversion fallback without external FFmpeg.
+// We no longer call external FFmpeg here. We fetch the original saved audio.
+// If OpenAI cannot read the original format, transcription returns null and
+// the order is still created with audioTranscriptionStatus='failed'.
 async function convertToMp3ViaFfmpeg(audioUrl: string): Promise<Buffer | null> {
   try {
-    console.log('FFmpeg: Converting audio to MP3...');
-    const createResponse = await fetch('https://apps.abacus.ai/api/createRunFfmpegCommandRequest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deployment_token: process.env.ABACUSAI_API_KEY,
-        input_files: { in_1: audioUrl },
-        output_files: { out_1: 'audio.mp3' },
-        ffmpeg_command: '-i {{in_1}} -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k {{out_1}}',
-      }),
-    });
+ console.log('[WhatsApp] External FFmpeg conversion disabled. Using original audio URL fallback.');
 
-    if (!createResponse.ok) {
-      console.error('FFmpeg create error:', await createResponse.text());
+    const audioRes = await fetch(audioUrl);
+
+    if (!audioRes.ok) {
+      console.error('[WhatsApp] Failed to fetch original audio for fallback:', await audioRes.text());
       return null;
     }
 
-    const { request_id } = await createResponse.json();
-    if (!request_id) return null;
-
-    for (let i = 0; i < 90; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const statusRes = await fetch('https://apps.abacus.ai/api/getRunFfmpegCommandStatus', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id, deployment_token: process.env.ABACUSAI_API_KEY }),
-      });
-      const statusResult = await statusRes.json();
-      if (statusResult?.status === 'SUCCESS' && statusResult?.result?.result?.out_1) {
-        const mp3Res = await fetch(statusResult.result.result.out_1);
-        if (mp3Res.ok) return Buffer.from(await mp3Res.arrayBuffer());
-        return null;
-      } else if (statusResult?.status === 'FAILED') {
-        console.error('FFmpeg failed:', statusResult?.result?.error);
-        return null;
-      }
-    }
-    return null;
+    return Buffer.from(await audioRes.arrayBuffer());
   } catch (err) {
-    console.error('FFmpeg error:', err);
+    console.error('[WhatsApp] Audio fallback fetch error:', err);
     return null;
   }
 }
@@ -711,97 +682,87 @@ async function convertToMp3ViaFfmpeg(audioUrl: string): Promise<Buffer | null> {
  * MP3 cannot be parsed. The caller will then mark the message as
  * `voiceUncheckable` (NOT silently transcribed).
  */
+
 async function probeDurationViaFfmpegConvert(
   audioUrl: string,
 ): Promise<{ durationSec: number | null; mp3Buffer: Buffer | null; clamped: boolean }> {
   try {
-    const createResponse = await fetch('https://apps.abacus.ai/api/createRunFfmpegCommandRequest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deployment_token: process.env.ABACUSAI_API_KEY,
-        input_files: { in_1: audioUrl },
-        output_files: { out_1: 'audio.mp3' },
-        // -t 70 hard-clamps the output to at most 70 s of audio. We keep the
-        // bitrate low because we only need the MP3 for duration probing AND
-        // (potentially) for transcription of ≤60 s clips.
-        ffmpeg_command: '-i {{in_1}} -t 70 -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k {{out_1}}',
-      }),
-    });
-    if (!createResponse.ok) {
-      console.error('[WhatsApp] FFmpeg probe create error:', await createResponse.text());
+   console.log('[WhatsApp] External FFmpeg duration fallback disabled. Trying original audio fetch only.');
+
+    const audioRes = await fetch(audioUrl);
+
+    if (!audioRes.ok) {
+      console.error('[WhatsApp] Failed to fetch original audio for duration fallback:', await audioRes.text());
       return { durationSec: null, mp3Buffer: null, clamped: false };
     }
-    const createJson = await createResponse.json();
-    const request_id = createJson?.request_id;
-    if (!request_id) return { durationSec: null, mp3Buffer: null, clamped: false };
 
-    for (let i = 0; i < 90; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const statusRes = await fetch('https://apps.abacus.ai/api/getRunFfmpegCommandStatus', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id, deployment_token: process.env.ABACUSAI_API_KEY }),
-      });
-      const statusResult = await statusRes.json();
-      if (statusResult?.status === 'SUCCESS' && statusResult?.result?.result?.out_1) {
-        const mp3Res = await fetch(statusResult.result.result.out_1);
-        if (!mp3Res.ok) return { durationSec: null, mp3Buffer: null, clamped: false };
-        const mp3Buffer = Buffer.from(await mp3Res.arrayBuffer());
-        try {
-          const { parseBuffer } = await import('music-metadata');
-          const meta = await parseBuffer(mp3Buffer, { mimeType: 'audio/mpeg' });
-          const dur = meta?.format?.duration;
-          if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
-            // Treat ≥69.5s as "clamped" — we asked for 70s max, so anything
-            // close to that means the original was at least 70 s long.
-            const clamped = dur >= 69.5;
-            return { durationSec: dur, mp3Buffer, clamped };
-          }
-        } catch (parseErr: any) {
-          console.warn('[WhatsApp] FFmpeg probe: MP3 metadata parse failed:', parseErr?.message || parseErr);
-        }
-        // FFmpeg succeeded but we couldn't parse the MP3 → no duration.
-        // Still return the MP3 buffer (caller might decide to discard it).
-        return { durationSec: null, mp3Buffer, clamped: false };
-      } else if (statusResult?.status === 'FAILED') {
-        console.error('[WhatsApp] FFmpeg probe failed:', statusResult?.result?.error);
-        return { durationSec: null, mp3Buffer: null, clamped: false };
+    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+
+    try {
+      const { parseBuffer } = await import('music-metadata');
+      const meta = await parseBuffer(audioBuffer);
+      const dur = meta?.format?.duration;
+
+      if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
+        return {
+          durationSec: dur,
+          mp3Buffer: audioBuffer,
+          clamped: false,
+        };
       }
+    } catch (parseErr: any) {
+      console.warn('[WhatsApp] Original audio fallback duration parse failed:', parseErr?.message || parseErr);
     }
+
     return { durationSec: null, mp3Buffer: null, clamped: false };
   } catch (err: any) {
-    console.error('[WhatsApp] FFmpeg probe error:', err?.message || err);
+    console.error('[WhatsApp] Duration fallback error:', err?.message || err);
     return { durationSec: null, mp3Buffer: null, clamped: false };
   }
 }
 
-// Transcribe audio using LLM
-async function transcribeAudio(mp3Buffer: Buffer): Promise<string | null> {
+// Transcribe audio using OpenAI
+async function transcribeAudio(audioBuffer: Buffer): Promise<string | null> {
   try {
-    const response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-audio-preview-2025-06-03',
-        messages: [
-          { role: 'system', content: 'Transkribiere die folgende Sprachnachricht auf Deutsch. Gib nur den transkribierten Text zurück, ohne Anführungszeichen oder Erklärungen. Auch Schweizerdeutsch/Dialekt soll auf Hochdeutsch transkribiert werden.' },
-          { role: 'user', content: [{ type: 'input_audio', input_audio: { data: mp3Buffer.toString('base64'), format: 'mp3' } }] },
-        ],
-        max_tokens: 2000,
-      }),
-    });
-    if (!response.ok) {
-      console.error('Transcription error:', await response.text());
+    const openAiApiKey = process.env.OPENAI_API_KEY;
+
+    if (!openAiApiKey) {
+      console.error('[WhatsApp] Missing OPENAI_API_KEY');
       return null;
     }
+
+    const formData = new FormData();
+
+    formData.append(
+      'file',
+      new Blob([audioBuffer], { type: 'audio/mpeg' }),
+      'whatsapp-audio.mp3',
+    );
+
+    formData.append('model', 'gpt-4o-mini-transcribe');
+    formData.append('language', 'de');
+    formData.append(
+      'prompt',
+      'Transkribiere diese WhatsApp-Sprachnachricht auf Hochdeutsch. Schweizerdeutsch und Dialekt in verständliches Hochdeutsch übertragen. Gib nur den transkribierten Text zurück.',
+    );
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openAiApiKey}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      console.error('[WhatsApp] OpenAI transcription error:', await response.text());
+      return null;
+    }
+
     const result = await response.json();
-    return result?.choices?.[0]?.message?.content ?? null;
+    return typeof result?.text === 'string' ? result.text.trim() : null;
   } catch (err) {
-    console.error('Transcription error:', err);
+    console.error('[WhatsApp] Transcription error:', err);
     return null;
   }
 }
