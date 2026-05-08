@@ -218,42 +218,40 @@ function LoginForm() {
               <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-3">
                 <h3 className="font-semibold text-amber-800 dark:text-amber-300">Dein Account ist inaktiv</h3>
                 <p className="text-sm text-amber-700 dark:text-amber-400">
-                  Dein Zugang wurde beendet oder ist abgelaufen. Du kannst deinen Account jederzeit wieder aktivieren.
+                Dein Zugang wurde beendet oder ist abgelaufen. Deine gespeicherten Daten bleiben erhalten. Um wieder weiterzuarbeiten, starte bitte dein Abo neu.
                 </p>
-                <Button
-                  className="w-full"
-                  disabled={reactivating}
-                  onClick={async () => {
-                    setReactivating(true);
-                    try {
-                      const res = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email: form.email, password: form.password, reactivate: true }),
-                      });
-                      const data = await res.json().catch(() => ({}));
-                      if (res.ok && data?.success) {
-                        toast.success('Account erfolgreich reaktiviert!');
-                        setShowReactivation(false);
-                        // Auto-login after reactivation
-                        const signInRes = await signIn('credentials', { email: form.email, password: form.password, redirect: false });
-                        if (signInRes?.error) {
-                          toast.error('Anmeldung fehlgeschlagen. Bitte erneut einloggen.');
-                        } else {
-                          router.replace('/dashboard');
-                        }
-                      } else {
-                        toast.error(data?.error || 'Reaktivierung fehlgeschlagen. Bitte erneut versuchen.');
-                      }
-                    } catch {
-                      toast.error('Ein Fehler ist aufgetreten. Bitte erneut versuchen.');
-                    } finally {
-                      setReactivating(false);
-                    }
-                  }}
-                >
-                  {reactivating ? 'Wird aktiviert...' : 'Weiter nutzen'}
-                </Button>
+
+            <Button
+  className="w-full"
+  disabled={reactivating}
+  onClick={async () => {
+    setReactivating(true);
+
+    try {
+      const res = await fetch('/api/stripe/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.url) {
+        throw new Error(data?.error || 'Stripe Checkout konnte nicht gestartet werden.');
+      }
+
+      window.location.href = data.url;
+    } catch (error: any) {
+      toast.error('Abo konnte nicht gestartet werden', {
+        description: error?.message || 'Bitte später erneut versuchen.',
+      });
+    } finally {
+      setReactivating(false);
+    }
+  }}
+>
+  {reactivating ? 'Öffne Stripe…' : 'Abo neu starten'}
+</Button>
+
               </div>
               <button
                 type="button"
