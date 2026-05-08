@@ -273,9 +273,13 @@ export function AudioUsageCard({
       Abo aktiv
     </span>
 
-    <Button size="sm" variant="outline" onClick={handleCancelSubscription} disabled={busy}>
-      {busy ? 'Bitte warten…' : 'Abo kündigen'}
-    </Button>
+    ) : isActive ? (
+  <div className="flex items-center gap-2 flex-wrap justify-end">
+    <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+      Abo aktiv
+    </span>
+  </div>
+) : needsPaymentAttention ? (
   </div>
 ) : needsPaymentAttention ? (
   <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
