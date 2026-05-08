@@ -103,12 +103,15 @@ export function AudioUsageCard({
     );
   }
 
-  const status = subscription?.status || null;
+   const status = subscription?.status || null;
+  const isCanceled = status === 'canceled';
   const isTrialing = status === 'trialing';
   const isActive = status === 'active';
-  const isCancelledAtPeriodEnd = Boolean(subscription?.cancelAtPeriodEnd);
+  const isCancelledAtPeriodEnd =
+    !isCanceled &&
+    Boolean(subscription?.cancelAtPeriodEnd) &&
+    Boolean(subscription?.currentPeriodEnd);
   const needsPaymentAttention = status === 'past_due' || status === 'unpaid' || status === 'incomplete';
-
   const used = Math.max(0, data.usedMinutes || 0);
   const included = 20;
   const pctRaw = included > 0 ? Math.round((used / included) * 100) : 0;
@@ -291,10 +294,7 @@ export function AudioUsageCard({
             <p className="text-xs text-blue-800">
               {formatTrialRemaining(subscription?.currentPeriodEnd || null)}
             </p>
-            <p className="text-xs text-blue-800">
-              Danach wird dein Abo automatisch für CHF 39 monatlich weitergeführt.
-            </p>
-            <p className="text-xs text-blue-800">Keine Aktion erforderlich.</p>
+
           </div>
         )}
 
