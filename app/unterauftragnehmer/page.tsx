@@ -6,25 +6,52 @@ export const metadata = {
   description: 'Unterauftragsverarbeiter und Drittanbieter',
 };
 
+
+
+
+
+
+
 const SUBPROCESSORS = [
   {
-    name: 'Abacus.AI / Hosting-Anbieter',
-    purpose: 'Anwendungs-Hosting, Datenbank, Cloud-Infrastruktur',
-    dataCategories: 'Alle App-Daten, Kontodaten, Endkundendaten, Medien, Audit-Logs',
+    name: 'Railway / Hosting-Anbieter',
+    purpose: 'Anwendungs-Hosting, Serverbetrieb und Cloud-Infrastruktur',
+    dataCategories: 'App-Daten, Kontodaten, Endkundendaten, Audit-Logs',
+    region: 'USA / EU',
+    status: 'Aktiv' as const,
+  },
+  {
+    name: 'PostgreSQL / Datenbank',
+    purpose: 'Strukturierte Speicherung von App-, Konto-, Kunden-, Auftrags- und Rechnungsdaten',
+    dataCategories: 'Kontodaten, Kundendaten, Auftragsdaten, Rechnungsdaten, Audit-Logs',
     region: 'USA / EU',
     status: 'Aktiv' as const,
   },
   {
     name: 'AWS S3 / Objektspeicher',
-    purpose: 'Speicherung von Medien (Bilder, Audio, PDFs)',
-    dataCategories: 'Mediendaten, erzeugte PDFs, Briefkopf-Dateien',
+    purpose: 'Speicherung von Medien, PDFs, Briefpapier- und Logo-Dateien',
+    dataCategories: 'Mediendaten, erzeugte PDFs, Briefkopf-Dateien, Logo-Dateien',
     region: 'EU (eu-central-1)',
+    status: 'Aktiv' as const,
+  },
+  {
+    name: 'OpenAI / KI-Dienstleister',
+    purpose: 'Audiotranskription, Bildanalyse, Textextraktion und Klassifikation für Auftragserfassung',
+    dataCategories: 'Audiodateien, Bilder, Texte, extrahierte Auftragsdaten',
+    region: 'USA / EU',
+    status: 'Aktiv' as const,
+  },
+  {
+    name: 'Resend / E-Mail-Versand',
+    purpose: 'Transaktionale E-Mail-Benachrichtigungen wie Registrierung, E-Mail-Verifizierung, Passwort-Reset und Systemhinweise',
+    dataCategories: 'E-Mail-Adresse, Name, Betreff, Nachrichteninhalt, Versandstatus',
+    region: 'USA / EU',
     status: 'Aktiv' as const,
   },
   {
     name: 'Twilio',
     purpose: 'WhatsApp Business API – Empfang und Zustellung von Nachrichten',
-    dataCategories: 'Telefonnummer, Nachrichteninhalte (Text, Bilder, Audio), Zeitstempel, Metadaten',
+    dataCategories: 'Telefonnummer, Nachrichteninhalte, Medien, Zeitstempel, Metadaten',
     region: 'USA / EU',
     status: 'Aktiv' as const,
   },
@@ -36,28 +63,13 @@ const SUBPROCESSORS = [
     status: 'Aktiv' as const,
   },
   {
-    name: 'KI-Dienstleister (Abacus.AI RouteLLM)',
-    purpose: 'Audiotranskription, Bildanalyse, Textextraktion und Klassifikation für Auftragserfassung',
-    dataCategories: 'Audiodateien, Bilder, Texte, extrahierte Auftragsdaten',
-    region: 'USA',
+    name: 'Stripe',
+    purpose: 'Zahlungsabwicklung, Abonnementverwaltung, Testphase und Rechnungsstatus',
+    dataCategories: 'E-Mail-Adresse, Zahlungsstatus, Stripe-Kunden-ID, Stripe-Abonnement-ID, Rechnungs- und Zahlungsmetadaten',
+    region: 'USA / EU',
     status: 'Aktiv' as const,
-  },
-  {
-    name: 'Abacus.AI Notification API',
-    purpose: 'Transaktionale E-Mail-Benachrichtigungen (Registrierung, Passwort-Reset, Systemhinweise)',
-    dataCategories: 'E-Mail-Adresse, Name, Betreff, Nachrichteninhalt',
-    region: 'USA',
-    status: 'Aktiv' as const,
-  },
-  {
-    name: 'Zahlungsdienstleister',
-    purpose: 'Zahlungsabwicklung (für zukünftige Abrechnungsfunktionen)',
-    dataCategories: 'Noch nicht definiert',
-    region: 'Noch nicht definiert',
-    status: 'Geplant' as const,
   },
 ];
-
 const STATUS_STYLES: Record<string, string> = {
   'Aktiv': 'bg-emerald-50 text-emerald-800 border-emerald-200',
   'Geplant': 'bg-blue-50 text-blue-800 border-blue-200',
