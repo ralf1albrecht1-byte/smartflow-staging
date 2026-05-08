@@ -228,10 +228,14 @@ function LoginForm() {
     setReactivating(true);
 
     try {
-      const res = await fetch('/api/stripe/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+    const res = await fetch('/api/stripe/create-reactivation-checkout', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: form.email,
+    password: form.password,
+  }),
+});
 
       const data = await res.json().catch(() => ({}));
 
