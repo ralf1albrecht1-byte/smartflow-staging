@@ -692,21 +692,60 @@ export async function POST(request: Request) {
 // the order is still created with audioTranscriptionStatus='failed'.
 async function convertToMp3ViaFfmpeg(audioUrl: string): Promise<Buffer | null> {
   try {
- console.log('[WhatsApp] External FFmpeg conversion disabled. Using original audio URL fallback.');
+    const ffmpegPath = (await import('ffmpeg-static')).default;
+    const { spawn } = await import('child_process');
 
-    const audioRes = await fetch(audioUrl);
-
-    if (!audioRes.ok) {
-      console.error('[WhatsApp] Failed to fetch original audio for fallback:', await audioRes.text());
+    if (!ffmpegPath) {
+      console.error('[WhatsApp] ffmpeg-static path missing.');
       return null;
     }
 
-    return Buffer.from(await audioRes.arrayBuffer());
+    console.log('[WhatsApp] 🎙️ Compressing audio with FFmpeg: mp3 mono 16kHz 32k max 60s');
+
+    return await new Promise<Buffer | null>((resolve) => {
+      const chunks: Buffer[] = [];
+      const errors: Buffer[] = [];
+
+      const ffmpeg = spawn(ffmpegPath, [
+        '-y',
+        '-t', '60',
+        '-i', audioUrl,
+        '-vn',
+        '-ac', '1',
+        '-ar', '16000',
+        '-b:a', '32k',
+        '-f', 'mp3',
+        'pipe:1',
+      ]);
+
+      ffmpeg.stdout.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      ffmpeg.stderr.on('data', (chunk) => errors.push(Buffer.from(chunk)));
+
+      ffmpeg.on('error', (err) => {
+        console.error('[WhatsApp] FFmpeg spawn error:', err);
+        resolve(null);
+      });
+
+      ffmpeg.on('close', (code) => {
+        const output = Buffer.concat(chunks);
+        const stderr = Buffer.concat(errors).toString('utf8').slice(-1200);
+
+        if (code !== 0 || output.length === 0) {
+          console.error('[WhatsApp] FFmpeg conversion failed:', { code, stderr });
+          resolve(null);
+          return;
+        }
+
+        console.log(`[WhatsApp] ✅ FFmpeg compressed audio: ${output.length} bytes`);
+        resolve(output);
+      });
+    });
   } catch (err) {
-    console.error('[WhatsApp] Audio fallback fetch error:', err);
+    console.error('[WhatsApp] FFmpeg conversion error:', err);
     return null;
   }
 }
+ 
 
 /**
  * Stage H.2 — FAIL-SAFE duration probe via FFmpeg.
