@@ -736,6 +736,8 @@ async function probeDurationViaFfmpegConvert(
 // Transcribe audio using OpenAI
 async function transcribeAudio(audioBuffer: Buffer): Promise<string | null> {
   try {
+    console.log(`[WhatsApp] 🎙️ Starting OpenAI transcription upload: bytes=${audioBuffer.length}`);
+  try {
     const openAiApiKey = process.env.OPENAI_API_KEY;
 
     if (!openAiApiKey) {
