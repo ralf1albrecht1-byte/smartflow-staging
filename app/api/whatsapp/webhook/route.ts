@@ -255,25 +255,37 @@ export async function POST(request: Request) {
                 reason: 'voice_too_long',
               },
             });
-          } else if (!voiceDurationKnown) {
-            // All three probes failed — duration cannot be determined safely.
-            // Cost protection demands we DO NOT transcribe in this case.
-            voiceUncheckable = true;
-            preconvertedMp3Buffer = null;
-            console.warn(`[WhatsApp] ⏱️ Decision: REVIEW (UNCHECKABLE — all duration probes failed). No transcription, no LLM. Review order will be created.`);
-            logAuditAsync({
-              action: 'MEDIA_RECEIVED',
-              area: 'WEBHOOK',
-              details: {
-                type: 'audio',
-                sender: profileName,
-                phone: maskPhoneForLog(phoneNumber),
-                audioBytes: buffer.length,
-                audioDurationSec: null,
-                transcriptionSkipped: true,
-                reason: 'voice_uncheckable',
-              },
-            });
+               } else if (!voiceDurationKnown) {
+            // Duration could not be determined.
+            // Do NOT mark short WhatsApp voice messages as "too long" just because metadata parsing failed.
+            // To keep cost protection, only allow unknown-duration audio when the file is small.
+            const maxUnknownAudioBytes = 2_500_000;
+
+            if (buffer.length > maxUnknownAudioBytes) {
+              voiceUncheckable = true;
+              preconvertedMp3Buffer = null;
+              console.warn(`[WhatsApp] ⏱️ Decision: REVIEW (UNCHECKABLE + LARGE FILE). No transcription, no LLM. Review order will be created.`);
+              logAuditAsync({
+                action: 'MEDIA_RECEIVED',
+                area: 'WEBHOOK',
+                details: {
+                  type: 'audio',
+                  sender: profileName,
+                  phone: maskPhoneForLog(phoneNumber),
+                  audioBytes: buffer.length,
+                  audioDurationSec: null,
+                  transcriptionSkipped: true,
+                  reason: 'voice_uncheckable_large_file',
+                },
+              });
+            } else {
+              // Small unknown-duration WhatsApp audio: allow transcription.
+              // We count it as 60 seconds for quota safety.
+              voiceDurationSec = 60;
+              voiceDurationKnown = true;
+              preconvertedMp3Buffer = buffer;
+              console.warn(`[WhatsApp] ⏱️ Decision: TRANSCRIBE (duration unknown but small file: ${buffer.length} bytes). Counting as 60s for quota safety.`);
+            }
           } else {
             // Within cap and duration known: check monthly quota BEFORE transcribing.
             // ─── Stage K: server-side audio-quota gate ───
