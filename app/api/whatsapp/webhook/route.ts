@@ -747,7 +747,8 @@ async function transcribeAudio(audioBuffer: Buffer): Promise<string | null> {
 
     formData.append(
       'file',
-      new Blob([audioBuffer], { type: 'audio/mpeg' }),
+      new Blob([audioBuffer], { type: 'audio/ogg' }),
+'whatsapp-audio.ogg',
       'whatsapp-audio.mp3',
     );
 
