@@ -36,8 +36,6 @@ const sig = req.headers.get('stripe-signature');
     return new NextResponse('Stripe webhook not configured', { status: 500 });
   }
 
-  const stripe = getStripe();
-
   let event: Stripe.Event;
 
   try {

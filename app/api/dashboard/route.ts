@@ -43,7 +43,7 @@ export async function GET() {
     let currentPeriodEnd = user?.currentPeriodEnd || null;
     let cancelAtPeriodEnd = false;
 
-    const stripe = getStripe();
+    const stripe = getStripeClient();
 
     if (user?.stripeSubscriptionId && stripe) {
       try {

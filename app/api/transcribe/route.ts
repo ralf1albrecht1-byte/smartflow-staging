@@ -122,15 +122,18 @@ export async function POST(request: Request) {
 
     const openAiApiKey = process.env.OPENAI_API_KEY;
 
+    let llmAudioBuffer: Buffer = buffer;
+    let llmAudioMime: string = mimeType;
+    let llmAudioFilename: string = file.name || 'audio.ogg';
+
     try {
       const { convertAudioToCompactMp3 } = await import('@/lib/audio-convert');
 
       const compactMp3 = await convertAudioToCompactMp3(buffer);
       if (compactMp3 && compactMp3.length > 0) {
-        llmAudioBase64 = compactMp3.toString('base64');
-        llmAudioFormat = 'mp3';
-        convertedToCompactMp3 = true;
-        convertedBytes = compactMp3.length;
+        llmAudioBuffer = compactMp3;
+        llmAudioMime = 'audio/mpeg';
+        llmAudioFilename = 'audio.mp3';
         console.log(
           `[Transcribe] 🎚️ Compact MP3: ${(compactMp3.length / 1024).toFixed(0)}KB ` +
           `(orig=${(buffer.length / 1024).toFixed(0)}KB)`,
@@ -152,8 +155,8 @@ export async function POST(request: Request) {
 
     transcriptionFormData.append(
       'file',
-      new Blob([buffer], { type: mimeType }),
-      file.name || 'audio.ogg',
+      new Blob([llmAudioBuffer], { type: llmAudioMime }),
+      llmAudioFilename,
     );
 
     transcriptionFormData.append('model', 'gpt-4o-mini-transcribe');

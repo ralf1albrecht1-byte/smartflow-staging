@@ -34,8 +34,6 @@ export async function POST() {
       );
     }
 
-    const stripe = getStripe();
-
     const subscription = await stripe.subscriptions.update(user.stripeSubscriptionId, {
       cancel_at_period_end: true,
     });

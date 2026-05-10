@@ -15,11 +15,6 @@ function getStripeClient() {
   });
 }
 
-  return new Stripe(process.env.STRIPE_SECRET_KEY, {
-    apiVersion: '2025-02-24.acacia',
-  });
-}
-
 export async function POST() {
   try {
     const userId = await requireUserId();
@@ -42,8 +37,6 @@ export async function POST() {
         { status: 404 },
       );
     }
-
-    const stripe = getStripe();
 
     const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
 

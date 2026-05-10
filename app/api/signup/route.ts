@@ -43,23 +43,6 @@ plz: rawPlz,
 ort: rawOrt,
 } = body || {};
 
-    const {
-      email: rawEmail,
-      password,
-      confirmPassword,
-      name,
-      acceptedAgb,
-      acceptedDatenschutz,
-      acceptedAvv,
-      acceptedTerms,
-      whatsappIntakeNumber: rawWhatsappIntakeNumber,
-      telefon: rawTelefon,
-      strasse: rawStrasse,
-      hausnummer: rawHausnummer,
-      plz: rawPlz,
-      ort: rawOrt,
-    } = body || {};
-
     const agbOk = Boolean(acceptedAgb || acceptedTerms);
     const datenschutzOk = Boolean(acceptedDatenschutz || acceptedTerms);
     const avvOk = Boolean(acceptedAvv);
@@ -336,7 +319,7 @@ ort: rawOrt,
     let checkoutUrl: string | null = null;
 
     try {
-      const stripe = getStripe();
+      const stripe = getStripeClient();
 
       if (stripe && process.env.STRIPE_PRICE_ID_MONTHLY) {
         const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';

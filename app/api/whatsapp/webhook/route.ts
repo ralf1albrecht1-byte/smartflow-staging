@@ -614,7 +614,7 @@ function escapeXml(str: string): string {
 // Transcribe audio using LLM
 async function transcribeAudio(mp3Buffer: Buffer): Promise<string | null> {
   try {
-    console.log(`[WhatsApp] 🎙️ Starting OpenAI transcription upload: bytes=${audioBuffer.length}`);
+    console.log(`[WhatsApp] 🎙️ Starting OpenAI transcription upload: bytes=${mp3Buffer.length}`);
   
     const openAiApiKey = process.env.OPENAI_API_KEY;
 
@@ -627,7 +627,7 @@ async function transcribeAudio(mp3Buffer: Buffer): Promise<string | null> {
 
     formData.append(
       'file',
-      new Blob([audioBuffer], { type: 'audio/ogg' }),
+      new Blob([mp3Buffer], { type: 'audio/ogg' }),
 'whatsapp-audio.ogg',
       
     );

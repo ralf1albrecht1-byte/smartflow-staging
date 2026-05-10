@@ -16,9 +16,17 @@ function getStripeClient() {
 }
 
 export async function POST() {
-try {
-const userId = await requireUserId();
-const stripe = getStripeClient();
+  try {
+    const userId = await requireUserId();
+    const stripe = getStripeClient();
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        stripeCustomerId: true,
+      },
+    });
 
     if (!user?.email) {
       return NextResponse.json(
@@ -31,8 +39,6 @@ const stripe = getStripeClient();
       process.env.NEXT_PUBLIC_APP_URL ||
       process.env.NEXTAUTH_URL ||
       'http://localhost:3000';
-
-    const stripe = getStripe();
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
