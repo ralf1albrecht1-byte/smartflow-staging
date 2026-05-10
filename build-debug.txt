@@ -1,0 +1,59 @@
+
+> build
+> prisma generate && next build
+
+Prisma schema loaded from prisma/schema.prisma
+Warning: You did not specify an output path for your `generator` in schema.prisma. This behavior is deprecated and will no longer be supported in Prisma 7.0.0. To learn more visit https://pris.ly/cli/output-path
+
+✔ Generated Prisma Client (v6.7.0) to ./node_modules/@prisma/client in 127ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
+
+  ▲ Next.js 14.2.35
+  - Experiments (use with caution):
+    · outputFileTracingRoot
+
+   Creating an optimized production build ...
+ ⚠ Compiled with warnings
+
+./node_modules/@ffmpeg-installer/ffmpeg/index.js
+Critical dependency: the request of a dependency is an expression
+
+Import trace for requested module:
+./node_modules/@ffmpeg-installer/ffmpeg/index.js
+./lib/audio-convert.ts
+./app/api/transcribe/route.ts
+
+./node_modules/fluent-ffmpeg/lib/options/misc.js
+Critical dependency: the request of a dependency is an expression
+
+Import trace for requested module:
+./node_modules/fluent-ffmpeg/lib/options/misc.js
+./node_modules/fluent-ffmpeg/lib/fluent-ffmpeg.js
+./node_modules/fluent-ffmpeg/index.js
+./lib/audio-convert.ts
+./app/api/transcribe/route.ts
+
+   Skipping linting
+   Checking validity of types ...
+   Collecting page data ...
+Error: Neither apiKey nor config.authenticator provided
+    at i._setAuthenticator (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:122762)
+    at new i (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:121571)
+    at 38843 (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:1365)
+    at t (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:143)
+    at r (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:6948)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:7006
+    at t.X (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:1285)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:6961
+    at Object.<anonymous> (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:7034)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+
+> Build error occurred
+Error: Failed to collect page data for /api/dashboard
+    at /home/ubuntu/github_repos/smartflow-staging/node_modules/next/dist/build/utils.js:1269:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  type: 'Error'
+}

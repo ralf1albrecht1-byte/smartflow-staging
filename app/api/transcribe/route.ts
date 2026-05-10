@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
+// S3 deleteFile removed — audio conversion is now local (no temp S3 uploads)
 
 export async function POST(request: Request) {
   try {
@@ -121,12 +122,29 @@ export async function POST(request: Request) {
 
     const openAiApiKey = process.env.OPENAI_API_KEY;
 
-    if (!openAiApiKey) {
-      console.error('[Transcribe] Missing OPENAI_API_KEY');
+    try {
+      const { convertAudioToCompactMp3 } = await import('@/lib/audio-convert');
 
-      return NextResponse.json(
-        { error: 'Transkription ist aktuell nicht konfiguriert' },
-        { status: 500 },
+      const compactMp3 = await convertAudioToCompactMp3(buffer);
+      if (compactMp3 && compactMp3.length > 0) {
+        llmAudioBase64 = compactMp3.toString('base64');
+        llmAudioFormat = 'mp3';
+        convertedToCompactMp3 = true;
+        convertedBytes = compactMp3.length;
+        console.log(
+          `[Transcribe] 🎚️ Compact MP3: ${(compactMp3.length / 1024).toFixed(0)}KB ` +
+          `(orig=${(buffer.length / 1024).toFixed(0)}KB)`,
+        );
+      } else {
+        console.warn(
+          `[Transcribe] ⚠️ Compact MP3 conversion failed — falling back to original ` +
+          `(${(buffer.length / 1024).toFixed(0)}KB, ${mimeType})`,
+        );
+      }
+    } catch (convErr: any) {
+      console.warn(
+        '[Transcribe] ⚠️ Conversion pipeline error, falling back to original:',
+        convErr?.message || convErr,
       );
     }
 

@@ -3,17 +3,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 
-export const dynamic = 'force-dynamic';
-
-function getStripe(): Stripe {
-  if (!process.env.STRIPE_SECRET_KEY) {
-    throw new Error('STRIPE_SECRET_KEY fehlt');
+function getStripeClient() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('STRIPE_SECRET_KEY not configured');
   }
-
-  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+  return new Stripe(secretKey, {
     apiVersion: '2025-02-24.acacia',
   });
 }
+
+export const dynamic = 'force-dynamic';
 
 function toDateOrNull(timestamp?: number | null): Date | null {
   if (typeof timestamp !== 'number') return null;
@@ -23,8 +23,9 @@ function toDateOrNull(timestamp?: number | null): Date | null {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.text();
-  const sig = req.headers.get('stripe-signature');
+const stripe = getStripeClient();
+const body = await req.text();
+const sig = req.headers.get('stripe-signature');
 
   if (!sig) {
     return new NextResponse('Missing stripe signature', { status: 400 });

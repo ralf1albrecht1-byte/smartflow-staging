@@ -5,12 +5,12 @@ import { requireUserId } from '@/lib/get-session';
 
 export const dynamic = 'force-dynamic';
 
-function getStripe(): Stripe {
-  if (!process.env.STRIPE_SECRET_KEY) {
-    throw new Error('STRIPE_SECRET_KEY fehlt');
+function getStripeClient() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('STRIPE_SECRET_KEY not configured');
   }
-
-  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+  return new Stripe(secretKey, {
     apiVersion: '2025-02-24.acacia',
   });
 }
@@ -18,6 +18,7 @@ function getStripe(): Stripe {
 export async function POST() {
   try {
     const userId = await requireUserId();
+    const stripe = getStripeClient();
 
     const user = await prisma.user.findUnique({
       where: { id: userId },

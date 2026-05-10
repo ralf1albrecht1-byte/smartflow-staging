@@ -12,19 +12,36 @@ import { getCurrentVersion, type LegalDocumentType } from '@/lib/legal-versions'
 import { normalizeEmail } from '@/lib/email-utils';
 import { sendEmail } from '@/lib/mail';
 
-function getStripe(): Stripe | null {
-  if (!process.env.STRIPE_SECRET_KEY) {
-    return null;
+function getStripeClient() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('STRIPE_SECRET_KEY not configured');
   }
-
-  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+  return new Stripe(secretKey, {
     apiVersion: '2025-02-24.acacia',
   });
 }
 
 export async function POST(request: Request) {
-  try {
-    const body = await request.json();
+const stripe = getStripeClient();
+try {
+const body = await request.json();
+const {
+email: rawEmail,
+password,
+confirmPassword,
+name,
+acceptedAgb,
+acceptedDatenschutz,
+acceptedAvv,
+acceptedTerms,
+whatsappIntakeNumber: rawWhatsappIntakeNumber,
+telefon: rawTelefon,
+strasse: rawStrasse,
+hausnummer: rawHausnummer,
+plz: rawPlz,
+ort: rawOrt,
+} = body || {};
 
     const {
       email: rawEmail,
