@@ -71,7 +71,31 @@ function formatTrialRemaining(currentPeriodEnd: string | null): string {
 
   return `${remainingText}. Endet am ${formattedEnd}`;
 }
+function formatTrialBadge(currentPeriodEnd: string | null): string {
+  if (!currentPeriodEnd) return 'Testphase aktiv';
 
+  const endDate = new Date(currentPeriodEnd);
+  const end = endDate.getTime();
+  const now = Date.now();
+
+  if (!Number.isFinite(end)) return 'Testphase aktiv';
+
+  const diffMs = end - now;
+
+  const dateOnly = endDate.toLocaleDateString('de-CH', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+
+  if (diffMs <= 0) {
+    return `Testphase beendet · bis ${dateOnly}`;
+  }
+
+  const days = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+  return `Testphase · noch ${days} ${days === 1 ? 'Tag' : 'Tage'} · bis ${dateOnly}`;
+}
 export function AudioUsageCard({
   data,
   loading,
@@ -238,17 +262,16 @@ export function AudioUsageCard({
 
 
   const periodEndLabel = formatDateTime(subscription?.currentPeriodEnd || null);
-
-  const subscriptionStatusLabel =
-    isCancelledAtPeriodEnd
-      ? `Kündigung geplant${periodEndLabel ? ` · aktiv bis ${periodEndLabel}` : ''}`
-      : isTrialing
-        ? formatTrialRemaining(subscription?.currentPeriodEnd || null)
-        : isActive
-          ? `Abo aktiv · Standard CHF 39 / Monat${periodEndLabel ? ` · bis ${periodEndLabel}` : ''}`
-          : needsPaymentAttention
-            ? 'Zahlung prüfen'
-            : 'Kein aktives Abo';
+const subscriptionStatusLabel =
+  isCancelledAtPeriodEnd
+    ? `Gekündigt · aktiv bis ${periodEndLabel || 'Periodenende'}`
+    : isTrialing
+     ? formatTrialBadge(subscription?.currentPeriodEnd || null)
+      : isActive
+        ? 'Abo aktiv · Standard CHF 39'
+        : needsPaymentAttention
+          ? 'Zahlung prüfen'
+          : 'Kein aktives Abo';
 
   return (
     <Card className={cardBorderClass}>
