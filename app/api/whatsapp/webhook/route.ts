@@ -339,34 +339,38 @@ export async function POST(request: Request) {
               });
 
 
-      let audioBufferForTranscription: Buffer | null = preconvertedMp3Buffer;
 
-if (!audioBufferForTranscription) {
-  if (
-    mediaContentType.includes('ogg') ||
-    mediaContentType.includes('opus') ||
-    mediaContentType.includes('mp3') ||
-    mediaContentType.includes('mpeg') ||
-    mediaContentType.includes('wav') ||
-    mediaContentType.includes('m4a') ||
-    mediaContentType.includes('mp4')
-  ) {
-    audioBufferForTranscription = buffer;
-  } else {
-    const signedUrl = await getFileUrl(audioSavedPath, false);
-    audioBufferForTranscription = await convertToMp3ViaFfmpeg(signedUrl);
-  }
-}
+              let audioBufferForTranscription: Buffer | null = preconvertedMp3Buffer;
 
-if (audioBufferForTranscription) {
-  const transcription = await transcribeAudio(audioBufferForTranscription);
+              if (!audioBufferForTranscription) {
+                if (
+                  mediaContentType.includes('ogg') ||
+                  mediaContentType.includes('opus') ||
+                  mediaContentType.includes('mp3') ||
+                  mediaContentType.includes('mpeg') ||
+                  mediaContentType.includes('wav') ||
+                  mediaContentType.includes('m4a') ||
+                  mediaContentType.includes('mp4')
+                ) {
+                  audioBufferForTranscription = buffer;
+                } else {
+                  const signedUrl = await getFileUrl(audioSavedPath, false);
+                  audioBufferForTranscription = await convertToMp3ViaFfmpeg(signedUrl);
+                }
+              }
 
-  if (transcription) {
-    audioTranscriptText = `[Transkription]: ${transcription}`;
-  }
-} else {
-  console.warn('[WhatsApp] ⚠️ No audio buffer available for transcription after fallback handling.');
-}
+              if (audioBufferForTranscription) {
+                const transcription = await transcribeAudio(audioBufferForTranscription);
+
+                if (transcription) {
+                  audioTranscriptText = `[Transkription]: ${transcription}`;
+                }
+              } else {
+                console.warn('[WhatsApp] ⚠️ No audio buffer available for transcription after fallback handling.');
+              }
+
+
+
             }
           }
         } else if (mediaContentType.startsWith('image/')) {
