@@ -237,6 +237,33 @@ async function processWhatsAppMediaAsync(params: {
 
     const audioTranscriptionStatus: 'transcribed' | 'failed' = audioTranscriptText ? 'transcribed' : 'failed';
 
+    // ─── Transcription failed → create review order as fallback ───
+    if (audioTranscriptionStatus === 'failed') {
+      console.warn(`[AUDIO] Transcription failed for ${maskPhoneForLog(phoneNumber)} — creating review order fallback`);
+
+      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
+      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
+
+      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
+      const result = await createVoiceTooLongReviewOrder({
+        source: 'WhatsApp',
+        senderName: profileName,
+        phoneNumber,
+        audioPath: audioSavedPath,
+        durationSec,
+        userId: resolvedUserId,
+        imagePreviewPaths,
+        imageThumbnailPaths,
+        reason: 'transcription_failed',
+      });
+      if (result) {
+        console.log(`[WhatsApp] ✅ Transcription-failed review order created: ${result.orderId}`);
+      } else {
+        console.warn(`[WhatsApp] ⚠️ Transcription-failed review order returned null for ${maskPhoneForLog(phoneNumber)}`);
+      }
+      return;
+    }
+
     // Build final text
     let finalText = messageText;
     if (audioTranscriptText) finalText = finalText ? `${finalText}\n\n${audioTranscriptText}` : audioTranscriptText;
@@ -625,11 +652,12 @@ async function transcribeAudio(mp3Buffer: Buffer): Promise<string | null> {
 
     const formData = new FormData();
 
+    // IMPORTANT: The buffer is a compressed MP3 from convertAudioToCompactMp3.
+    // MIME type and filename MUST match the actual format — OpenAI rejects mismatches.
     formData.append(
       'file',
-      new Blob([mp3Buffer], { type: 'audio/ogg' }),
-'whatsapp-audio.ogg',
-      
+      new Blob([mp3Buffer], { type: 'audio/mpeg' }),
+      'whatsapp-audio.mp3',
     );
 
     formData.append('model', 'gpt-4o-mini-transcribe');

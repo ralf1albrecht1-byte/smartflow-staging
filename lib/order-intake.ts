@@ -1197,8 +1197,11 @@ export interface VoiceTooLongInput {
    *    would be exceeded by transcribing this audio. Audio is saved + linked, but
    *    NOT transcribed — manual review required. Warning:
    *    "⚠️ Monatliches Audio-Limit erreicht – bitte manuell prüfen".
+   *  - `'transcription_failed'`: OpenAI transcription returned an error (400, timeout,
+   *    corrupted file, etc.). Audio is saved + linked, but no transcript available.
+   *    Warning: "⚠️ Transkription fehlgeschlagen – bitte manuell prüfen".
    */
-  reason?: 'too_long' | 'uncheckable' | 'quota_exceeded';
+  reason?: 'too_long' | 'uncheckable' | 'quota_exceeded' | 'transcription_failed';
   /**
    * Optional usage snapshot for the audit log when reason='quota_exceeded'.
    * Omitted in other paths.
@@ -1233,7 +1236,7 @@ export async function createVoiceTooLongReviewOrder(
     imagePreviewPaths,
     imageThumbnailPaths,
   } = input;
-  const reason: 'too_long' | 'uncheckable' | 'quota_exceeded' = input.reason ?? 'too_long';
+  const reason: 'too_long' | 'uncheckable' | 'quota_exceeded' | 'transcription_failed' = input.reason ?? 'too_long';
   const quotaUsedMinutes = input.quotaUsedMinutes;
   const quotaIncludedMinutes = input.quotaIncludedMinutes;
 
@@ -1256,36 +1259,44 @@ export async function createVoiceTooLongReviewOrder(
 
   // Exact required German warning text — DO NOT change wording.
   const WARNING_DESCRIPTION =
-    reason === 'quota_exceeded'
-      ? '⚠️ Monatliches Audio-Limit erreicht – bitte manuell prüfen'
-      : reason === 'uncheckable'
-        ? '⚠️ Sprachnachricht konnte zeitlich nicht geprüft werden – bitte manuell prüfen'
-        : '⚠️ Sprachnachricht länger als 60 Sekunden – bitte manuell prüfen';
+    reason === 'transcription_failed'
+      ? '⚠️ Transkription fehlgeschlagen – bitte manuell prüfen'
+      : reason === 'quota_exceeded'
+        ? '⚠️ Monatliches Audio-Limit erreicht – bitte manuell prüfen'
+        : reason === 'uncheckable'
+          ? '⚠️ Sprachnachricht konnte zeitlich nicht geprüft werden – bitte manuell prüfen'
+          : '⚠️ Sprachnachricht länger als 60 Sekunden – bitte manuell prüfen';
 
   // Lifecycle marker written to Order.audioTranscriptionStatus so usage and
   // CommunicationBlock chips can distinguish the cost-protection paths.
-  const STATUS_VALUE: 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' =
-    reason === 'quota_exceeded'
-      ? 'skipped_quota_exceeded'
-      : reason === 'uncheckable'
-        ? 'skipped_uncheckable'
-        : 'skipped_too_long';
+  const STATUS_VALUE: 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' | 'failed' =
+    reason === 'transcription_failed'
+      ? 'failed'
+      : reason === 'quota_exceeded'
+        ? 'skipped_quota_exceeded'
+        : reason === 'uncheckable'
+          ? 'skipped_uncheckable'
+          : 'skipped_too_long';
 
   // Tag in Order.reviewReasons array so dashboard filters can pick this up.
-  const REVIEW_REASON_TAG: 'voice_too_long' | 'voice_uncheckable' | 'voice_quota_exceeded' =
-    reason === 'quota_exceeded'
-      ? 'voice_quota_exceeded'
-      : reason === 'uncheckable'
-        ? 'voice_uncheckable'
-        : 'voice_too_long';
+  const REVIEW_REASON_TAG: 'voice_too_long' | 'voice_uncheckable' | 'voice_quota_exceeded' | 'voice_transcription_failed' =
+    reason === 'transcription_failed'
+      ? 'voice_transcription_failed'
+      : reason === 'quota_exceeded'
+        ? 'voice_quota_exceeded'
+        : reason === 'uncheckable'
+          ? 'voice_uncheckable'
+          : 'voice_too_long';
 
   // Audit suffix mirrors the existing `voice_too_long` events for traceability.
   const AUDIT_SUFFIX =
-    reason === 'quota_exceeded'
-      ? 'VOICE_QUOTA_EXCEEDED'
-      : reason === 'uncheckable'
-        ? 'VOICE_UNCHECKABLE'
-        : 'VOICE_TOO_LONG';
+    reason === 'transcription_failed'
+      ? 'VOICE_TRANSCRIPTION_FAILED'
+      : reason === 'quota_exceeded'
+        ? 'VOICE_QUOTA_EXCEEDED'
+        : reason === 'uncheckable'
+          ? 'VOICE_UNCHECKABLE'
+          : 'VOICE_TOO_LONG';
 
   try {
     // Upsert per-user fallback customer (same pattern as createFallbackOrderFromRawPayload)

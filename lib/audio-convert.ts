@@ -56,7 +56,7 @@ export async function probeAudioDuration(buffer: Buffer): Promise<number | null>
 }
 
 /**
- * Convert audio buffer to compact MP3 (mono, 16kHz, 32kbps)
+ * Convert audio buffer to compact MP3 (mono, 16kHz, 64kbps, libmp3lame)
  * Returns compressed buffer, or null if failed
  */
 export async function convertAudioToCompactMp3(buffer: Buffer): Promise<Buffer | null> {
@@ -75,14 +75,15 @@ export async function convertAudioToCompactMp3(buffer: Buffer): Promise<Buffer |
     
     const inputSizeKB = Math.round(buffer.length / 1024);
     
-    // Call system ffmpeg
+    // Call system ffmpeg — explicit libmp3lame codec for OpenAI compatibility
     await execFileAsync('ffmpeg', [
       '-i', inputPath,
-      '-ac', '1',           // mono
-      '-ar', '16000',       // 16kHz sample rate
-      '-ab', '32k',         // 32kbps bitrate
+      '-codec:a', 'libmp3lame', // explicit MP3 codec (OpenAI requirement)
+      '-ac', '1',               // mono
+      '-ar', '16000',           // 16kHz sample rate
+      '-ab', '64k',             // 64kbps bitrate (OpenAI-safe minimum)
       '-f', 'mp3',
-      '-y',                 // overwrite
+      '-y',                     // overwrite
       outputPath
     ], { timeout: 10000 });
     
