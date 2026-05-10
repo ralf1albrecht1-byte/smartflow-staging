@@ -235,7 +235,20 @@ export function AudioUsageCard({
       ? 'border-amber-200 dark:border-amber-800/60 bg-amber-50/40 dark:bg-amber-900/10'
       : 'border-border';
 
+
+
   const periodEndLabel = formatDateTime(subscription?.currentPeriodEnd || null);
+
+  const subscriptionStatusLabel = isCancelledAtPeriodEnd
+    ? `Kündigung geplant${periodEndLabel ? ` · aktiv bis ${periodEndLabel}` : ''}`
+    : isTrialing
+      ? formatTrialRemaining(subscription?.currentPeriodEnd || null)
+      : isActive
+        ? `Abo aktiv · Standard CHF 39 / Monat${periodEndLabel ? ` · bis ${periodEndLabel}` : ''}`
+        : needsPaymentAttention
+          ? 'Zahlung prüfen'
+          : 'Kein aktives Abo';
+
 
   return (
     <Card className={cardBorderClass}>
@@ -246,7 +259,12 @@ export function AudioUsageCard({
               <Mic className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold truncate">Audio-Minuten diesen Monat</p>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <p className="text-sm font-semibold">Audio-Minuten diesen Monat</p>
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  {subscriptionStatusLabel}
+                </span>
+              </div>
               <p className="text-[11px] text-muted-foreground truncate">
                 Standard · CHF 39 / Monat · 20 Min inklusive
               </p>
@@ -254,65 +272,29 @@ export function AudioUsageCard({
           </div>
 
 
-{isCancelledAtPeriodEnd ? (
-  <div className="flex items-center gap-2 flex-wrap justify-end">
-    <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-      Kündigung geplant
-    </span>
-
-    <Button size="sm" variant="outline" onClick={handleReactivateSubscription} disabled={busy}>
-      {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
-    </Button>
-  </div>
-) : isTrialing ? (
-  <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-    Testphase aktiv
-  </span>
-) : isActive ? (
-  <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-    Abo aktiv
-  </span>
-) : needsPaymentAttention ? (
-  <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
-    {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
-  </Button>
-) : (
-  <Button size="sm" onClick={handleCheckout} disabled={busy}>
-    {busy ? 'Öffne Stripe…' : 'Abo starten'}
-  </Button>
-)}
-        </div>
-
-        {isTrialing && !isCancelledAtPeriodEnd && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-1">
-            <p className="text-sm font-semibold text-blue-900">Testphase aktiv</p>
-            <p className="text-xs text-blue-800">
-              {formatTrialRemaining(subscription?.currentPeriodEnd || null)}
-            </p>
-
-          </div>
-        )}
-
         {isCancelledAtPeriodEnd && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1">
-            <p className="text-sm font-semibold text-amber-900">Kündigung geplant</p>
-            <p className="text-xs text-amber-800">
-              Dein Abo läuft noch bis {periodEndLabel || 'zum Ende der aktuellen Laufzeit'}.
-            </p>
-            <p className="text-xs text-amber-800">
-              Danach endet dein Zugriff automatisch. Du kannst das Abo vorher jederzeit fortsetzen.
-            </p>
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" onClick={handleReactivateSubscription} disabled={busy}>
+              {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
+            </Button>
           </div>
         )}
 
-       {isActive && !isCancelledAtPeriodEnd && (
-  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
-    <p className="text-xs text-emerald-800">
-      Abo aktiv · Standard CHF 39 / Monat
-      {periodEndLabel ? ` · Periode bis ${periodEndLabel}` : ''}
-    </p>
-  </div>
-)}
+        {needsPaymentAttention && (
+          <div className="flex justify-end">
+            <Button size="sm" variant="destructive" onClick={handleCheckout} disabled={busy}>
+              {busy ? 'Öffne Stripe…' : 'Zahlung prüfen'}
+            </Button>
+          </div>
+        )}
+
+        {!isTrialing && !isActive && !isCancelledAtPeriodEnd && !needsPaymentAttention && (
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleCheckout} disabled={busy}>
+              {busy ? 'Öffne Stripe…' : 'Abo starten'}
+            </Button>
+          </div>
+        )}
 
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
           <div className="font-mono">
