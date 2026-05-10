@@ -5,20 +5,20 @@ import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 import { requireUserId } from '@/lib/get-session';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-02-24.acacia',
-});
+function getStripeClient() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('STRIPE_SECRET_KEY not configured');
+  }
+  return new Stripe(secretKey, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
-
-    if (!process.env.STRIPE_SECRET_KEY) {
-      return NextResponse.json(
-        { error: 'Stripe ist nicht konfiguriert.' },
-        { status: 500 }
-      );
-    }
+    const stripe = getStripeClient();
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
