@@ -338,24 +338,32 @@ export async function POST(request: Request) {
                 },
               });
 
-              let mp3Buffer: Buffer | null = preconvertedMp3Buffer;
-              if (!mp3Buffer) {
-                if (mediaContentType.includes('ogg') || mediaContentType.includes('opus')) {
-                  const signedUrl = await getFileUrl(audioSavedPath, false);
-                  mp3Buffer = await convertToMp3ViaFfmpeg(signedUrl);
-                } else if (mediaContentType.includes('mp3') || mediaContentType.includes('wav')) {
-                  mp3Buffer = buffer;
+              let audioBufferForTranscription: Buffer | null = preconvertedMp3Buffer;
+
+              if (!audioBufferForTranscription) {
+                if (
+                  mediaContentType.includes('ogg') ||
+                  mediaContentType.includes('opus') ||
+                  mediaContentType.includes('mp3') ||
+                  mediaContentType.includes('mpeg') ||
+                  mediaContentType.includes('wav') ||
+                  mediaContentType.includes('m4a') ||
+                  mediaContentType.includes('mp4')
+                ) {
+                  audioBufferForTranscription = buffer;
                 } else {
                   const signedUrl = await getFileUrl(audioSavedPath, false);
-                  mp3Buffer = await convertToMp3ViaFfmpeg(signedUrl);
+                  audioBufferForTranscription = await convertToMp3ViaFfmpeg(signedUrl);
                 }
               }
 
-              if (mp3Buffer) {
-                const transcription = await transcribeAudio(mp3Buffer);
+                     if (audioBufferForTranscription) {
+                const transcription = await transcribeAudio(audioBufferForTranscription);
                 if (transcription) {
                   audioTranscriptText = `[Transkription]: ${transcription}`;
                 }
+              } else {
+                console.warn('[WhatsApp] ⚠️ No audio buffer available for transcription after fallback handling.');
               }
             }
           }
