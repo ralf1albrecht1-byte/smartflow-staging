@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 
-export const dynamic = 'force-dynamic';
+function getStripeClient() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('STRIPE_SECRET_KEY not configured');
+  }
+  return new Stripe(secretKey, {
+    apiVersion: '2025-02-24.acacia',
+  });
+}
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-apiVersion: '2025-02-24.acacia',
-});
+export const dynamic = 'force-dynamic';
 
 function toDateOrNull(timestamp?: number | null): Date | null {
 if (typeof timestamp !== 'number') return null;
@@ -16,6 +22,7 @@ return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export async function POST(req: NextRequest) {
+const stripe = getStripeClient();
 const body = await req.text();
 const sig = req.headers.get('stripe-signature');
 
