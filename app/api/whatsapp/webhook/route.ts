@@ -749,7 +749,7 @@ async function transcribeAudio(audioBuffer: Buffer): Promise<string | null> {
       'file',
       new Blob([audioBuffer], { type: 'audio/ogg' }),
 'whatsapp-audio.ogg',
-      'whatsapp-audio.mp3',
+      
     );
 
     formData.append('model', 'gpt-4o-mini-transcribe');
