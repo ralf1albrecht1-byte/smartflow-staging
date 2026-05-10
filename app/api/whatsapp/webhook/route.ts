@@ -767,13 +767,23 @@ async function transcribeAudio(audioBuffer: Buffer): Promise<string | null> {
       body: formData,
     });
 
-    if (!response.ok) {
-      console.error('[WhatsApp] OpenAI transcription error:', await response.text());
+      if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[WhatsApp] OpenAI transcription error:', response.status, errorText);
       return null;
     }
 
     const result = await response.json();
-    return typeof result?.text === 'string' ? result.text.trim() : null;
+    const text = typeof result?.text === 'string' ? result.text.trim() : '';
+
+    if (!text) {
+      console.warn('[WhatsApp] OpenAI transcription returned empty text:', JSON.stringify(result));
+      return null;
+    }
+
+    console.log(`[WhatsApp] ✅ OpenAI transcription success: ${text.length} chars`);
+
+    return text;
   } catch (err) {
     console.error('[WhatsApp] Transcription error:', err);
     return null;
