@@ -239,16 +239,16 @@ export function AudioUsageCard({
 
   const periodEndLabel = formatDateTime(subscription?.currentPeriodEnd || null);
 
-  const subscriptionStatusLabel = isCancelledAtPeriodEnd
-    ? `Kündigung geplant${periodEndLabel ? ` · aktiv bis ${periodEndLabel}` : ''}`
-    : isTrialing
-      ? formatTrialRemaining(subscription?.currentPeriodEnd || null)
-      : isActive
-        ? `Abo aktiv · Standard CHF 39 / Monat${periodEndLabel ? ` · bis ${periodEndLabel}` : ''}`
-        : needsPaymentAttention
-          ? 'Zahlung prüfen'
-          : 'Kein aktives Abo';
-
+  const subscriptionStatusLabel =
+    isCancelledAtPeriodEnd
+      ? `Kündigung geplant${periodEndLabel ? ` · aktiv bis ${periodEndLabel}` : ''}`
+      : isTrialing
+        ? formatTrialRemaining(subscription?.currentPeriodEnd || null)
+        : isActive
+          ? `Abo aktiv · Standard CHF 39 / Monat${periodEndLabel ? ` · bis ${periodEndLabel}` : ''}`
+          : needsPaymentAttention
+            ? 'Zahlung prüfen'
+            : 'Kein aktives Abo';
 
   return (
     <Card className={cardBorderClass}>
@@ -271,13 +271,13 @@ export function AudioUsageCard({
             </div>
           </div>
 
-
+        </div>
         {isCancelledAtPeriodEnd && (
           <div className="flex justify-end">
             <Button size="sm" variant="outline" onClick={handleReactivateSubscription} disabled={busy}>
               {busy ? 'Bitte warten…' : 'Abo fortsetzen'}
-            </Button>
-          </div>
+            </Button>           
+         </div>
         )}
 
         {needsPaymentAttention && (
