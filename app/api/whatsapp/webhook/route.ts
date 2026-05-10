@@ -285,6 +285,25 @@ export async function POST(request: Request) {
               voiceDurationKnown = true;
               preconvertedMp3Buffer = buffer;
               console.warn(`[WhatsApp] ⏱️ Decision: TRANSCRIBE (duration unknown but small file: ${buffer.length} bytes). Counting as 60s for quota safety.`);
+              const { checkAudioTranscriptionQuota } = await import('@/lib/audio-quota');
+              const quota = await checkAudioTranscriptionQuota(resolvedUserId, 60);
+
+              if (!quota.allowTranscription) {
+                voiceQuotaExceeded = true;
+                voiceQuotaUsedMinutes = quota.usedMinutes;
+                voiceQuotaIncludedMinutes = quota.includedMinutes;
+                preconvertedMp3Buffer = null;
+                console.warn(`[WhatsApp] 🛑 Decision: REVIEW (QUOTA EXCEEDED — used=${quota.usedMinutes}/${quota.includedMinutes}min, reason=${quota.reason}, duration=60s). No transcription, no LLM. Review order will be created.`);
+              } else {
+                const transcription = await transcribeAudio(buffer);
+
+                if (transcription) {
+                  audioTranscriptText = `[Transkription]: ${transcription}`;
+                } else {
+                  console.warn('[WhatsApp] ⚠️ OpenAI transcription returned no usable text for unknown-duration small audio.');
+                }
+              }
+
             }
           } else {
             // Within cap and duration known: check monthly quota BEFORE transcribing.
