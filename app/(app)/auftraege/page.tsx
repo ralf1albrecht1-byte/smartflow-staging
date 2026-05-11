@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { ClipboardList, Plus, Trash2, Search, Loader2, AlertTriangle, FileText, FileCheck, Volume2, ImageIcon, X, Mail, MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ClipboardList, Plus, Trash2, Search, Loader2, AlertTriangle, FileText, FileCheck, Volume2, ImageIcon, X, Mail, MoreVertical, ChevronLeft, ChevronRight, Mic } from 'lucide-react';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
 import { CommunicationBlock, CommunicationChips } from '@/components/communication-block';
 import { ServiceCombobox, ServiceOption } from '@/components/service-combobox';
@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { DuplicateCheckPanel, type DuplicateMatch } from '@/components/customer-duplicate-check';
@@ -100,6 +100,23 @@ export default function AuftraegePage() {
   const [statusFilter, setStatusFilter] = useState('Alle');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name' | 'amount' | 'review'>('newest');
+  // ─── Merge Assistant (guided 3-step flow) ───
+  // Step 0 = inactive, Step 1 = selecting orders, Step 2 = main order + customer + preview, Step 3 = final review
+  const [mergeStep, setMergeStep] = useState<0 | 1 | 2 | 3>(0);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [selectedMainOrderId, setSelectedMainOrderId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [textPreviewOpen, setTextPreviewOpen] = useState<Record<string, boolean>>({});
+  const [confirmChecks, setConfirmChecks] = useState({
+    contentBelongsTogether: false,
+    trashUnderstood: false,
+  });
+  const [merging, setMerging] = useState(false);
+  // Resolved image preview URLs (up to 3 per selected order)
+  const [mergePreviewUrls, setMergePreviewUrls] = useState<Record<string, string[]>>({});
+  // Resolved audio URLs for inline playback in merge Step 2
+  const [mergeAudioUrls, setMergeAudioUrls] = useState<Record<string, string>>({});
+  const isMergeMode = mergeStep === 1;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -829,6 +846,170 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
   const remove = async (id: string) => {
     setArchiveId(id);
   };
+
+  const handleToggleSelect = (orderId: string) => {
+    setSelectedOrderIds((prev) => {
+      if (prev.includes(orderId)) return prev.filter((id) => id !== orderId);
+      if (prev.length >= 5) { toast.error('Maximal 5 Aufträge auswählbar'); return prev; }
+      return [...prev, orderId];
+    });
+  };
+
+  // Reset all merge state
+  const resetMerge = () => {
+    setMergeStep(0);
+    setSelectedOrderIds([]);
+    setSelectedMainOrderId(null);
+    setSelectedCustomerId(null);
+    setTextPreviewOpen({});
+    setMerging(false);
+    setConfirmChecks({ contentBelongsTogether: false, trashUnderstood: false });
+    setMergePreviewUrls({});
+  };
+
+  const handleDialogClose = (open: boolean) => {
+    if (!open && !merging) {
+      resetMerge();
+    }
+  };
+
+  const toggleTextPreview = (orderId: string) => {
+    setTextPreviewOpen((prev) => ({ ...prev, [orderId]: !prev[orderId] }));
+  };
+
+  // Remove order from selection in Step 2
+  const handleRemoveFromSelection = (orderId: string) => {
+    const newSelection = selectedOrderIds.filter((id) => id !== orderId);
+
+    if (newSelection.length < 2) {
+      toast.error('Mindestens 2 Aufträge erforderlich');
+      return;
+    }
+
+    setSelectedOrderIds(newSelection);
+
+    // If removed order was the main order, clear main selection
+    if (selectedMainOrderId === orderId) {
+      setSelectedMainOrderId(null);
+    }
+
+    // If removed order was the selected customer, reset customer
+    const removedOrder = orders.find((o) => o.id === orderId);
+    if (removedOrder && selectedCustomerId === removedOrder.customerId) {
+      setSelectedCustomerId(null);
+    }
+
+    toast.success('Auftrag aus Auswahl entfernt');
+  };
+
+  // Count audio orders in selection
+  const audioOrdersCount = useMemo(() => {
+    const selectedOrders = orders.filter((o) => selectedOrderIds.includes(o.id));
+    return selectedOrders.filter((o) => o.mediaUrl && o.mediaType === 'audio').length;
+  }, [selectedOrderIds, orders]);
+
+  // Step 1 → Step 2: user clicks "Weiter" after selecting 2-5 orders
+  const mergeGoToStep2 = async () => {
+    if (selectedOrderIds.length < 2) { toast.error('Mindestens 2 Aufträge auswählen'); return; }
+    const selected = orders.filter((o) => selectedOrderIds.includes(o.id));
+    const urlMap: Record<string, string[]> = {};
+    await Promise.all(
+      selected.map(async (o) => {
+        const previewPaths = o.imageUrls?.slice(0, 3) || [];
+        if (!previewPaths.length) {
+          urlMap[o.id] = [];
+          return;
+        }
+        try {
+          const resolved = await Promise.all(previewPaths.map((imgPath) => resolveS3Url(imgPath)));
+          urlMap[o.id] = resolved;
+        } catch {
+          urlMap[o.id] = [];
+        }
+      })
+    );
+    setMergePreviewUrls(urlMap);
+    // Resolve audio URLs for inline playback
+    const audioMap: Record<string, string> = {};
+    await Promise.all(
+      selected.filter((o) => o.mediaUrl && o.mediaType === 'audio').map(async (o) => {
+        try {
+          audioMap[o.id] = await resolveS3Url(o.mediaUrl!);
+        } catch { /* ignore */ }
+      })
+    );
+    setMergeAudioUrls(audioMap);
+    const defaultMainOrderId = selectedMainOrderId && selectedOrderIds.includes(selectedMainOrderId)
+      ? selectedMainOrderId
+      : selectedOrderIds[0];
+    setSelectedMainOrderId(defaultMainOrderId || null);
+    const defaultMainOrder = orders.find((o) => o.id === (defaultMainOrderId || selectedOrderIds[0]));
+    setSelectedCustomerId((prev) => prev || defaultMainOrder?.customerId || null);
+    setMergeStep(2);
+  };
+
+  // Step 2 → Step 3
+  const mergeGoToStep3 = () => {
+    if (!selectedMainOrderId) return;
+    if (!selectedCustomerId) {
+      const mainOrder = orders.find((o) => o.id === selectedMainOrderId);
+      setSelectedCustomerId(mainOrder?.customerId || null);
+    }
+    setConfirmChecks({ contentBelongsTogether: false, trashUnderstood: false });
+    setMergeStep(3);
+  };
+
+  // Step 3: Execute merge
+  const executeMerge = async () => {
+    if (merging) return; // GUARD
+    if (!selectedMainOrderId) return;
+
+    setMerging(true);
+
+    try {
+      const response = await fetch('/api/orders/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetOrderId: selectedMainOrderId,
+          sourceOrderIds: selectedOrderIds.filter((id) => id !== selectedMainOrderId),
+          finalCustomerId: selectedCustomerId || undefined,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        toast.error(`Fehler: ${result.error || 'Fehler beim Verbinden'}`);
+        return;
+      }
+
+      toast.success(`${result.mergedCount} Auftrag/Aufträge wurden verbunden`);
+      resetMerge();
+      await load();
+      router.refresh();
+    } catch (error) {
+      console.error('[MERGE] Error:', error);
+      toast.error('Fehler beim Verbinden');
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  // Helper: get selected orders objects
+  const getSelectedOrders = () => orders.filter((o) => selectedOrderIds.includes(o.id));
+  // Helper: unique customers from selected orders
+  const getUniqueCustomersFromSelected = () => {
+    const selected = getSelectedOrders();
+    const custMap = new Map<string, { id: string; name: string; customerNumber?: string | null }>();
+    selected.forEach((o) => {
+      if (o.customer && o.customerId) {
+        custMap.set(o.customerId, { id: o.customerId, name: o.customer.name, customerNumber: o.customer.customerNumber });
+      }
+    });
+    return Array.from(custMap.values());
+  };
+
   const confirmArchive = async () => {
     if (!archiveId) return;
     await fetch(`/api/orders/${archiveId}`, { method: 'DELETE' });
@@ -929,6 +1110,13 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
     return o.serviceName ?? '';
   };
 
+  const formatMergeDate = (date?: string) => {
+    if (!date) return '–';
+    const dt = new Date(date);
+    if (Number.isNaN(dt.getTime())) return '–';
+    return dt.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (loadError) return <LoadErrorFallback details={loadError} onRetry={load} />;
 
@@ -939,7 +1127,34 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2"><ClipboardList className="w-7 h-7 text-primary" /> Aufträge</h1>
           <p className="text-muted-foreground mt-1">{unlinked?.length ?? 0} Aufträge</p>
         </div>
-        <Button onClick={openNew}><Plus className="w-4 h-4 mr-1" />Neuer Auftrag</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={isMergeMode ? 'secondary' : 'outline'}
+            onClick={() => {
+              if (isMergeMode) {
+                resetMerge();
+              } else {
+                setMergeStep(1);
+                setSelectedOrderIds([]);
+                setSelectedMainOrderId(null);
+                setSelectedCustomerId(null);
+                setTextPreviewOpen({});
+                setConfirmChecks({ contentBelongsTogether: false, trashUnderstood: false });
+              }
+            }}
+          >
+            {isMergeMode ? 'Verbinden abbrechen' : 'Aufträge verbinden'}
+          </Button>
+          {isMergeMode && selectedOrderIds.length >= 2 && (
+            <Button onClick={mergeGoToStep2}>
+              Weiter ({selectedOrderIds.length} ausgewählt)
+            </Button>
+          )}
+          {isMergeMode && selectedOrderIds.length === 1 && (
+            <span className="text-xs text-muted-foreground self-center">Noch mind. 1 weiteren auswählen</span>
+          )}
+          <Button onClick={openNew}><Plus className="w-4 h-4 mr-1" />Neuer Auftrag</Button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
@@ -965,11 +1180,32 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
             const isSonstiges = (o.serviceName ?? '').toLowerCase() === 'sonstiges' || (o.items && o.items.some(it => (it.serviceName ?? '').toLowerCase() === 'sonstiges'));
             const serviceLine = o.items && o.items.length > 1 ? o.items.map(it => it.serviceName).join(' + ') : (o.serviceName ?? o.description ?? '');
             const descPreview = o.description && o.description !== serviceLine ? o.description : '';
+            const isSelected = selectedOrderIds.includes(o.id);
             return (
             <motion.div key={o.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.015 }}>
-              <Card className="hover:shadow-sm transition-shadow cursor-pointer tap-safe" onClick={() => openEdit(o)}>
+              <Card
+                className={`hover:shadow-sm transition-shadow cursor-pointer tap-safe ${isMergeMode && isSelected ? 'ring-2 ring-primary/40' : ''}`}
+                onClick={() => {
+                  if (isMergeMode) {
+                    handleToggleSelect(o.id);
+                    return;
+                  }
+                  openEdit(o);
+                }}
+              >
                 <CardContent className="px-3 py-2">
                   <div className="flex items-start gap-2">
+                    {isMergeMode && (
+                      <div className="shrink-0 pt-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelect(o.id)}
+                          className="h-4 w-4 rounded border-gray-300"
+                          aria-label="Auftrag für Zusammenführung auswählen"
+                        />
+                      </div>
+                    )}
                     {/* Left: 3-dot menu */}
                     <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -1023,6 +1259,18 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                             ⚠️ Audio zu lang – manuell prüfen
                           </span>
                         )}
+                        {/* Image-only badge: order created from image without text */}
+                        {o.reviewReasons?.includes('image_only_no_text') && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                            ⚠️ Bild ohne Text prüfen
+                          </span>
+                        )}
+                        {/* Merge badge: order was manually merged */}
+                        {o.reviewReasons?.includes('manual_order_merge') && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 shrink-0">
+                            Manuell verbunden
+                          </span>
+                        )}
                       </div>
                       {/* Row 2: title + description preview */}
                       <p className={`text-sm font-medium mt-0.5 line-clamp-2 ${isSonstiges ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}>
@@ -1055,10 +1303,284 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
           Hidden on md+ (desktop has the sidebar). */}
       <MobileListShortcut href="/angebote" label="Angebote" ariaLabel="Zu Angebote" />
 
+      {/* ─── Merge Assistant Dialog (single persistent Dialog for steps 2–3) ─── */}
+      <Dialog open={mergeStep > 1} onOpenChange={handleDialogClose}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          {mergeStep === 2 && (() => {
+            const selectedOrders = getSelectedOrders();
+            const uniqueCustomers = getUniqueCustomersFromSelected();
+            const hasCustomerMismatch = uniqueCustomers.length > 1;
+            const mainOrder = selectedOrders.find((o) => o.id === selectedMainOrderId) || selectedOrders[0] || null;
+            const effectiveCustomerId = selectedCustomerId || mainOrder?.customerId || uniqueCustomers[0]?.id || '';
+
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Schritt 2: Hauptauftrag + Kunde festlegen</DialogTitle>
+                </DialogHeader>
+
+                <p className="text-sm text-muted-foreground">
+                  Wähle den Hauptauftrag. Bilder, Textvorschau und Audio-Hinweise helfen dir beim Abgleich.
+                </p>
+
+                <div className="space-y-3 mt-3">
+                  {selectedOrders.map((o) => {
+                    const cust = customers.find((c) => c.id === o.customerId);
+                    const imageCount = o.imageUrls?.length || 0;
+                    const previewUrls = mergePreviewUrls[o.id] || [];
+                    const hasTextContent = Boolean(o.notes || o.description || o.audioTranscript);
+                    const hasAudio = Boolean(o.audioTranscript || o.mediaType === 'audio');
+
+                    return (
+                      <div
+                        key={o.id}
+                        className={`p-3 rounded-lg border ${selectedMainOrderId === o.id ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-border'}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="radio"
+                            name="mainOrder"
+                            checked={selectedMainOrderId === o.id}
+                            onChange={() => {
+                              setSelectedMainOrderId(o.id);
+                              setSelectedCustomerId(o.customerId || null);
+                            }}
+                            className="mt-1 h-4 w-4"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{o.serviceName || o.description || `Auftrag #${o.id.slice(-6)}`}</div>
+                            <div className="text-sm text-slate-600 dark:text-slate-300">
+                              {cust?.name || '–'} • {formatMergeDate(o.createdAt || o.date)}
+                            </div>
+
+                            {imageCount > 0 && (
+                              <div className="flex gap-2 mt-2">
+                                {previewUrls.map((url, idx) => (
+                                  <img
+                                    key={`${o.id}-${idx}`}
+                                    src={url}
+                                    alt={`Bildvorschau ${idx + 1}`}
+                                    className="w-16 h-16 rounded object-cover border"
+                                  />
+                                ))}
+                                {imageCount > 3 && (
+                                  <div className="w-16 h-16 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xs text-slate-600 dark:text-slate-300 border">
+                                    +{imageCount - 3}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {hasTextContent && (
+                              <button
+                                type="button"
+                                onClick={() => toggleTextPreview(o.id)}
+                                className="text-sm text-blue-600 dark:text-blue-400 mt-2"
+                              >
+                                {textPreviewOpen[o.id] ? 'Text ausblenden' : 'Text anzeigen'}
+                              </button>
+                            )}
+
+                            {textPreviewOpen[o.id] && (
+                              <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm space-y-2">
+                                {o.notes && (
+                                  <div>
+                                    <div className="font-medium text-xs text-slate-600 dark:text-slate-300">Nachricht:</div>
+                                    <div className="whitespace-pre-wrap">{o.notes}</div>
+                                  </div>
+                                )}
+                                {/* Only show transcript if NOT already contained in notes */}
+                                {o.audioTranscript && !o.notes?.includes(o.audioTranscript) && (
+                                  <div>
+                                    <div className="font-medium text-xs text-slate-600 dark:text-slate-300">Transkript:</div>
+                                    <div className="whitespace-pre-wrap">{o.audioTranscript}</div>
+                                  </div>
+                                )}
+                                {o.description && (
+                                  <div>
+                                    <div className="font-medium text-xs text-slate-600 dark:text-slate-300">Beschreibung:</div>
+                                    <div className="whitespace-pre-wrap">{o.description}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {hasAudio && (
+                              <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/30 rounded space-y-2">
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Mic className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                  <span className="font-medium text-blue-900 dark:text-blue-200">Audio vorhanden</span>
+                                  {o.audioDurationSec ? <span className="text-blue-700 dark:text-blue-300">({o.audioDurationSec}s)</span> : null}
+                                </div>
+                                {/* Inline audio player */}
+                                {mergeAudioUrls[o.id] && (
+                                  <audio controls className="w-full max-w-xs h-8">
+                                    <source src={mergeAudioUrls[o.id]} type="audio/mpeg" />
+                                    Ihr Browser unterstützt kein Audio.
+                                  </audio>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Entfernen button */}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFromSelection(o.id)}
+                              className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 mt-2"
+                            >
+                              Aus Auswahl entfernen
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* MULTI-AUDIO WARNING */}
+                {audioOrdersCount > 1 && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded mt-3">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                      <span className="text-sm text-amber-800 dark:text-amber-200 font-medium">
+                        Mehrere Aufträge mit Audio erkannt. Bitte nur einen Audio-Auftrag auswählen.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-6 p-4 bg-slate-50 dark:bg-slate-900/40 rounded space-y-2">
+                  <div className="font-medium text-sm">Kunde für den verbundenen Auftrag:</div>
+                  <select
+                    value={effectiveCustomerId}
+                    onChange={(e) => setSelectedCustomerId(e.target.value || null)}
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {uniqueCustomers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name}{customer.customerNumber ? ` (#${customer.customerNumber})` : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  {hasCustomerMismatch && (
+                    <div className="text-sm text-amber-600 dark:text-amber-400">
+                      ⚠️ Die ausgewählten Aufträge haben unterschiedliche Kunden.
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter className="mt-4 flex-row justify-between sm:justify-between">
+                  <Button variant="outline" onClick={() => setMergeStep(1)}>
+                    <ChevronLeft className="w-4 h-4 mr-1" />Zurück
+                  </Button>
+                  <Button onClick={mergeGoToStep3} disabled={!selectedMainOrderId || audioOrdersCount > 1}>
+                    Weiter<ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+
+          {mergeStep === 3 && (() => {
+            const selectedOrders = getSelectedOrders();
+            const mainOrder = selectedOrders.find((o) => o.id === selectedMainOrderId) || null;
+            const finalCustomerId = selectedCustomerId || mainOrder?.customerId || null;
+            const finalCustomer = finalCustomerId ? customers.find((c) => c.id === finalCustomerId) : null;
+            const totalImages = selectedOrders.reduce((sum, o) => sum + (o.imageUrls?.length || 0), 0);
+            const sourceOrdersCount = selectedOrders.filter((o) => o.id !== selectedMainOrderId).length;
+            const allChecked = confirmChecks.contentBelongsTogether && confirmChecks.trashUnderstood;
+
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Aufträge verbinden</DialogTitle>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+                    <div className="font-medium text-blue-900">✓ Bilder werden übernommen</div>
+                    <div className="text-sm text-blue-700 mt-1">
+                      {totalImages} {totalImages === 1 ? 'Bild' : 'Bilder'} aus allen ausgewählten Aufträgen
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="text-slate-600 dark:text-slate-300">Hauptauftrag:</div>
+                      <div className="font-medium truncate">{mainOrder?.serviceName || mainOrder?.description || '–'}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-600 dark:text-slate-300">Kunde:</div>
+                      <div className="font-medium truncate">{finalCustomer?.name || '–'}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-600 dark:text-slate-300">Papierkorb:</div>
+                      <div className="font-medium">{sourceOrdersCount} Aufträge</div>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-slate-600 dark:text-slate-300 p-3 bg-slate-50 dark:bg-slate-900/40 rounded">
+                    <span className="font-medium">Nicht übernommen:</span>{' '}
+                    Leistungen, Preise, Termine, Priorität, Zuweisungen und KI-Texte aus Bild-ohne-Text-Aufträgen.
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={confirmChecks.contentBelongsTogether}
+                        onChange={(e) => setConfirmChecks((prev) => ({ ...prev, contentBelongsTogether: e.target.checked }))}
+                        disabled={merging}
+                        className="mt-1"
+                      />
+                      <span className="text-sm">Ich habe geprüft, dass die Bilder und Inhalte zusammengehören.</span>
+                    </label>
+
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={confirmChecks.trashUnderstood}
+                        onChange={(e) => setConfirmChecks((prev) => ({ ...prev, trashUnderstood: e.target.checked }))}
+                        disabled={merging}
+                        className="mt-1"
+                      />
+                      <span className="text-sm">Die übrigen Aufträge werden in den Papierkorb verschoben.</span>
+                    </label>
+                  </div>
+                </div>
+
+                <DialogFooter className="mt-4 flex-row justify-between sm:justify-between">
+                  <Button variant="outline" onClick={() => setMergeStep(2)} disabled={merging}>
+                    Zurück
+                  </Button>
+                  <Button onClick={executeMerge} disabled={!allChecked || merging} className="min-w-[140px]">
+                    {merging ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Wird verbunden...
+                      </>
+                    ) : (
+                      'Jetzt verbinden'
+                    )}
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
       {/* Order Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className={`${dupCheckOpen ? 'max-w-4xl w-[95vw]' : 'max-w-2xl'} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}>
-          <DialogHeader><DialogTitle>{editId ? 'Auftrag bearbeiten' : 'Neuer Auftrag'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2 flex-wrap">{editId ? 'Auftrag bearbeiten' : 'Neuer Auftrag'}
+            {editId && orders.find((o: Order) => o.id === editId)?.reviewReasons?.includes('manual_order_merge') && (
+              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300">
+                Manuell verbunden
+              </span>
+            )}
+          </DialogTitle></DialogHeader>
           <div className={dupCheckOpen ? 'grid grid-cols-1 sm:grid-cols-2 gap-4 dupcheck-split min-w-0' : 'min-w-0 overflow-hidden'}>
           <div className={`space-y-4 min-w-0${dupCheckOpen ? ' max-h-[35vh] sm:max-h-none overflow-y-auto dupcheck-form-col' : ''}`}>
             {/* Phase 2d: auto-reuse banner (exact / near-exact) */}
@@ -1103,20 +1625,29 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
               const cust = cur ? customers.find((c: Customer) => c.id === cur.customerId) : null;
               // Canonical rule — name/address/plz/city required; phone/email optional.
               const missingData = !!cust && isCustomerDataIncomplete(cust);
-              if (!cur?.needsReview && !missingData) return null;
+              const hasImageOnly = cur?.reviewReasons?.includes('image_only_no_text');
+              if (!cur?.needsReview && !missingData && !hasImageOnly) return null;
               return (
                 <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => openCustomerEditor()}
-                    className="tap-safe inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-md"
-                    aria-label="Kundendaten ergänzen — öffnet den Kunde-bearbeiten-Bereich"
-                  >
-                    {cur?.needsReview && <Badge variant="secondary" className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300">
-                      <AlertTriangle className="w-3 h-3 mr-1" />Kundendaten prüfen
-                    </Badge>}
-                    {!cur?.needsReview && missingData && <MissingCustomerDataBadge variant="standard" />}
-                  </button>
+                  {(cur?.needsReview || missingData) && (
+                    <button
+                      type="button"
+                      onClick={() => openCustomerEditor()}
+                      className="tap-safe inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-md"
+                      aria-label="Kundendaten ergänzen — öffnet den Kunde-bearbeiten-Bereich"
+                    >
+                      {cur?.needsReview && <Badge variant="secondary" className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300">
+                        <AlertTriangle className="w-3 h-3 mr-1" />Kundendaten prüfen
+                      </Badge>}
+                      {!cur?.needsReview && missingData && <MissingCustomerDataBadge variant="standard" />}
+                    </button>
+                  )}
+                  {/* Image-only badge in edit dialog */}
+                  {hasImageOnly && (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300">
+                      ⚠️ Bild ohne Text prüfen
+                    </span>
+                  )}
                 </div>
               );
             })()}
