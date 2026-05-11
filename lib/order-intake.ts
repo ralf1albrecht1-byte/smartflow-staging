@@ -467,11 +467,11 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   console.log(`[${source}] 🤖 Starting LLM analysis (model=${hasAnyImage ? 'gpt-4.1' : 'gpt-4.1-mini'}, systemPrompt=${systemPrompt.length}chars, userContent=${JSON.stringify(userContent).length}chars)`);
   let llmResponse: Response;
   try {
-    llmResponse = await fetch('https://apps.abacus.ai/v1/chat/completions', {
+    llmResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
         model: hasAnyImage ? 'gpt-4.1' : 'gpt-4.1-mini',
@@ -805,9 +805,9 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   let translationText = '';
   if (messageText.trim() && hauptsprache) {
     try {
-      const transRes = await fetch('https://apps.abacus.ai/v1/chat/completions', {
+      const transRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}` },
+       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
         body: JSON.stringify({
           model: 'gpt-4.1-mini',
           messages: [
