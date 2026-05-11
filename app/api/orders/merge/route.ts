@@ -95,6 +95,35 @@ export async function POST(request: NextRequest) {
         throw new Error('Aufträge mit Rechnungen oder Angeboten können nicht zusammengeführt werden');
       }
 
+      // AUDIO VALIDATION: Check for multiple audio orders
+      const ordersWithAudio = [targetOrder, ...sourceOrders].filter(
+        (order) => order.mediaUrl && order.mediaType === 'audio'
+      );
+
+      if (ordersWithAudio.length > 1) {
+        throw new Error('Mehrere Aufträge mit Audio erkannt. Bitte nur einen Audio-Auftrag auswählen.');
+      }
+
+      // AUDIO PRESERVATION: Find audio to preserve
+      const targetHasAudio = targetOrder.mediaUrl && targetOrder.mediaType === 'audio';
+      const sourceWithAudio = sourceOrders.find(
+        (order) => order.mediaUrl && order.mediaType === 'audio'
+      );
+
+      let audioData: Record<string, unknown> = {};
+
+      if (sourceWithAudio && !targetHasAudio) {
+        // Copy audio fields from source to target
+        audioData = {
+          mediaUrl: sourceWithAudio.mediaUrl,
+          mediaType: sourceWithAudio.mediaType,
+          audioTranscript: sourceWithAudio.audioTranscript,
+          audioDurationSec: sourceWithAudio.audioDurationSec,
+          audioTranscriptionStatus: sourceWithAudio.audioTranscriptionStatus,
+        };
+      }
+      // If target already has audio, keep it (audioData stays empty)
+
       // Validate finalCustomerId if provided — must come from selected orders
       const allCustomerIds = [targetOrder.customerId, ...sourceOrders.map((o) => o.customerId)];
       if (finalCustomerId) {
@@ -123,19 +152,26 @@ export async function POST(request: NextRequest) {
         ...sourceOrders.flatMap((o) => o.thumbnailUrls || []),
       ];
 
-      // Skip AI-generated descriptions from image-only orders
-      const appendNotes = sourceOrders
+      // Merge notes - skip AI-generated descriptions from image-only orders
+      const additionalNotes = sourceOrders
         .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
-        .filter((o) => o.notes || o.specialNotes)
-        .map(
-          (o) =>
-            `[Verbunden von Auftrag ${o.id.slice(-8)}]\n${o.notes || ''}\n${o.specialNotes || ''}`
-        )
+        .map((o) => {
+          const parts: string[] = [];
+          if (o.notes) parts.push(o.notes);
+          if (o.audioTranscript && !o.notes?.includes(o.audioTranscript)) {
+            parts.push(`Transkript: ${o.audioTranscript}`);
+          }
+          if (parts.length > 0) {
+            return `[Verbunden von Auftrag ${o.id.slice(-8)}]\n${parts.join('\n\n')}`;
+          }
+          return '';
+        })
+        .filter(Boolean)
         .join('\n\n');
 
       const mergedNotes = targetOrder.notes
-        ? `${targetOrder.notes}\n\n${appendNotes}`
-        : appendNotes;
+        ? `${targetOrder.notes}\n\n${additionalNotes}`
+        : additionalNotes;
 
       const newReviewReasons = [
         ...(targetOrder.reviewReasons || []),
@@ -177,6 +213,8 @@ export async function POST(request: NextRequest) {
           reviewReasons: uniqueReviewReasons,
           needsReview: true,
           hinweisLevel: 'warning',
+          // Preserve audio fields from source if target has no audio
+          ...audioData,
         },
       });
 

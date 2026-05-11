@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ClipboardList, Plus, Trash2, Search, Loader2, AlertTriangle, FileText, FileCheck, Volume2, ImageIcon, X, Mail, MoreVertical, ChevronLeft, ChevronRight, Mic } from 'lucide-react';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
@@ -875,6 +875,37 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
     setTextPreviewOpen((prev) => ({ ...prev, [orderId]: !prev[orderId] }));
   };
 
+  // Remove order from selection in Step 2
+  const handleRemoveFromSelection = (orderId: string) => {
+    const newSelection = selectedOrderIds.filter((id) => id !== orderId);
+
+    if (newSelection.length < 2) {
+      toast.error('Mindestens 2 Aufträge erforderlich');
+      return;
+    }
+
+    setSelectedOrderIds(newSelection);
+
+    // If removed order was the main order, clear main selection
+    if (selectedMainOrderId === orderId) {
+      setSelectedMainOrderId(null);
+    }
+
+    // If removed order was the selected customer, reset customer
+    const removedOrder = orders.find((o) => o.id === orderId);
+    if (removedOrder && selectedCustomerId === removedOrder.customerId) {
+      setSelectedCustomerId(null);
+    }
+
+    toast.success('Auftrag aus Auswahl entfernt');
+  };
+
+  // Count audio orders in selection
+  const audioOrdersCount = useMemo(() => {
+    const selectedOrders = orders.filter((o) => selectedOrderIds.includes(o.id));
+    return selectedOrders.filter((o) => o.mediaUrl && o.mediaType === 'audio').length;
+  }, [selectedOrderIds, orders]);
+
   // Step 1 → Step 2: user clicks "Weiter" after selecting 2-5 orders
   const mergeGoToStep2 = async () => {
     if (selectedOrderIds.length < 2) { toast.error('Mindestens 2 Aufträge auswählen'); return; }
@@ -1356,18 +1387,39 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                             )}
 
                             {hasAudio && (
-                              <div className="flex items-center gap-2 mt-2 text-sm text-slate-600 dark:text-slate-300">
-                                <Mic className="w-4 h-4" />
-                                <span>Audio vorhanden</span>
-                                {o.audioDurationSec ? <span>({o.audioDurationSec}s)</span> : null}
+                              <div className="flex items-center gap-2 mt-2 p-2 bg-blue-50 dark:bg-blue-900/30 rounded text-sm">
+                                <Mic className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                <span className="font-medium text-blue-900 dark:text-blue-200">Audio vorhanden</span>
+                                {o.audioDurationSec ? <span className="text-blue-700 dark:text-blue-300">({o.audioDurationSec}s)</span> : null}
                               </div>
                             )}
+
+                            {/* Entfernen button */}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFromSelection(o.id)}
+                              className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 mt-2"
+                            >
+                              Aus Auswahl entfernen
+                            </button>
                           </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
+
+                {/* MULTI-AUDIO WARNING */}
+                {audioOrdersCount > 1 && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded mt-3">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                      <span className="text-sm text-amber-800 dark:text-amber-200 font-medium">
+                        Mehrere Aufträge mit Audio erkannt. Bitte nur einen Audio-Auftrag auswählen.
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-6 p-4 bg-slate-50 dark:bg-slate-900/40 rounded space-y-2">
                   <div className="font-medium text-sm">Kunde für den verbundenen Auftrag:</div>
@@ -1394,7 +1446,7 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                   <Button variant="outline" onClick={() => setMergeStep(1)}>
                     <ChevronLeft className="w-4 h-4 mr-1" />Zurück
                   </Button>
-                  <Button onClick={mergeGoToStep3} disabled={!selectedMainOrderId}>
+                  <Button onClick={mergeGoToStep3} disabled={!selectedMainOrderId || audioOrdersCount > 1}>
                     Weiter<ChevronRight className="w-4 h-4 ml-1" />
                   </Button>
                 </DialogFooter>
