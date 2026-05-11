@@ -579,7 +579,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
       if (res.ok) {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'rechnung.pdf'; a.click(); URL.revokeObjectURL(url);
+        const a = document.createElement('a'); a.href = url; a.download = 'angebot.pdf'; a.click(); URL.revokeObjectURL(url);
         toast.success('PDF heruntergeladen');
         // Block N: fire-and-forget audit event for the user-initiated download.
         fetch('/api/audit/share-event', {
