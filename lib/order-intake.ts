@@ -127,6 +127,9 @@ export interface IntakeInput {
   // Lifecycle marker — see Order.audioTranscriptionStatus comment in schema.prisma.
   // 'transcribed' | 'failed' | 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' | null
   audioTranscriptionStatus?: 'transcribed' | 'failed' | 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' | null;
+  additionalReviewReasons?: string[];
+  reviewNote?: string;
+  forceReview?: boolean;
 }
 
 // ---------- Build system prompt ----------
@@ -364,7 +367,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 
 // ---------- Main intake function ----------
 export async function processIncomingMessage(input: IntakeInput): Promise<IntakeResult | null> {
-  const { source, senderName, messageText, imageBase64, imageMimeType, savedMediaPath, savedMediaType, optimizedPreviewPath, optimizedThumbnailPath, userId: inputUserId, allImageBase64s, allImageMimeTypes, allSavedMediaPaths, allOptimizedPreviewPaths, allOptimizedThumbnailPaths, audioDurationSec: inputAudioDurationSec, audioTranscriptionStatus: inputAudioTranscriptionStatus } = input;
+  const { source, senderName, messageText, imageBase64, imageMimeType, savedMediaPath, savedMediaType, optimizedPreviewPath, optimizedThumbnailPath, userId: inputUserId, allImageBase64s, allImageMimeTypes, allSavedMediaPaths, allOptimizedPreviewPaths, allOptimizedThumbnailPaths, audioDurationSec: inputAudioDurationSec, audioTranscriptionStatus: inputAudioTranscriptionStatus, additionalReviewReasons, reviewNote, forceReview } = input;
 
   // Resolve userId: use provided userId ONLY. No fallbacks!
   // Webhooks must resolve userId via phone number BEFORE calling this function.
@@ -836,23 +839,33 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   if (parsed.auftrag?.titel) notesParts.push(`\n[Titel: ${parsed.auftrag.titel}]`);
   if (parsed.system?.prioritaet === 'hoch') notesParts.push(`[Priorität: hoch]`);
   if (translationText) notesParts.push(`\n--- Übersetzung (automatisch) ---\n${translationText}`);
+  if (reviewNote?.trim()) notesParts.push(`\n[Review-Hinweis]\n${reviewNote.trim()}`);
 
-  // --- Build reviewReasons from abgleich status ---
-  const reviewReasons: string[] = [];
+  // --- Build reviewReasons from abgleich status + external intake hints ---
+  const baseReviewReasons: string[] = [];
   if (abgleichStatus === 'moeglicher_treffer' || abgleichStatus === 'konflikt' || abgleichStatus === 'bestaetigungs_treffer') {
-    reviewReasons.push('uncertain_assignment');
+    baseReviewReasons.push('uncertain_assignment');
   }
   // Image-only messages (no text, no audio) always need review — intent is unclear
   if (isImageOnly) {
-    reviewReasons.push('image_only_no_text');
+    baseReviewReasons.push('image_only_no_text');
   }
-  const hasRealReviewReason = reviewReasons.length > 0;
-  // Phase 2d: append auto-reuse tags AFTER hasRealReviewReason is determined,
-  // so auto-reuse by itself never sets needsReview=true. The banner-only UI
-  // uses these tags to inform the user without blocking the order.
+
+  const allReviewReasons: string[] = [
+    ...(additionalReviewReasons || []),
+    ...baseReviewReasons,
+  ];
+
   if (autoReuseTags.length > 0) {
-    reviewReasons.push(...autoReuseTags);
+    allReviewReasons.push(...autoReuseTags);
   }
+
+  const needsReview = !!forceReview || allReviewReasons.length > 0;
+  const hinweisLevel = allReviewReasons.some((reason) => ['multi_image_overflow', 'image_only_no_text'].includes(reason))
+    ? 'warning'
+    : needsReview
+      ? 'info'
+      : (parsed.system?.prioritaet === 'hoch' ? 'important' : (finalSpecialNotes ? 'info' : 'none'));
 
   // --- Create order ---
   const order = await prisma.order.create({
@@ -870,9 +883,9 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
       date: new Date(),
       notes: notesParts.join('\n'),
       specialNotes: finalSpecialNotes,
-      needsReview: hasRealReviewReason,
-      reviewReasons,
-      hinweisLevel: hasRealReviewReason ? 'warning' : (parsed.system?.prioritaet === 'hoch' ? 'important' : (finalSpecialNotes ? 'info' : 'none')),
+      needsReview,
+      reviewReasons: allReviewReasons,
+      hinweisLevel,
       mediaUrl: savedMediaPath || (allSavedMediaPaths?.[0]) || null,
       mediaType: savedMediaType || (allSavedMediaPaths && allSavedMediaPaths.length > 0 ? 'image' : null),
       imageUrls: allOptimizedPreviewPaths && allOptimizedPreviewPaths.length > 0
