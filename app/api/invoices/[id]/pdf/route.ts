@@ -22,6 +22,10 @@ async function renderPdfFromHtml(html: string): Promise<Buffer> {
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
 
   try {
+    // TEMP DEBUG: Before Puppeteer launch
+    console.log('[PDF DEBUG] renderPdfFromHtml called, HTML length:', html.length);
+    console.log('[PDF DEBUG] Attempting puppeteer.launch()...');
+
     browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -32,12 +36,18 @@ async function renderPdfFromHtml(html: string): Promise<Buffer> {
       ],
     });
 
+    // TEMP DEBUG: After Puppeteer launch
+    console.log('[PDF DEBUG] Puppeteer browser launched successfully');
+
     const page = await browser.newPage();
+    console.log('[PDF DEBUG] New page created, setting content...');
 
     await page.setContent(html, {
       waitUntil: ['load', 'networkidle0'],
       timeout: 30000,
     });
+
+    console.log('[PDF DEBUG] Content set, generating PDF...');
 
     const pdfBuffer = await page.pdf({
       format: 'A4',
@@ -50,7 +60,15 @@ async function renderPdfFromHtml(html: string): Promise<Buffer> {
       },
     });
 
+    console.log('[PDF DEBUG] PDF buffer generated, size:', pdfBuffer.length);
+
     return Buffer.from(pdfBuffer);
+  } catch (renderErr: any) {
+    // TEMP DEBUG: Catch inside renderPdfFromHtml
+    console.error('[PDF DEBUG] renderPdfFromHtml FAILED:', renderErr?.message);
+    console.error('[PDF DEBUG] renderPdfFromHtml error name:', renderErr?.name);
+    console.error('[PDF DEBUG] renderPdfFromHtml stack:', renderErr?.stack);
+    throw renderErr;
   } finally {
     if (browser) {
       await browser.close().catch(() => {});
@@ -256,10 +274,23 @@ export async function GET(request: Request, { params }: { params: { id: string }
       },
     });
   } catch (error: any) {
-    console.error('Invoice PDF error:', error);
+    // TEMP DEBUG: Detailed error logging for TEST environment
+    console.error('[PDF DEBUG] Invoice PDF generation FAILED');
+    console.error('[PDF DEBUG] Error name:', error?.name);
+    console.error('[PDF DEBUG] Error message:', error?.message);
+    console.error('[PDF DEBUG] Error stack:', error?.stack);
+    console.error('[PDF DEBUG] Full error:', error);
 
     return NextResponse.json(
-      { error: 'PDF fehlgeschlagen' },
+      {
+        error: 'PDF fehlgeschlagen',
+        // TEMP DEBUG: Include details in response for TEST environment
+        debug: {
+          name: error?.name || 'Unknown',
+          message: error?.message || 'No message',
+          stack: error?.stack?.split('\n').slice(0, 5).join('\n') || 'No stack',
+        },
+      },
       { status: 500, headers: SECURITY_HEADERS }
     );
   }
