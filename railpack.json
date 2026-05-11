@@ -3,7 +3,6 @@
     "aptPackages": [
       "ffmpeg",
       "chromium",
-      "chromium-browser",
       "fonts-liberation",
       "libasound2",
       "libatk-bridge2.0-0",
