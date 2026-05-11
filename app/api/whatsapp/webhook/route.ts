@@ -593,38 +593,61 @@ export async function POST(request: Request) {
       return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
     }
 
-    // ─── IMAGE MESSAGE (no audio) → process per-webhook (UNCHANGED) ───
-    // CRITICAL SAFETY: Each Twilio webhook has a unique MessageSid.
-    // One WhatsApp message (even with multiple images) = one webhook = one order.
-    let finalText = messageText;
 
-    const hasImages = collectedImages.length > 0;
-    console.log(`[WhatsApp] 🖼️ Image message from ${maskPhoneForLog(phoneNumber)} (SID=${messageSid}, ${collectedImages.length} images, text=${finalText.length}chars) — processing async`);
 
-    processIncomingMessage({
-      source: 'WhatsApp',
-      senderName: profileName,
-      phoneNumber,
-      messageText: finalText,
-      imageBase64: hasImages ? collectedImages[0].base64 : null,
-      imageMimeType: hasImages ? collectedImages[0].mimeType : 'image/jpeg',
-      savedMediaPath: hasImages ? collectedImages[0].s3Path : null,
-      savedMediaType: hasImages ? 'image' : null,
-      optimizedPreviewPath: hasImages ? collectedImages[0].previewPath : null,
-      optimizedThumbnailPath: hasImages ? collectedImages[0].thumbPath : null,
-      userId: resolvedUserId,
-      allImageBase64s: hasImages ? collectedImages.map(i => i.base64) : undefined,
-      allImageMimeTypes: hasImages ? collectedImages.map(i => i.mimeType) : undefined,
-      allSavedMediaPaths: hasImages ? collectedImages.map(i => i.s3Path) : undefined,
-      allOptimizedPreviewPaths: hasImages ? collectedImages.map(i => i.previewPath) : undefined,
-      allOptimizedThumbnailPaths: hasImages ? collectedImages.map(i => i.thumbPath) : undefined,
-    }).then(orderCreated => {
-      if (orderCreated) {
-        console.log(`[WhatsApp] ✅ Image order created: ${orderCreated.description} (SID=${messageSid}, ${collectedImages.length} images)`);
-      }
-    }).catch(err => {
-      console.error(`[WhatsApp] ❌ Image processing failed (SID=${messageSid}):`, err);
-    });
+
+
+
+
+// ─── IMAGE MESSAGE (no audio) → MVP: only first image is processed ───
+// MVP rule:
+// - 1 image + text = fully supported
+// - multiple images = NOT automatic Pro feature yet
+// - process only first image and add manual review note
+let finalText = messageText.trim();
+
+const hasImages = collectedImages.length > 0;
+const primaryImage = hasImages ? collectedImages[0] : null;
+const multiImageUnsupported = collectedImages.length > 1;
+
+if (multiImageUnsupported) {
+  const note =
+    'Hinweis: Es wurden mehrere Bilder gesendet. Die automatische Mehrfachbild-Auswertung ist aktuell noch nicht aktiv. Bitte Auftrag manuell prüfen.';
+
+  finalText = finalText ? `${finalText}\n\n${note}` : note;
+
+  console.warn(
+    `[WhatsApp] ⚠️ Multiple images received but MVP only supports one image. SID=${messageSid}, images=${collectedImages.length}, processing first image only`
+  );
+}
+
+console.log(
+  `[WhatsApp] 🖼️ Image message from ${maskPhoneForLog(phoneNumber)} ` +
+  `(SID=${messageSid}, images=${collectedImages.length}, text=${finalText.length}chars, multiImageUnsupported=${multiImageUnsupported}) — processing async`
+);
+
+processIncomingMessage({
+  source: 'WhatsApp',
+  senderName: profileName,
+  phoneNumber,
+  messageText: finalText,
+  imageBase64: primaryImage ? primaryImage.base64 : null,
+  imageMimeType: primaryImage ? primaryImage.mimeType : 'image/jpeg',
+  savedMediaPath: primaryImage ? primaryImage.s3Path : null,
+  savedMediaType: primaryImage ? 'image' : null,
+  optimizedPreviewPath: primaryImage ? primaryImage.previewPath : null,
+  optimizedThumbnailPath: primaryImage ? primaryImage.thumbPath : null,
+  userId: resolvedUserId,
+}).then(orderCreated => {
+  if (orderCreated) {
+    console.log(
+      `[WhatsApp] ✅ Image order created: ${orderCreated.description} ` +
+      `(SID=${messageSid}, processedImages=1, receivedImages=${collectedImages.length})`
+    );
+  }
+}).catch(err => {
+  console.error(`[WhatsApp] ❌ Image processing failed (SID=${messageSid}):`, err);
+});
 
     return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   } catch (error: any) {
