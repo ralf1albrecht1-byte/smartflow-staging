@@ -796,7 +796,7 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   const unit = svc.unit || finalService?.unit || 'Stunde';
   const quantity = Number(svc.estimated_quantity) || 1;
   const totalPrice = unitPrice * quantity;
-  const serviceName = finalService?.name || svc.service_name || parsed.auftrag?.titel || 'Sonstiges';
+  const serviceName = finalService?.name || svc.service_name || null;
 
   // --- Description ---
   const description = parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`;
@@ -908,6 +908,8 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
       audioTranscriptionStatus: savedMediaType === 'audio'
         ? (inputAudioTranscriptionStatus || null)
         : null,
+  ...(serviceName
+  ? {
       items: {
         create: [{
           serviceName,
@@ -918,6 +920,8 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
           totalPrice,
         }],
       },
+    }
+  : {}),
     },
     include: { customer: true, items: true },
   });
