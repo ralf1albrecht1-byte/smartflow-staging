@@ -573,23 +573,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
   const downloadPdf = async (id: string) => {
   window.open(`/api/offers/${id}/pdf?_t=${Date.now()}`, '_blank', 'noopener,noreferrer');
 };
-    setDownloading(id);
-    try {
-      const res = await fetch(`/api/offers/${id}/pdf?_t=${Date.now()}`, { cache: 'no-store' });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-       const a = document.createElement('a'); a.href = url; a.download = 'angebot.pdf'; a.click(); URL.revokeObjectURL(url);
-        toast.success('PDF heruntergeladen');
-        // Block N: fire-and-forget audit event for the user-initiated download.
-        fetch('/api/audit/share-event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ event: 'OFFER_PDF_DOWNLOADED', targetType: 'Offer', targetId: id }),
-        }).catch(() => {});
-      } else toast.error('PDF-Fehler');
-    } catch { toast.error('Fehler'); } finally { setDownloading(null); }
-  };
+
 
   const sendPdfToWhatsApp = async (off: Offer) => {
     // New flow: server generates PDF, uploads to public S3, and sends
