@@ -402,6 +402,15 @@ export async function POST(request: Request) {
     const from = body.From || ''; // e.g. "whatsapp:+41791234567"
     const messageBody = body.Body || '';
     const numMedia = parseInt(body.NumMedia || '0', 10);
+// MVP limitation:
+// Multiple images are intentionally not supported yet.
+// Process only the first image and ignore remaining images.
+const mediaLimit = numMedia > 1 ? 1 : numMedia;
+if (numMedia > 1) {
+  console.warn(
+    `[WhatsApp] ⚠️ Multiple media detected (${numMedia}). MVP currently processes only the first media item.`
+  );
+}
     const profileName = body.ProfileName || 'Unbekannt';
 
     // Extract phone number from "whatsapp:+41791234567"
@@ -434,7 +443,7 @@ export async function POST(request: Request) {
     logAuditAsync({ userId: resolvedUserId, action: 'PHONE_MAPPING_SUCCESS', area: 'WEBHOOK', details: { phone: maskPhoneForLog(phoneNumber), sender: profileName } });
 
     // Process media attachments — download + upload to S3, collect data
-    for (let i = 0; i < numMedia; i++) {
+    for (let i = 0; i < mediaLimit; i++) {
       const mediaUrl = body[`MediaUrl${i}`];
       const mediaContentType = body[`MediaContentType${i}`] || '';
 
