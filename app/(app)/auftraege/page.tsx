@@ -100,6 +100,8 @@ export default function AuftraegePage() {
   const [statusFilter, setStatusFilter] = useState('Alle');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name' | 'amount' | 'review'>('newest');
+  const [isMergeMode, setIsMergeMode] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -829,6 +831,60 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
   const remove = async (id: string) => {
     setArchiveId(id);
   };
+
+  const handleToggleSelect = (orderId: string) => {
+    setSelectedOrderIds((prev) =>
+      prev.includes(orderId)
+        ? prev.filter((id) => id !== orderId)
+        : [...prev, orderId]
+    );
+  };
+
+  const handleMergeOrders = async () => {
+    const selectedInCurrentOrder = filtered
+      .filter((order) => selectedOrderIds.includes(order.id))
+      .map((order) => order.id);
+
+    if (selectedInCurrentOrder.length < 2) {
+      alert('Bitte wählen Sie mindestens 2 Aufträge aus');
+      return;
+    }
+
+    const confirmed = confirm(
+      'Diese Aufträge werden in einem Auftrag zusammengeführt. Die übrigen Aufträge werden aus der aktiven Liste entfernt.'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const targetOrderId = selectedInCurrentOrder[0];
+      const sourceOrderIds = selectedInCurrentOrder.slice(1);
+
+      const response = await fetch('/api/orders/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetOrderId, sourceOrderIds }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(`Fehler: ${result.error}`);
+        return;
+      }
+
+      alert(`${result.mergedCount} Auftrag/Aufträge wurden zusammengeführt`);
+
+      setSelectedOrderIds([]);
+      setIsMergeMode(false);
+      await load();
+      router.refresh();
+    } catch (error) {
+      console.error('Merge error:', error);
+      alert('Fehler beim Zusammenführen');
+    }
+  };
+
   const confirmArchive = async () => {
     if (!archiveId) return;
     await fetch(`/api/orders/${archiveId}`, { method: 'DELETE' });
@@ -939,7 +995,23 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2"><ClipboardList className="w-7 h-7 text-primary" /> Aufträge</h1>
           <p className="text-muted-foreground mt-1">{unlinked?.length ?? 0} Aufträge</p>
         </div>
-        <Button onClick={openNew}><Plus className="w-4 h-4 mr-1" />Neuer Auftrag</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={isMergeMode ? 'secondary' : 'outline'}
+            onClick={() => {
+              setIsMergeMode((prev) => !prev);
+              setSelectedOrderIds([]);
+            }}
+          >
+            {isMergeMode ? 'Merge-Modus beenden' : 'Merge-Modus'}
+          </Button>
+          {isMergeMode && selectedOrderIds.length >= 2 && (
+            <Button onClick={handleMergeOrders}>
+              Aufträge zusammenführen ({selectedOrderIds.length})
+            </Button>
+          )}
+          <Button onClick={openNew}><Plus className="w-4 h-4 mr-1" />Neuer Auftrag</Button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
@@ -965,11 +1037,32 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
             const isSonstiges = (o.serviceName ?? '').toLowerCase() === 'sonstiges' || (o.items && o.items.some(it => (it.serviceName ?? '').toLowerCase() === 'sonstiges'));
             const serviceLine = o.items && o.items.length > 1 ? o.items.map(it => it.serviceName).join(' + ') : (o.serviceName ?? o.description ?? '');
             const descPreview = o.description && o.description !== serviceLine ? o.description : '';
+            const isSelected = selectedOrderIds.includes(o.id);
             return (
             <motion.div key={o.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.015 }}>
-              <Card className="hover:shadow-sm transition-shadow cursor-pointer tap-safe" onClick={() => openEdit(o)}>
+              <Card
+                className={`hover:shadow-sm transition-shadow cursor-pointer tap-safe ${isMergeMode && isSelected ? 'ring-2 ring-primary/40' : ''}`}
+                onClick={() => {
+                  if (isMergeMode) {
+                    handleToggleSelect(o.id);
+                    return;
+                  }
+                  openEdit(o);
+                }}
+              >
                 <CardContent className="px-3 py-2">
                   <div className="flex items-start gap-2">
+                    {isMergeMode && (
+                      <div className="shrink-0 pt-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelect(o.id)}
+                          className="h-4 w-4 rounded border-gray-300"
+                          aria-label="Auftrag für Zusammenführung auswählen"
+                        />
+                      </div>
+                    )}
                     {/* Left: 3-dot menu */}
                     <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
