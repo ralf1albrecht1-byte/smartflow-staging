@@ -1023,6 +1023,12 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                             ⚠️ Audio zu lang – manuell prüfen
                           </span>
                         )}
+                        {/* Image-only badge: order created from image without text */}
+                        {o.reviewReasons?.includes('image_only_no_text') && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                            ⚠️ Bild ohne Text prüfen
+                          </span>
+                        )}
                       </div>
                       {/* Row 2: title + description preview */}
                       <p className={`text-sm font-medium mt-0.5 line-clamp-2 ${isSonstiges ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}>
@@ -1103,20 +1109,29 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
               const cust = cur ? customers.find((c: Customer) => c.id === cur.customerId) : null;
               // Canonical rule — name/address/plz/city required; phone/email optional.
               const missingData = !!cust && isCustomerDataIncomplete(cust);
-              if (!cur?.needsReview && !missingData) return null;
+              const hasImageOnly = cur?.reviewReasons?.includes('image_only_no_text');
+              if (!cur?.needsReview && !missingData && !hasImageOnly) return null;
               return (
                 <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => openCustomerEditor()}
-                    className="tap-safe inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-md"
-                    aria-label="Kundendaten ergänzen — öffnet den Kunde-bearbeiten-Bereich"
-                  >
-                    {cur?.needsReview && <Badge variant="secondary" className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300">
-                      <AlertTriangle className="w-3 h-3 mr-1" />Kundendaten prüfen
-                    </Badge>}
-                    {!cur?.needsReview && missingData && <MissingCustomerDataBadge variant="standard" />}
-                  </button>
+                  {(cur?.needsReview || missingData) && (
+                    <button
+                      type="button"
+                      onClick={() => openCustomerEditor()}
+                      className="tap-safe inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-md"
+                      aria-label="Kundendaten ergänzen — öffnet den Kunde-bearbeiten-Bereich"
+                    >
+                      {cur?.needsReview && <Badge variant="secondary" className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300">
+                        <AlertTriangle className="w-3 h-3 mr-1" />Kundendaten prüfen
+                      </Badge>}
+                      {!cur?.needsReview && missingData && <MissingCustomerDataBadge variant="standard" />}
+                    </button>
+                  )}
+                  {/* Image-only badge in edit dialog */}
+                  {hasImageOnly && (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300">
+                      ⚠️ Bild ohne Text prüfen
+                    </span>
+                  )}
                 </div>
               );
             })()}
