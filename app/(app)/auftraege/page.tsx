@@ -100,8 +100,25 @@ export default function AuftraegePage() {
   const [statusFilter, setStatusFilter] = useState('Alle');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name' | 'amount' | 'review'>('newest');
-  const [isMergeMode, setIsMergeMode] = useState(false);
+  // ─── Merge Assistant (guided 4-step flow) ───
+  const [mergeStep, setMergeStep] = useState<0 | 1 | 2 | 3 | 4>(0);
+  // Step 0 = inactive, Step 1 = selecting orders, Step 2 = choose main order,
+  // Step 3 = customer confirmation, Step 4 = final review
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [selectedMainOrderId, setSelectedMainOrderId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [mergeConfirmChecks, setMergeConfirmChecks] = useState({
+    imagesChecked: false,
+    imagesMatch: false,
+    customerCorrect: false,
+    trashUnderstood: false,
+    aiTextUnderstood: false,
+  });
+  const [merging, setMerging] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  // Resolved thumbnail URLs for merge preview
+  const [mergePreviewUrls, setMergePreviewUrls] = useState<Record<string, string>>({});
+  const isMergeMode = mergeStep === 1;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -833,57 +850,104 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
   };
 
   const handleToggleSelect = (orderId: string) => {
-    setSelectedOrderIds((prev) =>
-      prev.includes(orderId)
-        ? prev.filter((id) => id !== orderId)
-        : [...prev, orderId]
-    );
+    setSelectedOrderIds((prev) => {
+      if (prev.includes(orderId)) return prev.filter((id) => id !== orderId);
+      if (prev.length >= 5) { toast.error('Maximal 5 Aufträge auswählbar'); return prev; }
+      return [...prev, orderId];
+    });
   };
 
-  const handleMergeOrders = async () => {
-    const selectedInCurrentOrder = filtered
-      .filter((order) => selectedOrderIds.includes(order.id))
-      .map((order) => order.id);
+  // Reset all merge state
+  const resetMerge = () => {
+    setMergeStep(0);
+    setSelectedOrderIds([]);
+    setSelectedMainOrderId(null);
+    setSelectedCustomerId(null);
+    setMergeConfirmChecks({ imagesChecked: false, imagesMatch: false, customerCorrect: false, trashUnderstood: false, aiTextUnderstood: false });
+    setMergeDialogOpen(false);
+    setMergePreviewUrls({});
+    setMerging(false);
+  };
 
-    if (selectedInCurrentOrder.length < 2) {
-      alert('Bitte wählen Sie mindestens 2 Aufträge aus');
-      return;
-    }
-
-    const confirmed = confirm(
-      'Diese Aufträge werden in einem Auftrag zusammengeführt. Die übrigen Aufträge werden aus der aktiven Liste entfernt.'
+  // Step 1 → Step 2: user clicks "Weiter" after selecting 2-5 orders
+  const mergeGoToStep2 = async () => {
+    if (selectedOrderIds.length < 2) { toast.error('Mindestens 2 Aufträge auswählen'); return; }
+    // Resolve first thumbnail for each selected order for preview
+    const selected = orders.filter((o) => selectedOrderIds.includes(o.id));
+    const urlMap: Record<string, string> = {};
+    await Promise.all(
+      selected.map(async (o) => {
+        const firstImg = o.imageUrls?.[0];
+        if (firstImg) {
+          try { urlMap[o.id] = await resolveS3Url(firstImg); } catch {}
+        }
+      })
     );
+    setMergePreviewUrls(urlMap);
+    setSelectedMainOrderId(selectedOrderIds[0]); // default: first selected
+    setMergeStep(2);
+    setMergeDialogOpen(true);
+  };
 
-    if (!confirmed) return;
+  // Step 2 → Step 3
+  const mergeGoToStep3 = () => {
+    if (!selectedMainOrderId) return;
+    const mainOrder = orders.find((o) => o.id === selectedMainOrderId);
+    setSelectedCustomerId(mainOrder?.customerId || null);
+    setMergeStep(3);
+  };
 
+  // Step 3 → Step 4
+  const mergeGoToStep4 = () => {
+    setMergeConfirmChecks({ imagesChecked: false, imagesMatch: false, customerCorrect: false, trashUnderstood: false, aiTextUnderstood: false });
+    setMergeStep(4);
+  };
+
+  // Step 4: Execute merge
+  const executeMerge = async () => {
+    if (!selectedMainOrderId) return;
+    setMerging(true);
     try {
-      const targetOrderId = selectedInCurrentOrder[0];
-      const sourceOrderIds = selectedInCurrentOrder.slice(1);
-
+      const sourceIds = selectedOrderIds.filter((id) => id !== selectedMainOrderId);
       const response = await fetch('/api/orders/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetOrderId, sourceOrderIds }),
+        body: JSON.stringify({
+          targetOrderId: selectedMainOrderId,
+          sourceOrderIds: sourceIds,
+          finalCustomerId: selectedCustomerId || undefined,
+        }),
       });
-
       const result = await response.json();
-
-      if (!response.ok) {
-        alert(`Fehler: ${result.error}`);
-        return;
-      }
-
-      alert(`${result.mergedCount} Auftrag/Aufträge wurden zusammengeführt`);
-
-      setSelectedOrderIds([]);
-      setIsMergeMode(false);
+      if (!response.ok) { toast.error(result.error || 'Fehler beim Verbinden'); setMerging(false); return; }
+      toast.success(`${result.mergedCount} Auftrag/Aufträge wurden verbunden`);
+      resetMerge();
       await load();
       router.refresh();
     } catch (error) {
       console.error('Merge error:', error);
-      alert('Fehler beim Zusammenführen');
+      toast.error('Fehler beim Verbinden der Aufträge');
+      setMerging(false);
     }
   };
+
+  // Helper: get selected orders objects
+  const getSelectedOrders = () => orders.filter((o) => selectedOrderIds.includes(o.id));
+  // Helper: unique customers from selected orders
+  const getUniqueCustomersFromSelected = () => {
+    const selected = getSelectedOrders();
+    const custMap = new Map<string, { id: string; name: string; customerNumber?: string | null }>();
+    selected.forEach((o) => {
+      if (o.customer && o.customerId) {
+        custMap.set(o.customerId, { id: o.customerId, name: o.customer.name, customerNumber: o.customer.customerNumber });
+      }
+    });
+    return Array.from(custMap.values());
+  };
+  // Helper: check if any selected order has double-merge
+  const hasDoubleMergeWarning = () => getSelectedOrders().some((o) => o.reviewReasons?.includes('manual_order_merge'));
+  // Helper: orders with AI-generated text (image_only_no_text)
+  const getAiTextOrders = () => getSelectedOrders().filter((o) => o.reviewReasons?.includes('image_only_no_text'));
 
   const confirmArchive = async () => {
     if (!archiveId) return;
@@ -999,16 +1063,18 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
           <Button
             variant={isMergeMode ? 'secondary' : 'outline'}
             onClick={() => {
-              setIsMergeMode((prev) => !prev);
-              setSelectedOrderIds([]);
+              if (isMergeMode) { resetMerge(); } else { setMergeStep(1); setSelectedOrderIds([]); }
             }}
           >
-            {isMergeMode ? 'Merge-Modus beenden' : 'Merge-Modus'}
+            {isMergeMode ? 'Verbinden abbrechen' : 'Aufträge verbinden'}
           </Button>
           {isMergeMode && selectedOrderIds.length >= 2 && (
-            <Button onClick={handleMergeOrders}>
-              Aufträge zusammenführen ({selectedOrderIds.length})
+            <Button onClick={mergeGoToStep2}>
+              Weiter ({selectedOrderIds.length} ausgewählt)
             </Button>
+          )}
+          {isMergeMode && selectedOrderIds.length === 1 && (
+            <span className="text-xs text-muted-foreground self-center">Noch mind. 1 weiteren auswählen</span>
           )}
           <Button onClick={openNew}><Plus className="w-4 h-4 mr-1" />Neuer Auftrag</Button>
         </div>
@@ -1153,6 +1219,235 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
           NOT a conversion. NOT a "new offer" action. Pure navigation.
           Hidden on md+ (desktop has the sidebar). */}
       <MobileListShortcut href="/angebote" label="Angebote" ariaLabel="Zu Angebote" />
+
+      {/* ─── Merge Assistant Dialog (Steps 2–4) ─── */}
+      <Dialog open={mergeDialogOpen} onOpenChange={(open) => { if (!open) resetMerge(); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          {/* Step 2: Choose Main Order */}
+          {mergeStep === 2 && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Schritt 2: Hauptauftrag wählen</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground mb-3">
+                Welcher Auftrag soll als Hauptauftrag erhalten bleiben? Die anderen werden in den Papierkorb verschoben.
+              </p>
+              <div className="space-y-2">
+                {getSelectedOrders().map((o) => {
+                  const cust = customers.find((c) => c.id === o.customerId);
+                  const imgCount = o.imageUrls?.length || 0;
+                  return (
+                    <label
+                      key={o.id}
+                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${selectedMainOrderId === o.id ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-border hover:bg-muted/50'}`}
+                    >
+                      <input
+                        type="radio"
+                        name="mainOrder"
+                        checked={selectedMainOrderId === o.id}
+                        onChange={() => setSelectedMainOrderId(o.id)}
+                        className="mt-1 h-4 w-4"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{o.createdAt ? new Date(o.createdAt).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ' ' + new Date(o.createdAt).toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                          <span>·</span>
+                          <span className="font-medium text-foreground">{cust?.name || '–'}</span>
+                          {cust?.customerNumber && <span>({cust.customerNumber})</span>}
+                        </div>
+                        <p className="text-sm font-medium truncate mt-0.5">{o.serviceName || o.description || '–'}</p>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                          <Badge variant="outline" className="text-[10px]">{o.status}</Badge>
+                          {imgCount > 0 && <span className="flex items-center gap-0.5"><ImageIcon className="w-3 h-3" />{imgCount} Bild{imgCount > 1 ? 'er' : ''}</span>}
+                          {o.reviewReasons?.includes('manual_order_merge') && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 border border-amber-300">⚠ bereits verbunden</span>
+                          )}
+                          {o.reviewReasons?.includes('image_only_no_text') && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 border border-amber-300">KI-Text</span>
+                          )}
+                        </div>
+                      </div>
+                      {mergePreviewUrls[o.id] && (
+                        <img
+                          src={mergePreviewUrls[o.id]}
+                          alt="Vorschau"
+                          className="w-14 h-14 object-cover rounded border shrink-0"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(mergePreviewUrls[o.id], '_blank'); }}
+                        />
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="flex justify-between mt-4">
+                <Button variant="outline" onClick={() => { setMergeDialogOpen(false); setMergeStep(1); }}>
+                  <ChevronLeft className="w-4 h-4 mr-1" />Zurück
+                </Button>
+                <Button onClick={mergeGoToStep3} disabled={!selectedMainOrderId}>
+                  Weiter<ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* Step 3: Customer Confirmation */}
+          {mergeStep === 3 && (() => {
+            const uniqueCustomers = getUniqueCustomersFromSelected();
+            const mainOrder = orders.find((o) => o.id === selectedMainOrderId);
+            const mainCust = mainOrder ? customers.find((c) => c.id === mainOrder.customerId) : null;
+            const hasMultipleCustomers = uniqueCustomers.length > 1;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Schritt 3: Kunde bestätigen</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="p-3 bg-muted/50 rounded-lg">
+                    <p className="text-sm font-medium">Kunde des Hauptauftrags:</p>
+                    <p className="text-sm">{mainCust?.name || '–'}{mainCust?.customerNumber ? ` (${mainCust.customerNumber})` : ''}</p>
+                  </div>
+                  {hasMultipleCustomers && (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-200 flex items-center gap-1">
+                        <AlertTriangle className="w-4 h-4" />
+                        Unterschiedliche Kunden erkannt
+                      </p>
+                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                        Die ausgewählten Aufträge gehören zu verschiedenen Kunden. Sie können unten einen anderen Kunden als Ziel wählen.
+                      </p>
+                    </div>
+                  )}
+                  {uniqueCustomers.length > 1 && (
+                    <div>
+                      <Label className="text-sm font-medium">Kunde für verbundenen Auftrag:</Label>
+                      <select
+                        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1"
+                        value={selectedCustomerId || ''}
+                        onChange={(e) => setSelectedCustomerId(e.target.value || null)}
+                      >
+                        {uniqueCustomers.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}{c.customerNumber ? ` (${c.customerNumber})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-between mt-4">
+                  <Button variant="outline" onClick={() => setMergeStep(2)}>
+                    <ChevronLeft className="w-4 h-4 mr-1" />Zurück
+                  </Button>
+                  <Button onClick={mergeGoToStep4}>
+                    Weiter<ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </div>
+              </>
+            );
+          })()}
+
+          {/* Step 4: Final Review */}
+          {mergeStep === 4 && (() => {
+            const selectedOrders = getSelectedOrders();
+            const mainOrder = orders.find((o) => o.id === selectedMainOrderId);
+            const finalCust = selectedCustomerId ? customers.find((c) => c.id === selectedCustomerId) : (mainOrder ? customers.find((c) => c.id === mainOrder.customerId) : null);
+            const aiOrders = getAiTextOrders();
+            const doubleMerge = hasDoubleMergeWarning();
+            const totalImages = selectedOrders.reduce((sum, o) => sum + (o.imageUrls?.length || 0), 0);
+            const sourceOrders = selectedOrders.filter((o) => o.id !== selectedMainOrderId);
+            const allChecked = mergeConfirmChecks.imagesChecked && mergeConfirmChecks.imagesMatch && mergeConfirmChecks.customerCorrect && mergeConfirmChecks.trashUnderstood && mergeConfirmChecks.aiTextUnderstood;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Schritt 4: Zusammenfassung & Bestätigung</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 text-sm">
+                  {/* Summary */}
+                  <div className="p-3 bg-muted/50 rounded-lg space-y-1">
+                    <p><strong>Hauptauftrag:</strong> {mainOrder?.serviceName || mainOrder?.description || mainOrder?.id.slice(-8)}</p>
+                    <p><strong>Kunde:</strong> {finalCust?.name || '–'}{finalCust?.customerNumber ? ` (${finalCust.customerNumber})` : ''}</p>
+                    <p><strong>Bilder gesamt:</strong> {totalImages}</p>
+                    <p><strong>Quellenaufträge → Papierkorb:</strong> {sourceOrders.length}</p>
+                  </div>
+
+                  {/* Image preview per order */}
+                  {selectedOrders.some((o) => mergePreviewUrls[o.id]) && (
+                    <div className="space-y-1">
+                      <p className="font-medium text-xs text-muted-foreground">Bilder-Vorschau:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedOrders.map((o) => mergePreviewUrls[o.id] ? (
+                          <div key={o.id} className="relative">
+                            <img src={mergePreviewUrls[o.id]} alt="" className="w-12 h-12 object-cover rounded border" />
+                            <span className="absolute -bottom-1 -right-1 text-[9px] bg-background border rounded px-0.5">{o.id.slice(-4)}</span>
+                          </div>
+                        ) : null)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Warnings */}
+                  <div className="space-y-2">
+                    <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-200">
+                      <p className="font-medium mb-1">⚠️ Wichtige Hinweise:</p>
+                      <ul className="space-y-0.5 list-disc list-inside">
+                        <li>Leistungen, Preise, Termine, Priorität und Zuweisungen werden <strong>NICHT</strong> übernommen.</li>
+                        <li>KI-Texte aus Bild-ohne-Text-Aufträgen werden <strong>NICHT</strong> übernommen.</li>
+                        <li>Die übrigen {sourceOrders.length} Aufträge werden in den Papierkorb verschoben.</li>
+                      </ul>
+                    </div>
+
+                    {doubleMerge && (
+                      <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded text-xs text-amber-800 dark:text-amber-200">
+                        ⚠️ Mindestens ein ausgewählter Auftrag wurde bereits früher verbunden. Bitte besonders sorgfältig prüfen.
+                      </div>
+                    )}
+
+                    {aiOrders.length > 0 && (
+                      <div className="p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-xs text-blue-800 dark:text-blue-200">
+                        ℹ️ {aiOrders.length} Auftrag/Aufträge mit KI-generiertem Text (Bild ohne Text) — Beschreibung wird nicht übernommen.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 5 Confirmation checkboxes */}
+                  <div className="space-y-2 pt-2">
+                    <p className="font-medium text-xs text-muted-foreground">Alle Punkte bestätigen:</p>
+                    {[
+                      { key: 'imagesChecked' as const, label: 'Ich habe die Bilder aller ausgewählten Aufträge geprüft.' },
+                      { key: 'imagesMatch' as const, label: 'Die Bilder gehören zusammen und zum selben Auftrag.' },
+                      { key: 'customerCorrect' as const, label: `Der Kunde „${finalCust?.name || '–'}" ist korrekt für den verbundenen Auftrag.` },
+                      { key: 'trashUnderstood' as const, label: `Ich verstehe, dass ${sourceOrders.length} Auftrag/Aufträge in den Papierkorb verschoben werden.` },
+                      { key: 'aiTextUnderstood' as const, label: 'Ich verstehe, dass Leistungen, Preise, Termine und KI-Texte NICHT übernommen werden.' },
+                    ].map(({ key, label }) => (
+                      <label key={key} className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={mergeConfirmChecks[key]}
+                          onChange={(e) => setMergeConfirmChecks((prev) => ({ ...prev, [key]: e.target.checked }))}
+                          className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                        />
+                        <span className="text-xs">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex justify-between mt-4">
+                  <Button variant="outline" onClick={() => setMergeStep(3)}>
+                    <ChevronLeft className="w-4 h-4 mr-1" />Zurück
+                  </Button>
+                  <Button
+                    onClick={executeMerge}
+                    disabled={!allChecked || merging}
+                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                  >
+                    {merging ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Verbinde…</> : 'Jetzt verbinden'}
+                  </Button>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* Order Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

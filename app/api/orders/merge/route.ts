@@ -3,6 +3,12 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
+interface MergeRequest {
+  targetOrderId: string;
+  sourceOrderIds: string[];
+  finalCustomerId?: string; // Optional customer switch (must be from selected orders)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -14,8 +20,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { targetOrderId, sourceOrderIds } = body;
+    const body: MergeRequest = await request.json();
+    const { targetOrderId, sourceOrderIds, finalCustomerId } = body;
 
     if (!targetOrderId || !sourceOrderIds || !Array.isArray(sourceOrderIds)) {
       return NextResponse.json(
@@ -34,6 +40,15 @@ export async function POST(request: NextRequest) {
     if (sourceOrderIds.includes(targetOrderId)) {
       return NextResponse.json(
         { error: 'Ziel-Auftrag darf nicht in Quell-Aufträgen enthalten sein' },
+        { status: 400 }
+      );
+    }
+
+    // Max 5 orders total validation
+    const totalOrders = 1 + sourceOrderIds.length;
+    if (totalOrders > 5) {
+      return NextResponse.json(
+        { error: 'Maximal 5 Aufträge gleichzeitig verbinden' },
         { status: 400 }
       );
     }
@@ -72,18 +87,32 @@ export async function POST(request: NextRequest) {
       }
 
       const hasInvoiceOrOffer =
-        sourceOrders.some((o) => (o as any).invoiceId || (o as any).offerId) ||
-        (targetOrder as any).invoiceId ||
-        (targetOrder as any).offerId;
+        sourceOrders.some((o) => o.invoiceId || o.offerId) ||
+        targetOrder.invoiceId ||
+        targetOrder.offerId;
 
       if (hasInvoiceOrOffer) {
         throw new Error('Aufträge mit Rechnungen oder Angeboten können nicht zusammengeführt werden');
       }
 
+      // Validate finalCustomerId if provided — must come from selected orders
       const allCustomerIds = [targetOrder.customerId, ...sourceOrders.map((o) => o.customerId)];
+      if (finalCustomerId) {
+        if (!allCustomerIds.includes(finalCustomerId)) {
+          throw new Error('Kunde muss aus ausgewählten Aufträgen stammen');
+        }
+      }
+
       const uniqueCustomerIds = [...new Set(allCustomerIds)];
       const hasCustomerMismatch = uniqueCustomerIds.length > 1;
 
+      // Double-merge detection: check if any order was already merged before
+      const allOrders = [targetOrder, ...sourceOrders];
+      const hasDoubleMerge = allOrders.some(
+        (o) => o.reviewReasons?.includes('manual_order_merge')
+      );
+
+      // Merge images
       const mergedImageUrls = [
         ...(targetOrder.imageUrls || []),
         ...sourceOrders.flatMap((o) => o.imageUrls || []),
@@ -94,25 +123,37 @@ export async function POST(request: NextRequest) {
         ...sourceOrders.flatMap((o) => o.thumbnailUrls || []),
       ];
 
-      const additionalNotes = sourceOrders
+      // Skip AI-generated descriptions from image-only orders
+      const appendNotes = sourceOrders
+        .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
         .filter((o) => o.notes || o.specialNotes)
-        .map((o) => `[Zusammengeführt von Auftrag ${o.id.slice(-8)}]\n${o.notes || ''}\n${o.specialNotes || ''}`)
+        .map(
+          (o) =>
+            `[Verbunden von Auftrag ${o.id.slice(-8)}]\n${o.notes || ''}\n${o.specialNotes || ''}`
+        )
         .join('\n\n');
 
       const mergedNotes = targetOrder.notes
-        ? `${targetOrder.notes}\n\n${additionalNotes}`
-        : additionalNotes;
+        ? `${targetOrder.notes}\n\n${appendNotes}`
+        : appendNotes;
 
       const newReviewReasons = [
         ...(targetOrder.reviewReasons || []),
         'manual_order_merge',
       ];
 
-      let warningText = 'Mehrere Aufträge wurden manuell zusammengeführt. Bitte prüfen.';
+      let warningText = 'Mehrere Aufträge wurden manuell verbunden. Bitte prüfen.';
 
       if (hasCustomerMismatch) {
         newReviewReasons.push('merged_different_customers');
-        warningText += '\nZusammengeführte Aufträge hatten unterschiedliche oder unvollständige Kundendaten. Bitte prüfen.';
+        warningText +=
+          '\nVerbundene Aufträge hatten unterschiedliche oder unvollständige Kundendaten. Bitte prüfen.';
+      }
+
+      if (hasDoubleMerge) {
+        newReviewReasons.push('double_merge');
+        warningText +=
+          '\nMindestens ein ausgewählter Auftrag wurde bereits früher verbunden.';
       }
 
       sourceOrders.forEach((o) => {
@@ -126,6 +167,7 @@ export async function POST(request: NextRequest) {
       const updatedOrder = await tx.order.update({
         where: { id: targetOrderId },
         data: {
+          customerId: finalCustomerId || targetOrder.customerId,
           imageUrls: mergedImageUrls,
           thumbnailUrls: mergedThumbnailUrls,
           notes: mergedNotes,
@@ -138,6 +180,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Soft-delete source orders (move to Papierkorb)
       await tx.order.updateMany({
         where: {
           id: { in: sourceOrderIds },
@@ -151,6 +194,8 @@ export async function POST(request: NextRequest) {
         success: true,
         mergedOrder: updatedOrder,
         mergedCount: sourceOrders.length,
+        hasDoubleMerge,
+        hasCustomerMismatch,
       };
     });
 
@@ -158,7 +203,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[ORDER MERGE] Error:', error);
     return NextResponse.json(
-      { error: error.message || 'Fehler beim Zusammenführen der Aufträge' },
+      { error: error.message || 'Fehler beim Verbinden der Aufträge' },
       { status: 500 }
     );
   }
