@@ -114,6 +114,8 @@ export default function AuftraegePage() {
   const [merging, setMerging] = useState(false);
   // Resolved image preview URLs (up to 3 per selected order)
   const [mergePreviewUrls, setMergePreviewUrls] = useState<Record<string, string[]>>({});
+  // Resolved audio URLs for inline playback in merge Step 2
+  const [mergeAudioUrls, setMergeAudioUrls] = useState<Record<string, string>>({});
   const isMergeMode = mergeStep === 1;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -927,6 +929,16 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
       })
     );
     setMergePreviewUrls(urlMap);
+    // Resolve audio URLs for inline playback
+    const audioMap: Record<string, string> = {};
+    await Promise.all(
+      selected.filter((o) => o.mediaUrl && o.mediaType === 'audio').map(async (o) => {
+        try {
+          audioMap[o.id] = await resolveS3Url(o.mediaUrl!);
+        } catch { /* ignore */ }
+      })
+    );
+    setMergeAudioUrls(audioMap);
     const defaultMainOrderId = selectedMainOrderId && selectedOrderIds.includes(selectedMainOrderId)
       ? selectedMainOrderId
       : selectedOrderIds[0];
@@ -1253,6 +1265,12 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                             ⚠️ Bild ohne Text prüfen
                           </span>
                         )}
+                        {/* Merge badge: order was manually merged */}
+                        {o.reviewReasons?.includes('manual_order_merge') && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 shrink-0">
+                            Manuell verbunden
+                          </span>
+                        )}
                       </div>
                       {/* Row 2: title + description preview */}
                       <p className={`text-sm font-medium mt-0.5 line-clamp-2 ${isSonstiges ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}>
@@ -1368,29 +1386,39 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                                 {o.notes && (
                                   <div>
                                     <div className="font-medium text-xs text-slate-600 dark:text-slate-300">Nachricht:</div>
-                                    <div>{o.notes}</div>
+                                    <div className="whitespace-pre-wrap">{o.notes}</div>
                                   </div>
                                 )}
-                                {o.audioTranscript && (
+                                {/* Only show transcript if NOT already contained in notes */}
+                                {o.audioTranscript && !o.notes?.includes(o.audioTranscript) && (
                                   <div>
                                     <div className="font-medium text-xs text-slate-600 dark:text-slate-300">Transkript:</div>
-                                    <div>{o.audioTranscript}</div>
+                                    <div className="whitespace-pre-wrap">{o.audioTranscript}</div>
                                   </div>
                                 )}
                                 {o.description && (
                                   <div>
                                     <div className="font-medium text-xs text-slate-600 dark:text-slate-300">Beschreibung:</div>
-                                    <div>{o.description}</div>
+                                    <div className="whitespace-pre-wrap">{o.description}</div>
                                   </div>
                                 )}
                               </div>
                             )}
 
                             {hasAudio && (
-                              <div className="flex items-center gap-2 mt-2 p-2 bg-blue-50 dark:bg-blue-900/30 rounded text-sm">
-                                <Mic className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                                <span className="font-medium text-blue-900 dark:text-blue-200">Audio vorhanden</span>
-                                {o.audioDurationSec ? <span className="text-blue-700 dark:text-blue-300">({o.audioDurationSec}s)</span> : null}
+                              <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/30 rounded space-y-2">
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Mic className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                  <span className="font-medium text-blue-900 dark:text-blue-200">Audio vorhanden</span>
+                                  {o.audioDurationSec ? <span className="text-blue-700 dark:text-blue-300">({o.audioDurationSec}s)</span> : null}
+                                </div>
+                                {/* Inline audio player */}
+                                {mergeAudioUrls[o.id] && (
+                                  <audio controls className="w-full max-w-xs h-8">
+                                    <source src={mergeAudioUrls[o.id]} type="audio/mpeg" />
+                                    Ihr Browser unterstützt kein Audio.
+                                  </audio>
+                                )}
                               </div>
                             )}
 
@@ -1546,7 +1574,13 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
       {/* Order Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className={`${dupCheckOpen ? 'max-w-4xl w-[95vw]' : 'max-w-2xl'} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}>
-          <DialogHeader><DialogTitle>{editId ? 'Auftrag bearbeiten' : 'Neuer Auftrag'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2 flex-wrap">{editId ? 'Auftrag bearbeiten' : 'Neuer Auftrag'}
+            {editId && orders.find((o: Order) => o.id === editId)?.reviewReasons?.includes('manual_order_merge') && (
+              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300">
+                Manuell verbunden
+              </span>
+            )}
+          </DialogTitle></DialogHeader>
           <div className={dupCheckOpen ? 'grid grid-cols-1 sm:grid-cols-2 gap-4 dupcheck-split min-w-0' : 'min-w-0 overflow-hidden'}>
           <div className={`space-y-4 min-w-0${dupCheckOpen ? ' max-h-[35vh] sm:max-h-none overflow-y-auto dupcheck-form-col' : ''}`}>
             {/* Phase 2d: auto-reuse banner (exact / near-exact) */}

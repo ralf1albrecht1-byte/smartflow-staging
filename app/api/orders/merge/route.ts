@@ -178,18 +178,12 @@ export async function POST(request: NextRequest) {
         'manual_order_merge',
       ];
 
-      let warningText = 'Mehrere Aufträge wurden manuell verbunden. Bitte prüfen.';
-
       if (hasCustomerMismatch) {
         newReviewReasons.push('merged_different_customers');
-        warningText +=
-          '\nVerbundene Aufträge hatten unterschiedliche oder unvollständige Kundendaten. Bitte prüfen.';
       }
 
       if (hasDoubleMerge) {
         newReviewReasons.push('double_merge');
-        warningText +=
-          '\nMindestens ein ausgewählter Auftrag wurde bereits früher verbunden.';
       }
 
       sourceOrders.forEach((o) => {
@@ -207,9 +201,7 @@ export async function POST(request: NextRequest) {
           imageUrls: mergedImageUrls,
           thumbnailUrls: mergedThumbnailUrls,
           notes: mergedNotes,
-          specialNotes: targetOrder.specialNotes
-            ? `${targetOrder.specialNotes}\n\n${warningText}`
-            : warningText,
+          specialNotes: targetOrder.specialNotes,
           reviewReasons: uniqueReviewReasons,
           needsReview: true,
           hinweisLevel: 'warning',
