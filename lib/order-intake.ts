@@ -786,11 +786,47 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   const matchedService = svc.service_id
     ? services.find((s: any) => s.id === svc.service_id)
     : null;
-  const matchedByName = !matchedService && svc.service_name
-    ? services.find((s: any) => s.name.toLowerCase() === (svc.service_name || '').toLowerCase())
-      || services.find((s: any) => (svc.service_name || '').toLowerCase().includes(s.name.toLowerCase()))
-    : null;
-  const finalService = matchedService || matchedByName;
+  const normalizeServiceText = (value: any) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[ä]/g, 'ae')
+    .replace(/[ö]/g, 'oe')
+    .replace(/[ü]/g, 'ue')
+    .replace(/[ß]/g, 'ss')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const incomingServiceText = normalizeServiceText([
+  svc.service_name,
+  parsed.auftrag?.titel,
+  parsed.auftrag?.beschreibung,
+  messageText,
+].filter(Boolean).join(' '));
+
+const matchedByName = !matchedService && incomingServiceText
+  ? services.find((s: any) => normalizeServiceText(s.name) === normalizeServiceText(svc.service_name))
+    || services.find((s: any) => incomingServiceText.includes(normalizeServiceText(s.name)))
+    || services.find((s: any) => {
+      const serviceName = normalizeServiceText(s.name);
+
+      if (serviceName.includes('hecke') && /(hecke|hecken).*(schneiden|stutzen|pflege|pflegen)|((schneiden|stutzen|pflege|pflegen).*(hecke|hecken))/.test(incomingServiceText)) {
+        return true;
+      }
+
+      if (serviceName.includes('wiese') && /(wiese|rasen).*(maehen|mahen|maeht|maeh|mäh)|((maehen|mahen|maeht|maeh|mäh).*(wiese|rasen))/.test(incomingServiceText)) {
+        return true;
+      }
+
+      if (serviceName.includes('baum') && /(baum|baeume|bäume).*(faellen|fallen|fällen|schneiden)|((faellen|fallen|fällen|schneiden).*(baum|baeume|bäume))/.test(incomingServiceText)) {
+        return true;
+      }
+
+      return false;
+    })
+  : null;
+
+const finalService = matchedService || matchedByName;
 
   const unitPrice = finalService ? Number(finalService.defaultPrice) : (Number(svc.unit_price) || 0);
   const unit = svc.unit || finalService?.unit || 'Stunde';
