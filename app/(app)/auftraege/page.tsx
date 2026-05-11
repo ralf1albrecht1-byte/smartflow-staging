@@ -109,10 +109,7 @@ export default function AuftraegePage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [mergeConfirmChecks, setMergeConfirmChecks] = useState({
     imagesChecked: false,
-    imagesMatch: false,
-    customerCorrect: false,
-    trashUnderstood: false,
-    aiTextUnderstood: false,
+    customerTrashConfirmed: false,
   });
   const [merging, setMerging] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
@@ -863,7 +860,7 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
     setSelectedOrderIds([]);
     setSelectedMainOrderId(null);
     setSelectedCustomerId(null);
-    setMergeConfirmChecks({ imagesChecked: false, imagesMatch: false, customerCorrect: false, trashUnderstood: false, aiTextUnderstood: false });
+    setMergeConfirmChecks({ imagesChecked: false, customerTrashConfirmed: false });
     setMergeDialogOpen(false);
     setMergePreviewUrls({});
     setMerging(false);
@@ -899,14 +896,22 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
 
   // Step 3 → Step 4
   const mergeGoToStep4 = () => {
-    setMergeConfirmChecks({ imagesChecked: false, imagesMatch: false, customerCorrect: false, trashUnderstood: false, aiTextUnderstood: false });
+    setMergeConfirmChecks({ imagesChecked: false, customerTrashConfirmed: false });
     setMergeStep(4);
   };
 
   // Step 4: Execute merge
   const executeMerge = async () => {
+    // GUARD: Prevent double-submit
+    if (merging) {
+      console.log('[MERGE] Already in progress, ignoring duplicate click');
+      return;
+    }
     if (!selectedMainOrderId) return;
+
+    // Set loading state IMMEDIATELY
     setMerging(true);
+
     try {
       const sourceIds = selectedOrderIds.filter((id) => id !== selectedMainOrderId);
       const response = await fetch('/api/orders/merge', {
@@ -919,14 +924,26 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
         }),
       });
       const result = await response.json();
-      if (!response.ok) { toast.error(result.error || 'Fehler beim Verbinden'); setMerging(false); return; }
+
+      if (!response.ok) {
+        // Keep modal open, show error
+        toast.error(`Fehler: ${result.error || 'Fehler beim Verbinden'}`);
+        return; // Don't close modal
+      }
+
+      // Success — close modal and reset state in one batch
       toast.success(`${result.mergedCount} Auftrag/Aufträge wurden verbunden`);
       resetMerge();
+
+      // Refresh list after modal is closed
       await load();
       router.refresh();
     } catch (error) {
-      console.error('Merge error:', error);
+      console.error('[MERGE] Error:', error);
       toast.error('Fehler beim Verbinden der Aufträge');
+      // Keep modal open on error
+    } finally {
+      // Always reset loading state
       setMerging(false);
     }
   };
@@ -1221,7 +1238,7 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
       <MobileListShortcut href="/angebote" label="Angebote" ariaLabel="Zu Angebote" />
 
       {/* ─── Merge Assistant Dialog (Steps 2–4) ─── */}
-      <Dialog open={mergeDialogOpen} onOpenChange={(open) => { if (!open) resetMerge(); }}>
+      <Dialog open={mergeDialogOpen} onOpenChange={(open) => { if (!open && !merging) resetMerge(); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {/* Step 2: Choose Main Order */}
           {mergeStep === 2 && (
@@ -1346,101 +1363,87 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
             );
           })()}
 
-          {/* Step 4: Final Review */}
+          {/* Step 4: Final Review - SIMPLIFIED */}
           {mergeStep === 4 && (() => {
             const selectedOrders = getSelectedOrders();
             const mainOrder = orders.find((o) => o.id === selectedMainOrderId);
             const finalCust = selectedCustomerId ? customers.find((c) => c.id === selectedCustomerId) : (mainOrder ? customers.find((c) => c.id === mainOrder.customerId) : null);
-            const aiOrders = getAiTextOrders();
-            const doubleMerge = hasDoubleMergeWarning();
             const totalImages = selectedOrders.reduce((sum, o) => sum + (o.imageUrls?.length || 0), 0);
             const sourceOrders = selectedOrders.filter((o) => o.id !== selectedMainOrderId);
-            const allChecked = mergeConfirmChecks.imagesChecked && mergeConfirmChecks.imagesMatch && mergeConfirmChecks.customerCorrect && mergeConfirmChecks.trashUnderstood && mergeConfirmChecks.aiTextUnderstood;
+            const allChecked = mergeConfirmChecks.imagesChecked && mergeConfirmChecks.customerTrashConfirmed;
             return (
               <>
                 <DialogHeader>
-                  <DialogTitle>Schritt 4: Zusammenfassung & Bestätigung</DialogTitle>
+                  <DialogTitle>Aufträge verbinden – Zusammenfassung</DialogTitle>
                 </DialogHeader>
-                <div className="space-y-3 text-sm">
-                  {/* Summary */}
-                  <div className="p-3 bg-muted/50 rounded-lg space-y-1">
-                    <p><strong>Hauptauftrag:</strong> {mainOrder?.serviceName || mainOrder?.description || mainOrder?.id.slice(-8)}</p>
-                    <p><strong>Kunde:</strong> {finalCust?.name || '–'}{finalCust?.customerNumber ? ` (${finalCust.customerNumber})` : ''}</p>
-                    <p><strong>Bilder gesamt:</strong> {totalImages}</p>
-                    <p><strong>Quellenaufträge → Papierkorb:</strong> {sourceOrders.length}</p>
+                <div className="space-y-4">
+                  {/* Compact summary */}
+                  <div className="rounded-lg bg-slate-50 dark:bg-slate-800/50 p-4 space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="font-medium">Bilder werden übernommen:</span>
+                      <span>{totalImages} Bilder</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium">Hauptauftrag:</span>
+                      <span className="text-right truncate ml-2 max-w-[55%]">{mainOrder?.serviceName || mainOrder?.description || mainOrder?.id.slice(-8)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium">Kunde bleibt:</span>
+                      <span className="text-right truncate ml-2 max-w-[55%]">{finalCust?.name || '–'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium">Papierkorb:</span>
+                      <span>{sourceOrders.length} Aufträge</span>
+                    </div>
                   </div>
 
-                  {/* Image preview per order */}
-                  {selectedOrders.some((o) => mergePreviewUrls[o.id]) && (
-                    <div className="space-y-1">
-                      <p className="font-medium text-xs text-muted-foreground">Bilder-Vorschau:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedOrders.map((o) => mergePreviewUrls[o.id] ? (
-                          <div key={o.id} className="relative">
-                            <img src={mergePreviewUrls[o.id]} alt="" className="w-12 h-12 object-cover rounded border" />
-                            <span className="absolute -bottom-1 -right-1 text-[9px] bg-background border rounded px-0.5">{o.id.slice(-4)}</span>
-                          </div>
-                        ) : null)}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Warnings */}
-                  <div className="space-y-2">
-                    <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-200">
-                      <p className="font-medium mb-1">⚠️ Wichtige Hinweise:</p>
-                      <ul className="space-y-0.5 list-disc list-inside">
-                        <li>Leistungen, Preise, Termine, Priorität und Zuweisungen werden <strong>NICHT</strong> übernommen.</li>
-                        <li>KI-Texte aus Bild-ohne-Text-Aufträgen werden <strong>NICHT</strong> übernommen.</li>
-                        <li>Die übrigen {sourceOrders.length} Aufträge werden in den Papierkorb verschoben.</li>
-                      </ul>
-                    </div>
-
-                    {doubleMerge && (
-                      <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded text-xs text-amber-800 dark:text-amber-200">
-                        ⚠️ Mindestens ein ausgewählter Auftrag wurde bereits früher verbunden. Bitte besonders sorgfältig prüfen.
-                      </div>
-                    )}
-
-                    {aiOrders.length > 0 && (
-                      <div className="p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-xs text-blue-800 dark:text-blue-200">
-                        ℹ️ {aiOrders.length} Auftrag/Aufträge mit KI-generiertem Text (Bild ohne Text) — Beschreibung wird nicht übernommen.
-                      </div>
-                    )}
+                  {/* Compact "Not transferred" info */}
+                  <div className="text-xs text-slate-600 dark:text-slate-400 p-3 bg-amber-50 dark:bg-amber-900/20 rounded">
+                    <span className="font-medium">Nicht übernommen:</span>{' '}
+                    Leistungen, Preise, Termine, Priorität, Zuweisungen und KI-Texte aus Bild-ohne-Text-Aufträgen.
                   </div>
 
-                  {/* 5 Confirmation checkboxes */}
-                  <div className="space-y-2 pt-2">
-                    <p className="font-medium text-xs text-muted-foreground">Alle Punkte bestätigen:</p>
-                    {[
-                      { key: 'imagesChecked' as const, label: 'Ich habe die Bilder aller ausgewählten Aufträge geprüft.' },
-                      { key: 'imagesMatch' as const, label: 'Die Bilder gehören zusammen und zum selben Auftrag.' },
-                      { key: 'customerCorrect' as const, label: `Der Kunde „${finalCust?.name || '–'}" ist korrekt für den verbundenen Auftrag.` },
-                      { key: 'trashUnderstood' as const, label: `Ich verstehe, dass ${sourceOrders.length} Auftrag/Aufträge in den Papierkorb verschoben werden.` },
-                      { key: 'aiTextUnderstood' as const, label: 'Ich verstehe, dass Leistungen, Preise, Termine und KI-Texte NICHT übernommen werden.' },
-                    ].map(({ key, label }) => (
-                      <label key={key} className="flex items-start gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={mergeConfirmChecks[key]}
-                          onChange={(e) => setMergeConfirmChecks((prev) => ({ ...prev, [key]: e.target.checked }))}
-                          className="mt-0.5 h-4 w-4 rounded border-gray-300"
-                        />
-                        <span className="text-xs">{label}</span>
-                      </label>
-                    ))}
+                  {/* ONLY 2 CHECKBOXES */}
+                  <div className="space-y-3 pt-2">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mergeConfirmChecks.imagesChecked}
+                        onChange={(e) => setMergeConfirmChecks((prev) => ({ ...prev, imagesChecked: e.target.checked }))}
+                        className="mt-1 h-4 w-4 rounded border-gray-300"
+                        disabled={merging}
+                      />
+                      <span className="text-sm">
+                        Ich habe geprüft: Die Bilder gehören zusammen und werden in den Hauptauftrag übernommen.
+                      </span>
+                    </label>
+
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mergeConfirmChecks.customerTrashConfirmed}
+                        onChange={(e) => setMergeConfirmChecks((prev) => ({ ...prev, customerTrashConfirmed: e.target.checked }))}
+                        className="mt-1 h-4 w-4 rounded border-gray-300"
+                        disabled={merging}
+                      />
+                      <span className="text-sm">
+                        Ich bestätige: Der Kunde bleibt <strong>{finalCust?.name || '–'}</strong>. Die übrigen Aufträge gehen in den Papierkorb.
+                      </span>
+                    </label>
                   </div>
                 </div>
-                <div className="flex justify-between mt-4">
-                  <Button variant="outline" onClick={() => setMergeStep(3)}>
+
+                {/* Footer buttons */}
+                <div className="flex justify-between mt-4 gap-2">
+                  <Button variant="outline" onClick={() => setMergeStep(3)} disabled={merging}>
                     <ChevronLeft className="w-4 h-4 mr-1" />Zurück
                   </Button>
                   <Button
                     onClick={executeMerge}
                     disabled={!allChecked || merging}
-                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                    className="min-w-[140px] bg-orange-600 hover:bg-orange-700 text-white"
                   >
-                    {merging ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Verbinde…</> : 'Jetzt verbinden'}
+                    {merging ? <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Wird verbunden…</> : 'Jetzt verbinden'}
                   </Button>
                 </div>
               </>
