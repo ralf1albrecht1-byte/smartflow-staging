@@ -571,6 +571,8 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
   };
 
   const downloadPdf = async (id: string) => {
+  window.open(`/api/offers/${id}/pdf?_t=${Date.now()}`, '_blank', 'noopener,noreferrer');
+};
     setDownloading(id);
     try {
       const res = await fetch(`/api/offers/${id}/pdf?_t=${Date.now()}`, { cache: 'no-store' });

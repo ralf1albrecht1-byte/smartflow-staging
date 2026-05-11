@@ -572,6 +572,9 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   };
 
   const downloadPdf = async (e: React.MouseEvent, id: string) => {
+  e.stopPropagation();
+  window.open(`/api/invoices/${id}/pdf?_t=${Date.now()}`, '_blank', 'noopener,noreferrer');
+};
     e.stopPropagation();
     setDownloading(id);
     try {
