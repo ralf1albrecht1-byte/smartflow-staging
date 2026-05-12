@@ -53,6 +53,151 @@ function extractSelfIntroductionName(rawText: string | null | undefined): string
   return candidate;
 }
 
+function normalizeUnitText(value: any): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[ä]/g, 'ae')
+    .replace(/[ö]/g, 'oe')
+    .replace(/[ü]/g, 'ue')
+    .replace(/[ß]/g, 'ss')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function detectQuantityUnitFromText(text: string): { value: number | null; unit: string | null; raw: string | null } {
+  const source = normalizeUnitText(text);
+  if (!source) return { value: null, unit: null, raw: null };
+
+  const patterns = [
+    { unit: 'square_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter)\b/i },
+    { unit: 'hour', re: /(\d+(?:[.,]\d+)?)\s*(?:stunden|stunde|std\.?|h)\b/i },
+    { unit: 'meter', re: /(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/i },
+    { unit: 'piece', re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stuck|stk|baeume|baume|baum)\b/i },
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern.re);
+    if (match?.[1]) {
+      return {
+        value: Number(match[1].replace(',', '.')),
+        unit: pattern.unit,
+        raw: match[0],
+      };
+    }
+  }
+
+  return { value: null, unit: null, raw: null };
+}
+
+function validateQuantityAgainstServiceUnit(args: {
+  serviceUnit?: string | null;
+  detectedValue?: number | null;
+  detectedUnit?: string | null;
+  serviceName?: string | null;
+}) {
+  const serviceUnit = normalizeUnitText(args.serviceUnit);
+  const serviceName = normalizeUnitText(args.serviceName);
+  const detectedValue = typeof args.detectedValue === 'number' && isFinite(args.detectedValue)
+    ? args.detectedValue
+    : null;
+  const detectedUnit = normalizeUnitText(args.detectedUnit);
+
+  const isFlat =
+    serviceUnit.includes('pauschal') ||
+    serviceUnit.includes('fix') ||
+    serviceUnit.includes('stück') ||
+    serviceUnit.includes('stueck');
+
+  const isHour =
+    serviceUnit.includes('stunde') ||
+    serviceUnit.includes('std') ||
+    serviceUnit === 'h' ||
+    serviceUnit.includes('stundensatz');
+
+  const isMeter =
+    serviceUnit.includes('meter') ||
+    serviceUnit.includes('lfm') ||
+    serviceUnit === 'm';
+
+  if (isFlat) {
+    return {
+      quantity: 1,
+      needsReview: false,
+      reason: null as string | null,
+    };
+  }
+
+  if (isHour) {
+    if (detectedValue && detectedUnit === 'hour') {
+      return {
+        quantity: detectedValue,
+        needsReview: false,
+        reason: null as string | null,
+      };
+    }
+
+    if (detectedValue && detectedUnit === 'square_meter') {
+      return {
+        quantity: 1,
+        needsReview: true,
+        reason: 'Flaeche_erkannt_aber_Leistung_basiert_auf_Stunden',
+      };
+    }
+
+    if (detectedValue && detectedUnit === 'meter') {
+      return {
+        quantity: 1,
+        needsReview: true,
+        reason: 'Laenge_erkannt_aber_Leistung_basiert_auf_Stunden',
+      };
+    }
+
+    return {
+      quantity: 1,
+      needsReview: false,
+      reason: null as string | null,
+    };
+  }
+
+  if (isMeter) {
+    if (detectedValue && detectedUnit === 'meter') {
+      return {
+        quantity: detectedValue,
+        needsReview: false,
+        reason: null as string | null,
+      };
+    }
+
+    if (detectedValue && detectedUnit && detectedUnit !== 'meter') {
+      return {
+        quantity: 1,
+        needsReview: true,
+        reason: 'Nicht_passende_Einheit_fuer_Meterleistung',
+      };
+    }
+
+    return {
+      quantity: 1,
+      needsReview: false,
+      reason: null as string | null,
+    };
+  }
+
+  if (serviceName.includes('baum') && detectedUnit === 'piece' && detectedValue) {
+    return {
+      quantity: detectedValue,
+      needsReview: false,
+      reason: null as string | null,
+    };
+  }
+
+  return {
+    quantity: detectedValue || 1,
+    needsReview: false,
+    reason: null as string | null,
+  };
+}
+
 /**
  * Strukturiertes Audit-Log für jede Intake-Verarbeitung.
  * Wird in stdout als kompakter JSON-Block ausgegeben:
@@ -326,7 +471,12 @@ REGELN
 - wenn unsicher → service = null
 
 5. estimated_quantity:
-- nur wenn klar (z. B. "2 Bäume", "50m²")
+- nur wenn Zahl UND Einheit eindeutig zur Leistung passen
+- Stundenleistungen: NUR Mengen aus "Stunde", "Stunden", "Std", "h" übernehmen
+- Meterleistungen: NUR Mengen aus "Meter", "m", "Laufmeter", "lfm" übernehmen
+- Pauschalleistungen: estimated_quantity immer null oder 1
+- Quadratmeter / m² / qm / Fläche NIEMALS als Stundenmenge übernehmen
+- Wenn Fläche genannt wird, aber die Leistung auf Stunden basiert → estimated_quantity = null und needs_review = true
 - sonst null
 
 6. needs_review = true bei:
@@ -828,11 +978,42 @@ const matchedByName = !matchedService && incomingServiceText
 
 const finalService = matchedService || matchedByName;
 
-  const unitPrice = finalService ? Number(finalService.defaultPrice) : (Number(svc.unit_price) || 0);
-  const unit = svc.unit || finalService?.unit || 'Stunde';
-  const quantity = Number(svc.estimated_quantity) || 1;
-  const totalPrice = unitPrice * quantity;
-  const serviceName = finalService?.name || svc.service_name || null;
+const detectedQuantity = detectQuantityUnitFromText([
+  svc.service_name,
+  parsed.auftrag?.titel,
+  parsed.auftrag?.beschreibung,
+  messageText,
+].filter(Boolean).join(' '));
+
+
+
+const unitPrice = finalService ? Number(finalService.defaultPrice) : (Number(svc.unit_price) || 0);
+const unit = finalService ? String(finalService.unit || 'Stunde') : String(svc.unit || 'Stunde');
+const serviceName = finalService?.name || svc.service_name || null;
+
+const aiEstimatedQuantity = Number(svc.estimated_quantity);
+const safeEstimatedQuantity = Number.isFinite(aiEstimatedQuantity) && aiEstimatedQuantity > 0
+  ? aiEstimatedQuantity
+  : null;
+
+const quantityValidation = validateQuantityAgainstServiceUnit({
+  serviceUnit: unit,
+  detectedValue: detectedQuantity.value ?? safeEstimatedQuantity,
+  detectedUnit: detectedQuantity.unit,
+  serviceName,
+});
+
+const quantity = quantityValidation.quantity;
+const totalPrice = unitPrice * quantity;
+
+
+
+
+
+if (quantityValidation.needsReview && quantityValidation.reason) {
+  parsed.system = parsed.system || {};
+  parsed.system.needs_review = true;
+}
 
   // --- Description ---
   const description = parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`;
@@ -887,10 +1068,11 @@ const finalService = matchedService || matchedByName;
     baseReviewReasons.push('image_only_no_text');
   }
 
-  const allReviewReasons: string[] = [
-    ...(additionalReviewReasons || []),
-    ...baseReviewReasons,
-  ];
+const allReviewReasons: string[] = [
+  ...(additionalReviewReasons || []),
+  ...baseReviewReasons,
+  ...(quantityValidation.needsReview && quantityValidation.reason ? [quantityValidation.reason] : []),
+];
 
   if (autoReuseTags.length > 0) {
     allReviewReasons.push(...autoReuseTags);
