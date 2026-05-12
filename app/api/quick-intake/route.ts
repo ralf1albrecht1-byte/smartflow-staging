@@ -231,6 +231,17 @@ Respond with raw JSON only.
       const unit = parsed.unit || matchedService?.unit || 'Stunde';
       const quantity = Number(parsed.estimatedQuantity) || 1;
 
+      // ─── UNIT MISMATCH CHECK (post-parse, read-only) ───
+      const unitMismatchReasons: string[] = [];
+      if (matchedService && parsed.unit && matchedService.unit) {
+        const detectedUnit = (parsed.unit as string).trim().toLowerCase();
+        const expectedUnit = (matchedService.unit as string).trim().toLowerCase();
+        if (detectedUnit !== expectedUnit) {
+          const sName = matchedService.name || parsed.serviceName || 'Sonstiges';
+          unitMismatchReasons.push(`unit_mismatch:${sName}:${parsed.unit}:${matchedService.unit}`);
+        }
+      }
+
       // ═══ SERVER-SIDE MATCH VERIFICATION (hardened v2) ═══
       // Even though the LLM may suggest existingCustomerId, we verify server-side.
       // Only phone/email matches allow auto-assignment.
@@ -277,6 +288,8 @@ Respond with raw JSON only.
           unit,
           estimatedQuantity: quantity,
           totalEstimate: unitPrice * quantity,
+          // Unit mismatch warnings for UI
+          unitMismatchReasons,
         },
       });
     }
@@ -469,6 +482,24 @@ Respond with raw JSON only.
       const quantity = Number(analysis.estimatedQuantity) || 1;
       const totalPrice = unitPrice * quantity;
 
+      // ─── UNIT MISMATCH CHECK (create path) ───
+      const createUnitMismatchReasons: string[] = [];
+      if (analysis.unitMismatchReasons && Array.isArray(analysis.unitMismatchReasons)) {
+        createUnitMismatchReasons.push(...analysis.unitMismatchReasons);
+      } else {
+        // Re-check if analysis didn't carry it (e.g. older frontend)
+        const createMatchedService = await prisma.service.findFirst({
+          where: { userId, name: { equals: analysis.serviceName, mode: 'insensitive' as any } },
+        });
+        if (createMatchedService && analysis.unit && createMatchedService.unit) {
+          const det = (analysis.unit as string).trim().toLowerCase();
+          const exp = (createMatchedService.unit as string).trim().toLowerCase();
+          if (det !== exp) {
+            createUnitMismatchReasons.push(`unit_mismatch:${createMatchedService.name}:${analysis.unit}:${createMatchedService.unit}`);
+          }
+        }
+      }
+
       const order = await prisma.order.create({
         data: {
           customerId,
@@ -483,9 +514,9 @@ Respond with raw JSON only.
           date: new Date(),
           notes: data.originalMessage ? `WhatsApp-Eingang:\n${data.originalMessage}` : null,
           specialNotes: analysis.specialNotes || null,
-          needsReview: false, // Never set needsReview from specialNotes — review is determined by customer data quality and assignment confidence
-          reviewReasons: autoReuseTags, // Phase 2d: surface auto-reuse info in UI banner (does NOT set needsReview)
-          hinweisLevel: analysis.hinweisLevel || 'none',
+          needsReview: createUnitMismatchReasons.length > 0 ? true : false, // Unit mismatch triggers review; specialNotes never do
+          reviewReasons: [...autoReuseTags, ...createUnitMismatchReasons],
+          hinweisLevel: createUnitMismatchReasons.length > 0 ? 'warning' : (analysis.hinweisLevel || 'none'),
           mediaUrl: data.mediaUrl || null,
           mediaType: data.mediaType || null,
           audioTranscript: data.audioTranscript || null,

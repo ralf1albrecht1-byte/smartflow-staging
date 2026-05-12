@@ -1311,6 +1311,12 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                             ⚠️ Bild ohne Text prüfen
                           </span>
                         )}
+                        {/* Unit mismatch badge: LLM-detected unit differs from service default */}
+                        {o.reviewReasons?.some((r: string) => r.startsWith('unit_mismatch:')) && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                            ⚠️ Einheit/Menge prüfen
+                          </span>
+                        )}
                         {/* Merge badge: order was manually merged */}
                         {o.reviewReasons?.includes('manual_order_merge') && (
                           <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 shrink-0">
@@ -1694,6 +1700,12 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                       ⚠️ Bild ohne Text prüfen
                     </span>
                   )}
+                  {/* Unit mismatch badge in edit dialog */}
+                  {cur?.reviewReasons?.some((r: string) => r.startsWith('unit_mismatch:')) && (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300">
+                      ⚠️ Einheit/Menge prüfen
+                    </span>
+                  )}
                 </div>
               );
             })()}
@@ -1912,17 +1924,30 @@ const showUnitConflict = Boolean(item.aiWarning?.trim());
                     <div className="text-left sm:text-right text-xs text-muted-foreground">
                       = CHF {(Number(item.unitPrice || 0) * Number(item.quantity || 0)).toFixed(2)}
                     </div>
-
-
-
-{showUnitConflict && (
-  <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-    ⚠ {item.aiWarning}
-  </div>
-)}
-                                 </div>
-                );
-              })}
+                    {/* Unit mismatch warning for this specific item */}
+                    {(() => {
+                      const curOrder = editId ? orders.find((o: Order) => o.id === editId) : null;
+                      const mismatch = curOrder?.reviewReasons
+                        ?.filter((r: string) => r.startsWith('unit_mismatch:'))
+                        .find((r: string) => {
+                          const parts = r.split(':');
+                          return parts[1] === item.serviceName;
+                        });
+                      if (!mismatch) return null;
+                      const parts = mismatch.split(':');
+                      const detectedUnit = parts[2];
+                      const expectedUnit = parts[3];
+                      return (
+                        <div className="flex items-start gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
+                          <span className="text-xs text-amber-800 dark:text-amber-200">
+                            ⚠ {detectedUnit} erkannt, aber diese Leistung ist als {expectedUnit} hinterlegt. Bitte Menge/Einheit manuell prüfen.
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ))}
               </div>
               <Button variant="outline" size="sm" className="mt-2 w-full" onClick={addItem}>
                 <Plus className="w-3.5 h-3.5 mr-1" />Weitere Leistung hinzufügen
