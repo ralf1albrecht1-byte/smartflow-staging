@@ -213,6 +213,36 @@ function detectAllQuantityUnitsFromText(text: string): Array<{ value: number; un
   return matches.filter((m) => Number.isFinite(m.value) && m.value > 0);
 }
 
+
+function splitWorkSegments(text: string): string[] {
+  const source = normalizeUnitText(text);
+  if (!source) return [];
+
+  const roughParts = source
+    .split(/\n|;|\*/g)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const segments: string[] = [];
+
+  for (const part of roughParts) {
+    const splitByQuantity = part
+      .replace(
+        /\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|quadrat meter|m3|m³|kubikmeter|kubik meter|cbm|stunden|stunde|std\.?|h|tage|tag|meter|laufmeter|lfm|tonnen|tonne|to\.?|kg|kilogramm|liter|ltr\.?|stück|stueck|stk)\b)/gi,
+        '|||'
+      )
+      .split('|||')
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    segments.push(...splitByQuantity);
+  }
+
+  return segments.length > 0 ? segments : [source];
+}
+
+
+
 function findBestQuantityForService(
   serviceName: string,
   unitType: string,
@@ -1229,45 +1259,84 @@ const uniqueQuantityMatches = quantityMatches.filter(
     return true;
   });
 
-  const orderItems = matchedServices.map((service: any) => {
-    const unit = String(service.unit || 'Stunde');
-    const unitType = getServiceUnitType(unit);
-    const unitPrice = Number(service.defaultPrice || 0);
 
- const matchingQuantity = findBestQuantityForService(
-  service.name,
-  unitType,
-  [parsed.auftrag?.beschreibung, messageText].filter(Boolean).join(' '),
-  uniqueQuantityMatches
-);
 
-const conflictingQuantity = !matchingQuantity
-  ? findConflictingQuantityForService(
-      service.name,
-      unitType,
-      [parsed.auftrag?.beschreibung, messageText].filter(Boolean).join(' '),
-      uniqueQuantityMatches
-    )
-  : null;
+
+
+
+
+
+const fullWorkText = [parsed.auftrag?.beschreibung, messageText]
+  .filter(Boolean)
+  .join('\n');
+
+const workSegments = splitWorkSegments(fullWorkText);
+
+const orderItems = matchedServices.map((service: any) => {
+  const unit = String(service.unit || 'Stunde');
+  const unitType = getServiceUnitType(unit);
+  const unitPrice = Number(service.defaultPrice || 0);
+  const serviceNameNorm = normalizeUnitText(service.name);
+
+  const bestSegment =
+    workSegments.find((segment) => {
+      const segmentNorm = normalizeUnitText(segment);
+      return serviceNameNorm
+        .split(/\s+/)
+        .filter((w) => w.length >= 4)
+        .some((word) => segmentNorm.includes(word));
+    }) ||
+    workSegments.find((segment) => {
+      const segmentNorm = normalizeUnitText(segment);
+      if (serviceNameNorm.includes('hecke')) return segmentNorm.includes('hecke') || segmentNorm.includes('hecken');
+      if (serviceNameNorm.includes('wiese')) return segmentNorm.includes('wiese') || segmentNorm.includes('rasen');
+      if (serviceNameNorm.includes('baum')) return segmentNorm.includes('baum') || segmentNorm.includes('baeume') || segmentNorm.includes('bäume');
+      return false;
+    }) ||
+    fullWorkText;
+
+  const segmentQuantityMatches = detectAllQuantityUnitsFromText(bestSegment);
+
+  const matchingQuantity = findBestQuantityForService(
+    service.name,
+    unitType,
+    bestSegment,
+    segmentQuantityMatches
+  );
+
+  const conflictingQuantity = !matchingQuantity
+    ? findConflictingQuantityForService(
+        service.name,
+        unitType,
+        bestSegment,
+        segmentQuantityMatches
+      )
+    : null;
 
   const quantityValidation = validateQuantityAgainstServiceUnit({
-  serviceUnit: unit,
-  detectedValue: matchingQuantity?.value ?? conflictingQuantity?.value ?? null,
-  detectedUnit: matchingQuantity?.unit ?? conflictingQuantity?.unit ?? null,
-  serviceName: service.name,
+    serviceUnit: unit,
+    detectedValue: matchingQuantity?.value ?? conflictingQuantity?.value ?? null,
+    detectedUnit: matchingQuantity?.unit ?? conflictingQuantity?.unit ?? null,
+    serviceName: service.name,
+  });
+
+  return {
+    serviceName: service.name,
+    description: bestSegment || parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`,
+    quantity: quantityValidation.quantity,
+    unit,
+    unitPrice,
+    totalPrice: unitPrice * quantityValidation.quantity,
+    needsReview: quantityValidation.needsReview,
+    reviewReason: quantityValidation.reason,
+  };
 });
 
-    return {
-      serviceName: service.name,
-      description: parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`,
-      quantity: quantityValidation.quantity,
-      unit,
-      unitPrice,
-      totalPrice: unitPrice * quantityValidation.quantity,
-      needsReview: quantityValidation.needsReview,
-      reviewReason: quantityValidation.reason,
-    };
-  });
+
+
+
+
+
 
   const fallbackService = matchedServices.length === 0 && svc.service_name
     ? {
