@@ -69,10 +69,15 @@ function detectQuantityUnitFromText(text: string): { value: number | null; unit:
   if (!source) return { value: null, unit: null, raw: null };
 
   const patterns = [
-    { unit: 'square_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter)\b/i },
+    { unit: 'square_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter|quadrat meter)\b/i },
+    { unit: 'cubic_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m3|m³|kubikmeter|kubik meter|cbm)\b/i },
     { unit: 'hour', re: /(\d+(?:[.,]\d+)?)\s*(?:stunden|stunde|std\.?|h)\b/i },
+    { unit: 'day', re: /(\d+(?:[.,]\d+)?)\s*(?:tage|tag|arbeitstage|arbeitstag)\b/i },
     { unit: 'meter', re: /(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/i },
-    { unit: 'piece', re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stuck|stk|baeume|baume|baum)\b/i },
+    { unit: 'kilogram', re: /(\d+(?:[.,]\d+)?)\s*(?:kilogramm|kg)\b/i },
+    { unit: 'ton', re: /(\d+(?:[.,]\d+)?)\s*(?:tonnen|tonne|to\.?|t)\b/i },
+    { unit: 'liter', re: /(\d+(?:[.,]\d+)?)\s*(?:liter|ltr\.?|l)\b/i },
+    { unit: 'piece', re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stück|stuck|stk|anzahl|einheiten|baeume|bäume|baume|baum)\b/i },
   ];
 
   for (const pattern of patterns) {
@@ -89,6 +94,7 @@ function detectQuantityUnitFromText(text: string): { value: number | null; unit:
   return { value: null, unit: null, raw: null };
 }
 
+
 function validateQuantityAgainstServiceUnit(args: {
   serviceUnit?: string | null;
   detectedValue?: number | null;
@@ -96,30 +102,37 @@ function validateQuantityAgainstServiceUnit(args: {
   serviceName?: string | null;
 }) {
   const serviceUnit = normalizeUnitText(args.serviceUnit);
-  const serviceName = normalizeUnitText(args.serviceName);
-  const detectedValue = typeof args.detectedValue === 'number' && isFinite(args.detectedValue)
+  const detectedValue = typeof args.detectedValue === 'number' && isFinite(args.detectedValue) && args.detectedValue > 0
     ? args.detectedValue
     : null;
   const detectedUnit = normalizeUnitText(args.detectedUnit);
 
-  const isFlat =
-    serviceUnit.includes('pauschal') ||
-    serviceUnit.includes('fix') ||
-    serviceUnit.includes('stück') ||
-    serviceUnit.includes('stueck');
+  const unitAliases: Record<string, string[]> = {
+    flat: ['pauschal', 'fixpreis', 'festpreis', 'pauschale'],
+    hour: ['stunde', 'stunden', 'std', 'h', 'stundensatz'],
+    day: ['tag', 'tage', 'arbeitstag', 'arbeitstage', 'tagessatz'],
+    meter: ['meter', 'laufmeter', 'lfm', 'm'],
+    square_meter: ['quadratmeter', 'quadradmeter', 'qm', 'm2', 'm²', 'flaeche', 'fläche'],
+    cubic_meter: ['kubikmeter', 'cbm', 'm3', 'm³', 'volumen'],
+    piece: ['stueck', 'stück', 'stk', 'anzahl', 'einheit', 'einheiten'],
+    kilogram: ['kilogramm', 'kg'],
+    ton: ['tonne', 'tonnen', 'to', 't'],
+    liter: ['liter', 'ltr', 'l'],
+  };
 
-  const isHour =
-    serviceUnit.includes('stunde') ||
-    serviceUnit.includes('std') ||
-    serviceUnit === 'h' ||
-    serviceUnit.includes('stundensatz');
+  const serviceUnitType = Object.entries(unitAliases).find(([, aliases]) =>
+    aliases.some((alias) => serviceUnit === alias || serviceUnit.includes(alias))
+  )?.[0] || 'unknown';
 
-  const isMeter =
-    serviceUnit.includes('meter') ||
-    serviceUnit.includes('lfm') ||
-    serviceUnit === 'm';
+  if (serviceUnitType === 'flat') {
+    return {
+      quantity: 1,
+      needsReview: !!detectedValue,
+      reason: detectedValue ? 'Menge_erkannt_aber_Leistung_ist_pauschal' : null as string | null,
+    };
+  }
 
-  if (isFlat) {
+  if (!detectedValue || !detectedUnit) {
     return {
       quantity: 1,
       needsReview: false,
@@ -127,63 +140,7 @@ function validateQuantityAgainstServiceUnit(args: {
     };
   }
 
-  if (isHour) {
-    if (detectedValue && detectedUnit === 'hour') {
-      return {
-        quantity: detectedValue,
-        needsReview: false,
-        reason: null as string | null,
-      };
-    }
-
-    if (detectedValue && detectedUnit === 'square_meter') {
-      return {
-        quantity: 1,
-        needsReview: true,
-        reason: 'Flaeche_erkannt_aber_Leistung_basiert_auf_Stunden',
-      };
-    }
-
-    if (detectedValue && detectedUnit === 'meter') {
-      return {
-        quantity: 1,
-        needsReview: true,
-        reason: 'Laenge_erkannt_aber_Leistung_basiert_auf_Stunden',
-      };
-    }
-
-    return {
-      quantity: 1,
-      needsReview: false,
-      reason: null as string | null,
-    };
-  }
-
-  if (isMeter) {
-    if (detectedValue && detectedUnit === 'meter') {
-      return {
-        quantity: detectedValue,
-        needsReview: false,
-        reason: null as string | null,
-      };
-    }
-
-    if (detectedValue && detectedUnit && detectedUnit !== 'meter') {
-      return {
-        quantity: 1,
-        needsReview: true,
-        reason: 'Nicht_passende_Einheit_fuer_Meterleistung',
-      };
-    }
-
-    return {
-      quantity: 1,
-      needsReview: false,
-      reason: null as string | null,
-    };
-  }
-
-  if (serviceName.includes('baum') && detectedUnit === 'piece' && detectedValue) {
+  if (serviceUnitType === detectedUnit) {
     return {
       quantity: detectedValue,
       needsReview: false,
@@ -191,12 +148,27 @@ function validateQuantityAgainstServiceUnit(args: {
     };
   }
 
+  const reasonByServiceUnit: Record<string, string> = {
+    hour: 'Menge_erkannt_aber_Leistung_basiert_auf_Stunden',
+    day: 'Menge_erkannt_aber_Leistung_basiert_auf_Tagen',
+    meter: 'Menge_erkannt_aber_Leistung_basiert_auf_Metern',
+    square_meter: 'Menge_erkannt_aber_Leistung_basiert_auf_Quadratmetern',
+    cubic_meter: 'Menge_erkannt_aber_Leistung_basiert_auf_Kubikmetern',
+    piece: 'Menge_erkannt_aber_Leistung_basiert_auf_Stueck',
+    kilogram: 'Menge_erkannt_aber_Leistung_basiert_auf_Kilogramm',
+    ton: 'Menge_erkannt_aber_Leistung_basiert_auf_Tonnen',
+    liter: 'Menge_erkannt_aber_Leistung_basiert_auf_Litern',
+    unknown: 'Menge_erkannt_aber_Leistungseinheit_unbekannt',
+  };
+
   return {
-    quantity: detectedValue || 1,
-    needsReview: false,
-    reason: null as string | null,
+    quantity: 1,
+    needsReview: true,
+    reason: reasonByServiceUnit[serviceUnitType] || reasonByServiceUnit.unknown,
   };
 }
+
+
 
 /**
  * Strukturiertes Audit-Log für jede Intake-Verarbeitung.
@@ -471,12 +443,24 @@ REGELN
 - wenn unsicher → service = null
 
 5. estimated_quantity:
-- nur wenn Zahl UND Einheit eindeutig zur Leistung passen
+- nur wenn Zahl UND Einheit eindeutig zur hinterlegten Leistungseinheit passen
 - Stundenleistungen: NUR Mengen aus "Stunde", "Stunden", "Std", "h" übernehmen
+- Tagesleistungen: NUR Mengen aus "Tag", "Tage", "Arbeitstag", "Arbeitstage" übernehmen
 - Meterleistungen: NUR Mengen aus "Meter", "m", "Laufmeter", "lfm" übernehmen
+- Quadratmeterleistungen: NUR Mengen aus "Quadratmeter", "m²", "m2", "qm" übernehmen
+- Kubikmeterleistungen: NUR Mengen aus "Kubikmeter", "m³", "m3", "cbm" übernehmen
+- Stückleistungen: NUR Mengen aus "Stück", "stk", "Anzahl", "Einheiten" übernehmen
+- Kilogrammleistungen: NUR Mengen aus "Kilogramm", "kg" übernehmen
+- Tonnenleistungen: NUR Mengen aus "Tonne", "Tonnen", "t" übernehmen
+- Literleistungen: NUR Mengen aus "Liter", "l" übernehmen
 - Pauschalleistungen: estimated_quantity immer null oder 1
-- Quadratmeter / m² / qm / Fläche NIEMALS als Stundenmenge übernehmen
-- Wenn Fläche genannt wird, aber die Leistung auf Stunden basiert → estimated_quantity = null und needs_review = true
+- Fläche / m² / qm NIEMALS als Stunden-, Tages-, Meter-, Stück- oder Pauschalmenge übernehmen
+- Meter / Laufmeter NIEMALS als Stunden-, Tages-, Quadratmeter-, Stück- oder Pauschalmenge übernehmen
+- Stunden / Tage NIEMALS als Meter-, Quadratmeter-, Kubikmeter-, Stück-, Liter-, Kilo-, Tonnen- oder Pauschalmenge übernehmen
+- Gewicht / kg / Tonnen NIEMALS als Stunden-, Meter-, Quadratmeter-, Stück- oder Pauschalmenge übernehmen
+- Volumen / Liter / Kubikmeter NIEMALS als Stunden-, Meter-, Quadratmeter-, Stück- oder Pauschalmenge übernehmen
+- Wenn Zahl und Einheit nicht zur Leistungseinheit passen → estimated_quantity = null und needs_review = true
+- wenn unsicher → estimated_quantity = null
 - sonst null
 
 6. needs_review = true bei:
