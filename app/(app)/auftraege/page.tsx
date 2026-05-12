@@ -1879,8 +1879,19 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
             <div>
               <Label className="mb-2 block">Leistungen *</Label>
               <div className="space-y-3">
-                {formItems.map((item, index) => {
-const showUnitConflict = Boolean(item.aiWarning?.trim());
+              {formItems.map((item, index) => {
+  const curOrder = editId ? orders.find((o: Order) => o.id === editId) : null;
+
+  const unitMismatchReason = curOrder?.reviewReasons
+    ?.filter((r: string) => r.startsWith('unit_mismatch:'))
+    .find((r: string) => {
+      const [, serviceName] = r.split(':');
+      return (serviceName || '').trim().toLowerCase() === (item.serviceName || '').trim().toLowerCase();
+    });
+
+  const [, , detectedUnit, expectedUnit] = unitMismatchReason?.split(':') || [];
+
+  const showUnitConflict = Boolean(item.aiWarning?.trim() || unitMismatchReason);
 
   return (
                   <div key={item.key} className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2 min-w-0">
@@ -1926,27 +1937,16 @@ const showUnitConflict = Boolean(item.aiWarning?.trim());
                     </div>
 
 
+                {unitMismatchReason && (
+  <div className="flex items-start gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
+    <span className="text-xs text-amber-800 dark:text-amber-200">
+      ⚠ {detectedUnit} erkannt, aber diese Leistung ist als {expectedUnit} hinterlegt. Bitte Menge/Einheit manuell prüfen.
+    </span>
+  </div>
+)}
 
-                                    {(() => {
-                      const curOrder = editId ? orders.find((o: Order) => o.id === editId) : null;
-                      const mismatch = curOrder?.reviewReasons
-                        ?.filter((r: string) => r.startsWith('unit_mismatch:'))
-                        .find((r: string) => r.split(':')[1] === item.serviceName);
-
-                      if (!mismatch) return null;
-
-                      const [, , detectedUnit, expectedUnit] = mismatch.split(':');
-
-                      return (
-                        <div className="flex items-start gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
-                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
-                          <span className="text-xs text-amber-800 dark:text-amber-200">
-                            ⚠ {detectedUnit} erkannt, aber diese Leistung ist als {expectedUnit} hinterlegt. Bitte Menge/Einheit manuell prüfen.
-                          </span>
-                        </div>
-                      );
-                    })()}
-                                 </div>
+ </div>
                 );
               })}
                 </div>
