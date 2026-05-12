@@ -90,9 +90,15 @@ export default function LeistungenPage() {
               <Label>Einheit</Label>
               <select className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.unit} onChange={(e: any) => setForm({ ...form, unit: e?.target?.value ?? 'Stunde' })}>
                 <option value="Stunde">Stunde</option>
-                <option value="Pauschal">Pauschal</option>
-                <option value="Meter">Meter</option>
-                <option value="Stück">Stück</option>
+<option value="Tag">Tag</option>
+<option value="Pauschal">Pauschal</option>
+<option value="Meter">Meter</option>
+<option value="Quadratmeter">Quadratmeter</option>
+<option value="Kubikmeter">Kubikmeter</option>
+<option value="Stück">Stück</option>
+<option value="Kilogramm">Kilogramm</option>
+<option value="Tonne">Tonne</option>
+<option value="Liter">Liter</option>
                 
               </select>
             </div>
