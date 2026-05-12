@@ -1303,50 +1303,96 @@ const conflictingQuantity = !matchingQuantity
     parsed.system.needs_review = true;
   }
 
+
+
+
+
 // --- UNIT MISMATCH CHECK ---
 const unitMismatchReasons: string[] = [];
 
+const normalizeUnitForReview = (value?: string | null) => {
+  const v = (value || '').trim().toLowerCase();
+
+  if (['stunde', 'stunden', 'std', 'h'].includes(v)) return 'Stunde';
+  if (['tag', 'tage'].includes(v)) return 'Tag';
+  if (['meter', 'm'].includes(v)) return 'Meter';
+  if (['quadratmeter', 'qm', 'm2', 'm²'].includes(v)) return 'Quadratmeter';
+  if (['kubikmeter', 'm3', 'm³'].includes(v)) return 'Kubikmeter';
+  if (['stück', 'stueck', 'stk'].includes(v)) return 'Stück';
+  if (['kilogramm', 'kg'].includes(v)) return 'Kilogramm';
+  if (['tonne', 'tonnen', 't'].includes(v)) return 'Tonne';
+  if (['liter', 'l'].includes(v)) return 'Liter';
+  if (['pauschal', 'pauschale'].includes(v)) return 'Pauschal';
+
+  return value || '';
+};
+
+const detectUnitNearService = (text: string, serviceName: string) => {
+  const lower = (text || '').toLowerCase();
+  const serviceLower = (serviceName || '').trim().toLowerCase();
+
+  const keywords = serviceLower
+    .split(/\s+/)
+    .filter((w) => w.length >= 4);
+
+  let searchText = lower;
+
+  for (const keyword of keywords) {
+    const pos = lower.indexOf(keyword);
+    if (pos >= 0) {
+      searchText = lower.slice(Math.max(0, pos - 60), pos + 100);
+      break;
+    }
+  }
+
+  if (/\b(quadratmeter|qm|m2|m²)\b/i.test(searchText)) return 'Quadratmeter';
+  if (/\b(kubikmeter|m3|m³)\b/i.test(searchText)) return 'Kubikmeter';
+  if (/\b(stunden|stunde|std|h)\b/i.test(searchText)) return 'Stunde';
+  if (/\b(tonnen|tonne)\b/i.test(searchText)) return 'Tonne';
+  if (/\b(kilogramm|kg)\b/i.test(searchText)) return 'Kilogramm';
+  if (/\b(liter)\b/i.test(searchText)) return 'Liter';
+  if (/\b(meter|m)\b/i.test(searchText)) return 'Meter';
+  if (/\b(stück|stueck|stk)\b/i.test(searchText)) return 'Stück';
+  if (/\b(pauschal|pauschale)\b/i.test(searchText)) return 'Pauschal';
+
+  return '';
+};
+
 for (const item of finalOrderItems) {
-  const detectedUnit = item.unit?.trim()?.toLowerCase();
+  const itemServiceName = (item.serviceName || '').trim();
 
-  const normalizedItemServiceName = (item.serviceName || '')
-  .trim()
-  .toLowerCase();
+  const matchingService = services.find((s: any) => {
+    const serviceName = (s.name || '').trim().toLowerCase();
+    const itemName = itemServiceName.toLowerCase();
 
-const matchingService = services.find((s) =>
-  (s.name || '')
-    .trim()
-    .toLowerCase()
-    .includes(normalizedItemServiceName)
-);
+    return serviceName === itemName || serviceName.includes(itemName) || itemName.includes(serviceName);
+  });
 
-  const expectedUnit = matchingService?.unit
-    ?.trim()
-    ?.toLowerCase();
+  const expectedUnit = normalizeUnitForReview(matchingService?.unit || item.unit);
 
-console.log(
-  '[UNIT CHECK]',
-  JSON.stringify({
-    itemService: item.serviceName,
-    matchedService: matchingService?.name,
-    detectedUnit,
-    expectedUnit,
-  })
-);
+  const textForCheck = [
+    item.description,
+    parsed.auftrag?.beschreibung,
+    parsed.auftrag?.titel,
+    messageText,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
-
-
-if (
-  detectedUnit &&
-  expectedUnit &&
-  detectedUnit !== expectedUnit
-) {
-  unitMismatchReasons.push(
-   `unit_mismatch:${item.serviceName}:${item.unit}:${matchingService?.unit || ''}`
+  const detectedUnit = normalizeUnitForReview(
+    detectUnitNearService(textForCheck, itemServiceName)
   );
-}
-}
 
+  if (
+    detectedUnit &&
+    expectedUnit &&
+    detectedUnit !== expectedUnit
+  ) {
+    unitMismatchReasons.push(
+      `unit_mismatch:${item.serviceName}:${detectedUnit}:${expectedUnit}`
+    );
+  }
+}
 
 
   // --- Description ---
