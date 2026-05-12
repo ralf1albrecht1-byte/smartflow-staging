@@ -228,6 +228,76 @@ function detectAllQuantityUnitsFromText(text: string): Array<{ value: number; un
   return matches.filter((m) => Number.isFinite(m.value) && m.value > 0);
 }
 
+function findBestQuantityForService(
+  serviceName: string,
+  unitType: string,
+  text: string,
+  quantityMatches: Array<{ value: number; unit: string; raw: string }>
+): { value: number; unit: string; raw: string } | null {
+  const relevant = quantityMatches.filter((q) => q.unit === unitType);
+  if (relevant.length === 0) return null;
+  if (relevant.length === 1) return relevant[0];
+
+  const normalizedText = normalizeUnitText(text);
+  const normalizedService = normalizeUnitText(serviceName);
+
+  const serviceKeywords = normalizedService
+    .split(/\s+/)
+    .filter((w) => w.length >= 4);
+
+  const keywordMap: Record<string, string[]> = {
+    square_meter: ['streichen', 'malen', 'wand', 'fassade', 'flaeche', 'fläche'],
+    cubic_meter: ['kubikmeter', 'volumen', 'entsorgung', 'entsorgen', 'gruenabfall', 'grünabfall', 'bauschutt', 'aushub'],
+    ton: ['tonne', 'tonnen', 'entsorgung', 'entsorgen', 'bauschutt', 'aushub', 'abfall'],
+    liter: ['liter', 'reiniger', 'reinigungsmittel', 'reinigung', 'spezialreiniger'],
+    meter: ['meter', 'hecke', 'hecken', 'schneiden', 'stutzen', 'rohr', 'zaun'],
+    hour: ['stunde', 'stunden', 'maehen', 'mähen', 'wiese', 'rasen'],
+    day: ['tag', 'tage', 'arbeitstag', 'arbeitstage', 'montage'],
+    piece: ['stueck', 'stück', 'baum', 'baeume', 'bäume', 'platten'],
+    kilogram: ['kilogramm', 'kilo', 'kg', 'kies', 'material'],
+  };
+
+  const keywords = [...serviceKeywords, ...(keywordMap[unitType] || [])];
+
+  const sentences = normalizedText
+    .split(/[.!?\n;-]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let best: { q: { value: number; unit: string; raw: string }; score: number } | null = null;
+
+  for (const q of relevant) {
+    const raw = normalizeUnitText(q.raw);
+    let score = 0;
+
+    for (const sentence of sentences) {
+      if (!sentence.includes(raw)) continue;
+
+      for (const keyword of keywords) {
+        if (sentence.includes(keyword)) score += 10;
+      }
+
+      if (normalizedService && sentence.includes(normalizedService)) score += 25;
+    }
+
+    const rawIndex = normalizedText.indexOf(raw);
+    const serviceIndex = keywords
+      .map((k) => normalizedText.indexOf(k))
+      .filter((i) => i >= 0)
+      .sort((a, b) => Math.abs(a - rawIndex) - Math.abs(b - rawIndex))[0];
+
+    if (rawIndex >= 0 && serviceIndex >= 0) {
+      score += Math.max(0, 20 - Math.floor(Math.abs(rawIndex - serviceIndex) / 20));
+    }
+
+    if (!best || score > best.score) {
+      best = { q, score };
+    }
+  }
+
+  return best?.q || relevant[0];
+}
+
 /**
  * Strukturiertes Audit-Log für jede Intake-Verarbeitung.
  * Wird in stdout als kompakter JSON-Block ausgegeben:
@@ -1093,7 +1163,12 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
     const unitType = getServiceUnitType(unit);
     const unitPrice = Number(service.defaultPrice || 0);
 
-    const matchingQuantity = quantityMatches.find((q) => q.unit === unitType);
+ const matchingQuantity = findBestQuantityForService(
+  service.name,
+  unitType,
+  [parsed.auftrag?.beschreibung, messageText].filter(Boolean).join(' '),
+  quantityMatches
+);
 
     const quantityValidation = validateQuantityAgainstServiceUnit({
       serviceUnit: unit,
