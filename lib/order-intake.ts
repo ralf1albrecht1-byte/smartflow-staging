@@ -241,7 +241,29 @@ function splitWorkSegments(text: string): string[] {
   return segments.length > 0 ? segments : [source];
 }
 
+function unitTypeToDisplayUnit(unitType?: string | null): string {
+  switch (unitType) {
+    case 'square_meter': return 'Quadratmeter';
+    case 'cubic_meter': return 'Kubikmeter';
+    case 'hour': return 'Stunde';
+    case 'day': return 'Tag';
+    case 'meter': return 'Meter';
+    case 'kilogram': return 'Kilogramm';
+    case 'ton': return 'Tonne';
+    case 'liter': return 'Liter';
+    case 'piece': return 'Stück';
+    case 'flat': return 'Pauschal';
+    default: return 'Stunde';
+  }
+}
 
+function cleanDetectedWorkName(segment: string): string {
+  return normalizeUnitText(segment)
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|quadrat meter|m3|m³|kubikmeter|kubik meter|cbm|stunden|stunde|std\.?|h|tage|tag|meter|laufmeter|lfm|tonnen|tonne|to\.?|kg|kilogramm|liter|ltr\.?|stück|stueck|stk)\b/gi, ' ')
+    .replace(/\b(ca|circa|ungefähr|ungefaehr|etwa|rund)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 function findBestQuantityForService(
   serviceName: string,
@@ -1265,7 +1287,6 @@ const uniqueQuantityMatches = quantityMatches.filter(
 
 
 
-
 const fullWorkText = [parsed.auftrag?.beschreibung, messageText]
   .filter(Boolean)
   .join('\n');
@@ -1332,6 +1353,60 @@ const orderItems = matchedServices.map((service: any) => {
   };
 });
 
+const matchedSegmentTexts = new Set(
+  orderItems.map((item) => normalizeUnitText(item.description || ''))
+);
+
+const unmatchedSegmentItems = workSegments
+  .map((segment) => {
+    const normalizedSegment = normalizeUnitText(segment);
+    const detectedName = cleanDetectedWorkName(segment);
+    const quantityMatch = detectAllQuantityUnitsFromText(segment)[0] || null;
+
+    return {
+      segment,
+      normalizedSegment,
+      detectedName,
+      quantityMatch,
+    };
+  })
+  .filter((item) => {
+    if (!item.detectedName || item.detectedName.length < 4) return false;
+
+    const alreadyMatched = Array.from(matchedSegmentTexts).some((matchedText) =>
+      matchedText.includes(item.normalizedSegment) ||
+      item.normalizedSegment.includes(matchedText)
+    );
+
+    if (alreadyMatched) return false;
+
+    const nameAlreadyCovered = orderItems.some((orderItem) => {
+      const knownName = normalizeUnitText(orderItem.serviceName || '');
+      return knownName && (
+        knownName.includes(item.detectedName) ||
+        item.detectedName.includes(knownName)
+      );
+    });
+
+    return !nameAlreadyCovered;
+  })
+  .map((item) => {
+    const unit = unitTypeToDisplayUnit(item.quantityMatch?.unit || null);
+    const quantity = item.quantityMatch?.value ?? 1;
+
+    return {
+      serviceName: item.detectedName,
+      description: item.segment,
+      quantity,
+      unit,
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: 'unbekannte_leistung_pruefen',
+    };
+  });
+
+const allOrderItems = [...orderItems, ...unmatchedSegmentItems];
 
 
 
@@ -1351,9 +1426,9 @@ const orderItems = matchedServices.map((service: any) => {
       }
     : null;
 
-  const finalOrderItems = orderItems.length > 0
-    ? orderItems
-    : (fallbackService ? [fallbackService] : []);
+const finalOrderItems = allOrderItems.length > 0
+  ? allOrderItems
+  : (fallbackService ? [fallbackService] : []);
 
   const primaryItem = finalOrderItems[0] || null;
 
