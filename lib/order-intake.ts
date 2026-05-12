@@ -1231,48 +1231,9 @@ const uniqueQuantityMatches = quantityMatches.filter(
       return true;
     }
 
-    if (hasServiceToken && hasMatchingQuantityUnit) {
-  const isStrongNameMatch =
-    serviceName.length >= 6 &&
-    incomingServiceText.includes(serviceName);
 
-  const isKnownSemanticMatch =
-    (serviceName.includes('hecke') && /(hecke|hecken).*(schneiden|stutzen|pflege|pflegen)|((schneiden|stutzen|pflege|pflegen).*(hecke|hecken))/.test(incomingServiceText)) ||
-    (serviceName.includes('wiese') && /(wiese|rasen).*(maehen|mahen|maeht|maeh|mäh)|((maehen|mahen|maeht|maeh|mäh).*(wiese|rasen))/.test(incomingServiceText)) ||
-    (serviceName.includes('baum') && /(baum|baeume|bäume).*(faellen|fallen|fällen|schneiden)|((faellen|fallen|fällen|schneiden).*(baum|baeume|bäume))/.test(incomingServiceText));
 
-  return isStrongNameMatch || isKnownSemanticMatch;
-}
 
-    const disposalKeywords = ['entsorgung', 'entsorgen', 'abfall', 'gruenabfall', 'grünabfall', 'bauschutt', 'aushub'];
-    const cleaningKeywords = ['reiniger', 'reinigungsmittel', 'reinigung', 'spezialreiniger'];
-    const paintingKeywords = ['streichen', 'malen', 'wand', 'fassade', 'flaeche', 'fläche'];
-
-       if (
-      ['cubic_meter', 'ton'].includes(serviceUnitType) &&
-      hasMatchingQuantityUnit &&
-      disposalKeywords.some((k) => incomingServiceText.includes(k))
-    ) {
-      return true;
-    }
-
-    if (
-      serviceUnitType === 'liter' &&
-      hasMatchingQuantityUnit &&
-      cleaningKeywords.some((k) => incomingServiceText.includes(k))
-    ) {
-      return true;
-    }
-
-    if (
-      serviceUnitType === 'square_meter' &&
-      hasMatchingQuantityUnit &&
-      paintingKeywords.some((k) => incomingServiceText.includes(k)) &&
-      !incomingServiceText.includes('rasenflaeche') &&
-      !incomingServiceText.includes('rasenfläche')
-    ) {
-      return true;
-    }
 
     return false;
   };
