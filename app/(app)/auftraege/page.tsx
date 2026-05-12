@@ -75,6 +75,20 @@ const priceTypes = [
   'Liter',
 ];
 
+const unitConflictTextByReason: Record<string, string> = {
+  Menge_erkannt_aber_Leistung_basiert_auf_Stunden: '⚠ Menge prüfen: Fläche/Menge erkannt, aber diese Leistung ist nach Stunden hinterlegt.',
+  Menge_erkannt_aber_Leistung_basiert_auf_Tagen: '⚠ Menge prüfen: Menge erkannt, aber diese Leistung ist nach Tagen hinterlegt.',
+  Menge_erkannt_aber_Leistung_basiert_auf_Metern: '⚠ Menge prüfen: andere Einheit erkannt, aber diese Leistung ist nach Metern hinterlegt.',
+  Menge_erkannt_aber_Leistung_basiert_auf_Quadratmetern: '⚠ Menge prüfen: andere Einheit erkannt, aber diese Leistung ist nach Quadratmetern hinterlegt.',
+  Menge_erkannt_aber_Leistung_basiert_auf_Kubikmetern: '⚠ Menge prüfen: andere Einheit erkannt, aber diese Leistung ist nach Kubikmetern hinterlegt.',
+  Menge_erkannt_aber_Leistung_basiert_auf_Tonnen: '⚠ Menge prüfen: andere Einheit erkannt, aber diese Leistung ist nach Tonnen hinterlegt.',
+  Menge_erkannt_aber_Leistung_basiert_auf_Litern: '⚠ Menge prüfen: andere Einheit erkannt, aber diese Leistung ist nach Litern hinterlegt.',
+  Menge_erkannt_aber_Leistung_basiert_auf_Kilogramm: '⚠ Menge prüfen: andere Einheit erkannt, aber diese Leistung ist nach Kilogramm hinterlegt.',
+  Menge_erkannt_aber_Leistung_basiert_auf_Stueck: '⚠ Menge prüfen: andere Einheit erkannt, aber diese Leistung ist nach Stück hinterlegt.',
+  Menge_erkannt_aber_Leistung_ist_pauschal: '⚠ Menge prüfen: Menge erkannt, aber diese Leistung ist pauschal hinterlegt.',
+};
+
+
 interface FormItem {
   key: string; // client-side key for React
   serviceName: string;
@@ -1832,7 +1846,17 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
             <div>
               <Label className="mb-2 block">Leistungen *</Label>
               <div className="space-y-3">
-                {formItems.map((item, index) => (
+                {formItems.map((item, index) => {
+  const currentOrder = editId ? orders.find((o: Order) => o.id === editId) : null;
+  const unitConflictReason = currentOrder?.reviewReasons?.find((r) =>
+    Object.keys(unitConflictTextByReason).includes(r)
+  );
+  const showUnitConflict =
+    !!unitConflictReason &&
+    item.quantity === '1' &&
+    index === 0;
+
+  return (
                   <div key={item.key} className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
                       <ServiceCombobox
@@ -1862,14 +1886,29 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                       </div>
                       <div>
                         <Label className="text-xs">Menge</Label>
-                        <Input type="number" step="0.25" className="h-8" value={item.quantity} onChange={(e: any) => updateItem(index, 'quantity', e?.target?.value ?? '1')} />
+                        <Input
+  type="number"
+  step="0.25"
+  className={`h-8 ${showUnitConflict ? 'border-red-400 bg-red-50 dark:bg-red-950/20' : ''}`}
+  value={item.quantity}
+  onChange={(e: any) => updateItem(index, 'quantity', e?.target?.value ?? '1')}
+/>
                       </div>
                     </div>
                     <div className="text-left sm:text-right text-xs text-muted-foreground">
                       = CHF {(Number(item.unitPrice || 0) * Number(item.quantity || 0)).toFixed(2)}
                     </div>
-                  </div>
-                ))}
+
+
+
+{showUnitConflict && unitConflictReason && (
+  <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+    {unitConflictTextByReason[unitConflictReason]}
+  </div>
+)}
+                                 </div>
+                );
+              })}
               </div>
               <Button variant="outline" size="sm" className="mt-2 w-full" onClick={addItem}>
                 <Plus className="w-3.5 h-3.5 mr-1" />Weitere Leistung hinzufügen
