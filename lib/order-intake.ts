@@ -173,20 +173,26 @@ function getServiceUnitType(serviceUnit?: string | null): string {
 
   const unitAliases: Record<string, string[]> = {
     flat: ['pauschal', 'fixpreis', 'festpreis', 'pauschale'],
-    hour: ['stunde', 'stunden', 'std', 'h', 'stundensatz'],
-    day: ['tag', 'tage', 'arbeitstag', 'arbeitstage', 'tagessatz'],
-    meter: ['meter', 'laufmeter', 'lfm', 'm'],
     square_meter: ['quadratmeter', 'quadradmeter', 'qm', 'm2', 'm²', 'flaeche', 'fläche'],
     cubic_meter: ['kubikmeter', 'cbm', 'm3', 'm³', 'volumen'],
-    piece: ['stueck', 'stück', 'stk', 'anzahl', 'einheit', 'einheiten'],
     kilogram: ['kilogramm', 'kg'],
     ton: ['tonne', 'tonnen', 'to', 't'],
     liter: ['liter', 'ltr', 'l'],
+    hour: ['stunde', 'stunden', 'std', 'h', 'stundensatz'],
+    day: ['tag', 'tage', 'arbeitstag', 'arbeitstage', 'tagessatz'],
+    meter: ['meter', 'laufmeter', 'lfm', 'm'],
+    piece: ['stueck', 'stück', 'stk', 'anzahl', 'einheit', 'einheiten'],
   };
 
-  return Object.entries(unitAliases).find(([, aliases]) =>
-    aliases.some((alias) => unit === alias || unit.includes(alias))
-  )?.[0] || 'unknown';
+  for (const [type, aliases] of Object.entries(unitAliases)) {
+    if (aliases.some((alias) => unit === alias)) return type;
+  }
+
+  for (const [type, aliases] of Object.entries(unitAliases)) {
+    if (aliases.some((alias) => unit.includes(alias))) return type;
+  }
+
+  return 'unknown';
 }
 
 function detectAllQuantityUnitsFromText(text: string): Array<{ value: number; unit: string; raw: string }> {
@@ -1046,6 +1052,25 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
       return exactFlatMention;
     });
   }
+  // Generische Leistungen ohne passende Menge entfernen, wenn eine spezifischere Leistung derselben Art erkannt wurde.
+  matchedServices = matchedServices.filter((service: any) => {
+    const serviceName = normalizeServiceText(service.name);
+    const unitType = getServiceUnitType(service.unit);
+    const hasMatchingQuantity = quantityMatches.some((q) => q.unit === unitType);
+
+    const hasMoreSpecificSimilarService = matchedServices.some((other: any) => {
+      if (other.id === service.id) return false;
+      const otherName = normalizeServiceText(other.name);
+      const otherUnitType = getServiceUnitType(other.unit);
+      return otherName.includes(serviceName) && otherUnitType !== unitType;
+    });
+
+    if (hasMoreSpecificSimilarService && !hasMatchingQuantity) {
+      return false;
+    }
+
+    return true;
+  });
 
   const orderItems = matchedServices.map((service: any) => {
     const unit = String(service.unit || 'Stunde');
