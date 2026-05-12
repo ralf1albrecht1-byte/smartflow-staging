@@ -282,6 +282,68 @@ function findBestQuantityForService(
 
   return best?.q || relevant[0];
 }
+function findConflictingQuantityForService(
+  serviceName: string,
+  serviceUnitType: string,
+  text: string,
+  quantityMatches: Array<{ value: number; unit: string; raw: string }>
+): { value: number; unit: string; raw: string } | null {
+  const otherUnits = quantityMatches.filter((q) => q.unit !== serviceUnitType);
+  if (otherUnits.length === 0) return null;
+
+  const normalizedText = normalizeUnitText(text);
+  const normalizedService = normalizeUnitText(serviceName);
+
+  const serviceKeywords = normalizedService
+    .split(/\s+/)
+    .filter((w) => w.length >= 4);
+
+  const activityKeywords: Record<string, string[]> = {
+    hour: ['maehen', 'mähen', 'wiese', 'rasen', 'arbeit', 'nacharbeit', 'reinigen', 'montieren'],
+    day: ['arbeitstag', 'arbeitstage', 'montage', 'montieren', 'vorbereitung'],
+    meter: ['hecke', 'hecken', 'schneiden', 'stutzen', 'rohr', 'verlegen', 'zaun'],
+    square_meter: ['streichen', 'malen', 'wand', 'fassade', 'decke', 'farbe'],
+    cubic_meter: ['aushub', 'gruenabfall', 'grünabfall', 'volumen', 'kubikmeter', 'entsorgen'],
+    ton: ['tonne', 'tonnen', 'bauschutt', 'aushub', 'entsorgen', 'entsorgung'],
+    liter: ['liter', 'reiniger', 'reinigungsmittel', 'spezialreiniger'],
+    kilogram: ['kilogramm', 'kilo', 'kg', 'kies', 'material', 'liefern'],
+    piece: ['stueck', 'stück', 'baum', 'baeume', 'bäume', 'platten', 'setzen'],
+    flat: ['pauschal', 'fällen', 'faellen', 'baum'],
+  };
+
+  const keywords = [
+    ...serviceKeywords,
+    ...(activityKeywords[serviceUnitType] || []),
+  ].filter(Boolean);
+
+  const sentences = normalizedText
+    .split(/[.!?\n;-]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let best: { q: { value: number; unit: string; raw: string }; score: number } | null = null;
+
+  for (const q of otherUnits) {
+    const raw = normalizeUnitText(q.raw);
+    let score = 0;
+
+    for (const sentence of sentences) {
+      if (!sentence.includes(raw)) continue;
+
+      for (const keyword of keywords) {
+        if (sentence.includes(keyword)) score += 10;
+      }
+
+      if (normalizedService && sentence.includes(normalizedService)) score += 30;
+    }
+
+    if (!best || score > best.score) {
+      best = { q, score };
+    }
+  }
+
+  return best && best.score > 0 ? best.q : null;
+}
 
 /**
  * Strukturiertes Audit-Log für jede Intake-Verarbeitung.
@@ -1101,15 +1163,29 @@ const uniqueQuantityMatches = quantityMatches.filter(
     const cleaningKeywords = ['reiniger', 'reinigungsmittel', 'reinigung', 'spezialreiniger'];
     const paintingKeywords = ['streichen', 'malen', 'wand', 'fassade', 'flaeche', 'fläche'];
 
-    if (['cubic_meter', 'ton'].includes(serviceUnitType) && disposalKeywords.some((k) => incomingServiceText.includes(k))) {
+       if (
+      ['cubic_meter', 'ton'].includes(serviceUnitType) &&
+      hasMatchingQuantityUnit &&
+      disposalKeywords.some((k) => incomingServiceText.includes(k))
+    ) {
       return true;
     }
 
-    if (serviceUnitType === 'liter' && cleaningKeywords.some((k) => incomingServiceText.includes(k))) {
+    if (
+      serviceUnitType === 'liter' &&
+      hasMatchingQuantityUnit &&
+      cleaningKeywords.some((k) => incomingServiceText.includes(k))
+    ) {
       return true;
     }
 
-    if (serviceUnitType === 'square_meter' && paintingKeywords.some((k) => incomingServiceText.includes(k))) {
+    if (
+      serviceUnitType === 'square_meter' &&
+      hasMatchingQuantityUnit &&
+      paintingKeywords.some((k) => incomingServiceText.includes(k)) &&
+      !incomingServiceText.includes('rasenflaeche') &&
+      !incomingServiceText.includes('rasenfläche')
+    ) {
       return true;
     }
 
@@ -1165,12 +1241,21 @@ const uniqueQuantityMatches = quantityMatches.filter(
   uniqueQuantityMatches
 );
 
-    const quantityValidation = validateQuantityAgainstServiceUnit({
-      serviceUnit: unit,
-      detectedValue: matchingQuantity?.value ?? null,
-      detectedUnit: matchingQuantity?.unit ?? null,
-      serviceName: service.name,
-    });
+const conflictingQuantity = !matchingQuantity
+  ? findConflictingQuantityForService(
+      service.name,
+      unitType,
+      [parsed.auftrag?.beschreibung, messageText].filter(Boolean).join(' '),
+      uniqueQuantityMatches
+    )
+  : null;
+
+  const quantityValidation = validateQuantityAgainstServiceUnit({
+  serviceUnit: unit,
+  detectedValue: matchingQuantity?.value ?? conflictingQuantity?.value ?? null,
+  detectedUnit: matchingQuantity?.unit ?? conflictingQuantity?.unit ?? null,
+  serviceName: service.name,
+});
 
     return {
       serviceName: service.name,
