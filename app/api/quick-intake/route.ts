@@ -227,23 +227,9 @@ Respond with raw JSON only.
         (parsed.serviceName || '').toLowerCase().includes(s.name.toLowerCase())
       );
 
-      
-const unitPrice = matchedService ? Number(matchedService.defaultPrice) : 50;
-const serviceUnit = matchedService?.unit || 'Stunde';
-const detectedUnit = parsed.unit || serviceUnit;
-const quantity = Number(parsed.estimatedQuantity) || 1;
-const unit = serviceUnit;
-
-const normalizedDetectedUnit = String(detectedUnit).toLowerCase().trim();
-const normalizedServiceUnit = String(serviceUnit).toLowerCase().trim();
-
-const unitMismatch = normalizedDetectedUnit !== normalizedServiceUnit;
-
-const reviewReasons: string[] = unitMismatch
-  ? [`⚠️ Einheit prüfen: KI erkannte "${detectedUnit}", Leistung verwendet "${serviceUnit}".`]
-  : [];
-
-
+      const unitPrice = matchedService ? Number(matchedService.defaultPrice) : 50;
+      const unit = parsed.unit || matchedService?.unit || 'Stunde';
+      const quantity = Number(parsed.estimatedQuantity) || 1;
 
       // ═══ SERVER-SIDE MATCH VERIFICATION (hardened v2) ═══
       // Even though the LLM may suggest existingCustomerId, we verify server-side.
