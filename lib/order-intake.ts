@@ -1169,7 +1169,12 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   [parsed.auftrag?.beschreibung, messageText].filter(Boolean).join(' '),
   quantityMatches
 );
-
+console.log('SERVICE_DEBUG', {
+  service: service.name,
+  unitType,
+  matchingQuantity,
+  quantityMatches,
+});
     const quantityValidation = validateQuantityAgainstServiceUnit({
       serviceUnit: unit,
       detectedValue: matchingQuantity?.value ?? null,
