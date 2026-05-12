@@ -1307,6 +1307,9 @@ const conflictingQuantity = !matchingQuantity
 
 
 
+
+
+
 // --- UNIT MISMATCH CHECK ---
 const unitMismatchReasons: string[] = [];
 
@@ -1327,33 +1330,36 @@ const normalizeUnitForReview = (value?: string | null) => {
   return value || '';
 };
 
-const detectUnitNearService = (text: string, serviceName: string) => {
+const detectUnitForServiceLine = (text: string, serviceName: string) => {
   const lower = (text || '').toLowerCase();
-  const serviceLower = (serviceName || '').trim().toLowerCase();
-
-  const keywords = serviceLower
+  const serviceWords = (serviceName || '')
+    .trim()
+    .toLowerCase()
     .split(/\s+/)
     .filter((w) => w.length >= 4);
 
-  let searchText = lower;
+  if (serviceWords.length === 0) return '';
 
-  for (const keyword of keywords) {
-    const pos = lower.indexOf(keyword);
-    if (pos >= 0) {
-      searchText = lower.slice(Math.max(0, pos - 60), pos + 100);
-      break;
-    }
-  }
+  const lines = lower
+    .split(/\n|\.|;|\*/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-  if (/\b(quadratmeter|qm|m2|m²)\b/i.test(searchText)) return 'Quadratmeter';
-  if (/\b(kubikmeter|m3|m³)\b/i.test(searchText)) return 'Kubikmeter';
-  if (/\b(stunden|stunde|std|h)\b/i.test(searchText)) return 'Stunde';
-  if (/\b(tonnen|tonne)\b/i.test(searchText)) return 'Tonne';
-  if (/\b(kilogramm|kg)\b/i.test(searchText)) return 'Kilogramm';
-  if (/\b(liter)\b/i.test(searchText)) return 'Liter';
-  if (/\b(meter|m)\b/i.test(searchText)) return 'Meter';
-  if (/\b(stück|stueck|stk)\b/i.test(searchText)) return 'Stück';
-  if (/\b(pauschal|pauschale)\b/i.test(searchText)) return 'Pauschal';
+  const matchingLine = lines.find((line) =>
+    serviceWords.some((word) => line.includes(word))
+  );
+
+  if (!matchingLine) return '';
+
+  if (/\b(quadratmeter|qm|m2|m²)\b/i.test(matchingLine)) return 'Quadratmeter';
+  if (/\b(kubikmeter|m3|m³)\b/i.test(matchingLine)) return 'Kubikmeter';
+  if (/\b(stunden|stunde|std|h)\b/i.test(matchingLine)) return 'Stunde';
+  if (/\b(tonnen|tonne)\b/i.test(matchingLine)) return 'Tonne';
+  if (/\b(kilogramm|kg)\b/i.test(matchingLine)) return 'Kilogramm';
+  if (/\b(liter)\b/i.test(matchingLine)) return 'Liter';
+  if (/\b(meter|m)\b/i.test(matchingLine)) return 'Meter';
+  if (/\b(stück|stueck|stk)\b/i.test(matchingLine)) return 'Stück';
+  if (/\b(pauschal|pauschale)\b/i.test(matchingLine)) return 'Pauschal';
 
   return '';
 };
@@ -1377,10 +1383,10 @@ for (const item of finalOrderItems) {
     messageText,
   ]
     .filter(Boolean)
-    .join(' ');
+    .join('\n');
 
   const detectedUnit = normalizeUnitForReview(
-    detectUnitNearService(textForCheck, itemServiceName)
+    detectUnitForServiceLine(textForCheck, itemServiceName)
   );
 
   if (
@@ -1393,6 +1399,11 @@ for (const item of finalOrderItems) {
     );
   }
 }
+
+
+
+
+
 
 
   // --- Description ---
