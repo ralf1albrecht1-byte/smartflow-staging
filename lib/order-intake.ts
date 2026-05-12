@@ -219,7 +219,7 @@ function splitWorkSegments(text: string): string[] {
   if (!source) return [];
 
   const roughParts = source
-    .split(/\n|;|\*/g)
+    .split(/\n|;|\*|,|\bund\b|\bsowie\b|\bplus\b/gi)
     .map((p) => p.trim())
     .filter(Boolean);
 
@@ -1276,14 +1276,10 @@ const uniqueQuantityMatches = quantityMatches.filter(
   });
 
 
-
-
-
-
-
-const fullWorkText = [parsed.auftrag?.beschreibung, messageText]
-  .filter(Boolean)
-  .join('\n');
+const fullWorkText =
+  (parsed.auftrag?.beschreibung && String(parsed.auftrag.beschreibung).trim())
+    ? String(parsed.auftrag.beschreibung)
+    : messageText;
 
 const workSegments = splitWorkSegments(fullWorkText);
 
