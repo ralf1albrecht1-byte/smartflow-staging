@@ -107,22 +107,7 @@ function validateQuantityAgainstServiceUnit(args: {
     : null;
   const detectedUnit = normalizeUnitText(args.detectedUnit);
 
-  const unitAliases: Record<string, string[]> = {
-    flat: ['pauschal', 'fixpreis', 'festpreis', 'pauschale'],
-    hour: ['stunde', 'stunden', 'std', 'h', 'stundensatz'],
-    day: ['tag', 'tage', 'arbeitstag', 'arbeitstage', 'tagessatz'],
-    meter: ['meter', 'laufmeter', 'lfm', 'm'],
-    square_meter: ['quadratmeter', 'quadradmeter', 'qm', 'm2', 'm²', 'flaeche', 'fläche'],
-    cubic_meter: ['kubikmeter', 'cbm', 'm3', 'm³', 'volumen'],
-    piece: ['stueck', 'stück', 'stk', 'anzahl', 'einheit', 'einheiten'],
-    kilogram: ['kilogramm', 'kg'],
-    ton: ['tonne', 'tonnen', 'to', 't'],
-    liter: ['liter', 'ltr', 'l'],
-  };
-
-  const serviceUnitType = Object.entries(unitAliases).find(([, aliases]) =>
-    aliases.some((alias) => serviceUnit === alias || serviceUnit.includes(alias))
-  )?.[0] || 'unknown';
+    const serviceUnitType = getServiceUnitType(args.serviceUnit ?? null);
 
   if (serviceUnitType === 'flat') {
     return {
