@@ -1924,19 +1924,19 @@ const showUnitConflict = Boolean(item.aiWarning?.trim());
                     <div className="text-left sm:text-right text-xs text-muted-foreground">
                       = CHF {(Number(item.unitPrice || 0) * Number(item.quantity || 0)).toFixed(2)}
                     </div>
-                    {/* Unit mismatch warning for this specific item */}
-                    {(() => {
+
+
+
+                                    {(() => {
                       const curOrder = editId ? orders.find((o: Order) => o.id === editId) : null;
                       const mismatch = curOrder?.reviewReasons
                         ?.filter((r: string) => r.startsWith('unit_mismatch:'))
-                        .find((r: string) => {
-                          const parts = r.split(':');
-                          return parts[1] === item.serviceName;
-                        });
+                        .find((r: string) => r.split(':')[1] === item.serviceName);
+
                       if (!mismatch) return null;
-                      const parts = mismatch.split(':');
-                      const detectedUnit = parts[2];
-                      const expectedUnit = parts[3];
+
+                      const [, , detectedUnit, expectedUnit] = mismatch.split(':');
+
                       return (
                         <div className="flex items-start gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
                           <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
@@ -1946,9 +1946,11 @@ const showUnitConflict = Boolean(item.aiWarning?.trim());
                         </div>
                       );
                     })()}
-                  </div>
-                ))}
-              </div>
+                                 </div>
+                );
+              })}
+                </div>
+
               <Button variant="outline" size="sm" className="mt-2 w-full" onClick={addItem}>
                 <Plus className="w-3.5 h-3.5 mr-1" />Weitere Leistung hinzufügen
               </Button>

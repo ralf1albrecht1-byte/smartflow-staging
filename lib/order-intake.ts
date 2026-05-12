@@ -1305,19 +1305,7 @@ const conflictingQuantity = !matchingQuantity
 
 
 
-  // ─── UNIT MISMATCH CHECK (post-parse, read-only) ───
-  // Compare the LLM-detected unit with the service's configured default unit.
-  // If they differ, flag for manual review via reviewReasons.
-  // Format: 'unit_mismatch:<serviceName>:<detectedUnit>:<expectedUnit>'
-  const unitMismatchReasons: string[] = [];
-  if (finalService && svc.unit && finalService.unit) {
-    const detectedUnit = svc.unit.trim().toLowerCase();
-    const expectedUnit = finalService.unit.trim().toLowerCase();
-    if (detectedUnit !== expectedUnit) {
-      unitMismatchReasons.push(`unit_mismatch:${serviceName}:${svc.unit}:${finalService.unit}`);
-      console.log(`[${source}] ⚠ Unit mismatch detected: LLM="${svc.unit}" vs Service="${finalService.unit}" for "${serviceName}"`);
-    }
-  }
+ 
 
   // --- Description ---
   const description = parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`;
@@ -1376,7 +1364,7 @@ const conflictingQuantity = !matchingQuantity
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
     ...quantityReviewReasons,
-    ...unitMismatchReasons,
+   
   ];
 
   if (autoReuseTags.length > 0) {
