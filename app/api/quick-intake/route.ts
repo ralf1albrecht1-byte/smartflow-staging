@@ -487,7 +487,9 @@ const reviewReasons: string[] = unitMismatch
         data: {
           customerId,
           userId,
-          description: analysis.description || 'Neuer Auftrag',
+         description: Array.isArray(analysis.reviewReasons) && analysis.reviewReasons.length > 0
+  ? `[AI_WARNING] ${analysis.reviewReasons[0]}`
+  : (analysis.description || 'Neuer Auftrag'),
           serviceName: analysis.serviceName || 'Sonstiges',
           status: 'Offen',
           priceType: analysis.unit || 'Stunde',
