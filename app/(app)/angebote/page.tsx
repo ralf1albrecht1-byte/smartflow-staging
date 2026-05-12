@@ -1049,7 +1049,16 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
                       <div>
                         <Label className="text-xs">Einheit</Label>
                         <select className="flex w-full rounded-md border border-input bg-background px-2 py-1.5" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? 'Stunde')}>
-                          <option value="Stunde">Stunde</option><option value="Pauschal">Pauschal</option><option value="Meter">Meter</option><option value="Stück">Stück</option>
+                          <option value="Stunde">Stunde</option>
+<option value="Tag">Tag</option>
+<option value="Pauschal">Pauschal</option>
+<option value="Meter">Meter</option>
+<option value="Quadratmeter">Quadratmeter</option>
+<option value="Kubikmeter">Kubikmeter</option>
+<option value="Stück">Stück</option>
+<option value="Kilogramm">Kilogramm</option>
+<option value="Tonne">Tonne</option>
+<option value="Liter">Liter</option>
                         </select>
                       </div>
                       <div>

@@ -62,7 +62,18 @@ const statusColors: Record<string, string> = {
   'Erledigt': 'bg-green-200 text-green-900 dark:bg-green-900/40 dark:text-green-200 border border-green-300',
 };
 
-const priceTypes = ['Stunde', 'Pauschal', 'Meter', 'Stück'];
+const priceTypes = [
+  'Stunde',
+  'Tag',
+  'Pauschal',
+  'Meter',
+  'Quadratmeter',
+  'Kubikmeter',
+  'Stück',
+  'Kilogramm',
+  'Tonne',
+  'Liter',
+];
 
 interface FormItem {
   key: string; // client-side key for React
