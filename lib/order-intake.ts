@@ -1303,7 +1303,32 @@ const conflictingQuantity = !matchingQuantity
     parsed.system.needs_review = true;
   }
 
+// --- UNIT MISMATCH CHECK ---
+const unitMismatchReasons: string[] = [];
 
+for (const item of finalOrderItems) {
+  const detectedUnit = item.unit?.trim()?.toLowerCase();
+
+  const matchingService = services.find(
+    (s) =>
+      s.name?.trim()?.toLowerCase() ===
+      item.serviceName?.trim()?.toLowerCase()
+  );
+
+  const expectedUnit = matchingService?.unit
+    ?.trim()
+    ?.toLowerCase();
+
+  if (
+    detectedUnit &&
+    expectedUnit &&
+    detectedUnit !== expectedUnit
+  ) {
+    unitMismatchReasons.push(
+     `unit_mismatch:${item.serviceName}:${item.unit}:${matchingService?.unit || ''}`
+    );
+  }
+}
 
  
 
@@ -1360,12 +1385,12 @@ const conflictingQuantity = !matchingQuantity
     baseReviewReasons.push('image_only_no_text');
   }
 
-  const allReviewReasons: string[] = [
-    ...(additionalReviewReasons || []),
-    ...baseReviewReasons,
-    ...quantityReviewReasons,
-   
-  ];
+const allReviewReasons: string[] = [
+  ...(additionalReviewReasons || []),
+  ...baseReviewReasons,
+  ...quantityReviewReasons,
+  ...unitMismatchReasons,
+];
 
   if (autoReuseTags.length > 0) {
     allReviewReasons.push(...autoReuseTags);
