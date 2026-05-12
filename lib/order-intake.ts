@@ -1207,9 +1207,18 @@ const uniqueQuantityMatches = quantityMatches.filter(
       return true;
     }
 
-       if (hasServiceToken && hasMatchingQuantityUnit) {
-      return true;
-    }
+    if (hasServiceToken && hasMatchingQuantityUnit) {
+  const isStrongNameMatch =
+    serviceName.length >= 6 &&
+    incomingServiceText.includes(serviceName);
+
+  const isKnownSemanticMatch =
+    (serviceName.includes('hecke') && /(hecke|hecken).*(schneiden|stutzen|pflege|pflegen)|((schneiden|stutzen|pflege|pflegen).*(hecke|hecken))/.test(incomingServiceText)) ||
+    (serviceName.includes('wiese') && /(wiese|rasen).*(maehen|mahen|maeht|maeh|mäh)|((maehen|mahen|maeht|maeh|mäh).*(wiese|rasen))/.test(incomingServiceText)) ||
+    (serviceName.includes('baum') && /(baum|baeume|bäume).*(faellen|fallen|fällen|schneiden)|((faellen|fallen|fällen|schneiden).*(baum|baeume|bäume))/.test(incomingServiceText));
+
+  return isStrongNameMatch || isKnownSemanticMatch;
+}
 
     const disposalKeywords = ['entsorgung', 'entsorgen', 'abfall', 'gruenabfall', 'grünabfall', 'bauschutt', 'aushub'];
     const cleaningKeywords = ['reiniger', 'reinigungsmittel', 'reinigung', 'spezialreiniger'];
