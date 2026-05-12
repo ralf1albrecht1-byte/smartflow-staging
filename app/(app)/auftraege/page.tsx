@@ -95,6 +95,7 @@ interface FormItem {
   unit: string;
   unitPrice: string;
   quantity: string;
+  aiWarning?: string;
 }
 
 const createEmptyItem = (): FormItem => ({
@@ -104,6 +105,24 @@ const createEmptyItem = (): FormItem => ({
   unitPrice: '',
   quantity: '',
 });
+
+
+const AI_WARNING_PREFIX = '[AI_WARNING]';
+
+const getAiWarningFromItemDescription = (description?: string | null) => {
+  if (!description) return '';
+  return description.startsWith(AI_WARNING_PREFIX)
+    ? description.replace(AI_WARNING_PREFIX, '').trim()
+    : '';
+};
+
+const buildItemDescription = (item: FormItem) => {
+  return item.aiWarning?.trim()
+    ? `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`
+    : item.serviceName;
+};
+
+
 
 const emptyForm = {
   customerId: '',
@@ -440,21 +459,23 @@ export default function AuftraegePage() {
     });
     // Populate items from order
     if (o.items && o.items.length > 0) {
-      setFormItems(o.items.map(item => ({
-        key: Math.random().toString(36).slice(2),
-        serviceName: item.serviceName ?? '',
-        unit: item.unit ?? 'Stunde',
-        unitPrice: String(item.unitPrice ?? 0),
-        quantity: String(item.quantity ?? 0),
-      })));
+    setFormItems(o.items.map(item => ({
+  key: Math.random().toString(36).slice(2),
+  serviceName: item.serviceName ?? '',
+  unit: item.unit ?? 'Stunde',
+  unitPrice: String(item.unitPrice ?? 0),
+  quantity: String(item.quantity ?? 0),
+  aiWarning: getAiWarningFromItemDescription(item.description),
+})));
     } else {
-      setFormItems([{
-        key: Math.random().toString(36).slice(2),
-        serviceName: o.serviceName ?? '',
-        unit: o.priceType ?? 'Stunde',
-        unitPrice: String(o.unitPrice ?? 0),
-        quantity: String(o.quantity ?? 0),
-      }]);
+    setFormItems([{
+  key: Math.random().toString(36).slice(2),
+  serviceName: o.serviceName ?? '',
+  unit: o.priceType ?? 'Stunde',
+  unitPrice: String(o.unitPrice ?? 0),
+  quantity: String(o.quantity ?? 0),
+  aiWarning: '',
+}]);
     }
     if (opts?.openCustomerSection && o.customerId) {
       // Stage E (deterministic flow): DO NOT call openCustomerEditor() in this
@@ -755,7 +776,7 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
       vatRate: orderVatRate,
       items: validItems.map(item => ({
         serviceName: item.serviceName,
-        description: item.serviceName,
+        description: buildItemDescription(item),
         quantity: Number(item.quantity || 1),
         unit: item.unit,
         unitPrice: Number(item.unitPrice || 0),
@@ -1847,14 +1868,7 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
               <Label className="mb-2 block">Leistungen *</Label>
               <div className="space-y-3">
                 {formItems.map((item, index) => {
-  const currentOrder = editId ? orders.find((o: Order) => o.id === editId) : null;
-  const unitConflictReason = currentOrder?.reviewReasons?.find((r) =>
-    Object.keys(unitConflictTextByReason).includes(r)
-  );
-  const showUnitConflict =
-    !!unitConflictReason &&
-    item.quantity === '1' &&
-    index === 0;
+const showUnitConflict = Boolean(item.aiWarning?.trim());
 
   return (
                   <div key={item.key} className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2 min-w-0">
@@ -1901,9 +1915,9 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
 
 
 
-{showUnitConflict && unitConflictReason && (
-  <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-    {unitConflictTextByReason[unitConflictReason]}
+{showUnitConflict && (
+  <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+    ⚠ {item.aiWarning}
   </div>
 )}
                                  </div>
