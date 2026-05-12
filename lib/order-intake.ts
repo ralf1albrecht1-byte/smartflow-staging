@@ -237,8 +237,32 @@ function splitWorkSegments(text: string): string[] {
 
     segments.push(...splitByQuantity);
   }
+const cleanedSegments = segments.filter((segment) => {
+  const normalized = normalizeUnitText(segment);
 
-  return segments.length > 0 ? segments : [source];
+  if (!normalized) return false;
+  if (normalized.length < 8) return false;
+
+  const blocked = [
+    'zudem',
+    'danach',
+    'anschliessend',
+    'anschließend',
+    'sowie',
+    'und',
+    'plus',
+  ];
+
+  if (blocked.includes(normalized)) return false;
+
+  const hasQuantityUnit = detectAllQuantityUnitsFromText(segment).length > 0;
+
+const hasWorkVerb =
+  /\b(reinigen|reinigung|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen)\b/i.test(normalized);
+
+return hasQuantityUnit || hasWorkVerb;
+});
+return cleanedSegments.length > 0 ? cleanedSegments : [source];
 }
 
 function unitTypeToDisplayUnit(unitType?: string | null): string {
