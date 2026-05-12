@@ -1028,7 +1028,23 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
       return true;
     }
 
-    if (hasServiceToken && hasMatchingQuantityUnit) {
+       if (hasServiceToken && hasMatchingQuantityUnit) {
+      return true;
+    }
+
+    const disposalKeywords = ['entsorgung', 'entsorgen', 'abfall', 'gruenabfall', 'grünabfall', 'bauschutt', 'aushub'];
+    const cleaningKeywords = ['reiniger', 'reinigungsmittel', 'reinigung', 'spezialreiniger'];
+    const paintingKeywords = ['streichen', 'malen', 'wand', 'fassade', 'flaeche', 'fläche'];
+
+    if (['cubic_meter', 'ton'].includes(serviceUnitType) && disposalKeywords.some((k) => incomingServiceText.includes(k))) {
+      return true;
+    }
+
+    if (serviceUnitType === 'liter' && cleaningKeywords.some((k) => incomingServiceText.includes(k))) {
+      return true;
+    }
+
+    if (serviceUnitType === 'square_meter' && paintingKeywords.some((k) => incomingServiceText.includes(k))) {
       return true;
     }
 
