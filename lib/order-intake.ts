@@ -168,7 +168,59 @@ function validateQuantityAgainstServiceUnit(args: {
   };
 }
 
+function getServiceUnitType(serviceUnit?: string | null): string {
+  const unit = normalizeUnitText(serviceUnit);
 
+  const unitAliases: Record<string, string[]> = {
+    flat: ['pauschal', 'fixpreis', 'festpreis', 'pauschale'],
+    hour: ['stunde', 'stunden', 'std', 'h', 'stundensatz'],
+    day: ['tag', 'tage', 'arbeitstag', 'arbeitstage', 'tagessatz'],
+    meter: ['meter', 'laufmeter', 'lfm', 'm'],
+    square_meter: ['quadratmeter', 'quadradmeter', 'qm', 'm2', 'm²', 'flaeche', 'fläche'],
+    cubic_meter: ['kubikmeter', 'cbm', 'm3', 'm³', 'volumen'],
+    piece: ['stueck', 'stück', 'stk', 'anzahl', 'einheit', 'einheiten'],
+    kilogram: ['kilogramm', 'kg'],
+    ton: ['tonne', 'tonnen', 'to', 't'],
+    liter: ['liter', 'ltr', 'l'],
+  };
+
+  return Object.entries(unitAliases).find(([, aliases]) =>
+    aliases.some((alias) => unit === alias || unit.includes(alias))
+  )?.[0] || 'unknown';
+}
+
+function detectAllQuantityUnitsFromText(text: string): Array<{ value: number; unit: string; raw: string }> {
+  const source = normalizeUnitText(text);
+  if (!source) return [];
+
+  const patterns = [
+    { unit: 'square_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter|quadrat meter)\b/gi },
+    { unit: 'cubic_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m3|m³|kubikmeter|kubik meter|cbm)\b/gi },
+    { unit: 'hour', re: /(\d+(?:[.,]\d+)?)\s*(?:stunden|stunde|std\.?|h)\b/gi },
+    { unit: 'day', re: /(\d+(?:[.,]\d+)?)\s*(?:tage|tag|arbeitstage|arbeitstag)\b/gi },
+    { unit: 'meter', re: /(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/gi },
+    { unit: 'kilogram', re: /(\d+(?:[.,]\d+)?)\s*(?:kilogramm|kg)\b/gi },
+    { unit: 'ton', re: /(\d+(?:[.,]\d+)?)\s*(?:tonnen|tonne|to\.?|t)\b/gi },
+    { unit: 'liter', re: /(\d+(?:[.,]\d+)?)\s*(?:liter|ltr\.?|l)\b/gi },
+    { unit: 'piece', re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stück|stuck|stk|anzahl|einheiten|baeume|bäume|baume|baum)\b/gi },
+  ];
+
+  const matches: Array<{ value: number; unit: string; raw: string }> = [];
+
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern.re)) {
+      if (match?.[1]) {
+        matches.push({
+          value: Number(match[1].replace(',', '.')),
+          unit: pattern.unit,
+          raw: match[0],
+        });
+      }
+    }
+  }
+
+  return matches.filter((m) => Number.isFinite(m.value) && m.value > 0);
+}
 
 /**
  * Strukturiertes Audit-Log für jede Intake-Verarbeitung.
@@ -915,89 +967,147 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
       : [];
   const finalSpecialNotes = besonderheitenItems.length > 0 ? besonderheitenItems.join('\n') : null;
 
-  // --- Map service ---
+
+
+  // --- Map services / multi-service items ---
   const svc = parsed.service || {};
-  const matchedService = svc.service_id
-    ? services.find((s: any) => s.id === svc.service_id)
-    : null;
+
   const normalizeServiceText = (value: any) =>
-  String(value || '')
-    .toLowerCase()
-    .replace(/[ä]/g, 'ae')
-    .replace(/[ö]/g, 'oe')
-    .replace(/[ü]/g, 'ue')
-    .replace(/[ß]/g, 'ss')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    String(value || '')
+      .toLowerCase()
+      .replace(/[ä]/g, 'ae')
+      .replace(/[ö]/g, 'oe')
+      .replace(/[ü]/g, 'ue')
+      .replace(/[ß]/g, 'ss')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-const incomingServiceText = normalizeServiceText([
-  svc.service_name,
-  parsed.auftrag?.titel,
-  parsed.auftrag?.beschreibung,
-  messageText,
-].filter(Boolean).join(' '));
+  const incomingServiceText = normalizeServiceText([
+    svc.service_name,
+    parsed.auftrag?.titel,
+    parsed.auftrag?.beschreibung,
+    messageText,
+  ].filter(Boolean).join(' '));
 
-const matchedByName = !matchedService && incomingServiceText
-  ? services.find((s: any) => normalizeServiceText(s.name) === normalizeServiceText(svc.service_name))
-    || services.find((s: any) => incomingServiceText.includes(normalizeServiceText(s.name)))
-    || services.find((s: any) => {
+  const quantityMatches = detectAllQuantityUnitsFromText([
+    parsed.auftrag?.beschreibung,
+    messageText,
+  ].filter(Boolean).join(' '));
+
+  const serviceMatchesMessage = (service: any): boolean => {
+    const serviceName = normalizeServiceText(service.name);
+    const serviceUnitType = getServiceUnitType(service.unit);
+    const tokens = serviceName
+      .split(' ')
+      .map((t: string) => t.trim())
+      .filter((t: string) => t.length >= 4 && !['nach', 'mit', 'fuer', 'eine', 'einer'].includes(t));
+
+    const hasServiceToken = tokens.some((token: string) => incomingServiceText.includes(token));
+    const hasMatchingQuantityUnit = quantityMatches.some((q) => q.unit === serviceUnitType);
+
+    if (svc.service_id && service.id === svc.service_id) return true;
+    if (svc.service_name && normalizeServiceText(svc.service_name) === serviceName) return true;
+    if (serviceName && incomingServiceText.includes(serviceName)) return true;
+
+    if (serviceName.includes('hecke') && /(hecke|hecken).*(schneiden|stutzen|pflege|pflegen)|((schneiden|stutzen|pflege|pflegen).*(hecke|hecken))/.test(incomingServiceText)) {
+      return true;
+    }
+
+    if (serviceName.includes('wiese') && /(wiese|rasen).*(maehen|mahen|maeht|maeh|mäh)|((maehen|mahen|maeht|maeh|mäh).*(wiese|rasen))/.test(incomingServiceText)) {
+      return true;
+    }
+
+    if (serviceName.includes('baum') && /(baum|baeume|bäume).*(faellen|fallen|fällen|schneiden)|((faellen|fallen|fällen|schneiden).*(baum|baeume|bäume))/.test(incomingServiceText)) {
+      return true;
+    }
+
+    if (hasServiceToken && hasMatchingQuantityUnit) {
+      return true;
+    }
+
+    return false;
+  };
+
+  let matchedServices = services.filter((s: any) => serviceMatchesMessage(s));
+
+  // Wenn spezifische Einheiten-Leistungen erkannt wurden, generische Pauschal-Leistungen nicht zusätzlich mitschleppen.
+  const hasSpecificUnitMatch = matchedServices.some((s: any) => getServiceUnitType(s.unit) !== 'flat');
+  if (hasSpecificUnitMatch) {
+    matchedServices = matchedServices.filter((s: any) => {
+      const unitType = getServiceUnitType(s.unit);
+      if (unitType !== 'flat') return true;
+
       const serviceName = normalizeServiceText(s.name);
+      const exactFlatMention =
+        incomingServiceText.includes(serviceName) ||
+        (serviceName.includes('baum') && incomingServiceText.includes('baum'));
 
-      if (serviceName.includes('hecke') && /(hecke|hecken).*(schneiden|stutzen|pflege|pflegen)|((schneiden|stutzen|pflege|pflegen).*(hecke|hecken))/.test(incomingServiceText)) {
-        return true;
+      return exactFlatMention;
+    });
+  }
+
+  const orderItems = matchedServices.map((service: any) => {
+    const unit = String(service.unit || 'Stunde');
+    const unitType = getServiceUnitType(unit);
+    const unitPrice = Number(service.defaultPrice || 0);
+
+    const matchingQuantity = quantityMatches.find((q) => q.unit === unitType);
+
+    const quantityValidation = validateQuantityAgainstServiceUnit({
+      serviceUnit: unit,
+      detectedValue: matchingQuantity?.value ?? null,
+      detectedUnit: matchingQuantity?.unit ?? null,
+      serviceName: service.name,
+    });
+
+    return {
+      serviceName: service.name,
+      description: parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`,
+      quantity: quantityValidation.quantity,
+      unit,
+      unitPrice,
+      totalPrice: unitPrice * quantityValidation.quantity,
+      needsReview: quantityValidation.needsReview,
+      reviewReason: quantityValidation.reason,
+    };
+  });
+
+  const fallbackService = matchedServices.length === 0 && svc.service_name
+    ? {
+        serviceName: svc.service_name,
+        description: parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`,
+        quantity: 1,
+        unit: String(svc.unit || 'Stunde'),
+        unitPrice: Number(svc.unit_price || 0),
+        totalPrice: Number(svc.unit_price || 0),
+        needsReview: true,
+        reviewReason: 'Service_nicht_sicher_gematcht',
       }
+    : null;
 
-      if (serviceName.includes('wiese') && /(wiese|rasen).*(maehen|mahen|maeht|maeh|mäh)|((maehen|mahen|maeht|maeh|mäh).*(wiese|rasen))/.test(incomingServiceText)) {
-        return true;
-      }
+  const finalOrderItems = orderItems.length > 0
+    ? orderItems
+    : (fallbackService ? [fallbackService] : []);
 
-      if (serviceName.includes('baum') && /(baum|baeume|bäume).*(faellen|fallen|fällen|schneiden)|((faellen|fallen|fällen|schneiden).*(baum|baeume|bäume))/.test(incomingServiceText)) {
-        return true;
-      }
+  const primaryItem = finalOrderItems[0] || null;
 
-      return false;
-    })
-  : null;
+  const serviceName = primaryItem?.serviceName || null;
+  const unit = primaryItem?.unit || 'Stunde';
+  const unitPrice = primaryItem?.unitPrice || 0;
+  const quantity = primaryItem?.quantity || 1;
+  const totalPrice = finalOrderItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
 
-const finalService = matchedService || matchedByName;
+  const quantityReviewReasons = finalOrderItems
+    .filter((item) => item.needsReview && item.reviewReason)
+    .map((item) => item.reviewReason as string);
 
-const detectedQuantity = detectQuantityUnitFromText([
-  svc.service_name,
-  parsed.auftrag?.titel,
-  parsed.auftrag?.beschreibung,
-  messageText,
-].filter(Boolean).join(' '));
-
-
-
-const unitPrice = finalService ? Number(finalService.defaultPrice) : (Number(svc.unit_price) || 0);
-const unit = finalService ? String(finalService.unit || 'Stunde') : String(svc.unit || 'Stunde');
-const serviceName = finalService?.name || svc.service_name || null;
-
-const aiEstimatedQuantity = Number(svc.estimated_quantity);
-const safeEstimatedQuantity = Number.isFinite(aiEstimatedQuantity) && aiEstimatedQuantity > 0
-  ? aiEstimatedQuantity
-  : null;
-
-const quantityValidation = validateQuantityAgainstServiceUnit({
-  serviceUnit: unit,
-  detectedValue: detectedQuantity.value ?? safeEstimatedQuantity,
-  detectedUnit: detectedQuantity.unit,
-  serviceName,
-});
-
-const quantity = quantityValidation.quantity;
-const totalPrice = unitPrice * quantity;
+  if (quantityReviewReasons.length > 0) {
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
+  }
 
 
-
-
-
-if (quantityValidation.needsReview && quantityValidation.reason) {
-  parsed.system = parsed.system || {};
-  parsed.system.needs_review = true;
-}
 
   // --- Description ---
   const description = parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`;
@@ -1051,13 +1161,11 @@ if (quantityValidation.needsReview && quantityValidation.reason) {
   if (isImageOnly) {
     baseReviewReasons.push('image_only_no_text');
   }
-
 const allReviewReasons: string[] = [
   ...(additionalReviewReasons || []),
   ...baseReviewReasons,
-  ...(quantityValidation.needsReview && quantityValidation.reason ? [quantityValidation.reason] : []),
+  ...quantityReviewReasons,
 ];
-
   if (autoReuseTags.length > 0) {
     allReviewReasons.push(...autoReuseTags);
   }
@@ -1110,21 +1218,21 @@ const allReviewReasons: string[] = [
       audioTranscriptionStatus: savedMediaType === 'audio'
         ? (inputAudioTranscriptionStatus || null)
         : null,
-  ...(serviceName
+   ...(finalOrderItems.length > 0
   ? {
       items: {
-        create: [{
-          serviceName,
-          description,
-          quantity,
-          unit,
-          unitPrice,
-          totalPrice,
-        }],
+        create: finalOrderItems.map((item) => ({
+          serviceName: item.serviceName,
+          description: item.description,
+          quantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+        })),
       },
     }
   : {}),
-    },
+      },
     include: { customer: true, items: true },
   });
 
