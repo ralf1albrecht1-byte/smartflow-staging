@@ -1056,6 +1056,16 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
     messageText,
   ].filter(Boolean).join(' '));
 
+const uniqueQuantityMatches = quantityMatches.filter(
+  (item, index, self) =>
+    index === self.findIndex(
+      (q) =>
+        q.value === item.value &&
+        q.unit === item.unit &&
+        q.raw === item.raw
+    )
+);
+
   const serviceMatchesMessage = (service: any): boolean => {
     const serviceName = normalizeServiceText(service.name);
     const serviceUnitType = getServiceUnitType(service.unit);
@@ -1065,7 +1075,7 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
       .filter((t: string) => t.length >= 4 && !['nach', 'mit', 'fuer', 'eine', 'einer'].includes(t));
 
     const hasServiceToken = tokens.some((token: string) => incomingServiceText.includes(token));
-    const hasMatchingQuantityUnit = quantityMatches.some((q) => q.unit === serviceUnitType);
+    const hasMatchingQuantityUnit = uniqueQuantityMatches.some((q) => q.unit === serviceUnitType);
 
     if (svc.service_id && service.id === svc.service_id) return true;
     if (svc.service_name && normalizeServiceText(svc.service_name) === serviceName) return true;
@@ -1127,7 +1137,7 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   matchedServices = matchedServices.filter((service: any) => {
     const serviceName = normalizeServiceText(service.name);
     const unitType = getServiceUnitType(service.unit);
-    const hasMatchingQuantity = quantityMatches.some((q) => q.unit === unitType);
+    const hasMatchingQuantity = uniqueQuantityMatches.some((q) => q.unit === unitType);
 
     const hasMoreSpecificSimilarService = matchedServices.some((other: any) => {
       if (other.id === service.id) return false;
@@ -1152,14 +1162,9 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   service.name,
   unitType,
   [parsed.auftrag?.beschreibung, messageText].filter(Boolean).join(' '),
-  quantityMatches
+  uniqueQuantityMatches
 );
-console.log('SERVICE_DEBUG', {
-  service: service.name,
-  unitType,
-  matchingQuantity,
-  quantityMatches,
-});
+
     const quantityValidation = validateQuantityAgainstServiceUnit({
       serviceUnit: unit,
       detectedValue: matchingQuantity?.value ?? null,
