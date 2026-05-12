@@ -1309,28 +1309,45 @@ const unitMismatchReasons: string[] = [];
 for (const item of finalOrderItems) {
   const detectedUnit = item.unit?.trim()?.toLowerCase();
 
-  const matchingService = services.find(
-    (s) =>
-      s.name?.trim()?.toLowerCase() ===
-      item.serviceName?.trim()?.toLowerCase()
-  );
+  const normalizedItemServiceName = (item.serviceName || '')
+  .trim()
+  .toLowerCase();
+
+const matchingService = services.find((s) =>
+  (s.name || '')
+    .trim()
+    .toLowerCase()
+    .includes(normalizedItemServiceName)
+);
 
   const expectedUnit = matchingService?.unit
     ?.trim()
     ?.toLowerCase();
 
-  if (
-    detectedUnit &&
-    expectedUnit &&
-    detectedUnit !== expectedUnit
-  ) {
-    unitMismatchReasons.push(
-     `unit_mismatch:${item.serviceName}:${item.unit}:${matchingService?.unit || ''}`
-    );
-  }
+console.log(
+  '[UNIT CHECK]',
+  JSON.stringify({
+    itemService: item.serviceName,
+    matchedService: matchingService?.name,
+    detectedUnit,
+    expectedUnit,
+  })
+);
+
+
+
+if (
+  detectedUnit &&
+  expectedUnit &&
+  detectedUnit !== expectedUnit
+) {
+  unitMismatchReasons.push(
+   `unit_mismatch:${item.serviceName}:${item.unit}:${matchingService?.unit || ''}`
+  );
+}
 }
 
- 
+
 
   // --- Description ---
   const description = parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`;
