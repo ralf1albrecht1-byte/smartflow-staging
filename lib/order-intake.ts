@@ -1041,6 +1041,17 @@ if (looksLikeWeakCityOnlyFromWorkText(kundeData, messageText)) {
     customerCity: kundeData.ort,
   });
 
+
+if (
+  normalizeUnitText(addr.city) === 'form' &&
+  /in\s+form\s+(bringen|schneiden|setzen|machen|pflegen)/i.test(normalizeUnitText(messageText))
+) {
+  console.log(`[${source}] 🚫 Removed invalid addr.city from work phrase: "${addr.city}"`);
+  addr.city = null;
+}
+
+
+
   let customerId: string | null = null;
   let duplicateWarning = '';
   let customerWasNewlyCreated = false;
