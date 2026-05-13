@@ -135,6 +135,11 @@ const hasRealCustomerReviewReason = (order: Order) => {
   return order.reviewReasons?.some((reason) => CUSTOMER_REVIEW_REASONS.has(reason)) ?? false;
 };
 
+
+const removeCustomerReviewReasons = (reasons?: string[] | null) => {
+  return (reasons ?? []).filter((reason) => !CUSTOMER_REVIEW_REASONS.has(reason));
+};
+
 const emptyForm = {
   customerId: '',
   description: '',
@@ -331,6 +336,70 @@ export default function AuftraegePage() {
   };
 
   useEffect(() => { load(); }, []);
+
+
+
+
+
+
+
+const autoClearCustomerReviewRef = useRef(new Set<string>());
+
+useEffect(() => {
+  if (!orders.length) return;
+
+  const candidates = orders.filter((order) => {
+    if (!order.needsReview) return false;
+    if (!hasRealCustomerReviewReason(order)) return false;
+    if (!order.customer) return false;
+    if (isCustomerDataIncomplete(order.customer)) return false;
+    if (autoClearCustomerReviewRef.current.has(order.id)) return false;
+    return true;
+  });
+
+  if (candidates.length === 0) return;
+
+  candidates.forEach(async (order) => {
+    autoClearCustomerReviewRef.current.add(order.id);
+
+    const remainingReasons = removeCustomerReviewReasons(order.reviewReasons);
+    const stillNeedsReview = remainingReasons.length > 0;
+
+    try {
+      const res = await fetch(`/api/orders/${order.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          needsReview: stillNeedsReview,
+          reviewReasons: remainingReasons,
+        }),
+      });
+
+      if (!res.ok) {
+        autoClearCustomerReviewRef.current.delete(order.id);
+        return;
+      }
+
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? {
+                ...o,
+                needsReview: stillNeedsReview,
+                reviewReasons: remainingReasons,
+              }
+            : o
+        )
+      );
+    } catch {
+      autoClearCustomerReviewRef.current.delete(order.id);
+    }
+  });
+}, [orders]);
+
+
+
+
 
   // Paket L: keep list fresh when user returns to this page.
   // When an order is forwarded to Angebot/Rechnung, we navigate away
@@ -1693,19 +1762,24 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
               const cur = orders.find((o: Order) => o.id === editId);
               const cust = cur ? customers.find((c: Customer) => c.id === cur.customerId) : null;
               // Canonical rule — name/address/plz/city required; phone/email optional.
-              const missingData = !!cust && isCustomerDataIncomplete(cust);
-              const hasImageOnly = cur?.reviewReasons?.includes('image_only_no_text');
-              if (!cur?.needsReview && !missingData && !hasImageOnly) return null;
-              return (
+
+
+            const missingData = !!cust && isCustomerDataIncomplete(cust);
+const hasCustomerReview = !!cur && hasRealCustomerReviewReason(cur) && missingData;
+const hasImageOnly = cur?.reviewReasons?.includes('image_only_no_text');
+if (!hasCustomerReview && !missingData && !hasImageOnly) return null;
+
+
+                              return (
                 <div className="flex items-center gap-2 flex-wrap">
-                  {(cur?.needsReview || missingData) && (
+                  {(hasCustomerReview || missingData) && (
                     <button
                       type="button"
                       onClick={() => openCustomerEditor()}
                       className="tap-safe inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-md"
                       aria-label="Kundendaten ergänzen — öffnet den Kunde-bearbeiten-Bereich"
                     >
-                      {cur?.needsReview && <Badge variant="secondary" className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300">
+                     {hasCustomerReview && <Badge variant="secondary" className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300">
                         <AlertTriangle className="w-3 h-3 mr-1" />Kundendaten prüfen
                       </Badge>}
                       {!cur?.needsReview && missingData && <MissingCustomerDataBadge variant="standard" />}
