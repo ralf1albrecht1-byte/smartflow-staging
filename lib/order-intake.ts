@@ -966,6 +966,39 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   // identisch ist (z.B. Solo-Selbständige testen mit eigener Nummer), unterdrückt
   // die Prompt-Regel "Absender = Kunde A, NICHT Endkunde" die Namens-Extraktion.
   const llmExtractedName = (kundeData.name || '').trim();
+
+const invalidStandaloneCities = new Set([
+  'form',
+  'reinigen',
+  'schneiden',
+  'pflegen',
+  'entsorgen',
+  'ausraeumen',
+  'ausräumen',
+  'maehen',
+  'mähen',
+  'streichen',
+  'bauen',
+  'montieren',
+]);
+
+const normalizedOrtCandidate = normalizeUnitText(kundeData.ort || '');
+
+const hasStrongCustomerData =
+  !!String(kundeData.name || '').trim() ||
+  !!String(kundeData.strasse || '').trim() ||
+  !!String(kundeData.hausnummer || '').trim() ||
+  !!String(kundeData.plz || '').trim();
+
+if (
+  normalizedOrtCandidate &&
+  invalidStandaloneCities.has(normalizedOrtCandidate) &&
+  !hasStrongCustomerData
+) {
+  console.log(`[${source}] 🚫 Removed invalid AI city extraction: "${kundeData.ort}"`);
+  kundeData.ort = null;
+}
+
   let selfIntroFallbackUsed = false;
   if (!llmExtractedName) {
     const selfIntroName = extractSelfIntroductionName(messageText);
