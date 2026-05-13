@@ -1238,7 +1238,7 @@ if (
         email: null,
         address: sanitized.street,
         plz: sanitized.plz,
-        city: sanitized.city,
+        city: normalizeUnitText(sanitized.city) === 'form' ? null : sanitized.city,
         notes: `${source}-Kunde`,
         ...(userId ? { userId } : {}),
       },
@@ -1250,7 +1250,8 @@ if (
     const cust = await prisma.customer.findUnique({ where: { id: customerId } });
     if (cust) {
       const { protectCustomerData } = await import('@/lib/data-protection');
-      const updates = protectCustomerData(cust, { address: addr.street, plz: addr.plz, city: addr.city });
+     const safeCity = normalizeUnitText(addr.city) === 'form' ? null : addr.city;
+const updates = protectCustomerData(cust, { address: addr.street, plz: addr.plz, city: safeCity });
       if (Object.keys(updates).length > 0) {
         await prisma.customer.update({ where: { id: customerId }, data: updates });
         console.log(`[${source}] Updated customer ${customerId} with improved fields:`, Object.keys(updates));
