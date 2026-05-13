@@ -289,6 +289,22 @@ function cleanDetectedWorkName(segment: string): string {
     .trim();
 }
 
+
+function formatWorkNameForDisplay(value: string): string {
+  const text = String(value || '')
+    .replace(/\bae/g, 'ä')
+    .replace(/\boe/g, 'ö')
+    .replace(/\bue/g, 'ü')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!text) return 'Unbekannte Leistung';
+
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+
+
 function findBestQuantityForService(
   serviceName: string,
   unitType: string,
@@ -1414,7 +1430,7 @@ description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
       : unitTypeToDisplayUnit(getServiceUnitType(item.einheit || null));
 
     return {
-      serviceName: String(detectedName || 'Unbekannte Leistung'),
+      serviceName: formatWorkNameForDisplay(detectedName || 'Unbekannte Leistung'),
 description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
       quantity: detectedQuantity || 1,
       unit: unit || 'Pauschal',
@@ -1448,7 +1464,7 @@ const finalOrderItems: Array<{
 }> = mappedOrderItems.length > 0
   ? mappedOrderItems
   : [{
-     serviceName: String(parsed.auftrag?.titel || 'Unbekannte Leistung'),
+     serviceName: formatWorkNameForDisplay(parsed.auftrag?.titel || 'Unbekannte Leistung'),
 description: String(fullWorkText || `${source}-Auftrag`),
       quantity: 1,
       unit: 'Pauschal',
