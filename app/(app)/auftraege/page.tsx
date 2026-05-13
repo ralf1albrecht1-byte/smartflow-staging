@@ -136,10 +136,6 @@ const hasRealCustomerReviewReason = (order: Order) => {
 };
 
 
-const removeCustomerReviewReasons = (reasons?: string[] | null) => {
-  return (reasons ?? []).filter((reason) => !CUSTOMER_REVIEW_REASONS.has(reason));
-};
-
 const emptyForm = {
   customerId: '',
   description: '',
@@ -336,66 +332,6 @@ export default function AuftraegePage() {
   };
 
   useEffect(() => { load(); }, []);
-
-
-
-
-
-
-
-const autoClearCustomerReviewRef = useRef(new Set<string>());
-
-useEffect(() => {
-  if (!orders.length) return;
-
-  const candidates = orders.filter((order) => {
-    if (!order.needsReview) return false;
-    if (!hasRealCustomerReviewReason(order)) return false;
-    if (!order.customer) return false;
-    if (isCustomerDataIncomplete(order.customer)) return false;
-    if (autoClearCustomerReviewRef.current.has(order.id)) return false;
-    return true;
-  });
-
-  if (candidates.length === 0) return;
-
-  candidates.forEach(async (order) => {
-    autoClearCustomerReviewRef.current.add(order.id);
-
-    const remainingReasons = removeCustomerReviewReasons(order.reviewReasons);
-    const stillNeedsReview = remainingReasons.length > 0;
-
-    try {
-      const res = await fetch(`/api/orders/${order.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          needsReview: stillNeedsReview,
-          reviewReasons: remainingReasons,
-        }),
-      });
-
-      if (!res.ok) {
-        autoClearCustomerReviewRef.current.delete(order.id);
-        return;
-      }
-
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id === order.id
-            ? {
-                ...o,
-                needsReview: stillNeedsReview,
-                reviewReasons: remainingReasons,
-              }
-            : o
-        )
-      );
-    } catch {
-      autoClearCustomerReviewRef.current.delete(order.id);
-    }
-  });
-}, [orders]);
 
 
 
