@@ -219,7 +219,7 @@ function splitWorkSegments(text: string): string[] {
   if (!source) return [];
 
   const roughParts = source
-    .split(/\n|;|\*|,|\bund\b|\bsowie\b|\bplus\b/gi)
+   .split(/\n|;|\*|,|\bsowie\b|\bplus\b/gi)
     .map((p) => p.trim())
     .filter(Boolean);
 
@@ -277,7 +277,7 @@ function unitTypeToDisplayUnit(unitType?: string | null): string {
     case 'liter': return 'Liter';
     case 'piece': return 'Stück';
     case 'flat': return 'Pauschal';
-    default: return 'Stunde';
+    default: return 'Pauschal';
   }
 }
 
@@ -643,11 +643,12 @@ AUSGABEFORMAT
     "plz": null,
     "ort": null
   },
-  "auftrag": {
-    "titel": null,
-    "beschreibung": null,
-    "besonderheiten": []
-  },
+"auftrag": {
+  "titel": null,
+  "beschreibung": null,
+  "besonderheiten": [],
+  "arbeitspositionen": []
+},
   "service": {
     "service_id": null,
     "service_name": null,
@@ -747,7 +748,23 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
   - "Genauer Auftrag ist ohne zusätzlichen Text nicht eindeutig erkennbar."
   - "Sichtbar: Hecke, Rasen, Baumbestand."
 - titel: beschreibend, NICHT handlungsorientiert (z.B. "Hecke / Garten" statt "Hecke schneiden")
-- needs_review = true (immer bei Nur-Bild ohne Text)`;
+- needs_review = true (immer bei Nur-Bild ohne Text)
+
+11. ARBEITSPOSITIONEN:
+- Extrahiere jede einzelne Arbeit als eigenen Eintrag in auftrag.arbeitspositionen.
+- Jede Position enthält:
+  {
+    "name": "kurze Arbeitsbeschreibung",
+    "menge": Zahl oder null,
+    "einheit": "Quadratmeter" | "Kubikmeter" | "Meter" | "Stunde" | "Tag" | "Tonne" | "Kilogramm" | "Liter" | "Stück" | "Pauschal" | null,
+    "raw": "Originalteil aus der Nachricht",
+    "confidence": "hoch" | "mittel" | "niedrig"
+  }
+- Keine Preise setzen.
+- Keine Leistungen erfinden.
+- Nicht versuchen, unbekannte Arbeiten einer bestehenden Leistung zuzuordnen.
+- Wenn mehrere Arbeiten genannt werden, jede Arbeit separat ausgeben.
+- Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.`;
 }
 
 // ---------- Main intake function ----------
@@ -1168,274 +1185,298 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
 
 
 
-  // --- Map services / multi-service items ---
-  const svc = parsed.service || {};
-
-  const normalizeServiceText = (value: any) =>
-    String(value || '')
-      .toLowerCase()
-      .replace(/[ä]/g, 'ae')
-      .replace(/[ö]/g, 'oe')
-      .replace(/[ü]/g, 'ue')
-      .replace(/[ß]/g, 'ss')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-  const incomingServiceText = normalizeServiceText([
-    svc.service_name,
-    parsed.auftrag?.titel,
-    parsed.auftrag?.beschreibung,
-    messageText,
-  ].filter(Boolean).join(' '));
-
-  const quantityMatches = detectAllQuantityUnitsFromText([
-    parsed.auftrag?.beschreibung,
-    messageText,
-  ].filter(Boolean).join(' '));
-
-const uniqueQuantityMatches = quantityMatches.filter(
-  (item, index, self) =>
-    index === self.findIndex(
-      (q) =>
-        q.value === item.value &&
-        q.unit === item.unit &&
-        q.raw === item.raw
-    )
-);
-
-  const serviceMatchesMessage = (service: any): boolean => {
-    const serviceName = normalizeServiceText(service.name);
-    const serviceUnitType = getServiceUnitType(service.unit);
-    const tokens = serviceName
-      .split(' ')
-      .map((t: string) => t.trim())
-      .filter((t: string) => t.length >= 4 && !['nach', 'mit', 'fuer', 'eine', 'einer'].includes(t));
-
-    const hasServiceToken = tokens.some((token: string) => incomingServiceText.includes(token));
-    const hasMatchingQuantityUnit = uniqueQuantityMatches.some((q) => q.unit === serviceUnitType);
-
-    if (svc.service_id && service.id === svc.service_id) return true;
-    if (svc.service_name && normalizeServiceText(svc.service_name) === serviceName) return true;
-    if (serviceName && incomingServiceText.includes(serviceName)) return true;
-
-    if (serviceName.includes('hecke') && /(hecke|hecken).*(schneiden|stutzen|pflege|pflegen)|((schneiden|stutzen|pflege|pflegen).*(hecke|hecken))/.test(incomingServiceText)) {
-      return true;
-    }
-
-    if (serviceName.includes('wiese') && /(wiese|rasen).*(maehen|mahen|maeht|maeh|mäh)|((maehen|mahen|maeht|maeh|mäh).*(wiese|rasen))/.test(incomingServiceText)) {
-      return true;
-    }
-
-    if (serviceName.includes('baum') && /(baum|baeume|bäume).*(faellen|fallen|fällen|schneiden)|((faellen|fallen|fällen|schneiden).*(baum|baeume|bäume))/.test(incomingServiceText)) {
-      return true;
-    }
 
 
 
 
 
-    return false;
-  };
 
-  let matchedServices = services.filter((s: any) => serviceMatchesMessage(s));
+// --- Map services / AI work items, strict per-position matching ---
 
-  // Wenn spezifische Einheiten-Leistungen erkannt wurden, generische Pauschal-Leistungen nicht zusätzlich mitschleppen.
-  const hasSpecificUnitMatch = matchedServices.some((s: any) => getServiceUnitType(s.unit) !== 'flat');
-  if (hasSpecificUnitMatch) {
-    matchedServices = matchedServices.filter((s: any) => {
-      const unitType = getServiceUnitType(s.unit);
-      if (unitType !== 'flat') return true;
+type AiWorkItem = {
+  name?: string | null;
+  menge?: number | null;
+  einheit?: string | null;
+  raw?: string | null;
+  confidence?: 'hoch' | 'mittel' | 'niedrig' | string | null;
+};
 
-      const serviceName = normalizeServiceText(s.name);
-      const exactFlatMention =
-        incomingServiceText.includes(serviceName) ||
-        (serviceName.includes('baum') && incomingServiceText.includes('baum'));
-
-      return exactFlatMention;
-    });
-  }
-  // Generische Leistungen ohne passende Menge entfernen, wenn eine spezifischere Leistung derselben Art erkannt wurde.
-  matchedServices = matchedServices.filter((service: any) => {
-    const serviceName = normalizeServiceText(service.name);
-    const unitType = getServiceUnitType(service.unit);
-    const hasMatchingQuantity = uniqueQuantityMatches.some((q) => q.unit === unitType);
-
-    const hasMoreSpecificSimilarService = matchedServices.some((other: any) => {
-      if (other.id === service.id) return false;
-      const otherName = normalizeServiceText(other.name);
-      const otherUnitType = getServiceUnitType(other.unit);
-      return otherName.includes(serviceName) && otherUnitType !== unitType;
-    });
-
-    if (hasMoreSpecificSimilarService && !hasMatchingQuantity) {
-      return false;
-    }
-
-    return true;
-  });
-
+const normalizeServiceText = (value: any) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[ä]/g, 'ae')
+    .replace(/[ö]/g, 'oe')
+    .replace(/[ü]/g, 'ue')
+    .replace(/[ß]/g, 'ss')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const fullWorkText =
   (parsed.auftrag?.beschreibung && String(parsed.auftrag.beschreibung).trim())
     ? String(parsed.auftrag.beschreibung)
     : messageText;
 
-const workSegments = splitWorkSegments(fullWorkText);
+const aiWorkItemsRaw: AiWorkItem[] = Array.isArray(parsed.auftrag?.arbeitspositionen)
+  ? parsed.auftrag.arbeitspositionen
+  : [];
 
-const orderItems = matchedServices.map((service: any) => {
-  const unit = String(service.unit || 'Stunde');
-  const unitType = getServiceUnitType(unit);
-  const unitPrice = Number(service.defaultPrice || 0);
-  const serviceNameNorm = normalizeUnitText(service.name);
-
-  const bestSegment =
-    workSegments.find((segment) => {
-      const segmentNorm = normalizeUnitText(segment);
-      return serviceNameNorm
-        .split(/\s+/)
-        .filter((w) => w.length >= 4)
-        .some((word) => segmentNorm.includes(word));
-    }) ||
-    workSegments.find((segment) => {
-      const segmentNorm = normalizeUnitText(segment);
-      if (serviceNameNorm.includes('hecke')) return segmentNorm.includes('hecke') || segmentNorm.includes('hecken');
-      if (serviceNameNorm.includes('wiese')) return segmentNorm.includes('wiese') || segmentNorm.includes('rasen');
-      if (serviceNameNorm.includes('baum')) return segmentNorm.includes('baum') || segmentNorm.includes('baeume') || segmentNorm.includes('bäume');
-      return false;
-    }) ||
-    fullWorkText;
-
-  const segmentQuantityMatches = detectAllQuantityUnitsFromText(bestSegment);
-
-  const matchingQuantity = findBestQuantityForService(
-    service.name,
-    unitType,
-    bestSegment,
-    segmentQuantityMatches
-  );
-
-  const conflictingQuantity = !matchingQuantity
-    ? findConflictingQuantityForService(
-        service.name,
-        unitType,
-        bestSegment,
-        segmentQuantityMatches
-      )
-    : null;
-
-  const quantityValidation = validateQuantityAgainstServiceUnit({
-    serviceUnit: unit,
-    detectedValue: matchingQuantity?.value ?? conflictingQuantity?.value ?? null,
-    detectedUnit: matchingQuantity?.unit ?? conflictingQuantity?.unit ?? null,
-    serviceName: service.name,
-  });
+const fallbackSegments = splitWorkSegments(fullWorkText).map((segment) => {
+  const quantityMatch = detectAllQuantityUnitsFromText(segment)[0] || null;
 
   return {
-    serviceName: service.name,
-    description: bestSegment || parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`,
-    quantity: quantityValidation.quantity,
-    unit,
-    unitPrice,
-    totalPrice: unitPrice * quantityValidation.quantity,
-    needsReview: quantityValidation.needsReview,
-    reviewReason: quantityValidation.reason,
+    name: cleanDetectedWorkName(segment),
+    menge: quantityMatch?.value ?? null,
+    einheit: quantityMatch?.unit ? unitTypeToDisplayUnit(quantityMatch.unit) : null,
+    raw: segment,
+    confidence: 'mittel',
   };
 });
 
-const matchedSegmentTexts = new Set(
-  orderItems.map((item) => normalizeUnitText(item.description || ''))
-);
+const aiWorkItems: AiWorkItem[] = aiWorkItemsRaw.length > 0
+  ? aiWorkItemsRaw
+  : fallbackSegments;
 
-const unmatchedSegmentItems = workSegments
-  .map((segment) => {
-    const normalizedSegment = normalizeUnitText(segment);
-    const detectedName = cleanDetectedWorkName(segment);
-    const quantityMatch = detectAllQuantityUnitsFromText(segment)[0] || null;
+const getWorkItemUnitType = (item: AiWorkItem): string => {
+  const fromUnit = getServiceUnitType(item.einheit || null);
+  if (fromUnit !== 'unknown') return fromUnit;
 
-    return {
-      segment,
-      normalizedSegment,
-      detectedName,
-      quantityMatch,
-    };
-  })
-  .filter((item) => {
-    if (!item.detectedName || item.detectedName.length < 4) return false;
+  const q = detectAllQuantityUnitsFromText(
+    [item.raw, item.name].filter(Boolean).join(' ')
+  )[0];
 
-    const alreadyMatched = Array.from(matchedSegmentTexts).some((matchedText) =>
-      matchedText.includes(item.normalizedSegment) ||
-      item.normalizedSegment.includes(matchedText)
+  return q?.unit || 'unknown';
+};
+
+const getWorkItemQuantity = (item: AiWorkItem): number => {
+  if (typeof item.menge === 'number' && isFinite(item.menge) && item.menge > 0) {
+    return item.menge;
+  }
+
+  const q = detectAllQuantityUnitsFromText(
+    [item.raw, item.name].filter(Boolean).join(' ')
+  )[0];
+
+  return q?.value ?? 1;
+};
+
+const serviceDomainMatchesWork = (serviceName: string, workText: string): boolean => {
+  const s = normalizeServiceText(serviceName);
+  const w = normalizeServiceText(workText);
+
+  const domains = [
+    {
+      service: ['hecke', 'hecken'],
+      work: ['hecke', 'hecken', 'schneiden', 'stutzen', 'pflegen', 'pflege'],
+    },
+    {
+      service: ['wiese', 'rasen'],
+      work: ['wiese', 'rasen', 'maehen', 'mahen', 'mähen'],
+    },
+    {
+      service: ['baum', 'baeume'],
+      work: ['baum', 'baeume', 'bäume', 'faellen', 'fällen', 'schneiden'],
+    },
+    {
+      service: ['entsorgung', 'entsorgen', 'abtransport', 'aushub'],
+      work: ['entsorgung', 'entsorgen', 'abtransport', 'abtransportieren', 'erde', 'aushub', 'bauschutt'],
+    },
+    {
+      service: ['fenster', 'fensterreinigung'],
+      work: ['fenster', 'fensterreinigung', 'reinigen', 'reinigung'],
+    },
+  ];
+
+  return domains.some((domain) => {
+    const serviceHit = domain.service.some((token) => s.includes(token));
+    const workHit = domain.work.some((token) => w.includes(token));
+    return serviceHit && workHit;
+  });
+};
+
+const strictMatchServiceForWorkItem = (item: AiWorkItem, services: any[]) => {
+  const workName = normalizeServiceText(item.name || '');
+  const workRaw = normalizeServiceText(item.raw || '');
+  const workText = [workName, workRaw].filter(Boolean).join(' ');
+  const workUnitType = getWorkItemUnitType(item);
+
+  if (!workText || workText.length < 3) return null;
+
+  const workTokens = workText
+    .split(/\s+/)
+    .filter((token) =>
+      token.length >= 4 &&
+      ![
+        'eine',
+        'einer',
+        'eines',
+        'einem',
+        'einen',
+        'mit',
+        'der',
+        'die',
+        'das',
+        'von',
+        'ca',
+        'circa',
+        'etwa',
+        'rund',
+        'flaeche',
+        'fläche',
+        'gesamt',
+        'gesamten',
+      ].includes(token)
     );
 
-    if (alreadyMatched) return false;
+  let best: { service: any; score: number } | null = null;
 
-    const nameAlreadyCovered = orderItems.some((orderItem) => {
-      const knownName = normalizeUnitText(orderItem.serviceName || '');
-      return knownName && (
-        knownName.includes(item.detectedName) ||
-        item.detectedName.includes(knownName)
-      );
-    });
+  for (const service of services) {
+    const serviceName = normalizeServiceText(service.name);
+    const serviceUnitType = getServiceUnitType(service.unit);
 
-    return !nameAlreadyCovered;
-  })
+    if (!serviceName) continue;
+
+    let score = 0;
+
+    if (serviceName === workName) score += 100;
+    if (workName && serviceName.includes(workName)) score += 75;
+    if (workName && workName.includes(serviceName)) score += 75;
+
+    const serviceTokens = serviceName
+      .split(/\s+/)
+      .filter((token: string) => token.length >= 4);
+
+    for (const token of serviceTokens) {
+      if (workTokens.includes(token) || workText.includes(token)) {
+        score += 30;
+      }
+    }
+
+    if (serviceDomainMatchesWork(service.name, workText)) {
+      score += 55;
+    }
+
+    // Einheit darf nur unterstützen, aber NIE allein matchen.
+    if (workUnitType !== 'unknown' && workUnitType === serviceUnitType) {
+      score += 10;
+    }
+
+    if (!best || score > best.score) {
+      best = { service, score };
+    }
+  }
+
+  // Strenge Schwelle:
+  // - Hecke schneiden → Hecke pflegen schafft es über Domain + Token.
+  // - Natursteinplatz reinigen → Wand streichen schafft es NICHT nur wegen Quadratmeter.
+  if (!best || best.score < 60) return null;
+
+  return best.service;
+};
+
+const mappedOrderItems = aiWorkItems
   .map((item) => {
-    const unit = unitTypeToDisplayUnit(item.quantityMatch?.unit || null);
-    const quantity = item.quantityMatch?.value ?? 1;
+    const raw = String(item.raw || item.name || '').trim();
+    const detectedName = cleanDetectedWorkName(String(item.name || raw || ''));
+
+    if (!detectedName || detectedName.length < 3) return null;
+
+    const matchedService = strictMatchServiceForWorkItem(item, services);
+    const detectedUnitType = getWorkItemUnitType(item);
+    const detectedQuantity = getWorkItemQuantity(item);
+
+    if (matchedService) {
+      const unit = String(matchedService.unit || 'Stunde');
+      const unitType = getServiceUnitType(unit);
+      const unitPrice = Number(matchedService.defaultPrice || 0);
+
+      const quantityValidation = validateQuantityAgainstServiceUnit({
+        serviceUnit: unit,
+        detectedValue: detectedQuantity,
+        detectedUnit: detectedUnitType !== 'unknown' ? detectedUnitType : null,
+        serviceName: matchedService.name,
+      });
+
+      return {
+        serviceName: String(matchedService.name || 'Unbekannte Leistung'),
+description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
+        quantity: quantityValidation.quantity,
+        unit,
+        unitPrice,
+        totalPrice: unitPrice * quantityValidation.quantity,
+        needsReview: quantityValidation.needsReview,
+        reviewReason: quantityValidation.reason || null,
+      };
+    }
+
+    const unit = detectedUnitType !== 'unknown'
+      ? unitTypeToDisplayUnit(detectedUnitType)
+      : unitTypeToDisplayUnit(getServiceUnitType(item.einheit || null));
 
     return {
-      serviceName: item.detectedName,
-      description: item.segment,
-      quantity,
-      unit,
+      serviceName: String(detectedName || 'Unbekannte Leistung'),
+description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
+      quantity: detectedQuantity || 1,
+      unit: unit || 'Pauschal',
       unitPrice: 0,
       totalPrice: 0,
       needsReview: true,
       reviewReason: 'unbekannte_leistung_pruefen',
     };
-  });
+  })
+  .filter(Boolean) as Array<{
+    serviceName: string;
+    description: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    totalPrice: number;
+    needsReview: boolean;
+    reviewReason: string | null;
+  }>;
 
-const allOrderItems = [...orderItems, ...unmatchedSegmentItems];
+
+const finalOrderItems: Array<{
+  serviceName: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalPrice: number;
+  needsReview: boolean;
+  reviewReason: string | null;
+}> = mappedOrderItems.length > 0
+  ? mappedOrderItems
+  : [{
+     serviceName: String(parsed.auftrag?.titel || 'Unbekannte Leistung'),
+description: String(fullWorkText || `${source}-Auftrag`),
+      quantity: 1,
+      unit: 'Pauschal',
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: 'unbekannte_leistung_pruefen',
+    }];
 
 
 
 
+const primaryItem = finalOrderItems[0] || null;
 
+const serviceName = primaryItem?.serviceName || '';
+const unit = primaryItem?.unit || 'Stunde';
+const unitPrice = primaryItem?.unitPrice || 0;
+const quantity = primaryItem?.quantity || 1;
+const totalPrice = finalOrderItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
 
-  const fallbackService = matchedServices.length === 0 && svc.service_name
-    ? {
-        serviceName: svc.service_name,
-        description: parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`,
-        quantity: 1,
-        unit: String(svc.unit || 'Stunde'),
-        unitPrice: Number(svc.unit_price || 0),
-        totalPrice: Number(svc.unit_price || 0),
-        needsReview: true,
-        reviewReason: 'Service_nicht_sicher_gematcht',
-      }
-    : null;
+const quantityReviewReasons = finalOrderItems
+  .filter((item) => item.needsReview && item.reviewReason)
+  .map((item) => item.reviewReason as string);
 
-const finalOrderItems = allOrderItems.length > 0
-  ? allOrderItems
-  : (fallbackService ? [fallbackService] : []);
-
-  const primaryItem = finalOrderItems[0] || null;
-
-  const serviceName = primaryItem?.serviceName || null;
-  const unit = primaryItem?.unit || 'Stunde';
-  const unitPrice = primaryItem?.unitPrice || 0;
-  const quantity = primaryItem?.quantity || 1;
-  const totalPrice = finalOrderItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
-
-  const quantityReviewReasons = finalOrderItems
-    .filter((item) => item.needsReview && item.reviewReason)
-    .map((item) => item.reviewReason as string);
-
-  if (quantityReviewReasons.length > 0) {
-    parsed.system = parsed.system || {};
-    parsed.system.needs_review = true;
-  }
+if (quantityReviewReasons.length > 0) {
+  parsed.system = parsed.system || {};
+  parsed.system.needs_review = true;
+}
 
 
 
@@ -1510,14 +1551,7 @@ for (const item of finalOrderItems) {
 
   const expectedUnit = normalizeUnitForReview(matchingService?.unit || item.unit);
 
-  const textForCheck = [
-    item.description,
-    parsed.auftrag?.beschreibung,
-    parsed.auftrag?.titel,
-    messageText,
-  ]
-    .filter(Boolean)
-    .join('\n');
+const textForCheck = item.description || '';
 
   const detectedUnit = normalizeUnitForReview(
     detectUnitForServiceLine(textForCheck, itemServiceName)
