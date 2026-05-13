@@ -977,27 +977,30 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   }
 
 
-function looksLikeWorkPhraseCity(city: string | null | undefined, text: string): boolean {
-  if (!city || !text) return false;
-
-  const cityNorm = normalizeUnitText(city);
+function looksLikeWeakCityOnlyFromWorkText(kundeData: any, text: string): boolean {
+  const cityNorm = normalizeUnitText(kundeData?.ort);
   const textNorm = normalizeUnitText(text);
 
-  const patterns = [
-    `in ${cityNorm} bringen`,
-    `in ${cityNorm} schneiden`,
-    `in ${cityNorm} setzen`,
-    `in ${cityNorm} machen`,
-    `in ${cityNorm} pflegen`,
-  ];
+  if (!cityNorm || !textNorm) return false;
 
-  return patterns.some((pattern) => textNorm.includes(pattern));
+  const hasName = !!String(kundeData?.name || '').trim();
+  const hasStreet = !!String(kundeData?.strasse || '').trim();
+  const hasHouseNumber = !!String(kundeData?.hausnummer || '').trim();
+  const hasPlz = !!String(kundeData?.plz || '').trim();
+
+  // Wenn echte Kundendaten vorhanden sind, Ort nicht blocken.
+  if (hasName || hasStreet || hasHouseNumber || hasPlz) return false;
+
+  const cityInText = new RegExp(`\\bin\\s+${cityNorm}\\b`, 'i').test(textNorm);
+
+  // Ohne weitere Kundendaten ist "in X" zu unsicher:
+  // kann Ort sein, kann aber auch Teil der Arbeit sein.
+  return cityInText;
 }
 
-if (looksLikeWorkPhraseCity(kundeData.ort, messageText)) {
+if (looksLikeWeakCityOnlyFromWorkText(kundeData, messageText)) {
   kundeData.ort = null;
 }
-
 
   const addr = ensureAddressSplit({
     customerStreet: kundeData.strasse ? `${kundeData.strasse}${kundeData.hausnummer ? ' ' + kundeData.hausnummer : ''}` : null,
