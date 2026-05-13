@@ -81,13 +81,9 @@ export function mergeCustomerIntoForm(
     country: s(c.country) || s(f.country) || 'CH',
   };
 
-  // Back-fill from notes ONLY into still-empty slots. autoFillCustomerFromNotes
-  // preserves any non-empty value it already sees.
-  // SKIP note extraction entirely for fallback customers — their notes contain
-  // only [META]-tagged system data that must never populate customer fields.
-  if (isFallbackCustomerName(s(c.name))) {
-    return merged;
-  }
+    // Back-fill from notes ONLY into still-empty slots.
+  // Fallback customer names stay hidden because `safeName` is already ''.
+  // Notes are sanitized inside autoFillCustomerFromNotes, so [META] lines are ignored.
 
   const afterNotes = autoFillCustomerFromNotes(
     {
