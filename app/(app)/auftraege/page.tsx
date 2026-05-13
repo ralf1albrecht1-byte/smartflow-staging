@@ -808,7 +808,7 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
           setOrders(prev => prev.map(o => o.customerId === updated.id ? { ...o, customer: { ...o.customer, ...updated } } : o));
           setForm(f => ({ ...f, customerId: updated.id }));
           // Clear needsReview if address is now complete (Straße + PLZ + Ort)
-          if (editId && updated.address?.trim() && updated.plz?.trim() && updated.city?.trim()) {
+         if (editId && updated.name?.trim() && updated.address?.trim() && updated.plz?.trim() && updated.city?.trim()) {
             const curOrder = orders.find((o: Order) => o.id === editId);
             if (curOrder?.needsReview) {
               try {
@@ -1764,10 +1764,10 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
               // Canonical rule — name/address/plz/city required; phone/email optional.
 
 
-            const missingData = !!cust && isCustomerDataIncomplete(cust);
-const hasCustomerReview = !!cur && hasRealCustomerReviewReason(cur) && missingData;
+   const missingData = !!cust && isCustomerDataIncomplete(cust);
+const hasCustomerReview = !!cur && missingData;
 const hasImageOnly = cur?.reviewReasons?.includes('image_only_no_text');
-if (!hasCustomerReview && !missingData && !hasImageOnly) return null;
+if (!missingData && !hasImageOnly) return null;
 
 
                               return (
@@ -2264,3 +2264,4 @@ if (!hasCustomerReview && !missingData && !hasImageOnly) return null;
     </div>
   );
 }
+

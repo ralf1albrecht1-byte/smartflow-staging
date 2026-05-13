@@ -26,6 +26,7 @@
  */
 
 export interface ExtractedCustomerData {
+  name: string | null;
   phone: string | null;
   email: string | null;
   street: string | null;
@@ -97,7 +98,7 @@ export function sanitizeNotesForExtraction(text: string | null | undefined): str
 }
 
 export function extractCustomerDataFromText(text: string | null | undefined): ExtractedCustomerData {
-  const result: ExtractedCustomerData = { phone: null, email: null, street: null, plz: null, city: null };
+  const result: ExtractedCustomerData = { name: null, phone: null, email: null, street: null, plz: null, city: null };
   if (!text || !text.trim()) return result;
 
   // Layer 2 — drop metadata lines and timestamp/twilio fragments BEFORE any
@@ -105,6 +106,26 @@ export function extractCustomerDataFromText(text: string | null | undefined): Ex
   // downstream patterns can ever match a system-derived value.
   const sanitized = sanitizeNotesForExtraction(text);
   if (!sanitized.trim()) return result;
+
+
+
+
+  // ---- Name ----
+  const namePatterns = [
+    /\b(?:mein\s+name\s+ist|ich\s+heisse|ich\s+heiße|ich\s+bin|hier\s+ist|hier\s+spricht|kunde|name)\s*:?\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+){0,2})\b/u,
+  ];
+
+  for (const pat of namePatterns) {
+    const m = sanitized.match(pat);
+
+    if (m?.[1]) {
+      result.name = m[1].trim();
+      break;
+    }
+  }
+
+
+
 
   // ---- Telefon ----
   // Swiss patterns: +41 79 123 45 67, 079 123 45 67, 0564261234, 056 426 12 34
@@ -275,7 +296,7 @@ export function autoFillCustomerFromNotes(
   if (!notes) return { ...currentCust };
   const extracted = extractCustomerDataFromText(notes);
   return {
-    name: currentCust.name,
+    name: currentCust.name || extracted.name || '',
     phone: currentCust.phone || extracted.phone || '',
     email: currentCust.email || extracted.email || '',
     address: currentCust.address || extracted.street || '',
@@ -283,3 +304,4 @@ export function autoFillCustomerFromNotes(
     city: currentCust.city || extracted.city || '',
   };
 }
+
