@@ -122,7 +122,18 @@ const buildItemDescription = (item: FormItem) => {
     : item.serviceName;
 };
 
+const CUSTOMER_REVIEW_REASONS = new Set([
+  'possible_customer',
+  'customer_needs_review',
+  'service_location_review',
+  'missing_customer_data',
+  'customer_conflict',
+  'customer_data_incomplete',
+]);
 
+const hasRealCustomerReviewReason = (order: Order) => {
+  return order.reviewReasons?.some((reason) => CUSTOMER_REVIEW_REASONS.has(reason)) ?? false;
+};
 
 const emptyForm = {
   customerId: '',
@@ -1280,19 +1291,25 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                         <span className="text-muted-foreground">·</span>
                         <span className={`font-medium truncate ${isFallbackCustomerName(o.customer?.name) ? 'text-amber-600 dark:text-amber-400 italic' : 'text-foreground'}`}>{isFallbackCustomerName(o.customer?.name) ? 'Kunde nicht zugeordnet' : (o.customer?.name || '–')}</span>
                         {!isFallbackCustomerName(o.customer?.name) && o.customer?.customerNumber && <span className="text-muted-foreground shrink-0">({o.customer.customerNumber})</span>}
-                        {o.needsReview && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); openEdit(o, { openCustomerSection: true }); }}
-                            className="tap-safe inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 min-h-[24px] rounded-full font-medium bg-orange-200 text-orange-800 border border-orange-300 shrink-0 cursor-pointer hover:bg-orange-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 transition-colors"
-                            aria-label="Kundendaten prüfen — Kunde direkt bearbeiten"
-                            title="Kundendaten prüfen — Kunde direkt bearbeiten"
-                          >
-                            <AlertTriangle className="w-3 h-3" />
-                            <span className="sm:hidden">Prüfen</span>
-                            <span className="hidden sm:inline">Kundendaten unvollständig</span>
-                          </button>
-                        )}
+
+
+                    {o.needsReview && hasRealCustomerReviewReason(o) && (
+  <button
+    type="button"
+    onClick={(e) => { e.stopPropagation(); openEdit(o, { openCustomerSection: true }); }}
+    className="tap-safe inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 min-h-[24px] rounded-full font-medium bg-orange-200 text-orange-800 border border-orange-300 shrink-0 cursor-pointer hover:bg-orange-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 transition-colors"
+    aria-label="Kundendaten prüfen — Kunde direkt bearbeiten"
+    title="Kundendaten prüfen — Kunde direkt bearbeiten"
+  >
+    <AlertTriangle className="w-3 h-3" />
+    <span className="sm:hidden">Prüfen</span>
+    <span className="hidden sm:inline">Kundendaten prüfen</span>
+  </button>
+)}
+
+
+
+
                         {!o.needsReview && isCustomerDataIncomplete(o.customer) && (
                           <MissingCustomerDataBadge
                             variant="compact"
