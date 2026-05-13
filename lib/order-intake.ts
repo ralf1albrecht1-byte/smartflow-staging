@@ -554,12 +554,20 @@ WICHTIGER KONTEXT
 - Telefonnummer und E-Mail NICHT für Kundenabgleich verwenden
 - Es geht in der Regel um Endkunde (B) – alle Daten aus dem Nachrichtentext extrahieren
 - KEINE Daten erfinden
-- AUSNAHME (Selbstvorstellung): Wenn der Nachrichtentext eine eindeutige
-  Selbstvorstellung enthält ("mein Name ist X", "Ich heisse X", "Ich bin X",
-  "Hier spricht X", "Hier ist X"), EXTRAHIERE diesen Namen als kunde.name —
-  auch wenn er ähnlich oder identisch zum Absender ist. In diesem Fall ist
-  der Absender selbst der Endkunde (Solo-Selbständige, Test-Anfragen, direkte
-  Kundenanfragen via WhatsApp).
+
+
+- WICHTIG: kunde.name MUSS aus dem eingehenden Nachrichtentext / Audio-Transkript / Bildinhalt extrahiert werden, wenn dort ein Personen- oder Firmenname eindeutig genannt wird.
+- Das gilt für Selbstvorstellungen, Anreden, Weiterleitungen und normale Auftragstexte.
+- Beispiele für gültige Namenssignale:
+  "Mein Name ist Max Müller" → kunde.name = "Max Müller"
+  "Hallo Frau Meier, Hecke geschnitten" → kunde.name = "Frau Meier"
+  "Guten Tag Herr Keller, Terrasse reinigen" → kunde.name = "Herr Keller"
+  "Bitte bei Max Müller Rasen mähen" → kunde.name = "Max Müller"
+  "Kunde: Peter Schmid" → kunde.name = "Peter Schmid"
+- Der Absendername ("${senderName}") darf NICHT automatisch als kunde.name übernommen werden.
+- ABER: Wenn derselbe Name eindeutig im Nachrichtentext selbst steht, darf und soll er als kunde.name extrahiert werden.
+- Namen dürfen NIEMALS aus bestehende_kunden kopiert werden. bestehende_kunden dient nur zum Abgleich, nicht zum Befüllen von kunde.name.
+- Wenn im Nachrichtentext kein Name steht → kunde.name = null.
 
 --------------------------------------------------
 EINGABE
