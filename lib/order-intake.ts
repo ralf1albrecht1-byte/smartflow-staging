@@ -975,6 +975,30 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
       console.log(`[${source}] 🪪 Selbstvorstellungs-Safety-Net griff: kunde.name='${selfIntroName}' (LLM hatte leer/null geliefert)`);
     }
   }
+
+
+function looksLikeWorkPhraseCity(city: string | null | undefined, text: string): boolean {
+  if (!city || !text) return false;
+
+  const cityNorm = normalizeUnitText(city);
+  const textNorm = normalizeUnitText(text);
+
+  const patterns = [
+    `in ${cityNorm} bringen`,
+    `in ${cityNorm} schneiden`,
+    `in ${cityNorm} setzen`,
+    `in ${cityNorm} machen`,
+    `in ${cityNorm} pflegen`,
+  ];
+
+  return patterns.some((pattern) => textNorm.includes(pattern));
+}
+
+if (looksLikeWorkPhraseCity(kundeData.ort, messageText)) {
+  kundeData.ort = null;
+}
+
+
   const addr = ensureAddressSplit({
     customerStreet: kundeData.strasse ? `${kundeData.strasse}${kundeData.hausnummer ? ' ' + kundeData.hausnummer : ''}` : null,
     customerPlz: kundeData.plz,
