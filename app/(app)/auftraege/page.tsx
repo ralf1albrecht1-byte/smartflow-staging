@@ -1293,7 +1293,7 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                         {!isFallbackCustomerName(o.customer?.name) && o.customer?.customerNumber && <span className="text-muted-foreground shrink-0">({o.customer.customerNumber})</span>}
 
 
-                    {o.needsReview && hasRealCustomerReviewReason(o) && (
+                   {(o.needsReview && (hasRealCustomerReviewReason(o) || isCustomerDataIncomplete(o.customer))) && (
   <button
     type="button"
     onClick={(e) => { e.stopPropagation(); openEdit(o, { openCustomerSection: true }); }}
