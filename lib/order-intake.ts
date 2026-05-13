@@ -1254,6 +1254,12 @@ const aiWorkItems: AiWorkItem[] = aiWorkItemsRaw.length > 0
   : fallbackSegments;
 
 const getWorkItemUnitType = (item: AiWorkItem): string => {
+  const text = normalizeUnitText([item.raw, item.name, item.einheit].filter(Boolean).join(' '));
+
+  if (/\b(pauschal|pauschale|pauschale abrechnung|fixpreis|festpreis)\b/i.test(text)) {
+    return 'flat';
+  }
+
   const fromUnit = getServiceUnitType(item.einheit || null);
   if (fromUnit !== 'unknown') return fromUnit;
 
