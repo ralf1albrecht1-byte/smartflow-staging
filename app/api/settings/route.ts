@@ -274,7 +274,10 @@ hauptsprache: hauptsprache ?? undefined,
     if (whatsappProvided) settingsData.whatsappIntakeNumber = normalizedWhatsapp;
 
     // Find existing settings for this user
-    let existing = await prisma.companySettings.findFirst({ where: { userId } });
+    let existing = await prisma.companySettings.findFirst({
+  where: { userId },
+  select: { id: true },
+});
 
     if (existing) {
       const settings = await prisma.companySettings.update({
