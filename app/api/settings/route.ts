@@ -273,59 +273,99 @@ hauptsprache: hauptsprache ?? undefined,
     // WhatsApp intake number — already normalized above in step 2
     if (whatsappProvided) settingsData.whatsappIntakeNumber = normalizedWhatsapp;
 
-    // Find existing settings for this user
-    let existing = await prisma.companySettings.findFirst({
+
+
+// Find existing settings for this user
+let existing = await prisma.companySettings.findFirst({
   where: { userId },
   select: { id: true },
 });
 
-    const settings = await prisma.companySettings.update({
-  where: { id: existing.id },
-  data: settingsData,
-  select: {
-    id: true,
-    userId: true,
-    firmenname: true,
-    firmaRechtlich: true,
-    ansprechpartner: true,
-    telefon: true,
-    telefon2: true,
-    email: true,
-    supportEmail: true,
-    webseite: true,
-    strasse: true,
-    hausnummer: true,
-    plz: true,
-    ort: true,
-    iban: true,
-    bank: true,
-    mwstAktiv: true,
-    mwstNummer: true,
-    mwstSatz: true,
-    mwstHinweis: true,
-    testModus: true,
-    branche: true,
-    hauptsprache: true,
-    documentTemplate: true,
-    letterheadUrl: true,
-    letterheadName: true,
-    letterheadVisible: true,
-    whatsappIntakeNumber: true,
-    createdAt: true,
-    updatedAt: true,
-  },
-});
-      const su = await getSessionUser();
-      logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
-      return NextResponse.json(settings);
-    } else {
-      const settings = await prisma.companySettings.create({
-      data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch'},
-      });
-      const su = await getSessionUser();
-      logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
-      return NextResponse.json(settings);
-    }
+if (existing) {
+  const settings = await prisma.companySettings.update({
+    where: { id: existing.id },
+    data: settingsData,
+    select: {
+      id: true,
+      userId: true,
+      firmenname: true,
+      firmaRechtlich: true,
+      ansprechpartner: true,
+      telefon: true,
+      telefon2: true,
+      email: true,
+      supportEmail: true,
+      webseite: true,
+      strasse: true,
+      hausnummer: true,
+      plz: true,
+      ort: true,
+      iban: true,
+      bank: true,
+      mwstAktiv: true,
+      mwstNummer: true,
+      mwstSatz: true,
+      mwstHinweis: true,
+      testModus: true,
+      branche: true,
+      hauptsprache: true,
+      documentTemplate: true,
+      letterheadUrl: true,
+      letterheadName: true,
+      letterheadVisible: true,
+      whatsappIntakeNumber: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  const su = await getSessionUser();
+  logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
+  return NextResponse.json({ ...settings, currency: 'CHF' });
+} else {
+  const settings = await prisma.companySettings.create({
+    data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch' },
+    select: {
+      id: true,
+      userId: true,
+      firmenname: true,
+      firmaRechtlich: true,
+      ansprechpartner: true,
+      telefon: true,
+      telefon2: true,
+      email: true,
+      supportEmail: true,
+      webseite: true,
+      strasse: true,
+      hausnummer: true,
+      plz: true,
+      ort: true,
+      iban: true,
+      bank: true,
+      mwstAktiv: true,
+      mwstNummer: true,
+      mwstSatz: true,
+      mwstHinweis: true,
+      testModus: true,
+      branche: true,
+      hauptsprache: true,
+      documentTemplate: true,
+      letterheadUrl: true,
+      letterheadName: true,
+      letterheadVisible: true,
+      whatsappIntakeNumber: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  const su = await getSessionUser();
+  logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
+  return NextResponse.json({ ...settings, currency: 'CHF' });
+}
+
+
+
   } catch (error) {
     console.error('PUT /api/settings error:', error);
     return NextResponse.json({ error: 'Fehler beim Speichern' }, { status: 500 });
