@@ -38,7 +38,7 @@ export async function PUT(request: Request) {
     const {
       firmenname, firmaRechtlich, ansprechpartner, telefon: rawTelefon, telefon2: rawTelefon2, email, supportEmail, webseite,
       strasse, hausnummer, plz, ort,
-      iban, bank, mwstAktiv, mwstNummer, mwstSatz, mwstHinweis, testModus, branche, hauptsprache,
+     iban, bank, mwstAktiv, mwstNummer, mwstSatz, mwstHinweis, testModus, branche, hauptsprache, currency,
       // New fields for document template + letterhead (Settings/Templates/Import paket)
       documentTemplate: rawDocumentTemplate, letterheadUrl: rawLetterheadUrl, letterheadName: rawLetterheadName,
       letterheadVisible: rawLetterheadVisible,
@@ -205,9 +205,10 @@ export async function PUT(request: Request) {
       mwstNummer: mwstNummer || null,
       mwstSatz: mwstSatz != null ? Number(mwstSatz) : null,
       mwstHinweis: mwstHinweis || null,
-      testModus: testModus ?? undefined,
-      branche: branche ?? undefined,
-      hauptsprache: hauptsprache ?? undefined,
+    testModus: testModus ?? undefined,
+branche: branche ?? undefined,
+hauptsprache: hauptsprache ?? undefined,
+currency: currency === 'EUR' ? 'EUR' : 'CHF',
     };
     // Only include phone fields when caller provided them (preserves legacy rows on partial updates).
     if (telefonProvided) settingsData.telefon = normalizedTelefon;
@@ -250,7 +251,7 @@ export async function PUT(request: Request) {
       return NextResponse.json(settings);
     } else {
       const settings = await prisma.companySettings.create({
-        data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch' },
+      data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch', currency: currency === 'EUR' ? 'EUR' : 'CHF' },
       });
       const su = await getSessionUser();
       logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
