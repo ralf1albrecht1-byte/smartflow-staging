@@ -242,7 +242,7 @@ export async function PUT(request: Request) {
     testModus: testModus ?? undefined,
 branche: branche ?? undefined,
 hauptsprache: hauptsprache ?? undefined,
-currency: currency === 'EUR' ? 'EUR' : 'CHF',
+
 
     };
     // Only include phone fields when caller provided them (preserves legacy rows on partial updates).
@@ -286,7 +286,7 @@ currency: currency === 'EUR' ? 'EUR' : 'CHF',
       return NextResponse.json(settings);
     } else {
       const settings = await prisma.companySettings.create({
-      data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch', currency: currency === 'EUR' ? 'EUR' : 'CHF' },
+      data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch'},
       });
       const su = await getSessionUser();
       logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
