@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
+import { formatCurrency } from '@/lib/currency';
 
 interface Service { id: string; name: string; defaultPrice: number; unit: string; }
 const emptyForm = { name: '', defaultPrice: '', unit: 'Stunde' };
@@ -66,7 +67,7 @@ export default function LeistungenPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="font-semibold">{s?.name ?? ''}</h3>
-                      <p className="font-mono text-lg font-bold text-primary mt-1">CHF {Number(s?.defaultPrice ?? 0).toFixed(2)}</p>
+                     <p className="font-mono text-lg font-bold text-primary mt-1">{formatCurrency(s?.defaultPrice)}</p>
                       <Badge variant="secondary" className="mt-2">{s?.unit ?? ''}</Badge>
                     </div>
                     <div className="flex gap-1">

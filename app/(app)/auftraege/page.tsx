@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
+import { formatCurrency } from '@/lib/currency';
 import { DuplicateCheckPanel, type DuplicateMatch } from '@/components/customer-duplicate-check';
 import { splitSpecialNotes } from '@/lib/special-notes-utils';
 import { fetchAllJSON } from '@/lib/fetch-utils';
@@ -1334,7 +1335,7 @@ const onItemServiceSelect = (index: number, name: string, svcOpt?: ServiceOption
                           {orderStatuses.map(s => <option key={s} style={getStatusStyle(ORDER_STATUS_STYLES, s)}>{s}</option>)}
                         </select>
                         <CommunicationChips data={o} onAudioClick={() => openMedia(o)} onImageClick={() => openMedia(o)} />
-                        <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">CHF {Number((o as any).total || o.totalPrice || 0).toFixed(2)}</span>
+                        <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">{formatCurrency(Number((o as any).total || o.totalPrice || 0))}</span>
                       </div>
                     </div>
                   </div>
@@ -1877,7 +1878,7 @@ if (!missingData && !hasImageOnly) return null;
             {/* Service Items + rest of form — collapsed when dupCheck open */}
             {dupCheckOpen ? (
               <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
-                <span>{formItems.filter(i => i.serviceName).length} Leistung(en) · CHF {itemsTotal.toFixed(2)} · {form.date || '–'} · {form.status}</span>
+                <span>{formItems.filter(i => i.serviceName).length} Leistung(en) · {formatCurrency(itemsTotal)} · {form.date || '–'} · {form.status}</span>
                 <span className="text-[10px] italic">Duplikat-Prüfung aktiv — Form eingeklappt</span>
               </div>
             ) : (<>
@@ -1938,7 +1939,7 @@ if (!missingData && !hasImageOnly) return null;
                       </div>
                     </div>
                     <div className="text-left sm:text-right text-xs text-muted-foreground">
-                      = CHF {(Number(item.unitPrice || 0) * Number(item.quantity || 0)).toFixed(2)}
+                     = {formatCurrency(Number(item.unitPrice || 0) * Number(item.quantity || 0))}
                     </div>
 
 
@@ -1979,11 +1980,12 @@ if (!missingData && !hasImageOnly) return null;
             <div className="p-1.5 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
               <MwStControl vatRate={orderVatRate} onChange={setOrderVatRate} />
               <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">CHF {itemsTotal.toFixed(2)}</span></div>
-                {orderVatRate > 0 && (
-                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {orderVatRate}%</span><span className="font-mono">CHF {(itemsTotal * orderVatRate / 100).toFixed(2)}</span></div>
+                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">{formatCurrency(itemsTotal)}</span></div>
+             {orderVatRate > 0 && (
+  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {orderVatRate}%</span><span className="font-mono">{formatCurrency(itemsTotal * orderVatRate / 100)}</span></div>
+
                 )}
-                <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">CHF {(itemsTotal + itemsTotal * orderVatRate / 100).toFixed(2)}</span></div>
+             <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">{formatCurrency(itemsTotal + itemsTotal * orderVatRate / 100)}</span></div>
               </div>
             </div>
 
