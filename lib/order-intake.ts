@@ -1575,6 +1575,26 @@ const mappedOrderItemsWithHourSafety = (
 
 
 
+const messageHasCleaningMaterialSignal =
+  /\b(liter|ltr\.?|reinigungsmittel|reiniger|spezialreiniger|produkt|mittel)\b/i.test(
+    normalizeUnitText(messageText)
+  );
+
+const cleanedMappedOrderItemsWithHourSafety = mappedOrderItemsWithHourSafety.filter((item) => {
+  const name = normalizeUnitText(item.serviceName);
+  const unitType = getServiceUnitType(item.unit);
+
+  const isCleaningMaterial =
+    unitType === 'liter' &&
+    /\b(reinigungsmittel|reiniger|spezialreiniger)\b/i.test(name);
+
+  if (isCleaningMaterial && !messageHasCleaningMaterialSignal) {
+    return false;
+  }
+
+  return true;
+});
+
 const finalOrderItems: Array<{
   serviceName: string;
   description: string;
@@ -1584,8 +1604,11 @@ const finalOrderItems: Array<{
   totalPrice: number;
   needsReview: boolean;
   reviewReason: string | null;
-}>= mappedOrderItemsWithHourSafety.length > 0
-  ? mappedOrderItemsWithHourSafety
+}> = cleanedMappedOrderItemsWithHourSafety.length > 0
+  ? cleanedMappedOrderItemsWithHourSafety
+
+
+
   : [{
      serviceName: formatWorkNameForDisplay(parsed.auftrag?.titel || 'Unbekannte Leistung'),
 description: String(fullWorkText || `${source}-Auftrag`),
