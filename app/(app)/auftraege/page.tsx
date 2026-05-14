@@ -336,30 +336,8 @@ export default function AuftraegePage() {
 
 
 
-
-  // Paket L: keep list fresh when user returns to this page.
-  // When an order is forwarded to Angebot/Rechnung, we navigate away
-  // (router.push('/angebote'|'/rechnungen')). If the user navigates back
-  // via the sidebar, Next.js' Router Cache / browser bfcache may restore
-  // the previous React tree without re-triggering the mount-only load().
-  // This listener forces a re-fetch whenever the tab becomes visible again
-  // (sidebar navigation, tab switch, Safari bfcache restore, etc.) so the
-  // active Orders list always reflects backend state immediately.
-  useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState === 'visible') load();
-    };
-    document.addEventListener('visibilitychange', refreshIfVisible);
-    window.addEventListener('pageshow', refreshIfVisible);
-    window.addEventListener('focus', refreshIfVisible);
-    return () => {
-      document.removeEventListener('visibilitychange', refreshIfVisible);
-      window.removeEventListener('pageshow', refreshIfVisible);
-      window.removeEventListener('focus', refreshIfVisible);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // Auto-refresh on tab/window focus removed:
+  // it caused visible reload flicker and scroll loss while editing orders.
   // Support ?kunde= filter from Kunden page, with optional autoEdit
   useEffect(() => {
     const kundeFilter = searchParams?.get('kunde');
