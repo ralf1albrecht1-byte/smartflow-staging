@@ -1560,7 +1560,7 @@ const mappedOrderItemsWithHourSafety = (
 )
   ? [
       {
-        serviceName: 'Reinigung / Arbeit',
+        serviceName: 'Reinigung',
         description: String(messageText || fullWorkText || `${source}-Auftrag`),
         quantity: firstHourQuantity.value,
         unit: 'Stunde',
