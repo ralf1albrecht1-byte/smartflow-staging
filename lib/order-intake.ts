@@ -1538,6 +1538,43 @@ description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
   }>;
 
 
+
+
+const hasHourQuantityInText = detectAllQuantityUnitsFromText(messageText)
+  .some((q) => q.unit === 'hour');
+
+const hasHourItemAlready = mappedOrderItems
+  .some((item) => getServiceUnitType(item.unit) === 'hour');
+
+const hasMaterialLiterItem = mappedOrderItems
+  .some((item) => getServiceUnitType(item.unit) === 'liter');
+
+const firstHourQuantity = detectAllQuantityUnitsFromText(messageText)
+  .find((q) => q.unit === 'hour');
+
+const mappedOrderItemsWithHourSafety = (
+  hasHourQuantityInText &&
+  !hasHourItemAlready &&
+  hasMaterialLiterItem &&
+  firstHourQuantity
+)
+  ? [
+      {
+        serviceName: 'Reinigung / Arbeit',
+        description: String(messageText || fullWorkText || `${source}-Auftrag`),
+        quantity: firstHourQuantity.value,
+        unit: 'Stunde',
+        unitPrice: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: 'stunden_arbeitsposition_pruefen',
+      },
+      ...mappedOrderItems,
+    ]
+  : mappedOrderItems;
+
+
+
 const finalOrderItems: Array<{
   serviceName: string;
   description: string;
@@ -1547,8 +1584,8 @@ const finalOrderItems: Array<{
   totalPrice: number;
   needsReview: boolean;
   reviewReason: string | null;
-}> = mappedOrderItems.length > 0
-  ? mappedOrderItems
+}>= mappedOrderItemsWithHourSafety.length > 0
+  ? mappedOrderItemsWithHourSafety
   : [{
      serviceName: formatWorkNameForDisplay(parsed.auftrag?.titel || 'Unbekannte Leistung'),
 description: String(fullWorkText || `${source}-Auftrag`),
