@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { formatCurrency } from '@/lib/currency';
 import { useRouter } from 'next/navigation';
 import { LayoutDashboard, ClipboardList, FileText, FileCheck, Plus, ArrowRight, Calendar, AlertTriangle, Users, HelpCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -209,7 +210,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                         <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${statusColors[order?.status ?? ''] ?? ''}`}>{order?.status ?? ''}</Badge>
-                        <span className="font-mono text-xs font-bold whitespace-nowrap tabular-nums">CHF {Number(order?.total || order?.totalPrice || 0).toFixed(2)}</span>
+                        <span className="font-mono text-xs font-bold whitespace-nowrap tabular-nums">{formatCurrency(Number(order?.total || order?.totalPrice || 0))}</span>
                       </div>
                     </div>
                   )) ?? []}
@@ -240,7 +241,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                         <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${statusColors[off?.status ?? ''] ?? ''}`}>{off?.status ?? ''}</Badge>
-                        <span className="font-mono text-xs font-bold whitespace-nowrap tabular-nums">CHF {Number(off?.total ?? 0).toFixed(2)}</span>
+                        <span className="font-mono text-xs font-bold whitespace-nowrap tabular-nums">{formatCurrency(Number(off?.total ?? 0))}</span>
                       </div>
                     </div>
                   )) ?? []}
@@ -271,7 +272,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                         <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${statusColors[inv?.status ?? ''] ?? ''}`}>{inv?.status ?? ''}</Badge>
-                        <span className="font-mono text-xs font-bold whitespace-nowrap tabular-nums">CHF {Number(inv?.total ?? 0).toFixed(2)}</span>
+                        <span className="font-mono text-xs font-bold whitespace-nowrap tabular-nums">{formatCurrency(Number(inv?.total ?? 0))}</span>
                       </div>
                     </div>
                   )) ?? []}
