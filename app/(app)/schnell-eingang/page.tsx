@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { MessageSquarePlus, Loader2, CheckCircle2, ArrowRight, Sparkles, ClipboardPaste, User, Wrench, AlertTriangle, RotateCcw, Mic, ImagePlus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
+import { formatCurrency } from '@/lib/currency';
 
 interface Analysis {
   customerName: string;
@@ -376,7 +377,7 @@ export default function SchnellEingangPage() {
                 </div>
                 <div className="p-4 bg-primary/10 rounded-lg flex items-center justify-between">
                   <span className="font-medium">Gesch&auml;tzter Total</span>
-                  <span className="font-mono font-bold text-xl text-primary">CHF {(Number(editableAnalysis.unitPrice) * Number(editableAnalysis.estimatedQuantity)).toFixed(2)}</span>
+                  <span className="font-mono font-bold text-xl text-primary">{formatCurrency(Number(editableAnalysis.unitPrice) * Number(editableAnalysis.estimatedQuantity))}</span>
                 </div>
               </CardContent>
             </Card>
