@@ -223,29 +223,31 @@ export async function PUT(request: Request) {
       }
     }
 
-    const settingsData: Record<string, any> = {
-      firmenname: firmenname ?? '',
-      firmaRechtlich: firmaRechtlich || null,
-      ansprechpartner: ansprechpartner || null,
-      email: email || null,
-      supportEmail: supportEmail || null,
-      webseite: webseite || null,
-      strasse: strasse || null,
-      hausnummer: hausnummer || null,
-      plz: plz || null,
-      ort: ort || null,
-      iban: iban || null,
-      bank: bank || null,
-      mwstAktiv: mwstAktiv ?? false,
-      mwstNummer: mwstNummer || null,
-      mwstSatz: mwstSatz != null ? Number(mwstSatz) : null,
-      mwstHinweis: mwstHinweis || null,
-    testModus: testModus ?? undefined,
-branche: branche ?? undefined,
-hauptsprache: hauptsprache ?? undefined,
+const settingsData: Record<string, any> = {};
+
+if (firmenname !== undefined) settingsData.firmenname = firmenname || '';
+if (firmaRechtlich !== undefined) settingsData.firmaRechtlich = firmaRechtlich || null;
+if (ansprechpartner !== undefined) settingsData.ansprechpartner = ansprechpartner || null;
+if (email !== undefined) settingsData.email = email || null;
+if (supportEmail !== undefined) settingsData.supportEmail = supportEmail || null;
+if (webseite !== undefined) settingsData.webseite = webseite || null;
+if (strasse !== undefined) settingsData.strasse = strasse || null;
+if (hausnummer !== undefined) settingsData.hausnummer = hausnummer || null;
+if (plz !== undefined) settingsData.plz = plz || null;
+if (ort !== undefined) settingsData.ort = ort || null;
+if (iban !== undefined) settingsData.iban = iban || null;
+if (bank !== undefined) settingsData.bank = bank || null;
+if (mwstAktiv !== undefined) settingsData.mwstAktiv = !!mwstAktiv;
+if (mwstNummer !== undefined) settingsData.mwstNummer = mwstNummer || null;
+if (mwstSatz !== undefined) settingsData.mwstSatz = mwstSatz != null ? Number(mwstSatz) : null;
+if (mwstHinweis !== undefined) settingsData.mwstHinweis = mwstHinweis || null;
+if (testModus !== undefined) settingsData.testModus = testModus;
+if (branche !== undefined) settingsData.branche = branche;
+if (hauptsprache !== undefined) settingsData.hauptsprache = hauptsprache;
+if (currency !== undefined) settingsData.currency = currency === 'EUR' ? 'EUR' : 'CHF';
 
 
-    };
+    
     // Only include phone fields when caller provided them (preserves legacy rows on partial updates).
     if (telefonProvided) settingsData.telefon = normalizedTelefon;
     if (telefon2Provided) settingsData.telefon2 = normalizedTelefon2;
@@ -317,6 +319,7 @@ if (existing) {
       whatsappIntakeNumber: true,
       createdAt: true,
       updatedAt: true,
+currency: true,
     },
   });
 
