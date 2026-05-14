@@ -67,7 +67,8 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [fromOrderId, setFromOrderId] = useState<string | null>(null);
   const [vatRate, setVatRate] = useState(8.1);
-  const [defaultVatRate, setDefaultVatRate] = useState(8.1);
+const [defaultVatRate, setDefaultVatRate] = useState(8.1);
+const [currency, setCurrency] = useState<'CHF' | 'EUR'>('CHF');
   // Stage M.2: Business WhatsApp intake number used as recipient for
   // "PDF an WhatsApp senden". NEVER use Customer.phone for this feature.
  const [businessWhatsappNumber, setBusinessWhatsappNumber] = useState<string | null>(null);
@@ -250,6 +251,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
     setOffers(off ?? []); setCustomers(Array.from(custMap.values()) as any); setServices(svc ?? []);
     // Set default VAT rate from settings
     if (settings) {
+setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
       if (settings.mwstAktiv && settings.mwstSatz != null) {
         setDefaultVatRate(Number(settings.mwstSatz));
       } else if (settings.mwstAktiv === false) {
@@ -828,7 +830,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
                               </select>
                               <span className="font-mono text-[11px] text-muted-foreground">{off?.offerNumber ?? ''}</span>
                               <CommunicationChips data={orderCtx} onAudioClick={() => orderCtx.mediaUrl && openMedia(orderCtx.mediaUrl, 'audio')} onImageClick={() => { const imgs = orderCtx.imageUrls; if (imgs && imgs.length > 0) openImageGallery(imgs); else if (orderCtx.mediaUrl) openMedia(orderCtx.mediaUrl, 'image'); }} />
-                       <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">{formatCurrency(Number(off?.total ?? 0))}</span>
+                       <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">{formatCurrency(Number(off?.total ?? 0), currency)}</span>
                             </div>
                           </div>
                         </div>
@@ -1008,7 +1010,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
             {/* Form fields — collapsed when dupCheck open */}
             {dupCheckOpen ? (
               <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
-               <span>{items?.filter((i: OfferItem) => i.description).length || 0} Leistung(en) · {formatCurrency(total)} · {form.offerDate || '—'} · {form.status}</span>
+               <span>{items?.filter((i: OfferItem) => i.description).length || 0} Leistung(en) · {formatCurrency(total, currency)} · {form.offerDate || '—'} · {form.status}</span>
                 <span className="text-[10px] italic">Duplikat-Prüfung aktiv — Form eingeklappt</span>
               </div>
             ) : (<>
@@ -1085,11 +1087,11 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
             <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
               <MwStControl vatRate={vatRate} onChange={setVatRate} />
               <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">{formatCurrency(subtotal)}</span></div>
+                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">{formatCurrency(subtotal, currency)}</span></div>
                 {vatRate > 0 && (
-                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">{formatCurrency(vatAmount)}</span></div>
+                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">{formatCurrency(vatAmount, currency)}</span></div>
                 )}
-              <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">{formatCurrency(total)}</span></div>
+              <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">{formatCurrency(total, currency)}</span></div>
               </div>
             </div>
 
