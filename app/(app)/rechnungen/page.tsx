@@ -103,6 +103,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
   const [vatRate, setVatRate] = useState(8.1);
   const [defaultVatRate, setDefaultVatRate] = useState(8.1);
+const [currency, setCurrency] = useState<'CHF' | 'EUR'>('CHF');
   // Stage M.2: Business WhatsApp intake number used as recipient for
   // "PDF an WhatsApp senden". NEVER use Customer.phone for this feature.
   const [businessWhatsappNumber, setBusinessWhatsappNumber] = useState<string | null>(null);
@@ -266,6 +267,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     setCustomers(Array.from(custMap.values()) as any); setOrders(ord ?? []); setServices(svc ?? []);
     // Set default VAT rate from settings
     if (settings) {
+setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
       if (settings.mwstAktiv && settings.mwstSatz != null) {
         setDefaultVatRate(Number(settings.mwstSatz));
       } else if (settings.mwstAktiv === false) {
@@ -810,7 +812,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
                               )}
                               <span className="text-muted-foreground hidden sm:inline">·</span>
                               <span className={`text-xs truncate hidden sm:inline ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</span>
-                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>{formatCurrency(Number(inv?.total ?? 0))}</span>
+                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>{formatCurrency(Number(inv?.total ?? 0), currency)}</span>
                             </div>
                             <p className={`text-xs line-clamp-1 mt-0.5 sm:hidden ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</p>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -992,7 +994,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
             {/* Form fields — collapsed when dupCheck open */}
             {dupCheckOpen ? (
               <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
-                <span>{items?.filter((i: InvoiceItem) => i.description).length || 0} Leistung(en) · {formatCurrency(total)} · {form.invoiceDate || '–'} · {editingInvoice?.status || 'Neu'}</span>
+                <span>{items?.filter((i: InvoiceItem) => i.description).length || 0} Leistung(en) · {formatCurrency(total, currency)} · {form.invoiceDate || '–'} · {editingInvoice?.status || 'Neu'}</span>
                 <span className="text-[10px] italic">Duplikat-Prüfung aktiv — Form eingeklappt</span>
               </div>
             ) : (<>
@@ -1048,7 +1050,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     </select>
   </div>
   <div>
-    <Label className="text-xs">Preis (CHF)</Label>
+    <Label className="text-xs">Preis ({currency})</Label>
     <Input type="number" step="0.05" className="h-8" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '0')} />
   </div>
   <div>
@@ -1057,7 +1059,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   </div>
 </div>
 <div className="text-left sm:text-right text-xs text-muted-foreground">
-  = {formatCurrency(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0))}
+  = {formatCurrency(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0), currency)}
 </div>
 </div>
 )) ?? []}
@@ -1068,11 +1070,11 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
             <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
               <MwStControl vatRate={vatRate} onChange={setVatRate} />
               <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">{formatCurrency(subtotal)}</span></div>
+                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">{formatCurrency(subtotal, currency)}</span></div>
                 {vatRate > 0 && (
-                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">{formatCurrency(vatAmount)}</span></div>
+                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">{formatCurrency(vatAmount, currency)}</span></div>
                 )}
-                <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">{formatCurrency(total)}</span></div>
+                <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">{formatCurrency(total, currency)}</span></div>
               </div>
             </div>
 
