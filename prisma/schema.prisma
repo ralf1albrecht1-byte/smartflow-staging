@@ -340,6 +340,7 @@ model CompanySettings {
   testModus        Boolean @default(true)
   branche          String  @default("Gartenbau")
   hauptsprache     String  @default("Deutsch")
+  currency         String  @default("CHF")
   documentTemplate String  @default("classic")
   letterheadUrl    String?
   letterheadName   String?
