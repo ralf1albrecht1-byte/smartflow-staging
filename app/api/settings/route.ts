@@ -45,6 +45,7 @@ export async function GET() {
     whatsappIntakeNumber: true,
     createdAt: true,
     updatedAt: true,
+currency: true,
   },
 });
     if (!settings) {
@@ -56,7 +57,7 @@ export async function GET() {
     const envLabel = getEnvLabel();
     const whatsappEnabled = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
 
-    return NextResponse.json({ ...settings, currency: 'CHF', envLabel, whatsappEnabled });
+    return NextResponse.json({ ...settings, envLabel, whatsappEnabled });
   } catch (error) {
     console.error('GET /api/settings error:', error);
     return NextResponse.json({ error: 'Fehler beim Laden' }, { status: 500 });
@@ -321,7 +322,7 @@ if (existing) {
 
   const su = await getSessionUser();
   logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
-  return NextResponse.json({ ...settings, currency: 'CHF' });
+  return NextResponse.json(settings);
 } else {
   const settings = await prisma.companySettings.create({
     data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch' },
@@ -356,12 +357,13 @@ if (existing) {
       whatsappIntakeNumber: true,
       createdAt: true,
       updatedAt: true,
+currency: true,
     },
   });
 
   const su = await getSessionUser();
   logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
-  return NextResponse.json({ ...settings, currency: 'CHF' });
+  return NextResponse.json(settings);
 }
 
 
