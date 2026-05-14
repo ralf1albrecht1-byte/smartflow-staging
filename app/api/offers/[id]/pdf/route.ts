@@ -126,6 +126,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
           letterheadUrl: true,
           letterheadName: true,
           letterheadVisible: true,
+currency: true,
         },
       }),
     ]);
