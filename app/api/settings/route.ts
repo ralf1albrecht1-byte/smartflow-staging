@@ -279,11 +279,42 @@ hauptsprache: hauptsprache ?? undefined,
   select: { id: true },
 });
 
-    if (existing) {
-      const settings = await prisma.companySettings.update({
-        where: { id: existing.id },
-        data: settingsData,
-      });
+    const settings = await prisma.companySettings.update({
+  where: { id: existing.id },
+  data: settingsData,
+  select: {
+    id: true,
+    userId: true,
+    firmenname: true,
+    firmaRechtlich: true,
+    ansprechpartner: true,
+    telefon: true,
+    telefon2: true,
+    email: true,
+    supportEmail: true,
+    webseite: true,
+    strasse: true,
+    hausnummer: true,
+    plz: true,
+    ort: true,
+    iban: true,
+    bank: true,
+    mwstAktiv: true,
+    mwstNummer: true,
+    mwstSatz: true,
+    mwstHinweis: true,
+    testModus: true,
+    branche: true,
+    hauptsprache: true,
+    documentTemplate: true,
+    letterheadUrl: true,
+    letterheadName: true,
+    letterheadVisible: true,
+    whatsappIntakeNumber: true,
+    createdAt: true,
+    updatedAt: true,
+  },
+});
       const su = await getSessionUser();
       logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
       return NextResponse.json(settings);
