@@ -243,6 +243,7 @@ export async function PUT(request: Request) {
     testModus: testModus ?? undefined,
 branche: branche ?? undefined,
 hauptsprache: hauptsprache ?? undefined,
+currency: currency === 'EUR' ? 'EUR' : 'CHF',
 
 
     };
@@ -310,6 +311,7 @@ if (existing) {
       testModus: true,
       branche: true,
       hauptsprache: true,
+currency: true,
       documentTemplate: true,
       letterheadUrl: true,
       letterheadName: true,
@@ -350,6 +352,7 @@ if (existing) {
       testModus: true,
       branche: true,
       hauptsprache: true,
+currency: true,
       documentTemplate: true,
       letterheadUrl: true,
       letterheadName: true,
