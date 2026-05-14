@@ -1089,7 +1089,7 @@ const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
                 {vatRate > 0 && (
                   <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">{formatCurrency(vatAmount)}</span></div>
                 )}
-              <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">CHF {total.toFixed(2)}</span></div>
+              <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">{formatCurrency(total)}</span></div>
               </div>
             </div>
 
