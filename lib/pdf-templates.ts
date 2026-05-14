@@ -29,6 +29,7 @@ export interface CompanyInfo {
   companyLogoUrl?: string | null;
   logoVisible?: boolean | null;
   showLogo?: boolean | null;
+currency?: string | null;
 }
 
 const DEFAULT_COMPANY: CompanyInfo = {
@@ -40,8 +41,11 @@ const DEFAULT_COMPANY: CompanyInfo = {
   ort: 'Wettingen',
   email: 'smiley.albi@web.de',
 };
+const getCurrency = (c?: CompanyInfo | null): 'CHF' | 'EUR' =>
+  c?.currency === 'EUR' ? 'EUR' : 'CHF';
 
-const formatCHF = (amount: number) => `CHF ${(amount ?? 0).toFixed(2)}`;
+const formatMoney = (amount: number, c?: CompanyInfo | null) =>
+  `${getCurrency(c)} ${(amount ?? 0).toFixed(2)}`;
 const formatDate = (date: string | Date | null | undefined) => {
   if (!date) return '';
   const d = new Date(date);
@@ -133,8 +137,8 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
       <td>${item?.description ?? ''}</td>
       <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
       <td>${item?.unit ?? ''}</td>
-      <td>${formatCHF(Number(item?.unitPrice ?? 0))}</td>
-      <td>${formatCHF(Number(item?.totalPrice ?? 0))}</td>
+      <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
+      <td>${formatMoney(Number(item?.totalPrice ?? 0), c)}</td>
     </tr>
   `).join('');
 
@@ -164,9 +168,11 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
       <tbody>${itemsHtml}</tbody>
     </table>
     <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(invoice?.subtotal ?? 0))}</span></div>
-      ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(invoice?.vatAmount ?? 0))}</span></div>` : ''}
-      <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(invoice?.total ?? 0))}</span></div>
+      <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
+
+ ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ''}
+
+      <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
     </div>
     ${buildClassicBankBlock(c)}
     ${buildClassicMwstNote(c)}
@@ -183,8 +189,8 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
       <td>${item?.description ?? ''}</td>
       <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
       <td>${item?.unit ?? ''}</td>
-      <td>${formatCHF(Number(item?.unitPrice ?? 0))}</td>
-      <td>${formatCHF(Number(item?.totalPrice ?? 0))}</td>
+      <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
+      <td>${formatMoney(Number(item?.totalPrice ?? 0), c)}</td>
     </tr>
   `).join('');
 
@@ -218,9 +224,9 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
       <tbody>${itemsHtml}</tbody>
     </table>
     <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(offer?.subtotal ?? 0))}</span></div>
-      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(offer?.vatAmount ?? 0))}</span></div>` : ''}
-      <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(offer?.total ?? 0))}</span></div>
+      <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
+      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ''}
+      <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
     </div>
     ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
     <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
@@ -251,14 +257,14 @@ function buildCompanyLines(c: CompanyInfo): string[] {
   if (c.mwstAktiv && c.mwstNummer) lines.push(c.mwstNummer);
   return lines;
 }
-function buildItemsRows(items: any[]): string {
+function buildItemsRows(items: any[], c: CompanyInfo): string {
   return items.map((item: any) => `
     <tr>
       <td>${item?.description ?? ''}</td>
       <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
       <td>${item?.unit ?? ''}</td>
-      <td>${formatCHF(Number(item?.unitPrice ?? 0))}</td>
-      <td>${formatCHF(Number(item?.totalPrice ?? 0))}</td>
+     <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
+<td>${formatMoney(Number(item?.totalPrice ?? 0), c)}</td>
     </tr>
   `).join('');
 }
@@ -373,13 +379,13 @@ function renderModernInvoice(invoice: any, c: CompanyInfo): string {
       </div>
       <table>
         <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(invoice?.items ?? [])}</tbody>
+        <tbody>${buildItemsRows(invoice?.items ?? [], c)}</tbody>
       </table>
       <div class="clearfix">
         <div class="totals">
-          <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(invoice?.subtotal ?? 0))}</span></div>
-          ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(invoice?.vatAmount ?? 0))}</span></div>` : ''}
-          <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(invoice?.total ?? 0))}</span></div>
+          <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
+          ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ''}
+          <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
         </div>
       </div>
       ${bankLine ? `<div style="clear:both;margin-top:22px;font-size:10px;color:#475569;"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ''}
@@ -389,6 +395,7 @@ function renderModernInvoice(invoice: any, c: CompanyInfo): string {
     </div>
   </body></html>`;
 }
+
 
 function renderModernOffer(offer: any, c: CompanyInfo): string {
   const vatLabel = c.mwstAktiv === false
@@ -410,13 +417,13 @@ function renderModernOffer(offer: any, c: CompanyInfo): string {
       </div>
       <table>
         <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(offer?.items ?? [])}</tbody>
+        <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
       </table>
       <div class="clearfix">
         <div class="totals">
-          <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(offer?.subtotal ?? 0))}</span></div>
-          ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(offer?.vatAmount ?? 0))}</span></div>` : ''}
-          <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(offer?.total ?? 0))}</span></div>
+          <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
+          ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ''}
+          <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
         </div>
       </div>
       ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
@@ -492,12 +499,12 @@ function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
     </div>
     <table>
       <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-      <tbody>${buildItemsRows(invoice?.items ?? [])}</tbody>
+      <tbody>${buildItemsRows(invoice?.items ?? [], c)}</tbody>
     </table>
     <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(invoice?.subtotal ?? 0))}</span></div>
-      ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(invoice?.vatAmount ?? 0))}</span></div>` : ''}
-      <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(invoice?.total ?? 0))}</span></div>
+      <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
+      ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ''}
+      <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
     </div>
     ${bankLine ? `<div class="notes"><strong>Bankverbindung</strong><br/>${bankLine}</div>` : ''}
     ${!c.mwstAktiv ? `<div style="margin-top:8px;font-size:9px;color:#999;">${c.mwstHinweis || 'Nicht MWST-pflichtig'}</div>` : ''}
@@ -505,7 +512,6 @@ function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
     <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
   </body></html>`;
 }
-
 function renderMinimalOffer(offer: any, c: CompanyInfo): string {
   const customer = offer?.customer ?? {};
   const vatLabel = c.mwstAktiv === false
@@ -531,12 +537,12 @@ function renderMinimalOffer(offer: any, c: CompanyInfo): string {
     </div>
     <table>
       <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-      <tbody>${buildItemsRows(offer?.items ?? [])}</tbody>
+      <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
     </table>
     <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(offer?.subtotal ?? 0))}</span></div>
-      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(offer?.vatAmount ?? 0))}</span></div>` : ''}
-      <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(offer?.total ?? 0))}</span></div>
+      <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
+      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ''}
+      <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
     </div>
     ${offer?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${offer.notes}</div>` : ''}
     <div class="notes"><strong>Hinweis</strong><br/>Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
@@ -613,12 +619,12 @@ function renderElegantInvoice(invoice: any, c: CompanyInfo): string {
       </div>
       <table>
         <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(invoice?.items ?? [])}</tbody>
+        <tbody>${buildItemsRows(invoice?.items ?? [], c)}</tbody>
       </table>
       <div class="totals">
-        <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(invoice?.subtotal ?? 0))}</span></div>
-        ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(invoice?.vatAmount ?? 0))}</span></div>` : ''}
-        <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(invoice?.total ?? 0))}</span></div>
+        <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
+        ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ''}
+        <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
       </div>
       ${bankLine ? `<div class="notes"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ''}
       ${!c.mwstAktiv ? `<div style="clear:both;margin-top:8px;font-size:9px;color:#a08864;font-style:italic;">${c.mwstHinweis || 'Nicht MWST-pflichtig'}</div>` : ''}
@@ -658,12 +664,12 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
       </div>
       <table>
         <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(offer?.items ?? [])}</tbody>
+        <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
       </table>
       <div class="totals">
-        <div class="totals-row"><span>Netto</span><span>${formatCHF(Number(offer?.subtotal ?? 0))}</span></div>
-        ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatCHF(Number(offer?.vatAmount ?? 0))}</span></div>` : ''}
-        <div class="totals-row total"><span>Total</span><span>${formatCHF(Number(offer?.total ?? 0))}</span></div>
+        <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
+        ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ''}
+        <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
       </div>
       ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
       <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
