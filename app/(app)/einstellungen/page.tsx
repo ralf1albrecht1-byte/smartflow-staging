@@ -381,6 +381,41 @@ if (type === 'data_export') {
     });
   }
 
+
+async function handleCurrencyChange(value: 'CHF' | 'EUR') {
+  const previous = form.currency;
+
+  setForm(prev => ({ ...prev, currency: value }));
+
+  try {
+    const res = await fetch('/api/settings/currency', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currency: value }),
+    });
+
+    if (!res.ok) {
+      setForm(prev => ({ ...prev, currency: previous }));
+      toast({ title: 'Fehler', description: 'Währung konnte nicht gespeichert werden.', variant: 'destructive' });
+      return;
+    }
+
+    const data = await res.json();
+    const savedCurrency = data.currency === 'EUR' ? 'EUR' : 'CHF';
+
+    setForm(prev => ({ ...prev, currency: savedCurrency }));
+    setSavedData(prev => ({ ...prev, currency: savedCurrency }));
+    setHasChanges(false);
+
+    toast({ title: '✅ Währung gespeichert' });
+  } catch {
+    setForm(prev => ({ ...prev, currency: previous }));
+    toast({ title: 'Fehler', description: 'Netzwerkfehler beim Speichern der Währung.', variant: 'destructive' });
+  }
+}
+
+
+
   async function handleSave() {
     setSaving(true);
     setFieldErrors({});
@@ -772,7 +807,7 @@ const storedValue = finalUrl;
 
   <select
     value={form.currency}
-    onChange={(e) => updateField('currency', e.target.value as 'CHF' | 'EUR')}
+   onChange={(e) => handleCurrencyChange(e.target.value as 'CHF' | 'EUR')}
     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
   >
     <option value="CHF">CHF</option>
