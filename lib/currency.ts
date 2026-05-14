@@ -1,15 +1,12 @@
 export type SupportedCurrency = 'CHF' | 'EUR';
 
-export function normalizeCurrency(value?: string | null): SupportedCurrency {
-  return value === 'EUR' ? 'EUR' : 'CHF';
-}
+export const DEFAULT_CURRENCY: SupportedCurrency = 'CHF';
 
-export function formatCurrency(value: number | null | undefined, currency: string = 'CHF') {
-  const normalized = normalizeCurrency(currency);
+export function formatCurrency(
+  amount: number | null | undefined,
+  currency: SupportedCurrency = DEFAULT_CURRENCY
+): string {
+  const safeAmount = Number.isFinite(Number(amount)) ? Number(amount) : 0;
 
-  return `${normalized} ${Number(value ?? 0).toFixed(2)}`;
-}
-
-export function currencyLabel(currency: string = 'CHF') {
-  return normalizeCurrency(currency);
+  return `${currency} ${safeAmount.toFixed(2)}`;
 }
