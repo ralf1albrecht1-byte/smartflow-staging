@@ -18,6 +18,7 @@ import { motion } from 'framer-motion';
 import { DuplicateCheckPanel, type DuplicateMatch } from '@/components/customer-duplicate-check';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
 import { MwStControl } from '@/components/mwst-control';
+import { formatCurrency } from '@/lib/currency';
 import { splitSpecialNotes } from '@/lib/special-notes-utils';
 import { fetchAllJSON } from '@/lib/fetch-utils';
 import { LoadErrorFallback } from '@/components/load-error-fallback';
@@ -809,7 +810,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
                               )}
                               <span className="text-muted-foreground hidden sm:inline">·</span>
                               <span className={`text-xs truncate hidden sm:inline ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</span>
-                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>CHF {Number(inv?.total ?? 0).toFixed(2)}</span>
+                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>{formatCurrency(Number(inv?.total ?? 0))}</span>
                             </div>
                             <p className={`text-xs line-clamp-1 mt-0.5 sm:hidden ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</p>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -991,7 +992,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
             {/* Form fields — collapsed when dupCheck open */}
             {dupCheckOpen ? (
               <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
-                <span>{items?.filter((i: InvoiceItem) => i.description).length || 0} Leistung(en) · CHF {total.toFixed(2)} · {form.invoiceDate || '–'} · {editingInvoice?.status || 'Neu'}</span>
+                <span>{items?.filter((i: InvoiceItem) => i.description).length || 0} Leistung(en) · {formatCurrency(total)} · {form.invoiceDate || '–'} · {editingInvoice?.status || 'Neu'}</span>
                 <span className="text-[10px] italic">Duplikat-Prüfung aktiv — Form eingeklappt</span>
               </div>
             ) : (<>
@@ -1056,7 +1057,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   </div>
 </div>
 <div className="text-left sm:text-right text-xs text-muted-foreground">
-  = CHF {(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0)).toFixed(2)}
+  = {formatCurrency(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0))}
 </div>
 </div>
 )) ?? []}
@@ -1067,11 +1068,11 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
             <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
               <MwStControl vatRate={vatRate} onChange={setVatRate} />
               <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">CHF {subtotal.toFixed(2)}</span></div>
+                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">{formatCurrency(subtotal)}</span></div>
                 {vatRate > 0 && (
-                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">CHF {vatAmount.toFixed(2)}</span></div>
+                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">{formatCurrency(vatAmount)}</span></div>
                 )}
-                <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">CHF {total.toFixed(2)}</span></div>
+                <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">{formatCurrency(total)}</span></div>
               </div>
             </div>
 
