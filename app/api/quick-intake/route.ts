@@ -347,6 +347,7 @@ Respond with raw JSON only.
         success: true,
         analysis: {
           ...parsed,
+          currency: intakeCurrency,
           // Override LLM's existingCustomerId with verified result
           existingCustomerId: verifiedCustomerId,
           // Provide match info for frontend confirmation UI
@@ -644,7 +645,12 @@ Respond with raw JSON only.
       const createSettings = await prisma.companySettings.findFirst({
         where: { userId },
       });
-      const intakeCurrency = createSettings?.currency === "EUR" ? "EUR" : "CHF";
+      const intakeCurrency =
+        analysis.currency === "EUR"
+          ? "EUR"
+          : createSettings?.currency === "EUR"
+            ? "EUR"
+            : "CHF";
       const order = await prisma.order.create({
         data: {
           customerId,
