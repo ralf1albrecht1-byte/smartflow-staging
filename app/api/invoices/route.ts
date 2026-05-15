@@ -34,6 +34,7 @@ export async function POST(request: Request) {
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
     const data = await request.json();
+const currency = data?.currency === 'EUR' ? 'EUR' : 'CHF';
     let vatRate = 8.1;
     if (data?.vatRate !== undefined && data.vatRate !== null) {
       vatRate = Number(data.vatRate);
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
       try {
         invoice = await prisma.invoice.create({
           data: {
-            invoiceNumber, customerId: data?.customerId, subtotal, vatRate, vatAmount, total,
+           invoiceNumber, customerId: data?.customerId, subtotal, vatRate, vatAmount, total, currency,
             invoiceDate: data?.invoiceDate ? new Date(data.invoiceDate) : new Date(), dueDate,
             notes: data?.notes || null, status: data?.status ?? 'Entwurf',
             sourceOfferId: data?.sourceOfferId ?? null, userId,

@@ -23,9 +23,8 @@ export async function POST(request: Request) {
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
-
-    const data = await request.json();
-    // Use vatRate from client if provided, otherwise fetch from Settings, fallback 8.1%
+const data = await request.json();
+const currency = data?.currency === 'EUR' ? 'EUR' : 'CHF';    // Use vatRate from client if provided, otherwise fetch from Settings, fallback 8.1%
     let vatRate = 8.1;
     if (data?.vatRate !== undefined && data.vatRate !== null) {
       vatRate = Number(data.vatRate);
@@ -59,14 +58,15 @@ export async function POST(request: Request) {
             offerNumber,
             customerId: data?.customerId,
             userId,
-            subtotal,
-            vatRate,
-            vatAmount,
-            total,
-            offerDate: data?.offerDate ? new Date(data.offerDate) : new Date(),
-            validUntil,
-            notes: data?.notes || null,
-            status: data?.status ?? 'Entwurf',
+          subtotal,
+vatRate,
+vatAmount,
+total,
+currency,
+offerDate: data?.offerDate ? new Date(data.offerDate) : new Date(),
+validUntil,
+notes: data?.notes || null,
+status: data?.status ?? 'Entwurf',
             items: { create: items.map((item: any) => ({ description: item?.description ?? '', quantity: Number(item?.quantity ?? 1), unit: item?.unit ?? 'Stunde', unitPrice: Number(item?.unitPrice ?? 0), totalPrice: Number(item?.quantity ?? 1) * Number(item?.unitPrice ?? 0) })) },
           },
           include: { customer: true, items: true },

@@ -31,7 +31,7 @@ import { MissingCustomerDataBadge } from '@/components/missing-customer-data-bad
 import { MobileListShortcut } from '@/components/mobile-list-shortcut';
 
 interface OfferItem { description: string; quantity: string; unit: string; unitPrice: string; }
-interface Offer { id: string; offerNumber: string; customerId: string; customer?: any; items: any[]; orders?: { id: string; createdAt?: string | null; date?: string | null; description?: string | null; notes?: string | null; specialNotes?: string | null; needsReview?: boolean; hinweisLevel?: string; mediaUrl?: string | null; mediaType?: string | null; imageUrls?: string[]; thumbnailUrls?: string[]; audioTranscript?: string | null; audioDurationSec?: number | null; audioTranscriptionStatus?: string | null }[]; subtotal: number; vatRate: number; vatAmount: number; total: number; status: string; offerDate: string; createdAt?: string; validUntil: string | null; notes: string | null; }
+interface Offer { id: string; offerNumber: string; customerId: string; customer?: any; items: any[]; orders?: { id: string; createdAt?: string | null; date?: string | null; description?: string | null; notes?: string | null; specialNotes?: string | null; needsReview?: boolean; hinweisLevel?: string; mediaUrl?: string | null; mediaType?: string | null; imageUrls?: string[]; thumbnailUrls?: string[]; audioTranscript?: string | null; audioDurationSec?: number | null; audioTranscriptionStatus?: string | null }[]; subtotal: number; vatRate: number; vatAmount: number; total: number; currency?: 'CHF' | 'EUR' | string | null; status: string; offerDate: string; createdAt?: string; validUntil: string | null; notes: string | null; }
 interface Customer { id: string; name: string; customerNumber?: string | null; address?: string | null; plz?: string | null; city?: string | null; country?: string | null; phone?: string | null; email?: string | null; }
 
 const statusColors: Record<string, string> = { 'Entwurf': 'bg-gray-200 text-gray-800 border border-gray-300', 'Gesendet': 'bg-blue-200 text-blue-900 border border-blue-300', 'Angenommen': 'bg-green-200 text-green-900 border border-green-300', 'Abgelehnt': 'bg-purple-200/60 text-purple-900 border border-purple-300', 'Erledigt': 'bg-emerald-200 text-emerald-900 border border-emerald-300' };
@@ -283,6 +283,8 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
     if (isNew) {
       setEditOfferId(null);
       setVatRate(defaultVatRate);
+setCurrency(currency === 'EUR' ? 'EUR' : 'CHF');
+setCurrency(currency === 'EUR' ? 'EUR' : 'CHF');
       const newForm = { customerId: custId || '', offerDate: new Date().toISOString().split('T')[0], validDays: '14', notes: '', status: 'Entwurf' };
       setForm(newForm);
       setItems([getEmptyItem()]);      setLinkedOrderData(null);
@@ -378,6 +380,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
     // Reset customer form to prevent stale data leaking between records
     setNewCust({ name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' });
     setVatRate(off.vatRate != null ? Number(off.vatRate) : defaultVatRate);
+setCurrency(off.currency === 'EUR' ? 'EUR' : 'CHF');
     // Set linked order data for Original-Nachricht / Besonderheiten
     const lo = off.orders?.[0];
     if (lo) setLinkedOrderData({ notes: lo.notes, specialNotes: lo.specialNotes, needsReview: lo.needsReview, mediaUrl: lo.mediaUrl, mediaType: lo.mediaType, imageUrls: lo.imageUrls, thumbnailUrls: lo.thumbnailUrls, audioTranscript: lo.audioTranscript, audioDurationSec: lo.audioDurationSec, audioTranscriptionStatus: lo.audioTranscriptionStatus, hinweisLevel: lo.hinweisLevel, description: lo.description });
@@ -487,13 +490,13 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
     if (editOfferId) {
       const res = await fetch(`/api/offers/${editOfferId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, items, vatRate }),
+        body: JSON.stringify({ ...form, items, vatRate, currency }),
       });
       if (res.ok) return await res.json();
       toast.error('Fehler beim Speichern');
       return null;
     } else {
-      const payload: any = { ...form, items, vatRate };
+      const payload: any = { ...form, items, vatRate, currency };
       if (fromOrderId) payload.orderIds = [fromOrderId];
       const res = await fetch('/api/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (res.ok) return await res.json();
@@ -543,7 +546,8 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
           customerId: saved.customerId || form.customerId,
           items: offerItems,
           vatRate: saved.vatRate ?? vatRate,
-          sourceOfferId: offerId,
+currency: saved.currency === 'EUR' ? 'EUR' : currency,
+sourceOfferId: offerId,
           ...(allOrderIds.length > 0 ? { orderIds: allOrderIds } : {}),
         }),
       });
@@ -699,8 +703,9 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
         body: JSON.stringify({
           customerId: off.customerId,
           items: invoiceItems,
-          vatRate: off.vatRate ?? defaultVatRate,
-          sourceOfferId: off.id,
+         vatRate: off.vatRate ?? defaultVatRate,
+currency: off.currency === 'EUR' ? 'EUR' : 'CHF',
+sourceOfferId: off.id,
           ...(linkedOrderIds.length > 0 ? { orderIds: linkedOrderIds } : {}),
         }),
       });
@@ -830,7 +835,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
                               </select>
                               <span className="font-mono text-[11px] text-muted-foreground">{off?.offerNumber ?? ''}</span>
                               <CommunicationChips data={orderCtx} onAudioClick={() => orderCtx.mediaUrl && openMedia(orderCtx.mediaUrl, 'audio')} onImageClick={() => { const imgs = orderCtx.imageUrls; if (imgs && imgs.length > 0) openImageGallery(imgs); else if (orderCtx.mediaUrl) openMedia(orderCtx.mediaUrl, 'image'); }} />
-                       <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">{formatCurrency(Number(off?.total ?? 0), currency)}</span>
+                       <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">{formatCurrency(Number(off?.total ?? 0), off.currency === 'EUR' ? 'EUR' : 'CHF')}</span>
                             </div>
                           </div>
                         </div>
@@ -1014,7 +1019,13 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
                 <span className="text-[10px] italic">Duplikat-Prüfung aktiv — Form eingeklappt</span>
               </div>
             ) : (<>
-            <div><Label>Angebotsdatum</Label><Input type="date" value={form.offerDate} onChange={(e: any) => setForm({ ...form, offerDate: e?.target?.value ?? '' })} /></div>
+          <div>
+  <Label>Währung</Label>
+  <select className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={currency} onChange={(e: any) => setCurrency(e?.target?.value === 'EUR' ? 'EUR' : 'CHF')}>
+    <option value="CHF">CHF</option>
+    <option value="EUR">EUR</option>
+  </select>
+</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><Label>Gültigkeitsdauer (Tage)</Label><Input type="number" value={form.validDays} onChange={(e: any) => setForm({ ...form, validDays: e?.target?.value ?? '14' })} /></div>
               {editOfferId && (
@@ -1065,7 +1076,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
                         </select>
                       </div>
                       <div>
-                        <Label className="text-xs">Preis (CHF)</Label>
+                        <Label className="text-xs">Preis ({currency})</Label>
                         <Input type="number" step="0.05" className="h-8" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '0')} />
                       </div>
                       <div>
@@ -1074,7 +1085,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
                       </div>
                     </div>
                     <div className="text-left sm:text-right text-xs text-muted-foreground">
-                = {formatCurrency(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0))}
+                = {formatCurrency(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0), currency)}
                     </div>
                   </div>
                 )) ?? []}

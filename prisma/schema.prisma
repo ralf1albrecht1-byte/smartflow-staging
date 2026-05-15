@@ -184,6 +184,7 @@ model Invoice {
   vatRate       Float    @default(7.7)
   vatAmount     Float    @default(0)
   total         Float    @default(0)
+currency      String   @default("CHF")
   status        String   @default("Entwurf")
   invoiceDate   DateTime @default(now())
   dueDate       DateTime?
@@ -221,6 +222,7 @@ model Offer {
   vatRate     Float    @default(7.7)
   vatAmount   Float    @default(0)
   total       Float    @default(0)
+currency    String   @default("CHF")
   status      String   @default("Entwurf")
   offerDate   DateTime @default(now())
   validUntil  DateTime?

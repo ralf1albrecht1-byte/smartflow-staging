@@ -64,6 +64,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
     if (data?.status !== undefined) updateData.status = data.status;
     if (data?.notes !== undefined) updateData.notes = data.notes;
+if (data?.currency !== undefined) updateData.currency = data.currency === 'EUR' ? 'EUR' : 'CHF';
     if (data?.invoiceDate !== undefined) updateData.invoiceDate = new Date(data.invoiceDate);
     if (data?.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null;
     if (Array.isArray(data?.items)) {

@@ -54,11 +54,12 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
       const offer = await prisma.offer.update({
         where: { id: params.id },
-        data: {
-          status: data.status,
-          notes: data.notes,
-          customerId: data.customerId || undefined,
-          subtotal,
+       data: {
+  status: data.status,
+  notes: data.notes,
+  currency: data?.currency === 'EUR' ? 'EUR' : existing.currency,
+  customerId: data.customerId || undefined,
+  subtotal,
           vatRate,
           vatAmount,
           total,
@@ -76,6 +77,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     if (data?.customerId) simpleData.customerId = data.customerId;
     if (data?.status !== undefined) simpleData.status = data.status;
     if (data?.notes !== undefined) simpleData.notes = data.notes;
+if (data?.currency !== undefined) simpleData.currency = data.currency === 'EUR' ? 'EUR' : 'CHF';
     const offer = await prisma.offer.update({ where: { id: params?.id }, data: simpleData, include: { customer: true, items: true } });
     const su = await getSessionUser();
     logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'OFFER_UPDATE', area: 'OFFERS', targetType: 'Offer', targetId: params?.id, request });

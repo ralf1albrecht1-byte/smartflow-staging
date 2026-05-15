@@ -30,7 +30,7 @@ import { CustomerSearchCombobox } from '@/components/customer-search-combobox';
 import { MissingCustomerDataBadge } from '@/components/missing-customer-data-badge';
 
 interface InvoiceItem { description: string; quantity: string; unit: string; unitPrice: string; }
-interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; orders?: { id: string; createdAt?: string | null; date?: string | null; mediaUrl?: string | null; mediaType?: string | null; imageUrls?: string[]; thumbnailUrls?: string[]; audioTranscript?: string | null; audioDurationSec?: number | null; audioTranscriptionStatus?: string | null; notes?: string | null; specialNotes?: string | null; needsReview?: boolean; hinweisLevel?: string; description?: string | null }[]; subtotal: number; vatRate: number; vatAmount: number; total: number; status: string; invoiceDate: string; createdAt?: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; sourceOfferNumber?: string | null; }
+interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; orders?: { id: string; createdAt?: string | null; date?: string | null; mediaUrl?: string | null; mediaType?: string | null; imageUrls?: string[]; thumbnailUrls?: string[]; audioTranscript?: string | null; audioDurationSec?: number | null; audioTranscriptionStatus?: string | null; notes?: string | null; specialNotes?: string | null; needsReview?: boolean; hinweisLevel?: string; description?: string | null }[]; subtotal: number; vatRate: number; vatAmount: number; total: number; currency?: 'CHF' | 'EUR' | string | null; status: string; invoiceDate: string; createdAt?: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; sourceOfferNumber?: string | null; }
 interface Customer { id: string; name: string; customerNumber?: string | null; address?: string | null; plz?: string | null; city?: string | null; country?: string | null; phone?: string | null; email?: string | null; }
 
 const statusColors: Record<string, string> = {
@@ -375,6 +375,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
   const openNewInvoice = () => {
     setEditingInvoice(null);
     setVatRate(defaultVatRate);
+setCurrency(currency === 'EUR' ? 'EUR' : 'CHF');
     setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] });
     setItems([getEmptyItem()]);
     setLinkedOrderData(null);
@@ -396,6 +397,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
     // Reset customer form to prevent stale data leaking between records
     setNewCust({ name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' });
     setVatRate(inv.vatRate != null ? Number(inv.vatRate) : defaultVatRate);
+setCurrency(inv.currency === 'EUR' ? 'EUR' : 'CHF');
     // Set linked order data for Original-Nachricht / Besonderheiten
     const lo = inv.orders?.[0];
     if (lo) setLinkedOrderData({ notes: lo.notes, specialNotes: lo.specialNotes, needsReview: lo.needsReview, mediaUrl: lo.mediaUrl, mediaType: lo.mediaType, imageUrls: lo.imageUrls, thumbnailUrls: lo.thumbnailUrls, audioTranscript: lo.audioTranscript, audioDurationSec: lo.audioDurationSec, audioTranscriptionStatus: lo.audioTranscriptionStatus, hinweisLevel: lo.hinweisLevel, description: lo.description });
@@ -531,7 +533,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
     if (!items?.length || !items[0]?.description?.trim()) { toast.error('Mindestens eine Leistung'); return; }
     setSaving(true);
     try {
-      const res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items, vatRate }) });
+      const res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items, vatRate, currency }) });
       if (res.ok) { toast.success('Rechnung erstellt'); setDialogOpen(false); load(); setItems([getEmptyItem()]);setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] }); }
       else toast.error('Fehler');
     } catch { toast.error('Fehler'); } finally { setSaving(false); }
@@ -543,7 +545,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: editingInvoice.status, notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate }),
+        body: JSON.stringify({ status: editingInvoice.status, notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate, currency }),
       });
       if (res.ok) {
         toast.success('Rechnung aktualisiert');
@@ -562,7 +564,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Erledigt', notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate }),
+        body: JSON.stringify({ status: 'Erledigt', notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate, currency }),
       });
       if (res.ok) {
         toast.success('Rechnung erledigt und archiviert');
@@ -812,7 +814,7 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
                               )}
                               <span className="text-muted-foreground hidden sm:inline">·</span>
                               <span className={`text-xs truncate hidden sm:inline ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</span>
-                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>{formatCurrency(Number(inv?.total ?? 0), currency)}</span>
+                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>{formatCurrency(Number(inv?.total ?? 0), inv.currency === 'EUR' ? 'EUR' : 'CHF')}</span>
                             </div>
                             <p className={`text-xs line-clamp-1 mt-0.5 sm:hidden ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</p>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -999,6 +1001,13 @@ setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
               </div>
             ) : (<>
             <div><Label>Rechnungsdatum</Label><Input type="date" value={form.invoiceDate} onChange={(e: any) => setForm({ ...form, invoiceDate: e?.target?.value ?? '' })} /></div>
+<div>
+  <Label>Währung</Label>
+  <select className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={currency} onChange={(e: any) => setCurrency(e?.target?.value === 'EUR' ? 'EUR' : 'CHF')}>
+    <option value="CHF">CHF</option>
+    <option value="EUR">EUR</option>
+  </select>
+</div>
             {!editingInvoice && <div><Label>Zahlungsziel (Tage)</Label><Input type="number" value={form.paymentDays} onChange={(e: any) => setForm({ ...form, paymentDays: e?.target?.value ?? '30' })} /></div>}
             {editingInvoice && (
               <div>
