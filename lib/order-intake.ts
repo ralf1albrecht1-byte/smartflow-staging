@@ -1774,6 +1774,9 @@ export async function processIncomingMessage(
     });
   };
 
+
+
+
   const strictMatchServiceForWorkItem = (item: AiWorkItem, services: any[]) => {
     const workName = normalizeServiceText(item.name || "");
     const workRaw = normalizeServiceText(item.raw || "");
@@ -1806,6 +1809,8 @@ export async function processIncomingMessage(
             "fläche",
             "gesamt",
             "gesamten",
+            "test",
+            "merge",
           ].includes(token),
       );
 
@@ -1817,15 +1822,37 @@ export async function processIncomingMessage(
 
       if (!serviceName) continue;
 
-      let score = 0;
-
-      if (serviceName === workName) score += 100;
-      if (workName && serviceName.includes(workName)) score += 75;
-      if (workName && workName.includes(serviceName)) score += 75;
-
       const serviceTokens = serviceName
         .split(/\s+/)
         .filter((token: string) => token.length >= 4);
+
+      // Schutz gegen kaputte Kurz-Leistungen wie "te".
+      // Solche gespeicherten Alt-/Test-Leistungen dürfen nicht automatisch matchen.
+      if (serviceName.length < 4 && serviceTokens.length === 0) continue;
+
+      let score = 0;
+
+      if (serviceName === workName) score += 100;
+
+      // Enthalten-Matches nur bei ausreichend langen Begriffen.
+      // Verhindert: serviceName "te" matcht auf "test merge".
+      if (
+        workName &&
+        serviceName.length >= 4 &&
+        workName.length >= 4 &&
+        serviceName.includes(workName)
+      ) {
+        score += 75;
+      }
+
+      if (
+        workName &&
+        serviceName.length >= 4 &&
+        workName.length >= 4 &&
+        workName.includes(serviceName)
+      ) {
+        score += 75;
+      }
 
       for (const token of serviceTokens) {
         if (workTokens.includes(token) || workText.includes(token)) {
@@ -1847,9 +1874,6 @@ export async function processIncomingMessage(
       }
     }
 
-    // Strenge Schwelle:
-    // - Hecke schneiden → Hecke pflegen schafft es über Domain + Token.
-    // - Natursteinplatz reinigen → Wand streichen schafft es NICHT nur wegen Quadratmeter.
     if (!best || best.score < 60) return null;
 
     return best.service;
