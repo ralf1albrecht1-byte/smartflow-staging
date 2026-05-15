@@ -159,7 +159,7 @@ function validateQuantityAgainstServiceUnit(args: {
 
   if (serviceUnitType === "flat") {
     return {
-      quantity: 1,
+      quantity: 0,
       needsReview: !!detectedValue,
       reason: detectedValue
         ? "Menge_erkannt_aber_Leistung_ist_pauschal"
@@ -169,7 +169,7 @@ function validateQuantityAgainstServiceUnit(args: {
 
   if (!detectedValue || !detectedUnit) {
     return {
-      quantity: 1,
+      quantity: 0,
       needsReview: false,
       reason: null as string | null,
     };
@@ -197,7 +197,7 @@ function validateQuantityAgainstServiceUnit(args: {
   };
 
   return {
-    quantity: 1,
+    quantity: 0,
     needsReview: true,
     reason: reasonByServiceUnit[serviceUnitType] || reasonByServiceUnit.unknown,
   };
@@ -375,19 +375,24 @@ function cleanDetectedWorkName(segment: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
-
 function formatWorkNameForDisplay(value: string): string {
   const text = String(value || "")
-    .replace(/\bae/g, "ä")
-    .replace(/\boe/g, "ö")
-    .replace(/\bue/g, "ü")
+    .replace(/ae/g, "ä")
+    .replace(/oe/g, "ö")
+    .replace(/ue/g, "ü")
     .replace(/\s+/g, " ")
     .trim();
 
   if (!text) return "Unbekannte Leistung";
 
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  return text
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
+
 
 function findBestQuantityForService(
   serviceName: string,
