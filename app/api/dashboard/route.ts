@@ -1,20 +1,20 @@
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-import { NextResponse } from 'next/server';
-import Stripe from 'stripe';
-import { prisma } from '@/lib/prisma';
-import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
-import { isCustomerDataIncomplete } from '@/lib/customer-links';
-import { getCurrentPlan } from '@/lib/plan';
-import { getMonthlyAudioUsage } from '@/lib/audio-usage';
+import { NextResponse } from "next/server";
+import Stripe from "stripe";
+import { prisma } from "@/lib/prisma";
+import { requireUserId, unauthorizedResponse } from "@/lib/get-session";
+import { isCustomerDataIncomplete } from "@/lib/customer-links";
+import { getCurrentPlan } from "@/lib/plan";
+import { getMonthlyAudioUsage } from "@/lib/audio-usage";
 
 function getStripeClient() {
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
-    throw new Error('STRIPE_SECRET_KEY not configured');
+    throw new Error("STRIPE_SECRET_KEY not configured");
   }
   return new Stripe(secretKey, {
-    apiVersion: '2025-02-24.acacia',
+    apiVersion: "2025-02-24.acacia",
   });
 }
 
@@ -47,39 +47,44 @@ export async function GET() {
 
     if (user?.stripeSubscriptionId && stripe) {
       try {
-        const stripeSub = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+        const stripeSub = await stripe.subscriptions.retrieve(
+          user.stripeSubscriptionId,
+        );
 
-           subscriptionStatus = stripeSub.status;
+        subscriptionStatus = stripeSub.status;
         cancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end);
 
         const stripeEnd =
-          stripeSub.status === 'trialing' && stripeSub.trial_end
+          stripeSub.status === "trialing" && stripeSub.trial_end
             ? stripeSub.trial_end
             : stripeSub.current_period_end;
 
-        currentPeriodEnd = stripeSub.status === 'canceled'
-          ? null
-          : new Date(stripeEnd * 1000);
+        currentPeriodEnd =
+          stripeSub.status === "canceled" ? null : new Date(stripeEnd * 1000);
 
         const nextUserData =
-          stripeSub.status === 'canceled'
+          stripeSub.status === "canceled"
             ? {
                 subscriptionStatus,
                 cancelAtPeriodEnd: false,
                 currentPeriodEnd: null,
-                accountStatus: 'inactive',
+                accountStatus: "inactive",
                 accessEndsAt: null,
-                stripeCustomerId: user.stripeCustomerId || (stripeSub.customer as string),
+                stripeCustomerId:
+                  user.stripeCustomerId || (stripeSub.customer as string),
               }
             : {
                 subscriptionStatus,
                 cancelAtPeriodEnd,
                 currentPeriodEnd,
-                accountStatus: stripeSub.status === 'active' || stripeSub.status === 'trialing'
-                  ? 'active'
-                  : undefined,
+                accountStatus:
+                  stripeSub.status === "active" ||
+                  stripeSub.status === "trialing"
+                    ? "active"
+                    : undefined,
                 accessEndsAt: currentPeriodEnd,
-                stripeCustomerId: user.stripeCustomerId || (stripeSub.customer as string),
+                stripeCustomerId:
+                  user.stripeCustomerId || (stripeSub.customer as string),
               };
 
         await prisma.user.update({
@@ -87,12 +92,15 @@ export async function GET() {
           data: nextUserData,
         });
       } catch (stripeError) {
-        console.error('Dashboard Stripe subscription sync failed:', stripeError);
+        console.error(
+          "Dashboard Stripe subscription sync failed:",
+          stripeError,
+        );
       }
     }
 
     const subscription = {
-      isActive: subscriptionStatus === 'active',
+      isActive: subscriptionStatus === "active",
       status: subscriptionStatus,
       stripeSubscriptionId: user?.stripeSubscriptionId || null,
       currentPeriodEnd: currentPeriodEnd?.toISOString() || null,
@@ -104,11 +112,19 @@ export async function GET() {
     });
 
     const activeOfferCount = await prisma.offer.count({
-      where: { deletedAt: null, userId, status: { in: ['Entwurf', 'Gesendet'] } },
+      where: {
+        deletedAt: null,
+        userId,
+        status: { in: ["Entwurf", "Gesendet"] },
+      },
     });
 
     const activeInvoiceCount = await prisma.invoice.count({
-      where: { deletedAt: null, userId, status: { notIn: ['Erledigt', 'Bezahlt'] } },
+      where: {
+        deletedAt: null,
+        userId,
+        status: { notIn: ["Erledigt", "Bezahlt"] },
+      },
     });
 
     const allCustomers = await prisma.customer.findMany({
@@ -125,13 +141,15 @@ export async function GET() {
       },
     });
 
-    const incompleteCustomerCount = allCustomers.filter(isCustomerDataIncomplete).length;
+    const incompleteCustomerCount = allCustomers.filter(
+      isCustomerDataIncomplete,
+    ).length;
 
     const uncertainAssignmentCount = await prisma.order.count({
       where: {
         deletedAt: null,
         userId,
-        reviewReasons: { has: 'uncertain_assignment' },
+        reviewReasons: { has: "uncertain_assignment" },
       },
     });
 
@@ -140,13 +158,14 @@ export async function GET() {
     const recentOrders = await prisma.order.findMany({
       where: { offerId: null, invoiceId: null, deletedAt: null, userId },
       take: 5,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         description: true,
         serviceName: true,
         status: true,
         totalPrice: true,
+        currency: true,
         date: true,
         createdAt: true,
         customer: { select: { name: true, customerNumber: true } },
@@ -155,34 +174,52 @@ export async function GET() {
     });
 
     const recentOffers = await prisma.offer.findMany({
-      where: { deletedAt: null, userId, status: { in: ['Entwurf', 'Gesendet'] } },
+      where: {
+        deletedAt: null,
+        userId,
+        status: { in: ["Entwurf", "Gesendet"] },
+      },
       take: 5,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         offerNumber: true,
         status: true,
         total: true,
+        currency: true,
         createdAt: true,
         customer: { select: { name: true, customerNumber: true } },
         items: { select: { description: true }, take: 3 },
-        orders: { select: { createdAt: true }, take: 1, orderBy: { createdAt: 'asc' } },
+        orders: {
+          select: { createdAt: true },
+          take: 1,
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
 
     const recentInvoices = await prisma.invoice.findMany({
-      where: { deletedAt: null, userId, status: { notIn: ['Erledigt', 'Bezahlt'] } },
+      where: {
+        deletedAt: null,
+        userId,
+        status: { notIn: ["Erledigt", "Bezahlt"] },
+      },
       take: 5,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         invoiceNumber: true,
         status: true,
         total: true,
+        currency: true,
         createdAt: true,
         customer: { select: { name: true, customerNumber: true } },
         items: { select: { description: true }, take: 3 },
-        orders: { select: { createdAt: true }, take: 1, orderBy: { createdAt: 'asc' } },
+        orders: {
+          select: { createdAt: true },
+          take: 1,
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
 
@@ -191,9 +228,10 @@ export async function GET() {
     const includedMinutes = plan.includedMinutes;
     const usedMinutes = audioUsage.receivedMinutes;
 
-    const usagePercent = includedMinutes > 0
-      ? Math.round((usedMinutes / includedMinutes) * 100)
-      : 0;
+    const usagePercent =
+      includedMinutes > 0
+        ? Math.round((usedMinutes / includedMinutes) * 100)
+        : 0;
 
     return NextResponse.json({
       subscription,
@@ -222,24 +260,27 @@ export async function GET() {
         uncertainAssignments: uncertainAssignmentCount,
       },
       needsReview: totalReviewCount,
-      recentOrders: recentOrders?.map((o: any) => ({
-        ...o,
-        totalPrice: Number(o?.totalPrice ?? 0),
-      })) ?? [],
-      recentOffers: recentOffers?.map((o: any) => ({
-        ...o,
-        total: Number(o?.total ?? 0),
-        intakeTime: o?.orders?.[0]?.createdAt || null,
-      })) ?? [],
-      recentInvoices: recentInvoices?.map((o: any) => ({
-        ...o,
-        total: Number(o?.total ?? 0),
-        intakeTime: o?.orders?.[0]?.createdAt || null,
-      })) ?? [],
+      recentOrders:
+        recentOrders?.map((o: any) => ({
+          ...o,
+          totalPrice: Number(o?.totalPrice ?? 0),
+        })) ?? [],
+      recentOffers:
+        recentOffers?.map((o: any) => ({
+          ...o,
+          total: Number(o?.total ?? 0),
+          intakeTime: o?.orders?.[0]?.createdAt || null,
+        })) ?? [],
+      recentInvoices:
+        recentInvoices?.map((o: any) => ({
+          ...o,
+          total: Number(o?.total ?? 0),
+          intakeTime: o?.orders?.[0]?.createdAt || null,
+        })) ?? [],
     });
   } catch (error: any) {
-    console.error('Dashboard error:', error);
+    console.error("Dashboard error:", error);
 
-    return NextResponse.json({ error: 'Fehler beim Laden' }, { status: 500 });
+    return NextResponse.json({ error: "Fehler beim Laden" }, { status: 500 });
   }
 }
