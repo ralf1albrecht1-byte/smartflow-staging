@@ -218,16 +218,11 @@ const hasQuantityReviewForService = (
         return (reasonService || "").trim().toLowerCase() === name;
       }
 
-      if (reason.startsWith("Menge_erkannt_aber_")) {
-        const parts = reason.split(":");
-        if (parts.length >= 4) return false;
-        return true;
-      }
-
       return false;
     }) ?? false
   );
 };
+
 
 const buildItemDescription = (item: FormItem) => {
   return item.aiWarning?.trim()
@@ -675,31 +670,30 @@ export default function AuftraegePage() {
       notes: o.notes ?? "",
       specialNotes: splitSpecialNotes(o.specialNotes).jobHints.join("\n"),
     });
-    // Populate items from order
+     // Populate items from order
     if (o.items && o.items.length > 0) {
+      setFormItems(
+        o.items.map((item) => {
+          const hasQuantityReview = hasQuantityReviewForService(
+            o.reviewReasons,
+            item.serviceName,
+          );
 
-
-setFormItems(
-  o.items.map((item) => {
-    const hasQuantityReview = hasQuantityReviewForService(
-      o.reviewReasons,
-      item.serviceName,
-    );
-
-    return {
-      key: Math.random().toString(36).slice(2),
-      serviceName: item.serviceName ?? "",
-      unit: item.unit ?? "Stunde",
-      unitPrice: Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
-      quantity: hasQuantityReview
-        ? ""
-        : Number(item.quantity || 0) === 0
-          ? ""
-          : String(item.quantity),
-      aiWarning: getAiWarningFromItemDescription(item.description),
-    };
-  }),
-);
+          return {
+            key: Math.random().toString(36).slice(2),
+            serviceName: item.serviceName ?? "",
+            unit: item.unit ?? "Stunde",
+            unitPrice:
+              Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
+            quantity: hasQuantityReview
+              ? ""
+              : Number(item.quantity || 0) === 0
+                ? ""
+                : String(item.quantity),
+            aiWarning: getAiWarningFromItemDescription(item.description),
+          };
+        }),
+      );
 
 
     } else {
@@ -708,8 +702,8 @@ setFormItems(
           key: Math.random().toString(36).slice(2),
           serviceName: o.serviceName ?? "",
           unit: o.priceType ?? "Stunde",
-         unitPrice: Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
-quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
+          unitPrice: Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
+          quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
           aiWarning: "",
         },
       ]);
@@ -3191,36 +3185,46 @@ quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
                                   ))}
                                 </select>
                               </div>
-                            <div>
-  <Label className="text-xs">
-    Preis ({currency})
-  </Label>
-  <Input
-    type="number"
-    step="0.05"
-    className="h-8"
-    value={item.unitPrice}
-    placeholder="0"
-    onFocus={(e) => e.currentTarget.select()}
-    onChange={(e: any) =>
-      updateItem(index, "unitPrice", e?.target?.value ?? "")
-    }
-  />
-</div>
-                             <div>
-  <Label className="text-xs">Menge</Label>
-  <Input
-    type="number"
-    step="0.25"
-    className={`h-8 ${showUnitConflict ? "border-red-400 bg-red-50 dark:bg-red-950/20" : ""}`}
-    value={item.quantity}
-    placeholder={showUnitConflict ? "prüfen" : "0"}
-    onFocus={(e) => e.currentTarget.select()}
-    onChange={(e: any) =>
-      updateItem(index, "quantity", e?.target?.value ?? "")
-    }
-  />
-</div>
+
+
+                                      <div>
+                                <Label className="text-xs">
+                                  Preis ({currency})
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.05"
+                                  className="h-8"
+                                  value={item.unitPrice}
+                                  placeholder="prüfen"
+                                  onFocus={(e) => e.currentTarget.select()}
+                                  onChange={(e: any) =>
+                                    updateItem(
+                                      index,
+                                      "unitPrice",
+                                      e?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
+                                                           <div>
+                                <Label className="text-xs">Menge</Label>
+                                <Input
+                                  type="number"
+                                  step="0.25"
+                                  className={`h-8 ${showUnitConflict ? "border-red-400 bg-red-50 dark:bg-red-950/20" : ""}`}
+                                  value={item.quantity}
+                                  placeholder={showUnitConflict ? "prüfen" : "0"}
+                                  onFocus={(e) => e.currentTarget.select()}
+                                  onChange={(e: any) =>
+                                    updateItem(
+                                      index,
+                                      "quantity",
+                                      e?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
                             </div>
                             <div className="text-left sm:text-right text-xs text-muted-foreground">
                               ={" "}
