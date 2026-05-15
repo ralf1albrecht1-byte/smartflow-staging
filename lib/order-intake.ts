@@ -2,13 +2,19 @@
  * Intelligente Auftragserfassung mit KI-gestütztem Kundenabgleich
  * Wird von Telegram- und WhatsApp-Webhooks verwendet.
  */
-import { prisma } from '@/lib/prisma';
-import { ensureAddressSplit } from '@/lib/address-parser';
-import { logAuditAsync } from '@/lib/audit';
-import { verifyCustomerMatch, type MatchVerdict } from '@/lib/customer-matching';
-import { sanitizeNewCustomerFields } from '@/lib/intake-sanitize';
-import { findExactDeterministicMatch, findNearExactDeterministicMatch } from '@/lib/exact-customer-match';
-import { maskPhoneForLog } from '@/lib/phone';
+import { prisma } from "@/lib/prisma";
+import { ensureAddressSplit } from "@/lib/address-parser";
+import { logAuditAsync } from "@/lib/audit";
+import {
+  verifyCustomerMatch,
+  type MatchVerdict,
+} from "@/lib/customer-matching";
+import { sanitizeNewCustomerFields } from "@/lib/intake-sanitize";
+import {
+  findExactDeterministicMatch,
+  findNearExactDeterministicMatch,
+} from "@/lib/exact-customer-match";
+import { maskPhoneForLog } from "@/lib/phone";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Block R — Self-introduction safety-net for voice/text intake.
@@ -26,8 +32,10 @@ import { maskPhoneForLog } from '@/lib/phone';
 // genannten Endkunden-Namen identisch ist und der Prompt deshalb die
 // Name-Extraktion unterdrückt.
 // ─────────────────────────────────────────────────────────────────────────
-function extractSelfIntroductionName(rawText: string | null | undefined): string | null {
-  if (!rawText || typeof rawText !== 'string') return null;
+function extractSelfIntroductionName(
+  rawText: string | null | undefined,
+): string | null {
+  if (!rawText || typeof rawText !== "string") return null;
   const text = rawText.trim();
   if (!text) return null;
 
@@ -35,18 +43,40 @@ function extractSelfIntroductionName(rawText: string | null | undefined): string
   // "Hier spricht", "Hier ist", "Mein Vorname ist", "Mein Nachname ist".
   // Erlaubt 1-2 Namensteile (Vor- und/oder Nachname), 2-30 Zeichen pro Teil.
   // Buchstaben/Umlaute/Bindestriche, optional Apostroph für O'Brien etc.
-  const pattern = /(?:mein\s+(?:name|vorname|nachname)\s+(?:ist|lautet)|ich\s+hei[sß]+e|ich\s+bin|hier\s+spricht|hier\s+ist)\s+([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß'\-]{1,30}(?:\s+[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß'\-]{1,30})?)/iu;
+  const pattern =
+    /(?:mein\s+(?:name|vorname|nachname)\s+(?:ist|lautet)|ich\s+hei[sß]+e|ich\s+bin|hier\s+spricht|hier\s+ist)\s+([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß'\-]{1,30}(?:\s+[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß'\-]{1,30})?)/iu;
   const m = text.match(pattern);
   if (!m || !m[1]) return null;
 
   const candidate = m[1].trim();
   // Ausschliessen: triviale Wörter die häufig nach "Ich bin" stehen aber kein Name sind
   const blocklist = new Set([
-    'der', 'die', 'das', 'ein', 'eine', 'einer', 'sehr', 'gut', 'schon',
-    'noch', 'auch', 'hier', 'dort', 'jetzt', 'heute', 'morgen', 'gestern',
-    'froh', 'gerade', 'nicht', 'kein', 'keine', 'okay', 'super',
+    "der",
+    "die",
+    "das",
+    "ein",
+    "eine",
+    "einer",
+    "sehr",
+    "gut",
+    "schon",
+    "noch",
+    "auch",
+    "hier",
+    "dort",
+    "jetzt",
+    "heute",
+    "morgen",
+    "gestern",
+    "froh",
+    "gerade",
+    "nicht",
+    "kein",
+    "keine",
+    "okay",
+    "super",
   ]);
-  const firstToken = candidate.split(/\s+/)[0]?.toLowerCase() || '';
+  const firstToken = candidate.split(/\s+/)[0]?.toLowerCase() || "";
   if (blocklist.has(firstToken)) return null;
   // Mindestens 2 Zeichen, max 60 Zeichen Gesamtname
   if (candidate.length < 2 || candidate.length > 60) return null;
@@ -54,37 +84,53 @@ function extractSelfIntroductionName(rawText: string | null | undefined): string
 }
 
 function normalizeUnitText(value: any): string {
-  return String(value || '')
+  return String(value || "")
     .toLowerCase()
-    .replace(/[ä]/g, 'ae')
-    .replace(/[ö]/g, 'oe')
-    .replace(/[ü]/g, 'ue')
-    .replace(/[ß]/g, 'ss')
-    .replace(/\s+/g, ' ')
+    .replace(/[ä]/g, "ae")
+    .replace(/[ö]/g, "oe")
+    .replace(/[ü]/g, "ue")
+    .replace(/[ß]/g, "ss")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
-function detectQuantityUnitFromText(text: string): { value: number | null; unit: string | null; raw: string | null } {
+function detectQuantityUnitFromText(text: string): {
+  value: number | null;
+  unit: string | null;
+  raw: string | null;
+} {
   const source = normalizeUnitText(text);
   if (!source) return { value: null, unit: null, raw: null };
 
   const patterns = [
-    { unit: 'square_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter|quadrat meter)\b/i },
-    { unit: 'cubic_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m3|m³|kubikmeter|kubik meter|cbm)\b/i },
-    { unit: 'hour', re: /(\d+(?:[.,]\d+)?)\s*(?:stunden|stunde|std\.?|h)\b/i },
-    { unit: 'day', re: /(\d+(?:[.,]\d+)?)\s*(?:tage|tag|arbeitstage|arbeitstag)\b/i },
-    { unit: 'meter', re: /(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/i },
-    { unit: 'kilogram', re: /(\d+(?:[.,]\d+)?)\s*(?:kilogramm|kg)\b/i },
-    { unit: 'ton', re: /(\d+(?:[.,]\d+)?)\s*(?:tonnen|tonne|to\.?|t)\b/i },
-    { unit: 'liter', re: /(\d+(?:[.,]\d+)?)\s*(?:liter|ltr\.?|l)\b/i },
-    { unit: 'piece', re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stück|stuck|stk|anzahl|einheiten|baeume|bäume|baume|baum)\b/i },
+    {
+      unit: "square_meter",
+      re: /(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter|quadrat meter)\b/i,
+    },
+    {
+      unit: "cubic_meter",
+      re: /(\d+(?:[.,]\d+)?)\s*(?:m3|m³|kubikmeter|kubik meter|cbm)\b/i,
+    },
+    { unit: "hour", re: /(\d+(?:[.,]\d+)?)\s*(?:stunden|stunde|std\.?|h)\b/i },
+    {
+      unit: "day",
+      re: /(\d+(?:[.,]\d+)?)\s*(?:tage|tag|arbeitstage|arbeitstag)\b/i,
+    },
+    { unit: "meter", re: /(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/i },
+    { unit: "kilogram", re: /(\d+(?:[.,]\d+)?)\s*(?:kilogramm|kg)\b/i },
+    { unit: "ton", re: /(\d+(?:[.,]\d+)?)\s*(?:tonnen|tonne|to\.?|t)\b/i },
+    { unit: "liter", re: /(\d+(?:[.,]\d+)?)\s*(?:liter|ltr\.?|l)\b/i },
+    {
+      unit: "piece",
+      re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stück|stuck|stk|anzahl|einheiten|baeume|bäume|baume|baum)\b/i,
+    },
   ];
 
   for (const pattern of patterns) {
     const match = source.match(pattern.re);
     if (match?.[1]) {
       return {
-        value: Number(match[1].replace(',', '.')),
+        value: Number(match[1].replace(",", ".")),
         unit: pattern.unit,
         raw: match[0],
       };
@@ -94,7 +140,6 @@ function detectQuantityUnitFromText(text: string): { value: number | null; unit:
   return { value: null, unit: null, raw: null };
 }
 
-
 function validateQuantityAgainstServiceUnit(args: {
   serviceUnit?: string | null;
   detectedValue?: number | null;
@@ -102,18 +147,23 @@ function validateQuantityAgainstServiceUnit(args: {
   serviceName?: string | null;
 }) {
   const serviceUnit = normalizeUnitText(args.serviceUnit);
-  const detectedValue = typeof args.detectedValue === 'number' && isFinite(args.detectedValue) && args.detectedValue > 0
-    ? args.detectedValue
-    : null;
+  const detectedValue =
+    typeof args.detectedValue === "number" &&
+    isFinite(args.detectedValue) &&
+    args.detectedValue > 0
+      ? args.detectedValue
+      : null;
   const detectedUnit = normalizeUnitText(args.detectedUnit);
 
-    const serviceUnitType = getServiceUnitType(args.serviceUnit ?? null);
+  const serviceUnitType = getServiceUnitType(args.serviceUnit ?? null);
 
-  if (serviceUnitType === 'flat') {
+  if (serviceUnitType === "flat") {
     return {
       quantity: 1,
       needsReview: !!detectedValue,
-      reason: detectedValue ? 'Menge_erkannt_aber_Leistung_ist_pauschal' : null as string | null,
+      reason: detectedValue
+        ? "Menge_erkannt_aber_Leistung_ist_pauschal"
+        : (null as string | null),
     };
   }
 
@@ -134,16 +184,16 @@ function validateQuantityAgainstServiceUnit(args: {
   }
 
   const reasonByServiceUnit: Record<string, string> = {
-    hour: 'Menge_erkannt_aber_Leistung_basiert_auf_Stunden',
-    day: 'Menge_erkannt_aber_Leistung_basiert_auf_Tagen',
-    meter: 'Menge_erkannt_aber_Leistung_basiert_auf_Metern',
-    square_meter: 'Menge_erkannt_aber_Leistung_basiert_auf_Quadratmetern',
-    cubic_meter: 'Menge_erkannt_aber_Leistung_basiert_auf_Kubikmetern',
-    piece: 'Menge_erkannt_aber_Leistung_basiert_auf_Stueck',
-    kilogram: 'Menge_erkannt_aber_Leistung_basiert_auf_Kilogramm',
-    ton: 'Menge_erkannt_aber_Leistung_basiert_auf_Tonnen',
-    liter: 'Menge_erkannt_aber_Leistung_basiert_auf_Litern',
-    unknown: 'Menge_erkannt_aber_Leistungseinheit_unbekannt',
+    hour: "Menge_erkannt_aber_Leistung_basiert_auf_Stunden",
+    day: "Menge_erkannt_aber_Leistung_basiert_auf_Tagen",
+    meter: "Menge_erkannt_aber_Leistung_basiert_auf_Metern",
+    square_meter: "Menge_erkannt_aber_Leistung_basiert_auf_Quadratmetern",
+    cubic_meter: "Menge_erkannt_aber_Leistung_basiert_auf_Kubikmetern",
+    piece: "Menge_erkannt_aber_Leistung_basiert_auf_Stueck",
+    kilogram: "Menge_erkannt_aber_Leistung_basiert_auf_Kilogramm",
+    ton: "Menge_erkannt_aber_Leistung_basiert_auf_Tonnen",
+    liter: "Menge_erkannt_aber_Leistung_basiert_auf_Litern",
+    unknown: "Menge_erkannt_aber_Leistungseinheit_unbekannt",
   };
 
   return {
@@ -157,16 +207,24 @@ function getServiceUnitType(serviceUnit?: string | null): string {
   const unit = normalizeUnitText(serviceUnit);
 
   const unitAliases: Record<string, string[]> = {
-    flat: ['pauschal', 'fixpreis', 'festpreis', 'pauschale'],
-    square_meter: ['quadratmeter', 'quadradmeter', 'qm', 'm2', 'm²', 'flaeche', 'fläche'],
-    cubic_meter: ['kubikmeter', 'cbm', 'm3', 'm³', 'volumen'],
-    kilogram: ['kilogramm', 'kg'],
-    ton: ['tonne', 'tonnen', 'to', 't'],
-    liter: ['liter', 'ltr', 'l'],
-    hour: ['stunde', 'stunden', 'std', 'h', 'stundensatz'],
-    day: ['tag', 'tage', 'arbeitstag', 'arbeitstage', 'tagessatz'],
-    meter: ['meter', 'laufmeter', 'lfm', 'm'],
-    piece: ['stueck', 'stück', 'stk', 'anzahl', 'einheit', 'einheiten'],
+    flat: ["pauschal", "fixpreis", "festpreis", "pauschale"],
+    square_meter: [
+      "quadratmeter",
+      "quadradmeter",
+      "qm",
+      "m2",
+      "m²",
+      "flaeche",
+      "fläche",
+    ],
+    cubic_meter: ["kubikmeter", "cbm", "m3", "m³", "volumen"],
+    kilogram: ["kilogramm", "kg"],
+    ton: ["tonne", "tonnen", "to", "t"],
+    liter: ["liter", "ltr", "l"],
+    hour: ["stunde", "stunden", "std", "h", "stundensatz"],
+    day: ["tag", "tage", "arbeitstag", "arbeitstage", "tagessatz"],
+    meter: ["meter", "laufmeter", "lfm", "m"],
+    piece: ["stueck", "stück", "stk", "anzahl", "einheit", "einheiten"],
   };
 
   for (const [type, aliases] of Object.entries(unitAliases)) {
@@ -177,23 +235,37 @@ function getServiceUnitType(serviceUnit?: string | null): string {
     if (aliases.some((alias) => unit.includes(alias))) return type;
   }
 
-  return 'unknown';
+  return "unknown";
 }
 
-function detectAllQuantityUnitsFromText(text: string): Array<{ value: number; unit: string; raw: string }> {
+function detectAllQuantityUnitsFromText(
+  text: string,
+): Array<{ value: number; unit: string; raw: string }> {
   const source = normalizeUnitText(text);
   if (!source) return [];
 
   const patterns = [
-    { unit: 'square_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter|quadrat meter)\b/gi },
-    { unit: 'cubic_meter', re: /(\d+(?:[.,]\d+)?)\s*(?:m3|m³|kubikmeter|kubik meter|cbm)\b/gi },
-    { unit: 'hour', re: /(\d+(?:[.,]\d+)?)\s*(?:stunden|stunde|std\.?|h)\b/gi },
-    { unit: 'day', re: /(\d+(?:[.,]\d+)?)\s*(?:tage|tag|arbeitstage|arbeitstag)\b/gi },
-    { unit: 'meter', re: /(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/gi },
-    { unit: 'kilogram', re: /(\d+(?:[.,]\d+)?)\s*(?:kilogramm|kg)\b/gi },
-    { unit: 'ton', re: /(\d+(?:[.,]\d+)?)\s*(?:tonnen|tonne|to\.?|t)\b/gi },
-    { unit: 'liter', re: /(\d+(?:[.,]\d+)?)\s*(?:liter|ltr\.?|l)\b/gi },
-    { unit: 'piece', re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stück|stuck|stk|anzahl|einheiten|baeume|bäume|baume|baum)\b/gi },
+    {
+      unit: "square_meter",
+      re: /(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter|quadrat meter)\b/gi,
+    },
+    {
+      unit: "cubic_meter",
+      re: /(\d+(?:[.,]\d+)?)\s*(?:m3|m³|kubikmeter|kubik meter|cbm)\b/gi,
+    },
+    { unit: "hour", re: /(\d+(?:[.,]\d+)?)\s*(?:stunden|stunde|std\.?|h)\b/gi },
+    {
+      unit: "day",
+      re: /(\d+(?:[.,]\d+)?)\s*(?:tage|tag|arbeitstage|arbeitstag)\b/gi,
+    },
+    { unit: "meter", re: /(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/gi },
+    { unit: "kilogram", re: /(\d+(?:[.,]\d+)?)\s*(?:kilogramm|kg)\b/gi },
+    { unit: "ton", re: /(\d+(?:[.,]\d+)?)\s*(?:tonnen|tonne|to\.?|t)\b/gi },
+    { unit: "liter", re: /(\d+(?:[.,]\d+)?)\s*(?:liter|ltr\.?|l)\b/gi },
+    {
+      unit: "piece",
+      re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stück|stuck|stk|anzahl|einheiten|baeume|bäume|baume|baum)\b/gi,
+    },
   ];
 
   const matches: Array<{ value: number; unit: string; raw: string }> = [];
@@ -202,7 +274,7 @@ function detectAllQuantityUnitsFromText(text: string): Array<{ value: number; un
     for (const match of source.matchAll(pattern.re)) {
       if (match?.[1]) {
         matches.push({
-          value: Number(match[1].replace(',', '.')),
+          value: Number(match[1].replace(",", ".")),
           unit: pattern.unit,
           raw: match[0],
         });
@@ -213,13 +285,12 @@ function detectAllQuantityUnitsFromText(text: string): Array<{ value: number; un
   return matches.filter((m) => Number.isFinite(m.value) && m.value > 0);
 }
 
-
 function splitWorkSegments(text: string): string[] {
   const source = normalizeUnitText(text);
   if (!source) return [];
 
   const roughParts = source
-   .split(/\n|;|\*|,|\bsowie\b|\bplus\b/gi)
+    .split(/\n|;|\*|,|\bsowie\b|\bplus\b/gi)
     .map((p) => p.trim())
     .filter(Boolean);
 
@@ -229,87 +300,100 @@ function splitWorkSegments(text: string): string[] {
     const splitByQuantity = part
       .replace(
         /\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|quadrat meter|m3|m³|kubikmeter|kubik meter|cbm|stunden|stunde|std\.?|h|tage|tag|meter|laufmeter|lfm|tonnen|tonne|to\.?|kg|kilogramm|liter|ltr\.?|stück|stueck|stk)\b)/gi,
-        '|||'
+        "|||",
       )
-      .split('|||')
+      .split("|||")
       .map((p) => p.trim())
       .filter(Boolean);
 
     segments.push(...splitByQuantity);
   }
-const cleanedSegments = segments.filter((segment) => {
-  const normalized = normalizeUnitText(segment);
+  const cleanedSegments = segments.filter((segment) => {
+    const normalized = normalizeUnitText(segment);
 
-  if (!normalized) return false;
-  if (normalized.length < 8) return false;
+    if (!normalized) return false;
+    if (normalized.length < 8) return false;
 
-  const blocked = [
-    'zudem',
-    'danach',
-    'anschliessend',
-    'anschließend',
-    'sowie',
-    'und',
-    'plus',
-  ];
+    const blocked = [
+      "zudem",
+      "danach",
+      "anschliessend",
+      "anschließend",
+      "sowie",
+      "und",
+      "plus",
+    ];
 
-  if (blocked.includes(normalized)) return false;
+    if (blocked.includes(normalized)) return false;
 
-  const hasQuantityUnit = detectAllQuantityUnitsFromText(segment).length > 0;
+    const hasQuantityUnit = detectAllQuantityUnitsFromText(segment).length > 0;
 
-const hasWorkVerb =
-  /\b(reinigen|reinigung|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen)\b/i.test(normalized);
+    const hasWorkVerb =
+      /\b(reinigen|reinigung|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen)\b/i.test(
+        normalized,
+      );
 
-return hasQuantityUnit || hasWorkVerb;
-});
-return cleanedSegments.length > 0 ? cleanedSegments : [source];
+    return hasQuantityUnit || hasWorkVerb;
+  });
+  return cleanedSegments.length > 0 ? cleanedSegments : [source];
 }
 
 function unitTypeToDisplayUnit(unitType?: string | null): string {
   switch (unitType) {
-    case 'square_meter': return 'Quadratmeter';
-    case 'cubic_meter': return 'Kubikmeter';
-    case 'hour': return 'Stunde';
-    case 'day': return 'Tag';
-    case 'meter': return 'Meter';
-    case 'kilogram': return 'Kilogramm';
-    case 'ton': return 'Tonne';
-    case 'liter': return 'Liter';
-    case 'piece': return 'Stück';
-    case 'flat': return 'Pauschal';
-    default: return 'Pauschal';
+    case "square_meter":
+      return "Quadratmeter";
+    case "cubic_meter":
+      return "Kubikmeter";
+    case "hour":
+      return "Stunde";
+    case "day":
+      return "Tag";
+    case "meter":
+      return "Meter";
+    case "kilogram":
+      return "Kilogramm";
+    case "ton":
+      return "Tonne";
+    case "liter":
+      return "Liter";
+    case "piece":
+      return "Stück";
+    case "flat":
+      return "Pauschal";
+    default:
+      return "Pauschal";
   }
 }
 
 function cleanDetectedWorkName(segment: string): string {
   return normalizeUnitText(segment)
-    .replace(/\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|quadrat meter|m3|m³|kubikmeter|kubik meter|cbm|stunden|stunde|std\.?|h|tage|tag|meter|laufmeter|lfm|tonnen|tonne|to\.?|kg|kilogramm|liter|ltr\.?|stück|stueck|stk)\b/gi, ' ')
-    .replace(/\b(ca|circa|ungefähr|ungefaehr|etwa|rund)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(
+      /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|quadrat meter|m3|m³|kubikmeter|kubik meter|cbm|stunden|stunde|std\.?|h|tage|tag|meter|laufmeter|lfm|tonnen|tonne|to\.?|kg|kilogramm|liter|ltr\.?|stück|stueck|stk)\b/gi,
+      " ",
+    )
+    .replace(/\b(ca|circa|ungefähr|ungefaehr|etwa|rund)\b/gi, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
-
 function formatWorkNameForDisplay(value: string): string {
-  const text = String(value || '')
-    .replace(/\bae/g, 'ä')
-    .replace(/\boe/g, 'ö')
-    .replace(/\bue/g, 'ü')
-    .replace(/\s+/g, ' ')
+  const text = String(value || "")
+    .replace(/\bae/g, "ä")
+    .replace(/\boe/g, "ö")
+    .replace(/\bue/g, "ü")
+    .replace(/\s+/g, " ")
     .trim();
 
-  if (!text) return 'Unbekannte Leistung';
+  if (!text) return "Unbekannte Leistung";
 
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
-
-
 
 function findBestQuantityForService(
   serviceName: string,
   unitType: string,
   text: string,
-  quantityMatches: Array<{ value: number; unit: string; raw: string }>
+  quantityMatches: Array<{ value: number; unit: string; raw: string }>,
 ): { value: number; unit: string; raw: string } | null {
   const relevant = quantityMatches.filter((q) => q.unit === unitType);
   if (relevant.length === 0) return null;
@@ -323,15 +407,45 @@ function findBestQuantityForService(
     .filter((w) => w.length >= 4);
 
   const keywordMap: Record<string, string[]> = {
-    square_meter: ['streichen', 'malen', 'wand', 'fassade', 'flaeche', 'fläche'],
-    cubic_meter: ['kubikmeter', 'volumen', 'entsorgung', 'entsorgen', 'gruenabfall', 'grünabfall', 'bauschutt', 'aushub'],
-    ton: ['tonne', 'tonnen', 'entsorgung', 'entsorgen', 'bauschutt', 'aushub', 'abfall'],
-    liter: ['liter', 'reiniger', 'reinigungsmittel', 'reinigung', 'spezialreiniger'],
-    meter: ['meter', 'hecke', 'hecken', 'schneiden', 'stutzen', 'rohr', 'zaun'],
-    hour: ['stunde', 'stunden', 'maehen', 'mähen', 'wiese', 'rasen'],
-    day: ['tag', 'tage', 'arbeitstag', 'arbeitstage', 'montage'],
-    piece: ['stueck', 'stück', 'baum', 'baeume', 'bäume', 'platten'],
-    kilogram: ['kilogramm', 'kilo', 'kg', 'kies', 'material'],
+    square_meter: [
+      "streichen",
+      "malen",
+      "wand",
+      "fassade",
+      "flaeche",
+      "fläche",
+    ],
+    cubic_meter: [
+      "kubikmeter",
+      "volumen",
+      "entsorgung",
+      "entsorgen",
+      "gruenabfall",
+      "grünabfall",
+      "bauschutt",
+      "aushub",
+    ],
+    ton: [
+      "tonne",
+      "tonnen",
+      "entsorgung",
+      "entsorgen",
+      "bauschutt",
+      "aushub",
+      "abfall",
+    ],
+    liter: [
+      "liter",
+      "reiniger",
+      "reinigungsmittel",
+      "reinigung",
+      "spezialreiniger",
+    ],
+    meter: ["meter", "hecke", "hecken", "schneiden", "stutzen", "rohr", "zaun"],
+    hour: ["stunde", "stunden", "maehen", "mähen", "wiese", "rasen"],
+    day: ["tag", "tage", "arbeitstag", "arbeitstage", "montage"],
+    piece: ["stueck", "stück", "baum", "baeume", "bäume", "platten"],
+    kilogram: ["kilogramm", "kilo", "kg", "kies", "material"],
   };
 
   const keywords = [...serviceKeywords, ...(keywordMap[unitType] || [])];
@@ -341,7 +455,10 @@ function findBestQuantityForService(
     .map((s) => s.trim())
     .filter(Boolean);
 
-  let best: { q: { value: number; unit: string; raw: string }; score: number } | null = null;
+  let best: {
+    q: { value: number; unit: string; raw: string };
+    score: number;
+  } | null = null;
 
   for (const q of relevant) {
     const raw = normalizeUnitText(q.raw);
@@ -354,7 +471,8 @@ function findBestQuantityForService(
         if (sentence.includes(keyword)) score += 10;
       }
 
-      if (normalizedService && sentence.includes(normalizedService)) score += 25;
+      if (normalizedService && sentence.includes(normalizedService))
+        score += 25;
     }
 
     const rawIndex = normalizedText.indexOf(raw);
@@ -364,7 +482,10 @@ function findBestQuantityForService(
       .sort((a, b) => Math.abs(a - rawIndex) - Math.abs(b - rawIndex))[0];
 
     if (rawIndex >= 0 && serviceIndex >= 0) {
-      score += Math.max(0, 20 - Math.floor(Math.abs(rawIndex - serviceIndex) / 20));
+      score += Math.max(
+        0,
+        20 - Math.floor(Math.abs(rawIndex - serviceIndex) / 20),
+      );
     }
 
     if (!best || score > best.score) {
@@ -378,7 +499,7 @@ function findConflictingQuantityForService(
   serviceName: string,
   serviceUnitType: string,
   text: string,
-  quantityMatches: Array<{ value: number; unit: string; raw: string }>
+  quantityMatches: Array<{ value: number; unit: string; raw: string }>,
 ): { value: number; unit: string; raw: string } | null {
   const otherUnits = quantityMatches.filter((q) => q.unit !== serviceUnitType);
   if (otherUnits.length === 0) return null;
@@ -391,16 +512,40 @@ function findConflictingQuantityForService(
     .filter((w) => w.length >= 4);
 
   const activityKeywords: Record<string, string[]> = {
-    hour: ['maehen', 'mähen', 'wiese', 'rasen', 'arbeit', 'nacharbeit', 'reinigen', 'montieren'],
-    day: ['arbeitstag', 'arbeitstage', 'montage', 'montieren', 'vorbereitung'],
-    meter: ['hecke', 'hecken', 'schneiden', 'stutzen', 'rohr', 'verlegen', 'zaun'],
-    square_meter: ['streichen', 'malen', 'wand', 'fassade', 'decke', 'farbe'],
-    cubic_meter: ['aushub', 'gruenabfall', 'grünabfall', 'volumen', 'kubikmeter', 'entsorgen'],
-    ton: ['tonne', 'tonnen', 'bauschutt', 'aushub', 'entsorgen', 'entsorgung'],
-    liter: ['liter', 'reiniger', 'reinigungsmittel', 'spezialreiniger'],
-    kilogram: ['kilogramm', 'kilo', 'kg', 'kies', 'material', 'liefern'],
-    piece: ['stueck', 'stück', 'baum', 'baeume', 'bäume', 'platten', 'setzen'],
-    flat: ['pauschal', 'fällen', 'faellen', 'baum'],
+    hour: [
+      "maehen",
+      "mähen",
+      "wiese",
+      "rasen",
+      "arbeit",
+      "nacharbeit",
+      "reinigen",
+      "montieren",
+    ],
+    day: ["arbeitstag", "arbeitstage", "montage", "montieren", "vorbereitung"],
+    meter: [
+      "hecke",
+      "hecken",
+      "schneiden",
+      "stutzen",
+      "rohr",
+      "verlegen",
+      "zaun",
+    ],
+    square_meter: ["streichen", "malen", "wand", "fassade", "decke", "farbe"],
+    cubic_meter: [
+      "aushub",
+      "gruenabfall",
+      "grünabfall",
+      "volumen",
+      "kubikmeter",
+      "entsorgen",
+    ],
+    ton: ["tonne", "tonnen", "bauschutt", "aushub", "entsorgen", "entsorgung"],
+    liter: ["liter", "reiniger", "reinigungsmittel", "spezialreiniger"],
+    kilogram: ["kilogramm", "kilo", "kg", "kies", "material", "liefern"],
+    piece: ["stueck", "stück", "baum", "baeume", "bäume", "platten", "setzen"],
+    flat: ["pauschal", "fällen", "faellen", "baum"],
   };
 
   const keywords = [
@@ -413,7 +558,10 @@ function findConflictingQuantityForService(
     .map((s) => s.trim())
     .filter(Boolean);
 
-  let best: { q: { value: number; unit: string; raw: string }; score: number } | null = null;
+  let best: {
+    q: { value: number; unit: string; raw: string };
+    score: number;
+  } | null = null;
 
   for (const q of otherUnits) {
     const raw = normalizeUnitText(q.raw);
@@ -426,7 +574,8 @@ function findConflictingQuantityForService(
         if (sentence.includes(keyword)) score += 10;
       }
 
-      if (normalizedService && sentence.includes(normalizedService)) score += 30;
+      if (normalizedService && sentence.includes(normalizedService))
+        score += 30;
     }
 
     if (!best || score > best.score) {
@@ -464,7 +613,7 @@ function logIntakeAudit(payload: {
   notes?: string;
 }): void {
   try {
-    console.log('[INTAKE-AUDIT]', JSON.stringify(payload));
+    console.log("[INTAKE-AUDIT]", JSON.stringify(payload));
   } catch {
     // never let logging break the intake
   }
@@ -481,7 +630,7 @@ export interface IntakeResult {
 }
 
 export interface IntakeInput {
-  source: 'Telegram' | 'WhatsApp';
+  source: "Telegram" | "WhatsApp";
   senderName: string;
   /**
    * Block R — sender phone (E.164) for masked audit logging only.
@@ -493,7 +642,7 @@ export interface IntakeInput {
   imageBase64?: string | null;
   imageMimeType?: string;
   savedMediaPath?: string | null;
-  savedMediaType?: 'audio' | 'image' | null;
+  savedMediaType?: "audio" | "image" | null;
   optimizedPreviewPath?: string | null;
   optimizedThumbnailPath?: string | null;
   userId?: string | null;
@@ -510,7 +659,13 @@ export interface IntakeInput {
   audioDurationSec?: number | null;
   // Lifecycle marker — see Order.audioTranscriptionStatus comment in schema.prisma.
   // 'transcribed' | 'failed' | 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' | null
-  audioTranscriptionStatus?: 'transcribed' | 'failed' | 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' | null;
+  audioTranscriptionStatus?:
+    | "transcribed"
+    | "failed"
+    | "skipped_too_long"
+    | "skipped_uncheckable"
+    | "skipped_quota_exceeded"
+    | null;
   additionalReviewReasons?: string[];
   reviewNote?: string;
   forceReview?: boolean;
@@ -521,8 +676,8 @@ function buildSystemPrompt(
   serviceListJson: string,
   customerListJson: string,
   senderName: string,
-  branche: string = 'Gartenbau',
-  hauptsprache: string = 'Deutsch',
+  branche: string = "Gartenbau",
+  hauptsprache: string = "Deutsch",
 ): string {
   return `WICHTIG – ABSOLUT KRITISCH:
 
@@ -792,19 +947,51 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 }
 
 // ---------- Main intake function ----------
-export async function processIncomingMessage(input: IntakeInput): Promise<IntakeResult | null> {
-  const { source, senderName, messageText, imageBase64, imageMimeType, savedMediaPath, savedMediaType, optimizedPreviewPath, optimizedThumbnailPath, userId: inputUserId, allImageBase64s, allImageMimeTypes, allSavedMediaPaths, allOptimizedPreviewPaths, allOptimizedThumbnailPaths, audioDurationSec: inputAudioDurationSec, audioTranscriptionStatus: inputAudioTranscriptionStatus, additionalReviewReasons, reviewNote, forceReview } = input;
+export async function processIncomingMessage(
+  input: IntakeInput,
+): Promise<IntakeResult | null> {
+  const {
+    source,
+    senderName,
+    messageText,
+    imageBase64,
+    imageMimeType,
+    savedMediaPath,
+    savedMediaType,
+    optimizedPreviewPath,
+    optimizedThumbnailPath,
+    userId: inputUserId,
+    allImageBase64s,
+    allImageMimeTypes,
+    allSavedMediaPaths,
+    allOptimizedPreviewPaths,
+    allOptimizedThumbnailPaths,
+    audioDurationSec: inputAudioDurationSec,
+    audioTranscriptionStatus: inputAudioTranscriptionStatus,
+    additionalReviewReasons,
+    reviewNote,
+    forceReview,
+  } = input;
 
   // Resolve userId: use provided userId ONLY. No fallbacks!
   // Webhooks must resolve userId via phone number BEFORE calling this function.
   const userId = inputUserId || null;
   if (!userId) {
-    console.error(`[${source}] ❌ No userId provided — cannot process message. Webhook must resolve userId by phone number.`);
-    logAuditAsync({ action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`, area: 'WEBHOOK', success: false, details: { reason: 'no_userId', sender: senderName } });
+    console.error(
+      `[${source}] ❌ No userId provided — cannot process message. Webhook must resolve userId by phone number.`,
+    );
+    logAuditAsync({
+      action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`,
+      area: "WEBHOOK",
+      success: false,
+      details: { reason: "no_userId", sender: senderName },
+    });
     return null;
   }
   const _intakeStartTime = Date.now();
-  console.log(`[${source}] Processing message for userId: ${userId} (textLength=${messageText.length}chars, hasImage=${!!imageBase64}, hasMedia=${!!savedMediaPath})`);
+  console.log(
+    `[${source}] Processing message for userId: ${userId} (textLength=${messageText.length}chars, hasImage=${!!imageBase64}, hasMedia=${!!savedMediaPath})`,
+  );
 
   const userFilter = userId ? { userId } : {};
 
@@ -816,7 +1003,7 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
       name: s.name,
       einheit: s.unit,
       standard_preis: Number(s.defaultPrice),
-    }))
+    })),
   );
 
   // Load customers for matching (max 200).
@@ -830,55 +1017,88 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   const allCustomers = await prisma.customer.findMany({
     where: { deletedAt: null, ...userFilter },
     select: { id: true, name: true },
-    orderBy: { updatedAt: 'desc' },
+    orderBy: { updatedAt: "desc" },
     take: 200,
   });
   const customerListJson = JSON.stringify(
-    allCustomers.map((c: any) => ({ id: c.id, name: c.name }))
+    allCustomers.map((c: any) => ({ id: c.id, name: c.name })),
   );
 
   // Fetch branche + hauptsprache from company settings
-  const companySettings = userId ? await prisma.companySettings.findFirst({ where: { userId } }) : await prisma.companySettings.findFirst();
-  const branche = companySettings?.branche || 'Gartenbau';
-  const hauptsprache = (companySettings as any)?.hauptsprache || 'Deutsch';
+  const companySettings = userId
+    ? await prisma.companySettings.findFirst({ where: { userId } })
+    : await prisma.companySettings.findFirst();
+  const branche = companySettings?.branche || "Gartenbau";
+  const intakeCurrency = companySettings?.currency === "EUR" ? "EUR" : "CHF";
+  const hauptsprache = (companySettings as any)?.hauptsprache || "Deutsch";
 
   // Resolve default VAT rate from CompanySettings.
   // If MwSt is active and a rate is configured → use that rate.
   // If MwSt is explicitly disabled → 0.
   // Otherwise fall back to schema default (8.1) for backwards compatibility.
-  const intakeVatRate: number = companySettings?.mwstAktiv === true && companySettings?.mwstSatz != null
-    ? Number(companySettings.mwstSatz)
-    : companySettings?.mwstAktiv === false
-      ? 0
-      : 8.1;
+  const intakeVatRate: number =
+    companySettings?.mwstAktiv === true && companySettings?.mwstSatz != null
+      ? Number(companySettings.mwstSatz)
+      : companySettings?.mwstAktiv === false
+        ? 0
+        : 8.1;
 
   // Build prompt
-  const systemPrompt = buildSystemPrompt(serviceListJson, customerListJson, senderName, branche, hauptsprache);
+  const systemPrompt = buildSystemPrompt(
+    serviceListJson,
+    customerListJson,
+    senderName,
+    branche,
+    hauptsprache,
+  );
 
   // Build user content (supports multi-image)
   const hasMultipleImages = allImageBase64s && allImageBase64s.length > 0;
   const hasAnyImage = hasMultipleImages || !!imageBase64;
   const userContent: any[] = [];
-  const isImageOnly = !messageText.trim() && (hasMultipleImages || !!imageBase64);
+  const isImageOnly =
+    !messageText.trim() && (hasMultipleImages || !!imageBase64);
   if (messageText.trim()) {
-    userContent.push({ type: 'text', text: `Nachricht:\n"${messageText}"` });
+    userContent.push({ type: "text", text: `Nachricht:\n"${messageText}"` });
   }
   if (hasMultipleImages) {
     if (isImageOnly) {
-      userContent.push({ type: 'text', text: `Der Kunde hat ${allImageBase64s.length} Bilder geschickt, aber KEINEN Text dazu. Beschreibe NUR was sichtbar ist. Erfinde KEINEN Auftrag. Setze needs_review=true.` });
+      userContent.push({
+        type: "text",
+        text: `Der Kunde hat ${allImageBase64s.length} Bilder geschickt, aber KEINEN Text dazu. Beschreibe NUR was sichtbar ist. Erfinde KEINEN Auftrag. Setze needs_review=true.`,
+      });
     } else {
-      userContent.push({ type: 'text', text: `Der Kunde hat ${allImageBase64s.length} Bilder zusammen mit der Nachricht geschickt. Es handelt sich um EINEN Auftrag:` });
+      userContent.push({
+        type: "text",
+        text: `Der Kunde hat ${allImageBase64s.length} Bilder zusammen mit der Nachricht geschickt. Es handelt sich um EINEN Auftrag:`,
+      });
     }
     for (let imgIdx = 0; imgIdx < allImageBase64s.length; imgIdx++) {
-      userContent.push({ type: 'image_url', image_url: { url: `data:${allImageMimeTypes?.[imgIdx] || 'image/jpeg'};base64,${allImageBase64s[imgIdx]}` } });
+      userContent.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${allImageMimeTypes?.[imgIdx] || "image/jpeg"};base64,${allImageBase64s[imgIdx]}`,
+        },
+      });
     }
   } else if (imageBase64) {
     if (isImageOnly) {
-      userContent.push({ type: 'text', text: 'Der Kunde hat NUR dieses Bild geschickt, OHNE Text. Beschreibe NUR was sichtbar ist. Erfinde KEINEN konkreten Auftrag. Setze needs_review=true.' });
+      userContent.push({
+        type: "text",
+        text: "Der Kunde hat NUR dieses Bild geschickt, OHNE Text. Beschreibe NUR was sichtbar ist. Erfinde KEINEN konkreten Auftrag. Setze needs_review=true.",
+      });
     } else {
-      userContent.push({ type: 'text', text: 'Der Kunde hat auch dieses Bild geschickt:' });
+      userContent.push({
+        type: "text",
+        text: "Der Kunde hat auch dieses Bild geschickt:",
+      });
     }
-    userContent.push({ type: 'image_url', image_url: { url: `data:${imageMimeType || 'image/jpeg'};base64,${imageBase64}` } });
+    userContent.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${imageMimeType || "image/jpeg"};base64,${imageBase64}`,
+      },
+    });
   }
   if (userContent.length === 0) {
     console.log(`[${source}] No content to analyze, skipping`);
@@ -890,78 +1110,141 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   // unparseable response), we fall back to creating a manual-review order so
   // no WhatsApp message gets silently dropped. See createFallbackOrderFromRawPayload.
   const _llmStartTime = Date.now();
-  console.log(`[${source}] 🤖 Starting LLM analysis (model=${hasAnyImage ? 'gpt-4.1' : 'gpt-4.1-mini'}, systemPrompt=${systemPrompt.length}chars, userContent=${JSON.stringify(userContent).length}chars)`);
+  console.log(
+    `[${source}] 🤖 Starting LLM analysis (model=${hasAnyImage ? "gpt-4.1" : "gpt-4.1-mini"}, systemPrompt=${systemPrompt.length}chars, userContent=${JSON.stringify(userContent).length}chars)`,
+  );
   let llmResponse: Response;
   try {
-    llmResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
+    llmResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: hasAnyImage ? 'gpt-4.1' : 'gpt-4.1-mini',
+        model: hasAnyImage ? "gpt-4.1" : "gpt-4.1-mini",
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userContent.length === 1 && !hasAnyImage ? userContent[0].text : userContent },
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content:
+              userContent.length === 1 && !hasAnyImage
+                ? userContent[0].text
+                : userContent,
+          },
         ],
-        response_format: { type: 'json_object' },
+        response_format: { type: "json_object" },
         max_tokens: 1500,
       }),
     });
   } catch (netErr: any) {
-    console.error(`[${source}] LLM network/timeout error:`, netErr?.message || netErr);
-    logAuditAsync({ userId, action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`, area: 'WEBHOOK', success: false, details: { reason: 'llm_network_error', sender: senderName, error: netErr?.message || String(netErr) } });
-    return await createFallbackOrderFromRawPayload(input, 'llm_network_error');
+    console.error(
+      `[${source}] LLM network/timeout error:`,
+      netErr?.message || netErr,
+    );
+    logAuditAsync({
+      userId,
+      action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`,
+      area: "WEBHOOK",
+      success: false,
+      details: {
+        reason: "llm_network_error",
+        sender: senderName,
+        error: netErr?.message || String(netErr),
+      },
+    });
+    return await createFallbackOrderFromRawPayload(input, "llm_network_error");
   }
 
   if (!llmResponse.ok) {
-    const errText = await llmResponse.text().catch(() => '');
+    const errText = await llmResponse.text().catch(() => "");
     console.error(`[${source}] LLM API error:`, errText);
-    logAuditAsync({ userId, action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`, area: 'WEBHOOK', success: false, details: { reason: 'llm_api_error', sender: senderName, httpStatus: llmResponse.status } });
-    return await createFallbackOrderFromRawPayload(input, 'llm_api_error');
+    logAuditAsync({
+      userId,
+      action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`,
+      area: "WEBHOOK",
+      success: false,
+      details: {
+        reason: "llm_api_error",
+        sender: senderName,
+        httpStatus: llmResponse.status,
+      },
+    });
+    return await createFallbackOrderFromRawPayload(input, "llm_api_error");
   }
 
   let llmResult: any;
   try {
     llmResult = await llmResponse.json();
   } catch (jsonErr: any) {
-    console.error(`[${source}] LLM response JSON parse error:`, jsonErr?.message || jsonErr);
-    logAuditAsync({ userId, action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`, area: 'WEBHOOK', success: false, details: { reason: 'llm_response_parse_error', sender: senderName } });
-    return await createFallbackOrderFromRawPayload(input, 'llm_response_parse_error');
+    console.error(
+      `[${source}] LLM response JSON parse error:`,
+      jsonErr?.message || jsonErr,
+    );
+    logAuditAsync({
+      userId,
+      action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`,
+      area: "WEBHOOK",
+      success: false,
+      details: { reason: "llm_response_parse_error", sender: senderName },
+    });
+    return await createFallbackOrderFromRawPayload(
+      input,
+      "llm_response_parse_error",
+    );
   }
-  console.log(`[${source}] 🤖 LLM analysis completed in ${Date.now() - _llmStartTime}ms`);
+  console.log(
+    `[${source}] 🤖 LLM analysis completed in ${Date.now() - _llmStartTime}ms`,
+  );
   const content = llmResult?.choices?.[0]?.message?.content;
   if (!content) {
     console.error(`[${source}] LLM returned empty content`);
-    logAuditAsync({ userId, action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`, area: 'WEBHOOK', success: false, details: { reason: 'llm_empty_response', sender: senderName } });
-    return await createFallbackOrderFromRawPayload(input, 'llm_empty_response');
+    logAuditAsync({
+      userId,
+      action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`,
+      area: "WEBHOOK",
+      success: false,
+      details: { reason: "llm_empty_response", sender: senderName },
+    });
+    return await createFallbackOrderFromRawPayload(input, "llm_empty_response");
   }
 
   let parsed: any;
   try {
     parsed = JSON.parse(content);
   } catch {
-    console.error(`[${source}] Failed to parse LLM response:`, content?.slice(0, 500));
-    logAuditAsync({ userId, action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`, area: 'WEBHOOK', success: false, details: { reason: 'llm_parse_error', sender: senderName } });
-    return await createFallbackOrderFromRawPayload(input, 'llm_parse_error');
+    console.error(
+      `[${source}] Failed to parse LLM response:`,
+      content?.slice(0, 500),
+    );
+    logAuditAsync({
+      userId,
+      action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`,
+      area: "WEBHOOK",
+      success: false,
+      details: { reason: "llm_parse_error", sender: senderName },
+    });
+    return await createFallbackOrderFromRawPayload(input, "llm_parse_error");
   }
 
-  console.log(`[${source}] KI-Analyse:`, JSON.stringify({
-    kunde: parsed.kunde?.name,
-    titel: parsed.auftrag?.titel,
-    service: parsed.service?.service_name,
-    abgleich_status: parsed.kundenabgleich?.status,
-    confidence: parsed.kundenabgleich?.confidence,
-    treffer_id: parsed.kundenabgleich?.bestehende_kunden_id,
-    prioritaet: parsed.system?.prioritaet,
-    needs_review: parsed.system?.needs_review,
-  }));
+  console.log(
+    `[${source}] KI-Analyse:`,
+    JSON.stringify({
+      kunde: parsed.kunde?.name,
+      titel: parsed.auftrag?.titel,
+      service: parsed.service?.service_name,
+      abgleich_status: parsed.kundenabgleich?.status,
+      confidence: parsed.kundenabgleich?.confidence,
+      treffer_id: parsed.kundenabgleich?.bestehende_kunden_id,
+      prioritaet: parsed.system?.prioritaet,
+      needs_review: parsed.system?.needs_review,
+    }),
+  );
 
   // --- Customer resolution based on kundenabgleich.status ---
   const abgleich = parsed.kundenabgleich || {};
-  let abgleichStatus = abgleich.status || 'kein_treffer';
-  const matchId = abgleich.bestehende_kunden_id || '';
+  let abgleichStatus = abgleich.status || "kein_treffer";
+  const matchId = abgleich.bestehende_kunden_id || "";
 
   // Ensure address is split properly
   const kundeData = parsed.kunde || {};
@@ -973,39 +1256,41 @@ export async function processIncomingMessage(input: IntakeInput): Promise<Intake
   // Bug-Hintergrund: Wenn der WhatsApp-ProfileName mit dem Endkunden-Namen
   // identisch ist (z.B. Solo-Selbständige testen mit eigener Nummer), unterdrückt
   // die Prompt-Regel "Absender = Kunde A, NICHT Endkunde" die Namens-Extraktion.
-  const llmExtractedName = (kundeData.name || '').trim();
+  const llmExtractedName = (kundeData.name || "").trim();
 
-const invalidStandaloneCities = new Set([
-  'form',
-  'reinigen',
-  'schneiden',
-  'pflegen',
-  'entsorgen',
-  'ausraeumen',
-  'ausräumen',
-  'maehen',
-  'mähen',
-  'streichen',
-  'bauen',
-  'montieren',
-]);
+  const invalidStandaloneCities = new Set([
+    "form",
+    "reinigen",
+    "schneiden",
+    "pflegen",
+    "entsorgen",
+    "ausraeumen",
+    "ausräumen",
+    "maehen",
+    "mähen",
+    "streichen",
+    "bauen",
+    "montieren",
+  ]);
 
-const normalizedOrtCandidate = normalizeUnitText(kundeData.ort || '');
+  const normalizedOrtCandidate = normalizeUnitText(kundeData.ort || "");
 
-const hasStrongCustomerData =
-  !!String(kundeData.name || '').trim() ||
-  !!String(kundeData.strasse || '').trim() ||
-  !!String(kundeData.hausnummer || '').trim() ||
-  !!String(kundeData.plz || '').trim();
+  const hasStrongCustomerData =
+    !!String(kundeData.name || "").trim() ||
+    !!String(kundeData.strasse || "").trim() ||
+    !!String(kundeData.hausnummer || "").trim() ||
+    !!String(kundeData.plz || "").trim();
 
-if (
-  normalizedOrtCandidate &&
-  invalidStandaloneCities.has(normalizedOrtCandidate) &&
-  !hasStrongCustomerData
-) {
-  console.log(`[${source}] 🚫 Removed invalid AI city extraction: "${kundeData.ort}"`);
-  kundeData.ort = null;
-}
+  if (
+    normalizedOrtCandidate &&
+    invalidStandaloneCities.has(normalizedOrtCandidate) &&
+    !hasStrongCustomerData
+  ) {
+    console.log(
+      `[${source}] 🚫 Removed invalid AI city extraction: "${kundeData.ort}"`,
+    );
+    kundeData.ort = null;
+  }
 
   let selfIntroFallbackUsed = false;
   if (!llmExtractedName) {
@@ -1013,55 +1298,64 @@ if (
     if (selfIntroName) {
       kundeData.name = selfIntroName;
       selfIntroFallbackUsed = true;
-      console.log(`[${source}] 🪪 Selbstvorstellungs-Safety-Net griff: kunde.name='${selfIntroName}' (LLM hatte leer/null geliefert)`);
+      console.log(
+        `[${source}] 🪪 Selbstvorstellungs-Safety-Net griff: kunde.name='${selfIntroName}' (LLM hatte leer/null geliefert)`,
+      );
     }
   }
 
+  function looksLikeWeakCityOnlyFromWorkText(
+    kundeData: any,
+    text: string,
+  ): boolean {
+    const cityNorm = normalizeUnitText(kundeData?.ort);
+    const textNorm = normalizeUnitText(text);
 
-function looksLikeWeakCityOnlyFromWorkText(kundeData: any, text: string): boolean {
-  const cityNorm = normalizeUnitText(kundeData?.ort);
-  const textNorm = normalizeUnitText(text);
+    if (!cityNorm || !textNorm) return false;
 
-  if (!cityNorm || !textNorm) return false;
+    const hasName = !!String(kundeData?.name || "").trim();
+    const hasStreet = !!String(kundeData?.strasse || "").trim();
+    const hasHouseNumber = !!String(kundeData?.hausnummer || "").trim();
+    const hasPlz = !!String(kundeData?.plz || "").trim();
 
-  const hasName = !!String(kundeData?.name || '').trim();
-  const hasStreet = !!String(kundeData?.strasse || '').trim();
-  const hasHouseNumber = !!String(kundeData?.hausnummer || '').trim();
-  const hasPlz = !!String(kundeData?.plz || '').trim();
+    // Wenn echte Kundendaten vorhanden sind, Ort nicht blocken.
+    if (hasName || hasStreet || hasHouseNumber || hasPlz) return false;
 
-  // Wenn echte Kundendaten vorhanden sind, Ort nicht blocken.
-  if (hasName || hasStreet || hasHouseNumber || hasPlz) return false;
+    const cityInText = new RegExp(`\\bin\\s+${cityNorm}\\b`, "i").test(
+      textNorm,
+    );
 
-  const cityInText = new RegExp(`\\bin\\s+${cityNorm}\\b`, 'i').test(textNorm);
+    // Ohne weitere Kundendaten ist "in X" zu unsicher:
+    // kann Ort sein, kann aber auch Teil der Arbeit sein.
+    return cityInText;
+  }
 
-  // Ohne weitere Kundendaten ist "in X" zu unsicher:
-  // kann Ort sein, kann aber auch Teil der Arbeit sein.
-  return cityInText;
-}
-
-if (looksLikeWeakCityOnlyFromWorkText(kundeData, messageText)) {
-  kundeData.ort = null;
-}
+  if (looksLikeWeakCityOnlyFromWorkText(kundeData, messageText)) {
+    kundeData.ort = null;
+  }
 
   const addr = ensureAddressSplit({
-    customerStreet: kundeData.strasse ? `${kundeData.strasse}${kundeData.hausnummer ? ' ' + kundeData.hausnummer : ''}` : null,
+    customerStreet: kundeData.strasse
+      ? `${kundeData.strasse}${kundeData.hausnummer ? " " + kundeData.hausnummer : ""}`
+      : null,
     customerPlz: kundeData.plz,
     customerCity: kundeData.ort,
   });
 
-
-if (
-  normalizeUnitText(addr.city) === 'form' &&
-  /in\s+form\s+(bringen|schneiden|setzen|machen|pflegen)/i.test(normalizeUnitText(messageText))
-) {
-  console.log(`[${source}] 🚫 Removed invalid addr.city from work phrase: "${addr.city}"`);
-  addr.city = null;
-}
-
-
+  if (
+    normalizeUnitText(addr.city) === "form" &&
+    /in\s+form\s+(bringen|schneiden|setzen|machen|pflegen)/i.test(
+      normalizeUnitText(messageText),
+    )
+  ) {
+    console.log(
+      `[${source}] 🚫 Removed invalid addr.city from work phrase: "${addr.city}"`,
+    );
+    addr.city = null;
+  }
 
   let customerId: string | null = null;
-  let duplicateWarning = '';
+  let duplicateWarning = "";
   let customerWasNewlyCreated = false;
 
   // ═══ SERVER-SIDE CUSTOMER MATCHING (v2 — hardened) ═══
@@ -1071,7 +1365,7 @@ if (
   // Name + address requires confirmation (not auto-assign).
   // All other signals are review/suggestion only.
 
-  if (abgleichStatus === 'gleicher_kunde' && matchId) {
+  if (abgleichStatus === "gleicher_kunde" && matchId) {
     const matchResult = await verifyCustomerMatch(matchId, {
       phone: kundeData.telefon || null,
       email: kundeData.email || null,
@@ -1081,43 +1375,60 @@ if (
       name: kundeData.name,
     });
 
-    if (matchResult.verdict === 'auto_assign') {
+    if (matchResult.verdict === "auto_assign") {
       // ✅ Strong unique signal verified (phone or email) → safe to auto-assign
       customerId = matchId;
-      const matchedCust = await prisma.customer.findUnique({ where: { id: matchId }, select: { address: true, plz: true, city: true } });
-      if (!matchedCust?.address?.trim() || !matchedCust?.plz?.trim() || !matchedCust?.city?.trim()) {
+      const matchedCust = await prisma.customer.findUnique({
+        where: { id: matchId },
+        select: { address: true, plz: true, city: true },
+      });
+      if (
+        !matchedCust?.address?.trim() ||
+        !matchedCust?.plz?.trim() ||
+        !matchedCust?.city?.trim()
+      ) {
         parsed.system = parsed.system || {};
         parsed.system.needs_review = true;
-        console.log(`[${source}] ✅ AUTO-ASSIGN VERIFIED (${matchResult.reason}, conf ${abgleich.confidence}) but address incomplete → needsReview=true`);
+        console.log(
+          `[${source}] ✅ AUTO-ASSIGN VERIFIED (${matchResult.reason}, conf ${abgleich.confidence}) but address incomplete → needsReview=true`,
+        );
       } else {
-        console.log(`[${source}] ✅ AUTO-ASSIGN VERIFIED (${matchResult.reason}, conf ${abgleich.confidence}) → auto-assign to ${matchId}`);
+        console.log(
+          `[${source}] ✅ AUTO-ASSIGN VERIFIED (${matchResult.reason}, conf ${abgleich.confidence}) → auto-assign to ${matchId}`,
+        );
       }
-    } else if (matchResult.verdict === 'bestaetigungs_treffer') {
+    } else if (matchResult.verdict === "bestaetigungs_treffer") {
       // 🟡 Name + address match but no unique identifier → needs manual confirmation
-      abgleichStatus = 'bestaetigungs_treffer';
+      abgleichStatus = "bestaetigungs_treffer";
       duplicateWarning = `⚠️ Name und Adresse stimmen überein, aber kein eindeutiges Signal (Telefon/E-Mail). Manuelle Bestätigung erforderlich.`;
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
-      console.log(`[${source}] 🟡 CONFIRMATION REQUIRED (${matchResult.reason}) → bestaetigungs_treffer for ${matchId}`);
+      console.log(
+        `[${source}] 🟡 CONFIRMATION REQUIRED (${matchResult.reason}) → bestaetigungs_treffer for ${matchId}`,
+      );
     } else {
       // 🛡️ No strong signal → downgrade to moeglicher_treffer, NEVER auto-assign
-      abgleichStatus = 'moeglicher_treffer';
-      const unterschiede = (abgleich.unterschiede || []).join(', ');
-      duplicateWarning = `⚠️ KI-Treffer herabgestuft: Kein starkes Signal (${matchResult.reason}). Manuelle Prüfung erforderlich.${unterschiede ? ` (${unterschiede})` : ''}`;
+      abgleichStatus = "moeglicher_treffer";
+      const unterschiede = (abgleich.unterschiede || []).join(", ");
+      duplicateWarning = `⚠️ KI-Treffer herabgestuft: Kein starkes Signal (${matchResult.reason}). Manuelle Prüfung erforderlich.${unterschiede ? ` (${unterschiede})` : ""}`;
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
-      console.log(`[${source}] 🛡️ DOWNGRADED → moeglicher_treffer (reason: ${matchResult.reason}, no strong signal for ${matchId})`);
+      console.log(
+        `[${source}] 🛡️ DOWNGRADED → moeglicher_treffer (reason: ${matchResult.reason}, no strong signal for ${matchId})`,
+      );
     }
-  } else if (abgleichStatus === 'gleicher_kunde' && !matchId) {
+  } else if (abgleichStatus === "gleicher_kunde" && !matchId) {
     console.log(`[${source}] ⚠ gleicher_kunde but no matchId, creating new`);
-  } else if (abgleichStatus === 'moeglicher_treffer') {
-    const unterschiede = (abgleich.unterschiede || []).join(', ');
-    duplicateWarning = `⚠️ ${abgleich.warnung || 'Möglicher Kundentreffer – bitte prüfen'}${unterschiede ? ` (${unterschiede})` : ''}. Confidence: ${abgleich.confidence}`;
+  } else if (abgleichStatus === "moeglicher_treffer") {
+    const unterschiede = (abgleich.unterschiede || []).join(", ");
+    duplicateWarning = `⚠️ ${abgleich.warnung || "Möglicher Kundentreffer – bitte prüfen"}${unterschiede ? ` (${unterschiede})` : ""}. Confidence: ${abgleich.confidence}`;
     parsed.system = parsed.system || {};
     parsed.system.needs_review = true;
-    console.log(`[${source}] ⚠ moeglicher_treffer (confidence ${abgleich.confidence}) → new customer + warning`);
-  } else if (abgleichStatus === 'konflikt') {
-    duplicateWarning = `🚨 ${abgleich.warnung || 'Konflikt bei Kundenzuordnung – manuelle Prüfung erforderlich'}. Confidence: ${abgleich.confidence}`;
+    console.log(
+      `[${source}] ⚠ moeglicher_treffer (confidence ${abgleich.confidence}) → new customer + warning`,
+    );
+  } else if (abgleichStatus === "konflikt") {
+    duplicateWarning = `🚨 ${abgleich.warnung || "Konflikt bei Kundenzuordnung – manuelle Prüfung erforderlich"}. Confidence: ${abgleich.confidence}`;
     parsed.system = parsed.system || {};
     parsed.system.needs_review = true;
     console.log(`[${source}] 🚨 konflikt → new customer + strong warning`);
@@ -1149,14 +1460,19 @@ if (
     if (exact.match) {
       customerId = exact.match.id;
       autoReuseTags.push(`AUTO_REUSED:${exact.match.customerNumber}`);
-      console.log(`[${source}] 🎯 EXACT REUSE → binding to existing ${exact.match.customerNumber} (${exact.match.id})`);
+      console.log(
+        `[${source}] 🎯 EXACT REUSE → binding to existing ${exact.match.customerNumber} (${exact.match.id})`,
+      );
       logAuditAsync({
-        userId, action: 'CUSTOMER_REUSE_EXACT', area: 'CUSTOMERS',
-        targetType: 'Customer', targetId: exact.match.id,
+        userId,
+        action: "CUSTOMER_REUSE_EXACT",
+        area: "CUSTOMERS",
+        targetType: "Customer",
+        targetId: exact.match.id,
         success: true,
         details: {
           source,
-          matchedOn: ['name', 'street', 'plz', 'city'],
+          matchedOn: ["name", "street", "plz", "city"],
           candidateCustomerNumber: exact.match.customerNumber,
         },
       });
@@ -1165,9 +1481,14 @@ if (
       // already runs protectCustomerData(existing, incoming) for any non-null
       // customerId — so we do nothing extra here and let that canonical path
       // handle address/plz/city fill-in.
-    } else if (exact.reason !== 'incomplete_incoming' && exact.reason !== 'no_candidate') {
+    } else if (
+      exact.reason !== "incomplete_incoming" &&
+      exact.reason !== "no_candidate"
+    ) {
       // Useful trace for the other guarded cases (multi-match / conflict):
-      console.log(`[${source}] exact-reuse skipped (${exact.reason}, count=${exact.candidateCount}) → normal create/duplicate path`);
+      console.log(
+        `[${source}] exact-reuse skipped (${exact.reason}, count=${exact.candidateCount}) → normal create/duplicate path`,
+      );
     }
   }
 
@@ -1178,32 +1499,53 @@ if (
   // which already has the field). Never weakens exact-match. See spec in
   // lib/exact-customer-match.ts for full rules.
   if (!customerId) {
-    const nearExact = await findNearExactDeterministicMatch(prisma, userId ?? null, {
-      name: kundeData.name || null,
-      street: addr.street,
-      plz: addr.plz,
-      city: addr.city,
-      phone: kundeData.telefon || null,
-      email: kundeData.email || null,
-    });
+    const nearExact = await findNearExactDeterministicMatch(
+      prisma,
+      userId ?? null,
+      {
+        name: kundeData.name || null,
+        street: addr.street,
+        plz: addr.plz,
+        city: addr.city,
+        phone: kundeData.telefon || null,
+        email: kundeData.email || null,
+      },
+    );
     if (nearExact.match && nearExact.completedField) {
       customerId = nearExact.match.id;
-      autoReuseTags.push(`AUTO_REUSED_NEAR_EXACT:${nearExact.match.customerNumber}:${nearExact.completedField}_completed`);
-      console.log(`[${source}] 🎯 NEAR-EXACT REUSE → binding to existing ${nearExact.match.customerNumber} (${nearExact.match.id}), completed=${nearExact.completedField}`);
+      autoReuseTags.push(
+        `AUTO_REUSED_NEAR_EXACT:${nearExact.match.customerNumber}:${nearExact.completedField}_completed`,
+      );
+      console.log(
+        `[${source}] 🎯 NEAR-EXACT REUSE → binding to existing ${nearExact.match.customerNumber} (${nearExact.match.id}), completed=${nearExact.completedField}`,
+      );
       logAuditAsync({
-        userId, action: 'CUSTOMER_REUSE_NEAR_EXACT', area: 'CUSTOMERS',
-        targetType: 'Customer', targetId: nearExact.match.id,
+        userId,
+        action: "CUSTOMER_REUSE_NEAR_EXACT",
+        area: "CUSTOMERS",
+        targetType: "Customer",
+        targetId: nearExact.match.id,
         success: true,
         details: {
           source,
-          matchedOn: ['name', 'street', nearExact.completedField === 'plz' ? 'city' : 'plz'],
+          matchedOn: [
+            "name",
+            "street",
+            nearExact.completedField === "plz" ? "city" : "plz",
+          ],
           completedField: nearExact.completedField,
           completedValue: nearExact.completedValue,
           candidateCustomerNumber: nearExact.match.customerNumber,
         },
       });
-    } else if (nearExact.reason !== 'not_applicable' && nearExact.reason !== 'incomplete_incoming' && nearExact.reason !== 'no_candidate') {
-      console.log(`[${source}] near-exact-reuse skipped (${nearExact.reason}, count=${nearExact.candidateCount}) → normal create/duplicate path`);
+    } else if (
+      nearExact.reason !== "not_applicable" &&
+      nearExact.reason !== "incomplete_incoming" &&
+      nearExact.reason !== "no_candidate"
+    ) {
+      console.log(
+        `[${source}] near-exact-reuse skipped (${nearExact.reason}, count=${nearExact.candidateCount}) → normal create/duplicate path`,
+      );
     }
   }
 
@@ -1231,22 +1573,25 @@ if (
       email: kundeData.email || null,
     });
     if (sanitized.dropped.length > 0) {
-      console.log(`[${source}] 🛡️ intake-sanitize dropped unverified fields on new-customer create: ${sanitized.dropped.join(', ')}`);
+      console.log(
+        `[${source}] 🛡️ intake-sanitize dropped unverified fields on new-customer create: ${sanitized.dropped.join(", ")}`,
+      );
     }
 
-    const { generateCustomerNumber } = await import('@/lib/customer-number');
+    const { generateCustomerNumber } = await import("@/lib/customer-number");
     const customerNumber = await generateCustomerNumber();
     const customer = await prisma.customer.create({
       data: {
         customerNumber,
-        name: kundeData.name || '',
+        name: kundeData.name || "",
         // phone/email stay conservatively null on webhook-created customers
         // (preserves pre-Phase-2b behavior; unchanged).
         phone: null,
         email: null,
         address: sanitized.street,
         plz: sanitized.plz,
-        city: normalizeUnitText(sanitized.city) === 'form' ? null : sanitized.city,
+        city:
+          normalizeUnitText(sanitized.city) === "form" ? null : sanitized.city,
         notes: `${source}-Kunde`,
         ...(userId ? { userId } : {}),
       },
@@ -1255,14 +1600,27 @@ if (
     customerWasNewlyCreated = true;
   } else {
     // Update existing customer with new data - only if it IMPROVES existing data
-    const cust = await prisma.customer.findUnique({ where: { id: customerId } });
+    const cust = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
     if (cust) {
-      const { protectCustomerData } = await import('@/lib/data-protection');
-     const safeCity = normalizeUnitText(addr.city) === 'form' ? null : addr.city;
-const updates = protectCustomerData(cust, { address: addr.street, plz: addr.plz, city: safeCity });
+      const { protectCustomerData } = await import("@/lib/data-protection");
+      const safeCity =
+        normalizeUnitText(addr.city) === "form" ? null : addr.city;
+      const updates = protectCustomerData(cust, {
+        address: addr.street,
+        plz: addr.plz,
+        city: safeCity,
+      });
       if (Object.keys(updates).length > 0) {
-        await prisma.customer.update({ where: { id: customerId }, data: updates });
-        console.log(`[${source}] Updated customer ${customerId} with improved fields:`, Object.keys(updates));
+        await prisma.customer.update({
+          where: { id: customerId },
+          data: updates,
+        });
+        console.log(
+          `[${source}] Updated customer ${customerId} with improved fields:`,
+          Object.keys(updates),
+        );
       }
     }
   }
@@ -1273,260 +1631,291 @@ const updates = protectCustomerData(cust, { address: addr.street, plz: addr.plz,
   // besonderheiten is now a JSON array from the LLM. Store as newline-separated items.
   const rawBesonderheiten = parsed.auftrag?.besonderheiten;
   const besonderheitenItems: string[] = Array.isArray(rawBesonderheiten)
-    ? rawBesonderheiten.filter((b: any) => typeof b === 'string' && b.trim())
-    : (typeof rawBesonderheiten === 'string' && rawBesonderheiten.trim())
-      ? rawBesonderheiten.split(/[,\n]+/).map((s: string) => s.trim()).filter(Boolean)
+    ? rawBesonderheiten.filter((b: any) => typeof b === "string" && b.trim())
+    : typeof rawBesonderheiten === "string" && rawBesonderheiten.trim()
+      ? rawBesonderheiten
+          .split(/[,\n]+/)
+          .map((s: string) => s.trim())
+          .filter(Boolean)
       : [];
-  const finalSpecialNotes = besonderheitenItems.length > 0 ? besonderheitenItems.join('\n') : null;
+  const finalSpecialNotes =
+    besonderheitenItems.length > 0 ? besonderheitenItems.join("\n") : null;
 
+  // --- Map services / AI work items, strict per-position matching ---
 
-
-
-
-
-
-
-
-// --- Map services / AI work items, strict per-position matching ---
-
-type AiWorkItem = {
-  name?: string | null;
-  menge?: number | null;
-  einheit?: string | null;
-  raw?: string | null;
-  confidence?: 'hoch' | 'mittel' | 'niedrig' | string | null;
-};
-
-const normalizeServiceText = (value: any) =>
-  String(value || '')
-    .toLowerCase()
-    .replace(/[ä]/g, 'ae')
-    .replace(/[ö]/g, 'oe')
-    .replace(/[ü]/g, 'ue')
-    .replace(/[ß]/g, 'ss')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const fullWorkText =
-  (parsed.auftrag?.beschreibung && String(parsed.auftrag.beschreibung).trim())
-    ? String(parsed.auftrag.beschreibung)
-    : messageText;
-
-const aiWorkItemsRaw: AiWorkItem[] = Array.isArray(parsed.auftrag?.arbeitspositionen)
-  ? parsed.auftrag.arbeitspositionen
-  : [];
-
-const fallbackSegments = splitWorkSegments(fullWorkText).map((segment) => {
-  const quantityMatch = detectAllQuantityUnitsFromText(segment)[0] || null;
-
-  return {
-    name: cleanDetectedWorkName(segment),
-    menge: quantityMatch?.value ?? null,
-    einheit: quantityMatch?.unit ? unitTypeToDisplayUnit(quantityMatch.unit) : null,
-    raw: segment,
-    confidence: 'mittel',
+  type AiWorkItem = {
+    name?: string | null;
+    menge?: number | null;
+    einheit?: string | null;
+    raw?: string | null;
+    confidence?: "hoch" | "mittel" | "niedrig" | string | null;
   };
-});
 
-const aiWorkItems: AiWorkItem[] = aiWorkItemsRaw.length > 0
-  ? aiWorkItemsRaw
-  : fallbackSegments;
+  const normalizeServiceText = (value: any) =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/[ä]/g, "ae")
+      .replace(/[ö]/g, "oe")
+      .replace(/[ü]/g, "ue")
+      .replace(/[ß]/g, "ss")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
-const getWorkItemUnitType = (item: AiWorkItem): string => {
-  const text = normalizeUnitText([item.raw, item.name, item.einheit].filter(Boolean).join(' '));
+  const fullWorkText =
+    parsed.auftrag?.beschreibung && String(parsed.auftrag.beschreibung).trim()
+      ? String(parsed.auftrag.beschreibung)
+      : messageText;
 
-  if (/\b(pauschal|pauschale|pauschale abrechnung|fixpreis|festpreis)\b/i.test(text)) {
-    return 'flat';
-  }
+  const aiWorkItemsRaw: AiWorkItem[] = Array.isArray(
+    parsed.auftrag?.arbeitspositionen,
+  )
+    ? parsed.auftrag.arbeitspositionen
+    : [];
 
-  const fromUnit = getServiceUnitType(item.einheit || null);
-  if (fromUnit !== 'unknown') return fromUnit;
+  const fallbackSegments = splitWorkSegments(fullWorkText).map((segment) => {
+    const quantityMatch = detectAllQuantityUnitsFromText(segment)[0] || null;
 
-  const q = detectAllQuantityUnitsFromText(
-    [item.raw, item.name].filter(Boolean).join(' ')
-  )[0];
-
-  return q?.unit || 'unknown';
-};
-
-const getWorkItemQuantity = (item: AiWorkItem): number => {
-  if (typeof item.menge === 'number' && isFinite(item.menge) && item.menge > 0) {
-    return item.menge;
-  }
-
-  const q = detectAllQuantityUnitsFromText(
-    [item.raw, item.name].filter(Boolean).join(' ')
-  )[0];
-
-  return q?.value ?? 1;
-};
-
-const serviceDomainMatchesWork = (serviceName: string, workText: string): boolean => {
-  const s = normalizeServiceText(serviceName);
-  const w = normalizeServiceText(workText);
-
-  const domains = [
-    {
-      service: ['hecke', 'hecken'],
-      work: ['hecke', 'hecken', 'schneiden', 'stutzen', 'pflegen', 'pflege'],
-    },
-    {
-      service: ['wiese', 'rasen'],
-      work: ['wiese', 'rasen', 'maehen', 'mahen', 'mähen'],
-    },
-    {
-      service: ['baum', 'baeume'],
-      work: ['baum', 'baeume', 'bäume', 'faellen', 'fällen', 'schneiden'],
-    },
-    {
-      service: ['entsorgung', 'entsorgen', 'abtransport', 'aushub'],
-      work: ['entsorgung', 'entsorgen', 'abtransport', 'abtransportieren', 'erde', 'aushub', 'bauschutt'],
-    },
-    {
-      service: ['fenster', 'fensterreinigung'],
-      work: ['fenster', 'fensterreinigung', 'reinigen', 'reinigung'],
-    },
-  ];
-
-  return domains.some((domain) => {
-    const serviceHit = domain.service.some((token) => s.includes(token));
-    const workHit = domain.work.some((token) => w.includes(token));
-    return serviceHit && workHit;
+    return {
+      name: cleanDetectedWorkName(segment),
+      menge: quantityMatch?.value ?? null,
+      einheit: quantityMatch?.unit
+        ? unitTypeToDisplayUnit(quantityMatch.unit)
+        : null,
+      raw: segment,
+      confidence: "mittel",
+    };
   });
-};
 
-const strictMatchServiceForWorkItem = (item: AiWorkItem, services: any[]) => {
-  const workName = normalizeServiceText(item.name || '');
-  const workRaw = normalizeServiceText(item.raw || '');
-  const workText = [workName, workRaw].filter(Boolean).join(' ');
-  const workUnitType = getWorkItemUnitType(item);
+  const aiWorkItems: AiWorkItem[] =
+    aiWorkItemsRaw.length > 0 ? aiWorkItemsRaw : fallbackSegments;
 
-  if (!workText || workText.length < 3) return null;
-
-  const workTokens = workText
-    .split(/\s+/)
-    .filter((token) =>
-      token.length >= 4 &&
-      ![
-        'eine',
-        'einer',
-        'eines',
-        'einem',
-        'einen',
-        'mit',
-        'der',
-        'die',
-        'das',
-        'von',
-        'ca',
-        'circa',
-        'etwa',
-        'rund',
-        'flaeche',
-        'fläche',
-        'gesamt',
-        'gesamten',
-      ].includes(token)
+  const getWorkItemUnitType = (item: AiWorkItem): string => {
+    const text = normalizeUnitText(
+      [item.raw, item.name, item.einheit].filter(Boolean).join(" "),
     );
 
-  let best: { service: any; score: number } | null = null;
+    if (
+      /\b(pauschal|pauschale|pauschale abrechnung|fixpreis|festpreis)\b/i.test(
+        text,
+      )
+    ) {
+      return "flat";
+    }
 
-  for (const service of services) {
-    const serviceName = normalizeServiceText(service.name);
-    const serviceUnitType = getServiceUnitType(service.unit);
+    const fromUnit = getServiceUnitType(item.einheit || null);
+    if (fromUnit !== "unknown") return fromUnit;
 
-    if (!serviceName) continue;
+    const q = detectAllQuantityUnitsFromText(
+      [item.raw, item.name].filter(Boolean).join(" "),
+    )[0];
 
-    let score = 0;
+    return q?.unit || "unknown";
+  };
 
-    if (serviceName === workName) score += 100;
-    if (workName && serviceName.includes(workName)) score += 75;
-    if (workName && workName.includes(serviceName)) score += 75;
+  const getWorkItemQuantity = (item: AiWorkItem): number => {
+    if (
+      typeof item.menge === "number" &&
+      isFinite(item.menge) &&
+      item.menge > 0
+    ) {
+      return item.menge;
+    }
 
-    const serviceTokens = serviceName
+    const q = detectAllQuantityUnitsFromText(
+      [item.raw, item.name].filter(Boolean).join(" "),
+    )[0];
+
+    return q?.value ?? 1;
+  };
+
+  const serviceDomainMatchesWork = (
+    serviceName: string,
+    workText: string,
+  ): boolean => {
+    const s = normalizeServiceText(serviceName);
+    const w = normalizeServiceText(workText);
+
+    const domains = [
+      {
+        service: ["hecke", "hecken"],
+        work: ["hecke", "hecken", "schneiden", "stutzen", "pflegen", "pflege"],
+      },
+      {
+        service: ["wiese", "rasen"],
+        work: ["wiese", "rasen", "maehen", "mahen", "mähen"],
+      },
+      {
+        service: ["baum", "baeume"],
+        work: ["baum", "baeume", "bäume", "faellen", "fällen", "schneiden"],
+      },
+      {
+        service: ["entsorgung", "entsorgen", "abtransport", "aushub"],
+        work: [
+          "entsorgung",
+          "entsorgen",
+          "abtransport",
+          "abtransportieren",
+          "erde",
+          "aushub",
+          "bauschutt",
+        ],
+      },
+      {
+        service: ["fenster", "fensterreinigung"],
+        work: ["fenster", "fensterreinigung", "reinigen", "reinigung"],
+      },
+    ];
+
+    return domains.some((domain) => {
+      const serviceHit = domain.service.some((token) => s.includes(token));
+      const workHit = domain.work.some((token) => w.includes(token));
+      return serviceHit && workHit;
+    });
+  };
+
+  const strictMatchServiceForWorkItem = (item: AiWorkItem, services: any[]) => {
+    const workName = normalizeServiceText(item.name || "");
+    const workRaw = normalizeServiceText(item.raw || "");
+    const workText = [workName, workRaw].filter(Boolean).join(" ");
+    const workUnitType = getWorkItemUnitType(item);
+
+    if (!workText || workText.length < 3) return null;
+
+    const workTokens = workText
       .split(/\s+/)
-      .filter((token: string) => token.length >= 4);
+      .filter(
+        (token) =>
+          token.length >= 4 &&
+          ![
+            "eine",
+            "einer",
+            "eines",
+            "einem",
+            "einen",
+            "mit",
+            "der",
+            "die",
+            "das",
+            "von",
+            "ca",
+            "circa",
+            "etwa",
+            "rund",
+            "flaeche",
+            "fläche",
+            "gesamt",
+            "gesamten",
+          ].includes(token),
+      );
 
-    for (const token of serviceTokens) {
-      if (workTokens.includes(token) || workText.includes(token)) {
-        score += 30;
+    let best: { service: any; score: number } | null = null;
+
+    for (const service of services) {
+      const serviceName = normalizeServiceText(service.name);
+      const serviceUnitType = getServiceUnitType(service.unit);
+
+      if (!serviceName) continue;
+
+      let score = 0;
+
+      if (serviceName === workName) score += 100;
+      if (workName && serviceName.includes(workName)) score += 75;
+      if (workName && workName.includes(serviceName)) score += 75;
+
+      const serviceTokens = serviceName
+        .split(/\s+/)
+        .filter((token: string) => token.length >= 4);
+
+      for (const token of serviceTokens) {
+        if (workTokens.includes(token) || workText.includes(token)) {
+          score += 30;
+        }
+      }
+
+      if (serviceDomainMatchesWork(service.name, workText)) {
+        score += 55;
+      }
+
+      // Einheit darf nur unterstützen, aber NIE allein matchen.
+      if (workUnitType !== "unknown" && workUnitType === serviceUnitType) {
+        score += 10;
+      }
+
+      if (!best || score > best.score) {
+        best = { service, score };
       }
     }
 
-    if (serviceDomainMatchesWork(service.name, workText)) {
-      score += 55;
-    }
+    // Strenge Schwelle:
+    // - Hecke schneiden → Hecke pflegen schafft es über Domain + Token.
+    // - Natursteinplatz reinigen → Wand streichen schafft es NICHT nur wegen Quadratmeter.
+    if (!best || best.score < 60) return null;
 
-    // Einheit darf nur unterstützen, aber NIE allein matchen.
-    if (workUnitType !== 'unknown' && workUnitType === serviceUnitType) {
-      score += 10;
-    }
+    return best.service;
+  };
 
-    if (!best || score > best.score) {
-      best = { service, score };
-    }
-  }
+  const mappedOrderItems = aiWorkItems
+    .map((item) => {
+      const raw = String(item.raw || item.name || "").trim();
+      const detectedName = cleanDetectedWorkName(
+        String(item.name || raw || ""),
+      );
 
-  // Strenge Schwelle:
-  // - Hecke schneiden → Hecke pflegen schafft es über Domain + Token.
-  // - Natursteinplatz reinigen → Wand streichen schafft es NICHT nur wegen Quadratmeter.
-  if (!best || best.score < 60) return null;
+      if (!detectedName || detectedName.length < 3) return null;
 
-  return best.service;
-};
+      const matchedService = strictMatchServiceForWorkItem(item, services);
+      const detectedUnitType = getWorkItemUnitType(item);
+      const detectedQuantity = getWorkItemQuantity(item);
 
-const mappedOrderItems = aiWorkItems
-  .map((item) => {
-    const raw = String(item.raw || item.name || '').trim();
-    const detectedName = cleanDetectedWorkName(String(item.name || raw || ''));
+      if (matchedService) {
+        const unit = String(matchedService.unit || "Stunde");
+        const unitType = getServiceUnitType(unit);
+        const unitPrice = Number(matchedService.defaultPrice || 0);
 
-    if (!detectedName || detectedName.length < 3) return null;
+        const quantityValidation = validateQuantityAgainstServiceUnit({
+          serviceUnit: unit,
+          detectedValue: detectedQuantity,
+          detectedUnit:
+            detectedUnitType !== "unknown" ? detectedUnitType : null,
+          serviceName: matchedService.name,
+        });
 
-    const matchedService = strictMatchServiceForWorkItem(item, services);
-    const detectedUnitType = getWorkItemUnitType(item);
-    const detectedQuantity = getWorkItemQuantity(item);
+        return {
+          serviceName: String(matchedService.name || "Unbekannte Leistung"),
+          description: String(
+            raw || detectedName || fullWorkText || `${source}-Auftrag`,
+          ),
+          quantity: quantityValidation.quantity,
+          unit,
+          unitPrice,
+          totalPrice: unitPrice * quantityValidation.quantity,
+          needsReview: quantityValidation.needsReview,
+          reviewReason: quantityValidation.reason || null,
+        };
+      }
 
-    if (matchedService) {
-      const unit = String(matchedService.unit || 'Stunde');
-      const unitType = getServiceUnitType(unit);
-      const unitPrice = Number(matchedService.defaultPrice || 0);
-
-      const quantityValidation = validateQuantityAgainstServiceUnit({
-        serviceUnit: unit,
-        detectedValue: detectedQuantity,
-        detectedUnit: detectedUnitType !== 'unknown' ? detectedUnitType : null,
-        serviceName: matchedService.name,
-      });
+      const unit =
+        detectedUnitType !== "unknown"
+          ? unitTypeToDisplayUnit(detectedUnitType)
+          : unitTypeToDisplayUnit(getServiceUnitType(item.einheit || null));
 
       return {
-        serviceName: String(matchedService.name || 'Unbekannte Leistung'),
-description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
-        quantity: quantityValidation.quantity,
-        unit,
-        unitPrice,
-        totalPrice: unitPrice * quantityValidation.quantity,
-        needsReview: quantityValidation.needsReview,
-        reviewReason: quantityValidation.reason || null,
+        serviceName: formatWorkNameForDisplay(
+          detectedName || "Unbekannte Leistung",
+        ),
+        description: String(
+          raw || detectedName || fullWorkText || `${source}-Auftrag`,
+        ),
+        quantity: detectedQuantity || 1,
+        unit: unit || "Pauschal",
+        unitPrice: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: "unbekannte_leistung_pruefen",
       };
-    }
-
-    const unit = detectedUnitType !== 'unknown'
-      ? unitTypeToDisplayUnit(detectedUnitType)
-      : unitTypeToDisplayUnit(getServiceUnitType(item.einheit || null));
-
-    return {
-      serviceName: formatWorkNameForDisplay(detectedName || 'Unbekannte Leistung'),
-description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
-      quantity: detectedQuantity || 1,
-      unit: unit || 'Pauschal',
-      unitPrice: 0,
-      totalPrice: 0,
-      needsReview: true,
-      reviewReason: 'unbekannte_leistung_pruefen',
-    };
-  })
-  .filter(Boolean) as Array<{
+    })
+    .filter(Boolean) as Array<{
     serviceName: string;
     description: string;
     quantity: number;
@@ -1537,233 +1926,244 @@ description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
     reviewReason: string | null;
   }>;
 
+  const hasHourQuantityInText = detectAllQuantityUnitsFromText(
+    messageText,
+  ).some((q) => q.unit === "hour");
 
-
-
-const hasHourQuantityInText = detectAllQuantityUnitsFromText(messageText)
-  .some((q) => q.unit === 'hour');
-
-const hasHourItemAlready = mappedOrderItems
-  .some((item) => getServiceUnitType(item.unit) === 'hour');
-
-const hasMaterialLiterItem = mappedOrderItems
-  .some((item) => getServiceUnitType(item.unit) === 'liter');
-
-const firstHourQuantity = detectAllQuantityUnitsFromText(messageText)
-  .find((q) => q.unit === 'hour');
-
-const mappedOrderItemsWithHourSafety = (
-  hasHourQuantityInText &&
-  !hasHourItemAlready &&
-  hasMaterialLiterItem &&
-  firstHourQuantity
-)
-  ? [
-      {
-        serviceName: 'Reinigung',
-        description: String(messageText || fullWorkText || `${source}-Auftrag`),
-        quantity: firstHourQuantity.value,
-        unit: 'Stunde',
-        unitPrice: 0,
-        totalPrice: 0,
-        needsReview: true,
-        reviewReason: 'stunden_arbeitsposition_pruefen',
-      },
-      ...mappedOrderItems,
-    ]
-  : mappedOrderItems;
-
-
-
-const messageHasCleaningMaterialSignal =
-  /\b(liter|ltr\.?|reinigungsmittel|reiniger|spezialreiniger|produkt|mittel)\b/i.test(
-    normalizeUnitText(messageText)
+  const hasHourItemAlready = mappedOrderItems.some(
+    (item) => getServiceUnitType(item.unit) === "hour",
   );
 
-const cleanedMappedOrderItemsWithHourSafety = mappedOrderItemsWithHourSafety.filter((item) => {
-  const name = normalizeUnitText(item.serviceName);
-  const unitType = getServiceUnitType(item.unit);
-
-  const isCleaningMaterial =
-    unitType === 'liter' &&
-    /\b(reinigungsmittel|reiniger|spezialreiniger)\b/i.test(name);
-
-  if (isCleaningMaterial && !messageHasCleaningMaterialSignal) {
-    return false;
-  }
-
-  return true;
-});
-
-const finalOrderItems: Array<{
-  serviceName: string;
-  description: string;
-  quantity: number;
-  unit: string;
-  unitPrice: number;
-  totalPrice: number;
-  needsReview: boolean;
-  reviewReason: string | null;
-}> = cleanedMappedOrderItemsWithHourSafety.length > 0
-  ? cleanedMappedOrderItemsWithHourSafety
-
-
-
-  : [{
-     serviceName: formatWorkNameForDisplay(parsed.auftrag?.titel || 'Unbekannte Leistung'),
-description: String(fullWorkText || `${source}-Auftrag`),
-      quantity: 1,
-      unit: 'Pauschal',
-      unitPrice: 0,
-      totalPrice: 0,
-      needsReview: true,
-      reviewReason: 'unbekannte_leistung_pruefen',
-    }];
-
-
-
-
-const primaryItem = finalOrderItems[0] || null;
-
-const serviceName = primaryItem?.serviceName || '';
-const unit = primaryItem?.unit || 'Stunde';
-const unitPrice = primaryItem?.unitPrice || 0;
-const quantity = primaryItem?.quantity || 1;
-const totalPrice = finalOrderItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
-
-const quantityReviewReasons = finalOrderItems
-  .filter((item) => item.needsReview && item.reviewReason)
-  .map((item) => item.reviewReason as string);
-
-if (quantityReviewReasons.length > 0) {
-  parsed.system = parsed.system || {};
-  parsed.system.needs_review = true;
-}
-
-
-
-
-
-
-
-
-// --- UNIT MISMATCH CHECK ---
-const unitMismatchReasons: string[] = [];
-
-const normalizeUnitForReview = (value?: string | null) => {
-  const v = (value || '').trim().toLowerCase();
-
-  if (['stunde', 'stunden', 'std', 'h'].includes(v)) return 'Stunde';
-  if (['tag', 'tage'].includes(v)) return 'Tag';
-  if (['meter', 'm'].includes(v)) return 'Meter';
-  if (['quadratmeter', 'qm', 'm2', 'm²'].includes(v)) return 'Quadratmeter';
-  if (['kubikmeter', 'm3', 'm³'].includes(v)) return 'Kubikmeter';
-  if (['stück', 'stueck', 'stk'].includes(v)) return 'Stück';
-  if (['kilogramm', 'kg'].includes(v)) return 'Kilogramm';
-  if (['tonne', 'tonnen', 't'].includes(v)) return 'Tonne';
-  if (['liter', 'l'].includes(v)) return 'Liter';
-  if (['pauschal', 'pauschale'].includes(v)) return 'Pauschal';
-
-  return value || '';
-};
-
-const detectUnitForServiceLine = (text: string, serviceName: string) => {
-  const lower = (text || '').toLowerCase();
-  const serviceWords = (serviceName || '')
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length >= 4);
-
-  if (serviceWords.length === 0) return '';
-
-  const lines = lower
-    .split(/\n|\.|;|\*/g)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const matchingLine = lines.find((line) =>
-    serviceWords.some((word) => line.includes(word))
+  const hasMaterialLiterItem = mappedOrderItems.some(
+    (item) => getServiceUnitType(item.unit) === "liter",
   );
 
-  if (!matchingLine) return '';
-
-  if (/\b(quadratmeter|qm|m2|m²)\b/i.test(matchingLine)) return 'Quadratmeter';
-  if (/\b(kubikmeter|m3|m³)\b/i.test(matchingLine)) return 'Kubikmeter';
-  if (/\b(stunden|stunde|std|h)\b/i.test(matchingLine)) return 'Stunde';
-  if (/\b(tonnen|tonne)\b/i.test(matchingLine)) return 'Tonne';
-  if (/\b(kilogramm|kg)\b/i.test(matchingLine)) return 'Kilogramm';
-  if (/\b(liter)\b/i.test(matchingLine)) return 'Liter';
-  if (/\b(meter|m)\b/i.test(matchingLine)) return 'Meter';
-  if (/\b(stück|stueck|stk)\b/i.test(matchingLine)) return 'Stück';
-  if (/\b(pauschal|pauschale)\b/i.test(matchingLine)) return 'Pauschal';
-
-  return '';
-};
-
-for (const item of finalOrderItems) {
-  const itemServiceName = (item.serviceName || '').trim();
-
-  const matchingService = services.find((s: any) => {
-    const serviceName = (s.name || '').trim().toLowerCase();
-    const itemName = itemServiceName.toLowerCase();
-
-    return serviceName === itemName || serviceName.includes(itemName) || itemName.includes(serviceName);
-  });
-
-  const expectedUnit = normalizeUnitForReview(matchingService?.unit || item.unit);
-
-const textForCheck = item.description || '';
-
-  const detectedUnit = normalizeUnitForReview(
-    detectUnitForServiceLine(textForCheck, itemServiceName)
+  const firstHourQuantity = detectAllQuantityUnitsFromText(messageText).find(
+    (q) => q.unit === "hour",
   );
 
-  if (
-    detectedUnit &&
-    expectedUnit &&
-    detectedUnit !== expectedUnit
-  ) {
-    unitMismatchReasons.push(
-      `unit_mismatch:${item.serviceName}:${detectedUnit}:${expectedUnit}`
+  const mappedOrderItemsWithHourSafety =
+    hasHourQuantityInText &&
+    !hasHourItemAlready &&
+    hasMaterialLiterItem &&
+    firstHourQuantity
+      ? [
+          {
+            serviceName: "Reinigung",
+            description: String(
+              messageText || fullWorkText || `${source}-Auftrag`,
+            ),
+            quantity: firstHourQuantity.value,
+            unit: "Stunde",
+            unitPrice: 0,
+            totalPrice: 0,
+            needsReview: true,
+            reviewReason: "stunden_arbeitsposition_pruefen",
+          },
+          ...mappedOrderItems,
+        ]
+      : mappedOrderItems;
+
+  const messageHasCleaningMaterialSignal =
+    /\b(liter|ltr\.?|reinigungsmittel|reiniger|spezialreiniger|produkt|mittel)\b/i.test(
+      normalizeUnitText(messageText),
     );
+
+  const cleanedMappedOrderItemsWithHourSafety =
+    mappedOrderItemsWithHourSafety.filter((item) => {
+      const name = normalizeUnitText(item.serviceName);
+      const unitType = getServiceUnitType(item.unit);
+
+      const isCleaningMaterial =
+        unitType === "liter" &&
+        /\b(reinigungsmittel|reiniger|spezialreiniger)\b/i.test(name);
+
+      if (isCleaningMaterial && !messageHasCleaningMaterialSignal) {
+        return false;
+      }
+
+      return true;
+    });
+
+  const finalOrderItems: Array<{
+    serviceName: string;
+    description: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    totalPrice: number;
+    needsReview: boolean;
+    reviewReason: string | null;
+  }> =
+    cleanedMappedOrderItemsWithHourSafety.length > 0
+      ? cleanedMappedOrderItemsWithHourSafety
+      : [
+          {
+            serviceName: formatWorkNameForDisplay(
+              parsed.auftrag?.titel || "Unbekannte Leistung",
+            ),
+            description: String(fullWorkText || `${source}-Auftrag`),
+            quantity: 1,
+            unit: "Pauschal",
+            unitPrice: 0,
+            totalPrice: 0,
+            needsReview: true,
+            reviewReason: "unbekannte_leistung_pruefen",
+          },
+        ];
+
+  const primaryItem = finalOrderItems[0] || null;
+
+  const serviceName = primaryItem?.serviceName || "";
+  const unit = primaryItem?.unit || "Stunde";
+  const unitPrice = primaryItem?.unitPrice || 0;
+  const quantity = primaryItem?.quantity || 1;
+  const totalPrice = finalOrderItems.reduce(
+    (sum, item) => sum + Number(item.totalPrice || 0),
+    0,
+  );
+
+  const quantityReviewReasons = finalOrderItems
+    .filter((item) => item.needsReview && item.reviewReason)
+    .map((item) => item.reviewReason as string);
+
+  if (quantityReviewReasons.length > 0) {
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
   }
-}
 
+  // --- UNIT MISMATCH CHECK ---
+  const unitMismatchReasons: string[] = [];
 
+  const normalizeUnitForReview = (value?: string | null) => {
+    const v = (value || "").trim().toLowerCase();
 
+    if (["stunde", "stunden", "std", "h"].includes(v)) return "Stunde";
+    if (["tag", "tage"].includes(v)) return "Tag";
+    if (["meter", "m"].includes(v)) return "Meter";
+    if (["quadratmeter", "qm", "m2", "m²"].includes(v)) return "Quadratmeter";
+    if (["kubikmeter", "m3", "m³"].includes(v)) return "Kubikmeter";
+    if (["stück", "stueck", "stk"].includes(v)) return "Stück";
+    if (["kilogramm", "kg"].includes(v)) return "Kilogramm";
+    if (["tonne", "tonnen", "t"].includes(v)) return "Tonne";
+    if (["liter", "l"].includes(v)) return "Liter";
+    if (["pauschal", "pauschale"].includes(v)) return "Pauschal";
 
+    return value || "";
+  };
 
+  const detectUnitForServiceLine = (text: string, serviceName: string) => {
+    const lower = (text || "").toLowerCase();
+    const serviceWords = (serviceName || "")
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length >= 4);
 
+    if (serviceWords.length === 0) return "";
+
+    const lines = lower
+      .split(/\n|\.|;|\*/g)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const matchingLine = lines.find((line) =>
+      serviceWords.some((word) => line.includes(word)),
+    );
+
+    if (!matchingLine) return "";
+
+    if (/\b(quadratmeter|qm|m2|m²)\b/i.test(matchingLine))
+      return "Quadratmeter";
+    if (/\b(kubikmeter|m3|m³)\b/i.test(matchingLine)) return "Kubikmeter";
+    if (/\b(stunden|stunde|std|h)\b/i.test(matchingLine)) return "Stunde";
+    if (/\b(tonnen|tonne)\b/i.test(matchingLine)) return "Tonne";
+    if (/\b(kilogramm|kg)\b/i.test(matchingLine)) return "Kilogramm";
+    if (/\b(liter)\b/i.test(matchingLine)) return "Liter";
+    if (/\b(meter|m)\b/i.test(matchingLine)) return "Meter";
+    if (/\b(stück|stueck|stk)\b/i.test(matchingLine)) return "Stück";
+    if (/\b(pauschal|pauschale)\b/i.test(matchingLine)) return "Pauschal";
+
+    return "";
+  };
+
+  for (const item of finalOrderItems) {
+    const itemServiceName = (item.serviceName || "").trim();
+
+    const matchingService = services.find((s: any) => {
+      const serviceName = (s.name || "").trim().toLowerCase();
+      const itemName = itemServiceName.toLowerCase();
+
+      return (
+        serviceName === itemName ||
+        serviceName.includes(itemName) ||
+        itemName.includes(serviceName)
+      );
+    });
+
+    const expectedUnit = normalizeUnitForReview(
+      matchingService?.unit || item.unit,
+    );
+
+    const textForCheck = item.description || "";
+
+    const detectedUnit = normalizeUnitForReview(
+      detectUnitForServiceLine(textForCheck, itemServiceName),
+    );
+
+    if (detectedUnit && expectedUnit && detectedUnit !== expectedUnit) {
+      unitMismatchReasons.push(
+        `unit_mismatch:${item.serviceName}:${detectedUnit}:${expectedUnit}`,
+      );
+    }
+  }
 
   // --- Description ---
-  const description = parsed.auftrag?.beschreibung || parsed.auftrag?.titel || `${source}-Auftrag`;
+  const description =
+    parsed.auftrag?.beschreibung ||
+    parsed.auftrag?.titel ||
+    `${source}-Auftrag`;
 
   // --- Auto-translation if message is not in hauptsprache ---
-  let translationText = '';
+  let translationText = "";
   if (messageText.trim() && hauptsprache) {
     try {
-      const transRes = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-        body: JSON.stringify({
-          model: 'gpt-4.1-mini',
-          messages: [
-            { role: 'system', content: `Du bist ein Spracherkennungs- und Übersetzungsassistent. Analysiere den folgenden Text und bestimme die Sprache. Wenn der Text NICHT auf ${hauptsprache} ist, übersetze ihn auf ${hauptsprache}. Antworte NUR mit gültigem JSON:\n{"detected_language": "...", "is_target_language": true/false, "translation": "..." oder null falls keine Übersetzung nötig}\nKEINE Erklärungen, NUR JSON.` },
-            { role: 'user', content: messageText },
-          ],
-          response_format: { type: 'json_object' },
-          max_tokens: 1500,
-        }),
-      });
+      const transRes = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4.1-mini",
+            messages: [
+              {
+                role: "system",
+                content: `Du bist ein Spracherkennungs- und Übersetzungsassistent. Analysiere den folgenden Text und bestimme die Sprache. Wenn der Text NICHT auf ${hauptsprache} ist, übersetze ihn auf ${hauptsprache}. Antworte NUR mit gültigem JSON:\n{"detected_language": "...", "is_target_language": true/false, "translation": "..." oder null falls keine Übersetzung nötig}\nKEINE Erklärungen, NUR JSON.`,
+              },
+              { role: "user", content: messageText },
+            ],
+            response_format: { type: "json_object" },
+            max_tokens: 1500,
+          }),
+        },
+      );
       if (transRes.ok) {
         const transResult = await transRes.json();
         const transContent = transResult?.choices?.[0]?.message?.content;
         if (transContent) {
           const transData = JSON.parse(transContent);
-          if (transData && !transData.is_target_language && transData.translation) {
+          if (
+            transData &&
+            !transData.is_target_language &&
+            transData.translation
+          ) {
             translationText = transData.translation;
-            console.log(`[${source}] Auto-translated from ${transData.detected_language} to ${hauptsprache}`);
+            console.log(
+              `[${source}] Auto-translated from ${transData.detected_language} to ${hauptsprache}`,
+            );
           }
         }
       }
@@ -1774,38 +2174,54 @@ const textForCheck = item.description || '';
 
   // --- Build notes ---
   const notesParts: string[] = [`${source}:\n${messageText}`];
-  if (parsed.auftrag?.titel) notesParts.push(`\n[Titel: ${parsed.auftrag.titel}]`);
-  if (parsed.system?.prioritaet === 'hoch') notesParts.push(`[Priorität: hoch]`);
-  if (translationText) notesParts.push(`\n--- Übersetzung (automatisch) ---\n${translationText}`);
-  if (reviewNote?.trim()) notesParts.push(`\n[Review-Hinweis]\n${reviewNote.trim()}`);
+  if (parsed.auftrag?.titel)
+    notesParts.push(`\n[Titel: ${parsed.auftrag.titel}]`);
+  if (parsed.system?.prioritaet === "hoch")
+    notesParts.push(`[Priorität: hoch]`);
+  if (translationText)
+    notesParts.push(`\n--- Übersetzung (automatisch) ---\n${translationText}`);
+  if (reviewNote?.trim())
+    notesParts.push(`\n[Review-Hinweis]\n${reviewNote.trim()}`);
 
   // --- Build reviewReasons from abgleich status + external intake hints ---
   const baseReviewReasons: string[] = [];
-  if (abgleichStatus === 'moeglicher_treffer' || abgleichStatus === 'konflikt' || abgleichStatus === 'bestaetigungs_treffer') {
-    baseReviewReasons.push('uncertain_assignment');
+  if (
+    abgleichStatus === "moeglicher_treffer" ||
+    abgleichStatus === "konflikt" ||
+    abgleichStatus === "bestaetigungs_treffer"
+  ) {
+    baseReviewReasons.push("uncertain_assignment");
   }
   // Image-only messages (no text, no audio) always need review — intent is unclear
   if (isImageOnly) {
-    baseReviewReasons.push('image_only_no_text');
+    baseReviewReasons.push("image_only_no_text");
   }
 
-const allReviewReasons: string[] = [
-  ...(additionalReviewReasons || []),
-  ...baseReviewReasons,
-  ...quantityReviewReasons,
-  ...unitMismatchReasons,
-];
+  const allReviewReasons: string[] = [
+    ...(additionalReviewReasons || []),
+    ...baseReviewReasons,
+    ...quantityReviewReasons,
+    ...unitMismatchReasons,
+  ];
 
   if (autoReuseTags.length > 0) {
     allReviewReasons.push(...autoReuseTags);
   }
 
   const needsReview = !!forceReview || allReviewReasons.length > 0;
-  const hinweisLevel = allReviewReasons.some((reason) => ['multi_image_overflow', 'image_only_no_text'].includes(reason) || reason.startsWith('unit_mismatch:'))
-    ? 'warning'
+  const hinweisLevel = allReviewReasons.some(
+    (reason) =>
+      ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
+      reason.startsWith("unit_mismatch:"),
+  )
+    ? "warning"
     : needsReview
-      ? 'info'
-      : (parsed.system?.prioritaet === 'hoch' ? 'important' : (finalSpecialNotes ? 'info' : 'none'));
+      ? "info"
+      : parsed.system?.prioritaet === "hoch"
+        ? "important"
+        : finalSpecialNotes
+          ? "info"
+          : "none";
 
   // --- Create order ---
   const order = await prisma.order.create({
@@ -1814,71 +2230,90 @@ const allReviewReasons: string[] = [
       ...(userId ? { userId } : {}),
       description,
       serviceName,
-      status: 'Offen',
+      status: "Offen",
       priceType: unit,
       unitPrice,
       quantity,
       totalPrice,
+      currency: intakeCurrency,
       vatRate: intakeVatRate,
       date: new Date(),
-      notes: notesParts.join('\n'),
+      notes: notesParts.join("\n"),
       specialNotes: finalSpecialNotes,
       needsReview,
       reviewReasons: allReviewReasons,
       hinweisLevel,
-      mediaUrl: savedMediaPath || (allSavedMediaPaths?.[0]) || null,
-      mediaType: savedMediaType || (allSavedMediaPaths && allSavedMediaPaths.length > 0 ? 'image' : null),
-      imageUrls: allOptimizedPreviewPaths && allOptimizedPreviewPaths.length > 0
-        ? allOptimizedPreviewPaths
-        : allSavedMediaPaths && allSavedMediaPaths.length > 0
-        ? allSavedMediaPaths
-        : (savedMediaType === 'image') ? [optimizedPreviewPath || savedMediaPath].filter(Boolean) as string[] : [],
-      thumbnailUrls: allOptimizedThumbnailPaths && allOptimizedThumbnailPaths.length > 0
-        ? allOptimizedThumbnailPaths
-        : allSavedMediaPaths && allSavedMediaPaths.length > 0
-        ? allSavedMediaPaths
-        : (savedMediaType === 'image') ? [optimizedThumbnailPath || savedMediaPath].filter(Boolean) as string[] : [],
-      audioTranscript: (savedMediaType === 'audio' && messageText) ? messageText : null,
+      mediaUrl: savedMediaPath || allSavedMediaPaths?.[0] || null,
+      mediaType:
+        savedMediaType ||
+        (allSavedMediaPaths && allSavedMediaPaths.length > 0 ? "image" : null),
+      imageUrls:
+        allOptimizedPreviewPaths && allOptimizedPreviewPaths.length > 0
+          ? allOptimizedPreviewPaths
+          : allSavedMediaPaths && allSavedMediaPaths.length > 0
+            ? allSavedMediaPaths
+            : savedMediaType === "image"
+              ? ([optimizedPreviewPath || savedMediaPath].filter(
+                  Boolean,
+                ) as string[])
+              : [],
+      thumbnailUrls:
+        allOptimizedThumbnailPaths && allOptimizedThumbnailPaths.length > 0
+          ? allOptimizedThumbnailPaths
+          : allSavedMediaPaths && allSavedMediaPaths.length > 0
+            ? allSavedMediaPaths
+            : savedMediaType === "image"
+              ? ([optimizedThumbnailPath || savedMediaPath].filter(
+                  Boolean,
+                ) as string[])
+              : [],
+      audioTranscript:
+        savedMediaType === "audio" && messageText ? messageText : null,
       // Stage I — audio usage tracking (only set when this order carries an audio file)
-      audioDurationSec: savedMediaType === 'audio'
-        ? (typeof inputAudioDurationSec === 'number' && isFinite(inputAudioDurationSec)
+      audioDurationSec:
+        savedMediaType === "audio"
+          ? typeof inputAudioDurationSec === "number" &&
+            isFinite(inputAudioDurationSec)
             ? Math.max(0, Math.round(inputAudioDurationSec))
-            : null)
-        : null,
-      audioTranscriptionStatus: savedMediaType === 'audio'
-        ? (inputAudioTranscriptionStatus || null)
-        : null,
-   ...(finalOrderItems.length > 0
-  ? {
-      items: {
-        create: finalOrderItems.map((item) => ({
-          serviceName: item.serviceName,
-          description: item.description,
-          quantity: item.quantity,
-          unit: item.unit,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-        })),
-      },
-    }
-  : {}),
-      },
+            : null
+          : null,
+      audioTranscriptionStatus:
+        savedMediaType === "audio"
+          ? inputAudioTranscriptionStatus || null
+          : null,
+      ...(finalOrderItems.length > 0
+        ? {
+            items: {
+              create: finalOrderItems.map((item) => ({
+                serviceName: item.serviceName,
+                description: item.description,
+                quantity: item.quantity,
+                unit: item.unit,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+              })),
+            },
+          }
+        : {}),
+    },
     include: { customer: true, items: true },
   });
 
-  console.log(`[${source}] Order created: ${order.id} | Customer: ${order.customer?.name} (${order.customer?.customerNumber}) | Service: ${serviceName} | Abgleich: ${abgleichStatus} (confidence: ${abgleich.confidence || 0}) | Priorität: ${parsed.system?.prioritaet || 'normal'}${duplicateWarning ? ' | ⚠️ WARNING' : ''}`);
+  console.log(
+    `[${source}] Order created: ${order.id} | Customer: ${order.customer?.name} (${order.customer?.customerNumber}) | Service: ${serviceName} | Abgleich: ${abgleichStatus} (confidence: ${abgleich.confidence || 0}) | Priorität: ${parsed.system?.prioritaet || "normal"}${duplicateWarning ? " | ⚠️ WARNING" : ""}`,
+  );
 
   // Audit log: order created from webhook (technical webhook trail)
   logAuditAsync({
     userId,
     action: `ORDER_CREATED_FROM_${source.toUpperCase()}`,
-    area: 'WEBHOOK',
-    targetType: 'Order',
+    area: "WEBHOOK",
+    targetType: "Order",
     targetId: order.id,
     success: true,
     details: {
       sender: senderName,
-      customer: order.customer?.name || 'Unbekannt',
+      customer: order.customer?.name || "Unbekannt",
       customerId,
       service: serviceName,
       abgleichStatus,
@@ -1892,21 +2327,23 @@ const allReviewReasons: string[] = [
   // Audit log: fachlicher Auftragseintrag unter ORDERS (damit Bereich-Filter ORDERS auch Webhook-Aufträge zeigt)
   logAuditAsync({
     userId,
-    action: 'ORDER_CREATE',
-    area: 'ORDERS',
-    targetType: 'Order',
+    action: "ORDER_CREATE",
+    area: "ORDERS",
+    targetType: "Order",
     targetId: order.id,
     success: true,
     details: {
       source: source.toLowerCase(),
       sender: senderName,
-      customer: order.customer?.name || 'Unbekannt',
+      customer: order.customer?.name || "Unbekannt",
       customerId,
       service: serviceName,
     },
   });
 
-  console.log(`[${source}] ✅ Order created in ${Date.now() - _intakeStartTime}ms total (orderId=${order.id}, desc="${description.slice(0, 60)}")`);
+  console.log(
+    `[${source}] ✅ Order created in ${Date.now() - _intakeStartTime}ms total (orderId=${order.id}, desc="${description.slice(0, 60)}")`,
+  );
 
   // Block R — strukturiertes Audit-Log für jede erfolgreiche Intake-Verarbeitung.
   // Macht es trivial zu finden, wo bei zukünftigen Issue-Reports der Name verloren geht.
@@ -1914,12 +2351,12 @@ const allReviewReasons: string[] = [
     source,
     userId,
     phoneMasked: maskPhoneForLog(input.phoneNumber || null),
-    senderName: senderName || '',
+    senderName: senderName || "",
     mediaType: savedMediaType || null,
     hasTranscript: !!(messageText && messageText.trim().length > 0),
-    transcriptLen: (messageText || '').length,
+    transcriptLen: (messageText || "").length,
     llmExtractedName: llmExtractedName || null,
-    llmAbgleichStatus: abgleichStatus || 'unknown',
+    llmAbgleichStatus: abgleichStatus || "unknown",
     selfIntroFallbackUsed,
     resolvedCustomerName: kundeData.name || null,
     customerId,
@@ -1931,13 +2368,12 @@ const allReviewReasons: string[] = [
   return {
     orderId: order.id,
     description,
-    customerName: order.customer?.name || 'Unbekannt',
+    customerName: order.customer?.name || "Unbekannt",
     serviceName,
-    kundeStatus: parsed.system?.needs_review ? 'unbestaetigt' : 'bestaetigt',
+    kundeStatus: parsed.system?.needs_review ? "unbestaetigt" : "bestaetigt",
     kundenabgleichStatus: abgleichStatus,
   };
 }
-
 
 // ---------- Fallback order creation (LLM failure) ----------
 /**
@@ -1960,22 +2396,39 @@ async function createFallbackOrderFromRawPayload(
   input: IntakeInput,
   reason: string,
 ): Promise<IntakeResult | null> {
-  const { source, senderName, messageText, savedMediaPath, savedMediaType, optimizedPreviewPath, optimizedThumbnailPath, userId: inputUserId, allOptimizedPreviewPaths, allOptimizedThumbnailPaths, audioDurationSec: inputAudioDurationSec, audioTranscriptionStatus: inputAudioTranscriptionStatus } = input;
+  const {
+    source,
+    senderName,
+    messageText,
+    savedMediaPath,
+    savedMediaType,
+    optimizedPreviewPath,
+    optimizedThumbnailPath,
+    userId: inputUserId,
+    allOptimizedPreviewPaths,
+    allOptimizedThumbnailPaths,
+    audioDurationSec: inputAudioDurationSec,
+    audioTranscriptionStatus: inputAudioTranscriptionStatus,
+  } = input;
   const userId = inputUserId || null;
   if (!userId) {
     // No user → cannot create; already logged upstream. Do not invent anything.
     return null;
   }
 
-  const FALLBACK_CUSTOMER_NAME = '⚠️ Unbekannt (WhatsApp)';
+  const FALLBACK_CUSTOMER_NAME = "⚠️ Unbekannt (WhatsApp)";
 
   // Resolve default VAT rate from CompanySettings (same logic as main intake path)
-  const fbSettings = await prisma.companySettings.findFirst({ where: { userId } });
-  const fbIntakeVatRate: number = fbSettings?.mwstAktiv === true && fbSettings?.mwstSatz != null
-    ? Number(fbSettings.mwstSatz)
-    : fbSettings?.mwstAktiv === false
-      ? 0
-      : 8.1;
+  const fbSettings = await prisma.companySettings.findFirst({
+    where: { userId },
+  });
+  const fbIntakeCurrency = fbSettings?.currency === "EUR" ? "EUR" : "CHF";
+  const fbIntakeVatRate: number =
+    fbSettings?.mwstAktiv === true && fbSettings?.mwstSatz != null
+      ? Number(fbSettings.mwstSatz)
+      : fbSettings?.mwstAktiv === false
+        ? 0
+        : 8.1;
 
   try {
     // Upsert per-user fallback customer (name-only; no guessed fields).
@@ -1988,24 +2441,33 @@ async function createFallbackOrderFromRawPayload(
         data: { name: FALLBACK_CUSTOMER_NAME, userId },
         select: { id: true, name: true },
       });
-      console.log(`[${source}] 🆕 Fallback customer created: ${fallbackCustomer.id} for userId=${userId}`);
+      console.log(
+        `[${source}] 🆕 Fallback customer created: ${fallbackCustomer.id} for userId=${userId}`,
+      );
     }
 
     // Assemble image arrays from whatever preprocessing already saved to S3.
-    const imageUrls: string[] = (allOptimizedPreviewPaths && allOptimizedPreviewPaths.length > 0)
-      ? allOptimizedPreviewPaths.filter(Boolean) as string[]
-      : (optimizedPreviewPath ? [optimizedPreviewPath] : []);
-    const thumbnailUrls: string[] = (allOptimizedThumbnailPaths && allOptimizedThumbnailPaths.length > 0)
-      ? allOptimizedThumbnailPaths.filter(Boolean) as string[]
-      : (optimizedThumbnailPath ? [optimizedThumbnailPath] : []);
+    const imageUrls: string[] =
+      allOptimizedPreviewPaths && allOptimizedPreviewPaths.length > 0
+        ? (allOptimizedPreviewPaths.filter(Boolean) as string[])
+        : optimizedPreviewPath
+          ? [optimizedPreviewPath]
+          : [];
+    const thumbnailUrls: string[] =
+      allOptimizedThumbnailPaths && allOptimizedThumbnailPaths.length > 0
+        ? (allOptimizedThumbnailPaths.filter(Boolean) as string[])
+        : optimizedThumbnailPath
+          ? [optimizedThumbnailPath]
+          : [];
 
-    const rawText = (messageText || '').trim();
+    const rawText = (messageText || "").trim();
     // Description: raw text if present, otherwise neutral placeholder.
-    const description = rawText.length > 0
-      ? rawText
-      : (imageUrls.length > 0
-          ? `(Nur Bild${imageUrls.length > 1 ? 'er' : ''} erhalten – kein Text)`
-          : '(Leere Nachricht)');
+    const description =
+      rawText.length > 0
+        ? rawText
+        : imageUrls.length > 0
+          ? `(Nur Bild${imageUrls.length > 1 ? "er" : ""} erhalten – kein Text)`
+          : "(Leere Nachricht)";
 
     // ─── Layer 1 of three-layer customer-data-pollution defense ───
     // Same rationale as createVoiceTooLongReviewOrder: every system-derived
@@ -2014,33 +2476,34 @@ async function createFallbackOrderFromRawPayload(
     // that is genuine user content and may legitimately contain an address.
     const timestampIso = new Date().toISOString();
     const notesParts = [
-      '⚠️ KI-Analyse fehlgeschlagen – bitte manuell prüfen.',
+      "⚠️ KI-Analyse fehlgeschlagen – bitte manuell prüfen.",
       `[META] Quelle: ${source}`,
-      `[META] Absender (WhatsApp/Telegram-Profilname): ${senderName || 'Unbekannt'}`,
+      `[META] Absender (WhatsApp/Telegram-Profilname): ${senderName || "Unbekannt"}`,
       `[META] Empfangen: ${timestampIso}`,
       `[META] Grund: ${reason}`,
     ];
     if (rawText.length > 0) {
       notesParts.push(`Originaltext: ${rawText}`);
     }
-    const notes = notesParts.join('\n');
+    const notes = notesParts.join("\n");
 
     const order = await prisma.order.create({
       data: {
         customerId: fallbackCustomer.id,
         description,
         serviceName: null,
-        status: 'Offen',
-        priceType: 'Stundensatz',
+        status: "Offen",
+        priceType: "Stundensatz",
         unitPrice: 0,
         quantity: 0,
         totalPrice: 0,
+        currency: fbIntakeCurrency,
         vatRate: fbIntakeVatRate,
         vatAmount: 0,
         total: 0,
         needsReview: true,
         reviewReasons: [reason],
-        hinweisLevel: 'warning',
+        hinweisLevel: "warning",
         mediaUrl: savedMediaPath || null,
         mediaType: savedMediaType || null,
         imageUrls,
@@ -2048,25 +2511,30 @@ async function createFallbackOrderFromRawPayload(
         notes,
         userId,
         // Stage I — even on LLM-fallback we still track audio usage if duration was detected
-        audioDurationSec: savedMediaType === 'audio'
-          ? (typeof inputAudioDurationSec === 'number' && isFinite(inputAudioDurationSec)
+        audioDurationSec:
+          savedMediaType === "audio"
+            ? typeof inputAudioDurationSec === "number" &&
+              isFinite(inputAudioDurationSec)
               ? Math.max(0, Math.round(inputAudioDurationSec))
-              : null)
-          : null,
+              : null
+            : null,
         // On LLM-fallback for audio messages, status defaults to 'failed' unless caller provided one
-        audioTranscriptionStatus: savedMediaType === 'audio'
-          ? (inputAudioTranscriptionStatus || 'failed')
-          : null,
+        audioTranscriptionStatus:
+          savedMediaType === "audio"
+            ? inputAudioTranscriptionStatus || "failed"
+            : null,
       },
     });
 
-    console.log(`[${source}] 🛟 Fallback order created: ${order.id} (reason=${reason}, sender=${senderName})`);
+    console.log(
+      `[${source}] 🛟 Fallback order created: ${order.id} (reason=${reason}, sender=${senderName})`,
+    );
 
     logAuditAsync({
       userId,
       action: `ORDER_CREATED_FROM_${source.toUpperCase()}_FALLBACK`,
-      area: 'WEBHOOK',
-      targetType: 'Order',
+      area: "WEBHOOK",
+      targetType: "Order",
       targetId: order.id,
       success: true,
       details: {
@@ -2076,7 +2544,7 @@ async function createFallbackOrderFromRawPayload(
         customer: FALLBACK_CUSTOMER_NAME,
         rawTextLength: rawText.length,
         imageCount: imageUrls.length,
-        hasAudio: savedMediaType === 'audio',
+        hasAudio: savedMediaType === "audio",
       },
     });
 
@@ -2084,12 +2552,12 @@ async function createFallbackOrderFromRawPayload(
       source,
       userId,
       phoneMasked: maskPhoneForLog(input.phoneNumber || null),
-      senderName: senderName || '',
+      senderName: senderName || "",
       mediaType: savedMediaType || null,
       hasTranscript: !!(rawText && rawText.trim().length > 0),
-      transcriptLen: (rawText || '').length,
+      transcriptLen: (rawText || "").length,
       llmExtractedName: null,
-      llmAbgleichStatus: 'ki_fehler',
+      llmAbgleichStatus: "ki_fehler",
       selfIntroFallbackUsed: false,
       resolvedCustomerName: FALLBACK_CUSTOMER_NAME,
       customerId: fallbackCustomer.id,
@@ -2103,23 +2571,29 @@ async function createFallbackOrderFromRawPayload(
       orderId: order.id,
       description,
       customerName: FALLBACK_CUSTOMER_NAME,
-      serviceName: '',
-      kundeStatus: 'fallback_unknown',
-      kundenabgleichStatus: 'ki_fehler',
+      serviceName: "",
+      kundeStatus: "fallback_unknown",
+      kundenabgleichStatus: "ki_fehler",
     };
   } catch (err: any) {
-    console.error(`[${source}] ❌ Fallback order creation failed:`, err?.message || err);
+    console.error(
+      `[${source}] ❌ Fallback order creation failed:`,
+      err?.message || err,
+    );
     logAuditAsync({
       userId,
       action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FALLBACK_FAILED`,
-      area: 'WEBHOOK',
+      area: "WEBHOOK",
       success: false,
-      details: { reason: `fallback_exception:${err?.message || 'unknown'}`, originalReason: reason, sender: senderName },
+      details: {
+        reason: `fallback_exception:${err?.message || "unknown"}`,
+        originalReason: reason,
+        sender: senderName,
+      },
     });
     return null;
   }
 }
-
 
 // ────────────────────────────────────────────────────────────────────────
 // Stage H — Cost optimization: long voice messages (>60 s)
@@ -2127,7 +2601,7 @@ async function createFallbackOrderFromRawPayload(
 
 export interface VoiceTooLongInput {
   /** 'WhatsApp' or 'Telegram'. */
-  source: 'Telegram' | 'WhatsApp';
+  source: "Telegram" | "WhatsApp";
   /** WhatsApp ProfileName / Telegram first_name etc. */
   senderName: string;
   /** Sender phone (E.164) — only used for logging, not customer match. */
@@ -2158,7 +2632,11 @@ export interface VoiceTooLongInput {
    *    corrupted file, etc.). Audio is saved + linked, but no transcript available.
    *    Warning: "⚠️ Transkription fehlgeschlagen – bitte manuell prüfen".
    */
-  reason?: 'too_long' | 'uncheckable' | 'quota_exceeded' | 'transcription_failed';
+  reason?:
+    | "too_long"
+    | "uncheckable"
+    | "quota_exceeded"
+    | "transcription_failed";
   /**
    * Optional usage snapshot for the audit log when reason='quota_exceeded'.
    * Omitted in other paths.
@@ -2193,67 +2671,86 @@ export async function createVoiceTooLongReviewOrder(
     imagePreviewPaths,
     imageThumbnailPaths,
   } = input;
-  const reason: 'too_long' | 'uncheckable' | 'quota_exceeded' | 'transcription_failed' = input.reason ?? 'too_long';
+  const reason:
+    | "too_long"
+    | "uncheckable"
+    | "quota_exceeded"
+    | "transcription_failed" = input.reason ?? "too_long";
   const quotaUsedMinutes = input.quotaUsedMinutes;
   const quotaIncludedMinutes = input.quotaIncludedMinutes;
 
   if (!userId) {
-    console.warn(`[${source}] ❌ createVoiceTooLongReviewOrder: missing userId — cannot create order.`);
+    console.warn(
+      `[${source}] ❌ createVoiceTooLongReviewOrder: missing userId — cannot create order.`,
+    );
     return null;
   }
 
   // Resolve default VAT rate from CompanySettings (same logic as main intake path)
-  const voiceSettings = await prisma.companySettings.findFirst({ where: { userId } });
-  const voiceIntakeVatRate: number = voiceSettings?.mwstAktiv === true && voiceSettings?.mwstSatz != null
-    ? Number(voiceSettings.mwstSatz)
-    : voiceSettings?.mwstAktiv === false
-      ? 0
-      : 8.1;
+  const voiceSettings = await prisma.companySettings.findFirst({
+    where: { userId },
+  });
+  const voiceIntakeCurrency = voiceSettings?.currency === "EUR" ? "EUR" : "CHF";
+  const voiceIntakeVatRate: number =
+    voiceSettings?.mwstAktiv === true && voiceSettings?.mwstSatz != null
+      ? Number(voiceSettings.mwstSatz)
+      : voiceSettings?.mwstAktiv === false
+        ? 0
+        : 8.1;
 
-  const FALLBACK_CUSTOMER_NAME = source === 'WhatsApp'
-    ? '⚠️ Unbekannt (WhatsApp)'
-    : '⚠️ Unbekannt (Telegram)';
+  const FALLBACK_CUSTOMER_NAME =
+    source === "WhatsApp"
+      ? "⚠️ Unbekannt (WhatsApp)"
+      : "⚠️ Unbekannt (Telegram)";
 
   // Exact required German warning text — DO NOT change wording.
   const WARNING_DESCRIPTION =
-    reason === 'transcription_failed'
-      ? '⚠️ Transkription fehlgeschlagen – bitte manuell prüfen'
-      : reason === 'quota_exceeded'
-        ? '⚠️ Monatliches Audio-Limit erreicht – bitte manuell prüfen'
-        : reason === 'uncheckable'
-          ? '⚠️ Sprachnachricht konnte zeitlich nicht geprüft werden – bitte manuell prüfen'
-          : '⚠️ Sprachnachricht länger als 60 Sekunden – bitte manuell prüfen';
+    reason === "transcription_failed"
+      ? "⚠️ Transkription fehlgeschlagen – bitte manuell prüfen"
+      : reason === "quota_exceeded"
+        ? "⚠️ Monatliches Audio-Limit erreicht – bitte manuell prüfen"
+        : reason === "uncheckable"
+          ? "⚠️ Sprachnachricht konnte zeitlich nicht geprüft werden – bitte manuell prüfen"
+          : "⚠️ Sprachnachricht länger als 60 Sekunden – bitte manuell prüfen";
 
   // Lifecycle marker written to Order.audioTranscriptionStatus so usage and
   // CommunicationBlock chips can distinguish the cost-protection paths.
-  const STATUS_VALUE: 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' | 'failed' =
-    reason === 'transcription_failed'
-      ? 'failed'
-      : reason === 'quota_exceeded'
-        ? 'skipped_quota_exceeded'
-        : reason === 'uncheckable'
-          ? 'skipped_uncheckable'
-          : 'skipped_too_long';
+  const STATUS_VALUE:
+    | "skipped_too_long"
+    | "skipped_uncheckable"
+    | "skipped_quota_exceeded"
+    | "failed" =
+    reason === "transcription_failed"
+      ? "failed"
+      : reason === "quota_exceeded"
+        ? "skipped_quota_exceeded"
+        : reason === "uncheckable"
+          ? "skipped_uncheckable"
+          : "skipped_too_long";
 
   // Tag in Order.reviewReasons array so dashboard filters can pick this up.
-  const REVIEW_REASON_TAG: 'voice_too_long' | 'voice_uncheckable' | 'voice_quota_exceeded' | 'voice_transcription_failed' =
-    reason === 'transcription_failed'
-      ? 'voice_transcription_failed'
-      : reason === 'quota_exceeded'
-        ? 'voice_quota_exceeded'
-        : reason === 'uncheckable'
-          ? 'voice_uncheckable'
-          : 'voice_too_long';
+  const REVIEW_REASON_TAG:
+    | "voice_too_long"
+    | "voice_uncheckable"
+    | "voice_quota_exceeded"
+    | "voice_transcription_failed" =
+    reason === "transcription_failed"
+      ? "voice_transcription_failed"
+      : reason === "quota_exceeded"
+        ? "voice_quota_exceeded"
+        : reason === "uncheckable"
+          ? "voice_uncheckable"
+          : "voice_too_long";
 
   // Audit suffix mirrors the existing `voice_too_long` events for traceability.
   const AUDIT_SUFFIX =
-    reason === 'transcription_failed'
-      ? 'VOICE_TRANSCRIPTION_FAILED'
-      : reason === 'quota_exceeded'
-        ? 'VOICE_QUOTA_EXCEEDED'
-        : reason === 'uncheckable'
-          ? 'VOICE_UNCHECKABLE'
-          : 'VOICE_TOO_LONG';
+    reason === "transcription_failed"
+      ? "VOICE_TRANSCRIPTION_FAILED"
+      : reason === "quota_exceeded"
+        ? "VOICE_QUOTA_EXCEEDED"
+        : reason === "uncheckable"
+          ? "VOICE_UNCHECKABLE"
+          : "VOICE_TOO_LONG";
 
   try {
     // Upsert per-user fallback customer (same pattern as createFallbackOrderFromRawPayload)
@@ -2266,13 +2763,16 @@ export async function createVoiceTooLongReviewOrder(
         data: { name: FALLBACK_CUSTOMER_NAME, userId },
         select: { id: true, name: true },
       });
-      console.log(`[${source}] 🆕 Fallback customer created (${REVIEW_REASON_TAG}): ${fallbackCustomer.id} for userId=${userId}`);
+      console.log(
+        `[${source}] 🆕 Fallback customer created (${REVIEW_REASON_TAG}): ${fallbackCustomer.id} for userId=${userId}`,
+      );
     }
 
     const timestampIso = new Date().toISOString();
-    const durationLabel = (typeof durationSec === 'number' && isFinite(durationSec))
-      ? `${Math.round(durationSec)}s`
-      : 'unbekannt';
+    const durationLabel =
+      typeof durationSec === "number" && isFinite(durationSec)
+        ? `${Math.round(durationSec)}s`
+        : "unbekannt";
 
     // ─── Layer 1 of three-layer customer-data-pollution defense ───
     // Every metadata line (sender phone, timestamp, audio duration, ...) is
@@ -2286,39 +2786,50 @@ export async function createVoiceTooLongReviewOrder(
     const notes = [
       WARNING_DESCRIPTION,
       `[META] Quelle: ${source}`,
-      `[META] Absender (WhatsApp/Telegram-Profilname): ${senderName || 'Unbekannt'}`,
-      phoneNumber ? `[META] Telefon (Absender, NICHT Kunde): ${phoneNumber}` : null,
+      `[META] Absender (WhatsApp/Telegram-Profilname): ${senderName || "Unbekannt"}`,
+      phoneNumber
+        ? `[META] Telefon (Absender, NICHT Kunde): ${phoneNumber}`
+        : null,
       `[META] Empfangen: ${timestampIso}`,
       `[META] Audiodauer: ${durationLabel}`,
-      reason === 'quota_exceeded' && typeof quotaUsedMinutes === 'number' && typeof quotaIncludedMinutes === 'number'
+      reason === "quota_exceeded" &&
+      typeof quotaUsedMinutes === "number" &&
+      typeof quotaIncludedMinutes === "number"
         ? `[META] Audio-Verbrauch diesen Monat: ${Number.isInteger(quotaUsedMinutes) ? quotaUsedMinutes : quotaUsedMinutes.toFixed(1)} / ${quotaIncludedMinutes} Min`
         : null,
-      reason === 'quota_exceeded'
-        ? 'Audio ist im Auftrag abrufbar – bitte manuell anhören.'
-        : 'Audio ist im Auftrag abrufbar – bitte manuell anhören.',
-    ].filter(Boolean).join('\n');
+      reason === "quota_exceeded"
+        ? "Audio ist im Auftrag abrufbar – bitte manuell anhören."
+        : "Audio ist im Auftrag abrufbar – bitte manuell anhören.",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
-    const imageUrls: string[] = (imagePreviewPaths || []).filter(Boolean) as string[];
-    const thumbnailUrls: string[] = (imageThumbnailPaths || []).filter(Boolean) as string[];
+    const imageUrls: string[] = (imagePreviewPaths || []).filter(
+      Boolean,
+    ) as string[];
+    const thumbnailUrls: string[] = (imageThumbnailPaths || []).filter(
+      Boolean,
+    ) as string[];
 
     const order = await prisma.order.create({
       data: {
         customerId: fallbackCustomer.id,
-        description: '',
+        description: "",
         serviceName: null,
-        status: 'Offen',
-        priceType: 'Stundensatz',
+        status: "Offen",
+        priceType: "Stundensatz",
         unitPrice: 0,
         quantity: 0,
         totalPrice: 0,
+        currency: voiceIntakeCurrency,
         vatRate: voiceIntakeVatRate,
         vatAmount: 0,
         total: 0,
         needsReview: true,
         reviewReasons: [REVIEW_REASON_TAG],
-        hinweisLevel: 'warning',
+        hinweisLevel: "warning",
         mediaUrl: audioPath || null,
-        mediaType: audioPath ? 'audio' : null,
+        mediaType: audioPath ? "audio" : null,
         imageUrls,
         thumbnailUrls,
         notes,
@@ -2326,27 +2837,31 @@ export async function createVoiceTooLongReviewOrder(
         // Stage I — audio usage tracking for the cost-cap path.
         // For 'uncheckable' we typically don't have a duration, so this stays null
         // (the order is intentionally excluded from the monthly minutes total).
-        audioDurationSec: typeof durationSec === 'number' && isFinite(durationSec)
-          ? Math.max(0, Math.round(durationSec))
-          : null,
+        audioDurationSec:
+          typeof durationSec === "number" && isFinite(durationSec)
+            ? Math.max(0, Math.round(durationSec))
+            : null,
         audioTranscriptionStatus: STATUS_VALUE,
       },
     });
 
-    console.log(`[${source}] ⏱️ Voice review order created (reason=${reason}): orderId=${order.id} duration=${durationLabel} sender=${senderName} phone=${phoneNumber ?? '?'}`);
+    console.log(
+      `[${source}] ⏱️ Voice review order created (reason=${reason}): orderId=${order.id} duration=${durationLabel} sender=${senderName} phone=${phoneNumber ?? "?"}`,
+    );
 
     logAuditAsync({
       userId,
       action: `ORDER_CREATED_FROM_${source.toUpperCase()}_${AUDIT_SUFFIX}`,
-      area: 'WEBHOOK',
-      targetType: 'Order',
+      area: "WEBHOOK",
+      targetType: "Order",
       targetId: order.id,
       success: true,
       details: {
         reason: REVIEW_REASON_TAG,
         sender: senderName,
         phone: phoneNumber ?? null,
-        durationSec: typeof durationSec === 'number' ? Math.round(durationSec) : null,
+        durationSec:
+          typeof durationSec === "number" ? Math.round(durationSec) : null,
         customerId: fallbackCustomer.id,
         customer: FALLBACK_CUSTOMER_NAME,
         transcriptionSkipped: true,
@@ -2359,8 +2874,8 @@ export async function createVoiceTooLongReviewOrder(
       source,
       userId: userId ?? null,
       phoneMasked: maskPhoneForLog(phoneNumber || null),
-      senderName: senderName || '',
-      mediaType: 'audio',
+      senderName: senderName || "",
+      mediaType: "audio",
       hasTranscript: false,
       transcriptLen: 0,
       llmExtractedName: null,
@@ -2371,29 +2886,33 @@ export async function createVoiceTooLongReviewOrder(
       customerWasNewlyCreated: false,
       customerNameInDb: FALLBACK_CUSTOMER_NAME,
       customerFallbackUsed: true,
-      notes: `voice_review: ${REVIEW_REASON_TAG} dur=${typeof durationSec === 'number' ? Math.round(durationSec) : 'null'}`,
+      notes: `voice_review: ${REVIEW_REASON_TAG} dur=${typeof durationSec === "number" ? Math.round(durationSec) : "null"}`,
     });
 
     return {
       orderId: order.id,
       description: WARNING_DESCRIPTION,
       customerName: FALLBACK_CUSTOMER_NAME,
-      serviceName: '',
-      kundeStatus: 'fallback_unknown',
+      serviceName: "",
+      kundeStatus: "fallback_unknown",
       kundenabgleichStatus: REVIEW_REASON_TAG,
     };
   } catch (err: any) {
-    console.error(`[${source}] ❌ createVoiceTooLongReviewOrder failed (reason=${reason}):`, err?.message || err);
+    console.error(
+      `[${source}] ❌ createVoiceTooLongReviewOrder failed (reason=${reason}):`,
+      err?.message || err,
+    );
     logAuditAsync({
       userId,
       action: `ORDER_CREATE_FROM_${source.toUpperCase()}_${AUDIT_SUFFIX}_FAILED`,
-      area: 'WEBHOOK',
+      area: "WEBHOOK",
       success: false,
       details: {
-        reason: `${REVIEW_REASON_TAG}_exception:${err?.message || 'unknown'}`,
+        reason: `${REVIEW_REASON_TAG}_exception:${err?.message || "unknown"}`,
         sender: senderName,
         phone: phoneNumber ?? null,
-        durationSec: typeof durationSec === 'number' ? Math.round(durationSec) : null,
+        durationSec:
+          typeof durationSec === "number" ? Math.round(durationSec) : null,
       },
     });
     return null;
