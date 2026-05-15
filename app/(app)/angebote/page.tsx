@@ -472,7 +472,10 @@ export default function AngebotePage() {
     if (settings) {
       const settingsCurrency = settings.currency === "EUR" ? "EUR" : "CHF";
       setDefaultCurrency(settingsCurrency);
-      setCurrency(settingsCurrency);
+
+      if (!dialogOpen && !editOfferId) {
+        setCurrency(settingsCurrency);
+      }
       if (settings.mwstAktiv && settings.mwstSatz != null) {
         setDefaultVatRate(Number(settings.mwstSatz));
       } else if (settings.mwstAktiv === false) {
@@ -654,7 +657,13 @@ export default function AngebotePage() {
       country: "CH",
     });
     setVatRate(off.vatRate != null ? Number(off.vatRate) : defaultVatRate);
-    setCurrency(off.currency === "EUR" ? "EUR" : "CHF");
+    setCurrency(
+      off.currency === "EUR"
+        ? "EUR"
+        : off.currency === "CHF"
+          ? "CHF"
+          : defaultCurrency,
+    );
     // Set linked order data for Original-Nachricht / Besonderheiten
     const lo = off.orders?.[0];
     if (lo)
