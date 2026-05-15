@@ -2056,84 +2056,88 @@ export async function processIncomingMessage(
     parsed.system.needs_review = true;
   }
 
+
+
+
+
+
   // --- UNIT MISMATCH CHECK ---
   const unitMismatchReasons: string[] = [];
 
   const normalizeUnitForReview = (value?: string | null) => {
-    const v = (value || "").trim().toLowerCase();
+    const v = normalizeUnitText(value || "");
 
     if (["stunde", "stunden", "std", "h"].includes(v)) return "Stunde";
-    if (["tag", "tage"].includes(v)) return "Tag";
-    if (["meter", "m"].includes(v)) return "Meter";
+    if (["tag", "tage", "arbeitstag", "arbeitstage"].includes(v)) return "Tag";
+    if (["meter", "laufmeter", "lfm", "m"].includes(v)) return "Meter";
     if (["quadratmeter", "qm", "m2", "m²"].includes(v)) return "Quadratmeter";
-    if (["kubikmeter", "m3", "m³"].includes(v)) return "Kubikmeter";
-    if (["stück", "stueck", "stk"].includes(v)) return "Stück";
+    if (["kubikmeter", "cbm", "m3", "m³"].includes(v)) return "Kubikmeter";
+    if (["stueck", "stück", "stk", "anzahl", "einheiten"].includes(v)) return "Stück";
     if (["kilogramm", "kg"].includes(v)) return "Kilogramm";
-    if (["tonne", "tonnen", "t"].includes(v)) return "Tonne";
-    if (["liter", "l"].includes(v)) return "Liter";
-    if (["pauschal", "pauschale"].includes(v)) return "Pauschal";
+    if (["tonne", "tonnen", "to", "t"].includes(v)) return "Tonne";
+    if (["liter", "ltr", "l"].includes(v)) return "Liter";
+    if (["pauschal", "pauschale", "fixpreis", "festpreis"].includes(v)) return "Pauschal";
 
     return value || "";
   };
 
-  const detectUnitForServiceLine = (text: string, serviceName: string) => {
-    const lower = (text || "").toLowerCase();
-    const serviceWords = (serviceName || "")
-      .trim()
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length >= 4);
+  const unitTypeToReviewUnit = (unitType?: string | null) => {
+    switch (unitType) {
+      case "hour":
+        return "Stunde";
+      case "day":
+        return "Tag";
+      case "meter":
+        return "Meter";
+      case "square_meter":
+        return "Quadratmeter";
+      case "cubic_meter":
+        return "Kubikmeter";
+      case "piece":
+        return "Stück";
+      case "kilogram":
+        return "Kilogramm";
+      case "ton":
+        return "Tonne";
+      case "liter":
+        return "Liter";
+      case "flat":
+        return "Pauschal";
+      default:
+        return "";
+    }
+  };
 
-    if (serviceWords.length === 0) return "";
+  const detectUnitInsideOwnItemText = (text?: string | null) => {
+    const matches = detectAllQuantityUnitsFromText(text || "");
+    if (matches.length !== 1) return "";
+    return unitTypeToReviewUnit(matches[0].unit);
+  };
 
-    const lines = lower
-      .split(/\n|\.|;|\*/g)
-      .map((line) => line.trim())
-      .filter(Boolean);
+  const safeServiceMatchForReview = (itemServiceName: string) => {
+    const itemName = normalizeServiceText(itemServiceName);
+    if (!itemName || itemName.length < 4) return null;
 
-    const matchingLine = lines.find((line) =>
-      serviceWords.some((word) => line.includes(word)),
+    return (
+      services.find((s: any) => {
+        const serviceName = normalizeServiceText(s.name);
+        if (!serviceName || serviceName.length < 4) return false;
+
+        return serviceName === itemName;
+      }) || null
     );
-
-    if (!matchingLine) return "";
-
-    if (/\b(quadratmeter|qm|m2|m²)\b/i.test(matchingLine))
-      return "Quadratmeter";
-    if (/\b(kubikmeter|m3|m³)\b/i.test(matchingLine)) return "Kubikmeter";
-    if (/\b(stunden|stunde|std|h)\b/i.test(matchingLine)) return "Stunde";
-    if (/\b(tonnen|tonne)\b/i.test(matchingLine)) return "Tonne";
-    if (/\b(kilogramm|kg)\b/i.test(matchingLine)) return "Kilogramm";
-    if (/\b(liter)\b/i.test(matchingLine)) return "Liter";
-    if (/\b(meter|m)\b/i.test(matchingLine)) return "Meter";
-    if (/\b(stück|stueck|stk)\b/i.test(matchingLine)) return "Stück";
-    if (/\b(pauschal|pauschale)\b/i.test(matchingLine)) return "Pauschal";
-
-    return "";
   };
 
   for (const item of finalOrderItems) {
     const itemServiceName = (item.serviceName || "").trim();
+    if (!itemServiceName) continue;
 
-    const matchingService = services.find((s: any) => {
-      const serviceName = (s.name || "").trim().toLowerCase();
-      const itemName = itemServiceName.toLowerCase();
-
-      return (
-        serviceName === itemName ||
-        serviceName.includes(itemName) ||
-        itemName.includes(serviceName)
-      );
-    });
-
+    const matchingService = safeServiceMatchForReview(itemServiceName);
     const expectedUnit = normalizeUnitForReview(
       matchingService?.unit || item.unit,
     );
 
-    const textForCheck = item.description || "";
-
-    const detectedUnit = normalizeUnitForReview(
-      detectUnitForServiceLine(textForCheck, itemServiceName),
-    );
+    const detectedUnit = detectUnitInsideOwnItemText(item.description);
 
     if (detectedUnit && expectedUnit && detectedUnit !== expectedUnit) {
       unitMismatchReasons.push(
