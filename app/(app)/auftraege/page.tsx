@@ -76,7 +76,7 @@ interface OrderItem {
 }
 
 interface Order {
-  currency?: 'CHF' | 'EUR' | null;
+  currency?: "CHF" | "EUR" | null;
   id: string;
   customerId: string;
   description: string;
@@ -587,8 +587,11 @@ export default function AuftraegePage() {
           );
         case "name":
           return (a.customer?.name ?? "").localeCompare(b.customer?.name ?? "");
-       case "amount":
-  return (Number((b as any).total || b.totalPrice) || 0) - (Number((a as any).total || a.totalPrice) || 0);
+        case "amount":
+          return (
+            (Number((b as any).total || b.totalPrice) || 0) -
+            (Number((a as any).total || a.totalPrice) || 0)
+          );
         case "review":
           return (
             (b.needsReview ? 1 : 0) - (a.needsReview ? 1 : 0) ||
@@ -689,6 +692,7 @@ export default function AuftraegePage() {
       setPendingOpenCustomerEditor(null);
     }
     setOrderVatRate(o.vatRate != null ? Number(o.vatRate) : defaultVatRate);
+    setCurrency(o.currency === "EUR" ? "EUR" : "CHF");
     setDialogOpen(true);
     // Auto-fill: extract missing customer data from notes and update DB
     if (o.customerId) autoFillCustomer(o.customerId);
@@ -1120,12 +1124,12 @@ export default function AuftraegePage() {
 
     const url = editId ? `/api/orders/${editId}` : "/api/orders";
     const method = editId ? "PUT" : "POST";
-  const payload = {
-  ...form,
-  description: desc,
-  vatRate: orderVatRate,
-  currency,
-  items: validItems.map((item) => ({
+    const payload = {
+      ...form,
+      description: desc,
+      vatRate: orderVatRate,
+      currency,
+      items: validItems.map((item) => ({
         serviceName: item.serviceName,
         description: buildItemDescription(item),
         quantity: Number(item.quantity || 1),
@@ -2019,9 +2023,9 @@ export default function AuftraegePage() {
                           />
                           <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
                             {formatCurrency(
-  Number((o as any).total || o.totalPrice || 0),
-  o.currency === 'EUR' ? 'EUR' : 'CHF',
-)}
+                              Number((o as any).total || o.totalPrice || 0),
+                              o.currency === "EUR" ? "EUR" : "CHF",
+                            )}
                           </span>
                         </div>
                       </div>
@@ -3140,7 +3144,7 @@ export default function AuftraegePage() {
                     </Button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <Label>Datum</Label>
                       <Input
@@ -3151,6 +3155,7 @@ export default function AuftraegePage() {
                         }
                       />
                     </div>
+
                     <div>
                       <Label>Status</Label>
                       <select
@@ -3172,6 +3177,22 @@ export default function AuftraegePage() {
                             {s}
                           </option>
                         ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <Label>Währung</Label>
+                      <select
+                        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={currency}
+                        onChange={(e: any) =>
+                          setCurrency(
+                            e?.target?.value === "EUR" ? "EUR" : "CHF",
+                          )
+                        }
+                      >
+                        <option value="CHF">CHF</option>
+                        <option value="EUR">EUR</option>
                       </select>
                     </div>
                   </div>
