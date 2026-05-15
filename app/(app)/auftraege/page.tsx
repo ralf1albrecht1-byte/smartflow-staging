@@ -76,6 +76,7 @@ interface OrderItem {
 }
 
 interface Order {
+  currency?: 'CHF' | 'EUR' | null;
   id: string;
   customerId: string;
   description: string;
@@ -586,8 +587,8 @@ export default function AuftraegePage() {
           );
         case "name":
           return (a.customer?.name ?? "").localeCompare(b.customer?.name ?? "");
-        case "amount":
-          return (Number(b.totalPrice) || 0) - (Number(a.totalPrice) || 0);
+       case "amount":
+  return (Number((b as any).total || b.totalPrice) || 0) - (Number((a as any).total || a.totalPrice) || 0);
         case "review":
           return (
             (b.needsReview ? 1 : 0) - (a.needsReview ? 1 : 0) ||
@@ -1119,11 +1120,12 @@ export default function AuftraegePage() {
 
     const url = editId ? `/api/orders/${editId}` : "/api/orders";
     const method = editId ? "PUT" : "POST";
-    const payload = {
-      ...form,
-      description: desc,
-      vatRate: orderVatRate,
-      items: validItems.map((item) => ({
+  const payload = {
+  ...form,
+  description: desc,
+  vatRate: orderVatRate,
+  currency,
+  items: validItems.map((item) => ({
         serviceName: item.serviceName,
         description: buildItemDescription(item),
         quantity: Number(item.quantity || 1),
@@ -2017,9 +2019,9 @@ export default function AuftraegePage() {
                           />
                           <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
                             {formatCurrency(
-                              Number((o as any).total || o.totalPrice || 0),
-                              currency,
-                            )}
+  Number((o as any).total || o.totalPrice || 0),
+  o.currency === 'EUR' ? 'EUR' : 'CHF',
+)}
                           </span>
                         </div>
                       </div>

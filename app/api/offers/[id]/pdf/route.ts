@@ -167,7 +167,11 @@ currency: true,
       `[PDF-SECURITY] ${route} | OWNERSHIP_OK | userId=${userId} | docOwner=${offer.userId} | docId=${offer.id} | offerNumber=${offer.offerNumber} | ts=${ts}`
     );
 
-    const offerCompanySettings = companySettings ? { ...companySettings } : companySettings;
+ const offerCurrency = offer.currency === 'EUR' ? 'EUR' : 'CHF';
+
+const offerCompanySettings: any = companySettings
+  ? { ...companySettings, currency: offerCurrency }
+  : null;
 
     if (offerCompanySettings?.letterheadVisible === true && offerCompanySettings?.letterheadUrl) {
       const letterheadDataUrl = await toImageDataUrl(offerCompanySettings.letterheadUrl);

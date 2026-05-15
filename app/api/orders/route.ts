@@ -1,9 +1,16 @@
-export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
-import { logAuditAsync } from '@/lib/audit';
-import { assertCustomerNotArchived, CustomerArchivedError } from '@/lib/customer-links';
+export const dynamic = "force-dynamic";
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import {
+  requireUserId,
+  unauthorizedResponse,
+  getSessionUser,
+} from "@/lib/get-session";
+import { logAuditAsync } from "@/lib/audit";
+import {
+  assertCustomerNotArchived,
+  CustomerArchivedError,
+} from "@/lib/customer-links";
 
 /**
  * VAT persistence on Order (since 2026-04-18):
@@ -20,7 +27,7 @@ function normalizeOrderVat(o: any) {
   // If vatAmount/total were never written (legacy rows default to 0), recompute.
   const storedVatAmount = Number(o?.vatAmount ?? 0);
   const storedTotal = Number(o?.total ?? 0);
-  const computedVatAmount = totalPrice * vatRate / 100;
+  const computedVatAmount = (totalPrice * vatRate) / 100;
   const computedTotal = totalPrice + computedVatAmount;
   // Heuristic: if stored total is 0 but totalPrice > 0, these columns have never
   // been written for this row -> use computed values.
@@ -34,25 +41,50 @@ function normalizeOrderVat(o: any) {
 
 export async function GET(request: Request) {
   let userId: string;
-  try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorizedResponse();
+  }
   try {
     const { searchParams } = new URL(request.url);
-    const status = searchParams?.get('status');
+    const status = searchParams?.get("status");
     const where: any = { deletedAt: null, userId };
-    if (status && status !== 'Alle') where.status = status;
+    if (status && status !== "Alle") where.status = status;
     const orders = await prisma.order.findMany({
       where,
-      orderBy: { date: 'desc' },
-      include: { customer: { select: { id: true, name: true, phone: true, email: true, address: true, plz: true, city: true, customerNumber: true } }, items: true },
+      orderBy: { date: "desc" },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            address: true,
+            plz: true,
+            city: true,
+            customerNumber: true,
+          },
+        },
+        items: true,
+      },
     });
-    return NextResponse.json(orders?.map((o: any) => ({
-      ...o,
-      totalPrice: Number(o?.totalPrice ?? 0),
-      unitPrice: Number(o?.unitPrice ?? 0),
-      quantity: Number(o?.quantity ?? 0),
-      ...normalizeOrderVat(o),
-      items: (o?.items ?? []).map((item: any) => ({ ...item, unitPrice: Number(item?.unitPrice ?? 0), quantity: Number(item?.quantity ?? 0), totalPrice: Number(item?.totalPrice ?? 0) })),
-    })) ?? []);
+    return NextResponse.json(
+      orders?.map((o: any) => ({
+        ...o,
+        totalPrice: Number(o?.totalPrice ?? 0),
+        unitPrice: Number(o?.unitPrice ?? 0),
+        quantity: Number(o?.quantity ?? 0),
+        ...normalizeOrderVat(o),
+        items: (o?.items ?? []).map((item: any) => ({
+          ...item,
+          unitPrice: Number(item?.unitPrice ?? 0),
+          quantity: Number(item?.quantity ?? 0),
+          totalPrice: Number(item?.totalPrice ?? 0),
+        })),
+      })) ?? [],
+    );
   } catch (error: any) {
     console.error(error);
     return NextResponse.json([], { status: 500 });
@@ -61,17 +93,26 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   let userId: string;
-  try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorizedResponse();
+  }
   try {
     const data = await request.json();
+    const currency = data?.currency === "EUR" ? "EUR" : "CHF";
     const items = data?.items as any[] | undefined;
     let totalPrice = 0;
     let primaryServiceName = data?.serviceName ?? null;
-    let primaryPriceType = data?.priceType ?? 'Stunde';
+    let primaryPriceType = data?.priceType ?? "Stunde";
     let primaryUnitPrice = Number(data?.unitPrice ?? 50);
     let primaryQuantity = Number(data?.quantity ?? 1);
     if (items && items.length > 0) {
-      totalPrice = items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1)), 0);
+      totalPrice = items.reduce(
+        (sum: number, item: any) =>
+          sum + Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
+        0,
+      );
       primaryServiceName = items[0].serviceName ?? primaryServiceName;
       primaryPriceType = items[0].unit ?? primaryPriceType;
       primaryUnitPrice = Number(items[0].unitPrice ?? 50);
@@ -86,13 +127,16 @@ export async function POST(request: Request) {
       vatRate = Number(data.vatRate);
     } else {
       try {
-        const settings = await prisma.companySettings.findFirst({ where: { userId } });
-        if (settings?.mwstAktiv && settings?.mwstSatz != null) vatRate = Number(settings.mwstSatz);
+        const settings = await prisma.companySettings.findFirst({
+          where: { userId },
+        });
+        if (settings?.mwstAktiv && settings?.mwstSatz != null)
+          vatRate = Number(settings.mwstSatz);
         else if (settings && !settings.mwstAktiv) vatRate = 0;
       } catch {}
     }
     if (!isFinite(vatRate) || vatRate < 0) vatRate = 0;
-    const vatAmount = totalPrice * vatRate / 100;
+    const vatAmount = (totalPrice * vatRate) / 100;
     const total = totalPrice + vatAmount;
     // Guard: reject creation linked to an archived customer
     if (data?.customerId) {
@@ -101,26 +145,80 @@ export async function POST(request: Request) {
 
     const order = await prisma.order.create({
       data: {
-        customerId: data?.customerId, description: data?.description ?? '', serviceName: primaryServiceName,
-        status: data?.status ?? 'Offen', priceType: primaryPriceType, unitPrice: primaryUnitPrice,
-        quantity: primaryQuantity, totalPrice, vatRate, vatAmount, total,
+        customerId: data?.customerId,
+        description: data?.description ?? "",
+        serviceName: primaryServiceName,
+        status: data?.status ?? "Offen",
+        priceType: primaryPriceType,
+        unitPrice: primaryUnitPrice,
+        quantity: primaryQuantity,
+        totalPrice,
+        vatRate,
+        vatAmount,
+        total,
+         currency: data?.currency === 'EUR' ? 'EUR' : 'CHF',
         date: data?.date ? new Date(data.date) : new Date(),
-        notes: data?.notes ?? null, specialNotes: data?.specialNotes ?? null,
-        hinweisLevel: data?.hinweisLevel ?? 'none', mediaUrl: data?.mediaUrl ?? null,
-        mediaType: data?.mediaType ?? null, imageUrls: data?.imageUrls ?? [], audioTranscript: data?.audioTranscript ?? null,
+        notes: data?.notes ?? null,
+        specialNotes: data?.specialNotes ?? null,
+        hinweisLevel: data?.hinweisLevel ?? "none",
+        mediaUrl: data?.mediaUrl ?? null,
+        mediaType: data?.mediaType ?? null,
+        imageUrls: data?.imageUrls ?? [],
+        audioTranscript: data?.audioTranscript ?? null,
         userId,
-        ...(items && items.length > 0 ? { items: { create: items.map((item: any) => ({ serviceName: item.serviceName ?? '', description: item.description ?? '', quantity: Number(item.quantity ?? 1), unit: item.unit ?? 'Stunde', unitPrice: Number(item.unitPrice ?? 0), totalPrice: Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1) })) } } : {}),
+        ...(items && items.length > 0
+          ? {
+              items: {
+                create: items.map((item: any) => ({
+                  serviceName: item.serviceName ?? "",
+                  description: item.description ?? "",
+                  quantity: Number(item.quantity ?? 1),
+                  unit: item.unit ?? "Stunde",
+                  unitPrice: Number(item.unitPrice ?? 0),
+                  totalPrice:
+                    Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
+                })),
+              },
+            }
+          : {}),
       },
       include: { customer: true, items: true },
     });
     const su = await getSessionUser();
-    logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'ORDER_CREATE', area: 'ORDERS', targetType: 'Order', targetId: order.id, request });
-    return NextResponse.json({ ...order, totalPrice: Number(order?.totalPrice ?? 0), unitPrice: Number(order?.unitPrice ?? 0), quantity: Number(order?.quantity ?? 0), vatRate: Number(order?.vatRate ?? 0), vatAmount: Number(order?.vatAmount ?? 0), total: Number(order?.total ?? 0), items: (order?.items ?? []).map((item: any) => ({ ...item, unitPrice: Number(item?.unitPrice ?? 0), quantity: Number(item?.quantity ?? 0), totalPrice: Number(item?.totalPrice ?? 0) })) });
+    logAuditAsync({
+      userId: su?.id,
+      userEmail: su?.email,
+      userRole: su?.role,
+      action: "ORDER_CREATE",
+      area: "ORDERS",
+      targetType: "Order",
+      targetId: order.id,
+      request,
+    });
+    return NextResponse.json({
+      ...order,
+      totalPrice: Number(order?.totalPrice ?? 0),
+      unitPrice: Number(order?.unitPrice ?? 0),
+      quantity: Number(order?.quantity ?? 0),
+      vatRate: Number(order?.vatRate ?? 0),
+      vatAmount: Number(order?.vatAmount ?? 0),
+      total: Number(order?.total ?? 0),
+      currency: order?.currency === "EUR" ? "EUR" : "CHF",
+      items: (order?.items ?? []).map((item: any) => ({
+        ...item,
+        unitPrice: Number(item?.unitPrice ?? 0),
+        quantity: Number(item?.quantity ?? 0),
+        totalPrice: Number(item?.totalPrice ?? 0),
+      })),
+    });
   } catch (error: any) {
     if (error instanceof CustomerArchivedError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     console.error(error);
-    return NextResponse.json({ error: 'Fehler beim Erstellen' }, { status: 500 });
+    return NextResponse.json(
+      { error: "Fehler beim Erstellen" },
+      { status: 500 },
+    );
   }
 }

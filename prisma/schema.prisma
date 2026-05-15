@@ -133,8 +133,9 @@ model Order {
   totalPrice  Float    @default(0)
   vatRate     Float    @default(8.1)
   vatAmount   Float    @default(0)
-  total       Float    @default(0)
-  date        DateTime @default(now())
+total       Float    @default(0)
+currency    String   @default("CHF")
+date        DateTime @default(now())
   notes          String?
   specialNotes   String?
   needsReview    Boolean  @default(false)

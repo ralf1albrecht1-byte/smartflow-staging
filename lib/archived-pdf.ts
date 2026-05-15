@@ -9,6 +9,10 @@ import { uploadBufferToS3, downloadBufferFromS3 } from '@/lib/s3';
 import { generateInvoiceHtml } from '@/lib/pdf-templates';
 
 async function generatePdfBuffer(invoice: any, companySettings: any): Promise<Buffer> {
+const invoiceCurrency = invoice?.currency === 'EUR' ? 'EUR' : 'CHF';
+const safeCompanySettings = companySettings
+  ? { ...companySettings, currency: invoiceCurrency }
+  : { currency: invoiceCurrency };
   const htmlContent = generateInvoiceHtml(
     {
       ...invoice,
@@ -22,7 +26,7 @@ async function generatePdfBuffer(invoice: any, companySettings: any): Promise<Bu
         totalPrice: Number(item?.totalPrice ?? 0),
       })),
     },
-    companySettings,
+    safeCompanySettings,
   );
 
   let browser: any = null;
