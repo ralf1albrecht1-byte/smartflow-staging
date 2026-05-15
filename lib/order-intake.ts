@@ -1904,6 +1904,15 @@ export async function processIncomingMessage(
             detectedUnitType !== "unknown" ? detectedUnitType : null,
           serviceName: matchedService.name,
         });
+const mismatchDetected =
+  quantityValidation.needsReview &&
+  quantityValidation.reason &&
+  detectedUnitType !== "unknown" &&
+  detectedQuantity > 0;
+
+const reviewReason = mismatchDetected
+  ? `${quantityValidation.reason}:${unitTypeToDisplayUnit(detectedUnitType)}:${unit}:${detectedQuantity}`
+  : quantityValidation.reason || null;
 
         return {
           serviceName: String(matchedService.name || "Unbekannte Leistung"),
@@ -1915,7 +1924,7 @@ export async function processIncomingMessage(
           unitPrice,
           totalPrice: unitPrice * quantityValidation.quantity,
           needsReview: quantityValidation.needsReview,
-          reviewReason: quantityValidation.reason || null,
+          reviewReason,
         };
       }
 
