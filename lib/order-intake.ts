@@ -381,16 +381,12 @@ function formatWorkNameForDisplay(value: string): string {
     .replace(/oe/g, "ö")
     .replace(/ue/g, "ü")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .toLowerCase();
 
   if (!text) return "Unbekannte Leistung";
 
-  return text
-    .toLowerCase()
-    .split(" ")
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 
@@ -1718,21 +1714,21 @@ export async function processIncomingMessage(
     return q?.unit || "unknown";
   };
 
-  const getWorkItemQuantity = (item: AiWorkItem): number => {
-    if (
-      typeof item.menge === "number" &&
-      isFinite(item.menge) &&
-      item.menge > 0
-    ) {
-      return item.menge;
-    }
+ const getWorkItemQuantity = (item: AiWorkItem): number => {
+  if (
+    typeof item.menge === "number" &&
+    isFinite(item.menge) &&
+    item.menge > 0
+  ) {
+    return item.menge;
+  }
 
-    const q = detectAllQuantityUnitsFromText(
-      [item.raw, item.name].filter(Boolean).join(" "),
-    )[0];
+  const q = detectAllQuantityUnitsFromText(
+    [item.raw, item.name].filter(Boolean).join(" "),
+  )[0];
 
-    return q?.value ?? 1;
-  };
+  return q?.value ?? 0;
+};
 
   const serviceDomainMatchesWork = (
     serviceName: string,
@@ -1920,7 +1916,9 @@ const reviewReason = mismatchDetected
   : quantityValidation.reason || null;
 
         return {
-          serviceName: String(matchedService.name || "Unbekannte Leistung"),
+          serviceName: formatWorkNameForDisplay(
+  String(matchedService.name || "Unbekannte Leistung"),
+),
           description: String(
             raw || detectedName || fullWorkText || `${source}-Auftrag`,
           ),
