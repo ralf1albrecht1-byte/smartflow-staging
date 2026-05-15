@@ -1663,7 +1663,21 @@ export default function AuftraegePage() {
     }
     return o.serviceName ?? "";
   };
+  const shortText = (value?: string | null, max = 90) => {
+    const text = (value || "").replace(/\s+/g, " ").trim();
+    if (!text) return "";
+    return text.length > max ? `${text.slice(0, max).trim()}…` : text;
+  };
 
+  const getMergeMessage = (o: Order) => {
+    return shortText(o.notes || o.audioTranscript || null, 120);
+  };
+
+  const getMergeAiHint = (o: Order) => {
+    const text = shortText(o.description || o.serviceName || null, 70);
+    if (!text) return "Bild erkannt. Ohne Nachricht bitte prüfen.";
+    return text;
+  };
   const formatMergeDate = (date?: string) => {
     if (!date) return "–";
     const dt = new Date(date);
@@ -2089,46 +2103,75 @@ export default function AuftraegePage() {
                   </p>
 
                   <div className="space-y-3 mt-3">
+
+
                     {selectedOrders.map((o) => {
                       const cust = customers.find((c) => c.id === o.customerId);
                       const imageCount = o.imageUrls?.length || 0;
                       const previewUrls = mergePreviewUrls[o.id] || [];
-                      const hasTextContent = Boolean(
-                        o.notes || o.description || o.audioTranscript,
-                      );
+                      const message = getMergeMessage(o);
+                      const aiHint = getMergeAiHint(o);
                       const hasAudio = Boolean(
                         o.audioTranscript || o.mediaType === "audio",
                       );
+                      const isMain = selectedMainOrderId === o.id;
+
+                      const selectAsMain = () => {
+                        setSelectedMainOrderId(o.id);
+                        setSelectedCustomerId(o.customerId || null);
+                      };
 
                       return (
                         <div
                           key={o.id}
-                          className={`p-3 rounded-lg border ${selectedMainOrderId === o.id ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border"}`}
+                          role="button"
+                          tabIndex={0}
+                          onClick={selectAsMain}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              selectAsMain();
+                            }
+                          }}
+                          className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                            isMain
+                              ? "border-primary bg-primary/5 ring-2 ring-primary/30"
+                              : "border-border hover:bg-muted/40"
+                          }`}
                         >
                           <div className="flex items-start gap-3">
                             <input
                               type="radio"
                               name="mainOrder"
-                              checked={selectedMainOrderId === o.id}
-                              onChange={() => {
-                                setSelectedMainOrderId(o.id);
-                                setSelectedCustomerId(o.customerId || null);
-                              }}
+                              checked={isMain}
+                              onChange={selectAsMain}
+                              onClick={(e) => e.stopPropagation()}
                               className="mt-1 h-4 w-4"
+                              aria-label="Als Hauptauftrag auswählen"
                             />
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate">
-                                {o.serviceName ||
-                                  o.description ||
-                                  `Auftrag #${o.id.slice(-6)}`}
-                              </div>
-                              <div className="text-sm text-slate-600 dark:text-slate-300">
-                                {cust?.name || "–"} •{" "}
-                                {formatMergeDate(o.createdAt || o.date)}
+
+                            <div className="flex-1 min-w-0 space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="font-medium truncate">
+                                    {o.serviceName ||
+                                      o.description ||
+                                      `Auftrag #${o.id.slice(-6)}`}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {formatMergeDate(o.createdAt || o.date)}
+                                  </div>
+                                </div>
+
+                                {isMain && (
+                                  <span className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-primary text-primary-foreground font-medium">
+                                    Hauptauftrag
+                                  </span>
+                                )}
                               </div>
 
                               {imageCount > 0 && (
-                                <div className="flex gap-2 mt-2">
+                                <div className="flex gap-2">
                                   {previewUrls.map((url, idx) => (
                                     <img
                                       key={`${o.id}-${idx}`}
@@ -2145,31 +2188,62 @@ export default function AuftraegePage() {
                                 </div>
                               )}
 
-                              {hasTextContent && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleTextPreview(o.id)}
-                                  className="text-sm text-blue-600 dark:text-blue-400 mt-2"
-                                >
-                                  {textPreviewOpen[o.id]
-                                    ? "Text ausblenden"
-                                    : "Text anzeigen"}
-                                </button>
-                              )}
+                              <div className="grid grid-cols-1 gap-1 text-sm">
+                                <div className="flex gap-2 min-w-0">
+                                  <span className="w-20 shrink-0 text-muted-foreground">
+                                    Kunde:
+                                  </span>
+                                  <span className="font-medium truncate">
+                                    {cust?.name || "Kein Kunde erkannt"}
+                                  </span>
+                                </div>
+
+                                <div className="flex gap-2 min-w-0">
+                                  <span className="w-20 shrink-0 text-muted-foreground">
+                                    Nachricht:
+                                  </span>
+                                  <span className="truncate">
+                                    {message || "Kein Text vorhanden"}
+                                  </span>
+                                </div>
+
+                                <div className="flex gap-2 min-w-0">
+                                  <span className="w-20 shrink-0 text-muted-foreground">
+                                    KI-Hinweis:
+                                  </span>
+                                  <span className="truncate">{aiHint}</span>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleTextPreview(o.id);
+                                }}
+                                className="text-sm text-blue-600 dark:text-blue-400"
+                              >
+                                {textPreviewOpen[o.id]
+                                  ? "Details ausblenden"
+                                  : "Details anzeigen"}
+                              </button>
 
                               {textPreviewOpen[o.id] && (
-                                <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm space-y-2">
+                                <div
+                                  className="mt-2 p-3 bg-slate-50 dark:bg-slate-900/50 rounded text-sm space-y-2"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
                                   {o.notes && (
                                     <div>
                                       <div className="font-medium text-xs text-slate-600 dark:text-slate-300">
-                                        Nachricht:
+                                        Original-Nachricht:
                                       </div>
                                       <div className="whitespace-pre-wrap">
                                         {o.notes}
                                       </div>
                                     </div>
                                   )}
-                                  {/* Only show transcript if NOT already contained in notes */}
+
                                   {o.audioTranscript &&
                                     !o.notes?.includes(o.audioTranscript) && (
                                       <div>
@@ -2181,10 +2255,11 @@ export default function AuftraegePage() {
                                         </div>
                                       </div>
                                     )}
+
                                   {o.description && (
                                     <div>
                                       <div className="font-medium text-xs text-slate-600 dark:text-slate-300">
-                                        Beschreibung:
+                                        KI-Beschreibung:
                                       </div>
                                       <div className="whitespace-pre-wrap">
                                         {o.description}
@@ -2195,7 +2270,10 @@ export default function AuftraegePage() {
                               )}
 
                               {hasAudio && (
-                                <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/30 rounded space-y-2">
+                                <div
+                                  className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/30 rounded space-y-2"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
                                   <div className="flex items-center gap-2 text-sm">
                                     <Mic className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                     <span className="font-medium text-blue-900 dark:text-blue-200">
@@ -2207,12 +2285,9 @@ export default function AuftraegePage() {
                                       </span>
                                     ) : null}
                                   </div>
-                                  {/* Inline audio player */}
+
                                   {mergeAudioUrls[o.id] && (
-                                    <audio
-                                      controls
-                                      className="w-full max-w-xs h-8"
-                                    >
+                                    <audio controls className="w-full max-w-xs h-8">
                                       <source
                                         src={mergeAudioUrls[o.id]}
                                         type="audio/mpeg"
@@ -2223,11 +2298,13 @@ export default function AuftraegePage() {
                                 </div>
                               )}
 
-                              {/* Entfernen button */}
                               <button
                                 type="button"
-                                onClick={() => handleRemoveFromSelection(o.id)}
-                                className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 mt-2"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveFromSelection(o.id);
+                                }}
+                                className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                               >
                                 Aus Auswahl entfernen
                               </button>
