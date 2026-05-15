@@ -1940,7 +1940,7 @@ const reviewReason = mismatchDetected
         description: String(
           raw || detectedName || fullWorkText || `${source}-Auftrag`,
         ),
-        quantity: detectedQuantity || 1,
+        quantity: detectedQuantity || 0,
         unit: unit || "Pauschal",
         unitPrice: 0,
         totalPrice: 0,
@@ -2036,7 +2036,7 @@ const reviewReason = mismatchDetected
               parsed.auftrag?.titel || "Unbekannte Leistung",
             ),
             description: String(fullWorkText || `${source}-Auftrag`),
-            quantity: 1,
+            quantity: 0,
             unit: "Pauschal",
             unitPrice: 0,
             totalPrice: 0,
@@ -2050,7 +2050,7 @@ const reviewReason = mismatchDetected
   const serviceName = primaryItem?.serviceName || "";
   const unit = primaryItem?.unit || "Stunde";
   const unitPrice = primaryItem?.unitPrice || 0;
-  const quantity = primaryItem?.quantity || 1;
+  const quantity = primaryItem?.quantity || 0;
   const totalPrice = finalOrderItems.reduce(
     (sum, item) => sum + Number(item.totalPrice || 0),
     0,
