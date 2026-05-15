@@ -6,8 +6,74 @@ import { prisma } from '@/lib/prisma';
 interface MergeRequest {
   targetOrderId: string;
   sourceOrderIds: string[];
-  finalCustomerId?: string; // Optional customer switch (must be from selected orders)
+  finalCustomerId?: string;
 }
+
+interface MergeItemInput {
+  serviceName: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+const normalizeMergeKeyPart = (value?: string | null) =>
+  (value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+const buildItemMergeKey = (item: MergeItemInput) => {
+  return [
+    normalizeMergeKeyPart(item.serviceName),
+    normalizeMergeKeyPart(item.unit),
+    Number(item.unitPrice || 0).toFixed(2),
+  ].join('|');
+};
+
+const toMergeItem = (item: any): MergeItemInput => {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+
+  return {
+    serviceName: item.serviceName || 'Manuell prüfen',
+    description: item.description || item.serviceName || '',
+    quantity,
+    unit: item.unit || 'Stück',
+    unitPrice,
+    totalPrice: quantity * unitPrice,
+  };
+};
+
+const mergeOrderItems = (orders: any[]) => {
+  const merged = new Map<string, MergeItemInput>();
+
+  for (const order of orders) {
+    for (const rawItem of order.items || []) {
+      const item = toMergeItem(rawItem);
+      const key = buildItemMergeKey(item);
+      const existing = merged.get(key);
+
+      if (existing) {
+        const quantity = existing.quantity + item.quantity;
+        merged.set(key, {
+          ...existing,
+          quantity,
+          totalPrice: quantity * existing.unitPrice,
+          description:
+            existing.description === item.description
+              ? existing.description
+              : [existing.description, item.description]
+                  .filter(Boolean)
+                  .filter((v, i, arr) => arr.indexOf(v) === i)
+                  .join('\n'),
+        });
+      } else {
+        merged.set(key, item);
+      }
+    }
+  }
+
+  return Array.from(merged.values());
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +82,7 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json(
         { error: 'Nicht authentifiziert' },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -26,30 +92,29 @@ export async function POST(request: NextRequest) {
     if (!targetOrderId || !sourceOrderIds || !Array.isArray(sourceOrderIds)) {
       return NextResponse.json(
         { error: 'Ungültige Parameter' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (sourceOrderIds.length === 0) {
       return NextResponse.json(
         { error: 'Mindestens ein Quell-Auftrag erforderlich' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (sourceOrderIds.includes(targetOrderId)) {
       return NextResponse.json(
         { error: 'Ziel-Auftrag darf nicht in Quell-Aufträgen enthalten sein' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // Max 5 orders total validation
     const totalOrders = 1 + sourceOrderIds.length;
     if (totalOrders > 5) {
       return NextResponse.json(
         { error: 'Maximal 5 Aufträge gleichzeitig verbinden' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -58,7 +123,10 @@ export async function POST(request: NextRequest) {
     const result = await prisma.$transaction(async (tx) => {
       const targetOrder = await tx.order.findUnique({
         where: { id: targetOrderId },
-        include: { customer: true },
+        include: {
+          customer: true,
+          items: true,
+        },
       });
 
       if (!targetOrder) {
@@ -79,11 +147,16 @@ export async function POST(request: NextRequest) {
           userId,
           deletedAt: null,
         },
-        include: { customer: true },
+        include: {
+          customer: true,
+          items: true,
+        },
       });
 
       if (sourceOrders.length !== sourceOrderIds.length) {
-        throw new Error('Einige Quell-Aufträge wurden nicht gefunden oder gehören nicht Ihnen');
+        throw new Error(
+          'Einige Quell-Aufträge wurden nicht gefunden oder gehören nicht Ihnen',
+        );
       }
 
       const hasInvoiceOrOffer =
@@ -92,28 +165,30 @@ export async function POST(request: NextRequest) {
         targetOrder.offerId;
 
       if (hasInvoiceOrOffer) {
-        throw new Error('Aufträge mit Rechnungen oder Angeboten können nicht zusammengeführt werden');
+        throw new Error(
+          'Aufträge mit Rechnungen oder Angeboten können nicht zusammengeführt werden',
+        );
       }
 
-      // AUDIO VALIDATION: Check for multiple audio orders
       const ordersWithAudio = [targetOrder, ...sourceOrders].filter(
-        (order) => order.mediaUrl && order.mediaType === 'audio'
+        (order) => order.mediaUrl && order.mediaType === 'audio',
       );
 
       if (ordersWithAudio.length > 1) {
-        throw new Error('Mehrere Aufträge mit Audio erkannt. Bitte nur einen Audio-Auftrag auswählen.');
+        throw new Error(
+          'Mehrere Aufträge mit Audio erkannt. Bitte nur einen Audio-Auftrag auswählen.',
+        );
       }
 
-      // AUDIO PRESERVATION: Find audio to preserve
-      const targetHasAudio = targetOrder.mediaUrl && targetOrder.mediaType === 'audio';
+      const targetHasAudio =
+        targetOrder.mediaUrl && targetOrder.mediaType === 'audio';
       const sourceWithAudio = sourceOrders.find(
-        (order) => order.mediaUrl && order.mediaType === 'audio'
+        (order) => order.mediaUrl && order.mediaType === 'audio',
       );
 
       let audioData: Record<string, unknown> = {};
 
       if (sourceWithAudio && !targetHasAudio) {
-        // Copy audio fields from source to target
         audioData = {
           mediaUrl: sourceWithAudio.mediaUrl,
           mediaType: sourceWithAudio.mediaType,
@@ -122,26 +197,25 @@ export async function POST(request: NextRequest) {
           audioTranscriptionStatus: sourceWithAudio.audioTranscriptionStatus,
         };
       }
-      // If target already has audio, keep it (audioData stays empty)
 
-      // Validate finalCustomerId if provided — must come from selected orders
-      const allCustomerIds = [targetOrder.customerId, ...sourceOrders.map((o) => o.customerId)];
-      if (finalCustomerId) {
-        if (!allCustomerIds.includes(finalCustomerId)) {
-          throw new Error('Kunde muss aus ausgewählten Aufträgen stammen');
-        }
+      const allCustomerIds = [
+        targetOrder.customerId,
+        ...sourceOrders.map((o) => o.customerId),
+      ];
+
+      if (finalCustomerId && !allCustomerIds.includes(finalCustomerId)) {
+        throw new Error('Kunde muss aus ausgewählten Aufträgen stammen');
       }
 
       const uniqueCustomerIds = [...new Set(allCustomerIds)];
       const hasCustomerMismatch = uniqueCustomerIds.length > 1;
 
-      // Double-merge detection: check if any order was already merged before
       const allOrders = [targetOrder, ...sourceOrders];
-      const hasDoubleMerge = allOrders.some(
-        (o) => o.reviewReasons?.includes('manual_order_merge')
+
+      const hasDoubleMerge = allOrders.some((o) =>
+        o.reviewReasons?.includes('manual_order_merge'),
       );
 
-      // Merge images
       const mergedImageUrls = [
         ...(targetOrder.imageUrls || []),
         ...sourceOrders.flatMap((o) => o.imageUrls || []),
@@ -152,26 +226,42 @@ export async function POST(request: NextRequest) {
         ...sourceOrders.flatMap((o) => o.thumbnailUrls || []),
       ];
 
-      // Merge notes - skip AI-generated descriptions from image-only orders
       const additionalNotes = sourceOrders
         .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
         .map((o) => {
           const parts: string[] = [];
+
           if (o.notes) parts.push(o.notes);
+
           if (o.audioTranscript && !o.notes?.includes(o.audioTranscript)) {
             parts.push(`Transkript: ${o.audioTranscript}`);
           }
+
           if (parts.length > 0) {
-            return `[Verbunden von Auftrag ${o.id.slice(-8)}]\n${parts.join('\n\n')}`;
+            return `[Verbunden von Auftrag ${o.id.slice(-8)}]\n${parts.join(
+              '\n\n',
+            )}`;
           }
+
           return '';
         })
         .filter(Boolean)
         .join('\n\n');
 
-      const mergedNotes = targetOrder.notes
-        ? `${targetOrder.notes}\n\n${additionalNotes}`
-        : additionalNotes;
+      const mergedNotes = [targetOrder.notes, additionalNotes]
+        .filter(Boolean)
+        .join('\n\n');
+
+      const mergedItems = mergeOrderItems(allOrders);
+
+      const totalPrice = mergedItems.reduce(
+        (sum, item) => sum + Number(item.totalPrice || 0),
+        0,
+      );
+
+      const vatRate = Number(targetOrder.vatRate || 0);
+      const vatAmount = vatRate > 0 ? (totalPrice * vatRate) / 100 : 0;
+      const total = totalPrice + vatAmount;
 
       const newReviewReasons = [
         ...(targetOrder.reviewReasons || []),
@@ -186,6 +276,10 @@ export async function POST(request: NextRequest) {
         newReviewReasons.push('double_merge');
       }
 
+      if (mergedItems.some((item) => Number(item.unitPrice || 0) <= 0)) {
+        newReviewReasons.push('unit_price_review');
+      }
+
       sourceOrders.forEach((o) => {
         if (o.reviewReasons) {
           newReviewReasons.push(...o.reviewReasons);
@@ -193,6 +287,10 @@ export async function POST(request: NextRequest) {
       });
 
       const uniqueReviewReasons = [...new Set(newReviewReasons)];
+
+      await tx.orderItem.deleteMany({
+        where: { orderId: targetOrderId },
+      });
 
       const updatedOrder = await tx.order.update({
         where: { id: targetOrderId },
@@ -205,12 +303,27 @@ export async function POST(request: NextRequest) {
           reviewReasons: uniqueReviewReasons,
           needsReview: true,
           hinweisLevel: 'warning',
-          // Preserve audio fields from source if target has no audio
+          totalPrice,
+          vatAmount,
+          total,
+          items: {
+            create: mergedItems.map((item) => ({
+              serviceName: item.serviceName,
+              description: item.description,
+              quantity: item.quantity,
+              unit: item.unit,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+          },
           ...audioData,
+        },
+        include: {
+          items: true,
+          customer: true,
         },
       });
 
-      // Soft-delete source orders (move to Papierkorb)
       await tx.order.updateMany({
         where: {
           id: { in: sourceOrderIds },
@@ -224,6 +337,7 @@ export async function POST(request: NextRequest) {
         success: true,
         mergedOrder: updatedOrder,
         mergedCount: sourceOrders.length,
+        mergedItemsCount: mergedItems.length,
         hasDoubleMerge,
         hasCustomerMismatch,
       };
@@ -234,7 +348,7 @@ export async function POST(request: NextRequest) {
     console.error('[ORDER MERGE] Error:', error);
     return NextResponse.json(
       { error: error.message || 'Fehler beim Verbinden der Aufträge' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
