@@ -1919,6 +1919,7 @@ const reviewReason = mismatchDetected
           description: String(
             raw || detectedName || fullWorkText || `${source}-Auftrag`,
           ),
+
           quantity: quantityValidation.quantity,
           unit,
           unitPrice,
@@ -1933,32 +1934,39 @@ const reviewReason = mismatchDetected
           ? unitTypeToDisplayUnit(detectedUnitType)
           : unitTypeToDisplayUnit(getServiceUnitType(item.einheit || null));
 
-      return {
-        serviceName: formatWorkNameForDisplay(
-          detectedName || "Unbekannte Leistung",
-        ),
-        description: String(
-          raw || detectedName || fullWorkText || `${source}-Auftrag`,
-        ),
-        quantity: detectedQuantity || 0,
-        unit: unit || "Pauschal",
-        unitPrice: 0,
-        totalPrice: 0,
-        needsReview: true,
-        reviewReason: "unbekannte_leistung_pruefen",
-      };
+const cleanedDetectedName = formatWorkNameForDisplay(
+  detectedName || "Unbekannte Leistung",
+);
+
+const finalServiceName =
+  cleanedDetectedName.length < 4 ||
+  cleanedDetectedName.split(" ").length > 6
+    ? "Unbekannte Leistung"
+    : cleanedDetectedName;
+
+return {
+  serviceName: finalServiceName,
+  description: String(
+    raw || detectedName || fullWorkText || `${source}-Auftrag`,
+  ),
+  quantity: detectedQuantity || 0,
+  unit: unit || "Pauschal",
+  unitPrice: 0,
+  totalPrice: 0,
+  needsReview: true,
+  reviewReason: "unbekannte_leistung_pruefen",
+};
     })
     .filter(Boolean) as Array<{
-    serviceName: string;
-    description: string;
-    quantity: number;
-    unit: string;
-    unitPrice: number;
-    totalPrice: number;
-    needsReview: boolean;
-    reviewReason: string | null;
-  }>;
-
+      serviceName: string;
+      description: string;
+      quantity: number;
+      unit: string;
+      unitPrice: number;
+      totalPrice: number;
+      needsReview: boolean;
+      reviewReason: string | null;
+    }>;
   const hasHourQuantityInText = detectAllQuantityUnitsFromText(
     messageText,
   ).some((q) => q.unit === "hour");
