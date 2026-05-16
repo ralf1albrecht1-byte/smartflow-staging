@@ -682,11 +682,8 @@ export default function AuftraegePage() {
           );
         case "name":
           return (a.customer?.name ?? "").localeCompare(b.customer?.name ?? "");
-        case "amount":
-          return (
-            (Number((b as any).total || b.totalPrice) || 0) -
-            (Number((a as any).total || a.totalPrice) || 0)
-          );
+   case "amount":
+  return getSafeOrderTotal(b) - getSafeOrderTotal(a);
         case "review":
           return (
             (b.needsReview ? 1 : 0) - (a.needsReview ? 1 : 0) ||
@@ -1766,6 +1763,34 @@ export default function AuftraegePage() {
   };
 
   // Display items summary for list
+
+const getSafeOrderTotal = (o: Order) => {
+  if (o.items && o.items.length > 0) {
+    return o.items.reduce((sum, item) => {
+      const hasUnitReview = hasQuantityReviewForService(
+        o.reviewReasons,
+        item.serviceName,
+      );
+
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.unitPrice || 0);
+
+      if (hasUnitReview || qty <= 0 || price <= 0) {
+        return sum;
+      }
+
+      return sum + qty * price;
+    }, 0);
+  }
+
+  const qty = Number(o.quantity || 0);
+  const price = Number(o.unitPrice || 0);
+
+  if (qty <= 0 || price <= 0) return 0;
+
+  return qty * price;
+};
+
   const itemsSummary = (o: Order) => {
     if (o.items && o.items.length > 1) {
       return o.items.map((i) => i.serviceName).join(", ");
@@ -2122,21 +2147,12 @@ export default function AuftraegePage() {
                             onImageClick={() => openMedia(o)}
                           />
 
-                          <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
-                            {formatCurrency(
-  o.items && o.items.length > 0
-    ? o.items.reduce((sum, item) => {
-        const qty = Number(item.quantity || 0);
-        const price = Number(item.unitPrice || 0);
-
-        if (qty <= 0 || price <= 0) return sum;
-
-        return sum + qty * price;
-      }, 0)
-    : Number((o as any).total || o.totalPrice || 0),
-  o.currency === "EUR" ? "EUR" : "CHF",
-)}
-                          </span>
+                         <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
+  {formatCurrency(
+    getSafeOrderTotal(o),
+    o.currency === "EUR" ? "EUR" : "CHF",
+  )}
+</span>
                         </div>
                       </div>
                     </div>
