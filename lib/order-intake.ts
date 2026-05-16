@@ -254,7 +254,14 @@ function detectUnitPriceFromText(text: string): number | null {
   const priceNumber =
     "(\\d+(?:[.,]\\d{1,2})?)";
 
+
   const patterns = [
+
+    // Stundensatz von 95 CHF / Tagessatz 700 CHF
+    new RegExp(
+      `(?:stundensatz|tagessatz|quadratmeterpreis|kubikmeterpreis|meterpreis|stueckpreis|stückpreis|kilopreis|kilogrammpreis|tonnenpreis|literpreis)\\s*(?:von|=|:)?\\s*${priceNumber}\\s*${currencyWords}`,
+      "i",
+    ),
     // 14 CHF pro qm
     new RegExp(
       `${priceNumber}\\s*${currencyWords}\\s*${joinWords}\\s*${unitWords}`,
@@ -2016,24 +2023,33 @@ export async function processIncomingMessage(
           ? unitTypeToDisplayUnit(detectedUnitType)
           : serviceUnit;
 
-        const unitType = getServiceUnitType(unit);
-        const hasLooseCurrencyAmount =
+
+const unitType = getServiceUnitType(unit);
+const catalogUnitPrice = Number(matchedService.defaultPrice || 0);
+
+const hasLooseCurrencyAmount =
   /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\b/i.test(
     raw,
   );
 
-const hasExplicitUnitPrice =
-  /\b(?:pro|je|per|\/)\b/i.test(raw);
+const hasExplicitUnitPrice = Boolean(
+  detectedUnitPrice && detectedUnitPrice > 0,
+);
 
 const shouldBlockCatalogFallback =
   hasLooseCurrencyAmount && !hasExplicitUnitPrice;
 
-const unitPrice =
-  detectedUnitPrice && detectedUnitPrice > 0
-    ? detectedUnitPrice
-    : shouldBlockCatalogFallback
-      ? 0
-      : Number(matchedService.defaultPrice || 0);
+const unitPrice = hasExplicitUnitPrice
+  ? Number(detectedUnitPrice)
+  : shouldBlockCatalogFallback
+    ? 0
+    : catalogUnitPrice;
+
+const priceOverrideDetected =
+  hasExplicitUnitPrice &&
+  catalogUnitPrice > 0 &&
+  Math.abs(unitPrice - catalogUnitPrice) >= 0.01;
+
 
         const quantityValidation = validateQuantityAgainstServiceUnit({
           serviceUnit: unit,
@@ -2046,9 +2062,15 @@ const mismatchDetected =
   hasExplicitDetectedUnit &&
   serviceUnitType !== detectedUnitType;
 
+const priceReviewReason = priceOverrideDetected
+  ? `price_override:${String(matchedService.name || "Unbekannte Leistung")}:${catalogUnitPrice}:${unitPrice}`
+  : shouldBlockCatalogFallback
+    ? `price_unclear:${String(matchedService.name || "Unbekannte Leistung")}`
+    : null;
+
 const reviewReason = mismatchDetected
   ? `unit_mismatch:${String(matchedService.name || "Unbekannte Leistung")}:${serviceUnit}:${unit}:${detectedQuantity}`
-  : quantityValidation.reason || null;
+  : priceReviewReason || quantityValidation.reason || null;
 
         return {
           serviceName: formatWorkNameForDisplay(
@@ -2062,7 +2084,7 @@ const reviewReason = mismatchDetected
           unit,
           unitPrice,
           totalPrice: unitPrice * quantityValidation.quantity,
-          needsReview: quantityValidation.needsReview,
+          needsReview: quantityValidation.needsReview || !!priceReviewReason,
           reviewReason,
         };
       }
