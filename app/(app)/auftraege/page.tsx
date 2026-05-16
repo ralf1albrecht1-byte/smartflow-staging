@@ -3135,8 +3135,13 @@ export default function AuftraegePage() {
                           unitMismatchReason?.split(":") || [];
 
                         const showUnitConflict = Boolean(
-                          item.aiWarning?.trim() || unitMismatchReason,
-                        );
+  item.aiWarning?.trim() || unitMismatchReason,
+);
+
+const showQuantityReview =
+  showUnitConflict ||
+  Number(item.quantity || 0) === 0;
+                        
 
                         return (
                           <div
@@ -3186,53 +3191,58 @@ export default function AuftraegePage() {
                                 </select>
                               </div>
 
+<div>
+  <Label className="text-xs">
+    Preis ({currency})
+  </Label>
 
-                                      <div>
-                                <Label className="text-xs">
-                                  Preis ({currency})
-                                </Label>
+  <Input
+    type="number"
+    step="0.05"
+    className={`h-8 ${
+      Number(item.unitPrice || 0) === 0
+        ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+        : ""
+    }`}
+    value={Number(item.unitPrice || 0) === 0 ? "" : item.unitPrice}
+    placeholder={
+      Number(item.unitPrice || 0) === 0 ? "prüfen" : "0"
+    }
+    onFocus={(e) => e.currentTarget.select()}
+    onChange={(e: any) =>
+      updateItem(
+        index,
+        "unitPrice",
+        e?.target?.value ?? "",
+      )
+    }
+  />
+</div>
 
-                      <Input
-  type="number"
-  step="0.25"
-  className={`h-8 ${
-    showUnitConflict || Number(item.quantity || 0) === 0
-      ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-      : ""
-  }`}
-  value={Number(item.quantity || 0) === 0 ? "" : item.quantity}
-  placeholder={
-    showUnitConflict || Number(item.quantity || 0) === 0 ? "prüfen" : "0"
-  }
-  onFocus={(e) => e.currentTarget.select()}
-  onChange={(e: any) =>
-    updateItem(
-      index,
-      "quantity",
-      e?.target?.value ?? "",
-    )
-  }
-/>
-                              </div>
-                                                           <div>
-                                <Label className="text-xs">Menge</Label>
-                                <Input
-                                  type="number"
-                                  step="0.25"
-                                  className={`h-8 ${showUnitConflict ? "border-red-400 bg-red-50 dark:bg-red-950/20" : ""}`}
-                                  value={item.quantity}
-                                  placeholder={showUnitConflict ? "prüfen" : "0"}
-                                  onFocus={(e) => e.currentTarget.select()}
-                                  onChange={(e: any) =>
-                                    updateItem(
-                                      index,
-                                      "quantity",
-                                      e?.target?.value ?? "",
-                                    )
-                                  }
-                                />
-                              </div>
-                            </div>
+<div>
+  <Label className="text-xs">Menge</Label>
+
+  <Input
+    type="number"
+    step="0.25"
+    className={`h-8 ${
+      showQuantityReview
+        ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+        : ""
+    }`}
+    value={showQuantityReview ? "" : item.quantity}
+    placeholder={showQuantityReview ? "prüfen" : "0"}
+    onFocus={(e) => e.currentTarget.select()}
+    onChange={(e: any) =>
+      updateItem(
+        index,
+        "quantity",
+        e?.target?.value ?? "",
+      )
+    }
+  />
+</div> 
+ </div>
                             <div className="text-left sm:text-right text-xs text-muted-foreground">
                               ={" "}
                               {formatCurrency(
