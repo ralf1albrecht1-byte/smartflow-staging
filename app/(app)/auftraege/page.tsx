@@ -1166,7 +1166,7 @@ export default function AuftraegePage() {
       items: validItems.map((item) => ({
         serviceName: item.serviceName,
         description: buildItemDescription(item),
-        quantity: Number(item.quantity || 1),
+        quantity: Number(item.quantity || 0),
         unit: item.unit,
         unitPrice: Number(item.unitPrice || 0),
       })),
@@ -3191,21 +3191,28 @@ export default function AuftraegePage() {
                                 <Label className="text-xs">
                                   Preis ({currency})
                                 </Label>
-                                <Input
-                                  type="number"
-                                  step="0.05"
-                                  className="h-8"
-                                  value={item.unitPrice}
-                                  placeholder="prüfen"
-                                  onFocus={(e) => e.currentTarget.select()}
-                                  onChange={(e: any) =>
-                                    updateItem(
-                                      index,
-                                      "unitPrice",
-                                      e?.target?.value ?? "",
-                                    )
-                                  }
-                                />
+
+                      <Input
+  type="number"
+  step="0.25"
+  className={`h-8 ${
+    showUnitConflict || Number(item.quantity || 0) === 0
+      ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+      : ""
+  }`}
+  value={Number(item.quantity || 0) === 0 ? "" : item.quantity}
+  placeholder={
+    showUnitConflict || Number(item.quantity || 0) === 0 ? "prüfen" : "0"
+  }
+  onFocus={(e) => e.currentTarget.select()}
+  onChange={(e: any) =>
+    updateItem(
+      index,
+      "quantity",
+      e?.target?.value ?? "",
+    )
+  }
+/>
                               </div>
                                                            <div>
                                 <Label className="text-xs">Menge</Label>
