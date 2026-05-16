@@ -2017,10 +2017,23 @@ export async function processIncomingMessage(
           : serviceUnit;
 
         const unitType = getServiceUnitType(unit);
-        const unitPrice =
+        const hasLooseCurrencyAmount =
+  /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\b/i.test(
+    raw,
+  );
+
+const hasExplicitUnitPrice =
+  /\b(?:pro|je|per|\/)\b/i.test(raw);
+
+const shouldBlockCatalogFallback =
+  hasLooseCurrencyAmount && !hasExplicitUnitPrice;
+
+const unitPrice =
   detectedUnitPrice && detectedUnitPrice > 0
     ? detectedUnitPrice
-    : Number(matchedService.defaultPrice || 0);
+    : shouldBlockCatalogFallback
+      ? 0
+      : Number(matchedService.defaultPrice || 0);
 
         const quantityValidation = validateQuantityAgainstServiceUnit({
           serviceUnit: unit,
