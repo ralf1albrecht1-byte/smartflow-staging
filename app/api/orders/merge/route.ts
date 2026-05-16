@@ -16,6 +16,8 @@ interface MergeItemInput {
   unit: string;
   unitPrice: number;
   totalPrice: number;
+  aiWarning?: string | null;
+  reviewReasons?: string[] | null;
 }
 
 const normalizeMergeKeyPart = (value?: string | null) =>
@@ -34,13 +36,15 @@ const toMergeItem = (item: any): MergeItemInput => {
   const unitPrice = Number(item.unitPrice || 0);
 
   return {
-    serviceName: item.serviceName || 'Manuell prüfen',
-    description: item.description || item.serviceName || '',
-    quantity,
-    unit: item.unit || 'Stück',
-    unitPrice,
-    totalPrice: quantity * unitPrice,
-  };
+  serviceName: item.serviceName || 'Manuell prüfen',
+  description: item.description || item.serviceName || '',
+  quantity,
+  unit: item.unit || 'Stück',
+  unitPrice,
+  totalPrice: quantity * unitPrice,
+  aiWarning: item.aiWarning || null,
+  reviewReasons: item.reviewReasons || [],
+};
 };
 
 const mergeOrderItems = (orders: any[]) => {
@@ -49,26 +53,38 @@ const mergeOrderItems = (orders: any[]) => {
   for (const order of orders) {
     for (const rawItem of order.items || []) {
       const item = toMergeItem(rawItem);
-      const key = buildItemMergeKey(item);
-      const existing = merged.get(key);
+     const hasUnsafeMerge =
+  item.aiWarning?.trim() ||
+  item.reviewReasons?.some((r) =>
+    r.startsWith('unit_mismatch:'),
+  ) ||
+  Number(item.quantity || 0) <= 0 ||
+  Number(item.unitPrice || 0) <= 0;
 
-      if (existing) {
-        const quantity = existing.quantity + item.quantity;
-        merged.set(key, {
-          ...existing,
-          quantity,
-          totalPrice: quantity * existing.unitPrice,
-          description:
-            existing.description === item.description
-              ? existing.description
-              : [existing.description, item.description]
-                  .filter(Boolean)
-                  .filter((v, i, arr) => arr.indexOf(v) === i)
-                  .join('\n'),
-        });
-      } else {
-        merged.set(key, item);
-      }
+const key = hasUnsafeMerge
+  ? `${buildItemMergeKey(item)}|${order.id}|${Math.random()}`
+  : buildItemMergeKey(item);
+
+const existing = merged.get(key);
+
+if (existing && !hasUnsafeMerge) {
+  const quantity = existing.quantity + item.quantity;
+
+  merged.set(key, {
+    ...existing,
+    quantity,
+    totalPrice: quantity * existing.unitPrice,
+    description:
+      existing.description === item.description
+        ? existing.description
+        : [existing.description, item.description]
+            .filter(Boolean)
+            .filter((v, i, arr) => arr.indexOf(v) === i)
+            .join('\n'),
+  });
+} else {
+  merged.set(key, item);
+}
     }
   }
 

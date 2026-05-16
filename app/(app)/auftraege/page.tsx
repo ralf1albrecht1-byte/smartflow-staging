@@ -2610,17 +2610,9 @@ export default function AuftraegePage() {
         <DialogContent
           className={`${dupCheckOpen ? "max-w-4xl w-[95vw]" : "max-w-2xl"} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}
         >
-          <DialogHeader>
+                    <DialogHeader>
             <DialogTitle className="flex items-center gap-2 flex-wrap">
               {editId ? "Auftrag bearbeiten" : "Neuer Auftrag"}
-              {editId &&
-                orders
-                  .find((o: Order) => o.id === editId)
-                  ?.reviewReasons?.includes("manual_order_merge") && (
-                  <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300">
-                    Manuell verbunden
-                  </span>
-                )}
             </DialogTitle>
           </DialogHeader>
           <div
@@ -2728,7 +2720,7 @@ export default function AuftraegePage() {
                         r.startsWith("unit_mismatch:"),
                       ) && (
                         <span className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300">
-                          ⚠️ Einheit/Menge prüfen
+                          Einheit prüfen
                         </span>
                       )}
                     </div>
@@ -3305,17 +3297,7 @@ const showQuantityReview =
                               )}
                             </div>
 
-                            {unitMismatchReason && (
-                              <div className="flex items-start gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
-                                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
-                                <span className="text-xs text-amber-800 dark:text-amber-200">
-                                  ⚠ {detectedUnit} erkannt, aber diese Leistung
-                                  ist als {expectedUnit} hinterlegt. Bitte
-                                  Menge/Einheit manuell prüfen.
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                                                     </div>
                         );
                       })}
                     </div>
