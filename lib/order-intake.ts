@@ -1976,12 +1976,12 @@ export async function processIncomingMessage(
 
       if (!detectedName || detectedName.length < 3) return null;
 
-    const matchedService = strictMatchServiceForWorkItem(item, services);
-const detectedUnitType = getWorkItemUnitType(item);
-const detectedQuantity = getWorkItemQuantity(item);
-const detectedUnitPrice = detectUnitPriceForWorkItem(item, fullWorkText);
+       const matchedService = strictMatchServiceForWorkItem(item, services);
+      const detectedUnitType = getWorkItemUnitType(item);
+      const detectedQuantity = getWorkItemQuantity(item);
+      const detectedUnitPrice = detectUnitPriceForWorkItem(item, fullWorkText);
 
-if (matchedService) {
+      if (matchedService) {
         const serviceUnit = String(matchedService.unit || "Stunde");
         const serviceUnitType = getServiceUnitType(serviceUnit);
         const hasExplicitDetectedUnit =
