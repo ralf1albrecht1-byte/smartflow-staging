@@ -235,35 +235,60 @@ function getServiceUnitType(serviceUnit?: string | null): string {
     if (aliases.some((alias) => unit.includes(alias))) return type;
   }
 
-  return "unknown";
+ return "unknown";
 }
+
 function detectUnitPriceFromText(text: string): number | null {
   const source = normalizeUnitText(text);
   if (!source) return null;
 
   const unitWords =
-    "(?:stueck|stück|stk|einheit|quadratmeter|qm|m2|m²|kubikmeter|cbm|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
+    "(?:stueck|stück|stk|einheit|piece|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|stunde|stunden|std|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr)";
+
+  const currencyWords =
+    "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|dollar|\\$|gbp|pfund|£)";
+
+  const joinWords =
+    "(?:pro|je|per|à|a|/)";
+
+  const priceNumber =
+    "(\\d+(?:[.,]\\d{1,2})?)";
 
   const patterns = [
+    // 14 CHF pro qm
     new RegExp(
-      `(?:preis|kostet|kosten|zu|fuer|für|a|à)\\s*(\\d+(?:[.,]\\d{1,2})?)\\s*(?:chf|franken|fr\\.?|sfr\\.?)?\\s*(?:pro|je|/)\\s*${unitWords}`,
+      `${priceNumber}\\s*${currencyWords}\\s*${joinWords}\\s*${unitWords}`,
       "i",
     ),
+
+    // CHF 14 pro qm
     new RegExp(
-      `(\\d+(?:[.,]\\d{1,2})?)\\s*(?:chf|franken|fr\\.?|sfr\\.?)\\s*(?:pro|je|/)\\s*${unitWords}`,
+      `${currencyWords}\\s*${priceNumber}\\s*${joinWords}\\s*${unitWords}`,
       "i",
     ),
+
+    // zu 14 CHF pro qm
     new RegExp(
-      `(?:pro|je)\\s*${unitWords}\\s*(\\d+(?:[.,]\\d{1,2})?)\\s*(?:chf|franken|fr\\.?|sfr\\.?)?`,
+      `(?:preis|kostet|kosten|zu|fuer|für|a|à)\\s*(?:je\\s+)?${priceNumber}\\s*${currencyWords}\\s*${joinWords}\\s*${unitWords}`,
+      "i",
+    ),
+
+    // Preis von 14 CHF pro qm
+    new RegExp(
+      `(?:preis\\s+von|price\\s+of)\\s*${priceNumber}\\s*${currencyWords}\\s*${joinWords}\\s*${unitWords}`,
       "i",
     ),
   ];
 
   for (const pattern of patterns) {
     const match = source.match(pattern);
+
     if (match?.[1]) {
       const value = Number(match[1].replace(",", "."));
-      if (Number.isFinite(value) && value > 0) return value;
+
+      if (Number.isFinite(value) && value > 0) {
+        return value;
+      }
     }
   }
 
