@@ -1970,6 +1970,26 @@ export default function AuftraegePage() {
                               </span>
                             )}
 
+{(() => {
+  const hasPriceQuantityReview =
+    o.items?.some(
+      (it) =>
+        Number(it.unitPrice || 0) <= 0 ||
+        Number(it.quantity || 0) <= 0,
+    ) ||
+    Number(o.unitPrice || 0) <= 0 ||
+    Number(o.quantity || 0) <= 0;
+
+  if (!hasPriceQuantityReview) return null;
+
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700 border border-red-200 shrink-0">
+      <AlertTriangle className="w-3 h-3" />
+      Preis/Menge prüfen
+    </span>
+  );
+})()}
+
                           {o.needsReview &&
                             (hasRealCustomerReviewReason(o) ||
                               isCustomerDataIncomplete(o.customer)) && (
