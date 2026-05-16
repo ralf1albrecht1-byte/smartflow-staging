@@ -254,23 +254,11 @@ function detectUnitPriceFromText(text: string): number | null {
   const priceNumber =
     "(\\d+(?:[.,]\\d{1,2})?)";
 
-  const quantityNumber =
-    "(?:\\d+(?:[.,]\\d+)?)";
+
 
 
   const patterns = [
 
-    // Kurzformat: "80 m2 CHF 80" / "8 m CHF 140" / "1 h CHF 90"
-    new RegExp(
-      `${quantityNumber}\\s*${unitWords}\\s*${currencyWords}\\s*${priceNumber}`,
-      "i",
-    ),
-
-    // Kurzformat umgedreht: "80 m2 80 CHF" / "8 m 140 CHF" / "1 h 90 CHF"
-    new RegExp(
-      `${quantityNumber}\\s*${unitWords}\\s*${priceNumber}\\s*${currencyWords}`,
-      "i",
-    ),
 
     // Stundenpreis 110 CHF / Stundensatz von 95 CHF / Satz pro Stunde 80 CHF
     new RegExp(
@@ -385,6 +373,40 @@ function detectUnitPriceForWorkItem(
 
   return null;
 }
+
+
+function hasAmbiguousCompactLinePrice(text: string | null | undefined): boolean {
+  const source = normalizeUnitText(text || "");
+  if (!source) return false;
+
+  const hasExplicitUnitPriceSignal =
+    /\b(pro|je|per|stundensatz|tagessatz|quadratmeterpreis|kubikmeterpreis|meterpreis|stueckpreis|stückpreis|kilopreis|kilogrammpreis|tonnenpreis|literpreis)\b/i.test(
+      source,
+    );
+
+  if (hasExplicitUnitPriceSignal) return false;
+
+  const unitWords =
+    "(?:stueck|stück|stk|einheit|piece|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|m|stunde|stunden|std|h|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
+
+  const currencyWords =
+    "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|dollar|\\$|gbp|pfund|£)";
+
+  const quantityNumber = "\\d+(?:[.,]\\d+)?";
+  const priceNumber = "\\d+(?:[.,]\\d{1,2})?";
+
+  return (
+    new RegExp(
+      `${quantityNumber}\\s*${unitWords}\\s*${currencyWords}\\s*${priceNumber}`,
+      "i",
+    ).test(source) ||
+    new RegExp(
+      `${quantityNumber}\\s*${unitWords}\\s*${priceNumber}\\s*${currencyWords}`,
+      "i",
+    ).test(source)
+  );
+}
+
 
 function detectAllQuantityUnitsFromText(
   text: string,
@@ -2062,9 +2084,28 @@ export async function processIncomingMessage(
       if (!detectedName || detectedName.length < 3) return null;
 
        const matchedService = strictMatchServiceForWorkItem(item, services);
-      const detectedUnitType = getWorkItemUnitType(item);
-      const detectedQuantity = getWorkItemQuantity(item);
-      const detectedUnitPrice = detectUnitPriceForWorkItem(
+const originalSegment =
+  findOriginalSegmentForWorkItem(
+    item,
+    `${messageText}\n${fullWorkText}`,
+  ) || "";
+
+const detectedUnitTypeFromItem = getWorkItemUnitType(item);
+const detectedQuantityFromItem = getWorkItemQuantity(item);
+const originalQuantityMatch =
+  detectAllQuantityUnitsFromText(originalSegment)[0] || null;
+
+const detectedUnitType =
+  detectedUnitTypeFromItem !== "unknown"
+    ? detectedUnitTypeFromItem
+    : originalQuantityMatch?.unit || "unknown";
+
+const detectedQuantity =
+  detectedQuantityFromItem > 0
+    ? detectedQuantityFromItem
+    : originalQuantityMatch?.value || 0;
+
+const detectedUnitPrice = detectUnitPriceForWorkItem(
   item,
   `${messageText}\n${fullWorkText}`,
 );
@@ -2082,25 +2123,24 @@ export async function processIncomingMessage(
 
 const unitType = getServiceUnitType(unit);
 const catalogUnitPrice = Number(matchedService.defaultPrice || 0);
-
-const priceSearchText = `${raw} ${
-  findOriginalSegmentForWorkItem(
-    item,
-    `${messageText}\n${fullWorkText}`,
-  ) || ""
-}`;
+const priceSearchText = `${raw} ${originalSegment}`;
 
 const hasLooseCurrencyAmount =
   /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\b/i.test(
     priceSearchText,
+  ) ||
+  /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\s*\d+(?:[.,]\d{1,2})?\b/i.test(
+    priceSearchText,
   );
 
+const hasAmbiguousLinePrice =
+  hasAmbiguousCompactLinePrice(priceSearchText);
 const hasExplicitUnitPrice = Boolean(
   detectedUnitPrice && detectedUnitPrice > 0,
 );
 
 const shouldBlockCatalogFallback =
-  hasLooseCurrencyAmount && !hasExplicitUnitPrice;
+  (hasLooseCurrencyAmount || hasAmbiguousLinePrice) && !hasExplicitUnitPrice;
 
 const unitPrice = hasExplicitUnitPrice
   ? Number(detectedUnitPrice)
