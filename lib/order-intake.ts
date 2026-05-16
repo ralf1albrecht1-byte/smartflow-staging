@@ -310,26 +310,6 @@ function detectUnitPriceForWorkItem(
   const localPrice = detectUnitPriceFromText(localText);
   if (localPrice) return localPrice;
 
-  const itemName = normalizeUnitText(item.name || "");
-  const raw = normalizeUnitText(item.raw || "");
-  const source = normalizeUnitText(fullText);
-
-  const anchors = [raw, itemName]
-    .filter((v) => v && v.length >= 4)
-    .sort((a, b) => b.length - a.length);
-
-  for (const anchor of anchors) {
-    const idx = source.indexOf(anchor);
-    if (idx < 0) continue;
-
-    const before = Math.max(0, idx - 80);
-    const after = Math.min(source.length, idx + anchor.length + 140);
-    const nearby = source.slice(before, after);
-
-    const nearbyPrice = detectUnitPriceFromText(nearby);
-    if (nearbyPrice) return nearbyPrice;
-  }
-
   return null;
 }
 
