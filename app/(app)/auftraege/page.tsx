@@ -239,12 +239,87 @@ const CUSTOMER_REVIEW_REASONS = new Set([
   "customer_data_incomplete",
 ]);
 
+
+
 const hasRealCustomerReviewReason = (order: Order) => {
   return (
     order.reviewReasons?.some((reason) =>
       CUSTOMER_REVIEW_REASONS.has(reason),
     ) ?? false
   );
+};
+
+const getReviewBadges = (order: Order) => {
+  const badges: {
+    key: string;
+    label: string;
+    className: string;
+    icon?: boolean;
+  }[] = [];
+
+
+
+
+
+
+  const hasPriceQuantityReview =
+    order.items?.some(
+      (it) =>
+        Number(it.unitPrice || 0) <= 0 ||
+        Number(it.quantity || 0) <= 0,
+    ) ||
+    Number(order.unitPrice || 0) <= 0 ||
+    Number(order.quantity || 0) <= 0;
+
+  if (hasPriceQuantityReview) {
+    badges.push({
+      key: "price_quantity",
+      label: "Preis/Menge prüfen",
+      className: "bg-red-100 text-red-700 border border-red-200",
+      icon: true,
+    });
+  }
+
+  const hasUnitConflict =
+    order.reviewReasons?.some((r) => r.startsWith("unit_mismatch:")) ?? false;
+
+  if (hasUnitConflict) {
+    badges.push({
+      key: "unit_conflict",
+      label: "Einheit prüfen",
+      className: "bg-orange-100 text-orange-700 border border-orange-200",
+    });
+  }
+
+  const hasCustomerReview =
+    hasRealCustomerReviewReason(order) ||
+    isCustomerDataIncomplete(order.customer);
+
+  if (hasCustomerReview) {
+    badges.push({
+      key: "customer_review",
+      label: "Kunde prüfen",
+      className: "bg-yellow-100 text-yellow-700 border border-yellow-200",
+    });
+  }
+
+  if (order.reviewReasons?.includes("manual_order_merge")) {
+    badges.push({
+      key: "merged",
+      label: "Zusammengeführt",
+      className: "bg-blue-100 text-blue-700 border border-blue-200",
+    });
+  }
+
+  if (order.reviewReasons?.includes("double_merge")) {
+    badges.push({
+      key: "double_merge",
+      label: "Doppelte Zusammenführung",
+      className: "bg-purple-100 text-purple-700 border border-purple-200",
+    });
+  }
+
+  return badges;
 };
 
 const emptyForm = {
@@ -1963,6 +2038,7 @@ export default function AuftraegePage() {
                               ? "Kunde nicht zugeordnet"
                               : o.customer?.name || "–"}
                           </span>
+
                           {!isFallbackCustomerName(o.customer?.name) &&
                             o.customer?.customerNumber && (
                               <span className="text-muted-foreground shrink-0">
@@ -1970,57 +2046,18 @@ export default function AuftraegePage() {
                               </span>
                             )}
 
-{(() => {
-  const hasPriceQuantityReview =
-    o.items?.some(
-      (it) =>
-        Number(it.unitPrice || 0) <= 0 ||
-        Number(it.quantity || 0) <= 0,
-    ) ||
-    Number(o.unitPrice || 0) <= 0 ||
-    Number(o.quantity || 0) <= 0;
-
-  if (!hasPriceQuantityReview) return null;
-
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700 border border-red-200 shrink-0">
-      <AlertTriangle className="w-3 h-3" />
-      Preis/Menge prüfen
-    </span>
-  );
-})()}
-
-                          {o.needsReview &&
-                            (hasRealCustomerReviewReason(o) ||
-                              isCustomerDataIncomplete(o.customer)) && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openEdit(o, { openCustomerSection: true });
-                                }}
-                                className="tap-safe inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 min-h-[24px] rounded-full font-medium bg-orange-200 text-orange-800 border border-orange-300 shrink-0 cursor-pointer hover:bg-orange-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 transition-colors"
-                                aria-label="Kundendaten prüfen — Kunde direkt bearbeiten"
-                                title="Kundendaten prüfen — Kunde direkt bearbeiten"
-                              >
+                          {getReviewBadges(o).map((badge) => (
+                            <span
+                              key={badge.key}
+                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
+                            >
+                              {badge.icon && (
                                 <AlertTriangle className="w-3 h-3" />
-                                <span className="sm:hidden">Prüfen</span>
-                                <span className="hidden sm:inline">
-                                  Kundendaten prüfen
-                                </span>
-                              </button>
-                            )}
+                              )}
+                              {badge.label}
+                            </span>
+                          ))}
 
-                          {!o.needsReview &&
-                            isCustomerDataIncomplete(o.customer) && (
-                              <MissingCustomerDataBadge
-                                variant="compact"
-                                onClick={() =>
-                                  openEdit(o, { openCustomerSection: true })
-                                }
-                              />
-                            )}
-                          {/* Issue 3 — Audio >60s badge: immediately visible in list */}
                           {o.audioTranscriptionStatus?.startsWith(
                             "skipped",
                           ) && (
@@ -2028,35 +2065,29 @@ export default function AuftraegePage() {
                               ⚠️ Audio zu lang – manuell prüfen
                             </span>
                           )}
-                          {/* Image-only badge: order created from image without text */}
-                          {o.reviewReasons?.includes("image_only_no_text") && (
+
+                          {o.reviewReasons?.includes(
+                            "image_only_no_text",
+                          ) && (
                             <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
                               ⚠️ Bild ohne Text prüfen
                             </span>
                           )}
-                          {/* Unit mismatch badge: LLM-detected unit differs from service default */}
-                          {o.reviewReasons?.some((r: string) =>
-                            r.startsWith("unit_mismatch:"),
-                          ) && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
-                              ⚠️ Einheit/Menge prüfen
-                            </span>
-                          )}
-                          {/* Merge badge: order was manually merged */}
-                          {o.reviewReasons?.includes("manual_order_merge") && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 shrink-0">
-                              Manuell verbunden
-                            </span>
-                          )}
                         </div>
+
                         {/* Row 2: title + description preview */}
                         <p
-                          className={`text-sm font-medium mt-0.5 line-clamp-2 ${isSonstiges ? "text-red-600 dark:text-red-400" : "text-foreground"}`}
+                          className={`text-sm font-medium mt-0.5 line-clamp-2 ${
+                            isSonstiges
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-foreground"
+                          }`}
                         >
                           {isSonstiges && "⚠ "}
                           {serviceLine}
                           {descPreview ? ` — ${descPreview}` : ""}
                         </p>
+
                         {/* Row 3: [status] [media] [hints] ... [price] */}
                         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                           <select
@@ -2084,11 +2115,13 @@ export default function AuftraegePage() {
                               </option>
                             ))}
                           </select>
+
                           <CommunicationChips
                             data={o}
                             onAudioClick={() => openMedia(o)}
                             onImageClick={() => openMedia(o)}
                           />
+
                           <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
                             {formatCurrency(
                               Number((o as any).total || o.totalPrice || 0),
@@ -2104,6 +2137,7 @@ export default function AuftraegePage() {
             );
           })
         )}
+
         {filtered.length > visibleCount && (
           <div className="text-center pt-4">
             <Button
@@ -2115,7 +2149,6 @@ export default function AuftraegePage() {
           </div>
         )}
       </div>
-
       {/* Mobile-only navigation shortcut → Angebote.
           NOT a conversion. NOT a "new offer" action. Pure navigation.
           Hidden on md+ (desktop has the sidebar). */}
