@@ -697,7 +697,7 @@ export default function AngebotePage() {
       setItems(
         off.items.map((i: any) => ({
           description: i.description ?? "",
-          quantity: String(i.quantity ?? 1),
+          quantity: String(i.quantity ?? 0),
           unit: i.unit ?? "Stunde",
           unitPrice: String(i.unitPrice ?? 0),
         })),
@@ -887,7 +887,7 @@ export default function AngebotePage() {
         saved.items && saved.items.length > 0
           ? saved.items.map((i: any) => ({
               description: i.description ?? "",
-              quantity: String(i.quantity ?? 1),
+              quantity: String(i.quantity ?? 0),
               unit: i.unit ?? "Stunde",
               unitPrice: String(i.unitPrice ?? 0),
             }))
@@ -1456,10 +1456,24 @@ export default function AngebotePage() {
                                     </option>
                                   ))}
                                 </select>
-                                <span className="font-mono text-[11px] text-muted-foreground">
-                                  {off?.offerNumber ?? ""}
-                                </span>
-                                <CommunicationChips
+                               <span className="font-mono text-[11px] text-muted-foreground">
+  {off?.offerNumber ?? ""}
+</span>
+
+{off.items?.some(
+  (it: any) =>
+    Number(it.quantity) <= 0 ||
+    Number(it.unitPrice) <= 0,
+) && (
+  <Badge
+    variant="secondary"
+    className="text-[11px] px-2 py-0.5 bg-red-200 text-red-800 border border-red-300"
+  >
+    Preis/Menge prüfen
+  </Badge>
+)}
+
+<CommunicationChips
                                   data={orderCtx}
                                   onAudioClick={() =>
                                     orderCtx.mediaUrl &&
@@ -2076,35 +2090,37 @@ export default function AngebotePage() {
                               <Label className="text-xs">
                                 Preis ({currency})
                               </Label>
-                              <Input
-                                type="number"
-                                step="0.05"
-                                className="h-8"
-                                value={item?.unitPrice ?? ""}
-                                onChange={(e: any) =>
-                                  updateItem(
-                                    idx,
-                                    "unitPrice",
-                                    e?.target?.value ?? "0",
-                                  )
-                                }
-                              />
+                           <Input
+  type="number"
+  step="0.05"
+  placeholder="prüfen"
+  className={`h-8 ${
+    Number(item?.unitPrice ?? 0) <= 0
+      ? "border-red-500 bg-red-50"
+      : ""
+  }`}
+  value={Number(item?.unitPrice ?? 0) <= 0 ? "" : (item?.unitPrice ?? "")}
+  onChange={(e: any) =>
+    updateItem(idx, "unitPrice", e?.target?.value ?? "0")
+  }
+/>
                             </div>
                             <div>
                               <Label className="text-xs">Menge</Label>
-                              <Input
-                                type="number"
-                                step="0.25"
-                                className="h-8"
-                                value={item?.quantity ?? ""}
-                                onChange={(e: any) =>
-                                  updateItem(
-                                    idx,
-                                    "quantity",
-                                    e?.target?.value ?? "1",
-                                  )
-                                }
-                              />
+                       <Input
+  type="number"
+  step="0.25"
+  placeholder="prüfen"
+  className={`h-8 ${
+    Number(item?.quantity ?? 0) <= 0
+      ? "border-red-500 bg-red-50"
+      : ""
+  }`}
+  value={Number(item?.quantity ?? 0) <= 0 ? "" : (item?.quantity ?? "")}
+  onChange={(e: any) =>
+    updateItem(idx, "quantity", e?.target?.value ?? "0")
+  }
+/>
                             </div>
                           </div>
                           <div className="text-left sm:text-right text-xs text-muted-foreground">
