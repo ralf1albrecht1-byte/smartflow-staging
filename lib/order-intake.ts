@@ -238,6 +238,27 @@ function getServiceUnitType(serviceUnit?: string | null): string {
   return "unknown";
 }
 
+function detectUnitPriceFromText(text: string): number | null {
+  const source = normalizeUnitText(text);
+  if (!source) return null;
+
+  const patterns = [
+    /\b(?:preis|kostet|kosten|zu|fuer|für|a|à)\s*(\d+(?:[.,]\d{1,2})?)\s*(?:chf|franken|fr\.?|sfr\.?)?\s*(?:pro|je|\/)\s*(?:stueck|stück|stk|einheit|quadratmeter|qm|m2|m²|kubikmeter|cbm|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)/i,
+    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:chf|franken|fr\.?|sfr\.?)\s*(?:pro|je|\/)\s*(?:stueck|stück|stk|einheit|quadratmeter|qm|m2|m²|kubikmeter|cbm|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)/i,
+    /\b(?:pro|je)\s*(?:stueck|stück|stk|einheit|quadratmeter|qm|m2|m²|kubikmeter|cbm|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)\s*(\d+(?:[.,]\d{1,2})?)\s*(?:chf|franken|fr\.?|sfr\.?)?/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match?.[1]) {
+      const value = Number(match[1].replace(",", "."));
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+  }
+
+  return null;
+}
+
 function detectAllQuantityUnitsFromText(
   text: string,
 ): Array<{ value: number; unit: string; raw: string }> {
@@ -1916,6 +1937,9 @@ export async function processIncomingMessage(
       const matchedService = strictMatchServiceForWorkItem(item, services);
       const detectedUnitType = getWorkItemUnitType(item);
       const detectedQuantity = getWorkItemQuantity(item);
+const detectedUnitPrice = detectUnitPriceFromText(
+  [item.raw, item.name, fullWorkText].filter(Boolean).join(" "),
+);
 
           if (matchedService) {
         const serviceUnit = String(matchedService.unit || "Stunde");
@@ -1928,7 +1952,10 @@ export async function processIncomingMessage(
           : serviceUnit;
 
         const unitType = getServiceUnitType(unit);
-        const unitPrice = Number(matchedService.defaultPrice || 0);
+        const unitPrice =
+  detectedUnitPrice && detectedUnitPrice > 0
+    ? detectedUnitPrice
+    : Number(matchedService.defaultPrice || 0);
 
         const quantityValidation = validateQuantityAgainstServiceUnit({
           serviceUnit: unit,
@@ -1984,8 +2011,8 @@ return {
   ),
   quantity: detectedQuantity || 0,
   unit: unit || "Pauschal",
-  unitPrice: 0,
-  totalPrice: 0,
+ unitPrice: detectedUnitPrice || 0,
+totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
   needsReview: true,
   reviewReason: "unbekannte_leistung_pruefen",
 };
