@@ -257,6 +257,12 @@ function detectUnitPriceFromText(text: string): number | null {
 
   const patterns = [
 
+    // Stundenpreis 110 CHF / Stundensatz von 95 CHF / Satz pro Stunde 80 CHF
+    new RegExp(
+      `(?:stundenpreis|stundensatz|satz\\s+pro\\s+stunde)\\s*(?:von|=|:)?\\s*${priceNumber}\\s*${currencyWords}`,
+      "i",
+    ),
+
     // Stundensatz von 95 CHF / Tagessatz 700 CHF
     new RegExp(
       `(?:stundensatz|tagessatz|quadratmeterpreis|kubikmeterpreis|meterpreis|stueckpreis|stückpreis|kilopreis|kilogrammpreis|tonnenpreis|literpreis)\\s*(?:von|=|:)?\\s*${priceNumber}\\s*${currencyWords}`,
@@ -2062,9 +2068,16 @@ export async function processIncomingMessage(
 const unitType = getServiceUnitType(unit);
 const catalogUnitPrice = Number(matchedService.defaultPrice || 0);
 
+const priceSearchText = `${raw} ${
+  findOriginalSegmentForWorkItem(
+    item,
+    `${messageText}\n${fullWorkText}`,
+  ) || ""
+}`;
+
 const hasLooseCurrencyAmount =
   /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\b/i.test(
-    raw,
+    priceSearchText,
   );
 
 const hasExplicitUnitPrice = Boolean(
