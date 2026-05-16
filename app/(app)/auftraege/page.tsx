@@ -2124,9 +2124,18 @@ export default function AuftraegePage() {
 
                           <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
                             {formatCurrency(
-                              Number((o as any).total || o.totalPrice || 0),
-                              o.currency === "EUR" ? "EUR" : "CHF",
-                            )}
+  o.items && o.items.length > 0
+    ? o.items.reduce((sum, item) => {
+        const qty = Number(item.quantity || 0);
+        const price = Number(item.unitPrice || 0);
+
+        if (qty <= 0 || price <= 0) return sum;
+
+        return sum + qty * price;
+      }, 0)
+    : Number((o as any).total || o.totalPrice || 0),
+  o.currency === "EUR" ? "EUR" : "CHF",
+)}
                           </span>
                         </div>
                       </div>
