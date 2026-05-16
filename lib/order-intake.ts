@@ -254,8 +254,23 @@ function detectUnitPriceFromText(text: string): number | null {
   const priceNumber =
     "(\\d+(?:[.,]\\d{1,2})?)";
 
+  const quantityNumber =
+    "(?:\\d+(?:[.,]\\d+)?)";
+
 
   const patterns = [
+
+    // Kurzformat: "80 m2 CHF 80" / "8 m CHF 140" / "1 h CHF 90"
+    new RegExp(
+      `${quantityNumber}\\s*${unitWords}\\s*${currencyWords}\\s*${priceNumber}`,
+      "i",
+    ),
+
+    // Kurzformat umgedreht: "80 m2 80 CHF" / "8 m 140 CHF" / "1 h 90 CHF"
+    new RegExp(
+      `${quantityNumber}\\s*${unitWords}\\s*${priceNumber}\\s*${currencyWords}`,
+      "i",
+    ),
 
     // Stundenpreis 110 CHF / Stundensatz von 95 CHF / Satz pro Stunde 80 CHF
     new RegExp(
