@@ -1917,8 +1917,16 @@ export async function processIncomingMessage(
       const detectedUnitType = getWorkItemUnitType(item);
       const detectedQuantity = getWorkItemQuantity(item);
 
-      if (matchedService) {
-        const unit = String(matchedService.unit || "Stunde");
+          if (matchedService) {
+        const serviceUnit = String(matchedService.unit || "Stunde");
+        const serviceUnitType = getServiceUnitType(serviceUnit);
+        const hasExplicitDetectedUnit =
+          detectedUnitType !== "unknown" && detectedQuantity > 0;
+
+        const unit = hasExplicitDetectedUnit
+          ? unitTypeToDisplayUnit(detectedUnitType)
+          : serviceUnit;
+
         const unitType = getServiceUnitType(unit);
         const unitPrice = Number(matchedService.defaultPrice || 0);
 
@@ -1930,13 +1938,11 @@ export async function processIncomingMessage(
           serviceName: matchedService.name,
         });
 const mismatchDetected =
-  quantityValidation.needsReview &&
-  quantityValidation.reason &&
-  detectedUnitType !== "unknown" &&
-  detectedQuantity > 0;
+  hasExplicitDetectedUnit &&
+  serviceUnitType !== detectedUnitType;
 
 const reviewReason = mismatchDetected
-  ? `${quantityValidation.reason}:${unitTypeToDisplayUnit(detectedUnitType)}:${unit}:${detectedQuantity}`
+  ? `unit_mismatch:${String(matchedService.name || "Unbekannte Leistung")}:${serviceUnit}:${unit}:${detectedQuantity}`
   : quantityValidation.reason || null;
 
         return {
