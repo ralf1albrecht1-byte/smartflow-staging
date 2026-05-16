@@ -386,7 +386,31 @@ function formatWorkNameForDisplay(value: string): string {
 
   if (!text) return "Unbekannte Leistung";
 
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const forceUppercaseWords = [
+    "glasfläche",
+    "fugen",
+    "gartentor",
+    "kupferornamente",
+    "terrasse",
+    "fenster",
+    "hecke",
+    "rasen",
+    "baum",
+  ];
+
+  return text
+    .split(" ")
+    .map((word, index) => {
+      if (
+        index === 0 ||
+        forceUppercaseWords.includes(word)
+      ) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }
+
+      return word;
+    })
+    .join(" ");
 }
 
 
