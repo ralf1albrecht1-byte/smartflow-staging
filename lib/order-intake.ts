@@ -237,15 +237,26 @@ function getServiceUnitType(serviceUnit?: string | null): string {
 
   return "unknown";
 }
-
 function detectUnitPriceFromText(text: string): number | null {
   const source = normalizeUnitText(text);
   if (!source) return null;
 
+  const unitWords =
+    "(?:stueck|stück|stk|einheit|quadratmeter|qm|m2|m²|kubikmeter|cbm|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
+
   const patterns = [
-    /\b(?:preis|kostet|kosten|zu|fuer|für|a|à)\s*(\d+(?:[.,]\d{1,2})?)\s*(?:chf|franken|fr\.?|sfr\.?)?\s*(?:pro|je|\/)\s*(?:stueck|stück|stk|einheit|quadratmeter|qm|m2|m²|kubikmeter|cbm|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)/i,
-    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:chf|franken|fr\.?|sfr\.?)\s*(?:pro|je|\/)\s*(?:stueck|stück|stk|einheit|quadratmeter|qm|m2|m²|kubikmeter|cbm|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)/i,
-    /\b(?:pro|je)\s*(?:stueck|stück|stk|einheit|quadratmeter|qm|m2|m²|kubikmeter|cbm|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)\s*(\d+(?:[.,]\d{1,2})?)\s*(?:chf|franken|fr\.?|sfr\.?)?/i,
+    new RegExp(
+      `(?:preis|kostet|kosten|zu|fuer|für|a|à)\\s*(\\d+(?:[.,]\\d{1,2})?)\\s*(?:chf|franken|fr\\.?|sfr\\.?)?\\s*(?:pro|je|/)\\s*${unitWords}`,
+      "i",
+    ),
+    new RegExp(
+      `(\\d+(?:[.,]\\d{1,2})?)\\s*(?:chf|franken|fr\\.?|sfr\\.?)\\s*(?:pro|je|/)\\s*${unitWords}`,
+      "i",
+    ),
+    new RegExp(
+      `(?:pro|je)\\s*${unitWords}\\s*(\\d+(?:[.,]\\d{1,2})?)\\s*(?:chf|franken|fr\\.?|sfr\\.?)?`,
+      "i",
+    ),
   ];
 
   for (const pattern of patterns) {
@@ -254,6 +265,37 @@ function detectUnitPriceFromText(text: string): number | null {
       const value = Number(match[1].replace(",", "."));
       if (Number.isFinite(value) && value > 0) return value;
     }
+  }
+
+  return null;
+}
+
+function detectUnitPriceForWorkItem(
+  item: { raw?: string | null; name?: string | null },
+  fullText: string,
+): number | null {
+  const localText = [item.raw, item.name].filter(Boolean).join(" ");
+  const localPrice = detectUnitPriceFromText(localText);
+  if (localPrice) return localPrice;
+
+  const itemName = normalizeUnitText(item.name || "");
+  const raw = normalizeUnitText(item.raw || "");
+  const source = normalizeUnitText(fullText);
+
+  const anchors = [raw, itemName]
+    .filter((v) => v && v.length >= 4)
+    .sort((a, b) => b.length - a.length);
+
+  for (const anchor of anchors) {
+    const idx = source.indexOf(anchor);
+    if (idx < 0) continue;
+
+    const before = Math.max(0, idx - 80);
+    const after = Math.min(source.length, idx + anchor.length + 140);
+    const nearby = source.slice(before, after);
+
+    const nearbyPrice = detectUnitPriceFromText(nearby);
+    if (nearbyPrice) return nearbyPrice;
   }
 
   return null;
@@ -1934,14 +1976,12 @@ export async function processIncomingMessage(
 
       if (!detectedName || detectedName.length < 3) return null;
 
-      const matchedService = strictMatchServiceForWorkItem(item, services);
-      const detectedUnitType = getWorkItemUnitType(item);
-      const detectedQuantity = getWorkItemQuantity(item);
-const detectedUnitPrice = detectUnitPriceFromText(
-  [item.raw, item.name, fullWorkText].filter(Boolean).join(" "),
-);
+    const matchedService = strictMatchServiceForWorkItem(item, services);
+const detectedUnitType = getWorkItemUnitType(item);
+const detectedQuantity = getWorkItemQuantity(item);
+const detectedUnitPrice = detectUnitPriceForWorkItem(item, fullWorkText);
 
-          if (matchedService) {
+if (matchedService) {
         const serviceUnit = String(matchedService.unit || "Stunde");
         const serviceUnitType = getServiceUnitType(serviceUnit);
         const hasExplicitDetectedUnit =
