@@ -3176,6 +3176,18 @@ export default function AuftraegePage() {
                             );
                           });
 
+const priceOverrideReason = curOrder?.reviewReasons
+  ?.filter((r: string) => r.startsWith("price_override:"))
+  .find((r: string) => {
+    const [, serviceName] = r.split(":");
+    return (
+      (serviceName || "").trim().toLowerCase() ===
+      (item.serviceName || "").trim().toLowerCase()
+    );
+  });
+
+const showPriceOverride = Boolean(priceOverrideReason);
+
                         const [, , detectedUnit, expectedUnit] =
                           unitMismatchReason?.split(":") || [];
 
@@ -3183,9 +3195,7 @@ export default function AuftraegePage() {
   item.aiWarning?.trim() || unitMismatchReason,
 );
 
-const showQuantityReview =
-  showUnitConflict ||
-  Number(item.quantity || 0) === 0;
+const showQuantityReview = Number(item.quantity || 0) === 0;
                         
 const showPriceReview = Number(item.unitPrice || 0) === 0;
 
@@ -3215,16 +3225,21 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
                                 </button>
                               )}
                                                       </div>
-
-                            {(showPriceReview ||
-                              showQuantityReview ||
-                              showUnitConflict) && (
-                              <div className="flex flex-wrap gap-1">
+{(showPriceReview ||
+  showPriceOverride ||
+  showQuantityReview ||
+  showUnitConflict) && (                              <div className="flex flex-wrap gap-1">
                                 {showPriceReview && (
                                   <Badge className="bg-red-100 text-red-700 border border-red-200">
                                     Preis prüfen
                                   </Badge>
                                 )}
+
+{showPriceOverride && (
+  <Badge className="bg-amber-100 text-amber-700 border border-amber-200">
+    Preisabweichung prüfen
+  </Badge>
+)}
 
                                 {showQuantityReview && (
                                   <Badge className="bg-orange-100 text-orange-700 border border-orange-200">
