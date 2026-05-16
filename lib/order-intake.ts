@@ -2043,7 +2043,10 @@ export async function processIncomingMessage(
        const matchedService = strictMatchServiceForWorkItem(item, services);
       const detectedUnitType = getWorkItemUnitType(item);
       const detectedQuantity = getWorkItemQuantity(item);
-      const detectedUnitPrice = detectUnitPriceForWorkItem(item, fullWorkText);
+      const detectedUnitPrice = detectUnitPriceForWorkItem(
+  item,
+  `${messageText}\n${fullWorkText}`,
+);
 
       if (matchedService) {
         const serviceUnit = String(matchedService.unit || "Stunde");
