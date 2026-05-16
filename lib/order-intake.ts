@@ -356,10 +356,62 @@ function findOriginalSegmentForWorkItem(
   return best && best.score >= 10 ? best.segment : null;
 }
 
+
+function findColonBlockForWorkItem(
+  item: { raw?: string | null; name?: string | null },
+  fullText: string,
+): string | null {
+  const source = normalizeUnitText(fullText);
+  if (!source) return null;
+
+  const itemName = normalizeUnitText(item.name || "");
+  const raw = normalizeUnitText(item.raw || "");
+  const searchText = [itemName, raw].filter(Boolean).join(" ");
+
+  const keywords = searchText
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 4);
+
+  if (keywords.length === 0) return null;
+
+  const blocks = source
+    .split(/\n{2,}/g)
+    .map((b) => b.trim())
+    .filter((b) => b.length >= 8);
+
+  let best: { block: string; score: number } | null = null;
+
+  for (const block of blocks) {
+    let score = 0;
+
+    for (const keyword of keywords) {
+      if (block.includes(keyword)) score += 10;
+    }
+
+    if (itemName && block.includes(itemName)) score += 60;
+    if (raw && block.includes(raw)) score += 40;
+    if (block.includes(":")) score += 10;
+
+    if (!best || score > best.score) {
+      best = { block, score };
+    }
+  }
+
+  return best && best.score >= 20 ? best.block : null;
+}
+
+
 function detectUnitPriceForWorkItem(
   item: { raw?: string | null; name?: string | null },
   fullText: string,
 ): number | null {
+  const colonBlock = findColonBlockForWorkItem(item, fullText);
+
+  if (colonBlock) {
+    return detectUnitPriceFromText(colonBlock);
+  }
+
   const originalSegment = findOriginalSegmentForWorkItem(item, fullText);
 
   if (originalSegment) {
@@ -372,6 +424,7 @@ function detectUnitPriceForWorkItem(
   if (localPrice) return localPrice;
 
   return null;
+}
 }
 
 
@@ -2085,10 +2138,15 @@ export async function processIncomingMessage(
 
        const matchedService = strictMatchServiceForWorkItem(item, services);
 const originalSegment =
+  findColonBlockForWorkItem(
+    item,
+    `${messageText}\n${fullWorkText}`,
+  ) ||
   findOriginalSegmentForWorkItem(
     item,
     `${messageText}\n${fullWorkText}`,
-  ) || "";
+  ) ||
+  "";
 
 const detectedUnitTypeFromItem = getWorkItemUnitType(item);
 const detectedQuantityFromItem = getWorkItemQuantity(item);
@@ -2901,7 +2959,7 @@ async function createFallbackOrderFromRawPayload(
     });
     return null;
   }
-}
+
 
 // ────────────────────────────────────────────────────────────────────────
 // Stage H — Cost optimization: long voice messages (>60 s)
@@ -3225,4 +3283,4 @@ export async function createVoiceTooLongReviewOrder(
     });
     return null;
   }
-}
+
