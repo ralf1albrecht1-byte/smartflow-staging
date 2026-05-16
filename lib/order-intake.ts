@@ -302,40 +302,65 @@ function detectUnitPriceFromText(text: string): number | null {
   return null;
 }
 
-
-function detectUnitPriceForWorkItem(
+function findOriginalSegmentForWorkItem(
   item: { raw?: string | null; name?: string | null },
   fullText: string,
-): number | null {
-  const localText = [item.raw, item.name].filter(Boolean).join(" ");
-  const localPrice = detectUnitPriceFromText(localText);
-  if (localPrice) return localPrice;
+): string | null {
+  const source = normalizeUnitText(fullText);
+  if (!source) return null;
 
   const itemName = normalizeUnitText(item.name || "");
-  const source = normalizeUnitText(fullText);
+  const raw = normalizeUnitText(item.raw || "");
 
-  const itemWords = itemName
+  const itemWords = [itemName, raw]
+    .join(" ")
     .split(/\s+/)
     .map((w) => w.trim())
     .filter((w) => w.length >= 4);
 
   if (itemWords.length === 0) return null;
 
-  const parts = source
+  const segments = source
     .split(
       /\n|;|\.|,|\bdanach\b|\bzusaetzlich\b|\bzusätzlich\b|\banschliessend\b|\banschließend\b/gi,
     )
     .map((p) => p.trim())
     .filter((p) => p.length >= 8);
 
-  const matchingParts = parts.filter((part) =>
-    itemWords.some((word) => part.includes(word)),
-  );
+  let best: { segment: string; score: number } | null = null;
 
-  for (const part of matchingParts) {
-    const segmentPrice = detectUnitPriceFromText(part);
+  for (const segment of segments) {
+    let score = 0;
+
+    for (const word of itemWords) {
+      if (segment.includes(word)) score += 10;
+    }
+
+    if (itemName && segment.includes(itemName)) score += 40;
+    if (raw && segment.includes(raw)) score += 30;
+
+    if (!best || score > best.score) {
+      best = { segment, score };
+    }
+  }
+
+  return best && best.score >= 10 ? best.segment : null;
+}
+
+function detectUnitPriceForWorkItem(
+  item: { raw?: string | null; name?: string | null },
+  fullText: string,
+): number | null {
+  const originalSegment = findOriginalSegmentForWorkItem(item, fullText);
+
+  if (originalSegment) {
+    const segmentPrice = detectUnitPriceFromText(originalSegment);
     if (segmentPrice) return segmentPrice;
   }
+
+  const localText = [item.raw, item.name].filter(Boolean).join(" ");
+  const localPrice = detectUnitPriceFromText(localText);
+  if (localPrice) return localPrice;
 
   return null;
 }
