@@ -302,6 +302,7 @@ function detectUnitPriceFromText(text: string): number | null {
   return null;
 }
 
+
 function detectUnitPriceForWorkItem(
   item: { raw?: string | null; name?: string | null },
   fullText: string,
@@ -309,6 +310,39 @@ function detectUnitPriceForWorkItem(
   const localText = [item.raw, item.name].filter(Boolean).join(" ");
   const localPrice = detectUnitPriceFromText(localText);
   if (localPrice) return localPrice;
+
+  const itemName = normalizeUnitText(item.name || "");
+  const raw = normalizeUnitText(item.raw || "");
+  const source = normalizeUnitText(fullText);
+
+  const anchors = [raw, itemName]
+    .filter((v) => v && v.length >= 4)
+    .sort((a, b) => b.length - a.length);
+
+  const parts = source
+    .split(/\n|;|\.|,|\bund\b|\bdanach\b|\bzusätzlich\b|\banschliessend\b|\banschließend\b/gi)
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 8);
+
+  for (const anchor of anchors) {
+    const anchorWords = anchor
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length >= 4);
+
+    const matchingPart = parts.find((part) => {
+      if (part.includes(anchor)) return true;
+
+      if (anchorWords.length === 0) return false;
+
+      return anchorWords.some((word) => part.includes(word));
+    });
+
+    if (!matchingPart) continue;
+
+    const segmentPrice = detectUnitPriceFromText(matchingPart);
+    if (segmentPrice) return segmentPrice;
+  }
 
   return null;
 }
