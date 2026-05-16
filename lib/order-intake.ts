@@ -330,11 +330,11 @@ function findOriginalSegmentForWorkItem(
   if (itemWords.length === 0) return null;
 
   const segments = source
-    .split(
-      /\n|;|\.|,|\bdanach\b|\bzusaetzlich\b|\bzusätzlich\b|\banschliessend\b|\banschließend\b/gi,
-    )
-    .map((p) => p.trim())
-    .filter((p) => p.length >= 8);
+  .split(
+        /\n{2,}|;|\bdanach\b|\bzusaetzlich\b|\bzusätzlich\b|\banschliessend\b|\banschließend\b|\bthen\b|\bafterwards\b|\badditional(?:ly)?\b|\balso\b|\bensuite\b|\bpuis\b|\bsupplémentaire\b|\badditionnel\b|\bpoi\b|\binoltre\b|\baggiuntivo\b/gi,
+  )
+  .map((p) => p.trim())
+  .filter((p) => p.length >= 8);
 
   let best: { segment: string; score: number } | null = null;
 
