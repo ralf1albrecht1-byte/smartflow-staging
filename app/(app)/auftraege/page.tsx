@@ -3187,6 +3187,7 @@ const showQuantityReview =
   showUnitConflict ||
   Number(item.quantity || 0) === 0;
                         
+const showPriceReview = Number(item.unitPrice || 0) === 0;
 
                         return (
                           <div
@@ -3213,7 +3214,32 @@ const showQuantityReview =
                                   <X className="w-4 h-4" />
                                 </button>
                               )}
-                            </div>
+                                                      </div>
+
+                            {(showPriceReview ||
+                              showQuantityReview ||
+                              showUnitConflict) && (
+                              <div className="flex flex-wrap gap-1">
+                                {showPriceReview && (
+                                  <Badge className="bg-red-100 text-red-700 border border-red-200">
+                                    Preis prüfen
+                                  </Badge>
+                                )}
+
+                                {showQuantityReview && (
+                                  <Badge className="bg-orange-100 text-orange-700 border border-orange-200">
+                                    Menge prüfen
+                                  </Badge>
+                                )}
+
+                                {showUnitConflict && (
+                                  <Badge className="bg-yellow-100 text-yellow-700 border border-yellow-200">
+                                    Einheit prüfen
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
+
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                               <div>
                                 <Label className="text-xs">Einheit</Label>
