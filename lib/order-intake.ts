@@ -94,6 +94,23 @@ function normalizeUnitText(value: any): string {
     .trim();
 }
 
+
+function normalizeBlockText(value: any): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[ä]/g, "ae")
+    .replace(/[ö]/g, "oe")
+    .replace(/[ü]/g, "ue")
+    .replace(/[ß]/g, "ss")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function detectQuantityUnitFromText(text: string): {
   value: number | null;
   unit: string | null;
@@ -361,7 +378,7 @@ function findColonBlockForWorkItem(
   item: { raw?: string | null; name?: string | null },
   fullText: string,
 ): string | null {
-  const source = normalizeUnitText(fullText);
+  const source = normalizeBlockText(fullText);
   if (!source) return null;
 
   const itemName = normalizeUnitText(item.name || "");
@@ -376,7 +393,7 @@ function findColonBlockForWorkItem(
   if (keywords.length === 0) return null;
 
   const blocks = source
-    .split(/\n{2,}/g)
+    .split(/\n\s*\n/g)
     .map((b) => b.trim())
     .filter((b) => b.length >= 8);
 
@@ -384,21 +401,25 @@ function findColonBlockForWorkItem(
 
   for (const block of blocks) {
     let score = 0;
+    const normalizedBlock = normalizeUnitText(block);
+    const firstLine = normalizeUnitText(block.split("\n")[0] || "");
 
     for (const keyword of keywords) {
-      if (block.includes(keyword)) score += 10;
+      if (normalizedBlock.includes(keyword)) score += 10;
+      if (firstLine.includes(keyword)) score += 20;
     }
 
-    if (itemName && block.includes(itemName)) score += 60;
-    if (raw && block.includes(raw)) score += 40;
-    if (block.includes(":")) score += 10;
+    if (itemName && normalizedBlock.includes(itemName)) score += 60;
+    if (itemName && firstLine.includes(itemName)) score += 80;
+    if (raw && normalizedBlock.includes(raw)) score += 40;
+    if (block.includes(":")) score += 20;
 
     if (!best || score > best.score) {
       best = { block, score };
     }
   }
 
-  return best && best.score >= 20 ? best.block : null;
+  return best && best.score >= 30 ? best.block : null;
 }
 
 
@@ -412,18 +433,8 @@ function detectUnitPriceForWorkItem(
     return detectUnitPriceFromText(colonBlock);
   }
 
-  const originalSegment = findOriginalSegmentForWorkItem(item, fullText);
-
-  if (originalSegment) {
-    const segmentPrice = detectUnitPriceFromText(originalSegment);
-    if (segmentPrice) return segmentPrice;
-  }
-
   const localText = [item.raw, item.name].filter(Boolean).join(" ");
-  const localPrice = detectUnitPriceFromText(localText);
-  if (localPrice) return localPrice;
-
-  return null;
+  return detectUnitPriceFromText(localText);
 }
 
 
@@ -1977,6 +1988,31 @@ export async function processIncomingMessage(
   return q?.value ?? 0;
 };
 
+const hasForbiddenServiceWorkConflict = (
+  serviceName: string,
+  workText: string,
+): boolean => {
+  const s = normalizeServiceText(serviceName);
+  const w = normalizeServiceText(workText);
+
+  const serviceIsHedge = /\b(hecke|hecken)\b/i.test(s);
+  const workIsTree = /\b(baum|baeume|baume|bäume)\b/i.test(w);
+
+  if (serviceIsHedge && workIsTree) return true;
+
+  const serviceIsGreenWaste =
+    /\b(gruenzeug|gruenabfall|gruengut|gartenabfall|grünzeug|grünabfall|grüngut)\b/i.test(
+      s,
+    );
+
+  const workIsConstructionWaste =
+    /\b(bauschutt|aushub|erde|beton|ziegel|steine|kies|schutt)\b/i.test(w);
+
+  if (serviceIsGreenWaste && workIsConstructionWaste) return true;
+
+  return false;
+};
+
   const serviceDomainMatchesWork = (
     serviceName: string,
     workText: string,
@@ -2067,6 +2103,10 @@ export async function processIncomingMessage(
     for (const service of services) {
       const serviceName = normalizeServiceText(service.name);
       const serviceUnitType = getServiceUnitType(service.unit);
+
+      if (hasForbiddenServiceWorkConflict(service.name, workText)) {
+        continue;
+      }
 
       if (!serviceName) continue;
 
@@ -2196,9 +2236,17 @@ const hasAmbiguousLinePrice =
 const hasExplicitUnitPrice = Boolean(
   detectedUnitPrice && detectedUnitPrice > 0,
 );
+const hasNoPriceSignal =
+  /\b(ohne\s+preis|ohne\s+preisangabe|kein\s+preis|keine\s+preisangabe|preis\s+offen|preis\s+folgt|preis\s+laut\s+offerte|laut\s+offerte|nach\s+aufwand)\b/i.test(
+    priceSearchText,
+  );
 
 const shouldBlockCatalogFallback =
-  (hasLooseCurrencyAmount || hasAmbiguousLinePrice) && !hasExplicitUnitPrice;
+  (
+    hasLooseCurrencyAmount ||
+    hasAmbiguousLinePrice ||
+    hasNoPriceSignal
+  ) && !hasExplicitUnitPrice;
 
 const unitPrice = hasExplicitUnitPrice
   ? Number(detectedUnitPrice)
