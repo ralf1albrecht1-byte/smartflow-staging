@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
 import {
   ClipboardList,
   Plus,
@@ -2182,9 +2183,14 @@ const getSafeOrderTotal = (o: Order) => {
         label="Angebote"
         ariaLabel="Zu Angebote"
       />
-
+      <MergeOrdersDialog
+        open={mergeStep === 2}
+        onOpenChange={(open) => {
+          if (!open) handleDialogClose(false);
+        }}
+      />
       {/* ─── Merge Assistant Dialog (single persistent Dialog for steps 2–3) ─── */}
-      <Dialog open={mergeStep > 1} onOpenChange={handleDialogClose}>
+      <Dialog open={mergeStep === 3} onOpenChange={handleDialogClose}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {mergeStep === 2 &&
             (() => {
