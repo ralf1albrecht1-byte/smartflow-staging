@@ -16,6 +16,7 @@ interface MergeOrderItem {
 }
 
 interface MergeOrder {
+currency?: Currency | null;
   id: string;
   customerId: string;
   description?: string | null;
@@ -258,6 +259,13 @@ export default function MergeOrdersDialog({
   );
 
   const hasCustomerConflict = realCustomerNames.length > 1;
+const selectedCurrencies = Array.from(
+  new Set(
+    selectedOrders.map((order) => (order.currency || 'CHF').trim()),
+  ),
+);
+
+const hasCurrencyConflict = selectedCurrencies.length > 1;
 
   const selectedMainOrder = selectedOrders.find((order) => order.id === selectedMainOrderId);
   const selectedMainRealName = isRealCustomerName(selectedMainOrder?.customer?.name)
@@ -391,11 +399,17 @@ export default function MergeOrdersDialog({
                     </p>
                   </div>
 
-                  {hasCustomerConflict && (
-                    <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-                      ⚠ Verschiedene echte Kundennamen erkannt. Bitte prüfen.
-                    </div>
-                  )}
+{hasCustomerConflict && (
+  <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+    ⚠ Verschiedene echte Kundennamen erkannt. Bitte prüfen.
+  </div>
+)}
+
+{hasCurrencyConflict && (
+  <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+    ⚠ Aufträge mit unterschiedlichen Währungen können nicht verbunden werden.
+  </div>
+)}
 
                   <button
                     onClick={() => onOpenChange(false)}
@@ -607,9 +621,13 @@ export default function MergeOrdersDialog({
                 Zurück
               </button>
 
-              <button
-                onClick={onNext}
-                disabled={!selectedMainOrderId || !selectedCustomerId}
+             <button
+  onClick={onNext}
+  disabled={
+    !selectedMainOrderId ||
+    !selectedCustomerId ||
+    hasCurrencyConflict
+  }
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
               >
                 Weiter zur Prüfung

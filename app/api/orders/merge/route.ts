@@ -227,6 +227,17 @@ export async function POST(request: NextRequest) {
       const hasCustomerMismatch = uniqueCustomerIds.length > 1;
 
       const allOrders = [targetOrder, ...sourceOrders];
+const currencies = Array.from(
+  new Set(
+    allOrders.map((order) => (order.currency || 'CHF').trim()),
+  ),
+);
+
+if (currencies.length > 1) {
+  throw new Error(
+    'Aufträge mit unterschiedlichen Währungen können nicht verbunden werden',
+  );
+}
 
       const hasDoubleMerge = allOrders.some((o) =>
         o.reviewReasons?.includes('manual_order_merge'),
