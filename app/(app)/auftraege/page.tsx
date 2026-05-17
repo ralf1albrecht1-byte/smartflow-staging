@@ -2300,48 +2300,30 @@ const getSafeOrderTotal = (o: Order) => {
                                 </div>
                               )}
 
-
-                              <div className="space-y-2 min-w-0 text-sm">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold truncate">
-                                    {cust?.name || "Kein Kunde erkannt"}
+                              <div className="grid grid-cols-1 gap-1 text-sm">
+                                <div className="flex gap-2 min-w-0">
+                                  <span className="w-20 shrink-0 text-muted-foreground">
+                                    Kunde:
                                   </span>
-                                  <span className="text-xs text-muted-foreground">
-                                    {formatMergeDate(o.createdAt || o.date)}
+                                  <span className="font-medium truncate">
+                                    {cust?.name || "Kein Kunde erkannt"}
                                   </span>
                                 </div>
 
-                                <div className="space-y-1">
-                                  {(o.items && o.items.length > 0
-                                    ? o.items
-                                    : [
-                                        {
-                                          serviceName:
-                                            o.serviceName || "Leistung",
-                                          quantity: o.quantity,
-                                          unit: o.priceType,
-                                          totalPrice: getSafeOrderTotal(o),
-                                        },
-                                      ]
-                                  ).map((item, idx) => (
-                                    <div
-                                      key={idx}
-                                      className="grid grid-cols-[1fr_auto_auto] gap-3"
-                                    >
-                                      <span className="truncate">
-                                        {item.serviceName || "Leistung"}
-                                      </span>
-                                      <span className="text-muted-foreground whitespace-nowrap">
-                                        {item.quantity} {item.unit}
-                                      </span>
-                                      <span className="font-semibold whitespace-nowrap">
-                                        {formatCurrency(
-                                          Number(item.totalPrice || 0),
-                                          currency,
-                                        )}
-                                      </span>
-                                    </div>
-                                  ))}
+                                <div className="flex gap-2 min-w-0">
+                                  <span className="w-20 shrink-0 text-muted-foreground">
+                                    Nachricht:
+                                  </span>
+                                  <span className="truncate">
+                                    {message || "Kein Text vorhanden"}
+                                  </span>
+                                </div>
+
+                                <div className="flex gap-2 min-w-0">
+                                  <span className="w-20 shrink-0 text-muted-foreground">
+                                    KI-Hinweis:
+                                  </span>
+                                  <span className="truncate">{aiHint}</span>
                                 </div>
                               </div>
 
