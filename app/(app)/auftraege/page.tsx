@@ -1231,19 +1231,39 @@ export default function AuftraegePage() {
 
     const url = editId ? `/api/orders/${editId}` : "/api/orders";
     const method = editId ? "PUT" : "POST";
-    const payload = {
-      ...form,
-      description: desc,
-      vatRate: orderVatRate,
-      currency,
-      items: validItems.map((item) => ({
-        serviceName: item.serviceName,
-        description: buildItemDescription(item),
-        quantity: Number(item.quantity || 0),
-        unit: item.unit,
-        unitPrice: Number(item.unitPrice || 0),
-      })),
-    };
+  const validServiceNames = new Set(
+  validItems
+    .filter((item) => Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0)
+    .map((item) => item.serviceName.trim().toLowerCase()),
+);
+
+const cleanedReviewReasons =
+  orders
+    .find((o) => o.id === editId)
+    ?.reviewReasons?.filter((reason) => {
+      if (!reason.startsWith("unit_mismatch:")) return true;
+
+      const [, reasonService] = reason.split(":");
+      const reasonName = (reasonService || "").trim().toLowerCase();
+
+      return !validServiceNames.has(reasonName);
+    }) ?? [];
+
+const payload = {
+  ...form,
+  description: desc,
+  vatRate: orderVatRate,
+  currency,
+  reviewReasons: cleanedReviewReasons,
+  needsReview: cleanedReviewReasons.length > 0,
+  items: validItems.map((item) => ({
+    serviceName: item.serviceName,
+    description: buildItemDescription(item),
+    quantity: Number(item.quantity || 0),
+    unit: item.unit,
+    unitPrice: Number(item.unitPrice || 0),
+  })),
+};
     const res = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
