@@ -1550,10 +1550,44 @@ const payload = {
         }),
     );
     setMergeAudioUrls(audioMap);
-    const defaultMainOrderId =
-      selectedMainOrderId && selectedOrderIds.includes(selectedMainOrderId)
-        ? selectedMainOrderId
-        : selectedOrderIds[0];
+const getBestMainOrder = (ordersToCheck: Order[]) => {
+  const scored = ordersToCheck.map((order) => {
+    const customer = order.customer;
+
+    const hasRealName =
+      customer?.name &&
+      !isFallbackCustomerName(customer.name);
+
+    const hasAddress =
+      customer?.address?.trim() &&
+      customer?.plz?.trim() &&
+      customer?.city?.trim();
+
+    const hasCustomerNumber =
+      customer?.customerNumber?.trim();
+
+    let score = 0;
+
+    if (hasRealName) score += 10;
+    if (hasAddress) score += 20;
+    if (hasCustomerNumber) score += 5;
+
+    return {
+      order,
+      score,
+    };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  return scored[0]?.order || ordersToCheck[0];
+};
+    const bestMainOrder = getBestMainOrder(selected);
+
+const defaultMainOrderId =
+  selectedMainOrderId && selectedOrderIds.includes(selectedMainOrderId)
+    ? selectedMainOrderId
+    : bestMainOrder.id;
     setSelectedMainOrderId(defaultMainOrderId || null);
     const defaultMainOrder = orders.find(
       (o) => o.id === (defaultMainOrderId || selectedOrderIds[0]),
