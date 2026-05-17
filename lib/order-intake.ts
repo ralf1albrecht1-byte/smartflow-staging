@@ -328,6 +328,24 @@ function detectUnitPriceFromText(text: string): number | null {
   return null;
 }
 
+function detectCurrencyFromText(
+  text: string | null | undefined,
+): "CHF" | "EUR" | null {
+  const source = normalizeUnitText(text || "");
+
+  if (!source) return null;
+
+  if (/\b(chf|franken|fr\.?|sfr\.?|stutz)\b/i.test(source)) {
+    return "CHF";
+  }
+
+  if (/\b(eur|euro)\b|€/i.test(source)) {
+    return "EUR";
+  }
+
+  return null;
+}
+
 function findOriginalSegmentForWorkItem(
   item: { raw?: string | null; name?: string | null },
   fullText: string,
@@ -1288,7 +1306,11 @@ export async function processIncomingMessage(
     ? await prisma.companySettings.findFirst({ where: { userId } })
     : await prisma.companySettings.findFirst();
   const branche = companySettings?.branche || "Gartenbau";
-  const intakeCurrency = companySettings?.currency === "EUR" ? "EUR" : "CHF";
+  const detectedCurrency = detectCurrencyFromText(messageText);
+
+const intakeCurrency =
+  detectedCurrency ||
+  (companySettings?.currency === "EUR" ? "EUR" : "CHF");
   const hauptsprache = (companySettings as any)?.hauptsprache || "Deutsch";
 
   // Resolve default VAT rate from CompanySettings.
