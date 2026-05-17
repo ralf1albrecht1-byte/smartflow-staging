@@ -1550,44 +1550,50 @@ const payload = {
         }),
     );
     setMergeAudioUrls(audioMap);
+const getFullCustomer = (order: Order) => {
+  return customers.find((c) => c.id === order.customerId) || order.customer;
+};
+
 const getBestMainOrder = (ordersToCheck: Order[]) => {
-  const scored = ordersToCheck.map((order) => {
-    const customer = order.customer;
+  const scored = ordersToCheck.map((order, index) => {
+    const customer = getFullCustomer(order);
 
-    const hasRealName =
-      customer?.name &&
-      !isFallbackCustomerName(customer.name);
+    const name = (customer?.name || "").trim();
+    const address = (customer?.address || "").trim();
+    const plz = (customer?.plz || "").trim();
+    const city = (customer?.city || "").trim();
+    const phone = (customer?.phone || "").trim();
+    const email = (customer?.email || "").trim();
+    const customerNumber = (customer?.customerNumber || "").trim();
 
-    const hasAddress =
-      customer?.address?.trim() &&
-      customer?.plz?.trim() &&
-      customer?.city?.trim();
-
-    const hasCustomerNumber =
-      customer?.customerNumber?.trim();
+    const hasRealName = name.length > 0 && !isFallbackCustomerName(name);
+    const hasFullName = hasRealName && name.split(/\s+/).length >= 2;
+    const hasAddress = address.length > 0;
+    const hasPlzCity = plz.length > 0 && city.length > 0;
+    const hasContact = phone.length > 0 || email.length > 0;
 
     let score = 0;
 
-    if (hasRealName) score += 10;
-    if (hasAddress) score += 20;
-    if (hasCustomerNumber) score += 5;
+    if (hasRealName) score += 20;
+    if (hasFullName) score += 30;
+    if (hasAddress) score += 40;
+    if (hasPlzCity) score += 40;
+    if (hasContact) score += 10;
+    if (customerNumber) score += 5;
 
-    return {
-      order,
-      score,
-    };
+    return { order, score, index };
   });
 
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.index - b.index;
+  });
 
   return scored[0]?.order || ordersToCheck[0];
 };
     const bestMainOrder = getBestMainOrder(selected);
 
-const defaultMainOrderId =
-  selectedMainOrderId && selectedOrderIds.includes(selectedMainOrderId)
-    ? selectedMainOrderId
-    : bestMainOrder.id;
+const defaultMainOrderId = bestMainOrder.id;
     setSelectedMainOrderId(defaultMainOrderId || null);
     const defaultMainOrder = orders.find(
       (o) => o.id === (defaultMainOrderId || selectedOrderIds[0]),
