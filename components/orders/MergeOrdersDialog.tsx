@@ -32,7 +32,7 @@ interface MergeOrder {
   quantity?: number;
   unitPrice?: number;
   priceType?: string;
-  customer?: {
+    customer?: {
     name?: string;
     customerNumber?: string | null;
   };
@@ -126,6 +126,31 @@ const getOrderItems = (order: MergeOrder): MergeOrderItem[] => {
   ];
 };
 
+const isRealCustomerName = (name?: string | null) => {
+  const value = (name || '').trim();
+  if (!value) return false;
+
+  const lower = value.toLowerCase();
+
+  if (lower.includes('nicht zugeordnet')) return false;
+  if (lower.includes('ohne kundenzuordnung')) return false;
+  if (lower.startsWith('#k-')) return false;
+  if (lower.startsWith('k-')) return false;
+
+  return true;
+};
+
+const getCustomerLabel = (order: MergeOrder) => {
+  const name = (order.customer?.name || '').trim();
+  const customerNumber = (order.customer?.customerNumber || '').trim();
+
+  if (isRealCustomerName(name)) return name;
+  if (customerNumber) return `#${customerNumber.replace(/^#/, '')}`;
+  if (order.customerId) return `#${order.customerId.replace(/^#/, '')}`;
+
+  return 'Ohne Kundenzuordnung';
+};
+
 export default function MergeOrdersDialog({
   open,
   onOpenChange,
@@ -147,11 +172,24 @@ export default function MergeOrdersDialog({
 
   if (!open) return null;
 
-  const uniqueCustomerIds = Array.from(
-    new Set(selectedOrders.map((order) => order.customerId).filter(Boolean)),
+   const selectedCustomer = selectedCustomerId
+    ? customers.find((customer) => customer.id === selectedCustomerId)
+    : null;
+
+  const selectedCustomerRealName = isRealCustomerName(selectedCustomer?.name)
+    ? selectedCustomer?.name.trim().toLowerCase()
+    : '';
+
+  const realCustomerNames = Array.from(
+    new Set(
+      selectedOrders
+        .map((order) => order.customer?.name || '')
+        .filter((name) => isRealCustomerName(name))
+        .map((name) => name.trim().toLowerCase()),
+    ),
   );
 
-  const hasCustomerConflict = uniqueCustomerIds.length > 1;
+  const hasCustomerConflict = realCustomerNames.length > 1;
 
   const toggleContent = (orderId: string) => {
     setExpandedContent((prev) => ({
@@ -309,10 +347,14 @@ export default function MergeOrdersDialog({
                 const audioUrl = audioUrls[order.id];
                 const items = getOrderItems(order);
                 const total = getOrderTotal(order);
+                             const orderRealCustomerName = isRealCustomerName(order.customer?.name)
+                  ? order.customer?.name?.trim().toLowerCase()
+                  : '';
+
                 const customerMismatch =
-                  hasCustomerConflict &&
-                  Boolean(selectedCustomerId) &&
-                  order.customerId !== selectedCustomerId;
+                  Boolean(orderRealCustomerName) &&
+                  Boolean(selectedCustomerRealName) &&
+                  orderRealCustomerName !== selectedCustomerRealName;
 
                 return (
                   <div
@@ -337,7 +379,7 @@ export default function MergeOrdersDialog({
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 flex-wrap min-w-0">
                             <div className="font-bold text-base truncate">
-                              {order.customer?.name || 'Kunde nicht zugeordnet'}
+                              {getCustomerLabel(order)}
                             </div>
 
                             <div className="text-xs text-muted-foreground">
