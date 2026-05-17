@@ -71,7 +71,6 @@ const shortText = (value?: string | null, max = 340) => {
 
 const formatDate = (date?: string) => {
   if (!date) return '–';
-
   const dt = new Date(date);
   if (Number.isNaN(dt.getTime())) return '–';
 
@@ -114,15 +113,17 @@ const getCustomerLabel = (order: MergeOrder) => {
   return 'Ohne Kundenzuordnung';
 };
 
-const looksLikeAiHint = (text: string) => {
-  const lower = text.toLowerCase();
+const looksLikeProblemAiHint = (text?: string | null) => {
+  const lower = (text || '').toLowerCase();
 
   return (
     lower.includes('[review-hinweis]') ||
     lower.includes('review-hinweis') ||
     lower.includes('bild ohne beschreibung') ||
     lower.includes('bitte auftrag manuell prüfen') ||
-    lower.includes('[titel:') ||
+    lower.includes('unbekannte leistung') ||
+    lower.includes('leistung prüfen') ||
+    lower.includes('manuell prüfen') ||
     lower.includes('ki-hinweis')
   );
 };
@@ -130,6 +131,7 @@ const looksLikeAiHint = (text: string) => {
 const getContentInfo = (order: MergeOrder): {
   kind: ContentKind;
   label: string;
+  buttonTitle: string;
   buttonLabel: string;
   text: string;
 } => {
@@ -138,18 +140,20 @@ const getContentInfo = (order: MergeOrder): {
     return {
       kind: 'original',
       label: 'Text vorhanden',
-      buttonLabel: 'Originaltext anzeigen',
+      buttonTitle: 'Originaltext',
+      buttonLabel: 'Inhalt anzeigen',
       text: audioText,
     };
   }
 
   const noteText = shortText(order.notes, 420);
   if (noteText) {
-    if (looksLikeAiHint(noteText)) {
+    if (looksLikeProblemAiHint(noteText)) {
       return {
         kind: 'ai',
         label: 'KI-Hinweis',
-        buttonLabel: 'KI-Hinweis anzeigen',
+        buttonTitle: 'KI-Hinweis',
+        buttonLabel: 'Inhalt anzeigen',
         text: noteText,
       };
     }
@@ -157,24 +161,27 @@ const getContentInfo = (order: MergeOrder): {
     return {
       kind: 'original',
       label: 'Text vorhanden',
-      buttonLabel: 'Originaltext anzeigen',
+      buttonTitle: 'Originaltext',
+      buttonLabel: 'Inhalt anzeigen',
       text: noteText,
     };
   }
 
   const fallbackText = shortText(order.description || order.specialNotes || null, 420);
-  if (fallbackText) {
+  if (fallbackText && looksLikeProblemAiHint(fallbackText)) {
     return {
       kind: 'ai',
       label: 'KI-Hinweis',
-      buttonLabel: 'KI-Hinweis anzeigen',
+      buttonTitle: 'KI-Hinweis',
+      buttonLabel: 'Inhalt anzeigen',
       text: fallbackText,
     };
   }
 
   return {
     kind: 'none',
-    label: 'Kein Text',
+    label: '',
+    buttonTitle: 'Inhalt',
     buttonLabel: 'Kein Inhalt',
     text: '',
   };
@@ -273,7 +280,13 @@ export default function MergeOrdersDialog({
     <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-2 sm:p-4">
       <div className="bg-background rounded-2xl border shadow-2xl w-full max-w-[1500px] h-[94vh] overflow-hidden">
         <div className="flex h-full flex-col lg:grid lg:grid-cols-[230px_1fr]">
-          <aside className="border-b lg:border-b-0 lg:border-r bg-slate-50 dark:bg-slate-900/40 p-3 lg:p-4 overflow-y-auto max-h-[72px] lg:max-h-none">
+          <aside
+            className={[
+              'border-b lg:border-b-0 lg:border-r bg-slate-50 dark:bg-slate-900/40 p-3 lg:p-4 overflow-y-auto',
+              expandedInfo ? 'max-h-[38vh]' : 'max-h-[64px]',
+              'lg:max-h-none',
+            ].join(' ')}
+          >
             <button
               type="button"
               onClick={() => setExpandedInfo((v) => !v)}
@@ -283,7 +296,7 @@ export default function MergeOrdersDialog({
               <span>{expandedInfo ? '▲' : '▼'}</span>
             </button>
 
-            <div className={`${expandedInfo ? 'block max-h-[34vh] overflow-y-auto' : 'hidden'} lg:block mt-3 lg:mt-0`}>
+            <div className={`${expandedInfo ? 'block' : 'hidden'} lg:block mt-3 lg:mt-0`}>
               <h2 className="hidden lg:block text-base font-bold mb-4">
                 So funktioniert es
               </h2>
@@ -366,216 +379,227 @@ export default function MergeOrdersDialog({
           </aside>
 
           <main className="flex min-h-0 flex-1 flex-col">
-            <div className="border-b px-4 py-2">
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_330px_auto] gap-3 items-start">
-                <div>
-                  <h2 className="text-lg sm:text-xl font-bold">
-                    Schritt 2: Hauptauftrag + Kunde festlegen
-                  </h2>
-                  <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-                    Hauptauftrag wählen, Kunde prüfen, Leistungen kontrollieren.
-                  </p>
-                </div>
-
-                {hasCustomerConflict ? (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-                    ⚠ Verschiedene echte Kundennamen erkannt. Bitte prüfen.
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-4 py-2 border-b">
+                <div className="grid grid-cols-[1fr_auto] lg:grid-cols-[1fr_330px_auto] gap-3 items-start">
+                  <div>
+                    <h2 className="text-base sm:text-xl font-bold leading-tight">
+                      Schritt 2: Hauptauftrag + Kunde festlegen
+                    </h2>
+                    <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                      Hauptauftrag wählen, Kunde prüfen, Leistungen kontrollieren.
+                    </p>
                   </div>
-                ) : (
-                  <div />
-                )}
 
-                <button
-                  onClick={() => onOpenChange(false)}
-                  className="border rounded-lg px-3 py-2 text-sm hover:bg-muted shrink-0"
-                >
-                  Schließen
-                </button>
+                  {hasCustomerConflict && (
+                    <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                      ⚠ Verschiedene echte Kundennamen erkannt. Bitte prüfen.
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => onOpenChange(false)}
+                    className="border rounded-lg px-2.5 py-1.5 text-xs sm:text-sm hover:bg-muted shrink-0"
+                  >
+                    Schließen
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-4 py-3 space-y-2">
+                {selectedOrders.map((order) => {
+                  const isMain = selectedMainOrderId === order.id;
+                  const contentInfo = getContentInfo(order);
+                  const images = previewUrls[order.id] || [];
+                  const audioUrl = audioUrls[order.id];
+                  const items = getOrderItems(order);
+                  const total = getOrderTotal(order);
+
+                  const orderRealCustomerName = isRealCustomerName(order.customer?.name)
+                    ? order.customer?.name?.trim().toLowerCase()
+                    : '';
+
+                  const customerMismatch =
+                    Boolean(orderRealCustomerName) &&
+                    Boolean(selectedMainRealName) &&
+                    orderRealCustomerName !== selectedMainRealName;
+
+                  return (
+                    <div
+                      key={order.id}
+                      onClick={() => selectMainOrder(order)}
+                      className={[
+                        'rounded-xl border px-3 py-3 transition cursor-pointer',
+                        isMain
+                          ? 'border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-400 shadow-sm'
+                          : 'border-slate-200 bg-background hover:bg-slate-50',
+                      ].join(' ')}
+                    >
+                      <div className="grid grid-cols-[24px_1fr] gap-3">
+                        <input
+                          type="radio"
+                          checked={isMain}
+                          onChange={() => selectMainOrder(order)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-1 h-5 w-5"
+                          aria-label="Als Hauptauftrag auswählen"
+                        />
+
+                        <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              <div className="font-bold text-base truncate">
+                                {getCustomerLabel(order)}
+                              </div>
+
+                              <div className="text-xs text-muted-foreground">
+                                {formatDate(order.date || order.createdAt)}
+                              </div>
+
+                              {isMain && (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[11px] font-semibold">
+                                  Hauptauftrag
+                                </span>
+                              )}
+
+                              {contentInfo.kind === 'original' && (
+                                <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold">
+                                  Text vorhanden
+                                </span>
+                              )}
+
+                              {contentInfo.kind === 'ai' && (
+                                <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px] font-semibold">
+                                  KI-Hinweis
+                                </span>
+                              )}
+
+                              {customerMismatch && (
+                                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+                                  Kunde abweichend
+                                </span>
+                              )}
+                            </div>
+
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRemoveOrder(order.id);
+                              }}
+                              className="text-red-600 text-xs font-semibold hover:underline shrink-0"
+                            >
+                              Entfernen
+                            </button>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 xl:grid-cols-[145px_1fr_145px_170px_130px] gap-3 items-center">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (contentInfo.kind !== 'none') toggleContent(order.id);
+                              }}
+                              disabled={contentInfo.kind === 'none'}
+                              className="rounded-lg border bg-slate-50 hover:bg-slate-100 disabled:opacity-50 px-3 py-2 text-left text-xs"
+                            >
+                              <div className="font-semibold">
+                                {contentInfo.kind === 'ai'
+                                  ? 'KI-Hinweis'
+                                  : contentInfo.kind === 'original'
+                                    ? 'Originaltext'
+                                    : 'Kein Inhalt'}
+                              </div>
+                              <div className="text-muted-foreground">
+                                {expandedContent[order.id] ? 'Inhalt ausblenden' : 'Inhalt anzeigen'}
+                              </div>
+                            </button>
+
+                            <div className="min-w-0">
+                              <div className="grid grid-cols-[1fr_110px] xl:grid-cols-[1fr_110px_110px] gap-2 text-xs text-muted-foreground mb-1">
+                                <div>Leistungen</div>
+                                <div>Menge</div>
+                                <div className="hidden xl:block">Einzelpreis</div>
+                              </div>
+
+                              <div className="space-y-1">
+                                {items.map((item, index) => (
+                                  <div
+                                    key={`${order.id}-${index}`}
+                                    className="grid grid-cols-[1fr_110px] xl:grid-cols-[1fr_110px_110px] gap-2 text-sm"
+                                  >
+                                    <div className="font-medium truncate">
+                                      {item.serviceName || 'Leistung prüfen'}
+                                    </div>
+
+                                    <div className="text-muted-foreground">
+                                      {formatQuantity(item)}
+                                    </div>
+
+                                    <div className="hidden xl:block text-muted-foreground">
+                                      {Number(item.unitPrice || 0) > 0
+                                        ? formatMoney(Number(item.unitPrice || 0), currency)
+                                        : '—'}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 min-w-0">
+                              {images.slice(0, 3).map((url, index) => (
+                                <button
+                                  key={url}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLargeImageUrl(url);
+                                  }}
+                                  className="shrink-0"
+                                >
+                                  <img
+                                    src={url}
+                                    alt={`Bild ${index + 1}`}
+                                    className="w-11 h-11 rounded-md object-cover border"
+                                  />
+                                </button>
+                              ))}
+
+                              {audioUrl && (
+                                <audio
+                                  controls
+                                  src={audioUrl}
+                                  className="h-8 w-28"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              )}
+                            </div>
+
+                            <div className="text-right font-bold text-base sm:text-lg">
+                              {formatMoney(total, currency)}
+                            </div>
+                          </div>
+
+                          {expandedContent[order.id] && (
+                            <div
+                              className={[
+                                'mt-3 rounded-lg border px-3 py-2 text-sm leading-5',
+                                contentInfo.kind === 'ai'
+                                  ? 'bg-purple-50 border-purple-100'
+                                  : 'bg-slate-50',
+                              ].join(' ')}
+                            >
+                              {contentInfo.text || 'Kein Inhalt vorhanden.'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-              {selectedOrders.map((order) => {
-                const isMain = selectedMainOrderId === order.id;
-                const contentInfo = getContentInfo(order);
-                const images = previewUrls[order.id] || [];
-                const audioUrl = audioUrls[order.id];
-                const items = getOrderItems(order);
-                const total = getOrderTotal(order);
-
-                const orderRealCustomerName = isRealCustomerName(order.customer?.name)
-                  ? order.customer?.name?.trim().toLowerCase()
-                  : '';
-
-                const customerMismatch =
-                  Boolean(orderRealCustomerName) &&
-                  Boolean(selectedMainRealName) &&
-                  orderRealCustomerName !== selectedMainRealName;
-
-                return (
-                  <div
-                    key={order.id}
-                    onClick={() => selectMainOrder(order)}
-                    className={[
-                      'rounded-xl border px-3 py-3 transition cursor-pointer',
-                      isMain
-                        ? 'border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-400 shadow-sm'
-                        : 'border-slate-200 bg-background hover:bg-slate-50',
-                    ].join(' ')}
-                  >
-                    <div className="grid grid-cols-[24px_1fr] gap-3">
-                      <input
-                        type="radio"
-                        checked={isMain}
-                        onChange={() => selectMainOrder(order)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="mt-1 h-5 w-5"
-                        aria-label="Als Hauptauftrag auswählen"
-                      />
-
-                      <div className="min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 flex-wrap min-w-0">
-                            <div className="font-bold text-base truncate">
-                              {getCustomerLabel(order)}
-                            </div>
-
-                            <div className="text-xs text-muted-foreground">
-                              {formatDate(order.date || order.createdAt)}
-                            </div>
-
-                            {isMain && (
-                              <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[11px] font-semibold">
-                                Hauptauftrag
-                              </span>
-                            )}
-
-                            {contentInfo.kind === 'original' && (
-                              <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold">
-                                Text vorhanden
-                              </span>
-                            )}
-
-                            {contentInfo.kind === 'ai' && (
-                              <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px] font-semibold">
-                                KI-Hinweis
-                              </span>
-                            )}
-
-                            {customerMismatch && (
-                              <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
-                                Kunde abweichend
-                              </span>
-                            )}
-                          </div>
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onRemoveOrder(order.id);
-                            }}
-                            className="text-red-600 text-xs font-semibold hover:underline shrink-0"
-                          >
-                            Entfernen
-                          </button>
-                        </div>
-
-                        <div className="mt-3 grid grid-cols-1 xl:grid-cols-[145px_1fr_170px_130px] gap-3 items-center">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (contentInfo.kind !== 'none') toggleContent(order.id);
-                            }}
-                            disabled={contentInfo.kind === 'none'}
-                            className="rounded-lg border bg-slate-50 hover:bg-slate-100 disabled:opacity-50 px-3 py-2 text-left text-xs"
-                          >
-                            <div className="font-semibold">
-                              {contentInfo.kind === 'ai' ? 'KI-Hinweis' : contentInfo.kind === 'original' ? 'Originaltext' : 'Kein Inhalt'}
-                            </div>
-                            <div className="text-muted-foreground">
-                              {expandedContent[order.id] ? 'Inhalt ausblenden' : 'Inhalt anzeigen'}
-                            </div>
-                          </button>
-
-                          <div className="min-w-0">
-                            <div className="grid grid-cols-[1fr_120px] gap-2 text-xs text-muted-foreground mb-1">
-                              <div>Leistungen</div>
-                              <div>Menge</div>
-                            </div>
-
-                            <div className="space-y-1">
-                              {items.map((item, index) => (
-                                <div
-                                  key={`${order.id}-${index}`}
-                                  className="grid grid-cols-[1fr_120px] gap-2 text-sm"
-                                >
-                                  <div className="font-medium truncate">
-                                    {item.serviceName || 'Leistung prüfen'}
-                                  </div>
-
-                                  <div className="text-muted-foreground">
-                                    {formatQuantity(item)}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 min-w-0">
-                            {images.slice(0, 3).map((url, index) => (
-                              <button
-                                key={url}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setLargeImageUrl(url);
-                                }}
-                                className="shrink-0"
-                              >
-                                <img
-                                  src={url}
-                                  alt={`Bild ${index + 1}`}
-                                  className="w-11 h-11 rounded-md object-cover border"
-                                />
-                              </button>
-                            ))}
-
-                            {audioUrl && (
-                              <audio
-                                controls
-                                src={audioUrl}
-                                className="h-8 w-28"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            )}
-                          </div>
-
-                          <div className="text-right font-bold text-base sm:text-lg">
-                            {formatMoney(total, currency)}
-                          </div>
-                        </div>
-
-                        {expandedContent[order.id] && (
-                          <div
-                            className={[
-                              'mt-3 rounded-lg border px-3 py-2 text-sm leading-5',
-                              contentInfo.kind === 'ai'
-                                ? 'bg-purple-50 border-purple-100'
-                                : 'bg-slate-50',
-                            ].join(' ')}
-                          >
-                            {contentInfo.text || 'Kein Inhalt vorhanden.'}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="border-t px-4 py-3 flex justify-between gap-3">
+            <div className="border-t px-4 py-3 flex justify-between gap-3 bg-background">
               <button
                 onClick={onBack}
                 className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
