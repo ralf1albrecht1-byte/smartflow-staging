@@ -290,7 +290,7 @@ export default function MergeOrdersDialog({
           </aside>
 
           <main className="flex min-h-0 flex-1 flex-col">
-            <div className="border-b px-4 py-3">
+            <div className="border-b px-4 py-2">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg sm:text-xl font-bold">
@@ -311,30 +311,11 @@ export default function MergeOrdersDialog({
 
               <div className="mt-3 grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-3">
                 {hasCustomerConflict && (
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    ⚠ Verschiedene Kunden erkannt: Bitte prüfen, ob diese Aufträge wirklich zusammengehören.
-                  </div>
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+  ⚠ Verschiedene echte Kundennamen erkannt. Bitte vor dem Zusammenführen prüfen.
+</div>
                 )}
 
-                <div className="rounded-lg border bg-slate-50 px-3 py-2">
-                  <label className="block text-xs font-semibold mb-1">
-                    Kunde für den verbundenen Auftrag
-                  </label>
-
-                  <select
-                    value={selectedCustomerId || ''}
-                    onChange={(e) => onSelectCustomerId(e.target.value)}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">Kunde auswählen</option>
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name}
-                        {customer.customerNumber ? ` (#${customer.customerNumber})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
               </div>
             </div>
 
@@ -359,6 +340,7 @@ export default function MergeOrdersDialog({
                 return (
                   <div
                     key={order.id}
+onClick={() => onSelectMainOrder(order.id)}
                     className={[
                       'rounded-xl border px-3 py-3 transition',
                       isMain
@@ -371,6 +353,7 @@ export default function MergeOrdersDialog({
                         type="radio"
                         checked={isMain}
                         onChange={() => onSelectMainOrder(order.id)}
+onClick={(e) => e.stopPropagation()}
                         className="mt-1 h-5 w-5"
                         aria-label="Als Hauptauftrag auswählen"
                       />
@@ -410,7 +393,10 @@ export default function MergeOrdersDialog({
                           </div>
 
                           <button
-                            onClick={() => onRemoveOrder(order.id)}
+                            onClick={(e) => {
+  e.stopPropagation();
+  onRemoveOrder(order.id);
+}}
                             className="text-red-600 text-xs font-semibold hover:underline shrink-0"
                           >
                             Entfernen
@@ -420,7 +406,10 @@ export default function MergeOrdersDialog({
                         <div className="mt-3 grid grid-cols-1 xl:grid-cols-[170px_1fr_220px_120px] gap-3 items-center">
                           <button
                             type="button"
-                            onClick={() => toggleContent(order.id)}
+                            onClick={(e) => {
+  e.stopPropagation();
+  toggleContent(order.id);
+}}
                             className="rounded-lg border bg-slate-50 hover:bg-slate-100 px-3 py-2 text-left text-xs"
                           >
                             <div className="font-semibold">
@@ -432,30 +421,21 @@ export default function MergeOrdersDialog({
                           </button>
 
                           <div className="min-w-0">
-                            <div className="grid grid-cols-[1fr_90px_90px] gap-2 text-xs text-muted-foreground mb-1">
-                              <div>Leistung</div>
-                              <div>Menge</div>
-                              <div>Preis</div>
-                            </div>
+                       <div className="grid grid-cols-[1fr_110px] gap-2 text-xs text-muted-foreground mb-1">
+  <div>Leistung</div>
+  <div>Menge</div>
+</div>
 
                             <div className="space-y-1">
                               {items.map((item, index) => (
                                 <div
                                   key={`${order.id}-${index}`}
-                                  className="grid grid-cols-[1fr_90px_90px] gap-2 text-sm"
+                                  className="grid grid-cols-[1fr_110px] gap-2 text-sm"
                                 >
                                   <div className="font-medium truncate">
                                     {item.serviceName || 'Leistung prüfen'}
                                   </div>
-                                  <div className="text-muted-foreground">
-                                    {Number(item.quantity || 0) || '–'} {item.unit || ''}
-                                  </div>
-                                  <div className="text-muted-foreground">
-                                    {Number(item.unitPrice || 0) > 0
-                                      ? formatMoney(Number(item.unitPrice || 0), currency)
-                                      : 'Prüfen'}
-                                  </div>
-                                </div>
+                                                                </div>
                               ))}
                             </div>
                           </div>
