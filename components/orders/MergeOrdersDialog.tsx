@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 type Currency = 'CHF' | 'EUR';
 
 interface MergeOrderItem {
@@ -60,7 +62,7 @@ interface MergeOrdersDialogProps {
   currency: Currency;
 }
 
-const shortText = (value?: string | null, max = 180) => {
+const shortText = (value?: string | null, max = 260) => {
   const text = (value || '').replace(/\s+/g, ' ').trim();
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max).trim()}…` : text;
@@ -86,7 +88,7 @@ const formatMoney = (amount: number, currency: Currency) => {
 };
 
 const getOrderText = (order: MergeOrder) => {
-  return shortText(order.notes || order.audioTranscript || null, 260);
+  return shortText(order.notes || order.audioTranscript || null, 320);
 };
 
 const hasOriginalText = (order: MergeOrder) => {
@@ -140,128 +142,165 @@ export default function MergeOrdersDialog({
   onNext,
   currency,
 }: MergeOrdersDialogProps) {
+  const [expandedInfo, setExpandedInfo] = useState(false);
+  const [expandedContent, setExpandedContent] = useState<Record<string, boolean>>({});
+
   if (!open) return null;
 
-  const selectedCustomer = selectedCustomerId
-    ? customers.find((c) => c.id === selectedCustomerId)
-    : undefined;
+  const uniqueCustomerIds = Array.from(
+    new Set(selectedOrders.map((order) => order.customerId).filter(Boolean)),
+  );
+
+  const hasCustomerConflict = uniqueCustomerIds.length > 1;
+
+  const toggleContent = (orderId: string) => {
+    setExpandedContent((prev) => ({
+      ...prev,
+      [orderId]: !prev[orderId],
+    }));
+  };
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-background rounded-2xl border shadow-2xl w-full max-w-7xl h-[90vh] overflow-hidden">
-        <div className="grid grid-cols-[300px_1fr] h-full">
+    <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-background rounded-2xl border shadow-2xl w-full max-w-[1500px] h-[94vh] overflow-hidden">
+        <div className="flex h-full flex-col lg:grid lg:grid-cols-[230px_1fr]">
 
-          <aside className="border-r bg-slate-50 dark:bg-slate-900/40 p-4 overflow-y-auto text-sm">
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-bold">
-                  So funktioniert es:
-                </h2>
-              </div>
+          <aside className="border-b lg:border-b-0 lg:border-r bg-slate-50 dark:bg-slate-900/40 p-3 lg:p-4 overflow-y-auto max-h-[110px] lg:max-h-none">
+            <button
+              type="button"
+              onClick={() => setExpandedInfo((v) => !v)}
+              className="lg:hidden w-full flex items-center justify-between rounded-lg border bg-background px-3 py-2 text-sm font-semibold"
+            >
+              <span>So funktioniert es</span>
+              <span>{expandedInfo ? '▲' : '▼'}</span>
+            </button>
 
-              <div className="space-y-4">
-                <div className="flex gap-4">
-                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+            <div className={`${expandedInfo ? 'block' : 'hidden'} lg:block mt-3 lg:mt-0`}>
+              <h2 className="hidden lg:block text-base font-bold mb-4">
+                So funktioniert es
+              </h2>
+
+              <div className="space-y-4 text-xs">
+                <div className="flex gap-2">
+                  <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[11px] font-bold shrink-0">
                     1
                   </div>
                   <div>
-                    <div className="font-bold">
-                      Hauptauftrag = Text bleibt erhalten
+                    <div className="font-bold leading-4">
+                      Hauptauftrag = Text bleibt
                     </div>
-                    <p className="text-xs leading-5 mt-1">
-                      Der Hauptauftrag ist der Auftrag, der einen Text enthält.
-                      Diesen Text übernehmen wir in den verbundenen Auftrag.
+                    <p className="mt-1 leading-5 text-muted-foreground">
+                      Dieser Text wird übernommen.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex gap-4">
-                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                <div className="flex gap-2">
+                  <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[11px] font-bold shrink-0">
                     2
                   </div>
                   <div>
-                    <div className="font-bold">
-                      Andere Aufträge = Bilder + KI-Hinweise
+                    <div className="font-bold leading-4">
+                      Andere Aufträge
                     </div>
-                    <p className="text-xs leading-5 mt-1">
-                      Aufträge ohne Text ergänzen den Hauptauftrag um zusätzliche
-                      Leistungen, Bilder oder Audio-Hinweise.
+                    <p className="mt-1 leading-5 text-muted-foreground">
+                      Bilder, Audio und Leistungen ergänzen.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex gap-4">
-                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                <div className="flex gap-2">
+                  <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[11px] font-bold shrink-0">
                     3
                   </div>
                   <div>
-                    <div className="font-bold">
-                      Im verbundenen Auftrag
+                    <div className="font-bold leading-4">
+                      Verbundener Auftrag
                     </div>
-                    <p className="text-xs leading-5 mt-1">
-                      Nach dem Zusammenführen bleibt der Text des Hauptauftrags
-                      erhalten. Alle erkannten Leistungen werden zusammengeführt.
+                    <p className="mt-1 leading-5 text-muted-foreground">
+                      Alle Leistungen werden zusammengeführt.
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
-                <div className="font-bold mb-2">
-                  Wichtig:
-                </div>
-                <p className="text-sm leading-6">
-                  Nur der Hauptauftrag enthält einen Originaltext. Dieser Text
-                  bleibt im verbundenen Auftrag erhalten.
-                </p>
+              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-900 text-xs leading-5">
+                <div className="font-bold mb-1">Wichtig</div>
+                Nur der Hauptauftrag übernimmt den Originaltext.
               </div>
 
-              <div className="border-t pt-5 space-y-4 text-sm">
-                <div className="flex items-center gap-3">
-                  <span className="px-2 py-1 rounded-full bg-emerald-600 text-white text-xs font-semibold">
+              <div className="mt-4 border-t pt-3 space-y-2 text-[11px]">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-semibold">
                     Hauptauftrag
                   </span>
-                  <span>Enthält Text und wird übernommen</span>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
                     Text vorhanden
                   </span>
-                  <span>Originaltext ist enthalten</span>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span className="px-2 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold">
-                    Nur KI-Hinweis
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+                    Kunde abweichend
                   </span>
-                  <span>Kein Originaltext, nur KI-Vorschlag</span>
                 </div>
               </div>
             </div>
           </aside>
 
-          <main className="p-6 overflow-y-auto">
-            <div className="flex items-start justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-2xl font-bold">
-                  Schritt 2: Hauptauftrag + Kunde festlegen
-                </h2>
-                <p className="text-sm text-muted-foreground mt-2">
-                  Wähle den Hauptauftrag. Bilder, Textvorschau und Audio-Hinweise
-                  helfen dir beim Abgleich.
-                </p>
+          <main className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg sm:text-xl font-bold">
+                    Schritt 2: Hauptauftrag + Kunde festlegen
+                  </h2>
+                  <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                    Hauptauftrag wählen, Kunde prüfen, Leistungen kontrollieren.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => onOpenChange(false)}
+                  className="border rounded-lg px-3 py-2 text-sm hover:bg-muted shrink-0"
+                >
+                  Schließen
+                </button>
               </div>
 
-              <button
-                onClick={() => onOpenChange(false)}
-                className="border rounded-lg px-3 py-2 text-sm hover:bg-muted"
-              >
-                Schließen
-              </button>
+              <div className="mt-3 grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-3">
+                {hasCustomerConflict && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    ⚠ Verschiedene Kunden erkannt: Bitte prüfen, ob diese Aufträge wirklich zusammengehören.
+                  </div>
+                )}
+
+                <div className="rounded-lg border bg-slate-50 px-3 py-2">
+                  <label className="block text-xs font-semibold mb-1">
+                    Kunde für den verbundenen Auftrag
+                  </label>
+
+                  <select
+                    value={selectedCustomerId || ''}
+                    onChange={(e) => onSelectCustomerId(e.target.value)}
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Kunde auswählen</option>
+                    {customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name}
+                        {customer.customerNumber ? ` (#${customer.customerNumber})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
               {selectedOrders.map((order) => {
                 const isMain = selectedMainOrderId === order.id;
                 const text = getOrderText(order);
@@ -270,18 +309,22 @@ export default function MergeOrdersDialog({
                 const audioUrl = audioUrls[order.id];
                 const items = getOrderItems(order);
                 const total = getOrderTotal(order);
+                const customerMismatch =
+                  hasCustomerConflict &&
+                  Boolean(selectedCustomerId) &&
+                  order.customerId !== selectedCustomerId;
 
                 return (
                   <div
                     key={order.id}
                     className={[
-                      'rounded-xl border px-4 py-3 transition',
+                      'rounded-xl border px-3 py-3 transition',
                       isMain
                         ? 'border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-400'
                         : 'border-slate-200 bg-background',
                     ].join(' ')}
                   >
-                    <div className="flex items-start gap-4">
+                    <div className="grid grid-cols-[24px_1fr] gap-3">
                       <input
                         type="radio"
                         checked={isMain}
@@ -290,105 +333,116 @@ export default function MergeOrdersDialog({
                         aria-label="Als Hauptauftrag auswählen"
                       />
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-3 flex-wrap">
-                              <div className="font-bold text-lg">
-                                {order.customer?.name || 'Kunde nicht zugeordnet'}
-                              </div>
-
-                              <div className="text-sm text-muted-foreground">
-                                {formatDate(order.date || order.createdAt)}
-                              </div>
-
-                              {isMain && (
-                                <span className="px-2 py-1 rounded-full bg-emerald-600 text-white text-xs font-semibold">
-                                  Hauptauftrag
-                                </span>
-                              )}
-
-                              {orderHasText ? (
-                                <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
-                                  Text vorhanden
-                                </span>
-                              ) : (
-                                <span className="px-2 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold">
-                                  Nur KI-Hinweis
-                                </span>
-                              )}
+                      <div className="min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                            <div className="font-bold text-base truncate">
+                              {order.customer?.name || 'Kunde nicht zugeordnet'}
                             </div>
+
+                            <div className="text-xs text-muted-foreground">
+                              {formatDate(order.date || order.createdAt)}
+                            </div>
+
+                            {isMain && (
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[11px] font-semibold">
+                                Hauptauftrag
+                              </span>
+                            )}
+
+                            {orderHasText ? (
+                              <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold">
+                                Text vorhanden
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px] font-semibold">
+                                Nur KI-Hinweis
+                              </span>
+                            )}
+
+                            {customerMismatch && (
+                              <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+                                Kunde abweichend
+                              </span>
+                            )}
                           </div>
 
                           <button
                             onClick={() => onRemoveOrder(order.id)}
-                            className="text-red-600 text-sm font-semibold hover:underline"
+                            className="text-red-600 text-xs font-semibold hover:underline shrink-0"
                           >
                             Entfernen
                           </button>
                         </div>
 
-                        {isMain && text && (
-                          <div className="mt-3 rounded-lg border bg-background px-3 py-2 text-sm leading-5">
-                            <div className="font-medium mb-1">
-                              Originaltext wird übernommen:
+                        <div className="mt-3 grid grid-cols-1 xl:grid-cols-[170px_1fr_220px_120px] gap-3 items-center">
+                          <button
+                            type="button"
+                            onClick={() => toggleContent(order.id)}
+                            className="rounded-lg border bg-slate-50 hover:bg-slate-100 px-3 py-2 text-left text-xs"
+                          >
+                            <div className="font-semibold">
+                              {orderHasText ? 'Originaltext' : 'KI-Hinweis'}
                             </div>
-                            <div>{text}</div>
+                            <div className="text-muted-foreground">
+                              {expandedContent[order.id] ? 'Inhalt ausblenden' : 'Inhalt anzeigen'}
+                            </div>
+                          </button>
+
+                          <div className="min-w-0">
+                            <div className="grid grid-cols-[1fr_90px_90px] gap-2 text-xs text-muted-foreground mb-1">
+                              <div>Leistung</div>
+                              <div>Menge</div>
+                              <div>Preis</div>
+                            </div>
+
+                            <div className="space-y-1">
+                              {items.map((item, index) => (
+                                <div
+                                  key={`${order.id}-${index}`}
+                                  className="grid grid-cols-[1fr_90px_90px] gap-2 text-sm"
+                                >
+                                  <div className="font-medium truncate">
+                                    {item.serviceName || 'Leistung prüfen'}
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    {Number(item.quantity || 0) || '–'} {item.unit || ''}
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    {Number(item.unitPrice || 0) > 0
+                                      ? formatMoney(Number(item.unitPrice || 0), currency)
+                                      : 'Prüfen'}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        )}
 
-                        {!isMain && text && (
-                          <div className="mt-3 rounded-lg border bg-slate-50 px-3 py-2 text-sm leading-5">
-                            <div className="font-medium mb-1">
-                              Textvorschau:
-                            </div>
-                            <div>{text}</div>
-                          </div>
-                        )}
-
-                        <div className="mt-3 space-y-1">
-                          {items.map((item, index) => (
-                            <div
-                              key={`${order.id}-${index}`}
-                              className="grid grid-cols-[1fr_140px_120px] gap-3 text-sm"
-                            >
-                              <div className="font-medium truncate">
-                                {item.serviceName || 'Leistung prüfen'}
-                              </div>
-                              <div className="text-muted-foreground">
-                                {Number(item.quantity || 0) || '–'} {item.unit || ''}
-                              </div>
-                              <div className="text-right text-muted-foreground">
-                                {Number(item.unitPrice || 0) > 0
-                                  ? formatMoney(Number(item.unitPrice || 0), currency)
-                                  : 'Preis prüfen'}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {images.length > 0 && (
-                          <div className="mt-4 flex gap-2 flex-wrap">
-                            {images.map((url, index) => (
+                          <div className="flex items-center gap-2 min-w-0">
+                            {images.slice(0, 3).map((url, index) => (
                               <img
                                 key={url}
                                 src={url}
                                 alt={`Bild ${index + 1}`}
-                                className="w-14 h-14 rounded-lg object-cover border"
+                                className="w-12 h-12 rounded-md object-cover border"
                               />
                             ))}
+
+                            {audioUrl && (
+                              <audio controls src={audioUrl} className="h-8 w-28" />
+                            )}
+                          </div>
+
+                          <div className="text-right font-bold text-base sm:text-lg">
+                            {formatMoney(total, currency)}
+                          </div>
+                        </div>
+
+                        {expandedContent[order.id] && (
+                          <div className="mt-3 rounded-lg border bg-slate-50 px-3 py-2 text-sm leading-5">
+                            {text || 'Kein Text vorhanden.'}
                           </div>
                         )}
-
-                        {audioUrl && (
-                          <div className="mt-4">
-                            <audio controls src={audioUrl} className="w-full" />
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="w-32 text-right font-bold text-lg self-end">
-                        {formatMoney(total, currency)}
                       </div>
                     </div>
                   </div>
@@ -396,27 +450,7 @@ export default function MergeOrdersDialog({
               })}
             </div>
 
-            <div className="mt-5 rounded-xl bg-slate-50 border p-4">
-              <label className="block text-sm font-semibold mb-2">
-                Kunde für den verbundenen Auftrag:
-              </label>
-
-              <select
-                value={selectedCustomerId || ''}
-                onChange={(e) => onSelectCustomerId(e.target.value)}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-              >
-                <option value="">Kunde auswählen</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.name}
-                    {customer.customerNumber ? ` (#${customer.customerNumber})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mt-6 flex justify-between">
+            <div className="border-t px-4 py-3 flex justify-between gap-3">
               <button
                 onClick={onBack}
                 className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
