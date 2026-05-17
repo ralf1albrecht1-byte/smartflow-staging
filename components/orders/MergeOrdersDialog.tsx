@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 type Currency = 'CHF' | 'EUR';
+type ContentKind = 'original' | 'ai' | 'none';
 
 interface MergeOrderItem {
   id?: string;
@@ -32,7 +33,7 @@ interface MergeOrder {
   quantity?: number;
   unitPrice?: number;
   priceType?: string;
-    customer?: {
+  customer?: {
     name?: string;
     customerNumber?: string | null;
   };
@@ -62,7 +63,7 @@ interface MergeOrdersDialogProps {
   currency: Currency;
 }
 
-const shortText = (value?: string | null, max = 260) => {
+const shortText = (value?: string | null, max = 340) => {
   const text = (value || '').replace(/\s+/g, ' ').trim();
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max).trim()}…` : text;
@@ -70,6 +71,7 @@ const shortText = (value?: string | null, max = 260) => {
 
 const formatDate = (date?: string) => {
   if (!date) return '–';
+
   const dt = new Date(date);
   if (Number.isNaN(dt.getTime())) return '–';
 
@@ -85,45 +87,6 @@ const formatMoney = (amount: number, currency: Currency) => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-};
-
-const getOrderText = (order: MergeOrder) => {
-  return shortText(order.notes || order.audioTranscript || null, 320);
-};
-
-const hasOriginalText = (order: MergeOrder) => {
-  return Boolean(getOrderText(order));
-};
-
-const getOrderTotal = (order: MergeOrder) => {
-  if (order.items && order.items.length > 0) {
-    return order.items.reduce((sum, item) => {
-      const qty = Number(item.quantity || 0);
-      const price = Number(item.unitPrice || 0);
-      if (qty <= 0 || price <= 0) return sum;
-      return sum + qty * price;
-    }, 0);
-  }
-
-  const qty = Number(order.quantity || 0);
-  const price = Number(order.unitPrice || 0);
-
-  if (qty > 0 && price > 0) return qty * price;
-
-  return Number(order.totalPrice || 0);
-};
-
-const getOrderItems = (order: MergeOrder): MergeOrderItem[] => {
-  if (order.items && order.items.length > 0) return order.items;
-
-  return [
-    {
-      serviceName: order.serviceName || order.description || 'Leistung prüfen',
-      quantity: Number(order.quantity || 0),
-      unit: order.priceType || 'Einheit',
-      unitPrice: Number(order.unitPrice || 0),
-    },
-  ];
 };
 
 const isRealCustomerName = (name?: string | null) => {
@@ -151,6 +114,112 @@ const getCustomerLabel = (order: MergeOrder) => {
   return 'Ohne Kundenzuordnung';
 };
 
+const looksLikeAiHint = (text: string) => {
+  const lower = text.toLowerCase();
+
+  return (
+    lower.includes('[review-hinweis]') ||
+    lower.includes('review-hinweis') ||
+    lower.includes('bild ohne beschreibung') ||
+    lower.includes('bitte auftrag manuell prüfen') ||
+    lower.includes('[titel:') ||
+    lower.includes('ki-hinweis')
+  );
+};
+
+const getContentInfo = (order: MergeOrder): {
+  kind: ContentKind;
+  label: string;
+  buttonLabel: string;
+  text: string;
+} => {
+  const audioText = shortText(order.audioTranscript, 420);
+  if (audioText) {
+    return {
+      kind: 'original',
+      label: 'Text vorhanden',
+      buttonLabel: 'Originaltext anzeigen',
+      text: audioText,
+    };
+  }
+
+  const noteText = shortText(order.notes, 420);
+  if (noteText) {
+    if (looksLikeAiHint(noteText)) {
+      return {
+        kind: 'ai',
+        label: 'KI-Hinweis',
+        buttonLabel: 'KI-Hinweis anzeigen',
+        text: noteText,
+      };
+    }
+
+    return {
+      kind: 'original',
+      label: 'Text vorhanden',
+      buttonLabel: 'Originaltext anzeigen',
+      text: noteText,
+    };
+  }
+
+  const fallbackText = shortText(order.description || order.specialNotes || null, 420);
+  if (fallbackText) {
+    return {
+      kind: 'ai',
+      label: 'KI-Hinweis',
+      buttonLabel: 'KI-Hinweis anzeigen',
+      text: fallbackText,
+    };
+  }
+
+  return {
+    kind: 'none',
+    label: 'Kein Text',
+    buttonLabel: 'Kein Inhalt',
+    text: '',
+  };
+};
+
+const getOrderTotal = (order: MergeOrder) => {
+  if (order.items && order.items.length > 0) {
+    return order.items.reduce((sum, item) => {
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.unitPrice || 0);
+      if (qty <= 0 || price <= 0) return sum;
+      return sum + qty * price;
+    }, 0);
+  }
+
+  const qty = Number(order.quantity || 0);
+  const price = Number(order.unitPrice || 0);
+
+  if (qty > 0 && price > 0) return qty * price;
+
+  return Number(order.totalPrice || 0);
+};
+
+const getOrderItems = (order: MergeOrder): MergeOrderItem[] => {
+  if (order.items && order.items.length > 0) return order.items;
+
+  return [
+    {
+      serviceName: order.serviceName || order.description || 'Leistung prüfen',
+      quantity: Number(order.quantity || 0),
+      unit: order.priceType || '',
+      unitPrice: Number(order.unitPrice || 0),
+    },
+  ];
+};
+
+const formatQuantity = (item: MergeOrderItem) => {
+  const qty = Number(item.quantity || 0);
+  const unit = (item.unit || '').trim();
+
+  if (qty <= 0 && !unit) return '—';
+  if (qty <= 0) return unit;
+  return `${qty} ${unit}`.trim();
+};
+
 export default function MergeOrdersDialog({
   open,
   onOpenChange,
@@ -159,7 +228,6 @@ export default function MergeOrdersDialog({
   onSelectMainOrder,
   selectedCustomerId,
   onSelectCustomerId,
-  customers,
   previewUrls,
   audioUrls,
   onRemoveOrder,
@@ -169,16 +237,9 @@ export default function MergeOrdersDialog({
 }: MergeOrdersDialogProps) {
   const [expandedInfo, setExpandedInfo] = useState(false);
   const [expandedContent, setExpandedContent] = useState<Record<string, boolean>>({});
+  const [largeImageUrl, setLargeImageUrl] = useState<string | null>(null);
 
   if (!open) return null;
-
-   const selectedCustomer = selectedCustomerId
-    ? customers.find((customer) => customer.id === selectedCustomerId)
-    : null;
-
-  const selectedCustomerRealName = isRealCustomerName(selectedCustomer?.name)
-    ? selectedCustomer?.name.trim().toLowerCase()
-    : '';
 
   const realCustomerNames = Array.from(
     new Set(
@@ -191,6 +252,16 @@ export default function MergeOrdersDialog({
 
   const hasCustomerConflict = realCustomerNames.length > 1;
 
+  const selectedMainOrder = selectedOrders.find((order) => order.id === selectedMainOrderId);
+  const selectedMainRealName = isRealCustomerName(selectedMainOrder?.customer?.name)
+    ? selectedMainOrder?.customer?.name?.trim().toLowerCase()
+    : '';
+
+  const selectMainOrder = (order: MergeOrder) => {
+    onSelectMainOrder(order.id);
+    if (order.customerId) onSelectCustomerId(order.customerId);
+  };
+
   const toggleContent = (orderId: string) => {
     setExpandedContent((prev) => ({
       ...prev,
@@ -202,8 +273,7 @@ export default function MergeOrdersDialog({
     <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-2 sm:p-4">
       <div className="bg-background rounded-2xl border shadow-2xl w-full max-w-[1500px] h-[94vh] overflow-hidden">
         <div className="flex h-full flex-col lg:grid lg:grid-cols-[230px_1fr]">
-
-          <aside className="border-b lg:border-b-0 lg:border-r bg-slate-50 dark:bg-slate-900/40 p-3 lg:p-4 overflow-y-auto max-h-[110px] lg:max-h-none">
+          <aside className="border-b lg:border-b-0 lg:border-r bg-slate-50 dark:bg-slate-900/40 p-3 lg:p-4 overflow-y-auto max-h-[72px] lg:max-h-none">
             <button
               type="button"
               onClick={() => setExpandedInfo((v) => !v)}
@@ -213,7 +283,7 @@ export default function MergeOrdersDialog({
               <span>{expandedInfo ? '▲' : '▼'}</span>
             </button>
 
-            <div className={`${expandedInfo ? 'block' : 'hidden'} lg:block mt-3 lg:mt-0`}>
+            <div className={`${expandedInfo ? 'block max-h-[34vh] overflow-y-auto' : 'hidden'} lg:block mt-3 lg:mt-0`}>
               <h2 className="hidden lg:block text-base font-bold mb-4">
                 So funktioniert es
               </h2>
@@ -268,19 +338,25 @@ export default function MergeOrdersDialog({
               </div>
 
               <div className="mt-4 border-t pt-3 space-y-2 text-[11px]">
-                <div className="flex items-center gap-2">
+                <div>
                   <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-semibold">
                     Hauptauftrag
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div>
                   <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
                     Text vorhanden
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div>
+                  <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-semibold">
+                    KI-Hinweis
+                  </span>
+                </div>
+
+                <div>
                   <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
                     Kunde abweichend
                   </span>
@@ -291,7 +367,7 @@ export default function MergeOrdersDialog({
 
           <main className="flex min-h-0 flex-1 flex-col">
             <div className="border-b px-4 py-2">
-              <div className="flex items-start justify-between gap-3">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_330px_auto] gap-3 items-start">
                 <div>
                   <h2 className="text-lg sm:text-xl font-bold">
                     Schritt 2: Hauptauftrag + Kunde festlegen
@@ -301,6 +377,14 @@ export default function MergeOrdersDialog({
                   </p>
                 </div>
 
+                {hasCustomerConflict ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                    ⚠ Verschiedene echte Kundennamen erkannt. Bitte prüfen.
+                  </div>
+                ) : (
+                  <div />
+                )}
+
                 <button
                   onClick={() => onOpenChange(false)}
                   className="border rounded-lg px-3 py-2 text-sm hover:bg-muted shrink-0"
@@ -308,52 +392,43 @@ export default function MergeOrdersDialog({
                   Schließen
                 </button>
               </div>
-
-              <div className="mt-3 grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-3">
-                {hasCustomerConflict && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-  ⚠ Verschiedene echte Kundennamen erkannt. Bitte vor dem Zusammenführen prüfen.
-</div>
-                )}
-
-              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
               {selectedOrders.map((order) => {
                 const isMain = selectedMainOrderId === order.id;
-                const text = getOrderText(order);
-                const orderHasText = hasOriginalText(order);
+                const contentInfo = getContentInfo(order);
                 const images = previewUrls[order.id] || [];
                 const audioUrl = audioUrls[order.id];
                 const items = getOrderItems(order);
                 const total = getOrderTotal(order);
-                             const orderRealCustomerName = isRealCustomerName(order.customer?.name)
+
+                const orderRealCustomerName = isRealCustomerName(order.customer?.name)
                   ? order.customer?.name?.trim().toLowerCase()
                   : '';
 
                 const customerMismatch =
                   Boolean(orderRealCustomerName) &&
-                  Boolean(selectedCustomerRealName) &&
-                  orderRealCustomerName !== selectedCustomerRealName;
+                  Boolean(selectedMainRealName) &&
+                  orderRealCustomerName !== selectedMainRealName;
 
                 return (
                   <div
                     key={order.id}
-onClick={() => onSelectMainOrder(order.id)}
+                    onClick={() => selectMainOrder(order)}
                     className={[
-                      'rounded-xl border px-3 py-3 transition',
+                      'rounded-xl border px-3 py-3 transition cursor-pointer',
                       isMain
-                        ? 'border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-400'
-                        : 'border-slate-200 bg-background',
+                        ? 'border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-400 shadow-sm'
+                        : 'border-slate-200 bg-background hover:bg-slate-50',
                     ].join(' ')}
                   >
                     <div className="grid grid-cols-[24px_1fr] gap-3">
                       <input
                         type="radio"
                         checked={isMain}
-                        onChange={() => onSelectMainOrder(order.id)}
-onClick={(e) => e.stopPropagation()}
+                        onChange={() => selectMainOrder(order)}
+                        onClick={(e) => e.stopPropagation()}
                         className="mt-1 h-5 w-5"
                         aria-label="Als Hauptauftrag auswählen"
                       />
@@ -375,13 +450,15 @@ onClick={(e) => e.stopPropagation()}
                               </span>
                             )}
 
-                            {orderHasText ? (
+                            {contentInfo.kind === 'original' && (
                               <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold">
                                 Text vorhanden
                               </span>
-                            ) : (
+                            )}
+
+                            {contentInfo.kind === 'ai' && (
                               <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px] font-semibold">
-                                Nur KI-Hinweis
+                                KI-Hinweis
                               </span>
                             )}
 
@@ -394,26 +471,27 @@ onClick={(e) => e.stopPropagation()}
 
                           <button
                             onClick={(e) => {
-  e.stopPropagation();
-  onRemoveOrder(order.id);
-}}
+                              e.stopPropagation();
+                              onRemoveOrder(order.id);
+                            }}
                             className="text-red-600 text-xs font-semibold hover:underline shrink-0"
                           >
                             Entfernen
                           </button>
                         </div>
 
-                        <div className="mt-3 grid grid-cols-1 xl:grid-cols-[170px_1fr_220px_120px] gap-3 items-center">
+                        <div className="mt-3 grid grid-cols-1 xl:grid-cols-[145px_1fr_170px_130px] gap-3 items-center">
                           <button
                             type="button"
                             onClick={(e) => {
-  e.stopPropagation();
-  toggleContent(order.id);
-}}
-                            className="rounded-lg border bg-slate-50 hover:bg-slate-100 px-3 py-2 text-left text-xs"
+                              e.stopPropagation();
+                              if (contentInfo.kind !== 'none') toggleContent(order.id);
+                            }}
+                            disabled={contentInfo.kind === 'none'}
+                            className="rounded-lg border bg-slate-50 hover:bg-slate-100 disabled:opacity-50 px-3 py-2 text-left text-xs"
                           >
                             <div className="font-semibold">
-                              {orderHasText ? 'Originaltext' : 'KI-Hinweis'}
+                              {contentInfo.kind === 'ai' ? 'KI-Hinweis' : contentInfo.kind === 'original' ? 'Originaltext' : 'Kein Inhalt'}
                             </div>
                             <div className="text-muted-foreground">
                               {expandedContent[order.id] ? 'Inhalt ausblenden' : 'Inhalt anzeigen'}
@@ -421,37 +499,55 @@ onClick={(e) => e.stopPropagation()}
                           </button>
 
                           <div className="min-w-0">
-                       <div className="grid grid-cols-[1fr_110px] gap-2 text-xs text-muted-foreground mb-1">
-  <div>Leistung</div>
-  <div>Menge</div>
-</div>
+                            <div className="grid grid-cols-[1fr_120px] gap-2 text-xs text-muted-foreground mb-1">
+                              <div>Leistungen</div>
+                              <div>Menge</div>
+                            </div>
 
                             <div className="space-y-1">
                               {items.map((item, index) => (
                                 <div
                                   key={`${order.id}-${index}`}
-                                  className="grid grid-cols-[1fr_110px] gap-2 text-sm"
+                                  className="grid grid-cols-[1fr_120px] gap-2 text-sm"
                                 >
                                   <div className="font-medium truncate">
                                     {item.serviceName || 'Leistung prüfen'}
                                   </div>
-                                                                </div>
+
+                                  <div className="text-muted-foreground">
+                                    {formatQuantity(item)}
+                                  </div>
+                                </div>
                               ))}
                             </div>
                           </div>
 
                           <div className="flex items-center gap-2 min-w-0">
                             {images.slice(0, 3).map((url, index) => (
-                              <img
+                              <button
                                 key={url}
-                                src={url}
-                                alt={`Bild ${index + 1}`}
-                                className="w-12 h-12 rounded-md object-cover border"
-                              />
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setLargeImageUrl(url);
+                                }}
+                                className="shrink-0"
+                              >
+                                <img
+                                  src={url}
+                                  alt={`Bild ${index + 1}`}
+                                  className="w-11 h-11 rounded-md object-cover border"
+                                />
+                              </button>
                             ))}
 
                             {audioUrl && (
-                              <audio controls src={audioUrl} className="h-8 w-28" />
+                              <audio
+                                controls
+                                src={audioUrl}
+                                className="h-8 w-28"
+                                onClick={(e) => e.stopPropagation()}
+                              />
                             )}
                           </div>
 
@@ -461,8 +557,15 @@ onClick={(e) => e.stopPropagation()}
                         </div>
 
                         {expandedContent[order.id] && (
-                          <div className="mt-3 rounded-lg border bg-slate-50 px-3 py-2 text-sm leading-5">
-                            {text || 'Kein Text vorhanden.'}
+                          <div
+                            className={[
+                              'mt-3 rounded-lg border px-3 py-2 text-sm leading-5',
+                              contentInfo.kind === 'ai'
+                                ? 'bg-purple-50 border-purple-100'
+                                : 'bg-slate-50',
+                            ].join(' ')}
+                          >
+                            {contentInfo.text || 'Kein Inhalt vorhanden.'}
                           </div>
                         )}
                       </div>
@@ -491,6 +594,19 @@ onClick={(e) => e.stopPropagation()}
           </main>
         </div>
       </div>
+
+      {largeImageUrl && (
+        <div
+          className="fixed inset-0 z-[10000] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setLargeImageUrl(null)}
+        >
+          <img
+            src={largeImageUrl}
+            alt="Großansicht"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain"
+          />
+        </div>
+      )}
     </div>
   );
 }
