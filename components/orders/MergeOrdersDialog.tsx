@@ -149,26 +149,26 @@ export default function MergeOrdersDialog({
   return (
     <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
       <div className="bg-background rounded-2xl border shadow-2xl w-full max-w-7xl h-[90vh] overflow-hidden">
-        <div className="grid grid-cols-[420px_1fr] h-full">
+        <div className="grid grid-cols-[300px_1fr] h-full">
 
-          <aside className="border-r bg-slate-50 dark:bg-slate-900/40 p-6 overflow-y-auto">
-            <div className="space-y-6">
+          <aside className="border-r bg-slate-50 dark:bg-slate-900/40 p-4 overflow-y-auto text-sm">
+            <div className="space-y-4">
               <div>
                 <h2 className="text-2xl font-bold">
                   So funktioniert es:
                 </h2>
               </div>
 
-              <div className="space-y-7">
+              <div className="space-y-4">
                 <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
                     1
                   </div>
                   <div>
                     <div className="font-bold">
                       Hauptauftrag = Text bleibt erhalten
                     </div>
-                    <p className="text-sm leading-6 mt-2">
+                    <p className="text-xs leading-5 mt-1">
                       Der Hauptauftrag ist der Auftrag, der einen Text enthält.
                       Diesen Text übernehmen wir in den verbundenen Auftrag.
                     </p>
@@ -176,14 +176,14 @@ export default function MergeOrdersDialog({
                 </div>
 
                 <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
                     2
                   </div>
                   <div>
                     <div className="font-bold">
                       Andere Aufträge = Bilder + KI-Hinweise
                     </div>
-                    <p className="text-sm leading-6 mt-2">
+                    <p className="text-xs leading-5 mt-1">
                       Aufträge ohne Text ergänzen den Hauptauftrag um zusätzliche
                       Leistungen, Bilder oder Audio-Hinweise.
                     </p>
@@ -191,14 +191,14 @@ export default function MergeOrdersDialog({
                 </div>
 
                 <div className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
                     3
                   </div>
                   <div>
                     <div className="font-bold">
                       Im verbundenen Auftrag
                     </div>
-                    <p className="text-sm leading-6 mt-2">
+                    <p className="text-xs leading-5 mt-1">
                       Nach dem Zusammenführen bleibt der Text des Hauptauftrags
                       erhalten. Alle erkannten Leistungen werden zusammengeführt.
                     </p>
@@ -275,7 +275,7 @@ export default function MergeOrdersDialog({
                   <div
                     key={order.id}
                     className={[
-                      'rounded-xl border p-4 transition',
+                      'rounded-xl border px-4 py-3 transition',
                       isMain
                         ? 'border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-400'
                         : 'border-slate-200 bg-background',
@@ -329,7 +329,7 @@ export default function MergeOrdersDialog({
                         </div>
 
                         {isMain && text && (
-                          <div className="mt-4 rounded-lg border bg-background p-3 text-sm leading-6">
+                          <div className="mt-3 rounded-lg border bg-background px-3 py-2 text-sm leading-5">
                             <div className="font-medium mb-1">
                               Originaltext wird übernommen:
                             </div>
@@ -338,7 +338,7 @@ export default function MergeOrdersDialog({
                         )}
 
                         {!isMain && text && (
-                          <div className="mt-4 rounded-lg border bg-slate-50 p-3 text-sm leading-6">
+                          <div className="mt-3 rounded-lg border bg-slate-50 px-3 py-2 text-sm leading-5">
                             <div className="font-medium mb-1">
                               Textvorschau:
                             </div>
@@ -346,7 +346,7 @@ export default function MergeOrdersDialog({
                           </div>
                         )}
 
-                        <div className="mt-4 space-y-2">
+                        <div className="mt-3 space-y-1">
                           {items.map((item, index) => (
                             <div
                               key={`${order.id}-${index}`}
@@ -374,7 +374,7 @@ export default function MergeOrdersDialog({
                                 key={url}
                                 src={url}
                                 alt={`Bild ${index + 1}`}
-                                className="w-20 h-20 rounded-lg object-cover border"
+                                className="w-14 h-14 rounded-lg object-cover border"
                               />
                             ))}
                           </div>
