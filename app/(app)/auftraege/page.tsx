@@ -2183,11 +2183,23 @@ const getSafeOrderTotal = (o: Order) => {
         label="Angebote"
         ariaLabel="Zu Angebote"
       />
-      <MergeOrdersDialog
+           <MergeOrdersDialog
         open={mergeStep === 2}
         onOpenChange={(open) => {
           if (!open) handleDialogClose(false);
         }}
+        selectedOrders={getSelectedOrders()}
+        selectedMainOrderId={selectedMainOrderId}
+        onSelectMainOrder={setSelectedMainOrderId}
+        selectedCustomerId={selectedCustomerId}
+        onSelectCustomerId={setSelectedCustomerId}
+        customers={getUniqueCustomersFromSelected()}
+        previewUrls={mergePreviewUrls}
+        audioUrls={mergeAudioUrls}
+        onRemoveOrder={handleRemoveFromSelection}
+        onBack={() => setMergeStep(1)}
+        onNext={mergeGoToStep3}
+        currency={currency}
       />
       {/* ─── Merge Assistant Dialog (single persistent Dialog for steps 2–3) ─── */}
       <Dialog open={mergeStep === 3} onOpenChange={handleDialogClose}>
