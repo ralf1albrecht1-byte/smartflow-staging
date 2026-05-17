@@ -88,6 +88,9 @@ const formatMoney = (amount: number, currency: Currency) => {
     maximumFractionDigits: 2,
   })}`;
 };
+const getOrderCurrency = (order: MergeOrder): Currency => {
+  return order.currency === 'EUR' ? 'EUR' : 'CHF';
+};
 
 const isRealCustomerName = (name?: string | null) => {
   const value = (name || '').trim();
@@ -428,6 +431,8 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                   const audioUrl = audioUrls[order.id];
                   const items = getOrderItems(order);
                   const total = getOrderTotal(order);
+const orderCurrency = getOrderCurrency(order);
+const hasDifferentCurrency = hasCurrencyConflict && orderCurrency !== getOrderCurrency(selectedMainOrder || order);
 
                   const orderRealCustomerName = isRealCustomerName(order.customer?.name)
                     ? order.customer?.name?.trim().toLowerCase()
@@ -493,6 +498,11 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                                   Kunde abweichend
                                 </span>
                               )}
+{hasDifferentCurrency && (
+  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+    Unterschiedliche Währung: {orderCurrency}
+  </span>
+)}
                             </div>
 
                             <button
@@ -551,7 +561,7 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
 
                                     <div className="hidden xl:block text-muted-foreground">
                                       {Number(item.unitPrice || 0) > 0
-                                        ? formatMoney(Number(item.unitPrice || 0), currency)
+                                        ? formatMoney(Number(item.unitPrice || 0), orderCurrency)
                                         : '—'}
                                     </div>
                                   </div>
@@ -589,7 +599,7 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                             </div>
 
                             <div className="text-right font-bold text-base sm:text-lg">
-                              {formatMoney(total, currency)}
+                              {formatMoney(total, orderCurrency)}
                             </div>
                           </div>
 
