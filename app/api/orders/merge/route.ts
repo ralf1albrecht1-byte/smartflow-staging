@@ -330,13 +330,11 @@ const mergedNotes = [
 
       const updatedOrder = await tx.order.update({
         where: { id: targetOrderId },
-        data: {
-audioTranscript: targetOrder.audioTranscript ? mergedNotes : targetOrder.audioTranscript,
-description: targetOrder.description ? mergedNotes : targetOrder.description,
-          customerId: finalCustomerId || targetOrder.customerId,
-          imageUrls: mergedImageUrls,
-          thumbnailUrls: mergedThumbnailUrls,
-          notes: mergedNotes,
+      data: {
+  customerId: finalCustomerId || targetOrder.customerId,
+  imageUrls: mergedImageUrls,
+  thumbnailUrls: mergedThumbnailUrls,
+  notes: mergedNotes,
           specialNotes: targetOrder.specialNotes,
           reviewReasons: uniqueReviewReasons,
           needsReview: true,
@@ -355,6 +353,10 @@ description: targetOrder.description ? mergedNotes : targetOrder.description,
             })),
           },
           ...audioData,
+          audioTranscript:
+            targetOrder.audioTranscript || sourceWithAudio
+              ? mergedNotes
+              : targetOrder.audioTranscript,
         },
         include: {
           items: true,
