@@ -34,10 +34,15 @@ currency?: Currency | null;
   quantity?: number;
   unitPrice?: number;
   priceType?: string;
-  customer?: {
+ customer?: {
     name?: string;
     customerNumber?: string | null;
-  };
+    street?: string | null;
+    zip?: string | null;
+    city?: string | null;
+    phone?: string | null;
+    email?: string | null;
+};
   items?: MergeOrderItem[];
 }
 
@@ -104,6 +109,44 @@ const isRealCustomerName = (name?: string | null) => {
   if (lower.startsWith('k-')) return false;
 
   return true;
+};
+const normalizeCompareValue = (value?: string | null) => {
+  return (value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+};
+
+const normalizePhone = (value?: string | null) => {
+  return (value || '')
+    .replace(/[^\d+]/g, '')
+    .trim();
+};
+
+const getCustomerFieldConflicts = (orders: MergeOrder[]) => {
+  const fields = ['name', 'street', 'zip', 'city', 'phone', 'email'] as const;
+
+  const conflicts: Record<string, boolean> = {};
+
+  for (const field of fields) {
+    const values = orders
+      .map((order) => {
+        const raw = order.customer?.[field];
+
+        if (!raw) return '';
+
+        if (field === 'phone') {
+          return normalizePhone(raw);
+        }
+
+        return normalizeCompareValue(raw);
+      })
+      .filter(Boolean);
+
+    conflicts[field] = new Set(values).size > 1;
+  }
+
+  return conflicts;
 };
 
 const getCustomerLabel = (order: MergeOrder) => {
@@ -251,17 +294,10 @@ export default function MergeOrdersDialog({
   const [largeImageUrl, setLargeImageUrl] = useState<string | null>(null);
 
   if (!open) return null;
+const customerFieldConflicts = getCustomerFieldConflicts(selectedOrders);
+const hasCustomerConflict = Object.values(customerFieldConflicts).some(Boolean);
 
-  const realCustomerNames = Array.from(
-    new Set(
-      selectedOrders
-        .map((order) => order.customer?.name || '')
-        .filter((name) => isRealCustomerName(name))
-        .map((name) => name.trim().toLowerCase()),
-    ),
-  );
-
-  const hasCustomerConflict = realCustomerNames.length > 1;
+ 
 const selectedCurrencies = Array.from(
   new Set(
     selectedOrders.map((order) => (order.currency || 'CHF').trim()),
@@ -432,17 +468,22 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                   const items = getOrderItems(order);
                   const total = getOrderTotal(order);
 const orderCurrency = getOrderCurrency(order);
-const hasDifferentCurrency = hasCurrencyConflict && orderCurrency !== getOrderCurrency(selectedMainOrder || order);
+const hasDifferentCurrency =
+  hasCurrencyConflict && orderCurrency !== getOrderCurrency(selectedMainOrder || order);
 
-                  const orderRealCustomerName = isRealCustomerName(order.customer?.name)
-                    ? order.customer?.name?.trim().toLowerCase()
-                    : '';
+const customer = order.customer;
+const showCustomerDetails = hasCustomerConflict;
 
-                  const customerMismatch =
-                    Boolean(orderRealCustomerName) &&
-                    Boolean(selectedMainRealName) &&
-                    orderRealCustomerName !== selectedMainRealName;
+const fieldMismatch = {
+  name: customerFieldConflicts.name,
+  street: customerFieldConflicts.street,
+  zip: customerFieldConflicts.zip,
+  city: customerFieldConflicts.city,
+  phone: customerFieldConflicts.phone,
+  email: customerFieldConflicts.email,
+};
 
+                
                   return (
                     <div
                       key={order.id}
@@ -493,11 +534,11 @@ const hasDifferentCurrency = hasCurrencyConflict && orderCurrency !== getOrderCu
                                 </span>
                               )}
 
-                              {customerMismatch && (
-                                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
-                                  Kunde abweichend
-                                </span>
-                              )}
+{hasCustomerConflict && (
+  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+    ⚠️ Kundendaten abweichend
+  </span>
+)}
 {hasDifferentCurrency && (
   <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
     Unterschiedliche Währung: {orderCurrency}
@@ -515,6 +556,60 @@ const hasDifferentCurrency = hasCurrencyConflict && orderCurrency !== getOrderCu
                               Entfernen
                             </button>
                           </div>
+{showCustomerDetails && (
+  <div className="mt-3 mb-2 text-xs space-y-1">
+    
+    {customer?.street && (
+      <div className="flex flex-wrap items-center gap-2">
+        <span>{customer.street}</span>
+
+        {fieldMismatch.street && (
+          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+            Straße abweichend
+          </span>
+        )}
+      </div>
+    )}
+
+    {(customer?.zip || customer?.city) && (
+      <div className="flex flex-wrap items-center gap-2">
+        <span>
+          {[customer?.zip, customer?.city].filter(Boolean).join(' ')}
+        </span>
+
+        {(fieldMismatch.zip || fieldMismatch.city) && (
+          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+            Ort/PLZ abweichend
+          </span>
+        )}
+      </div>
+    )}
+
+    {customer?.phone && (
+      <div className="flex flex-wrap items-center gap-2">
+        <span>{customer.phone}</span>
+
+        {fieldMismatch.phone && (
+          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+            Telefon abweichend
+          </span>
+        )}
+      </div>
+    )}
+
+    {customer?.email && (
+      <div className="flex flex-wrap items-center gap-2">
+        <span>{customer.email}</span>
+
+        {fieldMismatch.email && (
+          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+            E-Mail abweichend
+          </span>
+        )}
+      </div>
+    )}
+  </div>
+)}
 
                           <div className="mt-3 grid grid-cols-1 xl:grid-cols-[145px_1fr_145px_170px_130px] gap-3 items-center">
                             <button
