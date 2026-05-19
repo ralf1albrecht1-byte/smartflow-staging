@@ -37,8 +37,8 @@ currency?: Currency | null;
  customer?: {
     name?: string;
     customerNumber?: string | null;
-    street?: string | null;
-    zip?: string | null;
+   address?: string | null;
+plz?: string | null;
     city?: string | null;
     phone?: string | null;
     email?: string | null;
@@ -124,7 +124,7 @@ const normalizePhone = (value?: string | null) => {
 };
 
 const getCustomerFieldConflicts = (orders: MergeOrder[]) => {
-  const fields = ['name', 'street', 'zip', 'city', 'phone', 'email'] as const;
+  const fields = ['name', 'address', 'plz', 'city', 'phone', 'email'] as const;
 
   const conflicts: Record<string, boolean> = {};
 
@@ -307,9 +307,6 @@ const selectedCurrencies = Array.from(
 const hasCurrencyConflict = selectedCurrencies.length > 1;
 
   const selectedMainOrder = selectedOrders.find((order) => order.id === selectedMainOrderId);
-  const selectedMainRealName = isRealCustomerName(selectedMainOrder?.customer?.name)
-    ? selectedMainOrder?.customer?.name?.trim().toLowerCase()
-    : '';
 
   const selectMainOrder = (order: MergeOrder) => {
     onSelectMainOrder(order.id);
@@ -476,8 +473,8 @@ const showCustomerDetails = hasCustomerConflict;
 
 const fieldMismatch = {
   name: customerFieldConflicts.name,
-  street: customerFieldConflicts.street,
-  zip: customerFieldConflicts.zip,
+  address: customerFieldConflicts.address,
+  plz: customerFieldConflicts.plz,
   city: customerFieldConflicts.city,
   phone: customerFieldConflicts.phone,
   email: customerFieldConflicts.email,
@@ -559,11 +556,11 @@ const fieldMismatch = {
 {showCustomerDetails && (
   <div className="mt-3 mb-2 text-xs space-y-1">
     
-    {customer?.street && (
+    {customer?.address && (
       <div className="flex flex-wrap items-center gap-2">
-        <span>{customer.street}</span>
+        <span>{customer.address}</span>
 
-        {fieldMismatch.street && (
+        {fieldMismatch.address && (
           <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
             Straße abweichend
           </span>
@@ -571,13 +568,13 @@ const fieldMismatch = {
       </div>
     )}
 
-    {(customer?.zip || customer?.city) && (
+    {(customer?.plz || customer?.city) && (
       <div className="flex flex-wrap items-center gap-2">
         <span>
-          {[customer?.zip, customer?.city].filter(Boolean).join(' ')}
+          {[customer?.plz, customer?.city].filter(Boolean).join(' ')}
         </span>
 
-        {(fieldMismatch.zip || fieldMismatch.city) && (
+        {(fieldMismatch.plz || fieldMismatch.city) && (
           <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
             Ort/PLZ abweichend
           </span>
