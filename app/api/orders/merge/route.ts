@@ -274,7 +274,7 @@ if (originalText) {
 return parts.join('\n');
   })
   .filter(Boolean)
-  .join('\n\n────────────\n\n');
+  .join('\n────────────\n');
 
 const mergedNotes = [
   'Hauptauftrag:',
