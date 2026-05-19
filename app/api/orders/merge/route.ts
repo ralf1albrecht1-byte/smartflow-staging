@@ -260,28 +260,7 @@ const additionalNotes = sourceOrders
 
     const customerName = o.customer?.name?.trim() || 'Unbekannter Kunde';
 
- parts.push('Zusammengeführt mit:');
-
-if (
-  o.customer?.address &&
-  o.customer.address !== targetOrder.customer?.address
-) {
-  parts.push(customerName);
-
-  if (o.customer.address) {
-    parts.push(o.customer.address);
-  }
-
-  if (o.customer.plz || o.customer.city) {
-    parts.push(
-      [o.customer.plz, o.customer.city]
-        .filter(Boolean)
-        .join(' ')
-    );
-  }
-} else {
-  parts.push(customerName);
-}
+parts.push('Zusammengeführt mit:');
 
     const originalText = (o.notes || o.audioTranscript || '')
       .replace(/\[Verbunden von Auftrag [^\]]+\]/g, '')
