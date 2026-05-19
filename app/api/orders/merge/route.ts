@@ -252,6 +252,13 @@ if (currencies.length > 1) {
         ...(targetOrder.thumbnailUrls || []),
         ...sourceOrders.flatMap((o) => o.thumbnailUrls || []),
       ];
+const compactMergeText = (text: string) => {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/^WhatsApp:\s*/im, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
 
 const additionalNotes = sourceOrders
   .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
@@ -262,10 +269,10 @@ const additionalNotes = sourceOrders
 
 parts.push('Zusammengeführt mit:');
 
-    const originalText = (o.notes || o.audioTranscript || '')
-      .replace(/\[Verbunden von Auftrag [^\]]+\]/g, '')
-      .replace(/^WhatsApp:\s*/im, '')
-      .trim();
+    const originalText = compactMergeText(
+  (o.notes || o.audioTranscript || '')
+    .replace(/\[Verbunden von Auftrag [^\]]+\]/g, '')
+);
 
 if (originalText) {
   parts.push(originalText);
@@ -278,9 +285,7 @@ return parts.join('\n');
 
 const mergedNotes = [
   'Hauptauftrag:',
-  (targetOrder.notes || '')
-    .replace(/^WhatsApp:\s*/im, '')
-    .trim(),
+  compactMergeText(targetOrder.notes || ''),
   '',
   additionalNotes,
 ]
