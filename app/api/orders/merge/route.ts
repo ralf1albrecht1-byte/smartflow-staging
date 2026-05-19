@@ -294,11 +294,6 @@ const additionalNotes = sourceOrders
       );
     }
 
-    if (o.notes) {
-      parts.push('');
-      parts.push(o.notes);
-    }
-
     return parts.join('\n');
   })
   .filter(Boolean)
