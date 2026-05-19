@@ -256,7 +256,7 @@ const compactMergeText = (text: string) => {
   return text
     .replace(/\r\n/g, '\n')
     .replace(/^\s*WhatsApp:\s*\n?/gim, '')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n{2,}/g, '\n')
     .trim();
 };
 
@@ -279,10 +279,10 @@ if (originalText) {
   parts.push(originalText);
 }
 
-return parts.join('\n\n');
+return parts.join('\n');
   })
   .filter(Boolean)
-  .join('\n\n');
+  .join('\n');
 
 const mergedNotes = [
   'Hauptauftrag:',
@@ -291,7 +291,7 @@ const mergedNotes = [
   additionalNotes,
 ]
   .filter(Boolean)
-  .join('\n\n');
+  .join('\n');
 
       const mergedItems = mergeOrderItems(allOrders);
 
