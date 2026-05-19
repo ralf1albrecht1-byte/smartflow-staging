@@ -256,7 +256,7 @@ const compactMergeText = (text: string) => {
   return text
     .replace(/\r\n/g, '\n')
     .replace(/^\s*WhatsApp:\s*\n?/gim, '')
-    .replace(/\n{2,}/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 };
 
