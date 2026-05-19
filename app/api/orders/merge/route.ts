@@ -263,12 +263,11 @@ const compactMergeText = (text: string) => {
 const additionalNotes = sourceOrders
   .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
   .map((o) => {
-    const parts: string[] = [];
+const parts: string[] = [];
+
 parts.push('────────────');
-
-    const customerName = o.customer?.name?.trim() || 'Unbekannter Kunde';
-
 parts.push('Zusammengeführt mit:');
+parts.push('');
 
     const originalText = compactMergeText(
   (o.notes || o.audioTranscript || '')
@@ -279,7 +278,7 @@ if (originalText) {
   parts.push(originalText);
 }
 
-return parts.join('\n');
+return parts.join('\n').trim();
   })
   .filter(Boolean)
   .join('\n');
