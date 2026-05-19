@@ -279,12 +279,13 @@ return parts.join('\n');
 const mergedNotes = [
   'Hauptauftrag:',
   (targetOrder.notes || '')
+    .replace(/^WhatsApp:\s*/im, '')
     .trim(),
   '',
   additionalNotes,
 ]
   .filter(Boolean)
-  .join('\n\n');
+  .join('\n');
 
       const mergedItems = mergeOrderItems(allOrders);
 
