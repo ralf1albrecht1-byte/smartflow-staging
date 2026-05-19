@@ -253,45 +253,24 @@ if (currencies.length > 1) {
         ...sourceOrders.flatMap((o) => o.thumbnailUrls || []),
       ];
 
-
-
 const additionalNotes = sourceOrders
   .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
   .map((o) => {
     const parts: string[] = [];
 
-    const customerName =
-      o.customer?.name?.trim() || 'Unbekannter Kunde';
+    const customerName = o.customer?.name?.trim() || 'Unbekannter Kunde';
 
-    parts.push(`Verbunden mit: ${customerName}`);
+    parts.push('Zusammengeführt mit:');
+    parts.push(customerName);
 
-    if (o.customer?.address) {
-      parts.push(o.customer.address);
-    }
+    const originalText = (o.notes || o.audioTranscript || '')
+      .replace(/\[Verbunden von Auftrag [^\]]+\]/g, '')
+      .replace(/^WhatsApp:\s*/im, '')
+      .trim();
 
-    const cityLine = [o.customer?.plz, o.customer?.city]
-      .filter(Boolean)
-      .join(' ');
-
-    if (cityLine) {
-      parts.push(cityLine);
-    }
-
-    parts.push('');
-
-    for (const item of o.items || []) {
-      const quantity = Number(item.quantity || 0);
-      const unit = item.unit || '';
-      const unitPrice = Number(item.unitPrice || 0);
-
-      const quantityText =
-        quantity > 0
-          ? `${quantity} ${unit}`.trim()
-          : unit;
-
-      parts.push(
-        `${item.serviceName || 'Leistung'} ${quantityText} à CHF ${unitPrice}`,
-      );
+    if (originalText) {
+      parts.push('');
+      parts.push(originalText);
     }
 
     return parts.join('\n');
@@ -299,9 +278,9 @@ const additionalNotes = sourceOrders
   .filter(Boolean)
   .join('\n\n----------------------\n\n');
 
-      const mergedNotes = [targetOrder.notes, additionalNotes]
-        .filter(Boolean)
-        .join('\n\n');
+const mergedNotes = [targetOrder.notes, additionalNotes]
+  .filter(Boolean)
+  .join('\n\n');
 
       const mergedItems = mergeOrderItems(allOrders);
 

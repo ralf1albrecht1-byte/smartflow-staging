@@ -75,6 +75,19 @@ const shortText = (value?: string | null, max = 340) => {
   return text.length > max ? `${text.slice(0, max).trim()}…` : text;
 };
 
+const cleanOriginalMessageText = (value?: string | null) => {
+  return (value || '')
+    .replace(/\[Verbunden von Auftrag [^\]]+\]/g, '')
+    .replace(/^WhatsApp:\s*/im, '')
+    .trim();
+};
+
+const limitOriginalText = (value?: string | null, max = 420) => {
+  const text = cleanOriginalMessageText(value);
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max).trim()}…` : text;
+};
+
 const formatDate = (date?: string) => {
   if (!date) return '–';
   const dt = new Date(date);
@@ -182,7 +195,7 @@ const getContentInfo = (order: MergeOrder): {
   buttonLabel: string;
   text: string;
 } => {
-  const audioText = shortText(order.audioTranscript, 420);
+  const audioText = limitOriginalText(order.audioTranscript, 420);
   if (audioText) {
     return {
       kind: 'original',
@@ -193,7 +206,7 @@ const getContentInfo = (order: MergeOrder): {
     };
   }
 
-  const noteText = shortText(order.notes, 420);
+  const noteText = limitOriginalText(order.notes, 420);
   if (noteText) {
     if (looksLikeProblemAiHint(noteText)) {
       return {
@@ -214,7 +227,7 @@ const getContentInfo = (order: MergeOrder): {
     };
   }
 
-  const fallbackText = shortText(order.description || order.specialNotes || null, 420);
+  const fallbackText = limitOriginalText(order.description || order.specialNotes || null, 420);
   if (fallbackText && looksLikeProblemAiHint(fallbackText)) {
     return {
       kind: 'ai',
@@ -706,7 +719,7 @@ const fieldMismatch = {
                           {expandedContent[order.id] && (
                             <div
                               className={[
-                                'mt-3 rounded-lg border px-3 py-2 text-sm leading-5',
+                                'mt-3 rounded-lg border px-3 py-2 text-sm leading-5 whitespace-pre-line',
                                 contentInfo.kind === 'ai'
                                   ? 'bg-purple-50 border-purple-100'
                                   : 'bg-slate-50',
