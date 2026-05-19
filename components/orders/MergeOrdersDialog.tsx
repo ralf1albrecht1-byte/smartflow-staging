@@ -555,6 +555,14 @@ const fieldMismatch = {
                           </div>
 {showCustomerDetails && (
   <div className="mt-3 mb-2 text-xs space-y-1">
+    {customer?.name && fieldMismatch.name && (
+      <div className="flex flex-wrap items-center gap-2">
+        <span>{customer.name}</span>
+        <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+          Name abweichend
+        </span>
+      </div>
+    )}
     
     {customer?.address && (
       <div className="flex flex-wrap items-center gap-2">
