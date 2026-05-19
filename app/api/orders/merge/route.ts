@@ -264,6 +264,7 @@ const additionalNotes = sourceOrders
   .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
   .map((o) => {
     const parts: string[] = [];
+parts.push('────────────');
 
     const customerName = o.customer?.name?.trim() || 'Unbekannter Kunde';
 
@@ -281,7 +282,7 @@ if (originalText) {
 return parts.join('\n\n');
   })
   .filter(Boolean)
-  .join('\n\n────────────\n\n');
+  .join('\n\n');
 
 const mergedNotes = [
   'Hauptauftrag:',
