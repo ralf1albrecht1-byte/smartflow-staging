@@ -268,19 +268,17 @@ parts.push('Zusammengeführt mit:');
       .trim();
 
 if (originalText) {
-  parts.push('');
   parts.push(originalText);
 }
 
 return parts.join('\n');
   })
   .filter(Boolean)
-  .join('\n\n----------------------\n\n');
+  .join('\n\n────────────\n\n');
 
 const mergedNotes = [
   'Hauptauftrag:',
   (targetOrder.notes || '')
-    .replace(/^WhatsApp:\s*/im, '')
     .trim(),
   '',
   additionalNotes,
