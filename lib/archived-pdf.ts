@@ -2,71 +2,70 @@
 /**
  * Immutable Archived PDF Snapshot System
  */
+import puppeteer from 'puppeteer';
+
 import { prisma } from '@/lib/prisma';
 import { uploadBufferToS3, downloadBufferFromS3 } from '@/lib/s3';
 import { generateInvoiceHtml } from '@/lib/pdf-templates';
 
 async function generatePdfBuffer(invoice: any, companySettings: any): Promise<Buffer> {
-  const html_content = generateInvoiceHtml(
+const invoiceCurrency = invoice?.currency === 'EUR' ? 'EUR' : 'CHF';
+const safeCompanySettings = companySettings
+  ? { ...companySettings, currency: invoiceCurrency }
+  : { currency: invoiceCurrency };
+  const htmlContent = generateInvoiceHtml(
     {
       ...invoice,
       subtotal: Number(invoice?.subtotal ?? 0),
       vatAmount: Number(invoice?.vatAmount ?? 0),
       total: Number(invoice?.total ?? 0),
-      items: invoice?.items?.map((i: any) => ({
-        ...i,
-        quantity: Number(i?.quantity ?? 0),
-        unitPrice: Number(i?.unitPrice ?? 0),
-        totalPrice: Number(i?.totalPrice ?? 0),
+      items: invoice?.items?.map((item: any) => ({
+        ...item,
+        quantity: Number(item?.quantity ?? 0),
+        unitPrice: Number(item?.unitPrice ?? 0),
+        totalPrice: Number(item?.totalPrice ?? 0),
       })),
     },
-    companySettings,
+    safeCompanySettings,
   );
 
-  const createResponse = await fetch('https://apps.abacus.ai/api/createConvertHtmlToPdfRequest', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      deployment_token: process.env.ABACUSAI_API_KEY,
-      html_content,
-      pdf_options: {
-        format: 'A4',
-        margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' },
-        print_background: true,
-      },
-      base_url: process.env.NEXTAUTH_URL || '',
-    }),
-  });
+  let browser: any = null;
 
-  if (!createResponse.ok) throw new Error('PDF creation request failed');
-
-  const { request_id } = await createResponse.json();
-  let attempts = 0;
-
-  while (attempts < 120) {
-    await new Promise((r) => setTimeout(r, 1000));
-
-    const res = await fetch('https://apps.abacus.ai/api/getConvertHtmlToPdfStatus', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        request_id,
-        deployment_token: process.env.ABACUSAI_API_KEY,
-      }),
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+      ],
     });
 
-    const result = await res.json();
+    const page = await browser.newPage();
 
-    if (result?.status === 'SUCCESS' && result?.result?.result) {
-      return Buffer.from(result.result.result, 'base64');
+    await page.setContent(htmlContent, {
+      waitUntil: ['load', 'networkidle0'],
+      timeout: 30000,
+    });
+
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '15mm',
+        right: '15mm',
+        bottom: '15mm',
+        left: '15mm',
+      },
+    });
+
+    return Buffer.from(pdf);
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
     }
-
-    if (result?.status === 'FAILED') throw new Error('PDF generation failed');
-
-    attempts++;
   }
-
-  throw new Error('PDF generation timeout');
 }
 
 async function storeSnapshot(

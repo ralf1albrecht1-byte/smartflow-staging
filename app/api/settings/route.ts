@@ -12,7 +12,42 @@ export async function GET() {
     let userId: string;
     try { userId = await requireUserId(); } catch (e) { return handleAuthError(e); }
 
-    let settings = await prisma.companySettings.findFirst({ where: { userId } });
+    let settings = await prisma.companySettings.findFirst({
+  where: { userId },
+  select: {
+    id: true,
+    userId: true,
+    firmenname: true,
+    firmaRechtlich: true,
+    ansprechpartner: true,
+    telefon: true,
+    telefon2: true,
+    email: true,
+    supportEmail: true,
+    webseite: true,
+    strasse: true,
+    hausnummer: true,
+    plz: true,
+    ort: true,
+    iban: true,
+    bank: true,
+    mwstAktiv: true,
+    mwstNummer: true,
+    mwstSatz: true,
+    mwstHinweis: true,
+    testModus: true,
+    branche: true,
+    hauptsprache: true,
+    documentTemplate: true,
+    letterheadUrl: true,
+    letterheadName: true,
+    letterheadVisible: true,
+    whatsappIntakeNumber: true,
+    createdAt: true,
+    updatedAt: true,
+currency: true,
+  },
+});
     if (!settings) {
       settings = await prisma.companySettings.create({ data: { userId } });
     }
@@ -22,7 +57,7 @@ export async function GET() {
     const envLabel = getEnvLabel();
     const whatsappEnabled = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
 
-    return NextResponse.json({ ...settings, envLabel, whatsappEnabled });
+   return NextResponse.json({ ...settings, envLabel, whatsappEnabled });
   } catch (error) {
     console.error('GET /api/settings error:', error);
     return NextResponse.json({ error: 'Fehler beim Laden' }, { status: 500 });
@@ -38,7 +73,7 @@ export async function PUT(request: Request) {
     const {
       firmenname, firmaRechtlich, ansprechpartner, telefon: rawTelefon, telefon2: rawTelefon2, email, supportEmail, webseite,
       strasse, hausnummer, plz, ort,
-      iban, bank, mwstAktiv, mwstNummer, mwstSatz, mwstHinweis, testModus, branche, hauptsprache,
+     iban, bank, mwstAktiv, mwstNummer, mwstSatz, mwstHinweis, testModus, branche, hauptsprache, currency,
       // New fields for document template + letterhead (Settings/Templates/Import paket)
       documentTemplate: rawDocumentTemplate, letterheadUrl: rawLetterheadUrl, letterheadName: rawLetterheadName,
       letterheadVisible: rawLetterheadVisible,
@@ -205,9 +240,12 @@ export async function PUT(request: Request) {
       mwstNummer: mwstNummer || null,
       mwstSatz: mwstSatz != null ? Number(mwstSatz) : null,
       mwstHinweis: mwstHinweis || null,
-      testModus: testModus ?? undefined,
-      branche: branche ?? undefined,
-      hauptsprache: hauptsprache ?? undefined,
+    testModus: testModus ?? undefined,
+branche: branche ?? undefined,
+hauptsprache: hauptsprache ?? undefined,
+currency: currency === 'EUR' ? 'EUR' : 'CHF',
+
+
     };
     // Only include phone fields when caller provided them (preserves legacy rows on partial updates).
     if (telefonProvided) settingsData.telefon = normalizedTelefon;
@@ -237,25 +275,101 @@ export async function PUT(request: Request) {
     // WhatsApp intake number — already normalized above in step 2
     if (whatsappProvided) settingsData.whatsappIntakeNumber = normalizedWhatsapp;
 
-    // Find existing settings for this user
-    let existing = await prisma.companySettings.findFirst({ where: { userId } });
 
-    if (existing) {
-      const settings = await prisma.companySettings.update({
-        where: { id: existing.id },
-        data: settingsData,
-      });
-      const su = await getSessionUser();
-      logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
-      return NextResponse.json(settings);
-    } else {
-      const settings = await prisma.companySettings.create({
-        data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch' },
-      });
-      const su = await getSessionUser();
-      logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
-      return NextResponse.json(settings);
-    }
+
+// Find existing settings for this user
+let existing = await prisma.companySettings.findFirst({
+  where: { userId },
+  select: { id: true },
+});
+
+if (existing) {
+  const settings = await prisma.companySettings.update({
+    where: { id: existing.id },
+    data: settingsData,
+    select: {
+      id: true,
+      userId: true,
+      firmenname: true,
+      firmaRechtlich: true,
+      ansprechpartner: true,
+      telefon: true,
+      telefon2: true,
+      email: true,
+      supportEmail: true,
+      webseite: true,
+      strasse: true,
+      hausnummer: true,
+      plz: true,
+      ort: true,
+      iban: true,
+      bank: true,
+      mwstAktiv: true,
+      mwstNummer: true,
+      mwstSatz: true,
+      mwstHinweis: true,
+      testModus: true,
+      branche: true,
+      hauptsprache: true,
+currency: true,
+      documentTemplate: true,
+      letterheadUrl: true,
+      letterheadName: true,
+      letterheadVisible: true,
+      whatsappIntakeNumber: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  const su = await getSessionUser();
+  logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
+  return NextResponse.json(settings);
+} else {
+  const settings = await prisma.companySettings.create({
+    data: { userId, ...settingsData, testModus: testModus ?? true, branche: branche ?? 'Gartenbau', hauptsprache: hauptsprache ?? 'Deutsch' },
+    select: {
+      id: true,
+      userId: true,
+      firmenname: true,
+      firmaRechtlich: true,
+      ansprechpartner: true,
+      telefon: true,
+      telefon2: true,
+      email: true,
+      supportEmail: true,
+      webseite: true,
+      strasse: true,
+      hausnummer: true,
+      plz: true,
+      ort: true,
+      iban: true,
+      bank: true,
+      mwstAktiv: true,
+      mwstNummer: true,
+      mwstSatz: true,
+      mwstHinweis: true,
+      testModus: true,
+      branche: true,
+      hauptsprache: true,
+currency: true,
+      documentTemplate: true,
+      letterheadUrl: true,
+      letterheadName: true,
+      letterheadVisible: true,
+      whatsappIntakeNumber: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+   const su = await getSessionUser();
+  logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SETTINGS_UPDATE', area: 'SETTINGS', request });
+  return NextResponse.json(settings);
+}
+
+
+
   } catch (error) {
     console.error('PUT /api/settings error:', error);
     return NextResponse.json({ error: 'Fehler beim Speichern' }, { status: 500 });

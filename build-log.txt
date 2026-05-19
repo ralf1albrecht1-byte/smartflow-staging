@@ -1,0 +1,92 @@
+
+> build
+> prisma generate && next build
+
+Prisma schema loaded from prisma/schema.prisma
+Warning: You did not specify an output path for your `generator` in schema.prisma. This behavior is deprecated and will no longer be supported in Prisma 7.0.0. To learn more visit https://pris.ly/cli/output-path
+
+✔ Generated Prisma Client (v6.7.0) to ./node_modules/@prisma/client in 145ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+  ▲ Next.js 14.2.35
+  - Experiments (use with caution):
+    · outputFileTracingRoot
+
+   Creating an optimized production build ...
+ ⚠ Compiled with warnings
+
+./node_modules/@ffmpeg-installer/ffmpeg/index.js
+Critical dependency: the request of a dependency is an expression
+
+Import trace for requested module:
+./node_modules/@ffmpeg-installer/ffmpeg/index.js
+./lib/audio-convert.ts
+./app/api/transcribe/route.ts
+
+./node_modules/fluent-ffmpeg/lib/options/misc.js
+Critical dependency: the request of a dependency is an expression
+
+Import trace for requested module:
+./node_modules/fluent-ffmpeg/lib/options/misc.js
+./node_modules/fluent-ffmpeg/lib/fluent-ffmpeg.js
+./node_modules/fluent-ffmpeg/index.js
+./lib/audio-convert.ts
+./app/api/transcribe/route.ts
+
+   Skipping linting
+   Checking validity of types ...
+   Collecting page data ...
+Error: Neither apiKey nor config.authenticator provided
+    at i._setAuthenticator (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:122762)
+    at new i (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:121571)
+    at 36506 (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/cancel-subscription/route.js:1:1331)
+    at t (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:143)
+    at t (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/cancel-subscription/route.js:1:6279)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/cancel-subscription/route.js:1:6332
+    at t.X (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:1285)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/cancel-subscription/route.js:1:6292
+    at Object.<anonymous> (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/cancel-subscription/route.js:1:6360)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+Error: Neither apiKey nor config.authenticator provided
+    at i._setAuthenticator (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:122762)
+    at new i (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:121571)
+    at 13374 (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/reactivate-subscription/route.js:1:1333)
+    at t (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:143)
+    at r (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/reactivate-subscription/route.js:6:4827)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/reactivate-subscription/route.js:6:4880
+    at t.X (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:1285)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/reactivate-subscription/route.js:6:4840
+    at Object.<anonymous> (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/reactivate-subscription/route.js:6:4908)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+Error: Neither apiKey nor config.authenticator provided
+    at i._setAuthenticator (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:122762)
+    at new i (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:121571)
+    at 38843 (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:1365)
+    at t (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:143)
+    at r (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:6948)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:7006
+    at t.X (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:1285)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:6961
+    at Object.<anonymous> (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/dashboard/route.js:1:7034)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+Error: Neither apiKey nor config.authenticator provided
+    at i._setAuthenticator (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:122762)
+    at new i (/home/ubuntu/github_repos/smartflow-staging/.build/server/chunks/9256.js:1:121571)
+    at 22993 (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/webhook/route.js:1:836)
+    at t (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:143)
+    at r (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/webhook/route.js:1:9532)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/webhook/route.js:1:9570
+    at t.X (/home/ubuntu/github_repos/smartflow-staging/.build/server/webpack-runtime.js:1:1285)
+    at /home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/webhook/route.js:1:9545
+    at Object.<anonymous> (/home/ubuntu/github_repos/smartflow-staging/.build/server/app/api/stripe/webhook/route.js:1:9598)
+    at Module._compile (node:internal/modules/cjs/loader:1554:14)
+
+> Build error occurred
+Error: Failed to collect page data for /api/stripe/cancel-subscription
+    at /home/ubuntu/github_repos/smartflow-staging/node_modules/next/dist/build/utils.js:1269:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  type: 'Error'
+}

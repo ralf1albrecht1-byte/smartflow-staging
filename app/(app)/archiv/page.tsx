@@ -7,13 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
+import { formatCurrency } from '@/lib/currency';
 
 const MONTH_NAMES = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 const MAX_BULK = 50;
 
 type ExportMode = 'year' | 'month' | 'range';
 
-interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; subtotal: number; vatRate: number; vatAmount: number; total: number; status: string; invoiceDate: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; }
+interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; subtotal: number; vatRate: number; vatAmount: number; total: number; currency?: 'CHF' | 'EUR' | string | null; status: string; invoiceDate: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; }
 
 export default function ArchivPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -45,6 +46,7 @@ export default function ArchivPage() {
     } catch {} finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' ? 'EUR' : 'CHF';
 
   // Derive available years from archived invoices (descending, newest year first)
   const availableYears = Array.from(
@@ -424,7 +426,7 @@ export default function ArchivPage() {
                   </span>
                   {exportPreview.count > 0 && (
                     <span className="text-muted-foreground font-mono text-xs">
-                      Total: CHF {exportPreview.total.toLocaleString('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                     Total: {formatCurrency(exportPreview.total)}
                     </span>
                   )}
                 </div>
@@ -477,7 +479,7 @@ export default function ArchivPage() {
                       <span className="text-xs font-medium shrink-0">{inv.customer?.name ?? ''}{inv.customer?.customerNumber ? ` (${inv.customer.customerNumber})` : ''}</span>
                       <span className="text-xs text-muted-foreground truncate min-w-0" title={itemDescs}>{itemDescs}</span>
                       <div className="flex-1" />
-                      <span className="font-mono text-xs font-bold text-muted-foreground shrink-0">CHF {Number(inv.total ?? 0).toFixed(0)}</span>
+                      <span className="font-mono text-xs font-bold text-muted-foreground shrink-0">{formatCurrency(Number(inv.total ?? 0), invoiceCurrency(inv))}</span>
                       <div className="flex gap-0.5 shrink-0">
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => downloadPdf(inv.id)} disabled={downloading === inv.id}>
                           {downloading === inv.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
@@ -505,7 +507,7 @@ export default function ArchivPage() {
                           <span className="font-mono text-[11px] text-muted-foreground shrink-0">{inv.invoiceNumber}</span>
                           <span className="text-xs font-medium truncate">{inv.customer?.name ?? ''}</span>
                         </div>
-                        <span className="font-mono text-xs font-bold text-muted-foreground shrink-0">CHF {Number(inv.total ?? 0).toFixed(0)}</span>
+                       <span className="font-mono text-xs font-bold text-muted-foreground shrink-0">{formatCurrency(Number(inv.total ?? 0), invoiceCurrency(inv))}</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] text-muted-foreground truncate">{itemDescs}</span>
@@ -559,7 +561,7 @@ export default function ArchivPage() {
                   {deleteTarget.customer?.customerNumber ? ` (${deleteTarget.customer.customerNumber})` : ''}
                 </div>
                 <div className="font-mono text-xs text-muted-foreground">
-                  CHF {Number(deleteTarget.total ?? 0).toFixed(2)}
+                  {formatCurrency(Number(deleteTarget.total ?? 0), invoiceCurrency(deleteTarget))}
                 </div>
               </div>
             )}

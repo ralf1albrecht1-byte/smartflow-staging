@@ -38,6 +38,7 @@ interface CompanyData {
   testModus: boolean;
   branche: string;
   hauptsprache: string;
+currency: 'CHF' | 'EUR';
   // Settings/Templates/Import paket additions
   documentTemplate: string;
   letterheadUrl: string | null;
@@ -69,6 +70,7 @@ const emptyData: CompanyData = {
   testModus: true,
   branche: 'Gartenbau',
   hauptsprache: 'Deutsch',
+currency: 'CHF',
   documentTemplate: 'classic',
   whatsappIntakeNumber: null,
   letterheadUrl: null,
@@ -449,6 +451,7 @@ if (type === 'data_export') {
       testModus: data.testModus ?? true,
       branche: data.branche || 'Gartenbau',
       hauptsprache: data.hauptsprache || 'Deutsch',
+currency: data.currency || 'CHF',
       documentTemplate: data.documentTemplate || 'classic',
       whatsappIntakeNumber: data.whatsappIntakeNumber || null,
       letterheadUrl: data.letterheadUrl || data.logoUrl || data.companyLogo || data.companyLogoUrl || null,
@@ -760,9 +763,30 @@ const storedValue = finalUrl;
                   value={form.branche}
                   onChange={(e) => updateField('branche', e.target.value)}
                 >
-                  {branchenOptionen.map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </div>
+                 {branchenOptionen.map(b => <option key={b} value={b}>{b}</option>)}
+</select>
+</div>
+
+<div className="space-y-2">
+  <Label>Standardwährung</Label>
+
+  <select
+    value={form.currency}
+    onChange={(e) => updateField('currency', e.target.value as 'CHF' | 'EUR')}
+    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+  >
+    <option value="CHF">CHF</option>
+    <option value="EUR">EUR</option>
+  </select>
+
+  <p className="text-xs text-muted-foreground">
+    Diese Währung wird für Angebote, Rechnungen und Beträge verwendet.
+  </p>
+</div>
+
+
+
+
 
               {/* Adresse */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

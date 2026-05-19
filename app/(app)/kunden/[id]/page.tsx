@@ -16,6 +16,7 @@ import { isCustomerDataIncomplete, isRequiredCustomerFieldMissing } from '@/lib/
 import { cn } from '@/lib/utils';
 import { PlzOrtInput } from '@/components/plz-ort-input';
 import { MissingCustomerDataBadge } from '@/components/missing-customer-data-badge';
+import { formatCurrency } from '@/lib/currency';
 
 interface Order {
   id: string;
@@ -81,7 +82,7 @@ interface Customer {
   invoices: Invoice[];
 }
 
-const formatCHF = (n: number) => `CHF ${(n ?? 0).toFixed(2)}`;
+
 const formatDate = (d: string | null) => {
   if (!d) return '-';
   return new Date(d).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -342,8 +343,7 @@ export default function KundenDetailPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">{formatCHF((order as any).total || order.totalPrice || 0)}</span>
-                  <Badge className={`text-xs ${orderStatusColor[order.status] || 'bg-gray-100 text-gray-800'}`}>
+<span className="text-sm font-medium">{formatCurrency((order as any).total || order.totalPrice || 0)}</span><Badge className={`text-xs ${orderStatusColor[order.status] || 'bg-gray-100 text-gray-800'}`}>
                     {order.status}
                   </Badge>
                 </div>
@@ -389,7 +389,7 @@ export default function KundenDetailPage() {
                   {offer.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{offer.notes}</p>}
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">{formatCHF(offer.total)}</span>
+                  <span className="text-sm font-medium">{formatCurrency(offer.total)}</span>
                   <Badge className={`text-xs ${offerStatusColor[offer.status] || 'bg-gray-100 text-gray-800'}`}>
                     {offer.status}
                   </Badge>
@@ -436,7 +436,7 @@ export default function KundenDetailPage() {
                   {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">{formatCHF(inv.total)}</span>
+                  <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
                   {isOverdue(inv) ? (
                     <Badge className="text-xs bg-red-100 text-red-800">Überfällig</Badge>
                   ) : (
@@ -510,7 +510,7 @@ export default function KundenDetailPage() {
                             </p>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-sm font-medium">{formatCHF((order as any).total || order.totalPrice || 0)}</span>
+                           <span className="text-sm font-medium">{formatCurrency((order as any).total || order.totalPrice || 0)}</span>
                             <Badge className={`text-xs ${orderStatusColor[order.status] || 'bg-gray-100 text-gray-800'}`}>
                               {order.status}
                             </Badge>
@@ -546,7 +546,7 @@ export default function KundenDetailPage() {
                           {offer.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{offer.notes}</p>}
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium">{formatCHF(offer.total)}</span>
+                          <span className="text-sm font-medium">{formatCurrency(offer.total)}</span>
                           <Badge className={`text-xs ${offerStatusColor[offer.status] || 'bg-gray-100 text-gray-800'}`}>
                             {offer.status}
                           </Badge>
@@ -582,7 +582,7 @@ export default function KundenDetailPage() {
                           {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium">{formatCHF(inv.total)}</span>
+                          <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
                           <Badge className={`text-xs ${invoiceStatusColor[inv.status] || 'bg-gray-100 text-gray-800'}`}>
                             {inv.status}
                           </Badge>
@@ -883,7 +883,7 @@ export default function KundenDetailPage() {
                       </div>
                       <div>
                         <Label className="text-[11px] text-muted-foreground">Gesamtbetrag</Label>
-                        <p className="font-medium">{formatCHF((o as any).total || o.totalPrice || 0)}</p>
+                        <p className="font-medium">{formatCurrency((o as any).total || o.totalPrice || 0)}</p>
                       </div>
                       {convertedLabel && (
                         <div>
@@ -942,7 +942,7 @@ export default function KundenDetailPage() {
                     </div>
                     <div>
                       <Label className="text-[11px] text-muted-foreground">Gesamtbetrag</Label>
-                      <p className="font-medium">{formatCHF(o.total)}</p>
+                      <p className="font-medium">{formatCurrency(o.total)}</p>
                     </div>
                     {o.notes && (
                       <div className="col-span-2">
@@ -977,7 +977,7 @@ export default function KundenDetailPage() {
                       </div>
                       <div>
                         <Label className="text-[11px] text-muted-foreground">Gesamtbetrag</Label>
-                        <p className="font-medium">{formatCHF(i.total)}</p>
+                        <p className="font-medium">{formatCurrency(i.total)}</p>
                       </div>
                       {i.notes && (
                         <div className="col-span-2">

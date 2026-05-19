@@ -18,6 +18,7 @@ import { motion } from 'framer-motion';
 import { DuplicateCheckPanel, type DuplicateMatch } from '@/components/customer-duplicate-check';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
 import { MwStControl } from '@/components/mwst-control';
+import { formatCurrency } from '@/lib/currency';
 import { splitSpecialNotes } from '@/lib/special-notes-utils';
 import { fetchAllJSON } from '@/lib/fetch-utils';
 import { LoadErrorFallback } from '@/components/load-error-fallback';
@@ -29,7 +30,7 @@ import { CustomerSearchCombobox } from '@/components/customer-search-combobox';
 import { MissingCustomerDataBadge } from '@/components/missing-customer-data-badge';
 
 interface InvoiceItem { description: string; quantity: string; unit: string; unitPrice: string; }
-interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; orders?: { id: string; createdAt?: string | null; date?: string | null; mediaUrl?: string | null; mediaType?: string | null; imageUrls?: string[]; thumbnailUrls?: string[]; audioTranscript?: string | null; audioDurationSec?: number | null; audioTranscriptionStatus?: string | null; notes?: string | null; specialNotes?: string | null; needsReview?: boolean; hinweisLevel?: string; description?: string | null }[]; subtotal: number; vatRate: number; vatAmount: number; total: number; status: string; invoiceDate: string; createdAt?: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; sourceOfferNumber?: string | null; }
+interface Invoice { id: string; invoiceNumber: string; customerId: string; customer?: any; items: any[]; orders?: { id: string; createdAt?: string | null; date?: string | null; mediaUrl?: string | null; mediaType?: string | null; imageUrls?: string[]; thumbnailUrls?: string[]; audioTranscript?: string | null; audioDurationSec?: number | null; audioTranscriptionStatus?: string | null; notes?: string | null; specialNotes?: string | null; needsReview?: boolean; hinweisLevel?: string; description?: string | null }[]; subtotal: number; vatRate: number; vatAmount: number; total: number; currency?: 'CHF' | 'EUR' | string | null; status: string; invoiceDate: string; createdAt?: string; dueDate: string | null; notes: string | null; sourceOfferId?: string | null; sourceOfferNumber?: string | null; }
 interface Customer { id: string; name: string; customerNumber?: string | null; address?: string | null; plz?: string | null; city?: string | null; country?: string | null; phone?: string | null; email?: string | null; }
 
 const statusColors: Record<string, string> = {
@@ -91,7 +92,7 @@ export default function RechnungenPage() {
   const [form, setForm] = useState({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] as string[] });
 const getEmptyItem = (): InvoiceItem => ({
   description: '',
-  quantity: '1',
+  quantity: '',
   unit: 'Stunde',
   unitPrice: '',
 });
@@ -102,6 +103,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
   const [vatRate, setVatRate] = useState(8.1);
   const [defaultVatRate, setDefaultVatRate] = useState(8.1);
+const [currency, setCurrency] = useState<'CHF' | 'EUR'>('CHF');
   // Stage M.2: Business WhatsApp intake number used as recipient for
   // "PDF an WhatsApp senden". NEVER use Customer.phone for this feature.
   const [businessWhatsappNumber, setBusinessWhatsappNumber] = useState<string | null>(null);
@@ -265,6 +267,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     setCustomers(Array.from(custMap.values()) as any); setOrders(ord ?? []); setServices(svc ?? []);
     // Set default VAT rate from settings
     if (settings) {
+setCurrency(settings.currency === 'EUR' ? 'EUR' : 'CHF');
       if (settings.mwstAktiv && settings.mwstSatz != null) {
         setDefaultVatRate(Number(settings.mwstSatz));
       } else if (settings.mwstAktiv === false) {
@@ -315,9 +318,9 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setItems(parsed.map((item: any) => ({
               description: item.serviceName || item.description || '',
-              quantity: String(item.quantity ?? 1),
+              quantity: String(item.quantity ?? 0),
               unit: item.unit ?? 'Stunde',
-              unitPrice: String(item.unitPrice ?? 50),
+              unitPrice: String(item.unitPrice ?? 0),
             })));
           }
         } catch {}
@@ -372,6 +375,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   const openNewInvoice = () => {
     setEditingInvoice(null);
     setVatRate(defaultVatRate);
+setCurrency(currency === 'EUR' ? 'EUR' : 'CHF');
     setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] });
     setItems([getEmptyItem()]);
     setLinkedOrderData(null);
@@ -393,6 +397,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     // Reset customer form to prevent stale data leaking between records
     setNewCust({ name: '', phone: '', email: '', address: '', plz: '', city: '', country: 'CH' });
     setVatRate(inv.vatRate != null ? Number(inv.vatRate) : defaultVatRate);
+setCurrency(inv.currency === 'EUR' ? 'EUR' : 'CHF');
     // Set linked order data for Original-Nachricht / Besonderheiten
     const lo = inv.orders?.[0];
     if (lo) setLinkedOrderData({ notes: lo.notes, specialNotes: lo.specialNotes, needsReview: lo.needsReview, mediaUrl: lo.mediaUrl, mediaType: lo.mediaType, imageUrls: lo.imageUrls, thumbnailUrls: lo.thumbnailUrls, audioTranscript: lo.audioTranscript, audioDurationSec: lo.audioDurationSec, audioTranscriptionStatus: lo.audioTranscriptionStatus, hinweisLevel: lo.hinweisLevel, description: lo.description });
@@ -409,7 +414,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     });
     setItems(
       inv.items?.length > 0
-        ? inv.items.map((it: any) => ({ description: it.description ?? '', quantity: String(it.quantity ?? 1), unit: it.unit ?? 'Stunde', unitPrice: String(it.unitPrice ?? 0) }))
+        ? inv.items.map((it: any) => ({ description: it.description ?? '', quantity: String(it.quantity ?? 0), unit: it.unit ?? 'Stunde', unitPrice: String(it.unitPrice ?? 0) }))
         : [getEmptyItem()]
     );
     if (opts?.openCustomerSection && inv.customerId) {
@@ -528,7 +533,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     if (!items?.length || !items[0]?.description?.trim()) { toast.error('Mindestens eine Leistung'); return; }
     setSaving(true);
     try {
-      const res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items, vatRate }) });
+      const res = await fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items, vatRate, currency }) });
       if (res.ok) { toast.success('Rechnung erstellt'); setDialogOpen(false); load(); setItems([getEmptyItem()]);setForm({ customerId: '', invoiceDate: new Date().toISOString().split('T')[0], paymentDays: '30', notes: '', orderIds: [] }); }
       else toast.error('Fehler');
     } catch { toast.error('Fehler'); } finally { setSaving(false); }
@@ -540,7 +545,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: editingInvoice.status, notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate }),
+        body: JSON.stringify({ status: editingInvoice.status, notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate, currency }),
       });
       if (res.ok) {
         toast.success('Rechnung aktualisiert');
@@ -559,7 +564,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Erledigt', notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate }),
+        body: JSON.stringify({ status: 'Erledigt', notes: form.notes, invoiceDate: form.invoiceDate, items, vatRate, currency }),
       });
       if (res.ok) {
         toast.success('Rechnung erledigt und archiviert');
@@ -572,24 +577,10 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   };
 
   const downloadPdf = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    setDownloading(id);
-    try {
-      const res = await fetch(`/api/invoices/${id}/pdf?_t=${Date.now()}`, { cache: 'no-store' });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'rechnung.pdf'; a.click(); URL.revokeObjectURL(url);
-        toast.success('PDF heruntergeladen');
-        // Block N: fire-and-forget audit event for the user-initiated download.
-        fetch('/api/audit/share-event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ event: 'INVOICE_PDF_DOWNLOADED', targetType: 'Invoice', targetId: id }),
-        }).catch(() => {});
-      } else toast.error('PDF-Fehler');
-    } catch { toast.error('Fehler'); } finally { setDownloading(null); }
-  };
+  e.stopPropagation();
+  window.open(`/api/invoices/${id}/pdf?_t=${Date.now()}`, '_blank', 'noopener,noreferrer');
+};
+
 
   const sendPdfToWhatsApp = async (inv: Invoice) => {
     // New flow: server generates PDF, uploads to public S3, and sends
@@ -823,7 +814,7 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
                               )}
                               <span className="text-muted-foreground hidden sm:inline">·</span>
                               <span className={`text-xs truncate hidden sm:inline ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</span>
-                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>CHF {Number(inv?.total ?? 0).toFixed(2)}</span>
+                              <span className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? 'text-muted-foreground' : 'text-primary'}`}>{formatCurrency(Number(inv?.total ?? 0), inv.currency === 'EUR' ? 'EUR' : 'CHF')}</span>
                             </div>
                             <p className={`text-xs line-clamp-1 mt-0.5 sm:hidden ${isPaid ? 'text-muted-foreground' : 'text-foreground/70'}`}>{itemDescs}</p>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -834,6 +825,20 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
                               {(inv?.status === 'Gesendet' || inv?.status === 'Bezahlt') && inv?.invoiceDate && (
                                 <span className="text-[10px] text-muted-foreground italic">Gesendet {new Date(inv.invoiceDate).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
                               )}
+
+{inv.items?.some(
+  (it: any) =>
+    Number(it.quantity) <= 0 ||
+    Number(it.unitPrice) <= 0,
+) && (
+  <Badge
+    variant="secondary"
+    className="text-[11px] px-2 py-0.5 bg-red-200 text-red-800 border border-red-300"
+  >
+    Preis/Menge prüfen
+  </Badge>
+)}
+
                               <CommunicationChips data={orderCtx} onAudioClick={() => { if (orderCtx.mediaUrl) { openMedia(orderCtx.mediaUrl, 'audio'); }}} onImageClick={() => { const imgs = orderCtx.imageUrls; if (imgs && imgs.length > 0) { openImageGallery(imgs); }}} />
                             </div>
                           </div>
@@ -1005,11 +1010,18 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
             {/* Form fields — collapsed when dupCheck open */}
             {dupCheckOpen ? (
               <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
-                <span>{items?.filter((i: InvoiceItem) => i.description).length || 0} Leistung(en) · CHF {total.toFixed(2)} · {form.invoiceDate || '–'} · {editingInvoice?.status || 'Neu'}</span>
+                <span>{items?.filter((i: InvoiceItem) => i.description).length || 0} Leistung(en) · {formatCurrency(total, currency)} · {form.invoiceDate || '–'} · {editingInvoice?.status || 'Neu'}</span>
                 <span className="text-[10px] italic">Duplikat-Prüfung aktiv — Form eingeklappt</span>
               </div>
             ) : (<>
             <div><Label>Rechnungsdatum</Label><Input type="date" value={form.invoiceDate} onChange={(e: any) => setForm({ ...form, invoiceDate: e?.target?.value ?? '' })} /></div>
+<div>
+  <Label>Währung</Label>
+  <select className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={currency} onChange={(e: any) => setCurrency(e?.target?.value === 'EUR' ? 'EUR' : 'CHF')}>
+    <option value="CHF">CHF</option>
+    <option value="EUR">EUR</option>
+  </select>
+</div>
             {!editingInvoice && <div><Label>Zahlungsziel (Tage)</Label><Input type="number" value={form.paymentDays} onChange={(e: any) => setForm({ ...form, paymentDays: e?.target?.value ?? '30' })} /></div>}
             {editingInvoice && (
               <div>
@@ -1048,20 +1060,55 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   <div>
     <Label className="text-xs">Einheit</Label>
     <select className="flex w-full rounded-md border border-input bg-background px-2 py-1.5" value={item?.unit ?? 'Stunde'} onChange={(e: any) => updateItem(idx, 'unit', e?.target?.value ?? 'Stunde')}>
-      <option value="Stunde">Stunde</option><option value="Pauschal">Pauschal</option><option value="Meter">Meter</option><option value="Stück">Stück</option>
+     <option value="Stunde">Stunde</option>
+<option value="Tag">Tag</option>
+<option value="Pauschal">Pauschal</option>
+<option value="Meter">Meter</option>
+<option value="Quadratmeter">Quadratmeter</option>
+<option value="Kubikmeter">Kubikmeter</option>
+<option value="Stück">Stück</option>
+<option value="Kilogramm">Kilogramm</option>
+<option value="Tonne">Tonne</option>
+<option value="Liter">Liter</option>
     </select>
   </div>
   <div>
-    <Label className="text-xs">Preis (CHF)</Label>
-    <Input type="number" step="0.05" className="h-8" value={item?.unitPrice ?? ''} onChange={(e: any) => updateItem(idx, 'unitPrice', e?.target?.value ?? '0')} />
+    <Label className="text-xs">Preis ({currency})</Label>
+    <Input
+      type="number"
+      step="0.05"
+      placeholder="prüfen"
+      className={`h-8 ${
+        Number(item?.unitPrice ?? 0) <= 0
+          ? 'border-red-500 bg-red-50'
+          : ''
+      }`}
+      value={Number(item?.unitPrice ?? 0) <= 0 ? '' : (item?.unitPrice ?? '')}
+      onChange={(e: any) =>
+        updateItem(idx, 'unitPrice', e?.target?.value ?? '0')
+      }
+    />
   </div>
   <div>
     <Label className="text-xs">Menge</Label>
-    <Input type="number" step="0.25" className="h-8" value={item?.quantity ?? ''} onChange={(e: any) => updateItem(idx, 'quantity', e?.target?.value ?? '1')} />
+    <Input
+      type="number"
+      step="0.25"
+      placeholder="prüfen"
+      className={`h-8 ${
+        Number(item?.quantity ?? 0) <= 0
+          ? 'border-red-500 bg-red-50'
+          : ''
+      }`}
+      value={Number(item?.quantity ?? 0) <= 0 ? '' : (item?.quantity ?? '')}
+      onChange={(e: any) =>
+        updateItem(idx, 'quantity', e?.target?.value ?? '0')
+      }
+    />
   </div>
 </div>
 <div className="text-left sm:text-right text-xs text-muted-foreground">
-  = CHF {(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0)).toFixed(2)}
+  = {formatCurrency(Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0), currency)}
 </div>
 </div>
 )) ?? []}
@@ -1072,11 +1119,11 @@ const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
             <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
               <MwStControl vatRate={vatRate} onChange={setVatRate} />
               <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">CHF {subtotal.toFixed(2)}</span></div>
+                <div className="flex justify-between min-w-0"><span className="shrink-0">Netto</span><span className="font-mono">{formatCurrency(subtotal, currency)}</span></div>
                 {vatRate > 0 && (
-                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">CHF {vatAmount.toFixed(2)}</span></div>
+                  <div className="flex justify-between min-w-0"><span className="shrink-0">MwSt. {vatRate}%</span><span className="font-mono">{formatCurrency(vatAmount, currency)}</span></div>
                 )}
-                <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">CHF {total.toFixed(2)}</span></div>
+                <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base"><span className="shrink-0">Total</span><span className="font-mono text-primary">{formatCurrency(total, currency)}</span></div>
               </div>
             </div>
 

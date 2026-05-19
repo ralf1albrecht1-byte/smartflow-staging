@@ -1,10 +1,11 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { uploadBufferToS3, getFileUrl } from '@/lib/s3';
+import { uploadBufferToS3 } from '@/lib/s3';
 import { processIncomingMessage } from '@/lib/order-intake';
 import { logAuditAsync } from '@/lib/audit';
 import { maskPhoneForLog } from '@/lib/phone';
 import { whatsappInboundEnabled, getAppEnv } from '@/lib/env';
+import { probeAudioDuration, convertAudioToCompactMp3 } from '@/lib/audio-convert';
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
@@ -30,6 +31,332 @@ function isDuplicateMessage(sid: string): boolean {
   }
   recentMessageSids.set(sid, now);
   return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Background async audio processing — runs AFTER TwiML response is sent.
+//
+// Phase 3 refactor: the POST handler returns immediately to Twilio (<200ms).
+// All heavy audio work (duration probe, compression, quota check, transcription,
+// order creation) happens here, outside the request/response cycle.
+// ─────────────────────────────────────────────────────────────────────────────
+async function processWhatsAppMediaAsync(params: {
+  audioBuffer: Buffer;
+  audioSavedPath: string;
+  mediaContentType: string;
+  phoneNumber: string;
+  profileName: string;
+  resolvedUserId: string;
+  messageText: string;
+  collectedImages: { base64: string; mimeType: string; s3Path: string; previewPath: string; thumbPath: string }[];
+}): Promise<void> {
+  const {
+    audioBuffer,
+    audioSavedPath,
+    mediaContentType,
+    phoneNumber,
+    profileName,
+    resolvedUserId,
+    messageText,
+    collectedImages,
+  } = params;
+
+  const originalKB = (audioBuffer.length / 1024).toFixed(0);
+
+  try {
+    // ─── Step 1: Duration probe via local FFmpeg ───
+    const durationSec = await probeAudioDuration(audioBuffer);
+
+    // ─── Step 2: Compress to compact MP3 ───
+    const compressedBuffer = await convertAudioToCompactMp3(audioBuffer);
+    const compressedKB = compressedBuffer ? (compressedBuffer.length / 1024).toFixed(0) : '--';
+
+    // ─── Step 3: Decision matrix ───
+    // duration === null → unknown → review order
+    // duration > 60    → too long → review order
+    // duration <= 60   → compress → quota check → transcribe → order
+
+    if (durationSec === null) {
+      // UNCHECKABLE — all probes failed, cost protection: no transcription
+      console.log(`[AUDIO] Original: ${originalKB}KB | Compressed: ${compressedKB} | Duration: unknown | Decision: duration_unknown`);
+
+      logAuditAsync({
+        action: 'MEDIA_RECEIVED',
+        area: 'WEBHOOK',
+        details: {
+          type: 'audio',
+          sender: profileName,
+          phone: maskPhoneForLog(phoneNumber),
+          audioBytes: audioBuffer.length,
+          audioDurationSec: null,
+          transcriptionSkipped: true,
+          reason: 'voice_uncheckable',
+        },
+      });
+
+      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
+      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
+
+      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
+      const result = await createVoiceTooLongReviewOrder({
+        source: 'WhatsApp',
+        senderName: profileName,
+        phoneNumber,
+        audioPath: audioSavedPath,
+        durationSec: null,
+        userId: resolvedUserId,
+        imagePreviewPaths,
+        imageThumbnailPaths,
+        reason: 'uncheckable',
+      });
+      if (result) {
+        console.log(`[WhatsApp] ✅ Uncheckable-voice review order created: ${result.orderId}`);
+      } else {
+        console.warn(`[WhatsApp] ⚠️ Uncheckable-voice review order returned null for ${maskPhoneForLog(phoneNumber)}`);
+      }
+      return;
+    }
+
+    if (durationSec > 60) {
+      // TOO LONG — skip transcription, create review order
+      console.log(`[AUDIO] Original: ${originalKB}KB | Compressed: ${compressedKB} | Duration: ${durationSec.toFixed(1)}s | Decision: too_long`);
+
+      logAuditAsync({
+        action: 'MEDIA_RECEIVED',
+        area: 'WEBHOOK',
+        details: {
+          type: 'audio',
+          sender: profileName,
+          phone: maskPhoneForLog(phoneNumber),
+          audioBytes: audioBuffer.length,
+          audioDurationSec: Math.round(durationSec),
+          transcriptionSkipped: true,
+          reason: 'voice_too_long',
+        },
+      });
+
+      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
+      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
+
+      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
+      const result = await createVoiceTooLongReviewOrder({
+        source: 'WhatsApp',
+        senderName: profileName,
+        phoneNumber,
+        audioPath: audioSavedPath,
+        durationSec,
+        userId: resolvedUserId,
+        imagePreviewPaths,
+        imageThumbnailPaths,
+        reason: 'too_long',
+      });
+      if (result) {
+        console.log(`[WhatsApp] ✅ Long-voice review order created: ${result.orderId}`);
+      } else {
+        console.warn(`[WhatsApp] ⚠️ Long-voice review order returned null for ${maskPhoneForLog(phoneNumber)}`);
+      }
+      return;
+    }
+
+    // ─── Duration ≤ 60s — check quota, then transcribe ───
+    const { checkAudioTranscriptionQuota } = await import('@/lib/audio-quota');
+    const quota = await checkAudioTranscriptionQuota(resolvedUserId, durationSec);
+
+    if (!quota.allowTranscription) {
+      // QUOTA EXCEEDED — skip transcription, create review order
+      console.log(`[AUDIO] Original: ${originalKB}KB | Compressed: ${compressedKB} | Duration: ${durationSec.toFixed(1)}s | Decision: quota_exceeded (used=${quota.usedMinutes}/${quota.includedMinutes}min)`);
+
+      logAuditAsync({
+        userId: resolvedUserId,
+        action: 'MEDIA_RECEIVED',
+        area: 'WEBHOOK',
+        details: {
+          type: 'audio',
+          sender: profileName,
+          phone: maskPhoneForLog(phoneNumber),
+          audioBytes: audioBuffer.length,
+          audioDurationSec: Math.round(durationSec),
+          transcriptionSkipped: true,
+          reason: 'voice_quota_exceeded',
+          quotaUsedMinutes: quota.usedMinutes,
+          quotaIncludedMinutes: quota.includedMinutes,
+          quotaCheckReason: quota.reason,
+        },
+      });
+
+      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
+      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
+
+      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
+      const result = await createVoiceTooLongReviewOrder({
+        source: 'WhatsApp',
+        senderName: profileName,
+        phoneNumber,
+        audioPath: audioSavedPath,
+        durationSec,
+        userId: resolvedUserId,
+        imagePreviewPaths,
+        imageThumbnailPaths,
+        reason: 'quota_exceeded',
+        quotaUsedMinutes: quota.usedMinutes ?? undefined,
+        quotaIncludedMinutes: quota.includedMinutes ?? undefined,
+      });
+      if (result) {
+        console.log(`[WhatsApp] ✅ Quota-exceeded voice review order created: ${result.orderId}`);
+      } else {
+        console.warn(`[WhatsApp] ⚠️ Quota-exceeded voice review order returned null for ${maskPhoneForLog(phoneNumber)}`);
+      }
+      return;
+    }
+
+    // ─── Quota OK, duration ≤ 60s → transcribe ───
+    const mp3Buffer = compressedBuffer ?? audioBuffer; // fallback to original if compression failed
+
+    console.log(`[AUDIO] Original: ${originalKB}KB | Compressed: ${compressedKB} | Duration: ${durationSec.toFixed(1)}s | Decision: transcribed (quota: ${quota.usedMinutes}/${quota.includedMinutes}min)`);
+
+    logAuditAsync({
+      action: 'MEDIA_RECEIVED',
+      area: 'WEBHOOK',
+      details: {
+        type: 'audio',
+        sender: profileName,
+        phone: maskPhoneForLog(phoneNumber),
+        audioBytes: audioBuffer.length,
+        audioDurationSec: Math.round(durationSec),
+        transcriptionSkipped: false,
+        quotaUsedMinutes: quota.usedMinutes,
+        quotaIncludedMinutes: quota.includedMinutes,
+      },
+    });
+
+    let audioTranscriptText: string | null = null;
+    const transcription = await transcribeAudio(mp3Buffer);
+    if (transcription) {
+      audioTranscriptText = `[Transkription]: ${transcription}`;
+    }
+
+    const audioTranscriptionStatus: 'transcribed' | 'failed' = audioTranscriptText ? 'transcribed' : 'failed';
+
+    // ─── Transcription failed → create review order as fallback ───
+    if (audioTranscriptionStatus === 'failed') {
+      console.warn(`[AUDIO] Transcription failed for ${maskPhoneForLog(phoneNumber)} — creating review order fallback`);
+
+      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
+      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
+
+      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
+      const result = await createVoiceTooLongReviewOrder({
+        source: 'WhatsApp',
+        senderName: profileName,
+        phoneNumber,
+        audioPath: audioSavedPath,
+        durationSec,
+        userId: resolvedUserId,
+        imagePreviewPaths,
+        imageThumbnailPaths,
+        reason: 'transcription_failed',
+      });
+      if (result) {
+        console.log(`[WhatsApp] ✅ Transcription-failed review order created: ${result.orderId}`);
+      } else {
+        console.warn(`[WhatsApp] ⚠️ Transcription-failed review order returned null for ${maskPhoneForLog(phoneNumber)}`);
+      }
+      return;
+    }
+
+    // Build final text
+    let finalText = messageText;
+    if (audioTranscriptText) finalText = finalText ? `${finalText}\n\n${audioTranscriptText}` : audioTranscriptText;
+
+    // If there are also images with this audio, include them
+    const hasImages = collectedImages.length > 0;
+
+    if (hasImages) {
+      // Mixed message: audio + images — process as image order with audio metadata
+      const orderResult = await processIncomingMessage({
+        source: 'WhatsApp',
+        senderName: profileName,
+        phoneNumber,
+        messageText: finalText,
+        imageBase64: collectedImages[0].base64,
+        imageMimeType: collectedImages[0].mimeType,
+        savedMediaPath: audioSavedPath || collectedImages[0].s3Path,
+        savedMediaType: audioSavedPath ? 'audio' : 'image',
+        optimizedPreviewPath: collectedImages[0].previewPath,
+        optimizedThumbnailPath: collectedImages[0].thumbPath,
+        userId: resolvedUserId,
+        allImageBase64s: collectedImages.map(i => i.base64),
+        allImageMimeTypes: collectedImages.map(i => i.mimeType),
+        allSavedMediaPaths: collectedImages.map(i => i.s3Path),
+        allOptimizedPreviewPaths: collectedImages.map(i => i.previewPath),
+        allOptimizedThumbnailPaths: collectedImages.map(i => i.thumbPath),
+        audioDurationSec: durationSec,
+        audioTranscriptionStatus,
+      });
+      if (orderResult) {
+        console.log(`[WhatsApp] ✅ Audio+Image order created: ${orderResult.description}`);
+      }
+    } else {
+      // Audio-only (possibly with text)
+      const orderResult = await processIncomingMessage({
+        source: 'WhatsApp',
+        senderName: profileName,
+        messageText: finalText,
+        phoneNumber,
+        imageBase64: null,
+        imageMimeType: 'image/jpeg',
+        savedMediaPath: audioSavedPath,
+        savedMediaType: 'audio',
+        optimizedPreviewPath: null,
+        optimizedThumbnailPath: null,
+        userId: resolvedUserId,
+        audioDurationSec: durationSec,
+        audioTranscriptionStatus,
+      });
+      if (orderResult) {
+        console.log(`[WhatsApp] ✅ Audio order created: ${orderResult.description}`);
+      } else {
+        console.log(`[WhatsApp] ⚠️ Audio processing returned no order for ${maskPhoneForLog(phoneNumber)}`);
+      }
+    }
+  } catch (err: any) {
+    // ─── CRITICAL: any uncaught error → create a review order, never crash silently ───
+    console.error(`[WhatsApp] ❌ processWhatsAppMediaAsync failed for ${maskPhoneForLog(phoneNumber)}:`, err);
+    console.log(`[AUDIO] Original: ${originalKB}KB | Compressed: -- | Duration: -- | Decision: error_fallback`);
+
+    try {
+      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
+      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
+
+      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
+      const result = await createVoiceTooLongReviewOrder({
+        source: 'WhatsApp',
+        senderName: profileName,
+        phoneNumber,
+        audioPath: audioSavedPath,
+        durationSec: null,
+        userId: resolvedUserId,
+        imagePreviewPaths,
+        imageThumbnailPaths,
+        reason: 'uncheckable',
+      });
+      if (result) {
+        console.log(`[WhatsApp] ✅ Error-fallback review order created: ${result.orderId}`);
+      }
+    } catch (reviewErr) {
+      console.error(`[WhatsApp] ❌ Error-fallback review order creation also failed:`, reviewErr);
+    }
+
+    logAuditAsync({
+      action: 'WHATSAPP_AUDIO_ASYNC_ERROR',
+      area: 'WEBHOOK',
+      success: false,
+      details: {
+        phone: maskPhoneForLog(phoneNumber),
+        error: err?.message || 'Unknown error',
+      },
+    });
+  }
 }
 
 // GET: Health check
@@ -74,7 +401,10 @@ export async function POST(request: Request) {
 
     const from = body.From || ''; // e.g. "whatsapp:+41791234567"
     const messageBody = body.Body || '';
+    const maxImages = 5;
     const numMedia = parseInt(body.NumMedia || '0', 10);
+    const imagesToProcess = Math.min(numMedia, maxImages);
+    const hasOverflow = numMedia > maxImages;
     const profileName = body.ProfileName || 'Unbekannt';
 
     // Extract phone number from "whatsapp:+41791234567"
@@ -90,38 +420,13 @@ export async function POST(request: Request) {
     let messageText = messageBody;
     let hasAudio = false;
     let audioSavedPath: string | null = null;
-    let audioTranscriptText: string | null = null;
-    // ─── Stage H: voice-message duration cap (60 s) — FAIL-SAFE ───
-    // `voiceTooLong`     : duration is reliably known to be > 60 s.
-    // `voiceUncheckable` : duration could NOT be determined safely (parser failed
-    //                       AND ffprobe-via-FFmpeg fallback failed).
-    //                       In this case we MUST NOT transcribe — cost protection
-    //                       is the whole point. We create a manual review order
-    //                       instead, with a different warning message.
-    // `voiceDurationKnown` is true ONLY when we have a numeric duration we trust.
-    let voiceTooLong = false;
-    let voiceUncheckable = false;
-    let voiceDurationSec: number | null = null;
-    let voiceDurationKnown = false;
-    // If the FFmpeg fallback already produced an MP3 (during the duration probe)
-    // and the duration came back ≤60 s, we reuse that MP3 buffer for transcription
-    // to avoid running FFmpeg twice on the same audio.
-    let preconvertedMp3Buffer: Buffer | null = null;
-    // ─── Stage K: server-side audio-quota enforcement ───
-    // If the user's monthly transcription quota (Standard plan = 20 min) is
-    // exhausted, OR if quota lookup fails (fail-safe), we MUST NOT transcribe.
-    // We still save the audio + create a manual-review order with a clear warning.
-    let voiceQuotaExceeded = false;
-    let voiceQuotaUsedMinutes: number | null = null;
-    let voiceQuotaIncludedMinutes: number | null = null;
+    let audioBuffer: Buffer | null = null;
+    let audioMediaContentType: string = '';
 
     // Collected image data
     const collectedImages: { base64: string; mimeType: string; s3Path: string; previewPath: string; thumbPath: string }[] = [];
 
     // ─── Resolve userId BEFORE media processing ───
-    // The audio-quota gate (Stage K) must run BEFORE we transcribe. Resolving
-    // userId up front also avoids wasted media downloads / transcription cost
-    // for messages from unmapped phone numbers.
     const { resolveUserIdByPhone } = await import('@/lib/phone-resolver');
     const resolvedUserId = await resolveUserIdByPhone(phoneNumber);
     if (!resolvedUserId) {
@@ -132,7 +437,8 @@ export async function POST(request: Request) {
     logAuditAsync({ userId: resolvedUserId, action: 'PHONE_MAPPING_SUCCESS', area: 'WEBHOOK', details: { phone: maskPhoneForLog(phoneNumber), sender: profileName } });
 
     // Process media attachments — download + upload to S3, collect data
-    for (let i = 0; i < numMedia; i++) {
+    // NOTE: For multi-image handling, cap processing to first 5 media slots.
+    for (let i = 0; i < imagesToProcess; i++) {
       const mediaUrl = body[`MediaUrl${i}`];
       const mediaContentType = body[`MediaContentType${i}`] || '';
 
@@ -154,200 +460,16 @@ export async function POST(request: Request) {
         const buffer = Buffer.from(arrayBuffer);
 
         if (mediaContentType.startsWith('audio/')) {
-          // Voice message — process immediately (no batching)
+          // ─── AUDIO: download + S3 upload only. Heavy processing is async. ───
           hasAudio = true;
           const ext = mediaContentType.includes('ogg') ? 'ogg' : mediaContentType.includes('mp4') ? 'm4a' : 'mp3';
           audioSavedPath = await uploadBufferToS3(buffer, `whatsapp-voice-${Date.now()}.${ext}`, mediaContentType, false);
-          console.log(`[WhatsApp] 🎙️ Audio MIME=${mediaContentType}, bytes=${buffer.length}, savedTo=${audioSavedPath}`);
-
-          // ─── Stage H (FAIL-SAFE): detect duration BEFORE deciding to transcribe ───
-          // The 60 s cost cap is the whole point of this branch. If we cannot
-          // determine the duration safely, we MUST NOT silently transcribe —
-          // we create a manual review order instead.
-          //
-          // Probe priority:
-          //   1) music-metadata on the raw buffer (fast, in-process).
-          //   2) music-metadata without mimeType hint (some Twilio containers
-          //      include `; codecs=opus` parameters that confuse the parser).
-          //   3) FFmpeg-API fallback: convert max 70 s to MP3, then read
-          //      duration from the MP3 (always parseable). Output is ≥70 s
-          //      iff the original was ≥70 s, so we treat that as too_long.
-          //   4) If all three fail → mark as `voiceUncheckable` and create a
-          //      review order (no transcription).
-          try {
-            const { parseBuffer } = await import('music-metadata');
-            const meta = await parseBuffer(buffer, { mimeType: mediaContentType });
-            const dur = meta?.format?.duration;
-            if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
-              voiceDurationSec = dur;
-              voiceDurationKnown = true;
-              console.log(`[WhatsApp] 🎙️ Duration probe (music-metadata, with mime): ${dur.toFixed(1)}s`);
-            } else {
-              console.warn(`[WhatsApp] ⚠️ Duration probe (music-metadata, with mime): no usable duration in metadata`);
-            }
-          } catch (durErr: any) {
-            console.warn(`[WhatsApp] ⚠️ Duration probe (music-metadata, with mime) failed: ${durErr?.message || durErr}`);
-          }
-
-          // Retry music-metadata WITHOUT a mime hint, in case Twilio's
-          // Content-Type carried codec parameters that confused the parser.
-          if (!voiceDurationKnown) {
-            try {
-              const { parseBuffer } = await import('music-metadata');
-              const meta = await parseBuffer(buffer);
-              const dur = meta?.format?.duration;
-              if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
-                voiceDurationSec = dur;
-                voiceDurationKnown = true;
-                console.log(`[WhatsApp] 🎙️ Duration probe (music-metadata, no mime hint): ${dur.toFixed(1)}s`);
-              } else {
-                console.warn(`[WhatsApp] ⚠️ Duration probe (music-metadata, no mime hint): no usable duration`);
-              }
-            } catch (durErr: any) {
-              console.warn(`[WhatsApp] ⚠️ Duration probe (music-metadata, no mime hint) failed: ${durErr?.message || durErr}`);
-            }
-          }
-
-          // FFmpeg-API fallback: convert max 70 s to MP3 + read duration.
-          // - If the converted MP3 is ≥ 70 s (clamped), the original was at
-          //   least 70 s ⇒ too_long.
-          // - Otherwise the MP3 duration IS the original duration.
-          // - The resulting MP3 buffer is reused for transcription if ≤60 s,
-          //   so we don't run FFmpeg twice.
-          let probeClamped = false;
-          if (!voiceDurationKnown) {
-            try {
-              const signedUrl = await getFileUrl(audioSavedPath, false);
-              console.log(`[WhatsApp] 🎙️ Duration probe (FFmpeg fallback): starting (cap=70s)…`);
-              const probe = await probeDurationViaFfmpegConvert(signedUrl);
-              if (probe.durationSec !== null && isFinite(probe.durationSec) && probe.durationSec > 0) {
-                voiceDurationSec = probe.durationSec;
-                voiceDurationKnown = true;
-                probeClamped = probe.clamped;
-                if (probe.mp3Buffer) preconvertedMp3Buffer = probe.mp3Buffer;
-                console.log(`[WhatsApp] 🎙️ Duration probe (FFmpeg fallback): ${probe.durationSec.toFixed(1)}s, clamped=${probeClamped}, mp3Buffer=${preconvertedMp3Buffer ? preconvertedMp3Buffer.length + 'B' : 'none'}`);
-              } else {
-                console.warn(`[WhatsApp] ⚠️ Duration probe (FFmpeg fallback): no usable duration from MP3 output`);
-              }
-            } catch (probeErr: any) {
-              console.warn(`[WhatsApp] ⚠️ Duration probe (FFmpeg fallback) threw: ${probeErr?.message || probeErr}`);
-            }
-          }
-
-          // ─── Decision matrix ───
-          if (voiceDurationKnown && voiceDurationSec !== null && (probeClamped || voiceDurationSec > 60)) {
-            // Reliably known to be too long.
-            voiceTooLong = true;
-            // Discard preconverted MP3 — we will NOT transcribe.
-            preconvertedMp3Buffer = null;
-            console.log(`[WhatsApp] ⏱️ Decision: SKIPPED (>60s, duration=${voiceDurationSec.toFixed(1)}s${probeClamped ? ', clamped' : ''}). No transcription, no LLM. Review order will be created.`);
-            logAuditAsync({
-              action: 'MEDIA_RECEIVED',
-              area: 'WEBHOOK',
-              details: {
-                type: 'audio',
-                sender: profileName,
-                phone: maskPhoneForLog(phoneNumber),
-                audioBytes: buffer.length,
-                audioDurationSec: Math.round(voiceDurationSec),
-                durationClamped: probeClamped,
-                transcriptionSkipped: true,
-                reason: 'voice_too_long',
-              },
-            });
-          } else if (!voiceDurationKnown) {
-            // All three probes failed — duration cannot be determined safely.
-            // Cost protection demands we DO NOT transcribe in this case.
-            voiceUncheckable = true;
-            preconvertedMp3Buffer = null;
-            console.warn(`[WhatsApp] ⏱️ Decision: REVIEW (UNCHECKABLE — all duration probes failed). No transcription, no LLM. Review order will be created.`);
-            logAuditAsync({
-              action: 'MEDIA_RECEIVED',
-              area: 'WEBHOOK',
-              details: {
-                type: 'audio',
-                sender: profileName,
-                phone: maskPhoneForLog(phoneNumber),
-                audioBytes: buffer.length,
-                audioDurationSec: null,
-                transcriptionSkipped: true,
-                reason: 'voice_uncheckable',
-              },
-            });
-          } else {
-            // Within cap and duration known: check monthly quota BEFORE transcribing.
-            // ─── Stage K: server-side audio-quota gate ───
-            // The user has a monthly transcription budget (Standard plan = 20 min).
-            // If exhausted (or quota lookup fails — fail-safe), we MUST NOT
-            // transcribe. We still save the audio + create a manual-review order
-            // with a clear warning further down via createVoiceTooLongReviewOrder.
-            const { checkAudioTranscriptionQuota } = await import('@/lib/audio-quota');
-            const quota = await checkAudioTranscriptionQuota(resolvedUserId, voiceDurationSec);
-            if (!quota.allowTranscription) {
-              voiceQuotaExceeded = true;
-              voiceQuotaUsedMinutes = quota.usedMinutes;
-              voiceQuotaIncludedMinutes = quota.includedMinutes;
-              preconvertedMp3Buffer = null;
-              console.warn(`[WhatsApp] 🛑 Decision: REVIEW (QUOTA EXCEEDED — used=${quota.usedMinutes}/${quota.includedMinutes}min, reason=${quota.reason}, duration=${voiceDurationSec!.toFixed(1)}s). No transcription, no LLM. Review order will be created.`);
-              logAuditAsync({
-                userId: resolvedUserId,
-                action: 'MEDIA_RECEIVED',
-                area: 'WEBHOOK',
-                details: {
-                  type: 'audio',
-                  sender: profileName,
-                  phone: maskPhoneForLog(phoneNumber),
-                  audioBytes: buffer.length,
-                  audioDurationSec: Math.round(voiceDurationSec!),
-                  durationKnown: true,
-                  transcriptionSkipped: true,
-                  reason: 'voice_quota_exceeded',
-                  quotaUsedMinutes: quota.usedMinutes,
-                  quotaIncludedMinutes: quota.includedMinutes,
-                  quotaCheckReason: quota.reason,
-                },
-              });
-            } else {
-              // Within cap, duration known, quota OK: proceed with normal transcription pipeline.
-              console.log(`[WhatsApp] ⏱️ Decision: TRANSCRIBE (≤60s, duration=${voiceDurationSec!.toFixed(1)}s, quota: used=${quota.usedMinutes}/${quota.includedMinutes}min). preconvertedMp3=${preconvertedMp3Buffer ? 'yes' : 'no'}`);
-              logAuditAsync({
-                action: 'MEDIA_RECEIVED',
-                area: 'WEBHOOK',
-                details: {
-                  type: 'audio',
-                  sender: profileName,
-                  phone: maskPhoneForLog(phoneNumber),
-                  audioBytes: buffer.length,
-                  audioDurationSec: Math.round(voiceDurationSec!),
-                  durationKnown: true,
-                  transcriptionSkipped: false,
-                  quotaUsedMinutes: quota.usedMinutes,
-                  quotaIncludedMinutes: quota.includedMinutes,
-                },
-              });
-
-              let mp3Buffer: Buffer | null = preconvertedMp3Buffer;
-              if (!mp3Buffer) {
-                if (mediaContentType.includes('ogg') || mediaContentType.includes('opus')) {
-                  const signedUrl = await getFileUrl(audioSavedPath, false);
-                  mp3Buffer = await convertToMp3ViaFfmpeg(signedUrl);
-                } else if (mediaContentType.includes('mp3') || mediaContentType.includes('wav')) {
-                  mp3Buffer = buffer;
-                } else {
-                  const signedUrl = await getFileUrl(audioSavedPath, false);
-                  mp3Buffer = await convertToMp3ViaFfmpeg(signedUrl);
-                }
-              }
-
-              if (mp3Buffer) {
-                const transcription = await transcribeAudio(mp3Buffer);
-                if (transcription) {
-                  audioTranscriptText = `[Transkription]: ${transcription}`;
-                }
-              }
-            }
-          }
+          audioBuffer = buffer;
+          audioMediaContentType = mediaContentType;
+          console.log(`[WhatsApp] 🎙️ Audio downloaded: MIME=${mediaContentType}, bytes=${buffer.length}, savedTo=${audioSavedPath}`);
+          // No further audio processing here — handled by processWhatsAppMediaAsync below.
         } else if (mediaContentType.startsWith('image/')) {
+          // ─── IMAGE PROCESSING — UNCHANGED from original ───
           const ext = mediaContentType.includes('png') ? 'png' : 'jpg';
           const s3Path = await uploadBufferToS3(buffer, `whatsapp-photo-${Date.now()}-${i}.${ext}`, mediaContentType, false);
           console.log(`WhatsApp image saved to S3 (original archive): ${s3Path}`);
@@ -364,8 +486,6 @@ export async function POST(request: Request) {
           });
 
           // ─── COST OPTIMIZATION (Stage H) ───
-          // Use the optimized WebP preview buffer for AI vision instead of
-          // the original. Original bytes remain in S3 (s3Path) for archive.
           let previewPath = s3Path;
           let thumbPath = s3Path;
           let aiBase64 = buffer.toString('base64'); // fallback: original
@@ -378,7 +498,6 @@ export async function POST(request: Request) {
             if (optimized) {
               previewPath = optimized.previewPath;
               thumbPath = optimized.thumbnailPath;
-              // Use the in-memory WebP preview buffer for the LLM payload.
               aiBase64 = optimized.previewBuffer.toString('base64');
               aiMimeType = 'image/webp';
               optimizedSentToAi = true;
@@ -426,151 +545,35 @@ export async function POST(request: Request) {
 
     console.log(`WhatsApp from ${profileName} (${maskPhoneForLog(phoneNumber)}): text="${messageText.slice(0, 80)}" images=${collectedImages.length} audio=${hasAudio}`);
 
-    // userId already resolved before media loop (Stage K).
-    // ─── Stage H: Long voice (>60s) short-circuit — bypass LLM, create review order ───
-    if (voiceTooLong) {
-      console.log(`[WhatsApp] ⏱️ Creating long-voice review order for ${maskPhoneForLog(phoneNumber)} (duration=${voiceDurationSec?.toFixed(1)}s, images=${collectedImages.length})`);
+    // ─────────────────────────────────────────────────────────────────────
+    // PHASE 3: Sofortige TwiML-Response BEFORE async processing.
+    // Audio processing runs in background via processWhatsAppMediaAsync.
+    // Text/Image orders are also fire-and-forget (unchanged pattern).
+    // ─────────────────────────────────────────────────────────────────────
 
-      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
-      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
+    if (hasAudio && audioBuffer && audioSavedPath) {
+      // ─── AUDIO PATH: fire background job, respond immediately ───
+      console.log(`[WhatsApp] 🎙️ Audio message from ${maskPhoneForLog(phoneNumber)} (${(audioBuffer.length / 1024).toFixed(0)}KB) — dispatching to background, returning TwiML now`);
 
-      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
-      createVoiceTooLongReviewOrder({
-        source: 'WhatsApp',
-        senderName: profileName,
+      processWhatsAppMediaAsync({
+        audioBuffer,
+        audioSavedPath,
+        mediaContentType: audioMediaContentType,
         phoneNumber,
-        audioPath: audioSavedPath,
-        durationSec: voiceDurationSec,
-        userId: resolvedUserId,
-        imagePreviewPaths,
-        imageThumbnailPaths,
-        reason: 'too_long',
-      }).then(result => {
-        if (result) {
-          console.log(`[WhatsApp] ✅ Long-voice review order created: ${result.orderId}`);
-        } else {
-          console.warn(`[WhatsApp] ⚠️ Long-voice review order creation returned null for ${maskPhoneForLog(phoneNumber)}`);
-        }
+        profileName,
+        resolvedUserId,
+        messageText,
+        collectedImages,
       }).catch(err => {
-        console.error(`[WhatsApp] ❌ Long-voice review order creation failed for ${maskPhoneForLog(phoneNumber)}:`, err);
+        // Belt-and-suspenders: processWhatsAppMediaAsync has its own try/catch,
+        // but if something escapes, log it here.
+        console.error(`[WhatsApp] ❌ Unhandled error in processWhatsAppMediaAsync:`, err);
       });
 
       return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
     }
 
-    // ─── Stage H.2 (FAIL-SAFE): Uncheckable voice short-circuit — bypass LLM, create review order ───
-    // We get here ONLY when every duration probe failed. The cost cap is the whole
-    // point of Stage H, so we MUST NOT silently transcribe.
-    if (voiceUncheckable) {
-      console.log(`[WhatsApp] ⏱️ Creating UNCHECKABLE-voice review order for ${maskPhoneForLog(phoneNumber)} (duration=unknown, images=${collectedImages.length})`);
-
-      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
-      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
-
-      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
-      createVoiceTooLongReviewOrder({
-        source: 'WhatsApp',
-        senderName: profileName,
-        phoneNumber,
-        audioPath: audioSavedPath,
-        durationSec: null,
-        userId: resolvedUserId,
-        imagePreviewPaths,
-        imageThumbnailPaths,
-        reason: 'uncheckable',
-      }).then(result => {
-        if (result) {
-          console.log(`[WhatsApp] ✅ Uncheckable-voice review order created: ${result.orderId}`);
-        } else {
-          console.warn(`[WhatsApp] ⚠️ Uncheckable-voice review order creation returned null for ${maskPhoneForLog(phoneNumber)}`);
-        }
-      }).catch(err => {
-        console.error(`[WhatsApp] ❌ Uncheckable-voice review order creation failed for ${maskPhoneForLog(phoneNumber)}:`, err);
-      });
-
-      return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
-    }
-
-    // ─── Stage K (FAIL-SAFE): Quota-exceeded voice short-circuit — bypass LLM, create review order ───
-    // We get here when the user has hit the monthly transcription quota OR the
-    // quota lookup failed (fail-safe). In both cases we MUST NOT transcribe —
-    // we save the audio and create a manual-review order with a warning.
-    if (voiceQuotaExceeded) {
-      console.log(`[WhatsApp] 🛑 Creating QUOTA-EXCEEDED voice review order for ${maskPhoneForLog(phoneNumber)} (used=${voiceQuotaUsedMinutes}/${voiceQuotaIncludedMinutes}min, duration=${voiceDurationSec?.toFixed(1)}s, images=${collectedImages.length})`);
-
-      const imagePreviewPaths = collectedImages.map(c => c.previewPath).filter(Boolean);
-      const imageThumbnailPaths = collectedImages.map(c => c.thumbPath).filter(Boolean);
-
-      const { createVoiceTooLongReviewOrder } = await import('@/lib/order-intake');
-      createVoiceTooLongReviewOrder({
-        source: 'WhatsApp',
-        senderName: profileName,
-        phoneNumber,
-        audioPath: audioSavedPath,
-        durationSec: voiceDurationSec,
-        userId: resolvedUserId,
-        imagePreviewPaths,
-        imageThumbnailPaths,
-        reason: 'quota_exceeded',
-        quotaUsedMinutes: voiceQuotaUsedMinutes ?? undefined,
-        quotaIncludedMinutes: voiceQuotaIncludedMinutes ?? undefined,
-      }).then(result => {
-        if (result) {
-          console.log(`[WhatsApp] ✅ Quota-exceeded voice review order created: ${result.orderId}`);
-        } else {
-          console.warn(`[WhatsApp] ⚠️ Quota-exceeded voice review order creation returned null for ${maskPhoneForLog(phoneNumber)}`);
-        }
-      }).catch(err => {
-        console.error(`[WhatsApp] ❌ Quota-exceeded voice review order creation failed for ${maskPhoneForLog(phoneNumber)}:`, err);
-      });
-
-      return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
-    }
-
-    // ─── Stage I — derive audioTranscriptionStatus for the ≤60 s path ───
-    // Long-voice (>60 s) and uncheckable are already handled above via
-    // createVoiceTooLongReviewOrder which writes the right status itself. Here
-    // we only derive the status for the normal pipeline: 'transcribed' if
-    // Whisper produced text, else 'failed' (FFmpeg or Whisper hiccup, but still
-    // a real audio message that hit our system).
-    const audioTranscriptionStatusForIntake: 'transcribed' | 'failed' | null = hasAudio
-      ? (audioTranscriptText ? 'transcribed' : 'failed')
-      : null;
-    const audioDurationSecForIntake: number | null = hasAudio
-      ? (voiceDurationKnown && voiceDurationSec !== null ? voiceDurationSec : null)
-      : null;
-
-    // ─── Batching logic ───
-    // Audio-only messages: fire-and-forget (return immediately to avoid Twilio timeout)
-    if (hasAudio && collectedImages.length === 0) {
-      let finalText = messageText;
-      if (audioTranscriptText) finalText = finalText ? `${finalText}\n\n${audioTranscriptText}` : audioTranscriptText;
-
-      console.log(`[WhatsApp] 🎙️ Audio-only message from ${maskPhoneForLog(phoneNumber)} (text=${finalText.length}chars, durationSec=${audioDurationSecForIntake ?? '?'}, status=${audioTranscriptionStatusForIntake}) — processing async`);
-
-      processIncomingMessage({
-        source: 'WhatsApp', senderName: profileName, messageText: finalText,
-        phoneNumber,
-        imageBase64: null, imageMimeType: 'image/jpeg',
-        savedMediaPath: audioSavedPath, savedMediaType: 'audio',
-        optimizedPreviewPath: null, optimizedThumbnailPath: null,
-        userId: resolvedUserId,
-        audioDurationSec: audioDurationSecForIntake,
-        audioTranscriptionStatus: audioTranscriptionStatusForIntake,
-      }).then(orderCreated => {
-        if (orderCreated) {
-          console.log(`[WhatsApp] ✅ Audio order created: ${orderCreated.description}`);
-        } else {
-          console.log(`[WhatsApp] ⚠️ Audio processing returned no order for ${maskPhoneForLog(phoneNumber)}`);
-        }
-      }).catch(err => {
-        console.error(`[WhatsApp] ❌ Audio processing failed for ${maskPhoneForLog(phoneNumber)}:`, err);
-      });
-
-      return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
-    }
-
-    // Text-only messages (no images, no audio): fire-and-forget (return immediately to avoid Twilio timeout)
+    // ─── TEXT-ONLY (no images, no audio) — fire-and-forget (UNCHANGED) ───
     if (collectedImages.length === 0 && !hasAudio) {
       console.log(`[WhatsApp] 📝 Text-only message from ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars) — processing async`);
 
@@ -594,15 +597,31 @@ export async function POST(request: Request) {
       return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
     }
 
-    // ─── Image message → process per-webhook (1 webhook = 1 order) ───
-    // CRITICAL SAFETY: Each Twilio webhook has a unique MessageSid.
-    // One WhatsApp message (even with multiple images) = one webhook = one order.
-    // Separate forwarded messages = separate webhooks = separate orders.
-    // NO cross-message batching — never merge different messages.
+
     let finalText = messageText;
-    if (audioTranscriptText) finalText = finalText ? `${finalText}\n\n${audioTranscriptText}` : audioTranscriptText;
 
     const hasImages = collectedImages.length > 0;
+    const hasMultipleImages = imagesToProcess > 1;
+    const isImageOnly = !finalText || finalText.trim().length === 0;
+
+    const reviewWarnings: string[] = [];
+    let reviewNote = '';
+
+    if (hasOverflow) {
+      reviewWarnings.push('multi_image_overflow');
+      reviewNote = 'Mehr als 5 Bilder empfangen. Es wurden nur die ersten 5 Bilder automatisch berücksichtigt. Bitte Auftrag manuell prüfen.';
+    } else if (hasMultipleImages) {
+      reviewWarnings.push('multi_image_check');
+      reviewNote = 'Mehrfachbilder prüfen';
+    }
+
+    if (isImageOnly && imagesToProcess > 0) {
+      reviewWarnings.push('image_only_no_text');
+      reviewNote = reviewNote
+        ? `${reviewNote}\nBild ohne Beschreibung empfangen. Bitte Auftrag manuell prüfen.`
+        : 'Bild ohne Beschreibung empfangen. Bitte Auftrag manuell prüfen.';
+    }
+
     console.log(`[WhatsApp] 🖼️ Image message from ${maskPhoneForLog(phoneNumber)} (SID=${messageSid}, ${collectedImages.length} images, text=${finalText.length}chars) — processing async`);
 
     processIncomingMessage({
@@ -612,8 +631,8 @@ export async function POST(request: Request) {
       messageText: finalText,
       imageBase64: hasImages ? collectedImages[0].base64 : null,
       imageMimeType: hasImages ? collectedImages[0].mimeType : 'image/jpeg',
-      savedMediaPath: audioSavedPath || (hasImages ? collectedImages[0].s3Path : null),
-      savedMediaType: audioSavedPath ? 'audio' : (hasImages ? 'image' : null),
+      savedMediaPath: hasImages ? collectedImages[0].s3Path : null,
+      savedMediaType: hasImages ? 'image' : null,
       optimizedPreviewPath: hasImages ? collectedImages[0].previewPath : null,
       optimizedThumbnailPath: hasImages ? collectedImages[0].thumbPath : null,
       userId: resolvedUserId,
@@ -622,9 +641,9 @@ export async function POST(request: Request) {
       allSavedMediaPaths: hasImages ? collectedImages.map(i => i.s3Path) : undefined,
       allOptimizedPreviewPaths: hasImages ? collectedImages.map(i => i.previewPath) : undefined,
       allOptimizedThumbnailPaths: hasImages ? collectedImages.map(i => i.thumbPath) : undefined,
-      // Stage I — pass audio metadata when this mixed message also carries audio (rare, but possible)
-      audioDurationSec: audioDurationSecForIntake,
-      audioTranscriptionStatus: audioTranscriptionStatusForIntake,
+      additionalReviewReasons: reviewWarnings,
+      reviewNote: reviewNote || undefined,
+      forceReview: reviewWarnings.length > 0,
     }).then(orderCreated => {
       if (orderCreated) {
         console.log(`[WhatsApp] ✅ Image order created: ${orderCreated.description} (SID=${messageSid}, ${collectedImages.length} images)`);
@@ -645,163 +664,62 @@ function escapeXml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Convert audio to MP3 using FFmpeg API
-async function convertToMp3ViaFfmpeg(audioUrl: string): Promise<Buffer | null> {
-  try {
-    console.log('FFmpeg: Converting audio to MP3...');
-    const createResponse = await fetch('https://apps.abacus.ai/api/createRunFfmpegCommandRequest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deployment_token: process.env.ABACUSAI_API_KEY,
-        input_files: { in_1: audioUrl },
-        output_files: { out_1: 'audio.mp3' },
-        ffmpeg_command: '-i {{in_1}} -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k {{out_1}}',
-      }),
-    });
-
-    if (!createResponse.ok) {
-      console.error('FFmpeg create error:', await createResponse.text());
-      return null;
-    }
-
-    const { request_id } = await createResponse.json();
-    if (!request_id) return null;
-
-    for (let i = 0; i < 90; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const statusRes = await fetch('https://apps.abacus.ai/api/getRunFfmpegCommandStatus', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id, deployment_token: process.env.ABACUSAI_API_KEY }),
-      });
-      const statusResult = await statusRes.json();
-      if (statusResult?.status === 'SUCCESS' && statusResult?.result?.result?.out_1) {
-        const mp3Res = await fetch(statusResult.result.result.out_1);
-        if (mp3Res.ok) return Buffer.from(await mp3Res.arrayBuffer());
-        return null;
-      } else if (statusResult?.status === 'FAILED') {
-        console.error('FFmpeg failed:', statusResult?.result?.error);
-        return null;
-      }
-    }
-    return null;
-  } catch (err) {
-    console.error('FFmpeg error:', err);
-    return null;
-  }
-}
-
-/**
- * Stage H.2 — FAIL-SAFE duration probe via FFmpeg.
- *
- * Used as a fallback when music-metadata cannot determine the duration.
- *
- * Strategy: convert AT MOST 70 seconds of audio to MP3. The MP3 container
- * is reliably parseable by music-metadata, so we then read the duration
- * from the MP3 buffer.
- *
- *  - If the MP3 duration is ≥ ~70 s, the original was at least 70 s ⇒ too long
- *    for the 60 s cap. Caller should treat as `clamped: true`.
- *  - If the MP3 duration is < 70 s, that IS the original duration.
- *  - The returned MP3 buffer (when duration ≤ 60 s) is reused for transcription
- *    so we don't run FFmpeg twice on the same audio.
- *
- * Returns `{ durationSec: null }` if the FFmpeg API call fails or the resulting
- * MP3 cannot be parsed. The caller will then mark the message as
- * `voiceUncheckable` (NOT silently transcribed).
- */
-async function probeDurationViaFfmpegConvert(
-  audioUrl: string,
-): Promise<{ durationSec: number | null; mp3Buffer: Buffer | null; clamped: boolean }> {
-  try {
-    const createResponse = await fetch('https://apps.abacus.ai/api/createRunFfmpegCommandRequest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deployment_token: process.env.ABACUSAI_API_KEY,
-        input_files: { in_1: audioUrl },
-        output_files: { out_1: 'audio.mp3' },
-        // -t 70 hard-clamps the output to at most 70 s of audio. We keep the
-        // bitrate low because we only need the MP3 for duration probing AND
-        // (potentially) for transcription of ≤60 s clips.
-        ffmpeg_command: '-i {{in_1}} -t 70 -acodec libmp3lame -ar 16000 -ac 1 -b:a 64k {{out_1}}',
-      }),
-    });
-    if (!createResponse.ok) {
-      console.error('[WhatsApp] FFmpeg probe create error:', await createResponse.text());
-      return { durationSec: null, mp3Buffer: null, clamped: false };
-    }
-    const createJson = await createResponse.json();
-    const request_id = createJson?.request_id;
-    if (!request_id) return { durationSec: null, mp3Buffer: null, clamped: false };
-
-    for (let i = 0; i < 90; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const statusRes = await fetch('https://apps.abacus.ai/api/getRunFfmpegCommandStatus', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id, deployment_token: process.env.ABACUSAI_API_KEY }),
-      });
-      const statusResult = await statusRes.json();
-      if (statusResult?.status === 'SUCCESS' && statusResult?.result?.result?.out_1) {
-        const mp3Res = await fetch(statusResult.result.result.out_1);
-        if (!mp3Res.ok) return { durationSec: null, mp3Buffer: null, clamped: false };
-        const mp3Buffer = Buffer.from(await mp3Res.arrayBuffer());
-        try {
-          const { parseBuffer } = await import('music-metadata');
-          const meta = await parseBuffer(mp3Buffer, { mimeType: 'audio/mpeg' });
-          const dur = meta?.format?.duration;
-          if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
-            // Treat ≥69.5s as "clamped" — we asked for 70s max, so anything
-            // close to that means the original was at least 70 s long.
-            const clamped = dur >= 69.5;
-            return { durationSec: dur, mp3Buffer, clamped };
-          }
-        } catch (parseErr: any) {
-          console.warn('[WhatsApp] FFmpeg probe: MP3 metadata parse failed:', parseErr?.message || parseErr);
-        }
-        // FFmpeg succeeded but we couldn't parse the MP3 → no duration.
-        // Still return the MP3 buffer (caller might decide to discard it).
-        return { durationSec: null, mp3Buffer, clamped: false };
-      } else if (statusResult?.status === 'FAILED') {
-        console.error('[WhatsApp] FFmpeg probe failed:', statusResult?.result?.error);
-        return { durationSec: null, mp3Buffer: null, clamped: false };
-      }
-    }
-    return { durationSec: null, mp3Buffer: null, clamped: false };
-  } catch (err: any) {
-    console.error('[WhatsApp] FFmpeg probe error:', err?.message || err);
-    return { durationSec: null, mp3Buffer: null, clamped: false };
-  }
-}
-
 // Transcribe audio using LLM
 async function transcribeAudio(mp3Buffer: Buffer): Promise<string | null> {
   try {
-    const response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-audio-preview-2025-06-03',
-        messages: [
-          { role: 'system', content: 'Transkribiere die folgende Sprachnachricht auf Deutsch. Gib nur den transkribierten Text zurück, ohne Anführungszeichen oder Erklärungen. Auch Schweizerdeutsch/Dialekt soll auf Hochdeutsch transkribiert werden.' },
-          { role: 'user', content: [{ type: 'input_audio', input_audio: { data: mp3Buffer.toString('base64'), format: 'mp3' } }] },
-        ],
-        max_tokens: 2000,
-      }),
-    });
-    if (!response.ok) {
-      console.error('Transcription error:', await response.text());
+    console.log(`[WhatsApp] 🎙️ Starting OpenAI transcription upload: bytes=${mp3Buffer.length}`);
+  
+    const openAiApiKey = process.env.OPENAI_API_KEY;
+
+    if (!openAiApiKey) {
+      console.error('[WhatsApp] Missing OPENAI_API_KEY');
       return null;
     }
+
+    const formData = new FormData();
+
+    // IMPORTANT: The buffer is a compressed MP3 from convertAudioToCompactMp3.
+    // MIME type and filename MUST match the actual format — OpenAI rejects mismatches.
+    formData.append(
+      'file',
+      new Blob([mp3Buffer], { type: 'audio/mpeg' }),
+      'whatsapp-audio.mp3',
+    );
+
+    formData.append('model', 'gpt-4o-mini-transcribe');
+    formData.append('language', 'de');
+    formData.append(
+      'prompt',
+      'Transkribiere diese WhatsApp-Sprachnachricht auf Hochdeutsch. Schweizerdeutsch und Dialekt in verständliches Hochdeutsch übertragen. Gib nur den transkribierten Text zurück.',
+    );
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openAiApiKey}`,
+      },
+      body: formData,
+    });
+
+      if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[WhatsApp] OpenAI transcription error:', response.status, errorText);
+      return null;
+    }
+
     const result = await response.json();
-    return result?.choices?.[0]?.message?.content ?? null;
+    const text = typeof result?.text === 'string' ? result.text.trim() : '';
+
+    if (!text) {
+      console.warn('[WhatsApp] OpenAI transcription returned empty text:', JSON.stringify(result));
+      return null;
+    }
+
+    console.log(`[WhatsApp] ✅ OpenAI transcription success: ${text.length} chars`);
+
+    return text;
   } catch (err) {
-    console.error('Transcription error:', err);
+    console.error('[WhatsApp] Transcription error:', err);
     return null;
   }
 }

@@ -1,15 +1,17 @@
 export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import crypto from 'crypto';
 import { logAuditAsync } from '@/lib/audit';
 import { normalizeEmail } from '@/lib/email-utils';
 import { shouldSendEmail, getEmailSuppressionReason, getAppEnv } from '@/lib/env';
+import { sendEmail } from '@/lib/mail';
 
 /**
  * POST /api/auth/resend-verification
  * Generates a new verification token and re-sends the verification email.
- * Rate-limited to one email per 2 minutes per address (soft guard).
+ * Rate-limited to one email per 2 minutes per address.
  */
 export async function POST(request: Request) {
   try {
@@ -23,7 +25,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Find user (case-insensitive, prefer verified row like everywhere else)
     const user = await prisma.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
       orderBy: [
@@ -32,17 +33,15 @@ export async function POST(request: Request) {
       ],
     });
 
-    // Always return success to avoid email-enumeration attacks
+    // Always return success to avoid email enumeration.
     if (!user || !user.password) {
       return NextResponse.json({ success: true });
     }
 
-    // Already verified — nothing to do
     if (user.emailVerified) {
       return NextResponse.json({ success: true });
     }
 
-    // Rate-limit: check if a token was created in the last 2 min
     const recentToken = await prisma.verificationToken.findFirst({
       where: {
         identifier: { equals: email, mode: 'insensitive' },
@@ -52,22 +51,21 @@ export async function POST(request: Request) {
     });
 
     if (recentToken) {
-      // If the token was created less than 2 minutes ago, throttle
       const tokenCreatedAt = new Date(recentToken.expires.getTime() - 24 * 60 * 60 * 1000);
       const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+
       if (tokenCreatedAt > twoMinutesAgo) {
-        return NextResponse.json({ success: true }); // silent throttle
+        return NextResponse.json({ success: true });
       }
     }
 
-    // Delete any existing tokens for this email
     await prisma.verificationToken.deleteMany({
       where: { identifier: { equals: email, mode: 'insensitive' } },
     });
 
-    // Create new token
     const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
     await prisma.verificationToken.create({
       data: {
         identifier: email,
@@ -76,18 +74,21 @@ export async function POST(request: Request) {
       },
     });
 
-    // Build verification URL
     const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
     const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+
     const appUrl = forwardedHost
       ? `${forwardedProto}://${forwardedHost}`
-      : (process.env.NEXTAUTH_URL || 'http://localhost:3000');
+      : (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000');
+
     const verifyUrl = `${appUrl}/api/auth/verify?token=${token}&email=${encodeURIComponent(email)}`;
+
+    const displayName = user.name || email;
 
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #333; border-bottom: 2px solid #16a34a; padding-bottom: 10px;">E-Mail Bestätigung</h2>
-        <p>Hallo ${user.name || email},</p>
+        <p>Hallo ${displayName},</p>
         <p>Sie haben einen neuen Bestätigungslink angefordert.</p>
         <p>Bitte bestätigen Sie Ihre E-Mail-Adresse, indem Sie auf den folgenden Link klicken:</p>
         <div style="text-align: center; margin: 30px 0;">
@@ -100,24 +101,16 @@ export async function POST(request: Request) {
     `;
 
     if (shouldSendEmail(email)) {
-      await fetch('https://apps.abacus.ai/api/sendNotificationEmail', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deployment_token: process.env.ABACUSAI_API_KEY,
-          app_id: process.env.WEB_APP_ID,
-          notification_id: process.env.NOTIF_ID_EMAIL_VERIFIZIERUNG,
-          subject: 'E-Mail Bestätigung - Business Manager',
-          body: htmlBody,
-          is_html: true,
-          recipient_email: email,
-          sender_email: `noreply@${(() => { try { return new URL(appUrl).hostname; } catch { return 'business-manager.app'; } })()}`,
-          sender_alias: 'Business Manager',
-        }),
-      });
+ await sendEmail({
+  to: email,
+  subject: 'E-Mail Bestätigung - Business Manager',
+  html: htmlBody,
+});
     } else {
       const reason = getEmailSuppressionReason(email) || 'unknown';
+
       console.log(`[resend-verification] email suppressed by env guard env=${getAppEnv()} reason=${reason}`);
+
       logAuditAsync({
         userId: user.id,
         userEmail: email,
@@ -142,6 +135,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Resend verification error:', error);
+
     return NextResponse.json(
       { error: 'Ein Fehler ist aufgetreten. Bitte versuchen Sie es später erneut.' },
       { status: 500 },

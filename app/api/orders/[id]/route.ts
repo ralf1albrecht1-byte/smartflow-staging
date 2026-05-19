@@ -1,9 +1,17 @@
-export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
-import { logAuditAsync } from '@/lib/audit';
-import { assertCustomerNotArchived, CustomerArchivedError, isCustomerDataIncomplete } from '@/lib/customer-links';
+export const dynamic = "force-dynamic";
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import {
+  requireUserId,
+  unauthorizedResponse,
+  getSessionUser,
+} from "@/lib/get-session";
+import { logAuditAsync } from "@/lib/audit";
+import {
+  assertCustomerNotArchived,
+  CustomerArchivedError,
+  isCustomerDataIncomplete,
+} from "@/lib/customer-links";
 
 /** Legacy-safe VAT normalizer: see app/api/orders/route.ts for the reasoning. */
 function normalizeOrderVat(o: any) {
@@ -11,7 +19,7 @@ function normalizeOrderVat(o: any) {
   const vatRate = o?.vatRate == null ? 8.1 : Number(o.vatRate);
   const storedVatAmount = Number(o?.vatAmount ?? 0);
   const storedTotal = Number(o?.total ?? 0);
-  const computedVatAmount = totalPrice * vatRate / 100;
+  const computedVatAmount = (totalPrice * vatRate) / 100;
   const computedTotal = totalPrice + computedVatAmount;
   const useComputed = storedTotal === 0 && totalPrice > 0;
   return {
@@ -21,47 +29,93 @@ function normalizeOrderVat(o: any) {
   };
 }
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
   let userId: string;
-  try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
-    const order = await prisma.order.findFirst({ where: { id: params?.id, userId }, include: { customer: true, items: true } });
-    if (!order) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
-    return NextResponse.json({ ...order, totalPrice: Number(order?.totalPrice ?? 0), unitPrice: Number(order?.unitPrice ?? 0), quantity: Number(order?.quantity ?? 0), ...normalizeOrderVat(order), items: (order?.items ?? []).map((item: any) => ({ ...item, unitPrice: Number(item?.unitPrice ?? 0), quantity: Number(item?.quantity ?? 0), totalPrice: Number(item?.totalPrice ?? 0) })) });
+    userId = await requireUserId();
+  } catch {
+    return unauthorizedResponse();
+  }
+  try {
+    const order = await prisma.order.findFirst({
+      where: { id: params?.id, userId },
+      include: { customer: true, items: true },
+    });
+    if (!order)
+      return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
+    return NextResponse.json({
+      ...order,
+      totalPrice: Number(order?.totalPrice ?? 0),
+      unitPrice: Number(order?.unitPrice ?? 0),
+      quantity: Number(order?.quantity ?? 0),
+      currency: order?.currency === "EUR" ? "EUR" : "CHF",
+      ...normalizeOrderVat(order),
+      items: (order?.items ?? []).map((item: any) => ({
+        ...item,
+        unitPrice: Number(item?.unitPrice ?? 0),
+        quantity: Number(item?.quantity ?? 0),
+        totalPrice: Number(item?.totalPrice ?? 0),
+      })),
+    });
   } catch (error: any) {
     console.error(error);
-    return NextResponse.json({ error: 'Fehler' }, { status: 500 });
+    return NextResponse.json({ error: "Fehler" }, { status: 500 });
   }
 }
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
   let userId: string;
-  try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
-    const existing = await prisma.order.findFirst({ where: { id: params?.id, userId } });
-    if (!existing) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
+    userId = await requireUserId();
+  } catch {
+    return unauthorizedResponse();
+  }
+  try {
+    const existing = await prisma.order.findFirst({
+      where: { id: params?.id, userId },
+    });
+    if (!existing)
+      return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
     const data = await request.json();
+    const currency = data?.currency === "EUR" ? "EUR" : undefined;
     const items = data?.items as any[] | undefined;
     let totalPrice = 0;
     let primaryServiceName = data?.serviceName;
     let primaryPriceType = data?.priceType;
     // Only set price/quantity when caller explicitly provided them — prevents
     // overwriting existing DB values with defaults on partial updates (e.g. customerId-only).
-    let primaryUnitPrice: number | undefined = data?.unitPrice !== undefined ? Number(data.unitPrice) : undefined;
-    let primaryQuantity: number | undefined = data?.quantity !== undefined ? Number(data.quantity) : undefined;
+    let primaryUnitPrice: number | undefined =
+      data?.unitPrice !== undefined ? Number(data.unitPrice) : undefined;
+    let primaryQuantity: number | undefined =
+      data?.quantity !== undefined ? Number(data.quantity) : undefined;
     if (items && items.length > 0) {
-      totalPrice = items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1)), 0);
+      totalPrice = items.reduce(
+        (sum: number, item: any) =>
+          sum + Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
+        0,
+      );
       primaryServiceName = items[0].serviceName ?? primaryServiceName;
       primaryPriceType = items[0].unit ?? primaryPriceType;
       primaryUnitPrice = Number(items[0].unitPrice ?? 50);
       primaryQuantity = Number(items[0].quantity ?? 1);
-    } else if (primaryUnitPrice !== undefined || primaryQuantity !== undefined) {
+    } else if (
+      primaryUnitPrice !== undefined ||
+      primaryQuantity !== undefined
+    ) {
       // Only recalculate totalPrice when price fields are explicitly provided
       const up = primaryUnitPrice ?? Number(existing?.unitPrice ?? 50);
       const qty = primaryQuantity ?? Number(existing?.quantity ?? 1);
       totalPrice = qty * up;
     }
-    if (items) { await prisma.orderItem.deleteMany({ where: { orderId: params?.id } }); }
+    if (items) {
+      await prisma.orderItem.deleteMany({ where: { orderId: params?.id } });
+    }
 
     // Resolve VAT rate for this update.
     //  - If the client explicitly sent `vatRate`, that value always wins (incl. 0 = disabled).
@@ -71,20 +125,32 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     let effectiveVatRate: number;
     if (data?.vatRate !== undefined && data.vatRate !== null) {
       effectiveVatRate = Number(data.vatRate);
-      if (!isFinite(effectiveVatRate) || effectiveVatRate < 0) effectiveVatRate = 0;
+      if (!isFinite(effectiveVatRate) || effectiveVatRate < 0)
+        effectiveVatRate = 0;
     } else {
-      effectiveVatRate = existing?.vatRate == null ? 8.1 : Number(existing.vatRate);
+      effectiveVatRate =
+        existing?.vatRate == null ? 8.1 : Number(existing.vatRate);
     }
 
     // Re-derive net totalPrice when items or price fields are (re)computed;
     // else carry forward existing net. Pure metadata updates (e.g. customerId-only)
     // must NOT recalculate or overwrite existing price/total values.
     const hasItemsField = Array.isArray(items);
-    const hasPriceFields = primaryUnitPrice !== undefined || primaryQuantity !== undefined;
-    const shouldRecalculate = hasItemsField || hasPriceFields || data?.vatRate !== undefined;
-    const netTotal = hasItemsField ? totalPrice : hasPriceFields ? totalPrice : Number(existing?.totalPrice ?? 0);
-    const effectiveVatAmount = shouldRecalculate ? netTotal * effectiveVatRate / 100 : undefined;
-    const effectiveTotal = shouldRecalculate ? netTotal + (effectiveVatAmount ?? 0) : undefined;
+    const hasPriceFields =
+      primaryUnitPrice !== undefined || primaryQuantity !== undefined;
+    const shouldRecalculate =
+      hasItemsField || hasPriceFields || data?.vatRate !== undefined;
+    const netTotal = hasItemsField
+      ? totalPrice
+      : hasPriceFields
+        ? totalPrice
+        : Number(existing?.totalPrice ?? 0);
+    const effectiveVatAmount = shouldRecalculate
+      ? (netTotal * effectiveVatRate) / 100
+      : undefined;
+    const effectiveTotal = shouldRecalculate
+      ? netTotal + (effectiveVatAmount ?? 0)
+      : undefined;
 
     // Guard: reject reassignment to an archived customer
     if (data?.customerId && data.customerId !== existing.customerId) {
@@ -94,28 +160,66 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const order = await prisma.order.update({
       where: { id: params?.id },
       data: {
-        customerId: data?.customerId, description: data?.description, serviceName: primaryServiceName,
-        status: data?.status, priceType: primaryPriceType, unitPrice: primaryUnitPrice,
+        customerId: data?.customerId,
+        description: data?.description,
+        serviceName: primaryServiceName,
+        status: data?.status,
+        priceType: primaryPriceType,
+        unitPrice: primaryUnitPrice,
         quantity: primaryQuantity,
+        ...(currency ? { currency } : {}),
         // totalPrice only updates if items or price fields were provided
         ...(hasItemsField || hasPriceFields ? { totalPrice } : {}),
         // VAT only re-persists when prices/items/vatRate changed — not on metadata-only updates
-        ...(shouldRecalculate ? { vatRate: effectiveVatRate, vatAmount: effectiveVatAmount, total: effectiveTotal } : {}),
-        date: data?.date ? new Date(data.date) : undefined,
-        notes: data?.notes, specialNotes: data?.specialNotes,
-        needsReview: data?.needsReview !== undefined ? data.needsReview : undefined,
-        reviewReasons: data?.reviewReasons !== undefined ? data.reviewReasons : undefined,
-        hinweisLevel: data?.hinweisLevel !== undefined ? data.hinweisLevel : undefined,
+      ...(shouldRecalculate
+  ? { vatRate: effectiveVatRate, vatAmount: effectiveVatAmount, total: effectiveTotal }
+  : {}),
+currency: data?.currency === 'EUR' ? 'EUR' : data?.currency === 'CHF' ? 'CHF' : undefined,
+date: data?.date ? new Date(data.date) : undefined,
+        notes: data?.notes,
+        specialNotes: data?.specialNotes,
+        needsReview:
+          data?.needsReview !== undefined ? data.needsReview : undefined,
+        reviewReasons:
+          data?.reviewReasons !== undefined ? data.reviewReasons : undefined,
+        hinweisLevel:
+          data?.hinweisLevel !== undefined ? data.hinweisLevel : undefined,
         mediaUrl: data?.mediaUrl !== undefined ? data.mediaUrl : undefined,
         mediaType: data?.mediaType !== undefined ? data.mediaType : undefined,
         imageUrls: data?.imageUrls !== undefined ? data.imageUrls : undefined,
-        audioTranscript: data?.audioTranscript !== undefined ? data.audioTranscript : undefined,
-        ...(items && items.length > 0 ? { items: { create: items.map((item: any) => ({ serviceName: item.serviceName ?? '', description: item.description ?? '', quantity: Number(item.quantity ?? 1), unit: item.unit ?? 'Stunde', unitPrice: Number(item.unitPrice ?? 0), totalPrice: Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1) })) } } : {}),
+        audioTranscript:
+          data?.audioTranscript !== undefined
+            ? data.audioTranscript
+            : undefined,
+        ...(items && items.length > 0
+          ? {
+              items: {
+                create: items.map((item: any) => ({
+                  serviceName: item.serviceName ?? "",
+                  description: item.description ?? "",
+                  quantity: Number(item.quantity ?? 1),
+                  unit: item.unit ?? "Stunde",
+                  unitPrice: Number(item.unitPrice ?? 0),
+                  totalPrice:
+                    Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
+                })),
+              },
+            }
+          : {}),
       },
       include: { customer: true, items: true },
     });
     const su = await getSessionUser();
-    logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'ORDER_UPDATE', area: 'ORDERS', targetType: 'Order', targetId: params?.id, request });
+    logAuditAsync({
+      userId: su?.id,
+      userEmail: su?.email,
+      userRole: su?.role,
+      action: "ORDER_UPDATE",
+      area: "ORDERS",
+      targetType: "Order",
+      targetId: params?.id,
+      request,
+    });
 
     // Auto-clear stale review flag: once the linked customer has complete data
     // (name + address + plz + city), the original "Kundendaten unvollständig"
@@ -136,40 +240,79 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     ) {
       finalOrder = await prisma.order.update({
         where: { id: params?.id },
-        data: { needsReview: false, reviewReasons: [], hinweisLevel: 'none' },
+        data: { needsReview: false, reviewReasons: [], hinweisLevel: "none" },
         include: { customer: true, items: true },
       });
       logAuditAsync({
-        userId: su?.id, userEmail: su?.email, userRole: su?.role,
-        action: 'ORDER_REVIEW_CLEARED', area: 'ORDERS',
-        targetType: 'Order', targetId: params?.id,
-        details: { reason: 'customer_data_complete' },
+        userId: su?.id,
+        userEmail: su?.email,
+        userRole: su?.role,
+        action: "ORDER_REVIEW_CLEARED",
+        area: "ORDERS",
+        targetType: "Order",
+        targetId: params?.id,
+        details: { reason: "customer_data_complete" },
         request,
       });
     }
 
-    return NextResponse.json({ ...finalOrder, totalPrice: Number(finalOrder?.totalPrice ?? 0), vatRate: Number(finalOrder?.vatRate ?? 0), vatAmount: Number(finalOrder?.vatAmount ?? 0), total: Number(finalOrder?.total ?? 0), items: (finalOrder?.items ?? []).map((item: any) => ({ ...item, unitPrice: Number(item?.unitPrice ?? 0), quantity: Number(item?.quantity ?? 0), totalPrice: Number(item?.totalPrice ?? 0) })) });
+    return NextResponse.json({
+      ...finalOrder,
+      totalPrice: Number(finalOrder?.totalPrice ?? 0),
+      vatRate: Number(finalOrder?.vatRate ?? 0),
+      vatAmount: Number(finalOrder?.vatAmount ?? 0),
+      total: Number(finalOrder?.total ?? 0),
+      currency: finalOrder?.currency === "EUR" ? "EUR" : "CHF",
+      items: (finalOrder?.items ?? []).map((item: any) => ({
+        ...item,
+        unitPrice: Number(item?.unitPrice ?? 0),
+        quantity: Number(item?.quantity ?? 0),
+        totalPrice: Number(item?.totalPrice ?? 0),
+      })),
+    });
   } catch (error: any) {
     if (error instanceof CustomerArchivedError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     console.error(error);
-    return NextResponse.json({ error: 'Fehler' }, { status: 500 });
+    return NextResponse.json({ error: "Fehler" }, { status: 500 });
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
   let userId: string;
-  try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
-    const existing = await prisma.order.findFirst({ where: { id: params?.id, userId } });
-    if (!existing) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
-    await prisma.order.update({ where: { id: params?.id }, data: { deletedAt: new Date() } });
+    userId = await requireUserId();
+  } catch {
+    return unauthorizedResponse();
+  }
+  try {
+    const existing = await prisma.order.findFirst({
+      where: { id: params?.id, userId },
+    });
+    if (!existing)
+      return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
+    await prisma.order.update({
+      where: { id: params?.id },
+      data: { deletedAt: new Date() },
+    });
     const su = await getSessionUser();
-    logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'ORDER_DELETE', area: 'ORDERS', targetType: 'Order', targetId: params?.id, request });
+    logAuditAsync({
+      userId: su?.id,
+      userEmail: su?.email,
+      userRole: su?.role,
+      action: "ORDER_DELETE",
+      area: "ORDERS",
+      targetType: "Order",
+      targetId: params?.id,
+      request,
+    });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error(error);
-    return NextResponse.json({ error: 'Fehler' }, { status: 500 });
+    return NextResponse.json({ error: "Fehler" }, { status: 500 });
   }
 }

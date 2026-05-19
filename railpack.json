@@ -1,11 +1,5 @@
 {
-  "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "installCommand": "npm install --legacy-peer-deps",
-    "buildCommand": "npm run build"
-  },
   "deploy": {
-    "startCommand": "npm run start",
     "aptPackages": [
       "ffmpeg",
       "chromium",
