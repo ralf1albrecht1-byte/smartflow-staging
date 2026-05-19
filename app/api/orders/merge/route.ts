@@ -253,27 +253,56 @@ if (currencies.length > 1) {
         ...sourceOrders.flatMap((o) => o.thumbnailUrls || []),
       ];
 
-      const additionalNotes = sourceOrders
-        .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
-        .map((o) => {
-          const parts: string[] = [];
 
-          if (o.notes) parts.push(o.notes);
 
-          if (o.audioTranscript && !o.notes?.includes(o.audioTranscript)) {
-            parts.push(`Transkript: ${o.audioTranscript}`);
-          }
+const additionalNotes = sourceOrders
+  .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
+  .map((o) => {
+    const parts: string[] = [];
 
-          if (parts.length > 0) {
-            return `[Verbunden von Auftrag ${o.id.slice(-8)}]\n${parts.join(
-              '\n\n',
-            )}`;
-          }
+    const customerName =
+      o.customer?.name?.trim() || 'Unbekannter Kunde';
 
-          return '';
-        })
-        .filter(Boolean)
-        .join('\n\n');
+    parts.push(`Verbunden mit: ${customerName}`);
+
+    if (o.customer?.address) {
+      parts.push(o.customer.address);
+    }
+
+    const cityLine = [o.customer?.plz, o.customer?.city]
+      .filter(Boolean)
+      .join(' ');
+
+    if (cityLine) {
+      parts.push(cityLine);
+    }
+
+    parts.push('');
+
+    for (const item of o.items || []) {
+      const quantity = Number(item.quantity || 0);
+      const unit = item.unit || '';
+      const unitPrice = Number(item.unitPrice || 0);
+
+      const quantityText =
+        quantity > 0
+          ? `${quantity} ${unit}`.trim()
+          : unit;
+
+      parts.push(
+        `${item.serviceName || 'Leistung'} ${quantityText} à CHF ${unitPrice}`,
+      );
+    }
+
+    if (o.notes) {
+      parts.push('');
+      parts.push(o.notes);
+    }
+
+    return parts.join('\n');
+  })
+  .filter(Boolean)
+  .join('\n\n----------------------\n\n');
 
       const mergedNotes = [targetOrder.notes, additionalNotes]
         .filter(Boolean)
