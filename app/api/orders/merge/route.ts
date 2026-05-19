@@ -331,6 +331,8 @@ const mergedNotes = [
       const updatedOrder = await tx.order.update({
         where: { id: targetOrderId },
         data: {
+audioTranscript: targetOrder.audioTranscript ? mergedNotes : targetOrder.audioTranscript,
+description: targetOrder.description ? mergedNotes : targetOrder.description,
           customerId: finalCustomerId || targetOrder.customerId,
           imageUrls: mergedImageUrls,
           thumbnailUrls: mergedThumbnailUrls,
