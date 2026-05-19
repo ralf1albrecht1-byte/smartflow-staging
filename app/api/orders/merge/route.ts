@@ -256,16 +256,14 @@ const compactMergeText = (text: string) => {
   return text
     .replace(/\r\n/g, '\n')
     .replace(/^\s*WhatsApp:\s*\n?/gim, '')
-    .replace(/\n{2,}/g, '\n')
+    .replace(/\[Verbunden von Auftrag [^\]]+\]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 };
 const additionalNotes = sourceOrders
   .filter((o) => !o.reviewReasons?.includes('image_only_no_text'))
   .map((o) => {
-    const originalText = compactMergeText(
-      (o.notes || o.audioTranscript || '')
-        .replace(/\[Verbunden von Auftrag [^\]]+\]/g, '')
-    );
+    const originalText = compactMergeText(o.notes || o.audioTranscript || '');
 
     const parts: string[] = [];
 
@@ -283,11 +281,11 @@ const additionalNotes = sourceOrders
   .join('\n');
 const mergedNotes = [
   'Hauptauftrag:',
-  compactMergeText(targetOrder.notes || ''),
   '',
+  compactMergeText(targetOrder.notes || ''),
   additionalNotes,
 ]
-  .filter(Boolean)
+  .filter((part) => part !== undefined && part !== null && part !== '')
   .join('\n');
 
       const mergedItems = mergeOrderItems(allOrders);
