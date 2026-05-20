@@ -47,7 +47,7 @@ import {
   DuplicateCheckPanel,
   type DuplicateMatch,
 } from "@/components/customer-duplicate-check";
-import { splitSpecialNotes } from "@/lib/special-notes-utils";
+import { buildSpecialNotes, splitSpecialNotes } from "@/lib/special-notes-utils";
 import { fetchAllJSON } from "@/lib/fetch-utils";
 import { LoadErrorFallback } from "@/components/load-error-fallback";
 import { ORDER_STATUS_STYLES, getStatusStyle } from "@/lib/status-colors";
@@ -741,7 +741,13 @@ export default function AuftraegePage() {
       status: o.status ?? "Offen",
       date: o.date ? new Date(o.date).toISOString().split("T")[0] : "",
       notes: o.notes ?? "",
-      specialNotes: splitSpecialNotes(o.specialNotes).jobHints.join("\n"),
+      specialNotes: (() => {
+        const parsedSpecialNotes = splitSpecialNotes(o.specialNotes);
+        return buildSpecialNotes({
+          safetyWarnings: parsedSpecialNotes.safetyWarnings,
+          jobHints: parsedSpecialNotes.jobHints,
+        });
+      })(),
     });
      // Populate items from order
     if (o.items && o.items.length > 0) {
@@ -1132,39 +1138,28 @@ export default function AuftraegePage() {
       };
     });
 
-  const dangerKeywords = [
-    "gefahr",
-    "gefährlich",
-    "achtung",
-    "rutsch",
-    "glatt",
-    "hund",
-    "leiter",
-    "absturz",
-    "strom",
-    "kabel",
-    "chemie",
-    "chemikal",
-    "öl",
-    "oel",
-    "schimmel",
-    "asbest",
-    "schlüssel",
-    "zugang schwierig",
-    "enge zufahrt",
-    "empfindlich",
-    "zerbrech",
-  ];
+  const parsedFormSpecialNotes = splitSpecialNotes(form.specialNotes);
+  const dangerNoteLines = parsedFormSpecialNotes.safetyWarnings;
+  const normalSpecialNotesText = parsedFormSpecialNotes.jobHints.join("\n");
 
-  const specialNoteLines = form.specialNotes
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const updateNormalSpecialNotes = (value: string) => {
+    const nextJobHints = value
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
 
-  const dangerNoteLines = specialNoteLines.filter((line) => {
-    const normalized = line.toLowerCase();
-    return dangerKeywords.some((keyword) => normalized.includes(keyword));
-  });
+    setForm((prev) => {
+      const previousNotes = splitSpecialNotes(prev.specialNotes);
+
+      return {
+        ...prev,
+        specialNotes: buildSpecialNotes({
+          safetyWarnings: previousNotes.safetyWarnings,
+          jobHints: nextJobHints,
+        }),
+      };
+    });
+  };
 
   const customerMessageText = (
     currentEditOrder?.notes ||
@@ -3696,11 +3691,9 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
 
                     <textarea
                       className="w-full min-h-[84px] rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      placeholder="z.B. Rückruf, Zugang, Parkplatz, Hund, Leiter nötig, Gefahren, Terminwunsch..."
-                      value={form.specialNotes}
-                      onChange={(e) =>
-                        setForm({ ...form, specialNotes: e.target.value })
-                      }
+                      placeholder="z.B. Rückruf, Zugang, Parkplatz, Leiter nötig, Terminwunsch..."
+                      value={normalSpecialNotesText}
+                      onChange={(e) => updateNormalSpecialNotes(e.target.value)}
                     />
                   </div>
 

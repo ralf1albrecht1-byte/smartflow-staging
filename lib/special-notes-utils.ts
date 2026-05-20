@@ -1,22 +1,29 @@
 /**
- * Utility to split specialNotes into system hints vs. real job hints,
- * and further split job hints into hazards vs. operational notes.
+ * Utility to split specialNotes into system hints, safety warnings and real job hints.
+ *
+ * New rule:
+ * The UI does not guess hazards from words/languages anymore.
+ * The parser/merge logic must write semantic markers into specialNotes:
+ *
+ * [GEFAHR] Hund frei auf Grundstück
+ * [GEFAHR] Offene Stromkabel im Keller
+ * [HINWEIS] Leiter eventuell benötigt
+ * [HINWEIS] Rückruf vor Arbeitsbeginn
+ *
+ * Backward compatibility:
+ * - Existing unmarked lines are treated as normal job hints.
+ * - Existing system/check lines are still separated into systemHints.
  */
 
-const SYSTEM_KEYWORDS = /Kundentreffer|prüfen|Confidence|⚠️|🚨|Kundendaten|Konflikt|Zuordnung|manuelle.*prüfung|Priorität.*HOCH/i;
-const WARNING_KEYWORDS = /\b(hund|hunde|vorsicht|gefahr|achtung|leiter|hanglage|tor\s*geschlossen|tor\s*zu|bissig|aggressiv|dog|chien|ladder|échelle|steep|slope|pente|danger|caution|attention)\b/i;
+const SYSTEM_KEYWORDS =
+  /Kundentreffer|prüfen|Confidence|⚠️|🚨|Kundendaten|Konflikt|Zuordnung|manuelle.*prüfung|Priorität.*HOCH/i;
 
-/** Keywords that represent real physical hazards / danger — shown as RED badges */
-const HAZARD_KEYWORDS = /\b(hund|hunde|bissig|aggressiv|gefahr|vorsicht|achtung|hanglage|steilhang|absturz|absturzgefahr|dog|chien|cane|perro|dangerous|dangereux|pericoloso|mordre|bite|beissen)\b/i;
-
-/** Keywords that represent extra equipment / effort / logistic requirements — shown as AMBER/YELLOW badges */
-const EQUIPMENT_KEYWORDS = /\b(leiter|ladder|échelle|steep|pente|slope|zufahrt|zugang|schwierig|eng|gerät|gerüst|hebebühne|kran|anhänger|tor\s*geschlossen|tor\s*zu|schlüssel|schwer\s*zugänglich|difficile.*accès|hard.*access|difficult.*access)\b/i;
-
-/** Keywords that indicate the customer requests a callback — shown as special note */
-const CALLBACK_KEYWORDS = /\b(bitte\s*(an)?rufen|bitte\s*zurückrufen|rückruf\s*(erwünscht|gewünscht|erbeten)|können\s*sie\s*mich\s*anrufen|bitte\s*telefonisch\s*melden|call\s*me(\s*back)?|please\s*call|rappel(ez)?|richiama(re|temi)?)\b/i;
+const SAFETY_MARKER = /^\s*\[(GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i;
+const HINT_MARKER = /^\s*\[(HINWEIS|INFO|NOTIZ)\]\s*/i;
 
 export interface SplitNotes {
   systemHints: string[];
+  safetyWarnings: string[];
   jobHints: string[];
 }
 
@@ -26,100 +33,193 @@ export interface SplitJobHints {
   operational: string[];
 }
 
+const normalizeLine = (value: string) => value.replace(/\s+/g, " ").trim();
+
+const stripKnownMarker = (line: string) =>
+  normalizeLine(line.replace(SAFETY_MARKER, "").replace(HINT_MARKER, ""));
+
+export const isSafetyWarningLine = (line: string | null | undefined) => {
+  if (!line) return false;
+  return SAFETY_MARKER.test(line);
+};
+
+export const isHintLine = (line: string | null | undefined) => {
+  if (!line) return false;
+  return HINT_MARKER.test(line);
+};
+
+export const formatSafetyWarningLine = (line: string) => {
+  const cleaned = stripKnownMarker(line);
+  return cleaned ? `[GEFAHR] ${cleaned}` : "";
+};
+
+export const formatHintLine = (line: string) => {
+  const cleaned = stripKnownMarker(line);
+  return cleaned ? `[HINWEIS] ${cleaned}` : "";
+};
+
 /**
- * Splits specialNotes text into system hints and real job hints.
- * Lines matching SYSTEM_KEYWORDS go to systemHints, everything else to jobHints.
+ * Splits specialNotes text into:
+ * - systemHints: internal review/customer matching hints
+ * - safetyWarnings: lines explicitly marked with [GEFAHR] / [WARNUNG]
+ * - jobHints: lines explicitly marked with [HINWEIS] or unmarked legacy lines
  */
 export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
-  if (!text || !text.trim()) return { systemHints: [], jobHints: [] };
-  
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const systemHints: string[] = [];
-  const jobHints: string[] = [];
-  
-  for (const line of lines) {
-    if (SYSTEM_KEYWORDS.test(line)) {
-      systemHints.push(line);
-    } else {
-      jobHints.push(line);
-    }
+  if (!text || !text.trim()) {
+    return { systemHints: [], safetyWarnings: [], jobHints: [] };
   }
-  
-  return { systemHints, jobHints };
+
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const systemHints: string[] = [];
+  const safetyWarnings: string[] = [];
+  const jobHints: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = normalizeLine(rawLine);
+    if (!line) continue;
+
+    if (SYSTEM_KEYWORDS.test(line)) {
+      systemHints.push(stripKnownMarker(line));
+      continue;
+    }
+
+    if (isSafetyWarningLine(line)) {
+      const cleaned = stripKnownMarker(line);
+      if (cleaned) safetyWarnings.push(cleaned);
+      continue;
+    }
+
+    const cleaned = stripKnownMarker(line);
+    if (cleaned) jobHints.push(cleaned);
+  }
+
+  return { systemHints, safetyWarnings, jobHints };
 }
 
 /**
- * Further splits job hints into three categories:
- * - hazards (real danger/warning) → RED badges: Hund, Hanglage, Absturzgefahr, bissig, Vorsicht
- * - equipment (extra requirements/effort) → AMBER/YELLOW badges: Leiter nötig, Zufahrt schwierig
- * - operational (other practical notes) → plain text
+ * Legacy helper kept for existing UI/components.
+ *
+ * New behavior:
+ * - Only explicit [GEFAHR] / [WARNUNG] markers are treated as hazards.
+ * - No language/keyword guessing.
+ * - "equipment" is intentionally empty unless a future explicit marker is added.
+ * - Unmarked lines are operational hints.
  */
 export function splitJobHints(jobHints: string[]): SplitJobHints {
   const hazards: string[] = [];
   const equipment: string[] = [];
   const operational: string[] = [];
-  
-  for (const hint of jobHints) {
-    if (HAZARD_KEYWORDS.test(hint)) {
-      hazards.push(hint);
-    } else if (EQUIPMENT_KEYWORDS.test(hint)) {
-      equipment.push(hint);
-    } else {
-      operational.push(hint);
+
+  for (const rawHint of jobHints) {
+    const hint = normalizeLine(rawHint);
+    if (!hint) continue;
+
+    if (isSafetyWarningLine(hint)) {
+      const cleaned = stripKnownMarker(hint);
+      if (cleaned) hazards.push(cleaned);
+      continue;
     }
+
+    const cleaned = stripKnownMarker(hint);
+    if (cleaned) operational.push(cleaned);
   }
-  
+
   return { hazards, equipment, operational };
 }
 
 /**
- * Checks if a text contains warning keywords that need special highlighting.
+ * Combines notes back into the stored specialNotes format.
+ * Use this whenever saving merged/edited notes so markers stay consistent.
+ */
+export function buildSpecialNotes(input: {
+  safetyWarnings?: string[];
+  jobHints?: string[];
+  systemHints?: string[];
+}) {
+  const safetyWarnings = input.safetyWarnings ?? [];
+  const jobHints = input.jobHints ?? [];
+  const systemHints = input.systemHints ?? [];
+
+  const lines = [
+    ...safetyWarnings.map(formatSafetyWarningLine),
+    ...jobHints.map(formatHintLine),
+    ...systemHints.map(stripKnownMarker),
+  ]
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(lines)).join("\n");
+}
+
+/**
+ * Checks if a text contains explicit warning markers.
+ * No keyword/language guessing.
  */
 export function hasWarningKeywords(text: string): boolean {
-  return WARNING_KEYWORDS.test(text);
+  if (!text) return false;
+  return text
+    .split("\n")
+    .some((line) => isSafetyWarningLine(line));
 }
 
 /**
- * Highlights warning keywords in text by wrapping them in spans.
- * Returns an array of React-compatible segments.
+ * Returns React-compatible segments.
+ * New behavior: the whole line is marked as warning only when it has [GEFAHR]/[WARNUNG].
  */
-export function getWarningSegments(text: string): Array<{ text: string; isWarning: boolean }> {
+export function getWarningSegments(
+  text: string,
+): Array<{ text: string; isWarning: boolean }> {
   if (!text) return [];
-  
-  const regex = /\b(hund|hunde|vorsicht|gefahr|achtung|leiter|hanglage|tor\s*geschlossen|tor\s*zu|bissig|aggressiv|dog|chien|ladder|échelle|steep|slope|danger|caution|attention)\b/gi;
-  const segments: Array<{ text: string; isWarning: boolean }> = [];
-  let lastIndex = 0;
-  let match;
-  
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      segments.push({ text: text.slice(lastIndex, match.index), isWarning: false });
+
+  return text.split("\n").flatMap((line, index, arr) => {
+    const cleaned = stripKnownMarker(line);
+    const segment = {
+      text: cleaned,
+      isWarning: isSafetyWarningLine(line),
+    };
+
+    if (index < arr.length - 1) {
+      return [segment, { text: "\n", isWarning: false }];
     }
-    segments.push({ text: match[0], isWarning: true });
-    lastIndex = regex.lastIndex;
-  }
-  
-  if (lastIndex < text.length) {
-    segments.push({ text: text.slice(lastIndex), isWarning: false });
-  }
-  
-  return segments.length > 0 ? segments : [{ text, isWarning: false }];
+
+    return [segment];
+  });
 }
 
 /**
- * Detects if a message contains a callback request from the customer.
- * Returns the normalized callback note or null.
+ * Callback detection should be handled semantically by the parser in the future.
+ * Kept only for existing imports; does not guess from language-specific keywords anymore.
  */
-export function detectCallbackRequest(text: string | null | undefined): string | null {
+export function detectCallbackRequest(
+  text: string | null | undefined,
+): string | null {
   if (!text) return null;
-  if (CALLBACK_KEYWORDS.test(text)) return 'Rückruf gewünscht';
-  return null;
+
+  const { jobHints } = splitSpecialNotes(text);
+  const callbackHint = jobHints.find((line) =>
+    line.toLowerCase().includes("rückruf"),
+  );
+
+  return callbackHint || null;
 }
 
 /**
  * Checks if a customer has complete address data (Straße + PLZ + Ort).
  */
-export function hasCompleteAddress(customer: { address?: string | null; plz?: string | null; city?: string | null } | null | undefined): boolean {
+export function hasCompleteAddress(
+  customer:
+    | { address?: string | null; plz?: string | null; city?: string | null }
+    | null
+    | undefined,
+): boolean {
   if (!customer) return false;
-  return !!(customer.address?.trim() && customer.plz?.trim() && customer.city?.trim());
+  return !!(
+    customer.address?.trim() &&
+    customer.plz?.trim() &&
+    customer.city?.trim()
+  );
 }
