@@ -1,4 +1,5 @@
 "use client";
+// CARD_BADGE_SPLIT_FINAL_V5
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
@@ -296,88 +297,136 @@ const buildOrderBadgeText = (order: Order, parsedNotes: ReturnType<typeof splitS
     .join(" | ");
 };
 
-const getOperationalBadges = (order: Order, parsedNotes: ReturnType<typeof splitSpecialNotes>) => {
+const getOperationalBadges = (
+  order: Order,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
   const rawText = buildOrderBadgeText(order, parsedNotes);
   const text = normalizeForMatch(rawText);
 
   const redWarningClass = "bg-red-100 text-red-700 border border-red-200";
   const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-200";
-  const blueMediaClass = "bg-blue-100 text-blue-700 border border-blue-200";
 
-  const hasConcreteDanger = () =>
-    badges.some((badge) =>
-      ["dog", "ladder", "difficult_access"].includes(badge.key),
-    );
-
-  if (/\bhund(e|en)?\b/.test(text)) {
+  const addDanger = (key: string, label: string) =>
     pushUniqueBadge(badges, {
-      key: "dog",
-      label: "Hund",
+      key,
+      label,
       className: redWarningClass,
       icon: true,
     });
-  }
 
-  if (/\bleiter\b|leiter noetig|leiter benoetigt|leiter erforderlich/.test(text)) {
+  const addHint = (key: string, label: string) =>
     pushUniqueBadge(badges, {
-      key: "ladder",
-      label: "Leiter nötig",
-      className: redWarningClass,
-      icon: true,
-    });
-  }
-
-  if (/rueckruf|zurueckrufen|bitte anrufen|kunde anrufen|telefonisch melden|anruf erbeten/.test(text)) {
-    pushUniqueBadge(badges, {
-      key: "callback",
-      label: "Rückruf",
+      key,
+      label,
       className: amberHintClass,
     });
+
+  if (/\bhund(e|en)?\b|\bdog\b|\bchien\b|\bperro\b|\bcane\b|\bcao\b|\bcão\b/.test(text)) {
+    addDanger("dog", "Hund");
   }
 
-  if (/schwer zugaenglich|schwieriger zugang|zugang schwierig|kein lift|ohne lift|enger zugang|enge zufahrt/.test(text)) {
-    pushUniqueBadge(badges, {
-      key: "difficult_access",
-      label: "Schwieriger Zugang",
-      className: redWarningClass,
-      icon: true,
-    });
+  if (/\boel\b|\boil\b|\bhuile\b|\baceite\b|\bolio\b|\boleo\b|\bpetroleo\b/.test(text)) {
+    addDanger("oil", "Öl");
   }
 
-  if (/\bhanglage\b|\bam hang\b|\bhang\b/.test(text)) {
-    pushUniqueBadge(badges, {
-      key: "slope",
-      label: "Hanglage",
-      className: amberHintClass,
-    });
+  if (/rutschig|glatt|slippery|slick|glissant|resbaladiz|scivolos|escorregad|wet floor|suelo mojado|sol mouille|pavimento bagnato/.test(text)) {
+    addDanger("slippery", "Rutschig");
   }
 
-  const hasGenericWarningText = /achtung|gefahr|vorsicht|warnung|sturzgefahr|absturzgefahr/.test(text);
-  if ((parsedNotes.safetyWarnings.length > 0 || hasGenericWarningText) && !hasConcreteDanger()) {
-    pushUniqueBadge(badges, {
-      key: "warning",
-      label: "Achtung",
-      className: redWarningClass,
-      icon: true,
-    });
+  if (/strom|elektr|electric|electrical|corriente|elettric|kabel|cable|wire|wires|offene kabel|exposed wires/.test(text)) {
+    addDanger("electricity", "Strom");
   }
 
-  if (hasOrderImage(order)) {
-    pushUniqueBadge(badges, {
-      key: "image",
-      label: "Bild",
-      className: blueMediaClass,
-    });
+  if (/asbest|asbestos|amiante|amianto/.test(text)) {
+    addDanger("asbestos", "Asbest");
   }
 
-  const hasConcreteOperationalBadge = badges.some((badge) => badge.key !== "image");
-  if (parsedNotes.jobHints.length > 0 && !hasConcreteOperationalBadge) {
-    pushUniqueBadge(badges, {
-      key: "special_notes",
-      label: "Besonderheiten",
-      className: amberHintClass,
-    });
+  if (/schimmel|mold|mould|moho|moisissure|muffa|bolor/.test(text)) {
+    addDanger("mold", "Schimmel");
+  }
+
+  if (/chemie|chemisch|chemical|chemicals|chimique|quimic|chimic|produkt chemisch|produit chimique|producto quimico/.test(text)) {
+    addDanger("chemical", "Chemie");
+  }
+
+  if (/feuer|brand|fire|incendio|incendie|fuego|fuoco|brandgefahr|feuergefahr/.test(text)) {
+    addDanger("fire", "Feuer");
+  }
+
+  if (/scherben|glasscherben|broken glass|shards|verre casse|vidrio roto|vetro rotto|vidro quebrado/.test(text)) {
+    addDanger("glass", "Scherben");
+  }
+
+  if (/sturzgefahr|absturzgefahr|fall hazard|fall risk|risk of falling|risque de chute|riesgo de caida|rischio di caduta|risco de queda/.test(text)) {
+    addDanger("fall", "Sturz");
+  }
+
+  if (/gasgeruch|gas smell|smell of gas|rauchgeruch|smoke smell|odeur de gaz|olor a gas|odeur de fumee/.test(text)) {
+    addDanger("gas_smoke", "Gas/Rauch");
+  }
+
+  if (/\bleiter\b|leiter noetig|leiter benoetigt|leiter benötigt|leiter erforderlich|\bladder\b|echelle|échelle|escalera|scala|escada/.test(text)) {
+    addHint("ladder", "Leiter nötig");
+  }
+
+  if (/schwer zugaenglich|schwer zugänglich|schwieriger zugang|zugang schwierig|kein lift|ohne lift|enger zugang|enge zufahrt|difficult access|access difficult|no elevator|no lift|sin ascensor|sans ascenseur|acces difficile|accès difficile|accesso difficile|sem elevador/.test(text)) {
+    addHint("difficult_access", "Schwieriger Zugang");
+  }
+
+  if (/\bhanglage\b|\bam hang\b|\bhang\b|slope|steep|pente|pendiente|pendenza|declive/.test(text)) {
+    addHint("slope", "Hanglage");
+  }
+
+  if (/parkplatz|parking|aparcamiento|parcheggio|estacionamento/.test(text)) {
+    addHint("parking", "Parkplatz");
+  }
+
+  if (/schluessel|schlussel|schlüssel|\bkey\b|llave|chiave|chave|\bcle\b|\bclé\b/.test(text)) {
+    addHint("key", "Schlüssel");
+  }
+
+  if (/schubkarre|absperrband|werkzeug|material|mitbringen|mitnehmen|erforderlich|benoetigt|benötigt|required|bring/.test(text)) {
+    addHint("bring", "Mitnehmen");
+  }
+
+  if (/termin|appointment|schedule|cita|rendez vous|rendez-vous|appuntamento|agendamento/.test(text)) {
+    addHint("appointment", "Termin");
+  }
+
+  const dangerKeys = new Set([
+    "dog",
+    "oil",
+    "slippery",
+    "electricity",
+    "asbestos",
+    "mold",
+    "chemical",
+    "fire",
+    "glass",
+    "fall",
+    "gas_smoke",
+  ]);
+  const hintKeys = new Set([
+    "ladder",
+    "difficult_access",
+    "slope",
+    "parking",
+    "key",
+    "bring",
+    "appointment",
+  ]);
+
+  const hasDangerBadge = badges.some((badge) => dangerKeys.has(badge.key));
+  const hasHintBadge = badges.some((badge) => hintKeys.has(badge.key));
+
+  if (parsedNotes.safetyWarnings.length > 0 && !hasDangerBadge) {
+    addDanger("warning", "Achtung");
+  }
+
+  if (parsedNotes.jobHints.length > 0 && !hasHintBadge) {
+    addHint("hint", "Hinweis");
   }
 
   if (badges.length <= 4) return badges;
@@ -391,9 +440,8 @@ const getOperationalBadges = (order: Order, parsedNotes: ReturnType<typeof split
   return visible;
 };
 
-const getReviewBadges = (order: Order): ReviewBadge[] => {
-  const parsedNotes = splitSpecialNotes(order.specialNotes);
-  const badges: ReviewBadge[] = [...getOperationalBadges(order, parsedNotes)];
+const getSystemBadges = (order: Order): ReviewBadge[] => {
+  const badges: ReviewBadge[] = [];
 
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
@@ -436,11 +484,31 @@ const getReviewBadges = (order: Order): ReviewBadge[] => {
     });
   }
 
+  return badges;
+};
+
+const getBottomBadges = (
+  order: Order,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+): ReviewBadge[] => {
+  const badges: ReviewBadge[] = [];
+  const rawText = buildOrderBadgeText(order, parsedNotes);
+  const text = normalizeForMatch(rawText);
+  const blueClass = "bg-blue-100 text-blue-700 border border-blue-200";
+
+  if (/rueckruf|ruckruf|zurueckrufen|zurückrufen|bitte anrufen|kunde anrufen|telefonisch melden|anruf erbeten|call back|please call|rappeler|llamar|richiamare|ligar/.test(text)) {
+    pushUniqueBadge(badges, {
+      key: "callback",
+      label: "Rückruf",
+      className: blueClass,
+    });
+  }
+
   if (order.reviewReasons?.includes("manual_order_merge")) {
     pushUniqueBadge(badges, {
       key: "merged",
       label: "Zusammengeführt",
-      className: "bg-blue-100 text-blue-700 border border-blue-200",
+      className: blueClass,
     });
   }
 
@@ -448,7 +516,7 @@ const getReviewBadges = (order: Order): ReviewBadge[] => {
     pushUniqueBadge(badges, {
       key: "double_merge",
       label: "Doppelte Zusammenführung",
-      className: "bg-purple-100 text-purple-700 border border-purple-200",
+      className: blueClass,
     });
   }
 
@@ -2358,7 +2426,10 @@ const getSafeOrderTotal = (o: Order) => {
                   (it) => (it.serviceName ?? "").toLowerCase() === "sonstiges",
                 ));
             const serviceLine = getOrderCardServiceSummary(o);
-            const reviewBadges = getReviewBadges(o);
+            const parsedCardNotes = splitSpecialNotes(o.specialNotes);
+            const systemBadges = getSystemBadges(o);
+            const operationalBadges = getOperationalBadges(o, parsedCardNotes);
+            const bottomBadges = getBottomBadges(o, parsedCardNotes);
             const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
               "skipped",
             );
@@ -2500,6 +2571,30 @@ const getSafeOrderTotal = (o: Order) => {
                               </span>
                             )}
 
+                          {systemBadges.map((badge) => (
+                            <span
+                              key={badge.key}
+                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
+                            >
+                              {badge.icon && (
+                                <AlertTriangle className="w-3 h-3" />
+                              )}
+                              {badge.label}
+                            </span>
+                          ))}
+
+                          {showAudioTooLongBadge && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                              ⚠️ Audio zu lang
+                            </span>
+                          )}
+
+                          {showImageOnlyBadge && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                              ⚠️ Bild prüfen
+                            </span>
+                          )}
+
                         </div>
 
                         {/* Row 2: compact service-only preview */}
@@ -2514,11 +2609,9 @@ const getSafeOrderTotal = (o: Order) => {
                           {serviceLine}
                         </p>
 
-                        {(reviewBadges.length > 0 ||
-                          showAudioTooLongBadge ||
-                          showImageOnlyBadge) && (
+                        {operationalBadges.length > 0 && (
                           <div className="flex items-center gap-1 mt-1 flex-wrap">
-                            {reviewBadges.map((badge) => (
+                            {operationalBadges.map((badge) => (
                               <span
                                 key={badge.key}
                                 className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
@@ -2529,18 +2622,6 @@ const getSafeOrderTotal = (o: Order) => {
                                 {badge.label}
                               </span>
                             ))}
-
-                            {showAudioTooLongBadge && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
-                                ⚠️ Audio zu lang – manuell prüfen
-                              </span>
-                            )}
-
-                            {showImageOnlyBadge && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
-                                ⚠️ Bild ohne Text prüfen
-                              </span>
-                            )}
                           </div>
                         )}
 
@@ -2577,6 +2658,18 @@ const getSafeOrderTotal = (o: Order) => {
                             onAudioClick={() => openMedia(o)}
                             onImageClick={() => openMedia(o)}
                           />
+
+                          {bottomBadges.map((badge) => (
+                            <span
+                              key={badge.key}
+                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
+                            >
+                              {badge.icon && (
+                                <AlertTriangle className="w-3 h-3" />
+                              )}
+                              {badge.label}
+                            </span>
+                          ))}
 
                          <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
   {formatCurrency(
