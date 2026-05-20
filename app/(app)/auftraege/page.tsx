@@ -539,6 +539,8 @@ export default function AuftraegePage() {
   const [mediaType, setMediaType] = useState<string | null>(null);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIdx, setGalleryIdx] = useState(0);
+  const [customerMessageImagePreviewUrl, setCustomerMessageImagePreviewUrl] =
+    useState<string | null>(null);
 
   // Dropdown menu for create offer/invoice
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
@@ -1794,37 +1796,71 @@ const defaultMainOrderId = bestMainOrder.id;
     }
   };
 
-  const openMedia = async (o: Order) => {
-    const hasImageUrls = (o.imageUrls?.length ?? 0) > 0;
 
-    if (!o.mediaUrl && !hasImageUrls) return;
+const openMedia = async (o: Order) => {
+  const hasImageUrls = (o.imageUrls?.length ?? 0) > 0;
 
-    if (o.mediaUrl && o.mediaType === "audio") {
-      const url = await resolveS3Url(o.mediaUrl);
-      setMediaUrl(url);
-      setMediaType("audio");
-      setGalleryUrls([]);
-      setMediaDialogOpen(true);
+  if (!o.mediaUrl && !hasImageUrls) return;
+
+  if (o.mediaUrl && o.mediaType === "audio") {
+    const url = await resolveS3Url(o.mediaUrl);
+    setMediaUrl(url);
+    setMediaType("audio");
+    setGalleryUrls([]);
+    setMediaDialogOpen(true);
+    return;
+  }
+
+  const paths =
+    hasImageUrls && o.imageUrls
+      ? o.imageUrls
+      : o.mediaUrl
+        ? [o.mediaUrl]
+        : [];
+
+  if (paths.length === 0) return;
+
+  const resolved = await Promise.all(paths.map((p) => resolveS3Url(p)));
+
+  setGalleryUrls(resolved);
+  setGalleryIdx(0);
+  setMediaType("image");
+  setMediaUrl(null);
+  setMediaDialogOpen(true);
+};
+
+
+
+
+
+  useEffect(() => {
+    if (!dialogOpen || !currentEditOrder) {
+      setCustomerMessageImagePreviewUrl(null);
       return;
     }
 
-    const paths =
-      hasImageUrls && o.imageUrls
-        ? o.imageUrls
-        : o.mediaUrl
-          ? [o.mediaUrl]
-          : [];
+    const firstImagePath =
+      currentEditOrder.imageUrls?.[0] ||
+      (currentEditOrder.mediaType === "image" ? currentEditOrder.mediaUrl : null);
 
-    if (paths.length === 0) return;
+    if (!firstImagePath) {
+      setCustomerMessageImagePreviewUrl(null);
+      return;
+    }
 
-    const resolved = await Promise.all(paths.map((p) => resolveS3Url(p)));
+    let cancelled = false;
 
-    setGalleryUrls(resolved);
-    setGalleryIdx(0);
-    setMediaType("image");
-    setMediaUrl(null);
-    setMediaDialogOpen(true);
-  };
+    (async () => {
+      const resolved = await resolveS3Url(firstImagePath);
+      if (!cancelled) {
+        setCustomerMessageImagePreviewUrl(resolved);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogOpen, currentEditOrder?.id]);
 
   const createOffer = async (o: Order) => {
     // Direct API create — no extra dialog
@@ -3817,39 +3853,45 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
 
                     {customerMessagesOpen && (
                       <div className="space-y-3 rounded-lg border bg-muted/30 p-3 text-sm">
-                        {currentEditOrder &&
-                          (currentEditOrder.mediaUrl ||
-                            currentEditOrder.imageUrls?.length ||
-                            currentEditOrder.audioTranscript) && (
-                            <div className="flex flex-wrap gap-2">
-                              {currentEditOrder.mediaUrl &&
-                                currentEditOrder.mediaType === "audio" && (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => openMedia(currentEditOrder)}
-                                  >
-                                    <Volume2 className="w-4 h-4 mr-1" />
-                                    Sprachnachricht abspielen
-                                  </Button>
-                                )}
-
-                              {(currentEditOrder.mediaType === "image" ||
-                                (currentEditOrder.imageUrls &&
-                                  currentEditOrder.imageUrls.length > 0)) && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openMedia(currentEditOrder)}
-                                >
-                                  <ImageIcon className="w-4 h-4 mr-1" />
-                                  Bild groß anzeigen
-                                </Button>
-                              )}
-                            </div>
+                        {currentEditOrder?.mediaUrl &&
+                          currentEditOrder.mediaType === "audio" && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openMedia(currentEditOrder)}
+                            >
+                              <Volume2 className="w-4 h-4 mr-1" />
+                              Sprachnachricht abspielen
+                            </Button>
                           )}
+
+                        {customerMessageImagePreviewUrl && currentEditOrder && (
+                          <button
+                            type="button"
+                            className="group flex w-full items-center gap-3 rounded-lg border bg-background p-2 text-left hover:bg-muted/60"
+                            onClick={() => openMedia(currentEditOrder)}
+                          >
+                            <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                              <img
+                                src={customerMessageImagePreviewUrl}
+                                alt="Kundenbild"
+                                className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                              />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium">
+                                Bildvorschau
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Miniatur anklicken für Großansicht
+                              </div>
+                            </div>
+
+                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        )}
 
                         {currentEditOrder?.audioTranscript && (
                           <div className="rounded-md border bg-background p-2">
@@ -3863,7 +3905,8 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
                         )}
 
                         <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
-                          {customerMessageText || "Keine Kundennachricht gespeichert."}
+                          {customerMessageText ||
+                            "Keine Kundennachricht gespeichert."}
                         </div>
                       </div>
                     )}
