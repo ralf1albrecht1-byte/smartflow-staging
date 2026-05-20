@@ -1,5 +1,5 @@
 "use client";
-// CARD_BADGE_SPLIT_FINAL_V7
+// CARD_BADGE_SPLIT_FINAL_V8
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
@@ -307,6 +307,7 @@ const getOperationalBadges = (
 
   const redWarningClass = "bg-red-100 text-red-700 border border-red-200";
   const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-200";
+  const greenInfoClass = "bg-emerald-100 text-emerald-700 border border-emerald-200";
 
   const addDanger = (key: string, label: string) =>
     pushUniqueBadge(badges, {
@@ -316,11 +317,11 @@ const getOperationalBadges = (
       icon: true,
     });
 
-  const addHint = (key: string, label: string) =>
+  const addHint = (key: string, label: string, className = amberHintClass) =>
     pushUniqueBadge(badges, {
       key,
       label,
-      className: amberHintClass,
+      className,
     });
 
   if (/\bhund(e|en)?\b|\bdog\b|\bchien\b|\bperro\b|\bcane\b|\bcao\b|\bcão\b/.test(text)) {
@@ -367,28 +368,40 @@ const getOperationalBadges = (
     addDanger("gas_smoke", "Gas/Rauch");
   }
 
-  if (/\bleiter\b|leiter noetig|leiter benoetigt|leiter benötigt|leiter erforderlich|\bladder\b|echelle|échelle|escalera|scala|escada/.test(text)) {
-    addHint("ladder", "Leiter nötig");
+  if (/leiter|leiter noetig|leiter benoetigt|leiter benötigt|leiter erforderlich|ladder|echelle|échelle|escalera|scala|escada/.test(text)) {
+    addHint("ladder", "Leiter");
   }
 
   if (/schwer zugaenglich|schwer zugänglich|schwieriger zugang|zugang schwierig|kein lift|ohne lift|enger zugang|enge zufahrt|difficult access|access difficult|no elevator|no lift|sin ascensor|sans ascenseur|acces difficile|accès difficile|accesso difficile|sem elevador/.test(text)) {
-    addHint("difficult_access", "Schwieriger Zugang");
+    addHint("difficult_access", "Zugang");
   }
 
   if (/\bhanglage\b|\bam hang\b|\bhang\b|slope|steep|pente|pendiente|pendenza|declive/.test(text)) {
     addHint("slope", "Hanglage");
   }
 
-  if (/parkplatz|parking|aparcamiento|parcheggio|estacionamento/.test(text)) {
-    addHint("parking", "Parkplatz");
+  const hasBadParking = /kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|parkplatz fehlt|parkplatz schwierig|parken schwierig|parkplatz vorher klaeren|parkplatz vorher klären|parking difficult|no parking|sin aparcamiento|sans parking|senza parcheggio/.test(text);
+  const hasGoodParking = /parkplatz vorhanden|parkplatz im innenhof|parkplatz reserviert|parkplatz vor ort|parking available|parking in courtyard|reserved parking|aparcamiento disponible|parcheggio disponibile/.test(text);
+  if (hasBadParking) {
+    addHint("parking", "Parken", amberHintClass);
+  } else if (hasGoodParking) {
+    addHint("parking", "Parken", greenInfoClass);
   }
 
   if (/schluessel|schlussel|schlüssel|\bkey\b|llave|chiave|chave|\bcle\b|\bclé\b/.test(text)) {
     addHint("key", "Schlüssel");
   }
 
-  if (/schubkarre|absperrband|werkzeug|material|mitbringen|mitnehmen|erforderlich|benoetigt|benötigt|required|bring/.test(text)) {
-    addHint("bring", "Mitnehmen");
+  if (/schubkarre|wheelbarrow|brouette|carretilla|carriola/.test(text)) {
+    addHint("wheelbarrow", "Schubkarre");
+  }
+
+  if (/absperrband|barrier tape|caution tape|rubalise|cinta de senalizacion|cinta de señalización|nastro segnaletico/.test(text)) {
+    addHint("barrier_tape", "Absperrband");
+  }
+
+  if (/geruest|gerüst|scaffold|scaffolding|echafaudage|andamio|ponteggio/.test(text)) {
+    addHint("scaffold", "Gerüst");
   }
 
   if (/termin|appointment|schedule|cita|rendez vous|rendez-vous|appuntamento|agendamento/.test(text)) {
@@ -414,26 +427,23 @@ const getOperationalBadges = (
     "slope",
     "parking",
     "key",
-    "bring",
+    "wheelbarrow",
+    "barrier_tape",
+    "scaffold",
     "appointment",
   ]);
 
   const hasDangerBadge = badges.some((badge) => dangerKeys.has(badge.key));
-  const hasHintBadge = badges.some((badge) => hintKeys.has(badge.key));
-  const callbackHintPattern = /rueckruf|ruckruf|zurueckrufen|zurückrufen|bitte anrufen|kunde anrufen|telefonisch melden|anruf erbeten|call back|please call|rappeler|llamar|richiamare/i;
-  const nonCallbackJobHints = parsedNotes.jobHints.filter(
-    (hint) => !callbackHintPattern.test(normalizeForMatch(hint)),
-  );
 
   if (parsedNotes.safetyWarnings.length > 0 && !hasDangerBadge) {
     addDanger("warning", "Achtung");
   }
 
-  if (nonCallbackJobHints.length > 0 && !hasHintBadge) {
-    addHint("hint", "Hinweis");
-  }
+  // CARD_BADGE_STRICT_HINTS_V8: no generic "Hinweis" or "Mitnehmen" chip.
+  // Unknown operational notes stay inside the order detail. The card only shows short, useful chips.
 
-    if (badges.length <= 9) return badges;
+  // CARD_BADGE_LIMIT_9_V8
+  if (badges.length <= 9) return badges;
 
   const visible = badges.slice(0, 8);
   visible.push({
@@ -500,6 +510,7 @@ const getBottomBadges = (
   const text = normalizeForMatch(rawText);
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-200";
 
+  // RUECKRUF_VIA_COMMUNICATION_CHIPS_V8: callback is rendered once by CommunicationChips.
 
   const isMergedOrder =
     order.reviewReasons?.includes("manual_order_merge") ||
@@ -2646,7 +2657,12 @@ const getSafeOrderTotal = (o: Order) => {
                           </select>
 
                           <CommunicationChips
-                            data={o}
+                            data={{
+                              ...o,
+                              notes: [o.notes, o.specialNotes, o.audioTranscript]
+                                .filter(Boolean)
+                                .join("\n"),
+                            }}
                             onAudioClick={() => openMedia(o)}
                             onImageClick={() => openMedia(o)}
                           />
