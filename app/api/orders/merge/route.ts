@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { buildSpecialNotes, splitSpecialNotes } from '@/lib/special-notes-utils';
 
 interface MergeRequest {
   targetOrderId: string;
@@ -89,6 +90,44 @@ if (existing && !hasUnsafeMerge) {
   }
 
   return Array.from(merged.values());
+};
+
+const uniqueTrimmedLines = (lines: string[]) => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const line of lines) {
+    const cleaned = String(line || '').replace(/\s+/g, ' ').trim();
+    if (!cleaned) continue;
+
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    result.push(cleaned);
+  }
+
+  return result;
+};
+
+const mergeSpecialNotes = (orders: any[]) => {
+  const safetyWarnings: string[] = [];
+  const jobHints: string[] = [];
+  const systemHints: string[] = [];
+
+  for (const order of orders) {
+    const split = splitSpecialNotes(order.specialNotes || '');
+
+    safetyWarnings.push(...split.safetyWarnings);
+    jobHints.push(...split.jobHints);
+    systemHints.push(...split.systemHints);
+  }
+
+  return buildSpecialNotes({
+    safetyWarnings: uniqueTrimmedLines(safetyWarnings),
+    jobHints: uniqueTrimmedLines(jobHints),
+    systemHints: uniqueTrimmedLines(systemHints),
+  });
 };
 
 export async function POST(request: NextRequest) {
@@ -289,6 +328,7 @@ const mergedNotes = [
   .join('\n');
 
       const mergedItems = mergeOrderItems(allOrders);
+      const mergedSpecialNotes = mergeSpecialNotes(allOrders);
 
       const totalPrice = mergedItems.reduce(
         (sum, item) => sum + Number(item.totalPrice || 0),
@@ -335,7 +375,7 @@ const mergedNotes = [
   imageUrls: mergedImageUrls,
   thumbnailUrls: mergedThumbnailUrls,
   notes: mergedNotes,
-          specialNotes: targetOrder.specialNotes,
+          specialNotes: mergedSpecialNotes,
           reviewReasons: uniqueReviewReasons,
           needsReview: true,
           hinweisLevel: 'warning',

@@ -15,6 +15,7 @@ import {
   findNearExactDeterministicMatch,
 } from "@/lib/exact-customer-match";
 import { maskPhoneForLog } from "@/lib/phone";
+import { buildSpecialNotes } from "@/lib/special-notes-utils";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Block R — Self-introduction safety-net for voice/text intake.
@@ -1025,9 +1026,13 @@ ZIELE
 2. Auftrag:
 - titel (max 3 Wörter, IMMER auf ${hauptsprache})
 - beschreibung (IMMER auf ${hauptsprache}, auch wenn die Nachricht in einer anderen Sprache ist)
-- besonderheiten: JSON-Array mit einzelnen Hinweisen, z.B. ["Hund auf Grundstück", "Leiter nötig", "Hanglage"]
-  (Nur echte Auftragshinweise wie: Hund, Hanglage, Leiter nötig, Tor geschlossen, Vorsicht – KEINE Systemhinweise)
-  (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist)
+- gefahren: JSON-Array mit echten Sicherheitsrisiken / Warnhinweisen, z.B. ["Hund läuft frei auf dem Grundstück", "Offene Stromkabel im Keller", "Rutschiger Boden wegen Öl"]
+- besonderheiten: JSON-Array mit normalen organisatorischen Hinweisen, z.B. ["Leiter eventuell benötigt", "Rückruf vor Arbeitsbeginn", "Zugang über Seiteneingang", "Parkplatz im Innenhof"]
+  (GEFAHREN und BESONDERHEITEN strikt trennen.)
+  (Leiter allein ist KEINE Gefahr. Leiter nur dann als Gefahr werten, wenn zusätzlich ein echtes Risiko genannt wird, z.B. Absturzgefahr, instabiler Stand, Arbeiten in großer Höhe.)
+  (Keine Leistungen, Preise oder Mengen in gefahren/besonderheiten schreiben.)
+  (KEINE Systemhinweise.)
+  (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist.)
 
 3. Service erkennen:
 - passende Leistung aus "leistungen"
@@ -1102,6 +1107,7 @@ AUSGABEFORMAT
 "auftrag": {
   "titel": null,
   "beschreibung": null,
+  "gefahren": [],
   "besonderheiten": [],
   "arbeitspositionen": []
 },
@@ -1193,6 +1199,15 @@ sonst → ""
 9. PRIORITÄT:
 - "hoch" bei Wörtern wie: "dringend", "sofort", "heute"
 - sonst "normal"
+
+9a. GEFAHREN / BESONDERHEITEN:
+- auftrag.gefahren enthält NUR echte Sicherheitsrisiken oder Warnhinweise.
+- auftrag.besonderheiten enthält normale Hinweise zur Ausführung / Organisation.
+- Beispiele für gefahren: freilaufender Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund.
+- Beispiele für besonderheiten: Rückruf, Zugang, Parkplatz, Schlüssel, Terminwunsch, Leiter eventuell benötigt, Zufahrt, Kunde nur vormittags erreichbar.
+- Wichtig: "Leiter benötigt" allein ist besonderheit, NICHT gefahr.
+- Keine Doppelung: Eine Information darf entweder in gefahren ODER in besonderheiten stehen, nicht in beiden.
+- Keine Leistung als Gefahr/Besonderheit ausgeben.
 
 10. NUR-BILD-NACHRICHTEN (WICHTIG):
 Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
@@ -1906,21 +1921,66 @@ const intakeCurrency =
     }
   }
 
-  // --- Build specialNotes (only real job-related hints, NO system hints) ---
+  // --- Build specialNotes (marker-based, NO language/keyword guessing in UI) ---
   // System hints (needsReview, duplicateWarning, confidence) are tracked via
   // needsReview boolean and shown dynamically in the UI — not stored in specialNotes.
-  // besonderheiten is now a JSON array from the LLM. Store as newline-separated items.
+  //
+  // The parser stores semantic markers:
+  // [GEFAHR] = red safety warning in the UI
+  // [HINWEIS] = normal operational special note in the UI
+  //
+  // This avoids brittle language-specific keyword lists in the UI.
+  const toNoteArray = (value: any): string[] => {
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
+    }
+
+    if (typeof value === "string" && value.trim()) {
+      return value
+        .split(/[,\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    return [];
+  };
+
+  const safetyMarkerRe = /^\s*\[(GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i;
+  const hintMarkerRe = /^\s*\[(HINWEIS|INFO|NOTIZ)\]\s*/i;
+  const stripSpecialMarker = (line: string) =>
+    line.replace(safetyMarkerRe, "").replace(hintMarkerRe, "").trim();
+
+  const rawGefahren =
+    parsed.auftrag?.gefahren ??
+    parsed.auftrag?.warnhinweise ??
+    parsed.auftrag?.sicherheitswarnungen;
   const rawBesonderheiten = parsed.auftrag?.besonderheiten;
-  const besonderheitenItems: string[] = Array.isArray(rawBesonderheiten)
-    ? rawBesonderheiten.filter((b: any) => typeof b === "string" && b.trim())
-    : typeof rawBesonderheiten === "string" && rawBesonderheiten.trim()
-      ? rawBesonderheiten
-          .split(/[,\n]+/)
-          .map((s: string) => s.trim())
-          .filter(Boolean)
-      : [];
-  const finalSpecialNotes =
-    besonderheitenItems.length > 0 ? besonderheitenItems.join("\n") : null;
+
+  const rawGefahrenItems = toNoteArray(rawGefahren);
+  const rawBesonderheitenItems = toNoteArray(rawBesonderheiten);
+
+  const gefahrItemsFromBesonderheiten = rawBesonderheitenItems
+    .filter((line) => safetyMarkerRe.test(line))
+    .map(stripSpecialMarker)
+    .filter(Boolean);
+
+  const hinweisItems = rawBesonderheitenItems
+    .filter((line) => !safetyMarkerRe.test(line))
+    .map(stripSpecialMarker)
+    .filter(Boolean);
+
+  const gefahrItems = [...rawGefahrenItems, ...gefahrItemsFromBesonderheiten]
+    .map(stripSpecialMarker)
+    .filter(Boolean);
+
+  const finalSpecialNotesText = buildSpecialNotes({
+    safetyWarnings: gefahrItems,
+    jobHints: hinweisItems,
+  });
+
+  const finalSpecialNotes = finalSpecialNotesText || null;
 
   // --- Map services / AI work items, strict per-position matching ---
 
