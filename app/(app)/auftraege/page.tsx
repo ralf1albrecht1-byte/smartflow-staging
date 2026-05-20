@@ -2312,10 +2312,14 @@ const getSafeOrderTotal = (o: Order) => {
     if (!text) return "Bild erkannt. Ohne Nachricht bitte prüfen.";
     return text;
   };
+
   const formatMergeDate = (date?: string) => {
     if (!date) return "–";
+
     const dt = new Date(date);
+
     if (Number.isNaN(dt.getTime())) return "–";
+
     return dt.toLocaleDateString("de-CH", {
       day: "2-digit",
       month: "2-digit",
@@ -2323,14 +2327,17 @@ const getSafeOrderTotal = (o: Order) => {
     });
   };
 
-  if (loading)
+  if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
-  if (loadError)
+  }
+
+  if (loadError) {
     return <LoadErrorFallback details={loadError} onRetry={load} />;
+  }
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
@@ -2447,8 +2454,8 @@ const getSafeOrderTotal = (o: Order) => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.015 }}
               >
-                <Card
-                  className={`hover:shadow-sm transition-shadow cursor-pointer tap-safe ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
+               <Card
+                  className={`hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-hidden ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   onClick={() => {
                     if (isMergeMode) {
                       handleToggleSelect(o.id);
@@ -2457,8 +2464,8 @@ const getSafeOrderTotal = (o: Order) => {
                     openEdit(o);
                   }}
                 >
-                  <CardContent className="px-3 py-2">
-                    <div className="flex items-start gap-2">
+                  <CardContent className="px-2.5 py-2 sm:px-3 max-w-full overflow-hidden">
+                    <div className="flex items-start gap-2 min-w-0 max-w-full overflow-hidden">
                       {isMergeMode && (
                         <div
                           className="shrink-0 pt-1"
@@ -2542,9 +2549,9 @@ const getSafeOrderTotal = (o: Order) => {
                       </div>
 
                       {/* Center: Main info */}
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 max-w-full overflow-hidden">
                         {/* Row 1: date + customer */}
-                        <div className="flex items-center gap-1.5 text-xs">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-hidden">
                           <span className="text-muted-foreground shrink-0">
                             {o.createdAt
                               ? new Date(o.createdAt).toLocaleDateString(
@@ -2558,9 +2565,9 @@ const getSafeOrderTotal = (o: Order) => {
                                 )
                               : ""}
                           </span>
-                          <span className="text-muted-foreground">·</span>
+                          <span className="text-muted-foreground shrink-0">·</span>
                           <span
-                            className={`font-medium truncate ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                            className={`font-medium truncate min-w-0 max-w-[150px] sm:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
                           >
                             {isFallbackCustomerName(o.customer?.name)
                               ? "Kunde nicht zugeordnet"
@@ -2602,7 +2609,7 @@ const getSafeOrderTotal = (o: Order) => {
 
                         {/* Row 2: compact service-only preview */}
                         <p
-                          className={`text-sm font-medium mt-0.5 whitespace-normal break-words ${
+                          className={`text-sm font-medium mt-0.5 whitespace-normal break-words max-md:line-clamp-5 max-md:overflow-hidden max-md:leading-snug ${
                             isSonstiges
                               ? "text-red-600 dark:text-red-400"
                               : "text-foreground"
@@ -2613,7 +2620,7 @@ const getSafeOrderTotal = (o: Order) => {
                         </p>
 
                         {operationalBadges.length > 0 && (
-                          <div className="flex items-center gap-1 mt-1 flex-wrap">
+                          <div className="flex flex-wrap items-center gap-1 mt-1 max-w-full overflow-hidden">
                             {operationalBadges.map((badge) => (
                               <span
                                 key={badge.key}
@@ -2629,7 +2636,7 @@ const getSafeOrderTotal = (o: Order) => {
                         )}
 
                         {/* Row 3: [status] [media] ... [price] */}
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 max-w-full overflow-hidden">
                           <select
                             onClick={(e) => e.stopPropagation()}
                             className="text-[11px] border rounded px-1.5 py-0.5 font-medium"
@@ -2679,7 +2686,7 @@ const getSafeOrderTotal = (o: Order) => {
                             </span>
                           ))}
 
-                         <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
+           <span className="ml-auto shrink-0 whitespace-nowrap text-right font-mono font-bold tabular-nums text-[13px] sm:text-sm">
   {formatCurrency(
     getSafeOrderTotal(o),
     o.currency === "EUR" ? "EUR" : "CHF",
