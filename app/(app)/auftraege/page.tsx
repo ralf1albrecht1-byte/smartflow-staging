@@ -1,5 +1,5 @@
 "use client";
-// CARD_BADGE_SPLIT_FINAL_V5
+// CARD_BADGE_SPLIT_FINAL_V6
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
@@ -420,21 +420,25 @@ const getOperationalBadges = (
 
   const hasDangerBadge = badges.some((badge) => dangerKeys.has(badge.key));
   const hasHintBadge = badges.some((badge) => hintKeys.has(badge.key));
+  const callbackHintPattern = /rueckruf|ruckruf|zurueckrufen|zurückrufen|bitte anrufen|kunde anrufen|telefonisch melden|anruf erbeten|call back|please call|rappeler|llamar|richiamare/i;
+  const nonCallbackJobHints = parsedNotes.jobHints.filter(
+    (hint) => !callbackHintPattern.test(normalizeForMatch(hint)),
+  );
 
   if (parsedNotes.safetyWarnings.length > 0 && !hasDangerBadge) {
     addDanger("warning", "Achtung");
   }
 
-  if (parsedNotes.jobHints.length > 0 && !hasHintBadge) {
+  if (nonCallbackJobHints.length > 0 && !hasHintBadge) {
     addHint("hint", "Hinweis");
   }
 
-  if (badges.length <= 4) return badges;
+  if (badges.length <= 6) return badges;
 
-  const visible = badges.slice(0, 3);
+  const visible = badges.slice(0, 5);
   visible.push({
     key: "more_operational_badges",
-    label: `+${badges.length - 3}`,
+    label: `+${badges.length - 5}`,
     className: "bg-muted text-muted-foreground border border-border",
   });
   return visible;
