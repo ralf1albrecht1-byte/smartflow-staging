@@ -2142,7 +2142,7 @@ const intakeCurrency =
     ...semanticFallbackNotes.safetyWarnings,
   ]);
 
-  const hinweisItems = uniqueNormalizedLines([
+const hinweisItems = uniqueNormalizedLines([
   ...baseHinweisItems,
   ...semanticFallbackNotes.jobHints,
 ]).filter(
