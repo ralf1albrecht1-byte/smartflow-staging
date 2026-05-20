@@ -433,12 +433,12 @@ const getOperationalBadges = (
     addHint("hint", "Hinweis");
   }
 
-  if (badges.length <= 6) return badges;
+    if (badges.length <= 9) return badges;
 
-  const visible = badges.slice(0, 5);
+  const visible = badges.slice(0, 8);
   visible.push({
     key: "more_operational_badges",
-    label: `+${badges.length - 5}`,
+    label: `+${badges.length - 8}`,
     className: "bg-muted text-muted-foreground border border-border",
   });
   return visible;
@@ -500,13 +500,6 @@ const getBottomBadges = (
   const text = normalizeForMatch(rawText);
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-200";
 
-  if (/rueckruf|ruckruf|zurueckrufen|zurückrufen|bitte anrufen|kunde anrufen|telefonisch melden|anruf erbeten|call back|please call|rappeler|llamar|richiamare|ligar/.test(text)) {
-    pushUniqueBadge(badges, {
-      key: "callback",
-      label: "Rückruf",
-      className: blueClass,
-    });
-  }
 
   const isMergedOrder =
     order.reviewReasons?.includes("manual_order_merge") ||
