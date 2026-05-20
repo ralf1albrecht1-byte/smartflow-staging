@@ -247,47 +247,165 @@ const hasRealCustomerReviewReason = (order: Order) => {
   );
 };
 
-const getReviewBadges = (order: Order) => {
-  const badges: {
-    key: string;
-    label: string;
-    className: string;
-    icon?: boolean;
-  }[] = [];
+type ReviewBadge = {
+  key: string;
+  label: string;
+  className: string;
+  icon?: boolean;
+};
 
+const compactText = (value?: string | null) =>
+  (value || "").replace(/\s+/g, " ").trim();
 
-  const parsedNotes = splitSpecialNotes(order.specialNotes);
+const normalizeForMatch = (value?: string | null) =>
+  compactText(value)
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss");
 
-  if (parsedNotes.safetyWarnings.length > 0) {
-    badges.push({
-      key: "safety_warning",
-      label: "Gefahr / Achtung",
-      className: "bg-red-100 text-red-700 border border-red-200",
+const pushUniqueBadge = (badges: ReviewBadge[], badge: ReviewBadge) => {
+  if (badges.some((existing) => existing.key === badge.key)) return;
+  badges.push(badge);
+};
+
+const hasOrderImage = (order: Order) => {
+  return (
+    (order.imageUrls?.length ?? 0) > 0 ||
+    (Boolean(order.mediaUrl) && order.mediaType === "image")
+  );
+};
+
+const buildOrderBadgeText = (order: Order, parsedNotes: ReturnType<typeof splitSpecialNotes>) => {
+  return [
+    order.specialNotes,
+    ...parsedNotes.safetyWarnings,
+    ...parsedNotes.jobHints,
+    order.notes,
+    order.audioTranscript,
+    order.description,
+    order.serviceName,
+    ...(order.items ?? []).flatMap((item) => [
+      item.serviceName,
+      item.description,
+    ]),
+  ]
+    .map((part) => compactText(part))
+    .filter(Boolean)
+    .join(" | ");
+};
+
+const getOperationalBadges = (order: Order, parsedNotes: ReturnType<typeof splitSpecialNotes>) => {
+  const badges: ReviewBadge[] = [];
+  const rawText = buildOrderBadgeText(order, parsedNotes);
+  const text = normalizeForMatch(rawText);
+
+  const redWarningClass = "bg-red-100 text-red-700 border border-red-200";
+  const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-200";
+  const blueMediaClass = "bg-blue-100 text-blue-700 border border-blue-200";
+
+  const hasConcreteDanger = () =>
+    badges.some((badge) =>
+      ["dog", "ladder", "difficult_access"].includes(badge.key),
+    );
+
+  if (/\bhund(e|en)?\b/.test(text)) {
+    pushUniqueBadge(badges, {
+      key: "dog",
+      label: "Hund",
+      className: redWarningClass,
       icon: true,
     });
   }
 
-  if (parsedNotes.jobHints.length > 0) {
-    badges.push({
-      key: "special_notes",
-      label: "Besonderheiten",
-      className: "bg-amber-100 text-amber-700 border border-amber-200",
+  if (/\bleiter\b|leiter noetig|leiter benoetigt|leiter erforderlich/.test(text)) {
+    pushUniqueBadge(badges, {
+      key: "ladder",
+      label: "Leiter nötig",
+      className: redWarningClass,
+      icon: true,
     });
   }
 
+  if (/rueckruf|zurueckrufen|bitte anrufen|kunde anrufen|telefonisch melden|anruf erbeten/.test(text)) {
+    pushUniqueBadge(badges, {
+      key: "callback",
+      label: "Rückruf",
+      className: amberHintClass,
+    });
+  }
 
+  if (/schwer zugaenglich|schwieriger zugang|zugang schwierig|kein lift|ohne lift|enger zugang|enge zufahrt/.test(text)) {
+    pushUniqueBadge(badges, {
+      key: "difficult_access",
+      label: "Schwieriger Zugang",
+      className: redWarningClass,
+      icon: true,
+    });
+  }
+
+  if (/\bhanglage\b|\bam hang\b|\bhang\b/.test(text)) {
+    pushUniqueBadge(badges, {
+      key: "slope",
+      label: "Hanglage",
+      className: amberHintClass,
+    });
+  }
+
+  const hasGenericWarningText = /achtung|gefahr|vorsicht|warnung|sturzgefahr|absturzgefahr/.test(text);
+  if ((parsedNotes.safetyWarnings.length > 0 || hasGenericWarningText) && !hasConcreteDanger()) {
+    pushUniqueBadge(badges, {
+      key: "warning",
+      label: "Achtung",
+      className: redWarningClass,
+      icon: true,
+    });
+  }
+
+  if (hasOrderImage(order)) {
+    pushUniqueBadge(badges, {
+      key: "image",
+      label: "Bild",
+      className: blueMediaClass,
+    });
+  }
+
+  const hasConcreteOperationalBadge = badges.some((badge) => badge.key !== "image");
+  if (parsedNotes.jobHints.length > 0 && !hasConcreteOperationalBadge) {
+    pushUniqueBadge(badges, {
+      key: "special_notes",
+      label: "Besonderheiten",
+      className: amberHintClass,
+    });
+  }
+
+  if (badges.length <= 4) return badges;
+
+  const visible = badges.slice(0, 3);
+  visible.push({
+    key: "more_operational_badges",
+    label: `+${badges.length - 3}`,
+    className: "bg-muted text-muted-foreground border border-border",
+  });
+  return visible;
+};
+
+const getReviewBadges = (order: Order): ReviewBadge[] => {
+  const parsedNotes = splitSpecialNotes(order.specialNotes);
+  const badges: ReviewBadge[] = [...getOperationalBadges(order, parsedNotes)];
 
   const hasPriceQuantityReview =
-    order.items?.some(
-      (it) =>
-        Number(it.unitPrice || 0) <= 0 ||
-        Number(it.quantity || 0) <= 0,
-    ) ||
-    Number(order.unitPrice || 0) <= 0 ||
-    Number(order.quantity || 0) <= 0;
+    order.items && order.items.length > 0
+      ? order.items.some(
+          (it) =>
+            Number(it.unitPrice || 0) <= 0 ||
+            Number(it.quantity || 0) <= 0,
+        )
+      : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
 
   if (hasPriceQuantityReview) {
-    badges.push({
+    pushUniqueBadge(badges, {
       key: "price_quantity",
       label: "Preis/Menge prüfen",
       className: "bg-red-100 text-red-700 border border-red-200",
@@ -299,7 +417,7 @@ const getReviewBadges = (order: Order) => {
     order.reviewReasons?.some((r) => r.startsWith("unit_mismatch:")) ?? false;
 
   if (hasUnitConflict) {
-    badges.push({
+    pushUniqueBadge(badges, {
       key: "unit_conflict",
       label: "Einheit prüfen",
       className: "bg-orange-100 text-orange-700 border border-orange-200",
@@ -311,7 +429,7 @@ const getReviewBadges = (order: Order) => {
     isCustomerDataIncomplete(order.customer);
 
   if (hasCustomerReview) {
-    badges.push({
+    pushUniqueBadge(badges, {
       key: "customer_review",
       label: "Kunde prüfen",
       className: "bg-yellow-100 text-yellow-700 border border-yellow-200",
@@ -319,7 +437,7 @@ const getReviewBadges = (order: Order) => {
   }
 
   if (order.reviewReasons?.includes("manual_order_merge")) {
-    badges.push({
+    pushUniqueBadge(badges, {
       key: "merged",
       label: "Zusammengeführt",
       className: "bg-blue-100 text-blue-700 border border-blue-200",
@@ -327,7 +445,7 @@ const getReviewBadges = (order: Order) => {
   }
 
   if (order.reviewReasons?.includes("double_merge")) {
-    badges.push({
+    pushUniqueBadge(badges, {
       key: "double_merge",
       label: "Doppelte Zusammenführung",
       className: "bg-purple-100 text-purple-700 border border-purple-200",
@@ -335,6 +453,113 @@ const getReviewBadges = (order: Order) => {
   }
 
   return badges;
+};
+
+const cleanServiceLabel = (value?: string | null) => {
+  let text = compactText(value);
+  if (!text) return "";
+
+  text = text
+    .replace(/^[-–—•\d.)\s]+/, "")
+    .replace(/\s+[–—]\s+.*$/, "")
+    .replace(/\s+-\s+.*$/, "")
+    .trim();
+
+  if (text.length > 55) {
+    text = `${text.slice(0, 52).trim()}…`;
+  }
+
+  return text;
+};
+
+const uniqueServiceLabels = (labels: string[]) => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  labels.forEach((label) => {
+    const cleaned = cleanServiceLabel(label);
+    const key = normalizeForMatch(cleaned);
+    if (!cleaned || seen.has(key)) return;
+    seen.add(key);
+    result.push(cleaned);
+  });
+
+  return result;
+};
+
+const formatServiceSummary = (labels: string[]) => {
+  const unique = uniqueServiceLabels(labels);
+  if (unique.length === 0) return "";
+  if (unique.length <= 3) return unique.join(" + ");
+  return `${unique.slice(0, 3).join(" + ")} + ${unique.length - 3} weitere`;
+};
+
+const extractFallbackServiceLabels = (order: Order) => {
+  const raw = [
+    order.description,
+    order.serviceName,
+    order.notes,
+    order.audioTranscript,
+  ]
+    .map((part) => compactText(part))
+    .filter(Boolean)
+    .join(". ");
+
+  const text = normalizeForMatch(raw);
+  const labels: string[] = [];
+
+  const addIf = (regex: RegExp, label: string) => {
+    if (regex.test(text)) labels.push(label);
+  };
+
+  addIf(/baum.*(faell|gefaellt|entfern|schneid|rod)/, "Baum fällen");
+  addIf(/rasen.*(maeh|maehen|schnitt)/, "Rasen mähen");
+  addIf(/treppenhaus.*rein/, "Treppenhaus reinigen");
+  addIf(/kellerboden.*rein|keller.*boden.*rein/, "Kellerboden reinigen");
+  addIf(/farbe.*entfern|alte farbe.*entfern/, "Farbe entfernen");
+  addIf(/fenster.*rein/, "Fenster reinigen");
+  addIf(/unterhaltsreinigung/, "Unterhaltsreinigung");
+  addIf(/hauswartung/, "Hauswartung");
+  addIf(/hecke.*(schneid|schnitt)/, "Hecke schneiden");
+  addIf(/strasse.*rein|weg.*rein|platz.*rein/, "Aussenbereich reinigen");
+
+  const known = uniqueServiceLabels(labels);
+  if (known.length > 0) return known;
+
+  const beforeDash = compactText(raw.split(/[–—]/)[0]);
+  if (beforeDash.length >= 3 && beforeDash.length <= 80) {
+    return [beforeDash];
+  }
+
+  const cleaned = compactText(raw)
+    .replace(/das beigefuegte bild zeigt.*$/i, "")
+    .replace(/das beigefügte bild zeigt.*$/i, "")
+    .replace(/weitere details.*$/i, "")
+    .replace(/der kunde moechte|der kunde möchte|kunde moechte|kunde möchte/gi, "")
+    .replace(/\b(ein|eine|einen|soll|sollen|muss|muessen|müssen|bitte)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return [];
+  return [cleaned.length > 80 ? `${cleaned.slice(0, 77).trim()}…` : cleaned];
+};
+
+const getOrderCardServiceSummary = (order: Order) => {
+  const itemLabels =
+    order.items && order.items.length > 0
+      ? order.items.map((item) => item.serviceName)
+      : [];
+
+  const structuredLabels = itemLabels.length > 0 ? itemLabels : [order.serviceName || ""];
+  const usableStructuredLabels = structuredLabels.filter(
+    (label) => normalizeForMatch(label) !== "sonstiges",
+  );
+
+  const structuredSummary = formatServiceSummary(usableStructuredLabels);
+  if (structuredSummary) return structuredSummary;
+
+  const fallbackSummary = formatServiceSummary(extractFallbackServiceLabels(order));
+  return fallbackSummary || "Leistung prüfen";
 };
 
 const emptyForm = {
@@ -2132,14 +2357,14 @@ const getSafeOrderTotal = (o: Order) => {
                 o.items.some(
                   (it) => (it.serviceName ?? "").toLowerCase() === "sonstiges",
                 ));
-            const serviceLine =
-              o.items && o.items.length > 1
-                ? o.items.map((it) => it.serviceName).join(" + ")
-                : (o.serviceName ?? o.description ?? "");
-            const descPreview =
-              o.description && o.description !== serviceLine
-                ? o.description
-                : "";
+            const serviceLine = getOrderCardServiceSummary(o);
+            const reviewBadges = getReviewBadges(o);
+            const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
+              "skipped",
+            );
+            const showImageOnlyBadge = o.reviewReasons?.includes(
+              "image_only_no_text",
+            );
             const isSelected = selectedOrderIds.includes(o.id);
             return (
               <motion.div
@@ -2275,36 +2500,9 @@ const getSafeOrderTotal = (o: Order) => {
                               </span>
                             )}
 
-                          {getReviewBadges(o).map((badge) => (
-                            <span
-                              key={badge.key}
-                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
-                            >
-                              {badge.icon && (
-                                <AlertTriangle className="w-3 h-3" />
-                              )}
-                              {badge.label}
-                            </span>
-                          ))}
-
-                          {o.audioTranscriptionStatus?.startsWith(
-                            "skipped",
-                          ) && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
-                              ⚠️ Audio zu lang – manuell prüfen
-                            </span>
-                          )}
-
-                          {o.reviewReasons?.includes(
-                            "image_only_no_text",
-                          ) && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
-                              ⚠️ Bild ohne Text prüfen
-                            </span>
-                          )}
                         </div>
 
-                        {/* Row 2: title + description preview */}
+                        {/* Row 2: compact service-only preview */}
                         <p
                           className={`text-sm font-medium mt-0.5 line-clamp-2 ${
                             isSonstiges
@@ -2314,10 +2512,39 @@ const getSafeOrderTotal = (o: Order) => {
                         >
                           {isSonstiges && "⚠ "}
                           {serviceLine}
-                          {descPreview ? ` — ${descPreview}` : ""}
                         </p>
 
-                        {/* Row 3: [status] [media] [hints] ... [price] */}
+                        {(reviewBadges.length > 0 ||
+                          showAudioTooLongBadge ||
+                          showImageOnlyBadge) && (
+                          <div className="flex items-center gap-1 mt-1 flex-wrap">
+                            {reviewBadges.map((badge) => (
+                              <span
+                                key={badge.key}
+                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
+                              >
+                                {badge.icon && (
+                                  <AlertTriangle className="w-3 h-3" />
+                                )}
+                                {badge.label}
+                              </span>
+                            ))}
+
+                            {showAudioTooLongBadge && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                                ⚠️ Audio zu lang – manuell prüfen
+                              </span>
+                            )}
+
+                            {showImageOnlyBadge && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                                ⚠️ Bild ohne Text prüfen
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Row 3: [status] [media] ... [price] */}
                         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                           <select
                             onClick={(e) => e.stopPropagation()}

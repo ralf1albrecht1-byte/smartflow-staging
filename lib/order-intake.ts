@@ -112,6 +112,149 @@ function normalizeBlockText(value: any): string {
     .trim();
 }
 
+function normalizeSemanticText(value: any): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[ä]/g, "ae")
+    .replace(/[ö]/g, "oe")
+    .replace(/[ü]/g, "ue")
+    .replace(/[ß]/g, "ss")
+    .replace(/[^a-z0-9€$£\s/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function uniqueNormalizedLines(lines: string[]): string[] {
+  const seen = new Set<string>();
+
+  return lines
+    .map((line) => String(line || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const key = normalizeSemanticText(line);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+/**
+ * Semantic fallback for safety notes.
+ *
+ * Primary detection is done by the LLM prompt below:
+ * it understands the whole customer message and writes German `gefahren` /
+ * `besonderheiten`.
+ *
+ * This deterministic fallback only prevents obvious operational risks from
+ * disappearing when the LLM mixes them into the description or `besonderheiten`.
+ * It deliberately writes German notes into specialNotes, so the UI can stay
+ * language-independent and display short German chips.
+ */
+function extractSemanticSpecialNotesFallback(
+  text: string | null | undefined,
+): { safetyWarnings: string[]; jobHints: string[] } {
+  const source = normalizeSemanticText(text);
+  if (!source) return { safetyWarnings: [], jobHints: [] };
+
+  const has = (pattern: RegExp) => pattern.test(source);
+
+  const safetyWarnings: string[] = [];
+  const jobHints: string[] = [];
+
+  const oil =
+    has(/\b(oel|oil|huile|aceite|olio|oleo|oleo|ol|petroleo)\b/i) ||
+    has(/\b(ausgelaufen|leaking|spill(?:ed)?|verschuttet|derrame|fuoriuscit|renverse)\b/i);
+  const slippery = has(
+    /\b(rutschig|glatt|slippery|slick|glissant|resbaladiz|scivolos|escorregad|skluz)\b/i,
+  );
+  if (oil && slippery) {
+    safetyWarnings.push("Rutschiger Boden wegen Öl");
+  } else if (oil) {
+    safetyWarnings.push("Öl auf dem Boden");
+  } else if (slippery) {
+    safetyWarnings.push("Rutschiger Boden");
+  }
+
+  if (
+    has(/\b(hund|dog|chien|perro|cane|cao|cão)\b/i) &&
+    has(/\b(frei|frei\s+lauf|laeuft|läuft|free|loose|unleashed|libre|suelto|sciolto|livre)\b/i)
+  ) {
+    safetyWarnings.push("Hund vor Ort");
+  } else if (has(/\b(hund|dog|chien|perro|cane|cao|cão)\b/i)) {
+    safetyWarnings.push("Hund vor Ort");
+  }
+
+  if (
+    has(/\b(strom|elektr|electric|electrical|electricite|electricidad|corriente|elettric|kabel|cable|cables|draht|wire|wires)\b/i) &&
+    has(/\b(offen|blank|frei|defekt|kaputt|danger|peligro|pericol|perigo|dangereux|exposed|open|loose)\b/i)
+  ) {
+    safetyWarnings.push("Offene Stromkabel / Stromgefahr");
+  } else if (has(/\b(stromkabel|electric\s+cable|electrical\s+wires|cables\s+electricos|cables\s+electriques)\b/i)) {
+    safetyWarnings.push("Stromgefahr");
+  }
+
+  if (has(/\b(asbest|asbestos|amiante|amianto)\b/i)) {
+    safetyWarnings.push("Asbestverdacht");
+  }
+
+  if (has(/\b(schimmel|mold|mould|moisissure|moho|muffa|bolor)\b/i)) {
+    safetyWarnings.push("Schimmel");
+  }
+
+  if (has(/\b(chemie|chemisch|chemical|chemicals|chimique|quimic|chimic|produto\s+quimico)\b/i)) {
+    safetyWarnings.push("Chemische Stoffe");
+  }
+
+  if (has(/\b(feuer|brand|fire|feu|fuego|fuoco|incendio|incendie)\b/i)) {
+    safetyWarnings.push("Brand-/Feuergefahr");
+  }
+
+  if (has(/\b(glasscherben|scherben|broken\s+glass|verre\s+casse|vidrio\s+roto|vetro\s+rotto)\b/i)) {
+    safetyWarnings.push("Glasscherben");
+  }
+
+  if (
+    has(/\b(absturz|sturz|fall\s+risk|fallgefahr|chute|caida|caduta)\b/i) ||
+    (has(/\b(instabil|unstable|instable|inestable|instabile)\b/i) &&
+      has(/\b(boden|untergrund|floor|sol|suelo|pavimento)\b/i))
+  ) {
+    safetyWarnings.push("Sturzgefahr");
+  }
+
+  if (has(/\b(leiter|ladder|echelle|escalera|scala|escada)\b/i)) {
+    if (has(/\b(absturz|sturz|instabil|gefahr|danger|warning|peligro|pericolo|perigo|hauteur|height|hoehe|höhe)\b/i)) {
+      safetyWarnings.push("Leiterarbeit mit zusätzlichem Risiko");
+    } else {
+      jobHints.push("Leiter eventuell benötigt");
+    }
+  }
+
+  if (has(/\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|anrufen|call\s+back|please\s+call|rappeler|llamar|richiamare|ligar)\b/i)) {
+    jobHints.push("Rückruf vor Arbeitsbeginn");
+  }
+
+  if (
+    has(/\b(schwer\s+zugaenglich|schwer\s+zugänglich|schwieriger\s+zugang|kein\s+lift|no\s+elevator|no\s+lift|access\s+difficult|difficult\s+access|acces\s+difficile|sin\s+ascensor|senza\s+ascensore|acesso\s+dificil)\b/i)
+  ) {
+    jobHints.push("Schwieriger Zugang");
+  }
+
+  if (has(/\b(hanglage|hang|steigung|slope|pente|pendiente|pendenza|declive)\b/i)) {
+    jobHints.push("Hanglage");
+  }
+
+  return {
+    safetyWarnings: uniqueNormalizedLines(safetyWarnings),
+    jobHints: uniqueNormalizedLines(jobHints),
+  };
+}
+
+function isLikelySafetyWarning(line: string): boolean {
+  return extractSemanticSpecialNotesFallback(line).safetyWarnings.length > 0;
+}
+
 function detectQuantityUnitFromText(text: string): {
   value: number | null;
   unit: string | null;
@@ -1026,6 +1169,8 @@ ZIELE
 2. Auftrag:
 - titel (max 3 Wörter, IMMER auf ${hauptsprache})
 - beschreibung (IMMER auf ${hauptsprache}, auch wenn die Nachricht in einer anderen Sprache ist)
+- beschreibung enthält NUR die Arbeiten/Leistungen, kurz und sachlich.
+- beschreibung darf KEINE Gefahren, Warnhinweise, organisatorischen Hinweise, Rückrufe, Zugangshinweise, Hund-/Öl-/Strom-Hinweise oder lange Kundenerklärungen enthalten.
 - gefahren: JSON-Array mit echten Sicherheitsrisiken / Warnhinweisen, z.B. ["Hund läuft frei auf dem Grundstück", "Offene Stromkabel im Keller", "Rutschiger Boden wegen Öl"]
 - besonderheiten: JSON-Array mit normalen organisatorischen Hinweisen, z.B. ["Leiter eventuell benötigt", "Rückruf vor Arbeitsbeginn", "Zugang über Seiteneingang", "Parkplatz im Innenhof"]
   (GEFAHREN und BESONDERHEITEN strikt trennen.)
@@ -1033,6 +1178,7 @@ ZIELE
   (Keine Leistungen, Preise oder Mengen in gefahren/besonderheiten schreiben.)
   (KEINE Systemhinweise.)
   (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist.)
+  (WICHTIG: Erkenne Gefahren semantisch nach Bedeutung, NICHT nur über feste deutsche Wörter. Auch Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischte Nachrichten müssen in deutsche gefahren/besonderheiten übersetzt werden.)
 
 3. Service erkennen:
 - passende Leistung aus "leistungen"
@@ -1203,11 +1349,15 @@ sonst → ""
 9a. GEFAHREN / BESONDERHEITEN:
 - auftrag.gefahren enthält NUR echte Sicherheitsrisiken oder Warnhinweise.
 - auftrag.besonderheiten enthält normale Hinweise zur Ausführung / Organisation.
-- Beispiele für gefahren: freilaufender Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund.
+- Gefahren semantisch erkennen: Es geht um Bedeutung und Arbeitsrisiko, nicht um feste Wörter.
+- Auch wenn der Kunde in Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischt schreibt, müssen gefahren und besonderheiten auf ${hauptsprache} ausgegeben werden.
+- Beispiele für gefahren: freilaufender Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
 - Beispiele für besonderheiten: Rückruf, Zugang, Parkplatz, Schlüssel, Terminwunsch, Leiter eventuell benötigt, Zufahrt, Kunde nur vormittags erreichbar.
 - Wichtig: "Leiter benötigt" allein ist besonderheit, NICHT gefahr.
+- Wichtig: "Öl auf dem Boden", "rutschiger Boden", "offene Kabel", "freilaufender Hund", "Asbestverdacht", "Schimmel", "Chemikalien" sind gefahren, auch wenn sie in anderer Sprache beschrieben werden.
 - Keine Doppelung: Eine Information darf entweder in gefahren ODER in besonderheiten stehen, nicht in beiden.
 - Keine Leistung als Gefahr/Besonderheit ausgeben.
+- Keine Gefahren oder Besonderheiten in beschreibung schreiben. Dort nur die Arbeit selbst.
 
 10. NUR-BILD-NACHRICHTEN (WICHTIG):
 Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
@@ -1962,18 +2112,46 @@ const intakeCurrency =
   const rawBesonderheitenItems = toNoteArray(rawBesonderheiten);
 
   const gefahrItemsFromBesonderheiten = rawBesonderheitenItems
-    .filter((line) => safetyMarkerRe.test(line))
+    .filter((line) => safetyMarkerRe.test(line) || isLikelySafetyWarning(line))
     .map(stripSpecialMarker)
     .filter(Boolean);
 
-  const hinweisItems = rawBesonderheitenItems
-    .filter((line) => !safetyMarkerRe.test(line))
-    .map(stripSpecialMarker)
-    .filter(Boolean);
+ const baseHinweisItems = rawBesonderheitenItems
+  .filter((line) => !safetyMarkerRe.test(line) && !isLikelySafetyWarning(line))
+  .map(stripSpecialMarker)
+  .filter(Boolean);
 
-  const gefahrItems = [...rawGefahrenItems, ...gefahrItemsFromBesonderheiten]
-    .map(stripSpecialMarker)
-    .filter(Boolean);
+  const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
+    [
+      messageText,
+      parsed.auftrag?.beschreibung,
+      parsed.auftrag?.titel,
+      Array.isArray(parsed.auftrag?.arbeitspositionen)
+        ? parsed.auftrag.arbeitspositionen
+            .map((item: any) => [item?.name, item?.raw].filter(Boolean).join(" "))
+            .join("\n")
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+
+  const gefahrItems = uniqueNormalizedLines([
+    ...rawGefahrenItems.map(stripSpecialMarker),
+    ...gefahrItemsFromBesonderheiten,
+    ...semanticFallbackNotes.safetyWarnings,
+  ]);
+
+  const hinweisItems = uniqueNormalizedLines([
+  ...baseHinweisItems,
+  ...semanticFallbackNotes.jobHints,
+]).filter(
+  (line) =>
+    !gefahrItems.some(
+      (danger) =>
+        normalizeSemanticText(danger) === normalizeSemanticText(line),
+    ),
+);
 
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,

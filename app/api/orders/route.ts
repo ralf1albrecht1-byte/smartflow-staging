@@ -11,6 +11,360 @@ import {
   assertCustomerNotArchived,
   CustomerArchivedError,
 } from "@/lib/customer-links";
+import { buildSpecialNotes, splitSpecialNotes } from "@/lib/special-notes-utils";
+
+
+
+type SemanticNoteMatch = {
+  label: string;
+  type: "safety" | "hint";
+  patterns: RegExp[];
+};
+
+const normalizeSearchText = (value: unknown) =>
+  String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9äöüß\s/-]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const semanticNoteMatches: SemanticNoteMatch[] = [
+  {
+    label: "Hund vor Ort",
+    type: "safety",
+    patterns: [
+      /\bhund\b/,
+      /\bdog\b/,
+      /\bchien\b/,
+      /\bperro\b/,
+      /\bcane\b/,
+      /\bcao\b/,
+      /\bpis\b/,
+    ],
+  },
+  {
+    label: "Rutschiger Boden wegen Öl",
+    type: "safety",
+    patterns: [
+      /\b(oel|ol|oil|aceite|huile|olio|oleo)\b.*\b(rutsch|slippery|glissant|resbaladiz|scivolos|escorregadi)/,
+      /\b(rutsch|slippery|glissant|resbaladiz|scivolos|escorregadi)\b.*\b(oel|ol|oil|aceite|huile|olio|oleo)\b/,
+    ],
+  },
+  {
+    label: "Rutschiger Boden",
+    type: "safety",
+    patterns: [
+      /\brutsch/,
+      /\bslippery\b/,
+      /\bglissant\b/,
+      /\bresbaladiz/,
+      /\bscivolos/,
+      /\bescorregadi/,
+      /\bnasser boden\b/,
+      /\bwet floor\b/,
+      /\bsuelo mojado\b/,
+      /\bsol mouille\b/,
+      /\bpavimento bagnato\b/,
+    ],
+  },
+  {
+    label: "Öl vor Ort prüfen",
+    type: "safety",
+    patterns: [/\b(oel|ol|oil|aceite|huile|olio|oleo)\b/],
+  },
+  {
+    label: "Offene Stromkabel / Stromgefahr",
+    type: "safety",
+    patterns: [
+      /\bstromkabel\b/,
+      /\boffene kabel\b/,
+      /\belektr.*kabel\b/,
+      /\belectric(al)? wires?\b/,
+      /\bexposed wires?\b/,
+      /\bcables? electricos?\b/,
+      /\bcables? electriques?\b/,
+      /\bcavi elettric/,
+      /\bcabos? eletric/,
+      /\bcorriente\b/,
+    ],
+  },
+  {
+    label: "Gas-/Rauchgeruch prüfen",
+    type: "safety",
+    patterns: [
+      /\bgasgeruch\b/,
+      /\bgas smell\b/,
+      /\bsmell of gas\b/,
+      /\bolor a gas\b/,
+      /\bodeur de gaz\b/,
+      /\bodore di gas\b/,
+      /\brauchgeruch\b/,
+      /\bsmoke smell\b/,
+      /\bodeur de fumee\b/,
+    ],
+  },
+  {
+    label: "Brand-/Feuergefahr",
+    type: "safety",
+    patterns: [
+      /\bbrandgefahr\b/,
+      /\bfeuergefahr\b/,
+      /\bfire hazard\b/,
+      /\brisk of fire\b/,
+      /\bpeligro de incendio\b/,
+      /\brisque d incendie\b/,
+      /\bpericolo di incendio\b/,
+      /\brisco de incendio\b/,
+    ],
+  },
+  {
+    label: "Sturzgefahr",
+    type: "safety",
+    patterns: [
+      /\bsturzgefahr\b/,
+      /\babsturzgefahr\b/,
+      /\bfall hazard\b/,
+      /\brisk of falling\b/,
+      /\briesgo de caida\b/,
+      /\brisque de chute\b/,
+      /\brischio di caduta\b/,
+      /\brisco de queda\b/,
+    ],
+  },
+  {
+    label: "Scherben / Schnittgefahr",
+    type: "safety",
+    patterns: [
+      /\bscherben\b/,
+      /\bglasscherben\b/,
+      /\bbroken glass\b/,
+      /\bshards?\b/,
+      /\bvidrios? rotos?\b/,
+      /\bverre casse\b/,
+      /\bvetro rotto\b/,
+      /\bvidro quebrado\b/,
+    ],
+  },
+  {
+    label: "Asbestverdacht",
+    type: "safety",
+    patterns: [/\basbest\b/, /\basbestos\b/, /\bamiante\b/, /\bamianto\b/],
+  },
+  {
+    label: "Schimmel / Gesundheitsgefahr",
+    type: "safety",
+    patterns: [/\bschimmel\b/, /\bmold\b/, /\bmould\b/, /\bmoho\b/, /\bmoisi/, /\bmuffa\b/, /\bbolor\b/],
+  },
+  {
+    label: "Chemikalien vor Ort",
+    type: "safety",
+    patterns: [
+      /\bchemikal/,
+      /\bchemical/,
+      /\bquimic/,
+      /\bchimic/,
+      /\bproduit chimique\b/,
+      /\bproducto quimico\b/,
+    ],
+  },
+  {
+    label: "Instabile Bauteile / Einsturzgefahr",
+    type: "safety",
+    patterns: [
+      /\beinsturzgefahr\b/,
+      /\binstabil/,
+      /\bunstable\b/,
+      /\bcollapse risk\b/,
+      /\briesgo de derrumbe\b/,
+      /\brisque d effondrement\b/,
+      /\brischio di crollo\b/,
+      /\brisco de colapso\b/,
+    ],
+  },
+  {
+    label: "Leiter eventuell benötigt",
+    type: "hint",
+    patterns: [
+      /\bleiter\b/,
+      /\bladder\b/,
+      /\bescalera\b/,
+      /\bechelle\b/,
+      /\bscala\b/,
+      /\bescada\b/,
+    ],
+  },
+  {
+    label: "Rückruf vor Arbeitsbeginn",
+    type: "hint",
+    patterns: [
+      /\bruckruf\b/,
+      /\bzuruckrufen\b/,
+      /\banrufen\b/,
+      /\bcall back\b/,
+      /\bplease call\b/,
+      /\bllamar\b/,
+      /\bdevolver la llamada\b/,
+      /\brappeler\b/,
+      /\brichiamare\b/,
+      /\bligar de volta\b/,
+    ],
+  },
+  {
+    label: "Schwieriger Zugang",
+    type: "hint",
+    patterns: [
+      /\bschwieriger zugang\b/,
+      /\bschwer zuganglich\b/,
+      /\bkein lift\b/,
+      /\bohne lift\b/,
+      /\bdifficult access\b/,
+      /\bno elevator\b/,
+      /\bno lift\b/,
+      /\bdificil acceso\b/,
+      /\bsin ascensor\b/,
+      /\bacces difficile\b/,
+      /\bsans ascenseur\b/,
+      /\baccesso difficile\b/,
+      /\bsem elevador\b/,
+    ],
+  },
+  {
+    label: "Zugang über Seiteneingang",
+    type: "hint",
+    patterns: [
+      /\bseiteneingang\b/,
+      /\bside entrance\b/,
+      /\bentrada lateral\b/,
+      /\bentree laterale\b/,
+      /\bingresso laterale\b/,
+    ],
+  },
+  {
+    label: "Parkplatz prüfen",
+    type: "hint",
+    patterns: [
+      /\bparkplatz\b/,
+      /\bparking\b/,
+      /\baparcamiento\b/,
+      /\bestacionamento\b/,
+      /\bparcheggio\b/,
+    ],
+  },
+  {
+    label: "Schlüssel / Zugang klären",
+    type: "hint",
+    patterns: [
+      /\bschlussel\b/,
+      /\bkey\b/,
+      /\bllave\b/,
+      /\bcle\b/,
+      /\bchiave\b/,
+      /\bchave\b/,
+    ],
+  },
+  {
+    label: "Termin abstimmen",
+    type: "hint",
+    patterns: [
+      /\btermin abstimmen\b/,
+      /\bappointment\b/,
+      /\bschedule\b/,
+      /\bcita\b/,
+      /\brendez vous\b/,
+      /\bappuntamento\b/,
+      /\bagendamento\b/,
+    ],
+  },
+  {
+    label: "Hanglage",
+    type: "hint",
+    patterns: [
+      /\bhanglage\b/,
+      /\bhang\b/,
+      /\bslope\b/,
+      /\bsteep\b/,
+      /\bpendiente\b/,
+      /\bpente\b/,
+      /\bpendio\b/,
+    ],
+  },
+];
+
+function detectSemanticNotes(source: unknown) {
+  const text = normalizeSearchText(source);
+  const safetyWarnings: string[] = [];
+  const jobHints: string[] = [];
+
+  if (!text) return { safetyWarnings, jobHints };
+
+  for (const match of semanticNoteMatches) {
+    if (match.patterns.some((pattern) => pattern.test(text))) {
+      if (match.type === "safety") safetyWarnings.push(match.label);
+      else jobHints.push(match.label);
+    }
+  }
+
+  return {
+    safetyWarnings: Array.from(new Set(safetyWarnings)),
+    jobHints: Array.from(new Set(jobHints)),
+  };
+}
+
+function normalizeOrderSpecialNotes(data: any) {
+  const parsed = splitSpecialNotes(data?.specialNotes);
+  const itemText = Array.isArray(data?.items)
+    ? data.items
+        .map((item: any) => [item?.serviceName, item?.description].filter(Boolean).join(" "))
+        .join("\n")
+    : "";
+
+  const sourceText = [
+    data?.description,
+    data?.serviceName,
+    data?.notes,
+    data?.specialNotes,
+    data?.audioTranscript,
+    itemText,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const detectedAll = detectSemanticNotes(sourceText);
+
+  const existingSafety = parsed.safetyWarnings.flatMap((line) => {
+    const detectedLine = detectSemanticNotes(line).safetyWarnings;
+    return detectedLine.length > 0 ? detectedLine : [line];
+  });
+
+  const existingJobHints = parsed.jobHints.flatMap((line) => {
+    const detectedLine = detectSemanticNotes(line);
+    if (detectedLine.safetyWarnings.length > 0) return [];
+    return detectedLine.jobHints.length > 0 ? detectedLine.jobHints : [line];
+  });
+
+  const nextSafetyWarnings = Array.from(
+    new Set([...existingSafety, ...detectedAll.safetyWarnings]),
+  );
+  const nextJobHints = Array.from(
+    new Set([...existingJobHints, ...detectedAll.jobHints]),
+  );
+
+  if (
+    nextSafetyWarnings.length === 0 &&
+    nextJobHints.length === 0 &&
+    parsed.systemHints.length === 0
+  ) {
+    return data?.specialNotes ?? null;
+  }
+
+  return buildSpecialNotes({
+    safetyWarnings: nextSafetyWarnings,
+    jobHints: nextJobHints,
+    systemHints: parsed.systemHints,
+  });
+}
 
 /**
  * VAT persistence on Order (since 2026-04-18):
@@ -100,12 +454,15 @@ export async function POST(request: Request) {
   }
   try {
     const data = await request.json();
+    const normalizedSpecialNotes = normalizeOrderSpecialNotes(data);
+    const hasNormalizedSafetyWarnings =
+      splitSpecialNotes(normalizedSpecialNotes).safetyWarnings.length > 0;
     const currency = data?.currency === "EUR" ? "EUR" : "CHF";
     const items = data?.items as any[] | undefined;
     let totalPrice = 0;
     let primaryServiceName = data?.serviceName ?? null;
     let primaryPriceType = data?.priceType ?? "Stunde";
-    let primaryUnitPrice = Number(data?.unitPrice ?? 50);
+    let primaryUnitPrice = Number(data?.unitPrice ?? 0);
     let primaryQuantity = Number(data?.quantity ?? 1);
     if (items && items.length > 0) {
       totalPrice = items.reduce(
@@ -115,7 +472,7 @@ export async function POST(request: Request) {
       );
       primaryServiceName = items[0].serviceName ?? primaryServiceName;
       primaryPriceType = items[0].unit ?? primaryPriceType;
-      primaryUnitPrice = Number(items[0].unitPrice ?? 50);
+      primaryUnitPrice = Number(items[0].unitPrice ?? 0);
       primaryQuantity = Number(items[0].quantity ?? 1);
     } else {
       totalPrice = primaryQuantity * primaryUnitPrice;
@@ -156,11 +513,12 @@ export async function POST(request: Request) {
         vatRate,
         vatAmount,
         total,
-         currency: data?.currency === 'EUR' ? 'EUR' : 'CHF',
+        currency,
         date: data?.date ? new Date(data.date) : new Date(),
         notes: data?.notes ?? null,
-        specialNotes: data?.specialNotes ?? null,
-        hinweisLevel: data?.hinweisLevel ?? "none",
+        specialNotes: normalizedSpecialNotes,
+        hinweisLevel:
+          data?.hinweisLevel ?? (hasNormalizedSafetyWarnings ? "warning" : "none"),
         mediaUrl: data?.mediaUrl ?? null,
         mediaType: data?.mediaType ?? null,
         imageUrls: data?.imageUrls ?? [],
