@@ -1,5 +1,5 @@
 "use client";
-// CARD_BADGE_SPLIT_FINAL_V6
+// CARD_BADGE_SPLIT_FINAL_V7
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
@@ -508,18 +508,14 @@ const getBottomBadges = (
     });
   }
 
-  if (order.reviewReasons?.includes("manual_order_merge")) {
+  const isMergedOrder =
+    order.reviewReasons?.includes("manual_order_merge") ||
+    order.reviewReasons?.includes("double_merge");
+
+  if (isMergedOrder) {
     pushUniqueBadge(badges, {
       key: "merged",
       label: "Zusammengeführt",
-      className: blueClass,
-    });
-  }
-
-  if (order.reviewReasons?.includes("double_merge")) {
-    pushUniqueBadge(badges, {
-      key: "double_merge",
-      label: "Doppelte Zusammenführung",
       className: blueClass,
     });
   }
@@ -562,8 +558,7 @@ const uniqueServiceLabels = (labels: string[]) => {
 const formatServiceSummary = (labels: string[]) => {
   const unique = uniqueServiceLabels(labels);
   if (unique.length === 0) return "";
-  if (unique.length <= 3) return unique.join(" + ");
-  return `${unique.slice(0, 3).join(" + ")} + ${unique.length - 3} weitere`;
+  return unique.join(" + ");
 };
 
 const extractFallbackServiceLabels = (order: Order) => {
@@ -2603,7 +2598,7 @@ const getSafeOrderTotal = (o: Order) => {
 
                         {/* Row 2: compact service-only preview */}
                         <p
-                          className={`text-sm font-medium mt-0.5 line-clamp-2 ${
+                          className={`text-sm font-medium mt-0.5 whitespace-normal break-words ${
                             isSonstiges
                               ? "text-red-600 dark:text-red-400"
                               : "text-foreground"
