@@ -256,7 +256,24 @@ const getReviewBadges = (order: Order) => {
   }[] = [];
 
 
+  const parsedNotes = splitSpecialNotes(order.specialNotes);
 
+  if (parsedNotes.safetyWarnings.length > 0) {
+    badges.push({
+      key: "safety_warning",
+      label: "Gefahr / Achtung",
+      className: "bg-red-100 text-red-700 border border-red-200",
+      icon: true,
+    });
+  }
+
+  if (parsedNotes.jobHints.length > 0) {
+    badges.push({
+      key: "special_notes",
+      label: "Besonderheiten",
+      className: "bg-amber-100 text-amber-700 border border-amber-200",
+    });
+  }
 
 
 
@@ -1778,8 +1795,11 @@ const defaultMainOrderId = bestMainOrder.id;
   };
 
   const openMedia = async (o: Order) => {
-    if (!o.mediaUrl) return;
-    if (o.mediaType === "audio") {
+    const hasImageUrls = (o.imageUrls?.length ?? 0) > 0;
+
+    if (!o.mediaUrl && !hasImageUrls) return;
+
+    if (o.mediaUrl && o.mediaType === "audio") {
       const url = await resolveS3Url(o.mediaUrl);
       setMediaUrl(url);
       setMediaType("audio");
@@ -1787,10 +1807,18 @@ const defaultMainOrderId = bestMainOrder.id;
       setMediaDialogOpen(true);
       return;
     }
-    // Image(s) — resolve all imageUrls if available
+
     const paths =
-      o.imageUrls && o.imageUrls.length > 0 ? o.imageUrls : [o.mediaUrl];
+      hasImageUrls && o.imageUrls
+        ? o.imageUrls
+        : o.mediaUrl
+          ? [o.mediaUrl]
+          : [];
+
+    if (paths.length === 0) return;
+
     const resolved = await Promise.all(paths.map((p) => resolveS3Url(p)));
+
     setGalleryUrls(resolved);
     setGalleryIdx(0);
     setMediaType("image");
@@ -3770,6 +3798,7 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
                   {/* Kundennachrichten — collapsed by default */}
                   <div className="space-y-2 mb-20 md:mb-0">
                     <Label className="font-semibold">Kundennachrichten</Label>
+
                     <Button
                       type="button"
                       variant="outline"
@@ -3787,8 +3816,55 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
                     </Button>
 
                     {customerMessagesOpen && (
-                      <div className="rounded-lg border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
-                        {customerMessageText || "Keine Kundennachricht gespeichert."}
+                      <div className="space-y-3 rounded-lg border bg-muted/30 p-3 text-sm">
+                        {currentEditOrder &&
+                          (currentEditOrder.mediaUrl ||
+                            currentEditOrder.imageUrls?.length ||
+                            currentEditOrder.audioTranscript) && (
+                            <div className="flex flex-wrap gap-2">
+                              {currentEditOrder.mediaUrl &&
+                                currentEditOrder.mediaType === "audio" && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => openMedia(currentEditOrder)}
+                                  >
+                                    <Volume2 className="w-4 h-4 mr-1" />
+                                    Sprachnachricht abspielen
+                                  </Button>
+                                )}
+
+                              {(currentEditOrder.mediaType === "image" ||
+                                (currentEditOrder.imageUrls &&
+                                  currentEditOrder.imageUrls.length > 0)) && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openMedia(currentEditOrder)}
+                                >
+                                  <ImageIcon className="w-4 h-4 mr-1" />
+                                  Bild groß anzeigen
+                                </Button>
+                              )}
+                            </div>
+                          )}
+
+                        {currentEditOrder?.audioTranscript && (
+                          <div className="rounded-md border bg-background p-2">
+                            <div className="text-xs font-medium text-muted-foreground mb-1">
+                              Transkription
+                            </div>
+                            <div className="whitespace-pre-wrap">
+                              {currentEditOrder.audioTranscript}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
+                          {customerMessageText || "Keine Kundennachricht gespeichert."}
+                        </div>
                       </div>
                     )}
                   </div>
