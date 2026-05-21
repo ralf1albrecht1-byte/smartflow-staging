@@ -17,6 +17,9 @@ interface MergeOrderItem {
 
 interface MergeOrder {
 currency?: Currency | null;
+  vatRate?: number | null;
+  vatAmount?: number | null;
+  total?: number | null;
   id: string;
   customerId: string;
   description?: string | null;
@@ -108,6 +111,28 @@ const formatMoney = (amount: number, currency: Currency) => {
 };
 const getOrderCurrency = (order: MergeOrder): Currency => {
   return order.currency === 'EUR' ? 'EUR' : 'CHF';
+};
+
+const normalizeVatRate = (value?: number | string | null) => {
+  const rate = Number(value || 0);
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  return Math.round(rate * 100) / 100;
+};
+
+const getVatRateKey = (order: MergeOrder) =>
+  normalizeVatRate(order.vatRate).toFixed(2);
+
+const formatVatPercent = (rate: number) => {
+  return rate.toLocaleString('de-CH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
+
+const getVatRateLabel = (order: MergeOrder) => {
+  const rate = normalizeVatRate(order.vatRate);
+  if (rate <= 0) return 'keine MwSt';
+  return `${formatVatPercent(rate)} % MwSt`;
 };
 
 const isRealCustomerName = (name?: string | null) => {
@@ -427,6 +452,19 @@ const selectedCurrencies = Array.from(
 const hasCurrencyConflict = selectedCurrencies.length > 1;
 
   const selectedMainOrder = selectedOrders.find((order) => order.id === selectedMainOrderId);
+  const selectedVatRateKeys = Array.from(new Set(selectedOrders.map(getVatRateKey)));
+  const hasVatConflict = selectedVatRateKeys.length > 1;
+  const referenceVatRateKey = selectedMainOrder
+    ? getVatRateKey(selectedMainOrder)
+    : selectedOrders[0]
+      ? getVatRateKey(selectedOrders[0])
+      : '0.00';
+  const selectedMainVatLabel = selectedMainOrder
+    ? getVatRateLabel(selectedMainOrder)
+    : 'keine MwSt';
+  const vatSummary = selectedOrders
+    .map((order) => `${getCustomerLabel(order)}: ${getVatRateLabel(order)}`)
+    .join(' · ');
   const additionalOrders = selectedOrders.filter((order) => order.id !== selectedMainOrderId);
   const reviewOrders = selectedMainOrder
     ? [selectedMainOrder, ...additionalOrders]
@@ -446,7 +484,7 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
 
   const openReviewDialog = () => {
     setReviewAccepted(false);
-    setReviewDetailsOpen(hasCustomerConflict);
+    setReviewDetailsOpen(hasCustomerConflict || hasVatConflict);
     setShowReviewDialog(true);
   };
 
@@ -567,6 +605,12 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                     Kunde abweichend
                   </span>
                 </div>
+
+                <div>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold">
+                    MwSt abweichend
+                  </span>
+                </div>
               </div>
             </div>
           </aside>
@@ -596,6 +640,12 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
   </div>
 )}
 
+{hasVatConflict && (
+  <div className="col-span-2 lg:col-span-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+    ⚠ MwSt abweichend. Der verbundene Auftrag nutzt: {selectedMainVatLabel}.
+  </div>
+)}
+
                   <button
                     onClick={() => onOpenChange(false)}
                     className="border rounded-lg px-2.5 py-1.5 text-xs sm:text-sm hover:bg-muted shrink-0"
@@ -616,6 +666,8 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
 const orderCurrency = getOrderCurrency(order);
 const hasDifferentCurrency =
   hasCurrencyConflict && orderCurrency !== getOrderCurrency(selectedMainOrder || order);
+const hasDifferentVat =
+  hasVatConflict && getVatRateKey(order) !== referenceVatRateKey;
 
 const customer = order.customer;
 const showCustomerDetails = hasCustomerConflict;
@@ -688,6 +740,11 @@ const fieldMismatch = {
 {hasDifferentCurrency && (
   <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
     Unterschiedliche Währung: {orderCurrency}
+  </span>
+)}
+{hasDifferentVat && (
+  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold">
+    MwSt abweichend: {getVatRateLabel(order)}
   </span>
 )}
                             </div>
@@ -847,8 +904,13 @@ const fieldMismatch = {
                               )}
                             </div>
 
-                            <div className="text-right font-bold text-base sm:text-lg">
-                              {formatMoney(total, orderCurrency)}
+                            <div className="text-right">
+                              <div className="font-bold text-base sm:text-lg">
+                                {formatMoney(total, orderCurrency)}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {getVatRateLabel(order)}
+                              </div>
                             </div>
                           </div>
 
@@ -918,6 +980,21 @@ const fieldMismatch = {
             </div>
 
             <div className="max-h-[calc(92vh-150px)] overflow-y-auto px-4 sm:px-6 py-4 space-y-3">
+              {hasVatConflict && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                  <div className="font-bold">MwSt abweichend</div>
+                  <div className="mt-1">
+                    Der verbundene Auftrag verwendet den MwSt-Satz des Hauptauftrags: {selectedMainVatLabel}.
+                  </div>
+                  <div className="mt-2 text-xs leading-5">
+                    {vatSummary}
+                  </div>
+                  <div className="mt-2 text-xs font-semibold">
+                    Beim Verbinden wird automatisch eine Prüfnotiz gespeichert.
+                  </div>
+                </div>
+              )}
+
               {hasCustomerConflict && (
                 <div className="rounded-lg border border-red-200 bg-red-50 text-red-900 overflow-hidden">
                   <button
@@ -1064,13 +1141,23 @@ const fieldMismatch = {
                           )}
                         </div>
                         <div className="min-w-0 truncate">{getReviewServiceExcerpt(order)}</div>
-                        <div className="text-right">{formatMoney(getOrderTotal(order), orderCurrency)}</div>
+                        <div className="text-right">
+                          <div>{formatMoney(getOrderTotal(order), orderCurrency)}</div>
+                          <div className="text-[11px] font-normal text-muted-foreground">
+                            {getVatRateLabel(order)}
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
 
                   <div className="grid grid-cols-[1fr_160px] gap-3 border-t bg-slate-50 px-3 py-3 text-sm font-bold">
-                    <div className="text-blue-700">Gesamtsumme (netto)</div>
+                    <div>
+                      <div className="text-blue-700">Gesamtsumme (netto)</div>
+                      <div className="mt-1 text-[11px] font-normal text-muted-foreground">
+                        MwSt-Ziel: {selectedMainVatLabel}
+                      </div>
+                    </div>
                     <div className="text-right">{formatMoney(reviewOrdersTotal, reviewCurrency)}</div>
                   </div>
                 </div>
@@ -1085,6 +1172,12 @@ const fieldMismatch = {
               {hasCurrencyConflict && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
                   ⚠ Aufträge mit unterschiedlichen Währungen können nicht verbunden werden.
+                </div>
+              )}
+
+              {hasVatConflict && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                  ⚠ MwSt abweichend. Verbinden ist erlaubt, aber die Prüfnotiz wird gespeichert.
                 </div>
               )}
             </div>

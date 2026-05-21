@@ -32,6 +32,46 @@ const buildItemMergeKey = (item: MergeItemInput) => {
   ].join('|');
 };
 
+const normalizeVatRate = (value?: number | string | null) => {
+  const rate = Number(value || 0);
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  return Math.round(rate * 100) / 100;
+};
+
+const getVatRateKey = (order: { vatRate?: number | string | null }) =>
+  normalizeVatRate(order.vatRate).toFixed(2);
+
+const formatVatRateLabel = (rate: number) => {
+  if (rate <= 0) return 'keine MwSt';
+
+  return `${rate.toLocaleString('de-CH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })} % MwSt`;
+};
+
+const buildVatMismatchNote = (targetOrder: any, sourceOrders: any[]) => {
+  const allOrders = [targetOrder, ...sourceOrders];
+  const vatKeys = new Set(allOrders.map(getVatRateKey));
+
+  if (vatKeys.size <= 1) return '';
+
+  const targetVatRate = normalizeVatRate(targetOrder.vatRate);
+  const sourceLabels = sourceOrders.map((order, index) => {
+    const rate = normalizeVatRate(order.vatRate);
+    return `Quelle ${index + 1}: ${formatVatRateLabel(rate)}`;
+  });
+
+  return [
+    'MwSt prüfen: Die verbundenen Aufträge hatten unterschiedliche MwSt-Einstellungen.',
+    `Der verbundene Auftrag verwendet den MwSt-Satz des Hauptauftrags: ${formatVatRateLabel(targetVatRate)}.`,
+    sourceLabels.join('; '),
+    'Bitte vor Angebot oder Rechnung prüfen.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+};
+
 const toMergeItem = (item: any): MergeItemInput => {
   const quantity = Number(item.quantity || 0);
   const unitPrice = Number(item.unitPrice || 0);
@@ -110,7 +150,7 @@ const uniqueTrimmedLines = (lines: string[]) => {
   return result;
 };
 
-const mergeSpecialNotes = (orders: any[]) => {
+const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
   const safetyWarnings: string[] = [];
   const jobHints: string[] = [];
   const systemHints: string[] = [];
@@ -122,6 +162,8 @@ const mergeSpecialNotes = (orders: any[]) => {
     jobHints.push(...split.jobHints);
     systemHints.push(...split.systemHints);
   }
+
+  jobHints.push(...extraJobHints);
 
   return buildSpecialNotes({
     safetyWarnings: uniqueTrimmedLines(safetyWarnings),
@@ -278,6 +320,10 @@ if (currencies.length > 1) {
   );
 }
 
+      const vatKeys = new Set(allOrders.map(getVatRateKey));
+      const hasVatMismatch = vatKeys.size > 1;
+      const vatMismatchNote = buildVatMismatchNote(targetOrder, sourceOrders);
+
       const hasDoubleMerge = allOrders.some((o) =>
         o.reviewReasons?.includes('manual_order_merge'),
       );
@@ -328,7 +374,10 @@ const mergedNotes = [
   .join('\n');
 
       const mergedItems = mergeOrderItems(allOrders);
-      const mergedSpecialNotes = mergeSpecialNotes(allOrders);
+      const mergedSpecialNotes = mergeSpecialNotes(
+        allOrders,
+        vatMismatchNote ? [vatMismatchNote] : [],
+      );
 
       const totalPrice = mergedItems.reduce(
         (sum, item) => sum + Number(item.totalPrice || 0),
@@ -346,6 +395,10 @@ const mergedNotes = [
 
       if (hasCustomerMismatch) {
         newReviewReasons.push('merged_different_customers');
+      }
+
+      if (hasVatMismatch) {
+        newReviewReasons.push('vat_mismatch');
       }
 
       if (hasDoubleMerge) {
@@ -420,6 +473,7 @@ const mergedNotes = [
         mergedItemsCount: mergedItems.length,
         hasDoubleMerge,
         hasCustomerMismatch,
+        hasVatMismatch,
       };
     });
 
