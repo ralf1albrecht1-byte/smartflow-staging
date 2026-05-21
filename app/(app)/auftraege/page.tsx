@@ -76,6 +76,12 @@ interface OrderItem {
 
 interface Order {
   currency?: "CHF" | "EUR" | null;
+  siteAddressDifferent?: boolean | null;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
   id: string;
   customerId: string;
   description: string;
@@ -640,6 +646,12 @@ const emptyForm = {
   date: new Date().toISOString().split("T")[0],
   notes: "",
   specialNotes: "",
+  siteAddressDifferent: false,
+  siteName: "",
+  siteAddress: "",
+  sitePlz: "",
+  siteCity: "",
+  siteNote: "",
 };
 
 export default function AuftraegePage() {
@@ -683,6 +695,7 @@ export default function AuftraegePage() {
   const [customerMessagesOpen, setCustomerMessagesOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [siteAddressEditing, setSiteAddressEditing] = useState(false);
   // Phase 2d (Stage 3): read-only info line shown in the edit dialog after an
   // Undo of auto-reuse, to give back the previously visible address context
   // without writing anything into the new minimal customer master record.
@@ -837,6 +850,7 @@ export default function AuftraegePage() {
 
   // Dropdown menu for create offer/invoice
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
+  const [serviceActionMenuKey, setServiceActionMenuKey] = useState<string | null>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -1013,11 +1027,13 @@ export default function AuftraegePage() {
     setEditId(null);
     setForm(emptyForm);
     setFormItems([createEmptyItem()]);
+    setSiteAddressEditing(false);
     setShowNewCustomer(false);
     setEditingCustomer(false);
     setOrderVatRate(defaultVatRate);
     setUndoPreviousAddress(null);
     setCustomerMessagesOpen(false);
+    setServiceActionMenuKey(null);
     setDialogOpen(true);
   };
 
@@ -1032,6 +1048,7 @@ export default function AuftraegePage() {
   const openEdit = (o: Order, opts?: { openCustomerSection?: boolean }) => {
     setEditId(o.id);
     setCustomerMessagesOpen(false);
+    setServiceActionMenuKey(null);
     setDupCheckOpen(false);
     setUndoPreviousAddress(null);
     // ─── CRITICAL: Reset customer form to blank state BEFORE anything else.
@@ -1060,7 +1077,14 @@ export default function AuftraegePage() {
           jobHints: parsedSpecialNotes.jobHints,
         });
       })(),
+      siteAddressDifferent: Boolean(o.siteAddressDifferent),
+      siteName: o.siteName ?? "",
+      siteAddress: o.siteAddress ?? "",
+      sitePlz: o.sitePlz ?? "",
+      siteCity: o.siteCity ?? "",
+      siteNote: o.siteNote ?? "",
     });
+    setSiteAddressEditing(Boolean(o.siteAddressDifferent) && ![o.siteName, o.siteAddress, o.sitePlz, o.siteCity, o.siteNote].some((value) => String(value || "").trim()));
      // Populate items from order
     if (o.items && o.items.length > 0) {
       setFormItems(
@@ -1386,6 +1410,57 @@ export default function AuftraegePage() {
         }),
       ),
     );
+  };
+
+  const isServiceInCatalog = (name?: string | null) => {
+    const key = normalizeForMatch(name);
+    if (!key) return false;
+    return services.some((service) => normalizeForMatch(service.name) === key);
+  };
+
+  const saveItemToServices = async (index: number) => {
+    const item = formItems[index];
+    if (!item?.serviceName?.trim()) return;
+
+    const normalizedName = item.serviceName.trim().replace(/\s+/g, " ");
+    const existing = services.find(
+      (service) => normalizeForMatch(service.name) === normalizeForMatch(normalizedName),
+    );
+
+    if (existing) {
+      toast.info(`Leistung "${existing.name}" existiert bereits`);
+      onItemServiceSelect(index, existing.name, existing as ServiceOption);
+      setServiceActionMenuKey(null);
+      return;
+    }
+
+    const price = Number(item.unitPrice || 0);
+    if (!price || price <= 0) {
+      toast.error("Preis zuerst prüfen, dann in Leistungen übernehmen");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: normalizedName,
+          defaultPrice: price,
+          unit: item.unit,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Fehler beim Speichern");
+
+      const newService: ServiceOption = await res.json();
+      handleServiceCreated(newService);
+      onItemServiceSelect(index, newService.name, newService);
+      setServiceActionMenuKey(null);
+      toast.success("Leistung wurde in Leistungen übernommen ✓");
+    } catch {
+      toast.error("Leistung konnte nicht übernommen werden");
+    }
   };
 
   const updateItem = (index: number, field: keyof FormItem, value: string) => {
@@ -2851,7 +2926,12 @@ const getSafeOrderTotal = (o: Order) => {
               {/* Customer Info / Select / Edit */}
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-y-0.5 mb-1">
-                  <Label>Kunde *</Label>
+                  <div>
+                    <Label>Rechnungsadresse *</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Kunde, der die Rechnung bekommt und bezahlt.
+                    </p>
+                  </div>
                   {!showNewCustomer && form.customerId && (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
                       <button
@@ -3264,6 +3344,160 @@ const getSafeOrderTotal = (o: Order) => {
                 )}
               </div>
 
+
+              {/* Ausführungsadresse / Baustellenadresse */}
+              <div className="rounded-lg border bg-slate-50/70 dark:bg-slate-900/30 p-3 space-y-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.siteAddressDifferent)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSiteAddressEditing(checked);
+                      setForm((prev) => ({
+                        ...prev,
+                        siteAddressDifferent: checked,
+                        ...(checked
+                          ? {}
+                          : {
+                              siteName: "",
+                              siteAddress: "",
+                              sitePlz: "",
+                              siteCity: "",
+                              siteNote: "",
+                            }),
+                      }));
+                    }}
+                    className="mt-1"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">
+                      Ausführungsadresse abweichend von Rechnungsadresse
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
+                    </span>
+                  </span>
+                </label>
+
+                {form.siteAddressDifferent && !siteAddressEditing && (
+                  <button
+                    type="button"
+                    onClick={() => setSiteAddressEditing(true)}
+                    className="w-full rounded-lg border bg-background p-3 text-left hover:bg-muted/40 transition-colors"
+                    title="Ausführungsadresse bearbeiten"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold">
+                          📍 {form.siteName?.trim() || "Ausführungsadresse"}
+                        </div>
+                        <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-0.5 text-sm">
+                          <span className="text-muted-foreground">Strasse:</span>
+                          <span className="truncate">{form.siteAddress?.trim() || "–"}</span>
+                          <span className="text-muted-foreground">PLZ / Ort:</span>
+                          <span className="truncate">
+                            {[form.sitePlz, form.siteCity].filter(Boolean).join(" ") || "–"}
+                          </span>
+                          {form.siteNote?.trim() && (
+                            <>
+                              <span className="text-muted-foreground">Hinweis:</span>
+                              <span className="truncate">{form.siteNote}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-xs text-primary">Bearbeiten</span>
+                    </div>
+                  </button>
+                )}
+
+                {form.siteAddressDifferent && siteAddressEditing && (
+                  <div className="rounded-lg border bg-background p-3 space-y-3">
+                    <div>
+                      <div className="text-sm font-semibold">
+                        Ausführungsadresse / Baustellenadresse
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Gilt nur für diesen Auftrag. Wird später in Angebot, Rechnung und PDF separat angezeigt.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">Objekt / Name</Label>
+                        <Input
+                          placeholder="z. B. Baustelle Tiefgarage"
+                          value={form.siteName}
+                          onChange={(e) =>
+                            setForm({ ...form, siteName: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Strasse + Hausnr.</Label>
+                        <Input
+                          placeholder="Strasse + Hausnr."
+                          value={form.siteAddress}
+                          onChange={(e) =>
+                            setForm({ ...form, siteAddress: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr] gap-2">
+                      <div>
+                        <Label className="text-xs">PLZ</Label>
+                        <Input
+                          placeholder="PLZ"
+                          value={form.sitePlz}
+                          onChange={(e) =>
+                            setForm({ ...form, sitePlz: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Ort</Label>
+                        <Input
+                          placeholder="Ort"
+                          value={form.siteCity}
+                          onChange={(e) =>
+                            setForm({ ...form, siteCity: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs">Zusatz / Hinweis</Label>
+                      <Input
+                        placeholder="z. B. Eingang hinten, Tor 2, Hauswart vor Ort"
+                        value={form.siteNote}
+                        onChange={(e) =>
+                          setForm({ ...form, siteNote: e.target.value })
+                        }
+                      />
+                    </div>
+
+                    <div className="flex justify-end">
+                      <div className="flex items-center gap-2 sm:justify-end">
+                        <span className="hidden sm:inline text-xs text-muted-foreground">
+                          Wird mit dem Auftrag gespeichert.
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => setSiteAddressEditing(false)}
+                        >
+                          Adresse übernehmen
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Service Items + rest of form — collapsed when dupCheck open */}
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
@@ -3278,19 +3512,18 @@ const getSafeOrderTotal = (o: Order) => {
                 </div>
               ) : (
                 <>
-                  <div className="rounded-xl border bg-background p-2 sm:p-3 space-y-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="rounded-xl border bg-background p-2.5 sm:p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
                       <div>
                         <Label className="text-base font-semibold">Leistungen *</Label>
                         <p className="text-xs text-muted-foreground">
-                          Preis, Einheit und Menge direkt pro Position prüfen.
+                          Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.
                         </p>
                       </div>
-
                       <Button
                         variant="outline"
                         size="sm"
-                        className="w-full sm:w-auto"
+                        className="h-8 shrink-0"
                         onClick={addItem}
                       >
                         <Plus className="w-3.5 h-3.5 mr-1" />
@@ -3327,9 +3560,6 @@ const getSafeOrderTotal = (o: Order) => {
                           });
 
                         const showPriceOverride = Boolean(priceOverrideReason);
-                        const [, , detectedUnit, expectedUnit] =
-                          unitMismatchReason?.split(":") || [];
-
                         const showUnitConflict = Boolean(
                           item.aiWarning?.trim() || unitMismatchReason,
                         );
@@ -3339,80 +3569,125 @@ const getSafeOrderTotal = (o: Order) => {
                         const itemTotal =
                           Number(item.unitPrice || 0) * Number(item.quantity || 0);
 
+                        const isManualService = Boolean(item.serviceName?.trim()) && !isServiceInCatalog(item.serviceName);
+                        const isMenuOpen = serviceActionMenuKey === item.key;
+
                         return (
                           <div
                             key={item.key}
-                            className="rounded-lg border bg-muted/20 p-2 sm:p-3 space-y-2"
+                            className="relative rounded-lg border-2 border-slate-200 bg-muted/10 p-2 space-y-1.5 min-w-0"
                           >
-                            <div className="grid grid-cols-1 lg:grid-cols-[1fr_120px] gap-2 items-start">
-                              <ServiceCombobox
-                                value={item.serviceName}
-                                services={services as ServiceOption[]}
-                                onChange={(name, svc) =>
-                                  onItemServiceSelect(index, name, svc)
-                                }
-                                onServiceCreated={handleServiceCreated}
-                                currentPrice={item.unitPrice}
-                                currentUnit={item.unit}
-                                showManualHint={false}
-                              />
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
+                              <div className="min-w-0 space-y-1">
+                                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
+                                  <ServiceCombobox
+                                    value={item.serviceName}
+                                    services={services as ServiceOption[]}
+                                    onChange={(name, svc) =>
+                                      onItemServiceSelect(index, name, svc)
+                                    }
+                                    onServiceCreated={handleServiceCreated}
+                                    currentPrice={item.unitPrice}
+                                    currentUnit={item.unit}
+                                    showManualHint={false}
+                                    saveButtonPlacement="none"
+                                  />
 
-                              <div className="flex items-center justify-between lg:justify-end gap-2">
-                                <div className="text-xs text-muted-foreground lg:text-right">
-                                  <div>Total</div>
-                                  <div className="font-mono font-semibold text-foreground">
-                                    {formatCurrency(itemTotal, currency)}
+                                  <div className="flex flex-wrap justify-end gap-1">
+                                    {showPriceReview && (
+                                      <Badge className="px-1.5 py-0 text-[10px] bg-red-100 text-red-700 border border-red-200">
+                                        Preis prüfen
+                                      </Badge>
+                                    )}
+                                    {showPriceOverride && (
+                                      <Badge className="px-1.5 py-0 text-[10px] bg-amber-100 text-amber-700 border border-amber-200">
+                                        Preisabweichung
+                                      </Badge>
+                                    )}
+                                    {showQuantityReview && (
+                                      <Badge className="px-1.5 py-0 text-[10px] bg-orange-100 text-orange-700 border border-orange-200">
+                                        Menge prüfen
+                                      </Badge>
+                                    )}
+                                    {showUnitConflict && (
+                                      <Badge className="px-1.5 py-0 text-[10px] bg-yellow-100 text-yellow-700 border border-yellow-200">
+                                        Einheit prüfen
+                                      </Badge>
+                                    )}
+                                    {isManualService && (
+                                      <Badge className="px-1.5 py-0 text-[10px] bg-red-50 text-red-700 border border-red-200">
+                                        Nicht in Leistungen
+                                      </Badge>
+                                    )}
                                   </div>
                                 </div>
+                              </div>
 
-                                {formItems.length > 1 && (
+                              <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
+                                <div>Total</div>
+                                <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
+                                  {formatCurrency(itemTotal, currency)}
+                                </div>
+                              </div>
+
+                              {formItems.length > 1 && (
+                                isManualService ? (
+                                  <div className="relative shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setServiceActionMenuKey((prev) =>
+                                          prev === item.key ? null : item.key,
+                                        )
+                                      }
+                                      className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                      title="Aktionen"
+                                    >
+                                      <MoreVertical className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    {isMenuOpen && (
+                                      <div className="absolute right-0 top-8 z-50 w-48 rounded-md border bg-background py-1 text-sm shadow-lg">
+                                        <button
+                                          type="button"
+                                          onClick={() => saveItemToServices(index)}
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                        >
+                                          <Plus className="h-3.5 w-3.5" />
+                                          In Leistungen übernehmen
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            removeItem(index);
+                                            setServiceActionMenuKey(null);
+                                          }}
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                          Löschen
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
                                   <button
+                                    type="button"
                                     onClick={() => removeItem(index)}
-                                    className="rounded-md border border-red-200 bg-red-50 p-2 text-red-600 hover:bg-red-100 shrink-0"
+                                    className="mt-0.5 rounded-md border border-red-200 bg-red-50 p-1.5 text-red-600 hover:bg-red-100 shrink-0"
                                     title="Leistung entfernen"
                                   >
-                                    <X className="w-4 h-4" />
+                                    <X className="w-3.5 h-3.5" />
                                   </button>
-                                )}
-                              </div>
+                                )
+                              )}
                             </div>
 
-                            {(showPriceReview ||
-                              showPriceOverride ||
-                              showQuantityReview ||
-                              showUnitConflict) && (
-                              <div className="flex flex-wrap gap-1">
-                                {showPriceReview && (
-                                  <Badge className="bg-red-100 text-red-700 border border-red-200">
-                                    Preis prüfen
-                                  </Badge>
-                                )}
-
-                                {showPriceOverride && (
-                                  <Badge className="bg-amber-100 text-amber-700 border border-amber-200">
-                                    Preisabweichung prüfen
-                                  </Badge>
-                                )}
-
-                                {showQuantityReview && (
-                                  <Badge className="bg-orange-100 text-orange-700 border border-orange-200">
-                                    Menge prüfen
-                                  </Badge>
-                                )}
-
-                                {showUnitConflict && (
-                                  <Badge className="bg-yellow-100 text-yellow-700 border border-yellow-200">
-                                    Einheit prüfen
-                                  </Badge>
-                                )}
-                              </div>
-                            )}
-
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className="grid grid-cols-3 gap-1.5">
                               <div>
-                                <Label className="text-xs">Einheit</Label>
+                                <Label className="text-[10px] leading-none">Einheit</Label>
                                 <select
-                                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                  className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                                   value={item.unit}
                                   onChange={(e: any) =>
                                     updateItem(
@@ -3431,11 +3706,13 @@ const getSafeOrderTotal = (o: Order) => {
                               </div>
 
                               <div>
-                                <Label className="text-xs">Preis ({currency})</Label>
+                                <Label className="text-[10px] leading-none">
+                                  Preis ({currency})
+                                </Label>
                                 <Input
                                   type="number"
                                   step="0.05"
-                                  className={`h-9 ${
+                                  className={`h-8 text-xs ${
                                     showPriceReview
                                       ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                       : ""
@@ -3454,11 +3731,11 @@ const getSafeOrderTotal = (o: Order) => {
                               </div>
 
                               <div>
-                                <Label className="text-xs">Menge</Label>
+                                <Label className="text-[10px] leading-none">Menge</Label>
                                 <Input
                                   type="number"
                                   step="0.25"
-                                  className={`h-9 ${
+                                  className={`h-8 text-xs ${
                                     showQuantityReview
                                       ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                       : ""
@@ -3476,13 +3753,6 @@ const getSafeOrderTotal = (o: Order) => {
                                 />
                               </div>
                             </div>
-
-                            {unitMismatchReason && (
-                              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">
-                                {unitConflictTextByReason[unitMismatchReason] ||
-                                  `Einheit prüfen: erkannt ${detectedUnit || "–"}, Katalog ${expectedUnit || "–"}.`}
-                              </div>
-                            )}
                           </div>
                         );
                       })}
