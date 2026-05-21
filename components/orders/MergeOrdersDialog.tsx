@@ -162,6 +162,84 @@ const getCustomerFieldConflicts = (orders: MergeOrder[]) => {
   return conflicts;
 };
 
+const hasCustomerIdentityConflictFromFields = (conflicts: Record<string, boolean>) => {
+  return Boolean(conflicts.name || conflicts.address || conflicts.plz || conflicts.city);
+};
+
+const getContactMergeFields = (orders: MergeOrder[]) => {
+  const phones = orders
+    .map((order) => normalizePhone(order.customer?.phone))
+    .filter(Boolean);
+
+  const emails = orders
+    .map((order) => normalizeCompareValue(order.customer?.email))
+    .filter(Boolean);
+
+  return {
+    phone: new Set(phones).size > 1,
+    email: new Set(emails).size > 1,
+  };
+};
+
+const getReviewCustomerLines = (order?: MergeOrder | null) => {
+  if (!order) return ['—'];
+
+  const customer = order.customer;
+  const lines = [
+    getCustomerLabel(order),
+    customer?.address,
+    [customer?.plz, customer?.city].filter(Boolean).join(' '),
+    customer?.phone ? `Tel. ${customer.phone}` : '',
+    customer?.email || '',
+  ]
+    .map((line) => (line || '').trim())
+    .filter(Boolean);
+
+  return lines.length > 0 ? lines : ['—'];
+};
+
+const findIdentityConflictSourceOrder = (
+  orders: MergeOrder[],
+  mainOrder?: MergeOrder,
+  conflicts?: Record<string, boolean>,
+) => {
+  if (!mainOrder || !conflicts) return orders.find((order) => order.id !== mainOrder?.id) || orders[0];
+
+  const fields = ['name', 'address', 'plz', 'city'] as const;
+
+  return (
+    orders.find((order) => {
+      if (order.id === mainOrder.id) return false;
+
+      return fields.some((field) => {
+        if (!conflicts[field]) return false;
+
+        const mainValue = normalizeCompareValue(mainOrder.customer?.[field]);
+        const orderValue = normalizeCompareValue(order.customer?.[field]);
+
+        return Boolean(mainValue || orderValue) && mainValue !== orderValue;
+      });
+    }) ||
+    orders.find((order) => order.id !== mainOrder.id) ||
+    orders[0]
+  );
+};
+
+const getReviewServiceExcerpt = (order: MergeOrder) => {
+  const items = getOrderItems(order);
+
+  return items
+    .slice(0, 2)
+    .map((item) => {
+      const service = item.serviceName || 'Leistung prüfen';
+      const quantity = formatQuantity(item);
+
+      if (!quantity || quantity === '—') return service;
+      return `${service} ${quantity}`;
+    })
+    .join(' + ');
+};
+
 const getCustomerLabel = (order: MergeOrder) => {
   const name = (order.customer?.name || '').trim();
   const customerNumber = (order.customer?.customerNumber || '').trim();
@@ -305,10 +383,15 @@ export default function MergeOrdersDialog({
   const [expandedInfo, setExpandedInfo] = useState(false);
   const [expandedContent, setExpandedContent] = useState<Record<string, boolean>>({});
   const [largeImageUrl, setLargeImageUrl] = useState<string | null>(null);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [reviewDetailsOpen, setReviewDetailsOpen] = useState(false);
+  const [reviewAccepted, setReviewAccepted] = useState(false);
 
   if (!open) return null;
 const customerFieldConflicts = getCustomerFieldConflicts(selectedOrders);
-const hasCustomerConflict = Object.values(customerFieldConflicts).some(Boolean);
+const hasCustomerConflict = hasCustomerIdentityConflictFromFields(customerFieldConflicts);
+const contactMergeFields = getContactMergeFields(selectedOrders);
+const hasMergedContactData = Boolean(contactMergeFields.phone || contactMergeFields.email);
 
  
 const selectedCurrencies = Array.from(
@@ -320,6 +403,26 @@ const selectedCurrencies = Array.from(
 const hasCurrencyConflict = selectedCurrencies.length > 1;
 
   const selectedMainOrder = selectedOrders.find((order) => order.id === selectedMainOrderId);
+  const additionalOrders = selectedOrders.filter((order) => order.id !== selectedMainOrderId);
+  const reviewSourceOrder = findIdentityConflictSourceOrder(
+    selectedOrders,
+    selectedMainOrder,
+    customerFieldConflicts,
+  );
+  const additionalOrdersTotal = additionalOrders.reduce((sum, order) => sum + getOrderTotal(order), 0);
+
+  const openReviewDialog = () => {
+    setReviewAccepted(false);
+    setReviewDetailsOpen(hasCustomerConflict);
+    setShowReviewDialog(true);
+  };
+
+  const confirmMerge = () => {
+    if (!reviewAccepted || hasCurrencyConflict || !selectedMainOrderId || !selectedCustomerId) return;
+
+    setShowReviewDialog(false);
+    onNext();
+  };
 
   const selectMainOrder = (order: MergeOrder) => {
     onSelectMainOrder(order.id);
@@ -450,7 +553,7 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
 
 {hasCustomerConflict && (
   <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-    ⚠ Verschiedene echte Kundennamen erkannt. Bitte prüfen.
+    ⚠ Kundendaten abweichend. Name oder Adresse bitte prüfen.
   </div>
 )}
 
@@ -745,7 +848,7 @@ const fieldMismatch = {
               </button>
 
              <button
-  onClick={onNext}
+  onClick={openReviewDialog}
   disabled={
     !selectedMainOrderId ||
     !selectedCustomerId ||
@@ -759,6 +862,229 @@ const fieldMismatch = {
           </main>
         </div>
       </div>
+
+      {showReviewDialog && (
+        <div className="fixed inset-0 z-[10000] bg-black/50 flex items-center justify-center p-3 sm:p-6">
+          <div className="w-full max-w-[760px] max-h-[92vh] overflow-hidden rounded-xl border bg-background shadow-2xl">
+            <div className="flex items-start justify-between gap-4 px-4 sm:px-6 py-4 border-b">
+              <div>
+                <h2 className="text-lg font-bold">Aufträge verbinden</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {additionalOrders.length} weitere Aufträge werden mit diesem Hauptauftrag verbunden.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowReviewDialog(false)}
+                className="rounded-lg px-2 py-1 text-xl leading-none hover:bg-muted"
+                aria-label="Prüfung schließen"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="max-h-[calc(92vh-150px)] overflow-y-auto px-4 sm:px-6 py-4 space-y-3">
+              {hasCustomerConflict && (
+                <div className="rounded-lg border border-red-200 bg-red-50 text-red-900 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setReviewDetailsOpen((value) => !value)}
+                    className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+                  >
+                    <div className="flex gap-3">
+                      <span className="text-lg leading-none">⚠</span>
+                      <div>
+                        <div className="font-bold text-sm">Kunden zusammengeführt</div>
+                        <div className="mt-1 text-sm text-red-950">
+                          Die Kundendaten unterscheiden sich. Bitte prüfen.
+                        </div>
+                      </div>
+                    </div>
+
+                    <span className="text-lg leading-none">
+                      {reviewDetailsOpen ? '⌃' : '⌄'}
+                    </span>
+                  </button>
+
+                  {reviewDetailsOpen && (
+                    <div className="mx-4 mb-4 rounded-lg border border-red-100 bg-background/70 p-3">
+                      <div className="grid grid-cols-[1fr_auto_1fr] gap-3 text-xs text-slate-600 mb-2">
+                        <div>Quelle (abweichend)</div>
+                        <div>→</div>
+                        <div>Hauptkunde (Ziel)</div>
+                      </div>
+
+                      <div className="grid grid-cols-[1fr_auto_1fr] gap-3">
+                        <div className="rounded-md border border-red-100 bg-red-50/70 p-3 text-sm leading-6">
+                          {getReviewCustomerLines(reviewSourceOrder).map((line) => (
+                            <div key={`source-${line}`}>{line}</div>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center text-lg text-slate-500">→</div>
+
+                        <div className="rounded-md border border-emerald-100 bg-emerald-50/70 p-3 text-sm leading-6">
+                          {getReviewCustomerLines(selectedMainOrder).map((line) => (
+                            <div key={`target-${line}`}>{line}</div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {hasMergedContactData && (
+                        <div className="mt-3 text-sm">
+                          <div className="mb-2 text-slate-700">
+                            Folgende Daten wurden zusammengeführt:
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {contactMergeFields.phone && (
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                                Telefonnummer
+                              </span>
+                            )}
+
+                            {contactMergeFields.email && (
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                                E-Mail
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!hasCustomerConflict && hasMergedContactData && (
+                <div className="rounded-lg border bg-slate-50 px-4 py-3 text-sm">
+                  <div className="font-semibold">Kontaktdaten werden ergänzt</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {contactMergeFields.phone && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                        Telefonnummer
+                      </span>
+                    )}
+
+                    {contactMergeFields.email && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                        E-Mail
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-lg border overflow-hidden">
+                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 border-b text-sm">
+                  <div className="text-muted-foreground">Kunde</div>
+                  <div className="font-semibold leading-6">
+                    {getReviewCustomerLines(selectedMainOrder).map((line) => (
+                      <div key={`selected-${line}`}>{line}</div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 border-b text-sm">
+                  <div className="text-muted-foreground">Hauptauftrag (Ziel)</div>
+                  <div className="font-semibold">
+                    {selectedMainOrder?.serviceName ||
+                      selectedMainOrder?.description ||
+                      'Leistung prüfen'}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setReviewDetailsOpen((value) => !value)}
+                  className="w-full grid grid-cols-[120px_1fr_auto] gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40"
+                >
+                  <div className="text-muted-foreground">Details anzeigen</div>
+                  <div className="font-semibold">{additionalOrders.length}</div>
+                  <div>{reviewDetailsOpen ? '⌃' : '⌄'}</div>
+                </button>
+              </div>
+
+              {reviewDetailsOpen && (
+                <div className="rounded-lg border overflow-hidden">
+                  <div className="grid grid-cols-[70px_1fr_130px] gap-3 bg-slate-50 px-3 py-2 text-xs text-muted-foreground">
+                    <div>Auftrag</div>
+                    <div>Leistungen (Auszug)</div>
+                    <div className="text-right">Betrag</div>
+                  </div>
+
+                  {additionalOrders.map((order, index) => {
+                    const orderCurrency = getOrderCurrency(order);
+
+                    return (
+                      <div
+                        key={`review-${order.id}`}
+                        className="grid grid-cols-[70px_1fr_130px] gap-3 border-t px-3 py-2 text-sm"
+                      >
+                        <div className="font-semibold">{index + 1}</div>
+                        <div className="min-w-0 truncate">{getReviewServiceExcerpt(order)}</div>
+                        <div className="text-right">{formatMoney(getOrderTotal(order), orderCurrency)}</div>
+                      </div>
+                    );
+                  })}
+
+                  <div className="grid grid-cols-[1fr_160px] gap-3 border-t bg-slate-50 px-3 py-3 text-sm font-bold">
+                    <div className="text-blue-700">Gesamtsumme (netto)</div>
+                    <div className="text-right">{formatMoney(additionalOrdersTotal, currency)}</div>
+                  </div>
+                </div>
+              )}
+
+              {hasCustomerConflict && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+                  ⚠ Bitte überprüfe Kunde und Hauptauftrag.
+                </div>
+              )}
+
+              {hasCurrencyConflict && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+                  ⚠ Aufträge mit unterschiedlichen Währungen können nicht verbunden werden.
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t px-4 sm:px-6 py-4 bg-background">
+              <button
+                type="button"
+                onClick={() => setShowReviewDialog(false)}
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
+              >
+                Abbrechen
+              </button>
+
+              <label className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={reviewAccepted}
+                  onChange={(event) => setReviewAccepted(event.target.checked)}
+                  className="h-4 w-4"
+                />
+                <span>Ich habe die Auswirkungen geprüft</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={confirmMerge}
+                disabled={
+                  !reviewAccepted ||
+                  hasCurrencyConflict ||
+                  !selectedMainOrderId ||
+                  !selectedCustomerId
+                }
+                className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Verbinden
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {largeImageUrl && (
         <div
