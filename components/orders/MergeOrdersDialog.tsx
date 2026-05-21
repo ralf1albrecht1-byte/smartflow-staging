@@ -136,28 +136,52 @@ const normalizePhone = (value?: string | null) => {
     .trim();
 };
 
+const getCustomerIdentityCompareValue = (order: MergeOrder) => {
+  const name = (order.customer?.name || '').trim();
+  const customerNumber = (order.customer?.customerNumber || '').trim();
+
+  if (isRealCustomerName(name)) return normalizeCompareValue(name);
+  if (customerNumber) return normalizeCompareValue(customerNumber.replace(/^#/, ''));
+  if (order.customerId) return normalizeCompareValue(order.customerId.replace(/^#/, ''));
+
+  return '';
+};
+
+const hasDifferentProvidedValues = (values: string[]) => {
+  return new Set(values.filter(Boolean)).size > 1;
+};
+
 const getCustomerFieldConflicts = (orders: MergeOrder[]) => {
-  const fields = ['name', 'address', 'plz', 'city', 'phone', 'email'] as const;
+  const identityValues = orders.map(getCustomerIdentityCompareValue).filter(Boolean);
 
-  const conflicts: Record<string, boolean> = {};
+  const conflicts: Record<string, boolean> = {
+    name: new Set(identityValues).size > 1,
+    address: false,
+    plz: false,
+    city: false,
+    phone: false,
+    email: false,
+  };
 
-  for (const field of fields) {
-    const values = orders
-      .map((order) => {
-        const raw = order.customer?.[field];
+  conflicts.address = hasDifferentProvidedValues(
+    orders.map((order) => normalizeCompareValue(order.customer?.address)),
+  );
 
-        if (!raw) return '';
+  conflicts.plz = hasDifferentProvidedValues(
+    orders.map((order) => normalizeCompareValue(order.customer?.plz)),
+  );
 
-        if (field === 'phone') {
-          return normalizePhone(raw);
-        }
+  conflicts.city = hasDifferentProvidedValues(
+    orders.map((order) => normalizeCompareValue(order.customer?.city)),
+  );
 
-        return normalizeCompareValue(raw);
-      })
-      .filter(Boolean);
+  conflicts.phone = hasDifferentProvidedValues(
+    orders.map((order) => normalizePhone(order.customer?.phone)),
+  );
 
-    conflicts[field] = new Set(values).size > 1;
-  }
+  conflicts.email = hasDifferentProvidedValues(
+    orders.map((order) => normalizeCompareValue(order.customer?.email)),
+  );
 
   return conflicts;
 };
@@ -404,12 +428,21 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
 
   const selectedMainOrder = selectedOrders.find((order) => order.id === selectedMainOrderId);
   const additionalOrders = selectedOrders.filter((order) => order.id !== selectedMainOrderId);
+  const reviewOrders = selectedMainOrder
+    ? [selectedMainOrder, ...additionalOrders]
+    : selectedOrders;
   const reviewSourceOrder = findIdentityConflictSourceOrder(
     selectedOrders,
     selectedMainOrder,
     customerFieldConflicts,
   );
-  const additionalOrdersTotal = additionalOrders.reduce((sum, order) => sum + getOrderTotal(order), 0);
+  const reviewCurrency = selectedMainOrder ? getOrderCurrency(selectedMainOrder) : currency;
+  const reviewOrdersTotal = reviewOrders.reduce((sum, order) => sum + getOrderTotal(order), 0);
+  const additionalOrdersSentence =
+    additionalOrders.length === 1
+      ? '1 weiterer Auftrag wird mit diesem Hauptauftrag verbunden.'
+      : `${additionalOrders.length} weitere Aufträge werden mit diesem Hauptauftrag verbunden.`;
+  const reviewOrderCountLabel = `${reviewOrders.length} ${reviewOrders.length === 1 ? 'Auftrag' : 'Aufträge'}`;
 
   const openReviewDialog = () => {
     setReviewAccepted(false);
@@ -870,7 +903,7 @@ const fieldMismatch = {
               <div>
                 <h2 className="text-lg font-bold">Aufträge verbinden</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {additionalOrders.length} weitere Aufträge werden mit diesem Hauptauftrag verbunden.
+                  {additionalOrdersSentence}
                 </p>
               </div>
 
@@ -1001,7 +1034,7 @@ const fieldMismatch = {
                   className="w-full grid grid-cols-[120px_1fr_auto] gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40"
                 >
                   <div className="text-muted-foreground">Details anzeigen</div>
-                  <div className="font-semibold">{additionalOrders.length}</div>
+                  <div className="font-semibold">{reviewOrderCountLabel}</div>
                   <div>{reviewDetailsOpen ? '⌃' : '⌄'}</div>
                 </button>
               </div>
@@ -1014,7 +1047,7 @@ const fieldMismatch = {
                     <div className="text-right">Betrag</div>
                   </div>
 
-                  {additionalOrders.map((order, index) => {
+                  {reviewOrders.map((order, index) => {
                     const orderCurrency = getOrderCurrency(order);
 
                     return (
@@ -1022,7 +1055,14 @@ const fieldMismatch = {
                         key={`review-${order.id}`}
                         className="grid grid-cols-[70px_1fr_130px] gap-3 border-t px-3 py-2 text-sm"
                       >
-                        <div className="font-semibold">{index + 1}</div>
+                        <div className="font-semibold">
+                          {index + 1}
+                          {order.id === selectedMainOrderId && (
+                            <span className="ml-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700">
+                              Haupt
+                            </span>
+                          )}
+                        </div>
                         <div className="min-w-0 truncate">{getReviewServiceExcerpt(order)}</div>
                         <div className="text-right">{formatMoney(getOrderTotal(order), orderCurrency)}</div>
                       </div>
@@ -1031,7 +1071,7 @@ const fieldMismatch = {
 
                   <div className="grid grid-cols-[1fr_160px] gap-3 border-t bg-slate-50 px-3 py-3 text-sm font-bold">
                     <div className="text-blue-700">Gesamtsumme (netto)</div>
-                    <div className="text-right">{formatMoney(additionalOrdersTotal, currency)}</div>
+                    <div className="text-right">{formatMoney(reviewOrdersTotal, reviewCurrency)}</div>
                   </div>
                 </div>
               )}
