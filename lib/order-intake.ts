@@ -88,6 +88,130 @@ function extractSelfIntroductionName(
   return candidate;
 }
 
+// INTAKE_CUSTOMER_NAME_FALLBACK_V10
+function cleanBillingCustomerNameCandidate(value: string | null | undefined): string | null {
+  let candidate = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/)[0] || "";
+
+  candidate = candidate
+    .replace(/^["'“”‘’\s:,\-–—]+/g, "")
+    .replace(/["'“”‘’\s:,\-–—.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!candidate) return null;
+
+  // Bei "Name, Strasse 12, 8000 Ort" nur den Namen behalten.
+  candidate = candidate.split(/[,;]/)[0]?.trim() || candidate;
+
+  // Bei gesprochenen Einzeilern ohne Komma: "Name Strasse 12 in 8000 Ort"
+  // ab der Strasse abschneiden, damit keine Adressdaten als Name gespeichert werden.
+  candidate = candidate
+    .replace(
+      /\s+[A-ZÄÖÜa-zäöüß' .\-]*?(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-zA-Z]?.*$/i,
+      "",
+    )
+    .replace(/\s+\bin\s+\d{4,5}\b.*$/i, "")
+    .replace(/\s+\d{4,5}\b.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const normalized = normalizeUnitText(candidate);
+
+  if (candidate.length < 2 || candidate.length > 80) return null;
+  if (!/[A-Za-zÄÖÜäöüß]/.test(candidate)) return null;
+  if (/\d/.test(candidate)) return null;
+
+  // Keine Arbeitssätze / Hinweis-Sätze als Namen speichern.
+  const blockedStarts = [
+    "hat",
+    "haben",
+    "will",
+    "wollen",
+    "möchte",
+    "moechte",
+    "soll",
+    "sollen",
+    "braucht",
+    "bitte",
+    "dort",
+    "hier",
+    "die arbeit",
+    "arbeit",
+    "leistung",
+    "leistungen",
+  ];
+  if (blockedStarts.some((start) => normalized.startsWith(start))) return null;
+
+  const blockedContained =
+    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|prüfen|pruefen|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext)\b/i;
+  if (blockedContained.test(normalized)) return null;
+
+  // Reine Adresszeilen sind kein Name.
+  const addressLike =
+    /\b(strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\b/i;
+  if (addressLike.test(normalized)) return null;
+
+  return candidate;
+}
+
+function extractBillingCustomerNameFallback(
+  rawText: string | null | undefined,
+): string | null {
+  const source = String(rawText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!source) return null;
+
+  const marker =
+    "(?:kunde\\s*/\\s*rechnungsadresse|rechnungsadresse|rechnung\\s+geht\\s+an|rechnung\\s+an|rechnung\\s+bekommt|kunde\\s+ist|kunde|invoice\\s+customer\\s+is|invoice\\s+customer|billing\\s+customer\\s+is|billing\\s+customer|bill\\s+to)";
+
+  // 1) Einzeiler: "Rechnung geht an Swiss Facility Service AG, Badenerstrasse 90 in 8004 Zürich."
+  const inlinePattern = new RegExp(`(?:^|[\\n.!?]\\s*)${marker}\\s*:?\\s+([^\\n]+)`, "gi");
+  for (const match of source.matchAll(inlinePattern)) {
+    const candidate = cleanBillingCustomerNameCandidate(match[1]);
+    if (candidate) return candidate;
+  }
+
+  // 2) Blockform:
+  //    Kunde / Rechnungsadresse:
+  //    Swiss Facility Service AG
+  //    Badenerstrasse 90
+  //    8004 Zürich
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const markerLinePattern = new RegExp(`^\\s*${marker}\\s*:?\\s*$`, "i");
+  const markerWithValuePattern = new RegExp(`^\\s*${marker}\\s*:?\\s+(.+)$`, "i");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+
+    const sameLine = line.match(markerWithValuePattern);
+    if (sameLine?.[1]) {
+      const candidate = cleanBillingCustomerNameCandidate(sameLine[1]);
+      if (candidate) return candidate;
+    }
+
+    if (markerLinePattern.test(line)) {
+      const nextLine = lines[index + 1] || "";
+      const candidate = cleanBillingCustomerNameCandidate(nextLine);
+      if (candidate) return candidate;
+    }
+  }
+
+  return null;
+}
+
 function normalizeUnitText(value: any): string {
   return String(value || "")
     .toLowerCase()
@@ -1832,6 +1956,16 @@ const intakeCurrency =
       selfIntroFallbackUsed = true;
       console.log(
         `[${source}] 🪪 Selbstvorstellungs-Safety-Net griff: kunde.name='${selfIntroName}' (LLM hatte leer/null geliefert)`,
+      );
+    }
+  }
+
+  if (!String(kundeData.name || "").trim()) {
+    const billingNameFallback = extractBillingCustomerNameFallback(messageText);
+    if (billingNameFallback) {
+      kundeData.name = billingNameFallback;
+      console.log(
+        `[${source}] 🧾 Rechnungsnamen-Safety-Net griff: kunde.name='${billingNameFallback}' (LLM hatte leer/null geliefert)`,
       );
     }
   }
