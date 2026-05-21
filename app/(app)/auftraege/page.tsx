@@ -76,12 +76,6 @@ interface OrderItem {
 
 interface Order {
   currency?: "CHF" | "EUR" | null;
-  siteAddressDifferent?: boolean | null;
-  siteName?: string | null;
-  siteAddress?: string | null;
-  sitePlz?: string | null;
-  siteCity?: string | null;
-  siteNote?: string | null;
   id: string;
   customerId: string;
   description: string;
@@ -646,12 +640,6 @@ const emptyForm = {
   date: new Date().toISOString().split("T")[0],
   notes: "",
   specialNotes: "",
-  siteAddressDifferent: false,
-  siteName: "",
-  siteAddress: "",
-  sitePlz: "",
-  siteCity: "",
-  siteNote: "",
 };
 
 export default function AuftraegePage() {
@@ -1072,12 +1060,6 @@ export default function AuftraegePage() {
           jobHints: parsedSpecialNotes.jobHints,
         });
       })(),
-      siteAddressDifferent: Boolean(o.siteAddressDifferent),
-      siteName: o.siteName ?? "",
-      siteAddress: o.siteAddress ?? "",
-      sitePlz: o.sitePlz ?? "",
-      siteCity: o.siteCity ?? "",
-      siteNote: o.siteNote ?? "",
     });
      // Populate items from order
     if (o.items && o.items.length > 0) {
@@ -2869,12 +2851,7 @@ const getSafeOrderTotal = (o: Order) => {
               {/* Customer Info / Select / Edit */}
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-y-0.5 mb-1">
-                  <div>
-                    <Label>Rechnungsadresse *</Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      Kunde, der die Rechnung bekommt und bezahlt.
-                    </p>
-                  </div>
+                  <Label>Kunde *</Label>
                   {!showNewCustomer && form.customerId && (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
                       <button
@@ -3287,111 +3264,6 @@ const getSafeOrderTotal = (o: Order) => {
                 )}
               </div>
 
-
-              {/* Ausführungsadresse / Baustellenadresse */}
-              <div className="rounded-lg border bg-slate-50/70 dark:bg-slate-900/30 p-3 space-y-3">
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.siteAddressDifferent)}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        siteAddressDifferent: e.target.checked,
-                        ...(e.target.checked
-                          ? {}
-                          : {
-                              siteName: "",
-                              siteAddress: "",
-                              sitePlz: "",
-                              siteCity: "",
-                              siteNote: "",
-                            }),
-                      }))
-                    }
-                    className="mt-1"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">
-                      Ausführungsadresse abweichend von Rechnungsadresse
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
-                    </span>
-                  </span>
-                </label>
-
-                {form.siteAddressDifferent && (
-                  <div className="rounded-lg border bg-background p-3 space-y-3">
-                    <div>
-                      <div className="text-sm font-semibold">
-                        Ausführungsadresse / Baustellenadresse
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Ort, an dem gearbeitet wird. Diese Adresse wird später in Angebot, Rechnung und PDF separat angezeigt.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <Label className="text-xs">Objekt / Name</Label>
-                        <Input
-                          placeholder="z. B. Baustelle Tiefgarage"
-                          value={form.siteName}
-                          onChange={(e) =>
-                            setForm({ ...form, siteName: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Strasse + Hausnr.</Label>
-                        <Input
-                          placeholder="Strasse + Hausnr."
-                          value={form.siteAddress}
-                          onChange={(e) =>
-                            setForm({ ...form, siteAddress: e.target.value })
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr] gap-2">
-                      <div>
-                        <Label className="text-xs">PLZ</Label>
-                        <Input
-                          placeholder="PLZ"
-                          value={form.sitePlz}
-                          onChange={(e) =>
-                            setForm({ ...form, sitePlz: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Ort</Label>
-                        <Input
-                          placeholder="Ort"
-                          value={form.siteCity}
-                          onChange={(e) =>
-                            setForm({ ...form, siteCity: e.target.value })
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="text-xs">Zusatz / Hinweis</Label>
-                      <Input
-                        placeholder="z. B. Eingang hinten, Tor 2, Hauswart vor Ort"
-                        value={form.siteNote}
-                        onChange={(e) =>
-                          setForm({ ...form, siteNote: e.target.value })
-                        }
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
               {/* Service Items + rest of form — collapsed when dupCheck open */}
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
@@ -3406,9 +3278,27 @@ const getSafeOrderTotal = (o: Order) => {
                 </div>
               ) : (
                 <>
-                  <div>
-                    <Label className="mb-2 block">Leistungen *</Label>
-                    <div className="space-y-3">
+                  <div className="rounded-xl border bg-background p-2 sm:p-3 space-y-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <Label className="text-base font-semibold">Leistungen *</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Preis, Einheit und Menge direkt pro Position prüfen.
+                        </p>
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full sm:w-auto"
+                        onClick={addItem}
+                      >
+                        <Plus className="w-3.5 h-3.5 mr-1" />
+                        Leistung hinzufügen
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2">
                       {formItems.map((item, index) => {
                         const curOrder = editId
                           ? orders.find((o: Order) => o.id === editId)
@@ -3426,35 +3316,35 @@ const getSafeOrderTotal = (o: Order) => {
                             );
                           });
 
-const priceOverrideReason = curOrder?.reviewReasons
-  ?.filter((r: string) => r.startsWith("price_override:"))
-  .find((r: string) => {
-    const [, serviceName] = r.split(":");
-    return (
-      (serviceName || "").trim().toLowerCase() ===
-      (item.serviceName || "").trim().toLowerCase()
-    );
-  });
+                        const priceOverrideReason = curOrder?.reviewReasons
+                          ?.filter((r: string) => r.startsWith("price_override:"))
+                          .find((r: string) => {
+                            const [, serviceName] = r.split(":");
+                            return (
+                              (serviceName || "").trim().toLowerCase() ===
+                              (item.serviceName || "").trim().toLowerCase()
+                            );
+                          });
 
-const showPriceOverride = Boolean(priceOverrideReason);
-
+                        const showPriceOverride = Boolean(priceOverrideReason);
                         const [, , detectedUnit, expectedUnit] =
                           unitMismatchReason?.split(":") || [];
 
                         const showUnitConflict = Boolean(
-  item.aiWarning?.trim() || unitMismatchReason,
-);
+                          item.aiWarning?.trim() || unitMismatchReason,
+                        );
 
-const showQuantityReview = Number(item.quantity || 0) === 0;
-                        
-const showPriceReview = Number(item.unitPrice || 0) === 0;
+                        const showQuantityReview = Number(item.quantity || 0) === 0;
+                        const showPriceReview = Number(item.unitPrice || 0) === 0;
+                        const itemTotal =
+                          Number(item.unitPrice || 0) * Number(item.quantity || 0);
 
                         return (
                           <div
                             key={item.key}
-                            className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2 min-w-0"
+                            className="rounded-lg border bg-muted/20 p-2 sm:p-3 space-y-2"
                           >
-                            <div className="flex items-center gap-2 min-w-0">
+                            <div className="grid grid-cols-1 lg:grid-cols-[1fr_120px] gap-2 items-start">
                               <ServiceCombobox
                                 value={item.serviceName}
                                 services={services as ServiceOption[]}
@@ -3464,32 +3354,45 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
                                 onServiceCreated={handleServiceCreated}
                                 currentPrice={item.unitPrice}
                                 currentUnit={item.unit}
+                                showManualHint={false}
                               />
-                              {formItems.length > 1 && (
-                                <button
-                                  onClick={() => removeItem(index)}
-                                  className="text-destructive hover:text-destructive/80 p-1 shrink-0"
-                                  title="Leistung entfernen"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              )}
-                                                      </div>
-{(showPriceReview ||
-  showPriceOverride ||
-  showQuantityReview ||
-  showUnitConflict) && (                              <div className="flex flex-wrap gap-1">
+
+                              <div className="flex items-center justify-between lg:justify-end gap-2">
+                                <div className="text-xs text-muted-foreground lg:text-right">
+                                  <div>Total</div>
+                                  <div className="font-mono font-semibold text-foreground">
+                                    {formatCurrency(itemTotal, currency)}
+                                  </div>
+                                </div>
+
+                                {formItems.length > 1 && (
+                                  <button
+                                    onClick={() => removeItem(index)}
+                                    className="rounded-md border border-red-200 bg-red-50 p-2 text-red-600 hover:bg-red-100 shrink-0"
+                                    title="Leistung entfernen"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {(showPriceReview ||
+                              showPriceOverride ||
+                              showQuantityReview ||
+                              showUnitConflict) && (
+                              <div className="flex flex-wrap gap-1">
                                 {showPriceReview && (
                                   <Badge className="bg-red-100 text-red-700 border border-red-200">
                                     Preis prüfen
                                   </Badge>
                                 )}
 
-{showPriceOverride && (
-  <Badge className="bg-amber-100 text-amber-700 border border-amber-200">
-    Preisabweichung prüfen
-  </Badge>
-)}
+                                {showPriceOverride && (
+                                  <Badge className="bg-amber-100 text-amber-700 border border-amber-200">
+                                    Preisabweichung prüfen
+                                  </Badge>
+                                )}
 
                                 {showQuantityReview && (
                                   <Badge className="bg-orange-100 text-orange-700 border border-orange-200">
@@ -3509,7 +3412,7 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
                               <div>
                                 <Label className="text-xs">Einheit</Label>
                                 <select
-                                  className="flex w-full rounded-md border border-input bg-background px-2 py-1.5"
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                                   value={item.unit}
                                   onChange={(e: any) =>
                                     updateItem(
@@ -3527,81 +3430,63 @@ const showPriceReview = Number(item.unitPrice || 0) === 0;
                                 </select>
                               </div>
 
-<div>
-  <Label className="text-xs">
-    Preis ({currency})
-  </Label>
+                              <div>
+                                <Label className="text-xs">Preis ({currency})</Label>
+                                <Input
+                                  type="number"
+                                  step="0.05"
+                                  className={`h-9 ${
+                                    showPriceReview
+                                      ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                      : ""
+                                  }`}
+                                  value={showPriceReview ? "" : item.unitPrice}
+                                  placeholder={showPriceReview ? "prüfen" : "0"}
+                                  onFocus={(e) => e.currentTarget.select()}
+                                  onChange={(e: any) =>
+                                    updateItem(
+                                      index,
+                                      "unitPrice",
+                                      e?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
 
-  <Input
-    type="number"
-    step="0.05"
-    className={`h-8 ${
-      Number(item.unitPrice || 0) === 0
-        ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-        : ""
-    }`}
-    value={Number(item.unitPrice || 0) === 0 ? "" : item.unitPrice}
-    placeholder={
-      Number(item.unitPrice || 0) === 0 ? "prüfen" : "0"
-    }
-    onFocus={(e) => e.currentTarget.select()}
-    onChange={(e: any) =>
-      updateItem(
-        index,
-        "unitPrice",
-        e?.target?.value ?? "",
-      )
-    }
-  />
-</div>
-
-<div>
-  <Label className="text-xs">Menge</Label>
-
-  <Input
-    type="number"
-    step="0.25"
-    className={`h-8 ${
-      showQuantityReview
-        ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-        : ""
-    }`}
-    value={showQuantityReview ? "" : item.quantity}
-    placeholder={showQuantityReview ? "prüfen" : "0"}
-    onFocus={(e) => e.currentTarget.select()}
-    onChange={(e: any) =>
-      updateItem(
-        index,
-        "quantity",
-        e?.target?.value ?? "",
-      )
-    }
-  />
-</div> 
- </div>
-                            <div className="text-left sm:text-right text-xs text-muted-foreground">
-                              ={" "}
-                              {formatCurrency(
-                                Number(item.unitPrice || 0) *
-                                  Number(item.quantity || 0),
-                                currency,
-                              )}
+                              <div>
+                                <Label className="text-xs">Menge</Label>
+                                <Input
+                                  type="number"
+                                  step="0.25"
+                                  className={`h-9 ${
+                                    showQuantityReview
+                                      ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                      : ""
+                                  }`}
+                                  value={showQuantityReview ? "" : item.quantity}
+                                  placeholder={showQuantityReview ? "prüfen" : "0"}
+                                  onFocus={(e) => e.currentTarget.select()}
+                                  onChange={(e: any) =>
+                                    updateItem(
+                                      index,
+                                      "quantity",
+                                      e?.target?.value ?? "",
+                                    )
+                                  }
+                                />
+                              </div>
                             </div>
 
-                                                     </div>
+                            {unitMismatchReason && (
+                              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">
+                                {unitConflictTextByReason[unitMismatchReason] ||
+                                  `Einheit prüfen: erkannt ${detectedUnit || "–"}, Katalog ${expectedUnit || "–"}.`}
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-2 w-full"
-                      onClick={addItem}
-                    >
-                      <Plus className="w-3.5 h-3.5 mr-1" />
-                      Weitere Leistung hinzufügen
-                    </Button>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

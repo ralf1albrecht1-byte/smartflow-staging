@@ -23,6 +23,7 @@ currentPrice?: string;
 currentUnit?: string;
 contextLabel?: string;
 placeholder?: string;
+showManualHint?: boolean;
 }
 
 export function ServiceCombobox({
@@ -34,6 +35,7 @@ currentPrice,
 currentUnit,
 contextLabel = 'Auftrag',
 placeholder = 'Leistung suchen oder eingeben...',
+showManualHint = true,
 }: ServiceComboboxProps) {
 const [open, setOpen] = useState(false);
 const [query, setQuery] = useState('');
@@ -130,7 +132,7 @@ unit: currentUnit,
 
   const newService: ServiceOption = await res.json();
 
-  toast.success('Leistung wurde in \'Leistungen\' übernommen ✓');
+  toast.success('Leistung wurde in den Leistungskatalog übernommen ✓');
   setJustSaved(true);
   setQuery('');
   setOpen(false);
@@ -180,16 +182,16 @@ tabIndex={-1}
   Number(currentPrice) <= 0 ||
   !currentUnit
 }     className="shrink-0 flex items-center gap-1 text-xs text-primary hover:text-primary/80 border border-primary/30 rounded-md px-2 py-1.5 hover:bg-primary/5 transition-colors disabled:opacity-50"
-        title="Als wiederverwendbare Leistung speichern"
+        title="Diese Leistung dauerhaft in den Leistungskatalog übernehmen"
       >
         {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-        <span className="hidden sm:inline whitespace-nowrap">Als Leistung speichern</span>
-        <span className="sm:hidden">Speichern</span>
+        <span className="hidden sm:inline whitespace-nowrap">In Katalog übernehmen</span>
+        <span className="sm:hidden">Katalog</span>
       </button>
     )}
   </div>
 
-  {isManual && !open && (
+  {showManualHint && isManual && !open && (
     <div className="mt-1 space-y-0.5">
       <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1">
         <Info className="w-3 h-3 mt-0.5 shrink-0" />
