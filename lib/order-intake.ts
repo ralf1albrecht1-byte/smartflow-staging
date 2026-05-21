@@ -16,6 +16,10 @@ import {
 } from "@/lib/exact-customer-match";
 import { maskPhoneForLog } from "@/lib/phone";
 import { buildSpecialNotes } from "@/lib/special-notes-utils";
+import {
+  extractExecutionAddressFromText,
+  validateAndRepairParsedOrderItems,
+} from "@/lib/order-intake-validation";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Block R — Self-introduction safety-net for voice/text intake.
@@ -2655,7 +2659,7 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
       return true;
     });
 
-  const finalOrderItems: Array<{
+  let finalOrderItems: Array<{
     serviceName: string;
     description: string;
     quantity: number;
@@ -2681,6 +2685,23 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
             reviewReason: "unbekannte_leistung_pruefen",
           },
         ];
+
+  const intakeValidation = validateAndRepairParsedOrderItems({
+    items: finalOrderItems,
+    originalText: `${messageText}\n${fullWorkText}`,
+    fallbackCurrency: intakeCurrency,
+  });
+
+  finalOrderItems = intakeValidation.items;
+
+  const extractedExecutionAddress = extractExecutionAddressFromText(
+    `${messageText}\n${fullWorkText}\n${finalSpecialNotes || ""}`,
+    {
+      customerAddress: addr.street,
+      customerPlz: addr.plz,
+      customerCity: addr.city,
+    },
+  );
 
   const primaryItem = finalOrderItems[0] || null;
 
@@ -2876,6 +2897,8 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
     ...baseReviewReasons,
     ...quantityReviewReasons,
     ...unitMismatchReasons,
+    ...intakeValidation.reviewReasons,
+    ...(extractedExecutionAddress ? ["execution_address_detected"] : []),
   ];
 
   if (autoReuseTags.length > 0) {
@@ -2886,7 +2909,8 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
   const hinweisLevel = allReviewReasons.some(
     (reason) =>
       ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
-      reason.startsWith("unit_mismatch:"),
+      reason.startsWith("unit_mismatch:") ||
+      reason.startsWith("currency_"),
   )
     ? "warning"
     : needsReview
@@ -2909,11 +2933,17 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
       unitPrice,
       quantity,
       totalPrice,
-      currency: intakeCurrency,
+      currency: intakeValidation.finalCurrency,
       vatRate: intakeVatRate,
       date: new Date(),
       notes: notesParts.join("\n"),
       specialNotes: finalSpecialNotes,
+      siteAddressDifferent: Boolean(extractedExecutionAddress),
+      siteName: extractedExecutionAddress?.siteName || null,
+      siteAddress: extractedExecutionAddress?.siteAddress || null,
+      sitePlz: extractedExecutionAddress?.sitePlz || null,
+      siteCity: extractedExecutionAddress?.siteCity || null,
+      siteNote: extractedExecutionAddress?.siteNote || null,
       needsReview,
       reviewReasons: allReviewReasons,
       hinweisLevel,
