@@ -959,9 +959,9 @@ const fieldMismatch = {
       </div>
 
       {showReviewDialog && (
-        <div className="fixed inset-0 z-[10000] bg-black/50 flex items-center justify-center p-3 sm:p-6">
-          <div className="w-full max-w-[760px] max-h-[92vh] overflow-hidden rounded-xl border bg-background shadow-2xl">
-            <div className="flex items-start justify-between gap-4 px-4 sm:px-6 py-4 border-b">
+        <div className="fixed inset-0 z-[10000] bg-black/50 flex items-start sm:items-center justify-center overflow-y-auto p-2 sm:p-6">
+          <div className="w-full max-w-[760px] max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] overflow-hidden rounded-xl border bg-background shadow-2xl flex flex-col">
+            <div className="shrink-0 flex items-start justify-between gap-4 px-4 sm:px-6 py-4 border-b">
               <div>
                 <h2 className="text-lg font-bold">Aufträge verbinden</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -979,7 +979,7 @@ const fieldMismatch = {
               </button>
             </div>
 
-            <div className="max-h-[calc(92vh-150px)] overflow-y-auto px-4 sm:px-6 py-4 space-y-3">
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-3">
               {hasVatConflict && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                   <div className="font-bold">MwSt abweichend</div>
@@ -1118,7 +1118,7 @@ const fieldMismatch = {
 
               {reviewDetailsOpen && (
                 <div className="rounded-lg border overflow-hidden">
-                  <div className="grid grid-cols-[70px_1fr_130px] gap-3 bg-slate-50 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="grid grid-cols-[46px_minmax(0,1fr)_104px] sm:grid-cols-[70px_1fr_130px] gap-2 sm:gap-3 bg-slate-50 px-3 py-2 text-xs text-muted-foreground">
                     <div>Auftrag</div>
                     <div>Leistungen (Auszug)</div>
                     <div className="text-right">Betrag</div>
@@ -1130,7 +1130,7 @@ const fieldMismatch = {
                     return (
                       <div
                         key={`review-${order.id}`}
-                        className="grid grid-cols-[70px_1fr_130px] gap-3 border-t px-3 py-2 text-sm"
+                        className="grid grid-cols-[46px_minmax(0,1fr)_104px] sm:grid-cols-[70px_1fr_130px] gap-2 sm:gap-3 border-t px-3 py-2 text-xs sm:text-sm"
                       >
                         <div className="font-semibold">
                           {index + 1}
@@ -1151,7 +1151,7 @@ const fieldMismatch = {
                     );
                   })}
 
-                  <div className="grid grid-cols-[1fr_160px] gap-3 border-t bg-slate-50 px-3 py-3 text-sm font-bold">
+                  <div className="grid grid-cols-[minmax(0,1fr)_116px] sm:grid-cols-[1fr_160px] gap-2 sm:gap-3 border-t bg-slate-50 px-3 py-3 text-sm font-bold">
                     <div>
                       <div className="text-blue-700">Gesamtsumme (netto)</div>
                       <div className="mt-1 text-[11px] font-normal text-muted-foreground">
@@ -1182,16 +1182,16 @@ const fieldMismatch = {
               )}
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t px-4 sm:px-6 py-4 bg-background">
+            <div className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t px-4 sm:px-6 py-3 sm:py-4 bg-background">
               <button
                 type="button"
                 onClick={() => setShowReviewDialog(false)}
-                className="rounded-lg border px-4 py-2 text-sm hover:bg-muted"
+                className="w-full sm:w-auto rounded-lg border px-4 py-2 text-sm hover:bg-muted"
               >
                 Abbrechen
               </button>
 
-              <label className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+              <label className="flex w-full sm:w-auto min-w-0 items-center justify-center gap-2 text-sm text-slate-700">
                 <input
                   type="checkbox"
                   checked={reviewAccepted}
@@ -1210,7 +1210,7 @@ const fieldMismatch = {
                   !selectedMainOrderId ||
                   !selectedCustomerId
                 }
-                className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                className="w-full sm:w-auto rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
                 Verbinden
               </button>
