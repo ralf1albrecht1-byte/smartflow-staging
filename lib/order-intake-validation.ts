@@ -74,7 +74,7 @@ const CURRENCY_WORDS =
   "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|£)";
 
 const UNIT_WORDS =
-  "(?:stueck|stück|stk|einheit|piece|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
+  "(?:stueck|stück|stuck|stk|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
 
 const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 
@@ -164,7 +164,7 @@ const unitTypeFromText = (value?: string | null): string | null => {
   const source = normalizeCompare(value);
   if (!source) return null;
 
-  if (/\b(stueck|stuck|stück|stk|piece|einheit|einheiten)\b/i.test(source)) return "piece";
+  if (/\b(stueck|stuck|stück|stk|piece|pieces|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten)\b/i.test(source)) return "piece";
   if (/\b(quadratmeter|qm|m2|m²|sqm)\b/i.test(source)) return "square_meter";
   if (/\b(kubikmeter|cbm|m3|m³)\b/i.test(source)) return "cubic_meter";
   if (/\b(stunde|stunden|std|hour|hours|h)\b/i.test(source)) return "hour";
@@ -260,25 +260,25 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     unitGroup?: number;
   }> = [
     {
-      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
+      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
       currencyGroup: 1,
       priceGroup: 2,
       unitGroup: 3,
     },
     {
-      re: new RegExp(`${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
+      re: new RegExp(`${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
       currencyGroup: 2,
       priceGroup: 1,
       unitGroup: 3,
     },
     {
-      re: new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
+      re: new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
       currencyGroup: 1,
       priceGroup: 2,
       unitGroup: 3,
     },
     {
-      re: new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
+      re: new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
       currencyGroup: 2,
       priceGroup: 1,
       unitGroup: 3,
@@ -294,12 +294,12 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
       priceGroup: 1,
     },
     {
-      re: new RegExp(`(?:pauschal|pauschale|fixpreis|festpreis|flat\\s+price|fixed\\s+price|flat|forfait|prix\\s+fixe)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
+      re: new RegExp(`(?:pauschal|pauschale|fixpreis|festpreis)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
       currencyGroup: 1,
       priceGroup: 2,
     },
     {
-      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis|flat\\s+price|fixed\\s+price|flat|forfait|prix\\s+fixe)\\b`, "gi"),
+      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\b`, "gi"),
       currencyGroup: 1,
       priceGroup: 2,
     },
@@ -362,8 +362,8 @@ function detectCurrencylessFlatPriceFromSegment(
   if (!/\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(source)) return null;
 
   const patterns = [
-    /\b(?:pauschal|pauschale|fixpreis|festpreis|flat\s+price|fixed\s+price|flat|forfait|prix\s+fixe)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
-    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:pauschal|pauschale|fixpreis|festpreis|flat\s+price|fixed\s+price|flat|forfait|prix\s+fixe)\b/i,
+    /\b(?:pauschal|pauschale|fixpreis|festpreis)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
+    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:pauschal|pauschale|fixpreis|festpreis)\b/i,
   ];
 
   for (const pattern of patterns) {
@@ -547,7 +547,7 @@ function detectFlatPriceItems(
     if (!detected || detected.currency !== fallbackCurrency) continue;
 
     const beforeFlat = segment
-      .split(/\b(?:pauschal|pauschale|fixpreis|festpreis|flat\s+price|fixed\s+price|flat|forfait|prix\s+fixe)\b/i)[0]
+      .split(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/i)[0]
       ?.replace(/^\s*(leistung|leistungen|bitte|zusätzlich|zusaetzlich|und|plus|[0-9]+[.)])\s*[:\-–—]?\s*/i, "")
       .replace(/[,;:.]+$/g, "")
       .trim();
@@ -589,118 +589,6 @@ function detectFlatPriceItems(
   return result;
 }
 
-
-function isGenericServiceNameForFlatRepair(serviceName?: string | null): boolean {
-  const key = normalizeCompare(serviceName);
-  if (!key) return true;
-
-  const genericExact = new Set([
-    "reinigung",
-    "reinigen",
-    "arbeit",
-    "arbeiten",
-    "leistung",
-    "leistungen",
-    "auftrag",
-    "unbekannte leistung",
-    "sonstiges",
-  ]);
-
-  if (genericExact.has(key)) return true;
-
-  const tokens = serviceTokens(serviceName);
-  return tokens.length === 0 || key.length < 6;
-}
-
-function repairGenericFlatItemsFromExplicitText(
-  originalText: string,
-  items: ParsedOrderItemForValidation[],
-  fallbackCurrency: IntakeCurrency,
-): ParsedOrderItemForValidation[] {
-  const explicitFlatItems = detectFlatPriceItems(originalText, [], fallbackCurrency);
-  if (explicitFlatItems.length === 0) return items;
-
-  const usedFlatIndexes = new Set<number>();
-
-  return items.map((item) => {
-    if (!isFlatUnit(item.unit)) return item;
-    if (!isGenericServiceNameForFlatRepair(item.serviceName)) return item;
-
-    const itemAmount = roundMoney(Number(item.unitPrice || 0));
-    if (!itemAmount) return item;
-
-    const matchingIndex = explicitFlatItems.findIndex((flatItem, index) => {
-      if (usedFlatIndexes.has(index)) return false;
-      const flatAmount = roundMoney(Number(flatItem.unitPrice || 0));
-      return flatAmount === itemAmount;
-    });
-
-    if (matchingIndex === -1) return item;
-
-    const flatItem = explicitFlatItems[matchingIndex];
-    usedFlatIndexes.add(matchingIndex);
-
-    return {
-      ...item,
-      serviceName: flatItem.serviceName,
-      description: flatItem.description || item.description,
-      quantity: 1,
-      unit: "Pauschal",
-      unitPrice: Number(flatItem.unitPrice || item.unitPrice || 0),
-      totalPrice: calculateSafeLineTotal({
-        ...item,
-        unit: "Pauschal",
-        quantity: 1,
-        unitPrice: Number(flatItem.unitPrice || item.unitPrice || 0),
-      }),
-      needsReview:
-        item.reviewReason && !QUANTITY_REVIEW_REASON_PATTERN.test(item.reviewReason)
-          ? item.needsReview
-          : false,
-      reviewReason:
-        item.reviewReason && !QUANTITY_REVIEW_REASON_PATTERN.test(item.reviewReason)
-          ? item.reviewReason
-          : null,
-      sourceText: flatItem.sourceText || item.sourceText || null,
-      evidence: flatItem.evidence || item.evidence || null,
-      detectedCurrency: flatItem.detectedCurrency || item.detectedCurrency || null,
-    };
-  });
-}
-
-function quarantineGenericDuplicateFlatPrices(
-  items: ParsedOrderItemForValidation[],
-): ParsedOrderItemForValidation[] {
-  const explicitSpecificFlatItems = items.filter((item) => {
-    if (!isFlatUnit(item.unit)) return false;
-    if (isGenericServiceNameForFlatRepair(item.serviceName)) return false;
-    return Number(item.unitPrice || 0) > 0;
-  });
-
-  if (explicitSpecificFlatItems.length === 0) return items;
-
-  return items.map((item) => {
-    if (!isFlatUnit(item.unit)) return item;
-    if (!isGenericServiceNameForFlatRepair(item.serviceName)) return item;
-
-    const itemAmount = roundMoney(Number(item.unitPrice || 0));
-    const duplicatesSpecific = explicitSpecificFlatItems.some(
-      (specific) => roundMoney(Number(specific.unitPrice || 0)) === itemAmount,
-    );
-
-    if (!duplicatesSpecific) return item;
-
-    return {
-      ...item,
-      quantity: 0,
-      unitPrice: 0,
-      totalPrice: 0,
-      needsReview: true,
-      reviewReason: "generic_duplicate_flat_price_review",
-    };
-  });
-}
-
 function removeItemsUsingForeignFlatPrice(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -709,24 +597,36 @@ function removeItemsUsingForeignFlatPrice(
   const flatItems = detectFlatPriceItems(originalText, [], fallbackCurrency);
   if (flatItems.length === 0) return items;
 
-  const flatAmounts = new Set(flatItems.map((item) => roundMoney(Number(item.unitPrice || 0))));
-  const flatServiceKeys = flatItems.map((item) => normalizeCompare(item.serviceName));
+  const flatRecords = flatItems.map((flatItem) => ({
+    amount: roundMoney(Number(flatItem.unitPrice || 0)),
+    key: normalizeCompare(flatItem.serviceName),
+    tokens: serviceTokens(flatItem.serviceName),
+  }));
 
   return items.filter((item) => {
-    if (isFlatUnit(item.unit)) return true;
-
     const itemPrice = roundMoney(Number(item.unitPrice || 0));
-    if (!flatAmounts.has(itemPrice)) return true;
+    const matchingFlat = flatRecords.find((flat) => flat.amount === itemPrice);
+    if (!matchingFlat) return true;
 
+    const itemText = itemEvidenceText(item);
     const itemKey = normalizeCompare(item.serviceName);
-    const isSameFlatDomain = flatServiceKeys.some((flatKey) => {
-      if (!flatKey || !itemKey) return false;
-      return flatKey.includes(itemKey) || itemKey.includes(flatKey);
-    });
+    const sameFlatDomain = Boolean(
+      matchingFlat.key &&
+        itemKey &&
+        (matchingFlat.key.includes(itemKey) ||
+          itemKey.includes(matchingFlat.key) ||
+          matchingFlat.tokens.some((token) => itemKey.includes(token))),
+    );
 
-    if (isSameFlatDomain) return true;
+    if (sameFlatDomain) return true;
 
-    // V11 fail-safe: Fremde Pauschale nicht als Stück-/Stundenpreis speichern.
+    // A real non-flat unit price may coincidentally have the same number as a
+    // flat price. Keep it only if its own line has an explicit unit-price signal.
+    if (!isFlatUnit(item.unit) && hasOwnUnitPriceSignal(item)) return true;
+
+    // Flat rows with the same amount are only safe through sameFlatDomain above.
+    // If another service name uses the same flat amount, it is probably a copied
+    // pauschal price and must not increase the total.
     return false;
   });
 }
@@ -740,6 +640,135 @@ function calculateSafeLineTotal(item: ParsedOrderItemForValidation) {
   if (!Number.isFinite(quantity) || quantity <= 0) return 0;
 
   return roundMoney(quantity * unitPrice);
+}
+
+function itemEvidenceText(item: ParsedOrderItemForValidation): string {
+  return [item.serviceName, item.description, item.sourceText, item.evidence]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function hasOwnUnitPriceSignal(item: ParsedOrderItemForValidation): boolean {
+  const text = itemEvidenceText(item);
+  if (!text) return false;
+  return extractUnitPricesFromSegment(text).some((price) => price.unitType && price.unitType !== "flat");
+}
+
+function detectQuantityForUnitTypeFromText(
+  text: string,
+  unitType: string | null,
+): number | null {
+  const source = normalizeCompare(text);
+  if (!source || !unitType) return null;
+
+  const patterns: Record<string, RegExp[]> = {
+    piece: [
+      /\b(\d+(?:[.,]\d+)?)\s*(?:stueck|stuck|stk|piece|pieces|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows)\b/i,
+    ],
+    square_meter: [
+      /\b(\d+(?:[.,]\d+)?)\s*(?:quadratmeter|qm|m2|m²|sqm)\b/i,
+    ],
+    cubic_meter: [/\b(\d+(?:[.,]\d+)?)\s*(?:kubikmeter|cbm|m3|m³)\b/i],
+    meter: [/\b(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/i],
+    hour: [/\b(\d+(?:[.,]\d+)?)\s*(?:stunde|stunden|std|hour|hours|h)\b/i],
+    day: [/\b(\d+(?:[.,]\d+)?)\s*(?:tag|tage|day|days)\b/i],
+  };
+
+  for (const pattern of patterns[unitType] || []) {
+    const match = source.match(pattern);
+    const parsed = parsePriceNumber(match?.[1]);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function repairCommonMultilingualCleaningItems(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  return items.map((item) => {
+    const evidence = itemEvidenceText(item);
+    const key = normalizeCompare(evidence);
+    if (!key) return item;
+
+    let next: ParsedOrderItemForValidation = { ...item };
+    let targetUnitType: string | null = null;
+
+    if (/\b(nettoyage\s+(?:des\s+)?vitres|vitres?|fenetres?|windows?|fenster)\b/i.test(key)) {
+      next.serviceName = "Fenster reinigen";
+      next.unit = "Stück";
+      targetUnitType = "piece";
+    } else if (/\b(nettoyage\s+du\s+sol\s+du\s+garage|sol\s+du\s+garage|garage\s+floor|garagenboden|lagerboden)\b/i.test(key)) {
+      next.serviceName = /\blagerboden\b/i.test(key) ? "Lagerboden reinigen" : "Garageboden reinigen";
+      next.unit = "Quadratmeter";
+      targetUnitType = "square_meter";
+    } else if (/\b(office\s+floor|boden\s+reinigen|floor\s+clean)\b/i.test(key)) {
+      next.serviceName = "Boden reinigen";
+      next.unit = "Quadratmeter";
+      targetUnitType = "square_meter";
+    }
+
+    if (!targetUnitType) return item;
+
+    const quantityFromText = detectQuantityForUnitTypeFromText(evidence, targetUnitType);
+    if (quantityFromText) next.quantity = quantityFromText;
+
+    const explicitPrice = detectExplicitUnitPriceForItem(originalText, next);
+    if (explicitPrice?.currency === finalCurrency) {
+      next.unitPrice = explicitPrice.amount;
+    }
+
+    next.totalPrice = calculateSafeLineTotal(next);
+    if (next.unitPrice > 0 && next.quantity > 0) {
+      next.needsReview = Boolean(next.reviewReason && !/price|quantity|unit_price|unbekannte/i.test(next.reviewReason));
+      if (!next.needsReview) next.reviewReason = null;
+    }
+
+    return next;
+  });
+}
+
+function dedupeUnsafeDuplicateItems(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  const result: ParsedOrderItemForValidation[] = [];
+
+  for (const item of items) {
+    const key = normalizeCompare(item.serviceName);
+    const unitType = unitTypeFromDisplayUnit(item.unit) || "unknown";
+    const quantity = roundMoney(Number(item.quantity || 0));
+    const price = roundMoney(Number(item.unitPrice || 0));
+
+    const existingIndex = result.findIndex((existing) => {
+      const existingKey = normalizeCompare(existing.serviceName);
+      if (!key || !existingKey || key !== existingKey) return false;
+      const existingUnitType = unitTypeFromDisplayUnit(existing.unit) || "unknown";
+      if (unitType !== existingUnitType) return false;
+      const existingQuantity = roundMoney(Number(existing.quantity || 0));
+      return existingQuantity === quantity || !existingQuantity || !quantity;
+    });
+
+    if (existingIndex < 0) {
+      result.push(item);
+      continue;
+    }
+
+    const existing = result[existingIndex];
+    const existingTotal = calculateSafeLineTotal(existing);
+    const itemTotal = calculateSafeLineTotal(item);
+
+    // Keep the safer/priced row. Drop duplicate zero-review rows and duplicate flat-price artifacts.
+    if (itemTotal > existingTotal) {
+      result[existingIndex] = item;
+    } else if (itemTotal === existingTotal && price > Number(existing.unitPrice || 0)) {
+      result[existingIndex] = item;
+    }
+  }
+
+  return result;
 }
 
 
@@ -1026,7 +1055,7 @@ export function validateAndRepairParsedOrderItems(
     return next;
   });
 
-  items = repairGenericFlatItemsFromExplicitText(input.originalText, items, finalCurrency);
+  items = repairCommonMultilingualCleaningItems(input.originalText, items, finalCurrency);
 
   const missingFlatItems = detectFlatPriceItems(input.originalText, items, finalCurrency);
   if (missingFlatItems.length > 0) {
@@ -1034,8 +1063,8 @@ export function validateAndRepairParsedOrderItems(
     reviewReasons.push("manual_flat_service_from_text");
   }
 
-  items = quarantineGenericDuplicateFlatPrices(items);
   items = removeItemsUsingForeignFlatPrice(input.originalText, items, finalCurrency);
+  items = dedupeUnsafeDuplicateItems(items);
 
   items = repairAmbiguousQuantityRangeItems(input.originalText, items).map((item) => {
     if (!isFlatUnit(item.unit) || item.unitPrice <= 0) return item;
@@ -1223,7 +1252,24 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
   if (STOP_MARKER.test(candidate)) return false;
   if (EXECUTION_ADDRESS_MARKER.test(candidate)) return false;
 
-  const blocked = new Set(["ist", "isch", "is", "dort", "hier", "adresse", "ausfuehrungsadresse", "ausführungsadresse"]);
+  const blocked = new Set([
+    "ist",
+    "isch",
+    "is",
+    "dort",
+    "hier",
+    "adresse",
+    "ausfuehrungsadresse",
+    "ausführungsadresse",
+    "bei",
+    "bi",
+    "in",
+    "im",
+    "de",
+    "der",
+    "die",
+    "das",
+  ]);
   if (blocked.has(key)) return false;
 
   return true;

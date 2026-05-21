@@ -649,7 +649,7 @@ function getServiceUnitType(serviceUnit?: string | null): string {
     hour: ["stunde", "stunden", "std", "h", "stundensatz"],
     day: ["tag", "tage", "arbeitstag", "arbeitstage", "tagessatz"],
     meter: ["meter", "laufmeter", "lfm", "m"],
-    piece: ["stueck", "stück", "stk", "anzahl", "einheit", "einheiten"],
+    piece: ["stueck", "stück", "stuck", "stk", "piece", "pieces", "piece", "pieces", "vitre", "vitres", "fenetre", "fenetres", "window", "windows", "anzahl", "einheit", "einheiten"],
   };
 
   for (const [type, aliases] of Object.entries(unitAliases)) {
@@ -668,13 +668,13 @@ function detectUnitPriceFromText(text: string): number | null {
   if (!source) return null;
 
   const unitWords =
-    "(?:stueck|stück|stk|einheit|piece|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|stunde|stunden|std|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr)";
+    "(?:stueck|stück|stuck|stk|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|stunde|stunden|std|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr)";
 
   const currencyWords =
     "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|dollar|\\$|gbp|pfund|£)";
 
   const joinWords =
-    "(?:pro|je|per|à|a|/)";
+    "(?:pro|je|per|par|à|a|/)";
 
   const priceNumber =
     "(\\d+(?:[.,]\\d{1,2})?)";
@@ -892,9 +892,9 @@ function countUnitPriceSignals(text: string | null | undefined): number {
 
   const currencyWords =
     "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|dollar|\\$|gbp|pfund|£)";
-  const unitJoin = "(?:pro|je|per|à|a|/)";
+  const unitJoin = "(?:pro|je|per|par|à|a|/)";
   const unitWords =
-    "(?:stueck|stück|stk|quadratmeter|qm|m2|m²|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
+    "(?:stueck|stück|stuck|stk|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|qm|m2|m²|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
 
   const patterns = [
     new RegExp(`\\d+(?:[.,]\\d{1,2})?\\s*${currencyWords}\\s*${unitJoin}\\s*${unitWords}`, "gi"),
@@ -961,14 +961,14 @@ function hasAmbiguousCompactLinePrice(text: string | null | undefined): boolean 
   if (!source) return false;
 
   const hasExplicitUnitPriceSignal =
-    /\b(pro|je|per|stundensatz|tagessatz|quadratmeterpreis|kubikmeterpreis|meterpreis|stueckpreis|stückpreis|kilopreis|kilogrammpreis|tonnenpreis|literpreis)\b/i.test(
+    /\b(pro|je|per|par|stundensatz|tagessatz|quadratmeterpreis|kubikmeterpreis|meterpreis|stueckpreis|stückpreis|kilopreis|kilogrammpreis|tonnenpreis|literpreis)\b/i.test(
       source,
     );
 
   if (hasExplicitUnitPriceSignal) return false;
 
   const unitWords =
-    "(?:stueck|stück|stk|einheit|piece|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|m|stunde|stunden|std|h|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
+    "(?:stueck|stück|stuck|stk|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|m|stunde|stunden|std|h|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
 
   const currencyWords =
     "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|dollar|\\$|gbp|pfund|£)";
@@ -1015,7 +1015,7 @@ function detectAllQuantityUnitsFromText(
     { unit: "liter", re: /(\d+(?:[.,]\d+)?)\s*(?:liter|ltr\.?|l)\b/gi },
     {
       unit: "piece",
-      re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stück|stuck|stk|anzahl|einheiten|baeume|bäume|baume|baum)\b/gi,
+      re: /(\d+(?:[.,]\d+)?)\s*(?:stueck|stück|stuck|stk|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|anzahl|einheiten|baeume|bäume|baume|baum)\b/gi,
     },
   ];
 
@@ -1814,13 +1814,12 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Jede Leistung braucht ihre eigene evidence/sourceText.
 - Preis, Menge, Einheit und Währung dürfen NUR gesetzt werden, wenn sie in der evidence derselben Position stehen.
 - Preis aus einer anderen Zeile/anderen Leistung NIEMALS übernehmen.
+- Pauschalpreise dürfen NIEMALS auf andere Positionen kopiert werden. Wenn eine Zeile "Eingangsbereich pauschal 120" sagt, gilt 120 nur für diese eine Position.
+- Rechnungsadresse/Billing address/Rechnung geht an ist NIE eine Arbeitsposition und darf keine generische Leistung wie "Reinigung" erzeugen.
+- Fremdsprachige Leistungen semantisch übersetzen: "Nettoyage des vitres" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen. Nicht auf falsche Katalogleistung wie Kellerboden/Farbreste ausweichen.
 - Wenn bei einer Position kein eigener Preis steht → unit_price = null.
 - Wenn mehrere Preise/Währungen im Text stehen, jede Position separat zuordnen; bei Unsicherheit unit_price = null und confidence = "niedrig".
 - Keine Leistungen erfinden.
-- Rechnungsadresse, Billing address, Rechnung geht an, Kunde/Rechnungsadresse, Adresse de facturation, Rechnungs-/Kundendaten, Objektadresse und Ausführungsadresse sind NIEMALS Arbeitspositionen.
-- Aus Adress-/Rechnungszeilen darf keine Leistung wie "Reinigung", "Arbeit" oder "Sonstiges" entstehen.
-- Erzeuge keine generische Zusatzposition "Reinigung", wenn bereits eine konkrete Position wie "Eingangsbereich reinigen", "Treppenhaus reinigen", "Fenster reinigen" usw. vorhanden ist.
-- Wenn ein Preis wegen Adress-/Rechnungszeilen oder mehreren möglichen Positionen nicht eindeutig zuordenbar ist: unit_price = null, confidence = "niedrig", needs_review = true. Niemals einen Pauschalpreis auf eine zusätzliche generische Leistung kopieren.
 - Nicht versuchen, unbekannte Arbeiten einer bestehenden Leistung zuzuordnen.
 - Wenn mehrere Arbeiten genannt werden, jede Arbeit separat ausgeben.
 - Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.
@@ -2782,7 +2781,11 @@ const hasForbiddenServiceWorkConflict = (
       },
       {
         service: ["fenster", "fensterreinigung"],
-        work: ["fenster", "fensterreinigung", "reinigen", "reinigung"],
+        work: ["fenster", "fensterreinigung", "vitre", "vitres", "fenetre", "fenetres", "window", "windows", "reinigen", "reinigung", "nettoyage"],
+      },
+      {
+        service: ["boden", "garage", "garagenboden", "lagerboden"],
+        work: ["boden", "floor", "sol", "garage", "garagenboden", "lagerboden", "reinigen", "reinigung", "nettoyage"],
       },
     ];
 
