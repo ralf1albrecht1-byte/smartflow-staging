@@ -298,6 +298,47 @@ function uniqueNormalizedLines(lines: string[]): string[] {
     });
 }
 
+function isNegatedSpecialNoteLine(value: string): boolean {
+  const line = normalizeSemanticText(value);
+  if (!line) return false;
+
+  return /\b(kein|keine|keinen|keinem|nicht|nie|ohne|no|not|none|without|pas|sans|sin|ningun|ninguna|nessun|nessuna|sem)\b/i.test(line);
+}
+
+function dedupeSpecialNoteLines(lines: string[]): string[] {
+  const cleaned = uniqueNormalizedLines(lines);
+  const result: string[] = [];
+
+  for (const line of cleaned.sort((a, b) => b.length - a.length)) {
+    const key = normalizeSemanticText(line);
+    if (!key) continue;
+
+    const isSubsumed = result.some((existing) => {
+      const existingKey = normalizeSemanticText(existing);
+      if (!existingKey) return false;
+      return existingKey.includes(key) || key.includes(existingKey);
+    });
+
+    if (!isSubsumed) result.push(line);
+  }
+
+  return result.reverse();
+}
+
+function isNonActionableSpecialNoteCandidate(line: string): boolean {
+  const normalized = normalizeSemanticText(line);
+  if (!normalized) return true;
+
+  if (!isNegatedSpecialNoteLine(normalized)) return false;
+
+  // Negative parking/access facts are still useful operational hints.
+  if (/\b(kein\s+parkplatz|keine\s+parkplaetze|kein\s+parken|parkverbot|no\s+parking|sin\s+aparcamiento|sans\s+parking|senza\s+parcheggio|kein\s+lift|ohne\s+lift|no\s+elevator|no\s+lift)\b/i.test(normalized)) {
+    return false;
+  }
+
+  return /\b(hund|dog|chien|perro|cane|cao|cão|oel|oil|huile|aceite|olio|scherben|glass|strom|kabel|wire|leiter|ladder|termin|appointment|schluessel|schlussel|key)\b/i.test(normalized);
+}
+
 /**
  * Semantic fallback for safety notes.
  *
@@ -313,20 +354,33 @@ function uniqueNormalizedLines(lines: string[]): string[] {
 function extractSemanticSpecialNotesFallback(
   text: string | null | undefined,
 ): { safetyWarnings: string[]; jobHints: string[] } {
-  const source = normalizeSemanticText(text);
+  const rawText = String(text || "").trim();
+  if (!rawText) return { safetyWarnings: [], jobHints: [] };
+
+  const normalizedLines = rawText
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => normalizeSemanticText(line))
+    .filter(Boolean);
+
+  const source = normalizedLines.join("\n");
   if (!source) return { safetyWarnings: [], jobHints: [] };
 
-  const has = (pattern: RegExp) => pattern.test(source);
+  const actionableLineHas = (subject: RegExp, positiveContext?: RegExp) =>
+    normalizedLines.some((line) => {
+      if (!subject.test(line)) return false;
+      if (isNegatedSpecialNoteLine(line)) return false;
+      return positiveContext ? positiveContext.test(line) : true;
+    });
 
   const safetyWarnings: string[] = [];
   const jobHints: string[] = [];
 
-  const oil =
-    has(/\b(oel|oil|huile|aceite|olio|oleo|oleo|ol|petroleo)\b/i) ||
-    has(/\b(ausgelaufen|leaking|spill(?:ed)?|verschuttet|derrame|fuoriuscit|renverse)\b/i);
-  const slippery = has(
-    /\b(rutschig|glatt|slippery|slick|glissant|resbaladiz|scivolos|escorregad|skluz)\b/i,
-  );
+  const oilSubject = /\b(oel|oil|huile|aceite|olio|oleo|ol|petroleo)\b/i;
+  const oilContext = /\b(ausgelaufen|leaking|spill(?:ed)?|verschuttet|derrame|fuoriuscit|renverse|boden|floor|sol|suelo|pavimento)\b/i;
+  const slipperySubject = /\b(rutschig|glatt|slippery|slick|glissant|resbaladiz|scivolos|escorregad|skluz)\b/i;
+
+  const oil = actionableLineHas(oilSubject, oilContext) || actionableLineHas(oilContext, oilSubject);
+  const slippery = actionableLineHas(slipperySubject);
   if (oil && slippery) {
     safetyWarnings.push("Rutschiger Boden wegen Öl");
   } else if (oil) {
@@ -335,77 +389,103 @@ function extractSemanticSpecialNotesFallback(
     safetyWarnings.push("Rutschiger Boden");
   }
 
-  if (
-    has(/\b(hund|dog|chien|perro|cane|cao|cão)\b/i) &&
-    has(/\b(frei|frei\s+lauf|laeuft|läuft|free|loose|unleashed|libre|suelto|sciolto|livre)\b/i)
-  ) {
-    safetyWarnings.push("Hund vor Ort");
-  } else if (has(/\b(hund|dog|chien|perro|cane|cao|cão)\b/i)) {
-    safetyWarnings.push("Hund vor Ort");
+  const dogSubject = /\b(hund|dog|chien|perro|cane|cao|cão)\b/i;
+  const dangerousDogContext = /\b(frei|frei\s+lauf|laeuft|läuft|free|loose|unleashed|libre|suelto|sciolto|livre|aggressiv|aggressive|bissig|beisst|beißt|unbeaufsichtigt|unguarded)\b/i;
+  const friendlyDogContext = /\b(freundlich|friendly|gentil|amable|docile|brav|bravo|lieb|owner|besitzer|maitre|proprietaire|propietario|presente|vor\s+ort)\b/i;
+  if (actionableLineHas(dogSubject, dangerousDogContext)) {
+    safetyWarnings.push("Hund frei oder ungesichert vor Ort");
+  } else if (actionableLineHas(dogSubject, friendlyDogContext)) {
+    jobHints.push("Hund freundlich vor Ort");
+  } else if (actionableLineHas(dogSubject)) {
+    jobHints.push("Hund vor Ort");
   }
 
-  if (
-    has(/\b(strom|elektr|electric|electrical|electricite|electricidad|corriente|elettric|kabel|cable|cables|draht|wire|wires)\b/i) &&
-    has(/\b(offen|blank|frei|defekt|kaputt|danger|peligro|pericol|perigo|dangereux|exposed|open|loose)\b/i)
-  ) {
+  const electricSubject = /\b(strom|elektr|electric|electrical|electricite|electricidad|corriente|elettric|kabel|cable|cables|draht|wire|wires|stromkabel)\b/i;
+  const electricDangerContext = /\b(offen|blank|frei|defekt|kaputt|danger|peligro|pericol|perigo|dangereux|exposed|open|loose|sichtbar)\b/i;
+  if (actionableLineHas(electricSubject, electricDangerContext)) {
     safetyWarnings.push("Offene Stromkabel / Stromgefahr");
-  } else if (has(/\b(stromkabel|electric\s+cable|electrical\s+wires|cables\s+electricos|cables\s+electriques)\b/i)) {
-    safetyWarnings.push("Stromgefahr");
   }
 
-  if (has(/\b(asbest|asbestos|amiante|amianto)\b/i)) {
+  if (actionableLineHas(/\b(asbest|asbestos|amiante|amianto)\b/i)) {
     safetyWarnings.push("Asbestverdacht");
   }
 
-  if (has(/\b(schimmel|mold|mould|moisissure|moho|muffa|bolor)\b/i)) {
+  if (actionableLineHas(/\b(schimmel|mold|mould|moisissure|moho|muffa|bolor)\b/i)) {
     safetyWarnings.push("Schimmel");
   }
 
-  if (has(/\b(chemie|chemisch|chemical|chemicals|chimique|quimic|chimic|produto\s+quimico)\b/i)) {
+  if (actionableLineHas(/\b(chemie|chemisch|chemical|chemicals|chimique|quimic|chimic|produto\s+quimico)\b/i)) {
     safetyWarnings.push("Chemische Stoffe");
   }
 
-  if (has(/\b(feuer|brand|fire|feu|fuego|fuoco|incendio|incendie)\b/i)) {
+  if (actionableLineHas(/\b(feuer|brand|fire|feu|fuego|fuoco|incendio|incendie)\b/i)) {
     safetyWarnings.push("Brand-/Feuergefahr");
   }
 
-  if (has(/\b(glasscherben|scherben|broken\s+glass|verre\s+casse|vidrio\s+roto|vetro\s+rotto)\b/i)) {
+  if (actionableLineHas(/\b(glasscherben|scherben|broken\s+glass|verre\s+casse|vidrio\s+roto|vetro\s+rotto)\b/i)) {
     safetyWarnings.push("Glasscherben");
   }
 
   if (
-    has(/\b(absturz|sturz|fall\s+risk|fallgefahr|chute|caida|caduta)\b/i) ||
-    (has(/\b(instabil|unstable|instable|inestable|instabile)\b/i) &&
-      has(/\b(boden|untergrund|floor|sol|suelo|pavimento)\b/i))
+    actionableLineHas(/\b(absturz|sturz|fall\s+risk|fallgefahr|chute|caida|caduta)\b/i) ||
+    normalizedLines.some(
+      (line) =>
+        !isNegatedSpecialNoteLine(line) &&
+        /\b(instabil|unstable|instable|inestable|instabile)\b/i.test(line) &&
+        /\b(boden|untergrund|floor|sol|suelo|pavimento)\b/i.test(line),
+    )
   ) {
     safetyWarnings.push("Sturzgefahr");
   }
 
-  if (has(/\b(leiter|ladder|echelle|escalera|scala|escada)\b/i)) {
-    if (has(/\b(absturz|sturz|instabil|gefahr|danger|warning|peligro|pericolo|perigo|hauteur|height|hoehe|höhe)\b/i)) {
-      safetyWarnings.push("Leiterarbeit mit zusätzlichem Risiko");
-    } else {
-      jobHints.push("Leiter eventuell benötigt");
-    }
+  const ladderSubject = /\b(leiter|ladder|echelle|escalera|scala|escada)\b/i;
+  const ladderRisk = /\b(absturz|sturz|instabil|gefahr|danger|warning|peligro|pericolo|perigo|hauteur|height|hoehe|höhe)\b/i;
+  const ladderMaybe = /\b(eventuell|evtl|vielleicht|moeglich|möglich|possibly|maybe|peut\s+etre|peut-être|quizas|forse)\b/i;
+  if (actionableLineHas(ladderSubject, ladderRisk)) {
+    safetyWarnings.push("Leiterarbeit mit zusätzlichem Risiko");
+  } else if (actionableLineHas(ladderSubject, ladderMaybe)) {
+    jobHints.push("Leiter eventuell benötigt");
+  } else if (actionableLineHas(ladderSubject, /\b(benoetigt|benötigt|noetig|nötig|erforderlich|required|needed|necessaire|necesaria|necessaria)\b/i)) {
+    jobHints.push("Leiter benötigt");
+  } else if (actionableLineHas(ladderSubject)) {
+    jobHints.push("Leiter eventuell benötigt");
   }
 
-  if (has(/\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|anrufen|call\s+back|please\s+call|rappeler|llamar|richiamare|ligar)\b/i)) {
+  if (actionableLineHas(/\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|anrufen|call\s+back|please\s+call|rappeler|llamar|richiamare|ligar)\b/i)) {
     jobHints.push("Rückruf vor Arbeitsbeginn");
   }
 
-  if (
-    has(/\b(schwer\s+zugaenglich|schwer\s+zugänglich|schwieriger\s+zugang|kein\s+lift|no\s+elevator|no\s+lift|access\s+difficult|difficult\s+access|acces\s+difficile|sin\s+ascensor|senza\s+ascensore|acesso\s+dificil)\b/i)
-  ) {
+  const hasDifficultAccess = normalizedLines.some((line) =>
+    /\b(schwer\s+zugaenglich|schwer\s+zugänglich|schwieriger\s+zugang|kein\s+lift|ohne\s+lift|no\s+elevator|no\s+lift|access\s+difficult|difficult\s+access|acces\s+difficile|sin\s+ascensor|senza\s+ascensore|acesso\s+dificil)\b/i.test(line),
+  );
+  if (hasDifficultAccess) {
     jobHints.push("Schwieriger Zugang");
   }
 
-  if (has(/\b(hanglage|hang|steigung|slope|pente|pendiente|pendenza|declive)\b/i)) {
+  if (actionableLineHas(/\b(hanglage|hang|steigung|slope|pente|pendiente|pendenza|declive)\b/i)) {
     jobHints.push("Hanglage");
   }
 
+  const hasGoodParking = normalizedLines.some(
+    (line) =>
+      !isNegatedSpecialNoteLine(line) &&
+      /\b(parkplatz|parking|aparcamiento|parcheggio)\b/i.test(line) &&
+      /\b(vorhanden|reserviert|frei|innenhof|available|reserved|courtyard|disponible|riservato)\b/i.test(line),
+  );
+  const hasBadParking = normalizedLines.some(
+    (line) =>
+      /\b(parkplatz|parking|aparcamiento|parcheggio)\b/i.test(line) &&
+      /\b(schwierig|kein|keine|parkverbot|difficult|no\s+parking|sin|sans|senza)\b/i.test(line),
+  );
+  if (hasGoodParking) {
+    jobHints.push("Parkplatz vorhanden oder reserviert");
+  } else if (hasBadParking) {
+    jobHints.push("Parkplatz schwierig");
+  }
+
   return {
-    safetyWarnings: uniqueNormalizedLines(safetyWarnings),
-    jobHints: uniqueNormalizedLines(jobHints),
+    safetyWarnings: dedupeSpecialNoteLines(safetyWarnings),
+    jobHints: dedupeSpecialNoteLines(jobHints),
   };
 }
 
@@ -1421,9 +1501,12 @@ ZIELE
 - beschreibung enthält NUR die Arbeiten/Leistungen, kurz und sachlich.
 - beschreibung darf KEINE Gefahren, Warnhinweise, organisatorischen Hinweise, Rückrufe, Zugangshinweise, Hund-/Öl-/Strom-Hinweise oder lange Kundenerklärungen enthalten.
 - gefahren: JSON-Array mit echten Sicherheitsrisiken / Warnhinweisen, z.B. ["Hund läuft frei auf dem Grundstück", "Offene Stromkabel im Keller", "Rutschiger Boden wegen Öl"]
-- besonderheiten: JSON-Array mit normalen organisatorischen Hinweisen, z.B. ["Leiter eventuell benötigt", "Rückruf vor Arbeitsbeginn", "Zugang über Seiteneingang", "Parkplatz im Innenhof"]
+- besonderheiten: JSON-Array mit normalen organisatorischen Hinweisen oder positiven Arbeitserleichterungen, z.B. ["Leiter benötigt", "Rückruf vor Arbeitsbeginn", "Zugang über Seiteneingang", "Parkplatz im Innenhof reserviert"]
   (GEFAHREN und BESONDERHEITEN strikt trennen.)
   (Leiter allein ist KEINE Gefahr. Leiter nur dann als Gefahr werten, wenn zusätzlich ein echtes Risiko genannt wird, z.B. Absturzgefahr, instabiler Stand, Arbeiten in großer Höhe.)
+  (Hund ist NICHT automatisch Gefahr: freilaufend/aggressiv/ungesichert = gefahr; freundlich/gesichert/Besitzer vor Ort = besonderheit.)
+  (Parkplatz/Zugang unterscheiden: vorhanden/reserviert/frei = positive besonderheit; schwierig/kein Parkplatz/enge Zufahrt = wichtige besonderheit.)
+  (Verneinte oder nicht relevante Aussagen NICHT aufnehmen: "kein Hund", "kein Öl", "keine Scherben", "Leiter nicht benötigt", "Termin flexibel", "Parkplatz kein Thema".)
   (Keine Leistungen, Preise oder Mengen in gefahren/besonderheiten schreiben.)
   (KEINE Systemhinweise.)
   (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist.)
@@ -1658,10 +1741,13 @@ sonst → ""
 - auftrag.besonderheiten enthält normale Hinweise zur Ausführung / Organisation.
 - Gefahren semantisch erkennen: Es geht um Bedeutung und Arbeitsrisiko, nicht um feste Wörter.
 - Auch wenn der Kunde in Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischt schreibt, müssen gefahren und besonderheiten auf ${hauptsprache} ausgegeben werden.
-- Beispiele für gefahren: freilaufender Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
-- Beispiele für besonderheiten: Rückruf, Zugang, Parkplatz, Schlüssel, Terminwunsch, Leiter eventuell benötigt, Zufahrt, Kunde nur vormittags erreichbar.
-- Wichtig: "Leiter benötigt" allein ist besonderheit, NICHT gefahr.
+- Beispiele für gefahren: freilaufender/ungesicherter/aggressiver Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
+- Beispiele für besonderheiten: Rückruf, Zugang, Parkplatz, Schlüssel, fester Terminwunsch, Leiter benötigt, Zufahrt, Kunde nur vormittags erreichbar, Hund freundlich vor Ort.
+- Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie nützlich sind: Parkplatz reserviert/vorhanden, Zugang frei, Schlüssel liegt bereit.
+- Wichtig: "Leiter benötigt" allein ist besonderheit, NICHT gefahr. "Leiter eventuell benötigt" ist nur Innen-Hinweis und darf keinen festen Außen-Chip erzwingen.
+- Wichtig: "Hund freundlich" ist besonderheit, NICHT gefahr. Nur freilaufend/ungesichert/aggressiv ist gefahr.
 - Wichtig: "Öl auf dem Boden", "rutschiger Boden", "offene Kabel", "freilaufender Hund", "Asbestverdacht", "Schimmel", "Chemikalien" sind gefahren, auch wenn sie in anderer Sprache beschrieben werden.
+- Verneinte/nicht relevante Hinweise NICHT ausgeben: kein Hund, kein Öl, keine Scherben, keine Leiter nötig, Termin flexibel, Parkplatz kein Thema.
 - Keine Doppelung: Eine Information darf entweder in gefahren ODER in besonderheiten stehen, nicht in beiden.
 - Keine Leistung als Gefahr/Besonderheit ausgeben.
 - Keine Gefahren oder Besonderheiten in beschreibung schreiben. Dort nur die Arbeit selbst.
@@ -2477,22 +2563,24 @@ const intakeCurrency =
       .join("\n"),
   );
 
-  const gefahrItems = uniqueNormalizedLines([
+  const gefahrItems = dedupeSpecialNoteLines([
     ...rawGefahrenItems.map(stripSpecialMarker),
     ...gefahrItemsFromBesonderheiten,
     ...semanticFallbackNotes.safetyWarnings,
-  ]);
+  ]).filter((line) => !isNonActionableSpecialNoteCandidate(line));
 
-const hinweisItems = uniqueNormalizedLines([
+const hinweisItems = dedupeSpecialNoteLines([
   ...baseHinweisItems,
   ...semanticFallbackNotes.jobHints,
-]).filter(
-  (line) =>
-    !gefahrItems.some(
-      (danger) =>
-        normalizeSemanticText(danger) === normalizeSemanticText(line),
-    ),
-);
+])
+  .filter((line) => !isNonActionableSpecialNoteCandidate(line))
+  .filter(
+    (line) =>
+      !gefahrItems.some(
+        (danger) =>
+          normalizeSemanticText(danger) === normalizeSemanticText(line),
+      ),
+  );
 
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,

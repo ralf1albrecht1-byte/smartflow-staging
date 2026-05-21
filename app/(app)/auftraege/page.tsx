@@ -284,23 +284,87 @@ const hasOrderImage = (order: Order) => {
   );
 };
 
-const buildOrderBadgeText = (order: Order, parsedNotes: ReturnType<typeof splitSpecialNotes>) => {
-  return [
-    order.specialNotes,
-    ...parsedNotes.safetyWarnings,
-    ...parsedNotes.jobHints,
-    order.notes,
-    order.audioTranscript,
-    order.description,
-    order.serviceName,
-    ...(order.items ?? []).flatMap((item) => [
-      item.serviceName,
-      item.description,
-    ]),
-  ]
-    .map((part) => compactText(part))
-    .filter(Boolean)
-    .join(" | ");
+// CARD_BADGE_SEMANTIC_SPECIAL_NOTES_V14
+// Card chips are now based on cleaned semantic specialNotes only.
+// We no longer scan raw notes/audio/description/service text for chips, because
+// phrases like "kein Hund" or "kein Termin" created false positives.
+const getSemanticBadgeKind = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return null;
+
+  if (/oel|öl|rutsch|strom|kabel|gas|rauch|scherb|asbest|schimmel|chem|feuer|brand|sturz|absturz/.test(text)) {
+    return "warning";
+  }
+
+  if (/hund/.test(text)) return "dog";
+  if (/leiter/.test(text)) return "ladder";
+  if (/park|zufahrt|innenhof|reserviert/.test(text)) return "parking";
+  if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
+  if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text)) return "access";
+  if (/termin|datum|uhr|morgen|vormittag|nachmittag/.test(text)) return "appointment";
+  if (/schubkarre/.test(text)) return "wheelbarrow";
+  if (/absperrband/.test(text)) return "barrier_tape";
+  if (/geruest|gerüst/.test(text)) return "scaffold";
+  if (/hanglage|hang|steigung/.test(text)) return "slope";
+
+  return null;
+};
+
+const isNonActionableSemanticHint = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return true;
+
+  // Negative access/parking information is actionable: no parking / no lift
+  // must still create an orange chip. Other negated hints stay inside only.
+  if (/kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|kein lift|ohne lift/.test(text)) {
+    return false;
+  }
+
+  return (
+    /kein|keine|keinen|nicht benoetigt|nicht benötigt|muss nicht|kein thema|ohne/.test(text) ||
+    /termin flexibel|kein fester termin|kein terminwunsch|irgendwann/.test(text) ||
+    /leiter eventuell|eventuell leiter|vielleicht leiter|leiter vielleicht/.test(text)
+  );
+};
+
+const isPositiveSemanticHint = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return (
+    /parkplatz.*(vorhanden|reserviert|frei|innenhof)|parkplatz im innenhof|parkplatz vor ort/.test(text) ||
+    /zugang.*(frei|offen|freigeschaltet|unproblematisch)/.test(text)
+  );
+};
+
+const badgeLabelByKind: Record<string, string> = {
+  warning: "Achtung",
+  dog: "Hund",
+  ladder: "Leiter",
+  parking: "Parken",
+  key: "Schlüssel",
+  access: "Zugang",
+  appointment: "Termin",
+  wheelbarrow: "Schubkarre",
+  barrier_tape: "Absperrband",
+  scaffold: "Gerüst",
+  slope: "Hanglage",
+};
+
+const dangerBadgeLabel = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (/hund/.test(text)) return "Hund";
+  if (/oel|öl/.test(text)) return "Öl";
+  if (/rutsch/.test(text)) return "Rutschig";
+  if (/strom|kabel/.test(text)) return "Strom";
+  if (/gas|rauch/.test(text)) return "Gas/Rauch";
+  if (/scherb/.test(text)) return "Scherben";
+  if (/asbest/.test(text)) return "Asbest";
+  if (/schimmel/.test(text)) return "Schimmel";
+  if (/chem/.test(text)) return "Chemie";
+  if (/feuer|brand/.test(text)) return "Feuer";
+  if (/sturz|absturz/.test(text)) return "Sturz";
+  return "Achtung";
 };
 
 const getOperationalBadges = (
@@ -308,8 +372,6 @@ const getOperationalBadges = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
-  const rawText = buildOrderBadgeText(order, parsedNotes);
-  const text = normalizeForMatch(rawText);
 
   const redWarningClass = "bg-red-100 text-red-700 border border-red-200";
   const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-200";
@@ -330,125 +392,29 @@ const getOperationalBadges = (
       className,
     });
 
-  if (/\bhund(e|en)?\b|\bdog\b|\bchien\b|\bperro\b|\bcane\b|\bcao\b|\bcão\b/.test(text)) {
-    addDanger("dog", "Hund");
-  }
+  parsedNotes.safetyWarnings.forEach((line) => {
+    const label = dangerBadgeLabel(line);
+    addDanger(`danger_${normalizeForMatch(label)}`, label);
+  });
 
-  if (/\boel\b|\boil\b|\bhuile\b|\baceite\b|\bolio\b|\boleo\b|\bpetroleo\b/.test(text)) {
-    addDanger("oil", "Öl");
-  }
+  parsedNotes.jobHints.forEach((line) => {
+    if (isNonActionableSemanticHint(line)) return;
 
-  if (/rutschig|glatt|slippery|slick|glissant|resbaladiz|scivolos|escorregad|wet floor|suelo mojado|sol mouille|pavimento bagnato/.test(text)) {
-    addDanger("slippery", "Rutschig");
-  }
+    const kind = getSemanticBadgeKind(line);
+    if (!kind || kind === "warning") return;
 
-  if (/strom|elektr|electric|electrical|corriente|elettric|kabel|cable|wire|wires|offene kabel|exposed wires/.test(text)) {
-    addDanger("electricity", "Strom");
-  }
+    const label = badgeLabelByKind[kind];
+    if (!label) return;
 
-  if (/asbest|asbestos|amiante|amianto/.test(text)) {
-    addDanger("asbestos", "Asbest");
-  }
+    addHint(
+      `hint_${kind}`,
+      label,
+      isPositiveSemanticHint(line) ? greenInfoClass : amberHintClass,
+    );
+  });
 
-  if (/schimmel|mold|mould|moho|moisissure|muffa|bolor/.test(text)) {
-    addDanger("mold", "Schimmel");
-  }
-
-  if (/chemie|chemisch|chemical|chemicals|chimique|quimic|chimic|produkt chemisch|produit chimique|producto quimico/.test(text)) {
-    addDanger("chemical", "Chemie");
-  }
-
-  if (/feuer|brand|fire|incendio|incendie|fuego|fuoco|brandgefahr|feuergefahr/.test(text)) {
-    addDanger("fire", "Feuer");
-  }
-
-  if (/scherben|glasscherben|broken glass|shards|verre casse|vidrio roto|vetro rotto|vidro quebrado/.test(text)) {
-    addDanger("glass", "Scherben");
-  }
-
-  if (/sturzgefahr|absturzgefahr|fall hazard|fall risk|risk of falling|risque de chute|riesgo de caida|rischio di caduta|risco de queda/.test(text)) {
-    addDanger("fall", "Sturz");
-  }
-
-  if (/gasgeruch|gas smell|smell of gas|rauchgeruch|smoke smell|odeur de gaz|olor a gas|odeur de fumee/.test(text)) {
-    addDanger("gas_smoke", "Gas/Rauch");
-  }
-
-  if (/leiter|leiter noetig|leiter benoetigt|leiter benötigt|leiter erforderlich|ladder|echelle|échelle|escalera|scala|escada/.test(text)) {
-    addHint("ladder", "Leiter");
-  }
-
-  if (/schwer zugaenglich|schwer zugänglich|schwieriger zugang|zugang schwierig|kein lift|ohne lift|enger zugang|enge zufahrt|difficult access|access difficult|no elevator|no lift|sin ascensor|sans ascenseur|acces difficile|accès difficile|accesso difficile|sem elevador/.test(text)) {
-    addHint("difficult_access", "Zugang");
-  }
-
-  if (/\bhanglage\b|\bam hang\b|\bhang\b|slope|steep|pente|pendiente|pendenza|declive/.test(text)) {
-    addHint("slope", "Hanglage");
-  }
-
-  const hasBadParking = /kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|parkplatz fehlt|parkplatz schwierig|parken schwierig|parkplatz vorher klaeren|parkplatz vorher klären|parking difficult|no parking|sin aparcamiento|sans parking|senza parcheggio/.test(text);
-  const hasGoodParking = /parkplatz vorhanden|parkplatz im innenhof|parkplatz reserviert|parkplatz vor ort|parking available|parking in courtyard|reserved parking|aparcamiento disponible|parcheggio disponibile/.test(text);
-  if (hasBadParking) {
-    addHint("parking", "Parken", amberHintClass);
-  } else if (hasGoodParking) {
-    addHint("parking", "Parken", greenInfoClass);
-  }
-
-  if (/schluessel|schlussel|schlüssel|\bkey\b|llave|chiave|chave|\bcle\b|\bclé\b/.test(text)) {
-    addHint("key", "Schlüssel");
-  }
-
-  if (/schubkarre|wheelbarrow|brouette|carretilla|carriola/.test(text)) {
-    addHint("wheelbarrow", "Schubkarre");
-  }
-
-  if (/absperrband|barrier tape|caution tape|rubalise|cinta de senalizacion|cinta de señalización|nastro segnaletico/.test(text)) {
-    addHint("barrier_tape", "Absperrband");
-  }
-
-  if (/geruest|gerüst|scaffold|scaffolding|echafaudage|andamio|ponteggio/.test(text)) {
-    addHint("scaffold", "Gerüst");
-  }
-
-  if (/termin|appointment|schedule|cita|rendez vous|rendez-vous|appuntamento|agendamento/.test(text)) {
-    addHint("appointment", "Termin");
-  }
-
-  const dangerKeys = new Set([
-    "dog",
-    "oil",
-    "slippery",
-    "electricity",
-    "asbestos",
-    "mold",
-    "chemical",
-    "fire",
-    "glass",
-    "fall",
-    "gas_smoke",
-  ]);
-  const hintKeys = new Set([
-    "ladder",
-    "difficult_access",
-    "slope",
-    "parking",
-    "key",
-    "wheelbarrow",
-    "barrier_tape",
-    "scaffold",
-    "appointment",
-  ]);
-
-  const hasDangerBadge = badges.some((badge) => dangerKeys.has(badge.key));
-
-  if (parsedNotes.safetyWarnings.length > 0 && !hasDangerBadge) {
-    addDanger("warning", "Achtung");
-  }
-
-  // CARD_BADGE_STRICT_HINTS_V8: no generic "Hinweis" or "Mitnehmen" chip.
   // Unknown operational notes stay inside the order detail. The card only shows short, useful chips.
-
-  // CARD_BADGE_LIMIT_9_V8
+  // CARD_BADGE_LIMIT_9_V14
   if (badges.length <= 9) return badges;
 
   const visible = badges.slice(0, 8);
@@ -521,11 +487,9 @@ const getSystemBadges = (order: Order): ReviewBadge[] => {
 
 const getBottomBadges = (
   order: Order,
-  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+  _parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
-  const rawText = buildOrderBadgeText(order, parsedNotes);
-  const text = normalizeForMatch(rawText);
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-200";
 
   // RUECKRUF_VIA_COMMUNICATION_CHIPS_V8: callback is rendered once by CommunicationChips.
