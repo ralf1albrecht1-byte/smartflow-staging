@@ -76,6 +76,12 @@ interface OrderItem {
 
 interface Order {
   currency?: "CHF" | "EUR" | null;
+  siteAddressDifferent?: boolean | null;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
   id: string;
   customerId: string;
   description: string;
@@ -640,6 +646,12 @@ const emptyForm = {
   date: new Date().toISOString().split("T")[0],
   notes: "",
   specialNotes: "",
+  siteAddressDifferent: false,
+  siteName: "",
+  siteAddress: "",
+  sitePlz: "",
+  siteCity: "",
+  siteNote: "",
 };
 
 export default function AuftraegePage() {
@@ -1060,6 +1072,12 @@ export default function AuftraegePage() {
           jobHints: parsedSpecialNotes.jobHints,
         });
       })(),
+      siteAddressDifferent: Boolean(o.siteAddressDifferent),
+      siteName: o.siteName ?? "",
+      siteAddress: o.siteAddress ?? "",
+      sitePlz: o.sitePlz ?? "",
+      siteCity: o.siteCity ?? "",
+      siteNote: o.siteNote ?? "",
     });
      // Populate items from order
     if (o.items && o.items.length > 0) {
@@ -2851,7 +2869,12 @@ const getSafeOrderTotal = (o: Order) => {
               {/* Customer Info / Select / Edit */}
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-y-0.5 mb-1">
-                  <Label>Kunde *</Label>
+                  <div>
+                    <Label>Rechnungsadresse *</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Kunde, der die Rechnung bekommt und bezahlt.
+                    </p>
+                  </div>
                   {!showNewCustomer && form.customerId && (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
                       <button
@@ -3259,6 +3282,111 @@ const getSafeOrderTotal = (o: Order) => {
                       >
                         Zurück zum Auftrag
                       </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+
+              {/* Ausführungsadresse / Baustellenadresse */}
+              <div className="rounded-lg border bg-slate-50/70 dark:bg-slate-900/30 p-3 space-y-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.siteAddressDifferent)}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        siteAddressDifferent: e.target.checked,
+                        ...(e.target.checked
+                          ? {}
+                          : {
+                              siteName: "",
+                              siteAddress: "",
+                              sitePlz: "",
+                              siteCity: "",
+                              siteNote: "",
+                            }),
+                      }))
+                    }
+                    className="mt-1"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">
+                      Ausführungsadresse abweichend von Rechnungsadresse
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
+                    </span>
+                  </span>
+                </label>
+
+                {form.siteAddressDifferent && (
+                  <div className="rounded-lg border bg-background p-3 space-y-3">
+                    <div>
+                      <div className="text-sm font-semibold">
+                        Ausführungsadresse / Baustellenadresse
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Ort, an dem gearbeitet wird. Diese Adresse wird später in Angebot, Rechnung und PDF separat angezeigt.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">Objekt / Name</Label>
+                        <Input
+                          placeholder="z. B. Baustelle Tiefgarage"
+                          value={form.siteName}
+                          onChange={(e) =>
+                            setForm({ ...form, siteName: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Strasse + Hausnr.</Label>
+                        <Input
+                          placeholder="Strasse + Hausnr."
+                          value={form.siteAddress}
+                          onChange={(e) =>
+                            setForm({ ...form, siteAddress: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr] gap-2">
+                      <div>
+                        <Label className="text-xs">PLZ</Label>
+                        <Input
+                          placeholder="PLZ"
+                          value={form.sitePlz}
+                          onChange={(e) =>
+                            setForm({ ...form, sitePlz: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Ort</Label>
+                        <Input
+                          placeholder="Ort"
+                          value={form.siteCity}
+                          onChange={(e) =>
+                            setForm({ ...form, siteCity: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs">Zusatz / Hinweis</Label>
+                      <Input
+                        placeholder="z. B. Eingang hinten, Tor 2, Hauswart vor Ort"
+                        value={form.siteNote}
+                        onChange={(e) =>
+                          setForm({ ...form, siteNote: e.target.value })
+                        }
+                      />
                     </div>
                   </div>
                 )}

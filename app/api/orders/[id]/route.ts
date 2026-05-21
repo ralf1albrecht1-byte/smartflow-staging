@@ -569,6 +569,18 @@ export async function PUT(
   ? { vatRate: effectiveVatRate, vatAmount: effectiveVatAmount, total: effectiveTotal }
   : {}),
 currency: data?.currency === 'EUR' ? 'EUR' : data?.currency === 'CHF' ? 'CHF' : undefined,
+siteAddressDifferent:
+  data?.siteAddressDifferent !== undefined
+    ? Boolean(data.siteAddressDifferent)
+    : undefined,
+siteName: data?.siteName !== undefined ? data.siteName?.trim() || null : undefined,
+siteAddress:
+  data?.siteAddress !== undefined ? data.siteAddress?.trim() || null : undefined,
+sitePlz: data?.sitePlz !== undefined ? data.sitePlz?.trim() || null : undefined,
+siteCity:
+  data?.siteCity !== undefined ? data.siteCity?.trim() || null : undefined,
+siteNote:
+  data?.siteNote !== undefined ? data.siteNote?.trim() || null : undefined,
 date: data?.date ? new Date(data.date) : undefined,
         notes: data?.notes,
         specialNotes: normalizedSpecialNotes,

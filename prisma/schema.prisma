@@ -135,6 +135,12 @@ model Order {
   vatAmount   Float    @default(0)
 total       Float    @default(0)
 currency    String   @default("CHF")
+siteAddressDifferent Boolean @default(false)
+siteName    String?
+siteAddress String?
+sitePlz     String?
+siteCity    String?
+siteNote    String?
 date        DateTime @default(now())
   notes          String?
   specialNotes   String?
