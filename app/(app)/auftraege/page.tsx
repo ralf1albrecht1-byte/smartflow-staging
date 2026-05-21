@@ -381,11 +381,43 @@ const sortReviewBadges = (badges: ReviewBadge[]) =>
     .sort((a, b) => badgeSortRank(a.badge) - badgeSortRank(b.badge) || a.index - b.index)
     .map((entry) => entry.badge);
 
-
-
 const formatAppointmentTime = (hour: string, minute?: string) => {
   const normalizedHour = hour.padStart(2, "0");
   return `${normalizedHour}:${minute || "00"}`;
+};
+
+const parseAppointmentBaseDate = (value?: string | null) => {
+  const parsed = value ? new Date(value) : new Date();
+  const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  date.setHours(12, 0, 0, 0);
+  return date;
+};
+
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const formatAppointmentDate = (date: Date) =>
+  `${String(date.getDate()).padStart(2, "0")}.${String(date.getMonth() + 1).padStart(2, "0")}.`;
+
+const resolveWeekdayAppointmentDate = (
+  weekdayIndex: number,
+  baseDateInput?: string | null,
+  forceNextWeek = false,
+) => {
+  const baseDate = parseAppointmentBaseDate(baseDateInput);
+  const currentWeekday = baseDate.getDay() === 0 ? 7 : baseDate.getDay();
+
+  if (forceNextWeek) {
+    const daysUntilNextMonday = 8 - currentWeekday;
+    return addDays(baseDate, daysUntilNextMonday + weekdayIndex - 1);
+  }
+
+  let daysUntilTarget = weekdayIndex - currentWeekday;
+  if (daysUntilTarget < 0) daysUntilTarget += 7;
+  return addDays(baseDate, daysUntilTarget);
 };
 
 const isNonActionableAppointmentHint = (value?: string | null) => {
@@ -406,30 +438,43 @@ const isNonActionableAppointmentHint = (value?: string | null) => {
   );
 };
 
-const extractAppointmentBadgeLabel = (value?: string | null) => {
+const splitAppointmentSources = (...values: Array<string | null | undefined>) =>
+  values
+    .flatMap((value) =>
+      compactText(value)
+        .split(/\n+|(?<=[.!?])\s+/g)
+        .map((line) => line.trim())
+        .filter(Boolean),
+    )
+    .filter(Boolean);
+
+const extractAppointmentBadgeLabel = (
+  value?: string | null,
+  baseDateInput?: string | null,
+) => {
   const raw = compactText(value);
   const text = normalizeForMatch(raw);
   if (!text || isNonActionableSemanticHint(raw) || isNonActionableAppointmentHint(raw)) {
     return null;
   }
 
-  const weekdayMap: Array<[RegExp, string]> = [
-    [/\b(montag|monday|lundi|lunes|lunedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Mo"],
-    [/\b(dienstag|tuesday|mardi|martes|martedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Di"],
-    [/\b(mittwoch|wednesday|mercredi|miercoles|mercoledi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Mi"],
-    [/\b(donnerstag|thursday|jeudi|jueves|giovedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Do"],
-    [/\b(freitag|friday|vendredi|viernes|venerdi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Fr"],
-    [/\b(samstag|saturday|samedi|sabado|sabato)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Sa"],
-    [/\b(sonntag|sunday|dimanche|domingo|domenica)(?:morgen|vormittag|nachmittag|abend)?\b/i, "So"],
+  const weekdayMap: Array<[RegExp, number]> = [
+    [/\b(montag|monday|lundi|lunes|lunedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 1],
+    [/\b(dienstag|tuesday|mardi|martes|martedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 2],
+    [/\b(mittwoch|wednesday|mercredi|miercoles|mercoledi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 3],
+    [/\b(donnerstag|thursday|jeudi|jueves|giovedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 4],
+    [/\b(freitag|friday|vendredi|viernes|venerdi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 5],
+    [/\b(samstag|saturday|samedi|sabado|sabato)(?:morgen|vormittag|nachmittag|abend)?\b/i, 6],
+    [/\b(sonntag|sunday|dimanche|domingo|domenica)(?:morgen|vormittag|nachmittag|abend)?\b/i, 7],
   ];
 
-  const weekday = weekdayMap.find(([pattern]) => pattern.test(text))?.[1] || "";
+  const weekdayIndex = weekdayMap.find(([pattern]) => pattern.test(text))?.[1] || null;
   const hasNextWeek = /\b(naechste woche|nächste woche|next week|semaine prochaine|proxima semana|settimana prossima)\b/i.test(text);
 
   const dayPart = /vormittag|morning|matin|mañana|mattina/i.test(text)
-    ? "Vormittag"
+    ? "Vorm."
     : /nachmittag|afternoon|apres midi|après-midi|tarde|pomeriggio/i.test(text)
-      ? "Nachmittag"
+      ? "Nachm."
       : /abend|evening|soir|noche|sera/i.test(text)
         ? "Abend"
         : "";
@@ -440,19 +485,24 @@ const extractAppointmentBadgeLabel = (value?: string | null) => {
   const time = timeMatch ? formatAppointmentTime(timeMatch[1], timeMatch[2]) : "";
 
   const dateMatch = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
-  const date = dateMatch
+  const explicitDate = dateMatch
     ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.`
     : "";
 
-  const hasConcreteAppointmentSignal = Boolean(date || weekday || time || dayPart || hasNextWeek);
-  if (!hasConcreteAppointmentSignal) return null;
+  const computedDate =
+    !explicitDate && weekdayIndex
+      ? formatAppointmentDate(
+          resolveWeekdayAppointmentDate(weekdayIndex, baseDateInput, hasNextWeek),
+        )
+      : "";
 
-  const parts = [
-    hasNextWeek ? "nächste Woche" : "",
-    date,
-    weekday,
-    time || dayPart,
-  ].filter(Boolean);
+  const date = explicitDate || computedDate;
+
+  // Only show an outside appointment chip when there is a concrete day/date
+  // or a concrete time. Vague phrases like "Termin flexibel" stay inside only.
+  if (!date && !time) return null;
+
+  const parts = [date, time || dayPart].filter(Boolean);
 
   return parts.length > 0 ? `Termin ${parts.join(" ")}` : null;
 };
@@ -598,18 +648,15 @@ const getBottomBadges = (
     });
   }
 
-   const appointmentLabel = [
+  const appointmentBaseDate = order.createdAt || order.date;
+  const appointmentLabel = splitAppointmentSources(
     ...parsedNotes.jobHints,
     order.specialNotes,
     order.notes,
     order.audioTranscript,
-  ]
-    .filter(Boolean)
-    .map(extractAppointmentBadgeLabel)
-    .find((label) => label && label !== "Termin") ||
-    parsedNotes.jobHints
-      .map(extractAppointmentBadgeLabel)
-      .find(Boolean);
+  )
+    .map((line) => extractAppointmentBadgeLabel(line, appointmentBaseDate))
+    .find(Boolean);
 
   if (appointmentLabel) {
     pushUniqueBadge(badges, {

@@ -501,7 +501,7 @@ function detectExplicitFlatPriceForItem(
   for (const segment of candidates) {
     const normalizedSegment = normalizeCompare(segment);
     if (!normalizedSegment) continue;
-    if (!/(pauschal|pauschale|fixpreis|festpreis)/i.test(normalizedSegment)) continue;
+    if (!/\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(normalizedSegment)) continue;
 
     const detected =
       chooseBestPriceFromSegment(segment) ||
