@@ -381,33 +381,56 @@ const sortReviewBadges = (badges: ReviewBadge[]) =>
     .sort((a, b) => badgeSortRank(a.badge) - badgeSortRank(b.badge) || a.index - b.index)
     .map((entry) => entry.badge);
 
+
+
 const formatAppointmentTime = (hour: string, minute?: string) => {
   const normalizedHour = hour.padStart(2, "0");
   return `${normalizedHour}:${minute || "00"}`;
 };
 
+const isNonActionableAppointmentHint = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return true;
+
+  return (
+    /termin\s*(?:ist\s*)?flexibel/.test(text) ||
+    /flexibler\s+termin/.test(text) ||
+    /kein\s+fester\s+termin/.test(text) ||
+    /kein\s+terminwunsch/.test(text) ||
+    /terminwunsch\s*(?:offen|flexibel)/.test(text) ||
+    /\birgendwann\b/.test(text) ||
+    /nach\s+absprache/.test(text) ||
+    /wenn\s+es\s+passt/.test(text) ||
+    /no\s+fixed\s+appointment/.test(text) ||
+    /flexible\s+appointment/.test(text)
+  );
+};
+
 const extractAppointmentBadgeLabel = (value?: string | null) => {
   const raw = compactText(value);
   const text = normalizeForMatch(raw);
-  if (!text || isNonActionableSemanticHint(raw)) return null;
+  if (!text || isNonActionableSemanticHint(raw) || isNonActionableAppointmentHint(raw)) {
+    return null;
+  }
 
   const weekdayMap: Array<[RegExp, string]> = [
-    [/\b(montag|monday|lundi|lunes|lunedi)\b/i, "Mo"],
-    [/\b(dienstag|tuesday|mardi|martes|martedi)\b/i, "Di"],
-    [/\b(mittwoch|wednesday|mercredi|miercoles|mercoledi)\b/i, "Mi"],
-    [/\b(donnerstag|thursday|jeudi|jueves|giovedi)\b/i, "Do"],
-    [/\b(freitag|friday|vendredi|viernes|venerdi)\b/i, "Fr"],
-    [/\b(samstag|saturday|samedi|sabado|sabato)\b/i, "Sa"],
-    [/\b(sonntag|sunday|dimanche|domingo|domenica)\b/i, "So"],
+    [/\b(montag|monday|lundi|lunes|lunedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Mo"],
+    [/\b(dienstag|tuesday|mardi|martes|martedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Di"],
+    [/\b(mittwoch|wednesday|mercredi|miercoles|mercoledi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Mi"],
+    [/\b(donnerstag|thursday|jeudi|jueves|giovedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Do"],
+    [/\b(freitag|friday|vendredi|viernes|venerdi)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Fr"],
+    [/\b(samstag|saturday|samedi|sabado|sabato)(?:morgen|vormittag|nachmittag|abend)?\b/i, "Sa"],
+    [/\b(sonntag|sunday|dimanche|domingo|domenica)(?:morgen|vormittag|nachmittag|abend)?\b/i, "So"],
   ];
 
   const weekday = weekdayMap.find(([pattern]) => pattern.test(text))?.[1] || "";
   const hasNextWeek = /\b(naechste woche|nächste woche|next week|semaine prochaine|proxima semana|settimana prossima)\b/i.test(text);
-  const dayPart = /\b(vormittag|morning|matin|mañana|mattina)\b/i.test(text)
+
+  const dayPart = /vormittag|morning|matin|mañana|mattina/i.test(text)
     ? "Vormittag"
-    : /\b(nachmittag|afternoon|apres midi|après-midi|tarde|pomeriggio)\b/i.test(text)
+    : /nachmittag|afternoon|apres midi|après-midi|tarde|pomeriggio/i.test(text)
       ? "Nachmittag"
-      : /\b(abend|evening|soir|noche|sera)\b/i.test(text)
+      : /abend|evening|soir|noche|sera/i.test(text)
         ? "Abend"
         : "";
 
@@ -421,6 +444,9 @@ const extractAppointmentBadgeLabel = (value?: string | null) => {
     ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.`
     : "";
 
+  const hasConcreteAppointmentSignal = Boolean(date || weekday || time || dayPart || hasNextWeek);
+  if (!hasConcreteAppointmentSignal) return null;
+
   const parts = [
     hasNextWeek ? "nächste Woche" : "",
     date,
@@ -428,7 +454,7 @@ const extractAppointmentBadgeLabel = (value?: string | null) => {
     time || dayPart,
   ].filter(Boolean);
 
-  return parts.length > 0 ? `Termin ${parts.join(" ")}` : "Termin";
+  return parts.length > 0 ? `Termin ${parts.join(" ")}` : null;
 };
 
 const getOperationalBadges = (
