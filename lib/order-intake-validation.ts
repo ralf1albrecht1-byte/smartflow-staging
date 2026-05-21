@@ -93,8 +93,46 @@ const GENERIC_SERVICE_WORDS = new Set([
   "mfh",
 ]);
 
+// INTAKE_CURRENCY_ONLY_EUR_FIX_V13
+function stripNegatedCurrencyMentions(text?: string | null): string {
+  let source = String(text || "").toLowerCase();
+  if (!source.trim()) return "";
+
+  // Do not count currencies that are only mentioned as a negative instruction,
+  // e.g. "nicht in CHF umrechnen", "not CHF", "no CHF".
+  // This keeps EUR-only jobs from becoming CHF conflicts just because the user
+  // explicitly says "Bitte nicht in CHF umrechnen".
+  const currencyWords =
+    "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|british\\s+pound|£)";
+
+  const negatedCurrencyPatterns = [
+    new RegExp(
+      `\\b(?:nicht|kein|keine|keinen|ohne|not|no|dont|don't|do\\s+not|pas|ne\\s+pas)\\s+(?:in|als|auf|zu|nach|to|as|en)?\\s*${currencyWords}\\b`,
+      "gi",
+    ),
+    new RegExp(
+      `\\b(?:not|no|nicht)\\s+${currencyWords}\\b`,
+      "gi",
+    ),
+    new RegExp(
+      `\\b(?:nicht|not|no)\\s+(?:umrechnen|convert|converted|conversion)\\s+(?:in|to)?\\s*${currencyWords}\\b`,
+      "gi",
+    ),
+    new RegExp(
+      `\\b${currencyWords}\\s+(?:nicht|not|no)\\s+(?:verwenden|benutzen|use|take|nehmen|umrechnen|convert)\\b`,
+      "gi",
+    ),
+  ];
+
+  for (const pattern of negatedCurrencyPatterns) {
+    source = source.replace(pattern, " ");
+  }
+
+  return source.replace(/\s+/g, " ").trim();
+}
+
 export function detectCurrenciesInText(text?: string | null): string[] {
-  const source = String(text || "").toLowerCase();
+  const source = stripNegatedCurrencyMentions(text);
   if (!source.trim()) return [];
 
   const currencies: string[] = [];

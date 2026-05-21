@@ -630,20 +630,57 @@ function detectUnitPriceFromText(text: string): number | null {
   return null;
 }
 
+// INTAKE_CURRENCY_ONLY_EUR_FIX_V13
+function stripNegatedCurrencyMentionsForIntake(
+  text: string | null | undefined,
+): string {
+  let source = normalizeUnitText(text || "");
+  if (!source) return "";
+
+  // Negative currency instructions are not real order currencies.
+  // Example: "Leistung komplett in EUR ... bitte nicht in CHF umrechnen"
+  // should be EUR-only, not CHF+EUR conflict.
+  const currencyWords =
+    "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|british\\s+pound|£)";
+
+  const negatedCurrencyPatterns = [
+    new RegExp(
+      `\\b(?:nicht|kein|keine|keinen|ohne|not|no|dont|don't|do\\s+not|pas|ne\\s+pas)\\s+(?:in|als|auf|zu|nach|to|as|en)?\\s*${currencyWords}\\b`,
+      "gi",
+    ),
+    new RegExp(
+      `\\b(?:not|no|nicht)\\s+${currencyWords}\\b`,
+      "gi",
+    ),
+    new RegExp(
+      `\\b(?:nicht|not|no)\\s+(?:umrechnen|convert|converted|conversion)\\s+(?:in|to)?\\s*${currencyWords}\\b`,
+      "gi",
+    ),
+    new RegExp(
+      `\\b${currencyWords}\\s+(?:nicht|not|no)\\s+(?:verwenden|benutzen|use|take|nehmen|umrechnen|convert)\\b`,
+      "gi",
+    ),
+  ];
+
+  for (const pattern of negatedCurrencyPatterns) {
+    source = source.replace(pattern, " ");
+  }
+
+  return source.replace(/\s+/g, " ").trim();
+}
+
 function detectCurrencyFromText(
   text: string | null | undefined,
 ): "CHF" | "EUR" | null {
-  const source = normalizeUnitText(text || "");
+  const source = stripNegatedCurrencyMentionsForIntake(text);
 
   if (!source) return null;
 
-  if (/\b(chf|franken|fr\.?|sfr\.?|stutz)\b/i.test(source)) {
-    return "CHF";
-  }
+  const hasChf = /\b(chf|franken|fr\.?|sfr\.?|stutz)\b/i.test(source);
+  const hasEur = /\b(eur|euro)\b|€/i.test(source);
 
-  if (/\b(eur|euro)\b|€/i.test(source)) {
-    return "EUR";
-  }
+  if (hasChf && !hasEur) return "CHF";
+  if (hasEur && !hasChf) return "EUR";
 
   return null;
 }
