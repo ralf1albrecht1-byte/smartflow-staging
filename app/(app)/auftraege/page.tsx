@@ -2328,7 +2328,7 @@ const openMedia = async (o: Order) => {
 
   // Display items summary for list
 
-const getSafeOrderTotal = (o: Order) => {
+const getSafeOrderNetTotal = (o: Order) => {
   if (o.items && o.items.length > 0) {
     return o.items.reduce((sum, item) => {
       const hasUnitReview = hasQuantityReviewForService(
@@ -2353,6 +2353,17 @@ const getSafeOrderTotal = (o: Order) => {
   if (qty <= 0 || price <= 0) return 0;
 
   return qty * price;
+};
+
+const hasOrderVat = (o: Order) => Number(o.vatRate || 0) > 0;
+
+const getSafeOrderTotal = (o: Order) => {
+  const netTotal = getSafeOrderNetTotal(o);
+  const vatRate = Number(o.vatRate || 0);
+
+  if (vatRate <= 0) return netTotal;
+
+  return netTotal + (netTotal * vatRate) / 100;
 };
 
   const itemsSummary = (o: Order) => {
@@ -2747,12 +2758,19 @@ const getSafeOrderTotal = (o: Order) => {
                             </span>
                           ))}
 
-           <span className="ml-auto shrink-0 whitespace-nowrap text-right font-mono font-bold tabular-nums text-[13px] sm:text-sm">
-  {formatCurrency(
-    getSafeOrderTotal(o),
-    o.currency === "EUR" ? "EUR" : "CHF",
-  )}
-</span>
+                          <div className="ml-auto shrink-0 whitespace-nowrap text-right">
+                            <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
+                              {formatCurrency(
+                                getSafeOrderTotal(o),
+                                o.currency === "EUR" ? "EUR" : "CHF",
+                              )}
+                            </div>
+                            {hasOrderVat(o) && (
+                              <div className="text-[9px] leading-none text-muted-foreground">
+                                inkl. MwSt
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
