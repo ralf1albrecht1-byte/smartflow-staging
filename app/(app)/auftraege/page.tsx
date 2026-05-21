@@ -492,6 +492,18 @@ const getSystemBadges = (order: Order): ReviewBadge[] => {
     });
   }
 
+  const hasCurrencyReview =
+    order.reviewReasons?.some((reason) => reason.startsWith("currency_")) ?? false;
+
+  if (hasCurrencyReview) {
+    pushUniqueBadge(badges, {
+      key: "currency_review",
+      label: "Währung prüfen",
+      className: "bg-red-100 text-red-700 border border-red-200",
+      icon: true,
+    });
+  }
+
   const hasCustomerReview =
     hasRealCustomerReviewReason(order) ||
     isCustomerDataIncomplete(order.customer);
@@ -527,6 +539,14 @@ const getBottomBadges = (
       key: "merged",
       label: "Zusammengeführt",
       className: blueClass,
+    });
+  }
+
+  if (order.siteAddressDifferent) {
+    pushUniqueBadge(badges, {
+      key: "site_address",
+      label: "Ausführungsadresse",
+      className: "bg-cyan-100 text-cyan-700 border border-cyan-200",
     });
   }
 
