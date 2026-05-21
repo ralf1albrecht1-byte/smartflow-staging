@@ -294,12 +294,12 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
       priceGroup: 1,
     },
     {
-      re: new RegExp(`(?:pauschal|pauschale|fixpreis|festpreis)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
+      re: new RegExp(`(?:pauschal|pauschale|fixpreis|festpreis|flat\\s+price|fixed\\s+price|flat|forfait|prix\\s+fixe)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
       currencyGroup: 1,
       priceGroup: 2,
     },
     {
-      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\b`, "gi"),
+      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis|flat\\s+price|fixed\\s+price|flat|forfait|prix\\s+fixe)\\b`, "gi"),
       currencyGroup: 1,
       priceGroup: 2,
     },
@@ -362,8 +362,8 @@ function detectCurrencylessFlatPriceFromSegment(
   if (!/\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(source)) return null;
 
   const patterns = [
-    /\b(?:pauschal|pauschale|fixpreis|festpreis)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
-    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:pauschal|pauschale|fixpreis|festpreis)\b/i,
+    /\b(?:pauschal|pauschale|fixpreis|festpreis|flat\s+price|fixed\s+price|flat|forfait|prix\s+fixe)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
+    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:pauschal|pauschale|fixpreis|festpreis|flat\s+price|fixed\s+price|flat|forfait|prix\s+fixe)\b/i,
   ];
 
   for (const pattern of patterns) {
@@ -547,7 +547,7 @@ function detectFlatPriceItems(
     if (!detected || detected.currency !== fallbackCurrency) continue;
 
     const beforeFlat = segment
-      .split(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/i)[0]
+      .split(/\b(?:pauschal|pauschale|fixpreis|festpreis|flat\s+price|fixed\s+price|flat|forfait|prix\s+fixe)\b/i)[0]
       ?.replace(/^\s*(leistung|leistungen|bitte|zusätzlich|zusaetzlich|und|plus|[0-9]+[.)])\s*[:\-–—]?\s*/i, "")
       .replace(/[,;:.]+$/g, "")
       .trim();
@@ -587,6 +587,118 @@ function detectFlatPriceItems(
   }
 
   return result;
+}
+
+
+function isGenericServiceNameForFlatRepair(serviceName?: string | null): boolean {
+  const key = normalizeCompare(serviceName);
+  if (!key) return true;
+
+  const genericExact = new Set([
+    "reinigung",
+    "reinigen",
+    "arbeit",
+    "arbeiten",
+    "leistung",
+    "leistungen",
+    "auftrag",
+    "unbekannte leistung",
+    "sonstiges",
+  ]);
+
+  if (genericExact.has(key)) return true;
+
+  const tokens = serviceTokens(serviceName);
+  return tokens.length === 0 || key.length < 6;
+}
+
+function repairGenericFlatItemsFromExplicitText(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const explicitFlatItems = detectFlatPriceItems(originalText, [], fallbackCurrency);
+  if (explicitFlatItems.length === 0) return items;
+
+  const usedFlatIndexes = new Set<number>();
+
+  return items.map((item) => {
+    if (!isFlatUnit(item.unit)) return item;
+    if (!isGenericServiceNameForFlatRepair(item.serviceName)) return item;
+
+    const itemAmount = roundMoney(Number(item.unitPrice || 0));
+    if (!itemAmount) return item;
+
+    const matchingIndex = explicitFlatItems.findIndex((flatItem, index) => {
+      if (usedFlatIndexes.has(index)) return false;
+      const flatAmount = roundMoney(Number(flatItem.unitPrice || 0));
+      return flatAmount === itemAmount;
+    });
+
+    if (matchingIndex === -1) return item;
+
+    const flatItem = explicitFlatItems[matchingIndex];
+    usedFlatIndexes.add(matchingIndex);
+
+    return {
+      ...item,
+      serviceName: flatItem.serviceName,
+      description: flatItem.description || item.description,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: Number(flatItem.unitPrice || item.unitPrice || 0),
+      totalPrice: calculateSafeLineTotal({
+        ...item,
+        unit: "Pauschal",
+        quantity: 1,
+        unitPrice: Number(flatItem.unitPrice || item.unitPrice || 0),
+      }),
+      needsReview:
+        item.reviewReason && !QUANTITY_REVIEW_REASON_PATTERN.test(item.reviewReason)
+          ? item.needsReview
+          : false,
+      reviewReason:
+        item.reviewReason && !QUANTITY_REVIEW_REASON_PATTERN.test(item.reviewReason)
+          ? item.reviewReason
+          : null,
+      sourceText: flatItem.sourceText || item.sourceText || null,
+      evidence: flatItem.evidence || item.evidence || null,
+      detectedCurrency: flatItem.detectedCurrency || item.detectedCurrency || null,
+    };
+  });
+}
+
+function quarantineGenericDuplicateFlatPrices(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  const explicitSpecificFlatItems = items.filter((item) => {
+    if (!isFlatUnit(item.unit)) return false;
+    if (isGenericServiceNameForFlatRepair(item.serviceName)) return false;
+    return Number(item.unitPrice || 0) > 0;
+  });
+
+  if (explicitSpecificFlatItems.length === 0) return items;
+
+  return items.map((item) => {
+    if (!isFlatUnit(item.unit)) return item;
+    if (!isGenericServiceNameForFlatRepair(item.serviceName)) return item;
+
+    const itemAmount = roundMoney(Number(item.unitPrice || 0));
+    const duplicatesSpecific = explicitSpecificFlatItems.some(
+      (specific) => roundMoney(Number(specific.unitPrice || 0)) === itemAmount,
+    );
+
+    if (!duplicatesSpecific) return item;
+
+    return {
+      ...item,
+      quantity: 0,
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: "generic_duplicate_flat_price_review",
+    };
+  });
 }
 
 function removeItemsUsingForeignFlatPrice(
@@ -914,12 +1026,15 @@ export function validateAndRepairParsedOrderItems(
     return next;
   });
 
+  items = repairGenericFlatItemsFromExplicitText(input.originalText, items, finalCurrency);
+
   const missingFlatItems = detectFlatPriceItems(input.originalText, items, finalCurrency);
   if (missingFlatItems.length > 0) {
     items = [...missingFlatItems, ...items];
     reviewReasons.push("manual_flat_service_from_text");
   }
 
+  items = quarantineGenericDuplicateFlatPrices(items);
   items = removeItemsUsingForeignFlatPrice(input.originalText, items, finalCurrency);
 
   items = repairAmbiguousQuantityRangeItems(input.originalText, items).map((item) => {
@@ -1158,19 +1273,6 @@ function extractInlineExecutionAddressCandidate(
   };
 }
 
-function extractHouseNumber(value?: string | null): string | null {
-  const match = String(value || "").match(/\b(\d+[a-zA-Z]?)(?:\s*[/-]\s*\d+[a-zA-Z]?)?\b/);
-  return match?.[1]?.toLowerCase() || null;
-}
-
-function normalizeStreetForLooseCompare(value?: string | null): string {
-  return normalizeCompare(value)
-    .replace(/\b(rue|route|avenue|av|street|road|lane|chemin|via|viale|str)\b/g, " ")
-    .replace(/\b(centrale|central|zentral)\b/g, "central")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function isSameAddress(args: {
   extractedAddress?: string | null;
   extractedPlz?: string | null;
@@ -1186,59 +1288,7 @@ function isSameAddress(args: {
     [args.customerAddress, args.customerPlz, args.customerCity].filter(Boolean).join(" "),
   );
 
-  if (extracted && customer && extracted === customer) return true;
-
-  const extractedPlz = normalizeCompare(args.extractedPlz);
-  const customerPlz = normalizeCompare(args.customerPlz);
-  const extractedCity = normalizeCompare(args.extractedCity);
-  const customerCity = normalizeCompare(args.customerCity);
-
-  const samePlzCity =
-    Boolean(extractedPlz && customerPlz && extractedPlz === customerPlz) &&
-    Boolean(extractedCity && customerCity && extractedCity === customerCity);
-
-  if (!samePlzCity) return false;
-
-  const extractedStreet = normalizeStreetForLooseCompare(args.extractedAddress);
-  const customerStreet = normalizeStreetForLooseCompare(args.customerAddress);
-
-  // If only PLZ/city were extracted, treat it as the same billing address and
-  // never auto-enable a separate execution address. A partial site address must
-  // not be copied into PDFs.
-  if (!extractedStreet || !customerStreet) return true;
-
-  if (extractedStreet === customerStreet) return true;
-
-  const extractedHouseNumber = extractHouseNumber(args.extractedAddress);
-  const customerHouseNumber = extractHouseNumber(args.customerAddress);
-
-  // Protect against original/translation duplicates, e.g.
-  // "Rue Centrale 14" vs. "Zentralstraße 14". Same PLZ/city + same house number
-  // is considered the same address unless an explicit different site was given.
-  if (
-    extractedHouseNumber &&
-    customerHouseNumber &&
-    extractedHouseNumber === customerHouseNumber
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-function hasStrongExecutionAddressSignal(
-  markerLine: string,
-  blockLines: string[],
-): boolean {
-  const combined = [markerLine, ...blockLines].filter(Boolean).join(" ");
-  if (EXECUTION_ADDRESS_MARKER.test(combined)) return true;
-
-  // Soft signals are allowed only when they clearly say where the work happens.
-  // Normal access instructions such as "klingeln", "Haupteingang" or
-  // "Kundin öffnet" are not execution addresses.
-  return /\b(gearbeitet\s+wird|arbeit\s+(?:ist|isch|is|wird)|arbeitsort|arbeitsadresse|work\s+location|job\s+location|lieu\s+du\s+travail|sondern\s+(?:in|im|bei))\b/i.test(
-    combined,
-  );
+  return Boolean(extracted && customer && extracted === customer);
 }
 
 function getExecutionAddressCandidates(lines: string[], markerIndex: number) {
@@ -1373,13 +1423,10 @@ export function extractExecutionAddressFromText(
     if (!EXECUTION_ADDRESS_MARKER.test(line) && !SOFT_EXECUTION_ADDRESS_LINE_PATTERN.test(line)) continue;
 
     const inlineAddress = extractInlineExecutionAddressCandidate(line, customer);
-    if (inlineAddress?.siteAddress && inlineAddress.sitePlz && inlineAddress.siteCity) {
-      return inlineAddress;
-    }
+    if (inlineAddress) return inlineAddress;
 
     const blockLines = getExecutionAddressCandidates(lines, index);
     if (blockLines.length === 0) continue;
-    if (!hasStrongExecutionAddressSignal(line, blockLines)) continue;
 
     const siteAddress = findBestStreet(blockLines);
 
@@ -1391,10 +1438,7 @@ export function extractExecutionAddressFromText(
     const sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
     const siteCity = plzCityFromLine?.city || fallbackPlzCity.city;
 
-    // Hard PDF-safety rule:
-    // never auto-enable a different execution address from partial data.
-    // A separate site must have a concrete street + PLZ + city.
-    if (!siteAddress || !sitePlz || !siteCity) continue;
+    if (!siteAddress && !(sitePlz && siteCity)) continue;
 
     if (
       isSameAddress({
@@ -1411,24 +1455,10 @@ export function extractExecutionAddressFromText(
 
     const siteName = pickSiteName(blockLines, siteAddress, sitePlz);
     const cleanSiteAddress = sanitizeStreetAgainstSiteName(siteAddress, siteName, sitePlz);
-    if (!cleanSiteAddress) continue;
-
-    if (
-      isSameAddress({
-        extractedAddress: cleanSiteAddress,
-        extractedPlz: sitePlz,
-        extractedCity: siteCity,
-        customerAddress: customer?.customerAddress,
-        customerPlz: customer?.customerPlz,
-        customerCity: customer?.customerCity,
-      })
-    ) {
-      return null;
-    }
 
     return {
       siteName,
-      siteAddress: cleanSiteAddress,
+      siteAddress: cleanSiteAddress || siteAddress,
       sitePlz,
       siteCity,
       siteNote: null,
