@@ -2526,7 +2526,7 @@ const getSafeOrderTotal = (o: Order) => {
                   }}
                 >
                   <CardContent className="px-2.5 py-2 sm:px-3 max-w-full overflow-visible">
-                    <div className="flex items-start gap-2 min-w-0 max-w-full overflow-hidden">
+                    <div className="flex items-start gap-2 min-w-0 max-w-full overflow-visible">
                       {isMergeMode && (
                         <div
                           className="shrink-0 pt-1"
