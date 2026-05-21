@@ -2797,6 +2797,32 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
 
   finalOrderItems = intakeValidation.items;
 
+  // INTAKE_FLAT_TOTAL_LAST_GUARD_V8
+  // Letzte Schutzschicht direkt vor Speichern: Pauschalpositionen haben
+  // fachlich keine echte Menge, müssen aber mit Menge 1 gespeichert werden,
+  // damit OrderItem.totalPrice und Order.totalPrice nicht fälschlich 0 bleiben.
+  finalOrderItems = finalOrderItems.map((item) => {
+    const unitType = getServiceUnitType(item.unit);
+    const unitPriceValue = Number(item.unitPrice || 0);
+
+    if (unitType !== "flat" || !Number.isFinite(unitPriceValue) || unitPriceValue <= 0) {
+      return item;
+    }
+
+    const reviewReason = item.reviewReason || null;
+    const onlyQuantityReview =
+      reviewReason &&
+      /menge|quantity|leistung_ist_pauschal|pauschal|pruefen|prüfen/i.test(reviewReason);
+
+    return {
+      ...item,
+      quantity: 1,
+      totalPrice: Math.round((unitPriceValue + Number.EPSILON) * 100) / 100,
+      needsReview: onlyQuantityReview ? false : item.needsReview,
+      reviewReason: onlyQuantityReview ? null : item.reviewReason,
+    };
+  });
+
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const aiExecutionAddressText =
     aiExecutionAddress?.ist_abweichend === true

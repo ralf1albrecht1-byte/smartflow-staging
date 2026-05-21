@@ -1,3 +1,4 @@
+// INTAKE_VALIDATION_ADDRESS_PRICE_FIX_V8
 export type IntakeCurrency = "CHF" | "EUR";
 
 export interface ParsedOrderItemForValidation {
@@ -9,6 +10,9 @@ export interface ParsedOrderItemForValidation {
   totalPrice: number;
   needsReview: boolean;
   reviewReason: string | null;
+  sourceText?: string | null;
+  evidence?: string | null;
+  detectedCurrency?: string | null;
 }
 
 export interface IntakeValidationInput {
@@ -33,6 +37,13 @@ export interface ExtractedExecutionAddress {
   siteNote: string | null;
 }
 
+type DetectedUnitPrice = {
+  amount: number;
+  currency: string | null;
+  segment: string;
+  unitType: string | null;
+};
+
 const normalizeText = (value?: string | null) =>
   String(value || "")
     .replace(/\r\n/g, "\n")
@@ -53,11 +64,34 @@ const normalizeCompare = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss")
     .replace(/strasse|straße|str\./g, "str")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^a-z0-9€$£]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
 const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
+
+const CURRENCY_WORDS =
+  "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|£)";
+
+const UNIT_WORDS =
+  "(?:stueck|stück|stk|einheit|piece|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
+
+const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
+
+const GENERIC_SERVICE_WORDS = new Set([
+  "reinigen",
+  "reinigung",
+  "entfernen",
+  "machen",
+  "bitte",
+  "auftrag",
+  "leistung",
+  "leistungen",
+  "kunde",
+  "keller",
+  "haus",
+  "mfh",
+]);
 
 export function detectCurrenciesInText(text?: string | null): string[] {
   const source = String(text || "").toLowerCase();
@@ -73,23 +107,551 @@ export function detectCurrenciesInText(text?: string | null): string[] {
   return unique(currencies);
 }
 
-const isFlatUnit = (unit?: string | null) => {
-  const value = normalizeCompare(unit);
-  return ["pauschal", "pauschale", "fixpreis", "festpreis", "flat"].includes(value);
+const normalizeCurrency = (value?: string | null): string | null => {
+  const currency = String(value || "").toLowerCase().trim();
+  if (!currency) return null;
+  if (/^(chf|franken|fr\.?|sfr\.?|stutz)$/.test(currency)) return "CHF";
+  if (/^(eur|euro|€)$/.test(currency)) return "EUR";
+  if (/^(usd|us-dollar|dollar|us\$|\$)$/.test(currency)) return "USD";
+  if (/^(gbp|pfund|pound|£)$/.test(currency)) return "GBP";
+  return null;
 };
 
-const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+const parsePriceNumber = (value?: string | null) => {
+  const parsed = Number(String(value || "").replace("'", "").replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const unitTypeFromText = (value?: string | null): string | null => {
+  const source = normalizeCompare(value);
+  if (!source) return null;
+
+  if (/\b(stueck|stuck|stück|stk|piece|einheit|einheiten)\b/i.test(source)) return "piece";
+  if (/\b(quadratmeter|qm|m2|m²|sqm)\b/i.test(source)) return "square_meter";
+  if (/\b(kubikmeter|cbm|m3|m³)\b/i.test(source)) return "cubic_meter";
+  if (/\b(stunde|stunden|std|hour|hours|h)\b/i.test(source)) return "hour";
+  if (/\b(tag|tage|day|days)\b/i.test(source)) return "day";
+  if (/\b(laufmeter|lfm|meter|m)\b/i.test(source)) return "meter";
+  if (/\b(kg|kilogramm)\b/i.test(source)) return "kilogram";
+  if (/\b(tonne|tonnen)\b/i.test(source)) return "ton";
+  if (/\b(liter|ltr|l)\b/i.test(source)) return "liter";
+  if (/\b(pauschal|pauschale|fixpreis|festpreis|flat)\b/i.test(source)) return "flat";
+
+  return null;
+};
+
+const unitTypeFromDisplayUnit = (unit?: string | null): string | null => {
+  const value = normalizeCompare(unit);
+  if (!value) return null;
+
+  if (["stueck", "stuck", "stück", "stk"].includes(value)) return "piece";
+  if (["quadratmeter", "qm", "m2"].includes(value)) return "square_meter";
+  if (["kubikmeter", "cbm", "m3"].includes(value)) return "cubic_meter";
+  if (["stunde", "stunden", "std", "h"].includes(value)) return "hour";
+  if (["tag", "tage"].includes(value)) return "day";
+  if (["meter", "laufmeter", "lfm", "m"].includes(value)) return "meter";
+  if (["kilogramm", "kg"].includes(value)) return "kilogram";
+  if (["tonne", "tonnen"].includes(value)) return "ton";
+  if (["liter", "ltr", "l"].includes(value)) return "liter";
+  if (["pauschal", "pauschale", "fixpreis", "festpreis", "flat"].includes(value)) return "flat";
+
+  return null;
+};
+
+const isFlatUnit = (unit?: string | null) => unitTypeFromDisplayUnit(unit) === "flat";
+
+const roundMoney = (value: number) =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+const serviceTokens = (serviceName?: string | null) =>
+  normalizeCompare(serviceName)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !GENERIC_SERVICE_WORDS.has(token));
+
+function splitIntoPriceSegments(text?: string | null): string[] {
+  const source = normalizeText(text);
+  if (!source) return [];
+
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const segments: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+
+    const numberedParts = line
+      .replace(/\s+(?=\d+[.)]\s+)/g, "\n")
+      .split(/\n+/g)
+      .flatMap((part) => part.split(/;|\s+•\s+|\s+\|\s+/g))
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    segments.push(line, ...numberedParts);
+
+    for (const part of numberedParts) {
+      const sentenceParts = part
+        .split(/(?<=[.!?])\s+/g)
+        .map((piece) => piece.trim())
+        .filter(Boolean);
+      segments.push(...sentenceParts);
+    }
+
+    const next = lines[index + 1];
+    if (next && line.length + next.length <= 320) {
+      segments.push(`${line} ${next}`);
+    }
+  }
+
+  return unique(segments);
+}
+
+function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
+  const source = normalizeText(segment);
+  if (!source) return [];
+
+  const results: Array<DetectedUnitPrice & { index: number }> = [];
+
+  const patterns: Array<{
+    re: RegExp;
+    currencyGroup: number;
+    priceGroup: number;
+    unitGroup?: number;
+  }> = [
+    {
+      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
+      currencyGroup: 1,
+      priceGroup: 2,
+      unitGroup: 3,
+    },
+    {
+      re: new RegExp(`${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
+      currencyGroup: 2,
+      priceGroup: 1,
+      unitGroup: 3,
+    },
+    {
+      re: new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
+      currencyGroup: 1,
+      priceGroup: 2,
+      unitGroup: 3,
+    },
+    {
+      re: new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
+      currencyGroup: 2,
+      priceGroup: 1,
+      unitGroup: 3,
+    },
+    {
+      re: new RegExp(`(?:stundenpreis|stundenansatz|stundensatz|tagessatz|quadratmeterpreis|meterpreis|stückpreis|stueckpreis|kilopreis|tonnenpreis|literpreis)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(`(?:stundenpreis|stundenansatz|stundensatz|tagessatz|quadratmeterpreis|meterpreis|stückpreis|stueckpreis|kilopreis|tonnenpreis|literpreis)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`, "gi"),
+      currencyGroup: 2,
+      priceGroup: 1,
+    },
+    {
+      re: new RegExp(`(?:pauschal|pauschale|fixpreis|festpreis)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\b`, "gi"),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern.re)) {
+      const currency = normalizeCurrency(match[pattern.currencyGroup]);
+      const amount = parsePriceNumber(match[pattern.priceGroup]);
+      const unitType = pattern.unitGroup ? unitTypeFromText(match[pattern.unitGroup]) : unitTypeFromText(match[0]);
+      if (!amount || !currency) continue;
+
+      results.push({
+        amount,
+        currency,
+        segment: source,
+        unitType,
+        index: match.index ?? 0,
+      });
+    }
+  }
+
+  const byKey = new Map<string, DetectedUnitPrice & { index: number }>();
+  for (const result of results) {
+    // Mehrere Regex-Varianten können denselben Preis im selben Segment finden.
+    // Für die Entscheidung zählt der Preis fachlich nur einmal.
+    const key = `${result.amount}:${result.currency}:${result.unitType || ""}:${normalizeCompare(result.segment)}`;
+    if (!byKey.has(key)) byKey.set(key, result);
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => a.index - b.index);
+}
+
+function chooseBestPriceFromSegment(segment: string): DetectedUnitPrice | null {
+  const prices = extractUnitPricesFromSegment(segment);
+  if (prices.length === 0) return null;
+  if (prices.length === 1) return prices[0];
+
+  const normalized = normalizeCompare(segment);
+  const correctionSignal =
+    /\b(final|verwenden|nehmen|korrigiert|korrektur|schlussendlich|stattdessen|bitte aber|nicht der normale|sonderpreis)\b/i.test(
+      normalized,
+    );
+
+  if (correctionSignal) {
+    return prices[prices.length - 1];
+  }
+
+  // Mehrere Preise im selben Segment ohne Korrektur-Signal sind gefährlich.
+  // Nicht raten, sondern die Aufteilung/Zuordnung über bessere Segmente suchen.
+  return null;
+}
+
+function segmentContainsQuantity(
+  segment: string,
+  quantity: number,
+  unitType: string | null,
+) {
+  if (!quantity || quantity <= 0) return false;
+  const normalized = normalizeCompare(segment);
+  const q = String(quantity).replace(".", "[.,]?");
+  if (!new RegExp(`\\b${q}\\b`).test(normalized)) return false;
+
+  if (!unitType) return true;
+  const segmentUnit = unitTypeFromText(segment);
+  return !segmentUnit || segmentUnit === unitType;
+}
+
+function detectExplicitUnitPriceForItem(
+  originalText: string,
+  item: ParsedOrderItemForValidation,
+): DetectedUnitPrice | null {
+  const itemEvidence = [item.sourceText, item.evidence, item.description]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join("\n");
+
+  const itemUnitType = unitTypeFromDisplayUnit(item.unit);
+  const itemQuantity = Number(item.quantity || 0);
+  const serviceKey = normalizeCompare(item.serviceName);
+  const tokens = serviceTokens(item.serviceName);
+
+  const candidates = [
+    ...splitIntoPriceSegments(itemEvidence),
+    ...splitIntoPriceSegments(originalText),
+  ];
+
+  let best: { detected: DetectedUnitPrice; score: number } | null = null;
+
+  for (const segment of candidates) {
+    const normalizedSegment = normalizeCompare(segment);
+    if (!normalizedSegment) continue;
+
+    const detected = chooseBestPriceFromSegment(segment);
+    if (!detected) continue;
+
+    let score = 0;
+
+    if (serviceKey && normalizedSegment.includes(serviceKey)) score += 150;
+    for (const token of tokens) {
+      if (normalizedSegment.includes(token)) score += 45;
+    }
+
+    if (itemEvidence && normalizeCompare(itemEvidence).includes(normalizedSegment)) {
+      score += 80;
+    }
+
+    if (segmentContainsQuantity(segment, itemQuantity, itemUnitType)) {
+      score += 110;
+    }
+
+    if (itemUnitType && detected.unitType) {
+      if (itemUnitType === detected.unitType) score += 90;
+      else score -= 140;
+    }
+
+    if (segment.length <= 180) score += 20;
+    if (segment.length > 320) score -= 80;
+
+    // Avoid matching "Fenster reinigen im Treppenhaus" as Treppenhaus reinigen.
+    if (
+      serviceKey.includes("treppenhaus") &&
+      normalizedSegment.includes("fenster") &&
+      detected.unitType === "piece"
+    ) {
+      score -= 180;
+    }
+
+    if (score < 90) continue;
+    if (!best || score > best.score) best = { detected, score };
+  }
+
+  return best?.detected || null;
+}
+
+function detectFlatPriceItems(
+  originalText: string,
+  existingItems: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  const existingKeys = new Set(
+    existingItems.map((item) => normalizeCompare(item.serviceName)),
+  );
+  const segments = splitIntoPriceSegments(originalText);
+  const result: ParsedOrderItemForValidation[] = [];
+
+  for (const segment of segments) {
+    const normalized = normalizeCompare(segment);
+    if (!/\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(normalized)) {
+      continue;
+    }
+
+    const detected = chooseBestPriceFromSegment(segment);
+    if (!detected || detected.currency !== "CHF") continue;
+
+    const beforeFlat = segment
+      .split(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/i)[0]
+      ?.replace(/^\s*(leistung|leistungen|bitte|zusätzlich|zusaetzlich|und|plus|[0-9]+[.)])\s*[:\-–—]?\s*/i, "")
+      .replace(/[,;:.]+$/g, "")
+      .trim();
+
+    if (!beforeFlat || beforeFlat.length < 4 || beforeFlat.length > 80) {
+      continue;
+    }
+
+    const serviceName = beforeFlat
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/^./, (char) => char.toUpperCase());
+
+    const key = normalizeCompare(serviceName);
+    if (!key || existingKeys.has(key)) continue;
+
+    // Do not duplicate if an existing item shares a strong token with the flat item.
+    const tokens = serviceTokens(serviceName);
+    const alreadyRepresented = existingItems.some((item) => {
+      const itemKey = normalizeCompare(item.serviceName);
+      return tokens.length > 0 && tokens.some((token) => itemKey.includes(token));
+    });
+    if (alreadyRepresented) continue;
+
+    result.push({
+      serviceName,
+      description: segment,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: detected.amount,
+      totalPrice: detected.amount,
+      needsReview: true,
+      reviewReason: "manual_flat_service_from_text",
+      sourceText: segment,
+      evidence: segment,
+      detectedCurrency: detected.currency,
+    });
+
+    existingKeys.add(key);
+  }
+
+  return result;
+}
 
 function calculateSafeLineTotal(item: ParsedOrderItemForValidation) {
   const quantity = Number(item.quantity || 0);
   const unitPrice = Number(item.unitPrice || 0);
 
   if (!Number.isFinite(unitPrice) || unitPrice <= 0) return 0;
-
   if (isFlatUnit(item.unit)) return roundMoney(unitPrice);
   if (!Number.isFinite(quantity) || quantity <= 0) return 0;
 
   return roundMoney(quantity * unitPrice);
+}
+
+
+const QUANTITY_REVIEW_REASON_PATTERN =
+  /(menge|quantity|leistung_ist_pauschal|pauschal|pruefen|prüfen)/i;
+
+function findAmbiguousQuantityRanges(text?: string | null): Array<{
+  lower: number;
+  upper: number;
+  unitType: string | null;
+  segment: string;
+  serviceName: string | null;
+}> {
+  const source = normalizeText(text);
+  if (!source) return [];
+
+  const pieces = source
+    .split(/\n+|(?<=[.!?])\s+|;/g)
+    .map((piece) => piece.trim())
+    .filter(Boolean);
+
+  const ranges: Array<{
+    lower: number;
+    upper: number;
+    unitType: string | null;
+    segment: string;
+    serviceName: string | null;
+  }> = [];
+
+  const rangePattern = new RegExp(
+    `(.{0,90}?)\\b(\\d+(?:[.,]\\d+)?)\\s*(?:oder|bis|und|/|-|–|—)\\s*(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_WORDS})\\b`,
+    "gi",
+  );
+
+  for (const piece of pieces) {
+    for (const match of piece.matchAll(rangePattern)) {
+      const lower = parsePriceNumber(match[2]);
+      const upper = parsePriceNumber(match[3]);
+      if (!lower || !upper || lower === upper) continue;
+
+      const before = normalizeText(match[1] || "")
+        .replace(/^.*?\b(leisti?ung|arbeiten?|zu machen|bitte)\b\s*[:\-–—]?\s*/i, "")
+        .replace(/\b(ungefähr|ungefaehr|circa|ca\.?|etwa|rund)\b/gi, "")
+        .replace(/[,;:.]+$/g, "")
+        .trim();
+
+      let serviceName: string | null = before || null;
+      if (serviceName) {
+        serviceName = serviceName
+          .replace(/\s+/g, " ")
+          .trim()
+          .replace(/^./, (char) => char.toUpperCase());
+      }
+
+      ranges.push({
+        lower,
+        upper,
+        unitType: unitTypeFromText(match[4]),
+        segment: piece,
+        serviceName,
+      });
+    }
+  }
+
+  return ranges;
+}
+
+function isGenericRangeArtifact(item: ParsedOrderItemForValidation) {
+  const name = normalizeCompare(item.serviceName);
+  if (!name) return false;
+
+  return (
+    name === "lange" ||
+    name === "laenge" ||
+    name === "länge" ||
+    name === "meter" ||
+    name === "strecke" ||
+    name === "anzahl" ||
+    name === "menge" ||
+    name.startsWith("lange ") ||
+    name.startsWith("laenge ") ||
+    name.startsWith("länge ")
+  );
+}
+
+function repairAmbiguousQuantityRangeItems(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  const ranges = findAmbiguousQuantityRanges(originalText);
+  if (ranges.length === 0) return items;
+
+  const rangeUnits = new Set(ranges.map((range) => range.unitType).filter(Boolean));
+  const rangeValues = new Set<number>();
+  for (const range of ranges) {
+    rangeValues.add(range.lower);
+    rangeValues.add(range.upper);
+  }
+
+  const cleaned: ParsedOrderItemForValidation[] = [];
+  let primaryRangeItemSeen = false;
+
+  for (const item of items) {
+    const itemUnitType = unitTypeFromDisplayUnit(item.unit);
+    const itemQuantity = Number(item.quantity || 0);
+    const itemName = normalizeCompare(item.serviceName);
+    const itemText = normalizeCompare(
+      [item.serviceName, item.description, item.sourceText, item.evidence]
+        .filter(Boolean)
+        .join(" "),
+    );
+
+    const isRangeArtifact =
+      isGenericRangeArtifact(item) &&
+      (!itemUnitType || rangeUnits.has(itemUnitType)) &&
+      (!itemQuantity || rangeValues.has(itemQuantity));
+
+    if (isRangeArtifact) {
+      // Do not keep helper rows like "Länge" that were created from
+      // "10 oder 11 Meter". They create a false total.
+      continue;
+    }
+
+    const matchingRange = ranges.find((range) => {
+      const rangeName = normalizeCompare(range.serviceName);
+      if (rangeName && itemText.includes(rangeName)) return true;
+      if (itemName && range.segment && normalizeCompare(range.segment).includes(itemName)) return true;
+      return false;
+    });
+
+    if (matchingRange && !primaryRangeItemSeen) {
+      const priceFromRange = chooseBestPriceFromSegment(matchingRange.segment);
+      const next: ParsedOrderItemForValidation = {
+        ...item,
+        serviceName: matchingRange.serviceName || item.serviceName,
+        unit: unitTypeToDisplayUnit(matchingRange.unitType) || item.unit,
+        unitPrice: priceFromRange?.amount || item.unitPrice,
+        quantity: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: "quantity_review",
+        sourceText: item.sourceText || matchingRange.segment,
+        evidence: item.evidence || matchingRange.segment,
+      };
+
+      cleaned.push(next);
+      primaryRangeItemSeen = true;
+      continue;
+    }
+
+    cleaned.push(item);
+  }
+
+  return cleaned;
+}
+
+function unitTypeToDisplayUnit(unitType?: string | null): string | null {
+  switch (unitType) {
+    case "piece":
+      return "Stück";
+    case "square_meter":
+      return "Quadratmeter";
+    case "cubic_meter":
+      return "Kubikmeter";
+    case "hour":
+      return "Stunde";
+    case "day":
+      return "Tag";
+    case "meter":
+      return "Meter";
+    case "kilogram":
+      return "Kilogramm";
+    case "ton":
+      return "Tonne";
+    case "liter":
+      return "Liter";
+    case "flat":
+      return "Pauschal";
+    default:
+      return null;
+  }
 }
 
 export function validateAndRepairParsedOrderItems(
@@ -114,7 +676,7 @@ export function validateAndRepairParsedOrderItems(
     finalCurrency = supportedDetectedCurrencies[0];
   }
 
-  const items = input.items.map((item) => {
+  let items = input.items.map((item) => {
     const quantity = Number(item.quantity || 0);
     const unitPrice = Number(item.unitPrice || 0);
     const next: ParsedOrderItemForValidation = {
@@ -123,10 +685,47 @@ export function validateAndRepairParsedOrderItems(
       unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
     };
 
+    const itemReasons: string[] = [];
+
+    // Pauschalpreise haben fachlich keine Mengenberechnung. Für die UI und
+    // die gespeicherte Summe setzen wir sie intern auf Menge 1, damit nicht
+    // fälschlich "Menge prüfen" und Total CHF 0.00 entsteht.
+    if (isFlatUnit(next.unit) && next.unitPrice > 0) {
+      next.quantity = 1;
+      if (next.reviewReason && QUANTITY_REVIEW_REASON_PATTERN.test(next.reviewReason)) {
+        next.reviewReason = null;
+        next.needsReview = false;
+      }
+    }
+
+    const explicitUnitPrice = detectExplicitUnitPriceForItem(
+      input.originalText,
+      next,
+    );
+
+    if (explicitUnitPrice) {
+      const explicitCurrency = explicitUnitPrice.currency;
+      const supportedCurrency = explicitCurrency === "CHF" || explicitCurrency === "EUR";
+      const canUseExplicitPrice = supportedCurrency && explicitCurrency === finalCurrency;
+
+      if (canUseExplicitPrice) {
+        if (Math.abs(Number(next.unitPrice || 0) - explicitUnitPrice.amount) >= 0.01) {
+          itemReasons.push(
+            `price_repaired_from_text:${next.serviceName}:${Number(next.unitPrice || 0)}:${explicitUnitPrice.amount}`,
+          );
+        }
+        next.unitPrice = explicitUnitPrice.amount;
+      } else {
+        next.unitPrice = 0;
+        itemReasons.push(
+          `item_currency_mismatch:${next.serviceName}:${explicitCurrency || "UNKNOWN"}:${finalCurrency}`,
+          "currency_review",
+        );
+      }
+    }
+
     const safeTotal = calculateSafeLineTotal(next);
     next.totalPrice = safeTotal;
-
-    const itemReasons: string[] = [];
 
     if (next.unitPrice <= 0) itemReasons.push("unit_price_review");
     if (!isFlatUnit(next.unit) && next.quantity <= 0) itemReasons.push("quantity_review");
@@ -136,6 +735,29 @@ export function validateAndRepairParsedOrderItems(
       next.needsReview = true;
       if (!next.reviewReason) next.reviewReason = itemReasons[0];
       reviewReasons.push(...itemReasons);
+    }
+
+    return next;
+  });
+
+  const missingFlatItems = detectFlatPriceItems(input.originalText, items);
+  if (missingFlatItems.length > 0) {
+    items = [...missingFlatItems, ...items];
+    reviewReasons.push("manual_flat_service_from_text");
+  }
+
+  items = repairAmbiguousQuantityRangeItems(input.originalText, items).map((item) => {
+    if (!isFlatUnit(item.unit) || item.unitPrice <= 0) return item;
+
+    const next = {
+      ...item,
+      quantity: 1,
+      totalPrice: calculateSafeLineTotal({ ...item, quantity: 1 }),
+    };
+
+    if (next.reviewReason && QUANTITY_REVIEW_REASON_PATTERN.test(next.reviewReason)) {
+      next.reviewReason = null;
+      next.needsReview = false;
     }
 
     return next;
@@ -151,37 +773,80 @@ export function validateAndRepairParsedOrderItems(
 }
 
 const EXECUTION_ADDRESS_MARKER =
-  /\b(ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|baustellenadresse|baustelle|arbeitsadresse|arbeitsort|einsatzort|objektadresse)\b/i;
+  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
 
 const STOP_MARKER =
-  /\b(rechnungsadresse|rechnung|kunde|kundendaten|leistung|leistungen|preis|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|hinweis|notiz)\b/i;
+  /\b(rechnungsadresse|rechnung\s+an|kunde|kundendaten|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|bitte|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp)\b/i;
+
+const ADDRESS_WORD_PATTERN =
+  /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)/i;
+
+function cleanAddressLine(value: string): string {
+  return normalizeText(value)
+    .replace(EXECUTION_ADDRESS_MARKER, "")
+    .replace(STOP_MARKER, "")
+    .replace(/[,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[:\-–—]+\s*/, "")
+    .replace(/\s*[:\-–—]+\s*$/, "")
+    .trim();
+}
 
 function parseStreet(value: string): string | null {
-  const text = normalizeText(value).replace(/[,;]+/g, " ");
-  const match = text.match(
-    /\b([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{1,60}(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-zA-Z]?(?:\s*[/-]\s*\d+[a-zA-Z]?)?)\b/i,
+  const text = cleanAddressLine(value);
+  if (!text) return null;
+
+  const streetSuffix =
+    "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\\.?|chemin|via|viale|street|road|lane)";
+
+  // Strict: never capture an object/name prefix such as "Wohnanlage Seefeld".
+  // Good: "Wohnanlage Seefeld Seefeldstrasse 120" -> "Seefeldstrasse 120".
+  // Bad before: "Wohnanlage Seefeld Seefeldstrasse 8008" from polluted AI evidence.
+  const compactStreet = new RegExp(
+    `\\b([A-ZÄÖÜ][A-Za-zÄÖÜäöüß'.-]*${streetSuffix}\\s+\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?)\\b`,
+    "gi",
   );
 
-  return match?.[1]?.replace(/\s+/g, " ").trim() || null;
+  const matches = Array.from(text.matchAll(compactStreet))
+    .map((match) => match[1]?.replace(/\s+/g, " ").trim())
+    .filter(Boolean) as string[];
+
+  if (matches.length > 0) {
+    // Prefer the last match because polluted evidence often starts with object text.
+    return matches[matches.length - 1];
+  }
+
+  return null;
 }
 
 function parsePlzCity(value: string): { plz: string | null; city: string | null } {
-  const text = normalizeText(value).replace(/[,;]+/g, " ");
-  const match = text.match(/\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{2,40})\b/);
-
+  const text = cleanAddressLine(value);
+  const match = text.match(/\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{2,60})\b/);
   if (!match) return { plz: null, city: null };
+
+  const rawCity = match[2] || "";
+  const city = rawCity
+    .replace(EXECUTION_ADDRESS_MARKER, "")
+    .replace(STOP_MARKER, "")
+    .replace(/\b(ausführungsadresse|ausfuehrungsadresse|ausführende|ausfuehrende|adresse|arbeitsort|baustelle|objekt|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung)\b/gi, "")
+    // Cut accidental continuation text after a plausible city.
+    .replace(/\b(leisting|leistung|leistungen|bitte|preis|preise|kosten|fenster|treppenhaus|reinigung|reinigen|farbreste|hecke|garage|tiefgarage|pauschal)\b.*$/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   return {
     plz: match[1] || null,
-    city: match[2]?.replace(/\s+/g, " ").trim() || null,
+    city: city || null,
   };
 }
 
 function stripMarker(value: string) {
-  return value
-    .replace(EXECUTION_ADDRESS_MARKER, "")
-    .replace(/^\s*[:\-–—]+\s*/, "")
-    .trim();
+  return cleanAddressLine(value);
+}
+
+function isLikelyAddressStreetLine(value: string): boolean {
+  const text = cleanAddressLine(value);
+  return ADDRESS_WORD_PATTERN.test(text) && /\d/.test(text);
 }
 
 function isSameAddress(args: {
@@ -200,6 +865,114 @@ function isSameAddress(args: {
   );
 
   return Boolean(extracted && customer && extracted === customer);
+}
+
+function getExecutionAddressCandidates(lines: string[], markerIndex: number) {
+  const blockLines: string[] = [];
+  const markerLine = lines[markerIndex] || "";
+  const sameLine = stripMarker(markerLine);
+
+  if (sameLine && !STOP_MARKER.test(sameLine)) blockLines.push(sameLine);
+
+  for (let offset = 1; offset <= 5; offset += 1) {
+    const nextLine = lines[markerIndex + offset];
+    if (!nextLine) continue;
+    if (EXECUTION_ADDRESS_MARKER.test(nextLine)) break;
+
+    const cleaned = stripMarker(nextLine);
+    if (!cleaned) continue;
+
+    if (
+      STOP_MARKER.test(nextLine) &&
+      !isLikelyAddressStreetLine(nextLine) &&
+      !parsePlzCity(nextLine).plz
+    ) {
+      break;
+    }
+
+    blockLines.push(cleaned);
+
+    const hasStreet = blockLines.some((line) => Boolean(parseStreet(line)));
+    const hasPlzCity = blockLines.some((line) => Boolean(parsePlzCity(line).plz));
+    if (hasStreet && hasPlzCity) break;
+  }
+
+  return blockLines;
+}
+
+function hasSuspiciousStreetPlzMix(siteAddress: string | null, sitePlz: string | null) {
+  if (!siteAddress || !sitePlz) return false;
+  const streetNumber = siteAddress.match(/\b(\d{4,5})\b/)?.[1] || null;
+  return Boolean(streetNumber && streetNumber === sitePlz);
+}
+
+function findBestStreet(blockLines: string[]): string | null {
+  const lineStreet = blockLines
+    .map((candidate) => parseStreet(candidate))
+    .find(Boolean);
+
+  if (lineStreet) return lineStreet;
+
+  // Fallback only for compact one-line addresses. Do not allow this fallback
+  // to turn the PLZ into a fake house number.
+  const joined = blockLines.join(" ");
+  const joinedStreet = parseStreet(joined);
+  const joinedPlz = parsePlzCity(joined).plz;
+  if (hasSuspiciousStreetPlzMix(joinedStreet, joinedPlz)) return null;
+
+  return joinedStreet;
+}
+
+
+function sanitizeStreetAgainstSiteName(
+  siteAddress: string | null,
+  siteName: string | null,
+  sitePlz: string | null,
+): string | null {
+  const raw = cleanAddressLine(siteAddress || "");
+  if (!raw) return null;
+
+  const fromStreetParser = parseStreet(raw);
+  let cleaned = fromStreetParser || raw;
+
+  const nameKey = normalizeCompare(siteName);
+  if (nameKey) {
+    const cleanedKey = normalizeCompare(cleaned);
+    if (cleanedKey.startsWith(nameKey + " ")) {
+      const withoutName = cleaned.replace(new RegExp(`^\\s*${escapeRegExp(siteName || "")}\\s+`, "i"), "").trim();
+      cleaned = parseStreet(withoutName) || withoutName || cleaned;
+    }
+  }
+
+  const reparsed = parseStreet(cleaned);
+  if (reparsed) cleaned = reparsed;
+
+  if (sitePlz && hasSuspiciousStreetPlzMix(cleaned, sitePlz)) {
+    return null;
+  }
+
+  return cleaned || null;
+}
+
+function escapeRegExp(value: string): string {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function pickSiteName(blockLines: string[], siteAddress: string | null, sitePlz: string | null) {
+  for (const candidate of blockLines) {
+    const cleaned = stripMarker(candidate);
+    if (!cleaned) continue;
+    if (siteAddress && normalizeCompare(cleaned) === normalizeCompare(siteAddress)) continue;
+    if (parseStreet(cleaned)) continue;
+    if (parsePlzCity(cleaned).plz) continue;
+    if (sitePlz && cleaned.includes(sitePlz)) continue;
+    if (/\d{4,5}/.test(cleaned)) continue;
+    if (STOP_MARKER.test(cleaned)) continue;
+    if (EXECUTION_ADDRESS_MARKER.test(cleaned)) continue;
+    if (cleaned.length >= 3 && cleaned.length <= 80) return cleaned;
+  }
+
+  return "Ausführungsadresse";
 }
 
 export function extractExecutionAddressFromText(
@@ -222,21 +995,18 @@ export function extractExecutionAddressFromText(
     const line = lines[index];
     if (!EXECUTION_ADDRESS_MARKER.test(line)) continue;
 
-    const blockLines: string[] = [];
-    const sameLine = stripMarker(line);
-    if (sameLine) blockLines.push(sameLine);
+    const blockLines = getExecutionAddressCandidates(lines, index);
+    if (blockLines.length === 0) continue;
 
-    for (let offset = 1; offset <= 4; offset += 1) {
-      const nextLine = lines[index + offset];
-      if (!nextLine) continue;
-      if (STOP_MARKER.test(nextLine) && !EXECUTION_ADDRESS_MARKER.test(nextLine)) break;
-      blockLines.push(nextLine);
-    }
+    const siteAddress = findBestStreet(blockLines);
 
-    const block = blockLines.join("\n");
-    const flatBlock = blockLines.join(" ");
-    const siteAddress = parseStreet(flatBlock);
-    const { plz: sitePlz, city: siteCity } = parsePlzCity(flatBlock);
+    const plzCityFromLine = blockLines
+      .map((candidate) => parsePlzCity(candidate))
+      .find((candidate) => candidate.plz && candidate.city);
+
+    const fallbackPlzCity = parsePlzCity(blockLines.join(" "));
+    const sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
+    const siteCity = plzCityFromLine?.city || fallbackPlzCity.city;
 
     if (!siteAddress && !(sitePlz && siteCity)) continue;
 
@@ -253,20 +1023,15 @@ export function extractExecutionAddressFromText(
       return null;
     }
 
-    const siteNameCandidate = blockLines.find((candidate) => {
-      const cleaned = stripMarker(candidate);
-      if (!cleaned) return false;
-      if (parseStreet(cleaned)) return false;
-      if (parsePlzCity(cleaned).plz) return false;
-      return cleaned.length >= 3 && cleaned.length <= 80;
-    });
+    const siteName = pickSiteName(blockLines, siteAddress, sitePlz);
+    const cleanSiteAddress = sanitizeStreetAgainstSiteName(siteAddress, siteName, sitePlz);
 
     return {
-      siteName: siteNameCandidate ? stripMarker(siteNameCandidate) : "Ausführungsadresse",
-      siteAddress,
+      siteName,
+      siteAddress: cleanSiteAddress || siteAddress,
       sitePlz,
       siteCity,
-      siteNote: `Automatisch aus Kundentext erkannt. Bitte prüfen.`,
+      siteNote: null,
     };
   }
 
