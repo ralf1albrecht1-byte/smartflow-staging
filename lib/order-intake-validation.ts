@@ -1,3 +1,4 @@
+// INTAKE_VALIDATION_ADDRESS_PRICE_FIX_V4
 export type IntakeCurrency = "CHF" | "EUR";
 
 export interface ParsedOrderItemForValidation {
@@ -73,6 +74,143 @@ export function detectCurrenciesInText(text?: string | null): string[] {
   return unique(currencies);
 }
 
+
+type DetectedUnitPrice = {
+  amount: number;
+  currency: string | null;
+  segment: string;
+};
+
+const CURRENCY_WORDS =
+  "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|£)";
+
+const UNIT_WORDS =
+  "(?:stueck|stück|stk|einheit|piece|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|meter|laufmeter|lfm|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
+
+const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
+
+const normalizeCurrency = (value?: string | null): string | null => {
+  const currency = String(value || "").toLowerCase().trim();
+  if (!currency) return null;
+  if (/^(chf|franken|fr\.?|sfr\.?|stutz)$/.test(currency)) return "CHF";
+  if (/^(eur|euro|€)$/.test(currency)) return "EUR";
+  if (/^(usd|us-dollar|dollar|us\$|\$)$/.test(currency)) return "USD";
+  if (/^(gbp|pfund|pound|£)$/.test(currency)) return "GBP";
+  return null;
+};
+
+const parsePriceNumber = (value?: string | null) => {
+  const parsed = Number(String(value || "").replace("'", "").replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const serviceTokens = (serviceName?: string | null) =>
+  normalizeCompare(serviceName)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !["reinigen", "entfernen", "machen", "bitte"].includes(token));
+
+const buildPriceSegments = (text?: string | null) => {
+  const source = normalizeText(text);
+  if (!source) return [];
+
+  const rawLines = source
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const segments: string[] = [];
+
+  for (let index = 0; index < rawLines.length; index += 1) {
+    const line = rawLines[index];
+    segments.push(line);
+
+    const sentenceParts = line
+      .split(/(?<=[.!?])\s+|;|\s+•\s+/g)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    segments.push(...sentenceParts);
+
+    const next = rawLines[index + 1];
+    if (next) segments.push(`${line} ${next}`);
+  }
+
+  return unique(segments);
+};
+
+function detectUnitPriceInSegment(segment: string): DetectedUnitPrice | null {
+  const source = normalizeText(segment);
+  if (!source) return null;
+
+  const patterns: RegExp[] = [
+    // CHF 5 pro Stück / USD 6 per piece / EUR 90 je Quadratmeter
+    new RegExp(`\\b(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|à|a|/)\\s*${UNIT_WORDS}\\b`, "i"),
+    // 5 CHF pro Stück / 90 EUR je Quadratmeter
+    new RegExp(`\\b${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|à|a|/)\\s*${UNIT_WORDS}\\b`, "i"),
+    // zu CHF 5 pro Stück / Sonderpreis ist CHF 50 pro Quadratmeter
+    new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|à|a|/)\\s*${UNIT_WORDS}\\b`, "i"),
+    // zu 5 CHF pro Stück
+    new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|à|a|/)\\s*${UNIT_WORDS}\\b`, "i"),
+    // Stundensatz CHF 95 / Stundenansatz CHF 95
+    new RegExp(`(?:stundenpreis|stundenansatz|stundensatz|tagessatz|quadratmeterpreis|meterpreis|stückpreis|stueckpreis|kilopreis|tonnenpreis|literpreis)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "i"),
+    // Stundensatz 95 CHF
+    new RegExp(`(?:stundenpreis|stundenansatz|stundensatz|tagessatz|quadratmeterpreis|meterpreis|stückpreis|stueckpreis|kilopreis|tonnenpreis|literpreis)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`, "i"),
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (!match) continue;
+
+    // The regex variants either capture currency first + price second or price first + currency second.
+    const first = match[1];
+    const second = match[2];
+    const firstAsCurrency = normalizeCurrency(first);
+    const secondAsCurrency = normalizeCurrency(second);
+    const currency = firstAsCurrency || secondAsCurrency;
+    const amount = firstAsCurrency ? parsePriceNumber(second) : parsePriceNumber(first);
+
+    if (amount && currency) return { amount, currency, segment: source };
+  }
+
+  return null;
+}
+
+function detectExplicitUnitPriceForService(
+  originalText: string,
+  serviceName: string,
+): DetectedUnitPrice | null {
+  const tokens = serviceTokens(serviceName);
+  const serviceKey = normalizeCompare(serviceName);
+  if (!serviceKey && tokens.length === 0) return null;
+
+  const segments = buildPriceSegments(originalText);
+  let best: { detected: DetectedUnitPrice; score: number } | null = null;
+
+  for (const segment of segments) {
+    const normalizedSegment = normalizeCompare(segment);
+    if (!normalizedSegment) continue;
+
+    const detected = detectUnitPriceInSegment(segment);
+    if (!detected) continue;
+
+    let score = 0;
+    if (serviceKey && normalizedSegment.includes(serviceKey)) score += 80;
+
+    for (const token of tokens) {
+      if (normalizedSegment.includes(token)) score += 35;
+    }
+
+    // Prefer shorter, local segments. Large blocks often contain several services and caused price bleed.
+    if (segment.length <= 180) score += 15;
+    if (segment.length > 320) score -= 40;
+
+    if (score < 35) continue;
+    if (!best || score > best.score) best = { detected, score };
+  }
+
+  return best?.detected || null;
+}
+
 const isFlatUnit = (unit?: string | null) => {
   const value = normalizeCompare(unit);
   return ["pauschal", "pauschale", "fixpreis", "festpreis", "flat"].includes(value);
@@ -123,10 +261,36 @@ export function validateAndRepairParsedOrderItems(
       unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
     };
 
+    const itemReasons: string[] = [];
+    const explicitUnitPrice = detectExplicitUnitPriceForService(
+      input.originalText,
+      next.serviceName,
+    );
+
+    if (explicitUnitPrice) {
+      const explicitCurrency = explicitUnitPrice.currency;
+      const supportedCurrency = explicitCurrency === "CHF" || explicitCurrency === "EUR";
+      const canUseExplicitPrice = supportedCurrency && explicitCurrency === finalCurrency;
+
+      if (canUseExplicitPrice) {
+        if (Math.abs(Number(next.unitPrice || 0) - explicitUnitPrice.amount) >= 0.01) {
+          itemReasons.push(
+            `price_repaired_from_text:${next.serviceName}:${Number(next.unitPrice || 0)}:${explicitUnitPrice.amount}`,
+          );
+        }
+        next.unitPrice = explicitUnitPrice.amount;
+      } else {
+        // Never store USD/EUR/CHF as the wrong final currency. The user must decide.
+        next.unitPrice = 0;
+        itemReasons.push(
+          `item_currency_mismatch:${next.serviceName}:${explicitCurrency || "UNKNOWN"}:${finalCurrency}`,
+          "currency_review",
+        );
+      }
+    }
+
     const safeTotal = calculateSafeLineTotal(next);
     next.totalPrice = safeTotal;
-
-    const itemReasons: string[] = [];
 
     if (next.unitPrice <= 0) itemReasons.push("unit_price_review");
     if (!isFlatUnit(next.unit) && next.quantity <= 0) itemReasons.push("quantity_review");
@@ -151,13 +315,32 @@ export function validateAndRepairParsedOrderItems(
 }
 
 const EXECUTION_ADDRESS_MARKER =
-  /\b(ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|baustellenadresse|baustelle|arbeitsadresse|arbeitsort|einsatzort|objektadresse)\b/i;
+  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
 
 const STOP_MARKER =
-  /\b(rechnungsadresse|rechnung|kunde|kundendaten|leistung|leistungen|preis|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|hinweis|notiz)\b/i;
+  /\b(rechnungsadresse|rechnung\s+an|rechnung|kunde|kundendaten|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|bitte|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp)\b/i;
+
+const ADDRESS_WORD_PATTERN =
+  /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)/i;
+
+function cleanAddressLine(value: string): string {
+  return normalizeText(value)
+    .replace(EXECUTION_ADDRESS_MARKER, "")
+    .replace(STOP_MARKER, "")
+    .replace(/[,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[:\-–—]+\s*/, "")
+    .replace(/\s*[:\-–—]+\s*$/, "")
+    .trim();
+}
+
+function isLikelyAddressStreetLine(value: string): boolean {
+  const text = cleanAddressLine(value);
+  return ADDRESS_WORD_PATTERN.test(text) && /\d/.test(text);
+}
 
 function parseStreet(value: string): string | null {
-  const text = normalizeText(value).replace(/[,;]+/g, " ");
+  const text = cleanAddressLine(value);
   const match = text.match(
     /\b([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{1,60}(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-zA-Z]?(?:\s*[/-]\s*\d+[a-zA-Z]?)?)\b/i,
   );
@@ -166,22 +349,27 @@ function parseStreet(value: string): string | null {
 }
 
 function parsePlzCity(value: string): { plz: string | null; city: string | null } {
-  const text = normalizeText(value).replace(/[,;]+/g, " ");
+  const text = cleanAddressLine(value);
   const match = text.match(/\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{2,40})\b/);
 
   if (!match) return { plz: null, city: null };
 
+  const rawCity = match[2] || "";
+  const city = rawCity
+    .replace(EXECUTION_ADDRESS_MARKER, "")
+    .replace(STOP_MARKER, "")
+    .replace(/\b(ausführungsadresse|ausfuehrungsadresse|ausführende|ausfuehrende|adresse|arbeitsort|baustelle|objekt)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
   return {
     plz: match[1] || null,
-    city: match[2]?.replace(/\s+/g, " ").trim() || null,
+    city: city || null,
   };
 }
 
 function stripMarker(value: string) {
-  return value
-    .replace(EXECUTION_ADDRESS_MARKER, "")
-    .replace(/^\s*[:\-–—]+\s*/, "")
-    .trim();
+  return cleanAddressLine(value);
 }
 
 function isSameAddress(args: {
@@ -200,6 +388,53 @@ function isSameAddress(args: {
   );
 
   return Boolean(extracted && customer && extracted === customer);
+}
+
+function getExecutionAddressCandidates(lines: string[], markerIndex: number) {
+  const blockLines: string[] = [];
+  const markerLine = lines[markerIndex] || "";
+  const sameLine = stripMarker(markerLine);
+
+  if (sameLine) blockLines.push(sameLine);
+
+  for (let offset = 1; offset <= 5; offset += 1) {
+    const nextLine = lines[markerIndex + offset];
+    if (!nextLine) continue;
+
+    // A second marker means a new address block/evidence block begins. Do not merge it.
+    if (EXECUTION_ADDRESS_MARKER.test(nextLine)) break;
+
+    // Stop before service/hint/price text, unless the line itself contains an address pattern.
+    if (STOP_MARKER.test(nextLine) && !isLikelyAddressStreetLine(nextLine) && !parsePlzCity(nextLine).plz) {
+      break;
+    }
+
+    const cleaned = stripMarker(nextLine);
+    if (!cleaned) continue;
+    blockLines.push(cleaned);
+
+    const hasStreet = Boolean(parseStreet(blockLines.join(" ")));
+    const hasPlzCity = Boolean(parsePlzCity(blockLines.join(" ")).plz);
+    if (hasStreet && hasPlzCity) break;
+  }
+
+  return blockLines;
+}
+
+function pickSiteName(blockLines: string[], siteAddress: string | null, sitePlz: string | null) {
+  for (const candidate of blockLines) {
+    const cleaned = stripMarker(candidate);
+    if (!cleaned) continue;
+    if (siteAddress && normalizeCompare(cleaned) === normalizeCompare(siteAddress)) continue;
+    if (parseStreet(cleaned)) continue;
+    if (parsePlzCity(cleaned).plz) continue;
+    if (/\d{4,5}/.test(cleaned)) continue;
+    if (STOP_MARKER.test(cleaned)) continue;
+    if (EXECUTION_ADDRESS_MARKER.test(cleaned)) continue;
+    if (cleaned.length >= 3 && cleaned.length <= 80) return cleaned;
+  }
+
+  return "Ausführungsadresse";
 }
 
 export function extractExecutionAddressFromText(
@@ -222,21 +457,22 @@ export function extractExecutionAddressFromText(
     const line = lines[index];
     if (!EXECUTION_ADDRESS_MARKER.test(line)) continue;
 
-    const blockLines: string[] = [];
-    const sameLine = stripMarker(line);
-    if (sameLine) blockLines.push(sameLine);
-
-    for (let offset = 1; offset <= 4; offset += 1) {
-      const nextLine = lines[index + offset];
-      if (!nextLine) continue;
-      if (STOP_MARKER.test(nextLine) && !EXECUTION_ADDRESS_MARKER.test(nextLine)) break;
-      blockLines.push(nextLine);
-    }
-
-    const block = blockLines.join("\n");
+    const blockLines = getExecutionAddressCandidates(lines, index);
     const flatBlock = blockLines.join(" ");
-    const siteAddress = parseStreet(flatBlock);
-    const { plz: sitePlz, city: siteCity } = parsePlzCity(flatBlock);
+
+    // Prefer line-based parsing. Parsing the whole block at once can merge
+    // object name + street + PLZ into one broken address line.
+    const siteAddress =
+      blockLines.map((candidate) => parseStreet(candidate)).find(Boolean) ||
+      parseStreet(flatBlock);
+
+    const plzCityFromLine = blockLines
+      .map((candidate) => parsePlzCity(candidate))
+      .find((candidate) => candidate.plz && candidate.city);
+
+    const fallbackPlzCity = parsePlzCity(flatBlock);
+    const sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
+    const siteCity = plzCityFromLine?.city || fallbackPlzCity.city;
 
     if (!siteAddress && !(sitePlz && siteCity)) continue;
 
@@ -253,20 +489,12 @@ export function extractExecutionAddressFromText(
       return null;
     }
 
-    const siteNameCandidate = blockLines.find((candidate) => {
-      const cleaned = stripMarker(candidate);
-      if (!cleaned) return false;
-      if (parseStreet(cleaned)) return false;
-      if (parsePlzCity(cleaned).plz) return false;
-      return cleaned.length >= 3 && cleaned.length <= 80;
-    });
-
     return {
-      siteName: siteNameCandidate ? stripMarker(siteNameCandidate) : "Ausführungsadresse",
+      siteName: pickSiteName(blockLines, siteAddress, sitePlz),
       siteAddress,
       sitePlz,
       siteCity,
-      siteNote: `Automatisch aus Kundentext erkannt. Bitte prüfen.`,
+      siteNote: "Automatisch aus Kundentext erkannt. Bitte prüfen.",
     };
   }
 
