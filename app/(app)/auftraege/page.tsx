@@ -572,9 +572,18 @@ const getBottomBadges = (
     });
   }
 
-  const appointmentLabel = parsedNotes.jobHints
+   const appointmentLabel = [
+    ...parsedNotes.jobHints,
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  ]
+    .filter(Boolean)
     .map(extractAppointmentBadgeLabel)
-    .find(Boolean);
+    .find((label) => label && label !== "Termin") ||
+    parsedNotes.jobHints
+      .map(extractAppointmentBadgeLabel)
+      .find(Boolean);
 
   if (appointmentLabel) {
     pushUniqueBadge(badges, {
