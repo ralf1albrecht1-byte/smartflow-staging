@@ -1,4 +1,4 @@
-// INTAKE_VALIDATION_ADDRESS_PRICE_FIX_V9
+// INTAKE_VALIDATION_ADDRESS_PRICE_FIX_V11
 export type IntakeCurrency = "CHF" | "EUR";
 
 export interface ParsedOrderItemForValidation {
@@ -315,6 +315,50 @@ function chooseBestPriceFromSegment(segment: string): DetectedUnitPrice | null {
   return null;
 }
 
+function detectCurrencylessFlatPriceFromSegment(
+  segment: string,
+  fallbackCurrency: IntakeCurrency,
+): DetectedUnitPrice | null {
+  const source = normalizeText(segment);
+  if (!source) return null;
+  if (!/\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(source)) return null;
+
+  const patterns = [
+    /\b(?:pauschal|pauschale|fixpreis|festpreis)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
+    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:pauschal|pauschale|fixpreis|festpreis)\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    const amount = parsePriceNumber(match?.[1]);
+    if (!amount) continue;
+
+    return {
+      amount,
+      currency: fallbackCurrency,
+      segment: source,
+      unitType: "flat",
+    };
+  }
+
+  return null;
+}
+
+function normalizeFlatServiceNameFromText(value: string): string {
+  const normalized = normalizeCompare(value);
+  if (/\btiefgarage\b/.test(normalized) && /\b(reinigen|reinigung|putzen)\b/.test(normalized)) {
+    return "Reinigung tiefgarage";
+  }
+  if (/\bgarage\b/.test(normalized) && /\b(reinigen|reinigung|putzen)\b/.test(normalized)) {
+    return "Garagenreinigung";
+  }
+
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
 function segmentContainsQuantity(
   segment: string,
   quantity: number,
@@ -400,6 +444,7 @@ function detectExplicitUnitPriceForItem(
 function detectFlatPriceItems(
   originalText: string,
   existingItems: ParsedOrderItemForValidation[],
+  fallbackCurrency: IntakeCurrency,
 ): ParsedOrderItemForValidation[] {
   const existingKeys = new Set(
     existingItems.map((item) => normalizeCompare(item.serviceName)),
@@ -413,8 +458,10 @@ function detectFlatPriceItems(
       continue;
     }
 
-    const detected = chooseBestPriceFromSegment(segment);
-    if (!detected || detected.currency !== "CHF") continue;
+    const detected =
+      chooseBestPriceFromSegment(segment) ||
+      detectCurrencylessFlatPriceFromSegment(segment, fallbackCurrency);
+    if (!detected || detected.currency !== fallbackCurrency) continue;
 
     const beforeFlat = segment
       .split(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/i)[0]
@@ -426,10 +473,7 @@ function detectFlatPriceItems(
       continue;
     }
 
-    const serviceName = beforeFlat
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/^./, (char) => char.toUpperCase());
+    const serviceName = normalizeFlatServiceNameFromText(beforeFlat);
 
     const key = normalizeCompare(serviceName);
     if (!key || existingKeys.has(key)) continue;
@@ -460,6 +504,36 @@ function detectFlatPriceItems(
   }
 
   return result;
+}
+
+function removeItemsUsingForeignFlatPrice(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const flatItems = detectFlatPriceItems(originalText, [], fallbackCurrency);
+  if (flatItems.length === 0) return items;
+
+  const flatAmounts = new Set(flatItems.map((item) => roundMoney(Number(item.unitPrice || 0))));
+  const flatServiceKeys = flatItems.map((item) => normalizeCompare(item.serviceName));
+
+  return items.filter((item) => {
+    if (isFlatUnit(item.unit)) return true;
+
+    const itemPrice = roundMoney(Number(item.unitPrice || 0));
+    if (!flatAmounts.has(itemPrice)) return true;
+
+    const itemKey = normalizeCompare(item.serviceName);
+    const isSameFlatDomain = flatServiceKeys.some((flatKey) => {
+      if (!flatKey || !itemKey) return false;
+      return flatKey.includes(itemKey) || itemKey.includes(flatKey);
+    });
+
+    if (isSameFlatDomain) return true;
+
+    // V11 fail-safe: Fremde Pauschale nicht als Stück-/Stundenpreis speichern.
+    return false;
+  });
 }
 
 function calculateSafeLineTotal(item: ParsedOrderItemForValidation) {
@@ -740,11 +814,13 @@ export function validateAndRepairParsedOrderItems(
     return next;
   });
 
-  const missingFlatItems = detectFlatPriceItems(input.originalText, items);
+  const missingFlatItems = detectFlatPriceItems(input.originalText, items, finalCurrency);
   if (missingFlatItems.length > 0) {
     items = [...missingFlatItems, ...items];
     reviewReasons.push("manual_flat_service_from_text");
   }
+
+  items = removeItemsUsingForeignFlatPrice(input.originalText, items, finalCurrency);
 
   items = repairAmbiguousQuantityRangeItems(input.originalText, items).map((item) => {
     if (!isFlatUnit(item.unit) || item.unitPrice <= 0) return item;
@@ -872,6 +948,116 @@ function isLikelyAddressStreetLine(value: string): boolean {
   return ADDRESS_WORD_PATTERN.test(text) && /\d/.test(text);
 }
 
+// INTAKE_EXECUTION_ADDRESS_SAFE_EMPTY_V11
+const SOFT_EXECUTION_ADDRESS_LINE_PATTERN =
+  /\b(liegenschaft|arbeitsort|arbeitsadresse|arbeit\s+(?:ist|isch|is|wird)|gearbeitet\s+wird|work\s+location|job\s+location|lieu\s+du\s+travail|ort\s+der\s+arbeit|sondern\s+(?:in|im|bei))\b/i;
+
+function isLikelyServiceOrPriceLine(value: string): boolean {
+  const text = normalizeCompare(value);
+  if (!text) return false;
+
+  const hasWorkVerb =
+    /\b(reinigen|reinigung|putzen|schneiden|stutzen|entfernen|streichen|malen|maehen|mähen|montieren|demontieren|reparieren|liefern|entsorgen|entsorgung)\b/i.test(text);
+  const hasQtyOrPrice =
+    /\b\d+(?:[.,]\d+)?\s*(?:stueck|stuck|stück|stk|quadratmeter|qm|m2|meter|stunde|stunden|std|h|tag|tage)\b/i.test(text) ||
+    /\b(?:preis|ansatz|stutz|chf|eur|euro|usd|dollar|pauschal|pro|per|je)\b/i.test(text);
+
+  return hasWorkVerb && hasQtyOrPrice;
+}
+
+function cleanSiteNameCandidate(value?: string | null): string | null {
+  let candidate = normalizeText(value || "")
+    .replace(EXECUTION_ADDRESS_MARKER, " ")
+    .replace(/[,;:.]+$/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!candidate) return null;
+
+  candidate = candidate
+    .replace(/^.*?\bsondern\s+(?:in\s+der|in\s+dem|im|in|bei\s+der|bei|bi\s+de|bi)\s+/i, "")
+    .replace(/^.*?\b(?:liegenschaft|objektadresse|objekt|baustelle|arbeitsort|arbeitsadresse|leistungsort|serviceadresse|job\s+site|job\s+location|work\s+location|lieu\s+du\s+travail)\b\s*(?:ist|isch|is|:)?\s*/i, "")
+    .replace(/^.*?\b(?:arbeit\s+(?:ist|isch|is)|gearbeitet\s+wird)\b\s*(?:aber\s+)?(?:drueben|drüben)?\s*(?:bei\s+der|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in)?\s*/i, "")
+    .replace(/^(?:es\s+(?:geht|goht)\s+um(?:s)?|ist|isch|is|aber|drueben|drüben|bei\s+der|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in|de|der|die|das)\s+/i, "")
+    .replace(/^[:\-–—]+\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!candidate) return null;
+
+  const softSplit = candidate.split(/\b(?:liegenschaft|objekt|baustelle|arbeitsort|arbeitsadresse|leistungsort|sondern)\b/i);
+  candidate = (softSplit[softSplit.length - 1] || candidate)
+    .replace(/^(?:es\s+(?:geht|goht)\s+um(?:s)?|ist|isch|is|in\s+der|in\s+dem|im|in|bei\s+der|bei|bi\s+de|bi|de|der|die|das)\s+/i, "")
+    .replace(/[,;:.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return candidate || null;
+}
+
+function isSafeSiteNameCandidate(value?: string | null): boolean {
+  const candidate = normalizeText(value || "");
+  const key = normalizeCompare(candidate);
+  if (!candidate || !key) return false;
+  if (candidate.length < 3 || candidate.length > 80) return false;
+  if (/\b\d{4,5}\b/.test(candidate)) return false;
+  if (/\b\d+(?:[.,]\d+)?\s*(?:stueck|stuck|stück|stk|quadratmeter|qm|m2|meter|stunde|stunden|std|h|tag|tage)\b/i.test(key)) return false;
+  if (/\b(chf|franken|stutz|eur|euro|usd|dollar|preis|ansatz|pauschal|pro|per|je)\b/i.test(key)) return false;
+  if (/\b(reinigen|reinigung|putzen|schneiden|stutzen|entfernen|streichen|malen|maehen|mähen|montieren|demontieren|reparieren|liefern|entsorgen|entsorgung)\b/i.test(key)) return false;
+  if (ADDRESS_WORD_PATTERN.test(candidate)) return false;
+  if (STOP_MARKER.test(candidate)) return false;
+  if (EXECUTION_ADDRESS_MARKER.test(candidate)) return false;
+
+  const blocked = new Set(["ist", "isch", "is", "dort", "hier", "adresse", "ausfuehrungsadresse", "ausführungsadresse"]);
+  if (blocked.has(key)) return false;
+
+  return true;
+}
+
+function extractInlineExecutionAddressCandidate(
+  line: string,
+  customer?: {
+    customerAddress?: string | null;
+    customerPlz?: string | null;
+    customerCity?: string | null;
+  },
+): ExtractedExecutionAddress | null {
+  const raw = normalizeText(line);
+  if (!raw) return null;
+  if (!EXECUTION_ADDRESS_MARKER.test(raw) && !SOFT_EXECUTION_ADDRESS_LINE_PATTERN.test(raw)) {
+    return null;
+  }
+
+  const siteAddress = parseStreet(raw);
+  const plzCity = parsePlzCity(raw);
+  if (!siteAddress || !plzCity.plz || !plzCity.city) return null;
+
+  if (
+    isSameAddress({
+      extractedAddress: siteAddress,
+      extractedPlz: plzCity.plz,
+      extractedCity: plzCity.city,
+      customerAddress: customer?.customerAddress,
+      customerPlz: customer?.customerPlz,
+      customerCity: customer?.customerCity,
+    })
+  ) {
+    return null;
+  }
+
+  const beforeStreet = raw.split(new RegExp(escapeRegExp(siteAddress), "i"))[0] || "";
+  const siteNameCandidate = cleanSiteNameCandidate(beforeStreet);
+  const siteName = isSafeSiteNameCandidate(siteNameCandidate) ? siteNameCandidate : null;
+
+  return {
+    siteName,
+    siteAddress,
+    sitePlz: plzCity.plz,
+    siteCity: plzCity.city,
+    siteNote: null,
+  };
+}
+
 function isSameAddress(args: {
   extractedAddress?: string | null;
   extractedPlz?: string | null;
@@ -910,6 +1096,11 @@ function getExecutionAddressCandidates(lines: string[], markerIndex: number) {
       !isLikelyAddressStreetLine(nextLine) &&
       !parsePlzCity(nextLine).plz
     ) {
+      break;
+    }
+
+    // V11: Service-/Preis-Sätze dürfen nicht als Objektname in den Adressblock laufen.
+    if (isLikelyServiceOrPriceLine(cleaned)) {
       break;
     }
 
@@ -983,21 +1174,19 @@ function escapeRegExp(value: string): string {
 
 function pickSiteName(blockLines: string[], siteAddress: string | null, sitePlz: string | null) {
   for (const candidate of blockLines) {
-    const cleaned = stripMarker(candidate);
+    const cleaned = cleanSiteNameCandidate(stripMarker(candidate));
     if (!cleaned) continue;
     if (siteAddress && normalizeCompare(cleaned) === normalizeCompare(siteAddress)) continue;
     if (parseStreet(cleaned)) continue;
     if (parsePlzCity(cleaned).plz) continue;
     if (sitePlz && cleaned.includes(sitePlz)) continue;
-    if (/\d{4,5}/.test(cleaned)) continue;
-    if (STOP_MARKER.test(cleaned)) continue;
-    if (EXECUTION_ADDRESS_MARKER.test(cleaned)) continue;
-    if (cleaned.length >= 3 && cleaned.length <= 80) return cleaned;
+    if (!isSafeSiteNameCandidate(cleaned)) continue;
+    return cleaned;
   }
 
-  return "Ausführungsadresse";
+  // V11 fail-safe: lieber keinen Objektnamen speichern als einen Satzrest.
+  return null;
 }
-
 export function extractExecutionAddressFromText(
   text?: string | null,
   customer?: {
@@ -1007,16 +1196,19 @@ export function extractExecutionAddressFromText(
   },
 ): ExtractedExecutionAddress | null {
   const source = normalizeText(text);
-  if (!source || !EXECUTION_ADDRESS_MARKER.test(source)) return null;
+  if (!source || (!EXECUTION_ADDRESS_MARKER.test(source) && !SOFT_EXECUTION_ADDRESS_LINE_PATTERN.test(source))) return null;
 
   const lines = source
-    .split("\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
     .map((line) => line.trim())
     .filter(Boolean);
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (!EXECUTION_ADDRESS_MARKER.test(line)) continue;
+    if (!EXECUTION_ADDRESS_MARKER.test(line) && !SOFT_EXECUTION_ADDRESS_LINE_PATTERN.test(line)) continue;
+
+    const inlineAddress = extractInlineExecutionAddressCandidate(line, customer);
+    if (inlineAddress) return inlineAddress;
 
     const blockLines = getExecutionAddressCandidates(lines, index);
     if (blockLines.length === 0) continue;

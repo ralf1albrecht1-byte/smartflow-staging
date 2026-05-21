@@ -88,7 +88,7 @@ function extractSelfIntroductionName(
   return candidate;
 }
 
-// INTAKE_CUSTOMER_NAME_FALLBACK_V10
+// INTAKE_CUSTOMER_NAME_FALLBACK_V11
 function cleanBillingCustomerNameCandidate(value: string | null | undefined): string | null {
   let candidate = String(value || "")
     .replace(/\r\n/g, "\n")
@@ -123,6 +123,36 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
   if (candidate.length < 2 || candidate.length > 80) return null;
   if (!/[A-Za-zÄÖÜäöüß]/.test(candidate)) return null;
   if (/\d/.test(candidate)) return null;
+
+  // INTAKE_CUSTOMER_NAME_SAFE_EMPTY_V11
+  // Lieber leer lassen als Füllwörter oder Satzreste als Kundenname speichern.
+  const blockedExact = new Set([
+    "ist",
+    "isch",
+    "is",
+    "sind",
+    "geht",
+    "gehe",
+    "an",
+    "bei",
+    "für",
+    "fuer",
+    "von",
+    "mit",
+    "und",
+    "oder",
+    "bitte",
+    "kunde",
+    "rechnungsadresse",
+    "rechnung",
+    "name",
+    "unbekannt",
+    "weiss",
+    "weiß",
+    "weis",
+    "nicht",
+  ]);
+  if (blockedExact.has(normalized)) return null;
 
   // Keine Arbeitssätze / Hinweis-Sätze als Namen speichern.
   const blockedStarts = [
