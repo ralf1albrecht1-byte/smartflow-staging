@@ -2516,7 +2516,7 @@ const getSafeOrderTotal = (o: Order) => {
                 transition={{ delay: i * 0.015 }}
               >
                <Card
-                  className={`hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-hidden ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
+                  className={`hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   onClick={() => {
                     if (isMergeMode) {
                       handleToggleSelect(o.id);
@@ -2525,7 +2525,7 @@ const getSafeOrderTotal = (o: Order) => {
                     openEdit(o);
                   }}
                 >
-                  <CardContent className="px-2.5 py-2 sm:px-3 max-w-full overflow-hidden">
+                  <CardContent className="px-2.5 py-2 sm:px-3 max-w-full overflow-visible">
                     <div className="flex items-start gap-2 min-w-0 max-w-full overflow-hidden">
                       {isMergeMode && (
                         <div
@@ -2559,7 +2559,7 @@ const getSafeOrderTotal = (o: Order) => {
                           <MoreVertical className="w-3.5 h-3.5" />
                         </button>
                         {dropdownOpenId === o.id && (
-                          <div className="absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                         <div className="absolute left-0 top-full mt-1 z-[9999] bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
