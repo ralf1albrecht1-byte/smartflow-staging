@@ -1,4 +1,4 @@
-// INTAKE_VALIDATION_ADDRESS_PRICE_FIX_V11
+// INTAKE_VALIDATION_SEMANTIC_SAFETY_V12
 export type IntakeCurrency = "CHF" | "EUR";
 
 export interface ParsedOrderItemForValidation {

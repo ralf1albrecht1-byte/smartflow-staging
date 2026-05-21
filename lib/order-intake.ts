@@ -88,7 +88,7 @@ function extractSelfIntroductionName(
   return candidate;
 }
 
-// INTAKE_CUSTOMER_NAME_FALLBACK_V11
+// INTAKE_SEMANTIC_ENGINE_V12
 function cleanBillingCustomerNameCandidate(value: string | null | undefined): string | null {
   let candidate = String(value || "")
     .replace(/\r\n/g, "\n")
@@ -124,7 +124,7 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
   if (!/[A-Za-zÄÖÜäöüß]/.test(candidate)) return null;
   if (/\d/.test(candidate)) return null;
 
-  // INTAKE_CUSTOMER_NAME_SAFE_EMPTY_V11
+  // INTAKE_CUSTOMER_NAME_SAFE_EMPTY_V12
   // Lieber leer lassen als Füllwörter oder Satzreste als Kundenname speichern.
   const blockedExact = new Set([
     "ist",
@@ -1451,6 +1451,55 @@ STATUS
 "kein_treffer" → Kein relevanter Treffer
 
 --------------------------------------------------
+SEMANTIC INTAKE ENGINE V12 – WICHTIG
+--------------------------------------------------
+
+Du liest IMMER den gesamten Kundentext als Bedeutung, nicht als Wortliste.
+Du sollst wie ein vorsichtiger Sachbearbeiter entscheiden:
+
+- Wer bekommt die Rechnung?
+- Wo wird tatsächlich gearbeitet?
+- Welche konkrete Arbeit wird gemacht?
+- Was ist nur Ort/Kontext?
+- Welche Menge gehört zu welcher Arbeit?
+- Welcher Preis gehört zu welcher Arbeit?
+- Welche Währung gehört zu welcher Arbeit?
+- Was ist unsicher?
+
+ABSOLUTE SICHERHEITSREGEL:
+Wenn ein Wert nicht eindeutig aus dem Kundentext belegbar ist, setze ihn auf null.
+Nicht raten. Nicht aus anderen Leistungen übernehmen. Nicht aus vorhandenen Kunden übernehmen.
+Lieber leer lassen und prüfen lassen als falsch speichern.
+
+FÜR JEDE ARBEITSPOSITION MUSST DU TRENNEN:
+- action_name: die echte Arbeit, z.B. "Fenster reinigen", "Treppenhaus reinigen", "Garagenreinigung"
+- context: Ort/Teilbereich, z.B. "EG", "Treppenhaus", "Keller", "Garage Haus Nord"
+- service_id / service_name: nur dann aus der Liste "leistungen", wenn die Arbeit fachlich eindeutig passt.
+  Wenn nicht eindeutig: service_id = null, service_name = null, confidence = "niedrig".
+
+WICHTIG:
+Ein Ort oder Kontext ist nicht automatisch die Leistung.
+Wenn eine Formulierung sagt, dass etwas IN einem Bereich gemacht wird, muss die Handlung die Leistung bestimmen.
+Die Leistung darf nur übernommen werden, wenn die evidence genau diese Handlung belegt.
+
+EVIDENCE-PFLICHT:
+Jedes automatisch gesetzte Feld braucht eine konkrete evidence aus dem Originaltext.
+Das gilt besonders für:
+- kunde.name
+- kunde.strasse / plz / ort
+- ausfuehrungsadresse
+- jede Arbeitsposition
+- menge
+- einheit
+- unit_price
+- currency
+
+CONFIDENCE:
+- "hoch": eindeutig im Text belegt und keine Widersprüche.
+- "mittel": wahrscheinlich, aber noch prüfbedürftig.
+- "niedrig": unsicher. Werte bei niedrig möglichst null lassen.
+
+--------------------------------------------------
 AUSGABEFORMAT
 --------------------------------------------------
 
@@ -1597,6 +1646,11 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Jede Position enthält:
   {
     "name": "kurze Arbeitsbeschreibung",
+    "action_name": "eigentliche Tätigkeit ohne Orts-/Kontextwörter oder null",
+    "context": "Ort/Teilbereich dieser Arbeit oder null",
+    "service_id": "id aus leistungen oder null",
+    "service_name": "exakter Name aus leistungen oder null",
+    "service_confidence": "hoch" | "mittel" | "niedrig",
     "menge": Zahl oder null,
     "einheit": "Quadratmeter" | "Kubikmeter" | "Meter" | "Stunde" | "Tag" | "Tonne" | "Kilogramm" | "Liter" | "Stück" | "Pauschal" | null,
     "unit_price": Zahl oder null,
@@ -1820,7 +1874,7 @@ const intakeCurrency =
           },
         ],
         response_format: { type: "json_object" },
-        max_tokens: 1500,
+        max_tokens: 2600,
       }),
     });
   } catch (netErr: any) {
@@ -2414,6 +2468,13 @@ const hinweisItems = uniqueNormalizedLines([
 
   type AiWorkItem = {
     name?: string | null;
+    action_name?: string | null;
+    context?: string | null;
+    service_id?: string | null;
+    service_name?: string | null;
+    matched_service_id?: string | null;
+    matched_service_name?: string | null;
+    service_confidence?: "hoch" | "mittel" | "niedrig" | string | null;
     menge?: number | null;
     einheit?: string | null;
     unit_price?: number | string | null;
@@ -2575,9 +2636,61 @@ const hasForbiddenServiceWorkConflict = (
 
 
 
+  const normalizeAiConfidence = (value?: string | null) => {
+    const normalized = normalizeServiceText(value || "");
+    if (["hoch", "high", "sicher", "certain"].includes(normalized)) return "hoch";
+    if (["mittel", "medium", "wahrscheinlich", "probably"].includes(normalized)) return "mittel";
+    if (["niedrig", "low", "unsicher", "uncertain"].includes(normalized)) return "niedrig";
+    return "";
+  };
+
+  const findSemanticServiceForWorkItem = (item: AiWorkItem, services: any[]) => {
+    const confidence = normalizeAiConfidence(
+      item.service_confidence || item.confidence || null,
+    );
+
+    // INTAKE_SEMANTIC_ENGINE_V12:
+    // If the AI itself marks the service as uncertain, do not guess via token matching.
+    if (confidence === "niedrig") return null;
+
+    const explicitId = String(item.service_id || item.matched_service_id || "").trim();
+    if (explicitId) {
+      const byId = services.find((service: any) => String(service.id) === explicitId);
+      if (byId) return byId;
+    }
+
+    const explicitName = String(
+      item.service_name || item.matched_service_name || "",
+    ).trim();
+
+    if (explicitName) {
+      const normalizedExplicitName = normalizeServiceText(explicitName);
+
+      const exact = services.find(
+        (service: any) => normalizeServiceText(service.name) === normalizedExplicitName,
+      );
+      if (exact) return exact;
+
+      // Allow a cautious near-exact match only when the AI is at least medium confident.
+      const near = services.find((service: any) => {
+        const serviceName = normalizeServiceText(service.name);
+        return (
+          serviceName.length >= 4 &&
+          normalizedExplicitName.length >= 4 &&
+          (serviceName.includes(normalizedExplicitName) ||
+            normalizedExplicitName.includes(serviceName))
+        );
+      });
+
+      if (near && confidence) return near;
+    }
+
+    return null;
+  };
+
   const strictMatchServiceForWorkItem = (item: AiWorkItem, services: any[]) => {
-    const workName = normalizeServiceText(item.name || "");
-    const workRaw = normalizeServiceText(item.raw || "");
+    const workName = normalizeServiceText(item.action_name || item.name || item.service_name || item.matched_service_name || "");
+    const workRaw = normalizeServiceText([item.raw, item.evidence, item.context].filter(Boolean).join(" "));
     const workText = [workName, workRaw].filter(Boolean).join(" ");
     const workUnitType = getWorkItemUnitType(item);
 
@@ -2666,9 +2779,16 @@ const hasForbiddenServiceWorkConflict = (
         score += 55;
       }
 
-      // Einheit darf nur unterstützen, aber NIE allein matchen.
-      if (workUnitType !== "unknown" && workUnitType === serviceUnitType) {
-        score += 10;
+      // Einheit ist ein Sicherheits-Signal:
+      // gleiche Einheit unterstützt, klare falsche Einheit blockiert eher.
+      // So wird z.B. eine Stück-Position nicht nur wegen eines Ortswortes
+      // auf eine Quadratmeter-/Stunden-Leistung gemappt.
+      if (workUnitType !== "unknown") {
+        if (workUnitType === serviceUnitType) {
+          score += 25;
+        } else if (serviceUnitType !== "unknown") {
+          score -= 90;
+        }
       }
 
       if (!best || score > best.score) {
@@ -2685,12 +2805,18 @@ const hasForbiddenServiceWorkConflict = (
     .map((item) => {
       const raw = String(item.raw || item.name || "").trim();
       const detectedName = cleanDetectedWorkName(
-        String(item.name || raw || ""),
+        String(item.action_name || item.service_name || item.matched_service_name || item.name || raw || ""),
       );
 
       if (!detectedName || detectedName.length < 3) return null;
 
-       const matchedService = strictMatchServiceForWorkItem(item, services);
+       const semanticMatchedService = findSemanticServiceForWorkItem(item, services);
+       const semanticConfidence = normalizeAiConfidence(item.confidence || null);
+       const matchedService =
+         semanticMatchedService ||
+         (semanticConfidence === "niedrig"
+           ? null
+           : strictMatchServiceForWorkItem(item, services));
 const evidenceText = String(
   item.source_text || item.evidence || item.raw || "",
 ).trim();
@@ -2835,15 +2961,19 @@ const finalServiceName =
     ? "Unbekannte Leistung"
     : cleanedDetectedName;
 
+const confidence = normalizeAiConfidence(item.confidence || null);
+const safeUnitPrice = confidence === "niedrig" ? 0 : detectedUnitPrice || 0;
+const safeQuantity = confidence === "niedrig" ? 0 : detectedQuantity || 0;
+
 return {
   serviceName: finalServiceName,
   description: String(
     raw || detectedName || fullWorkText || `${source}-Auftrag`,
   ),
-  quantity: detectedQuantity || 0,
+  quantity: safeQuantity,
   unit: unit || "Pauschal",
- unitPrice: detectedUnitPrice || 0,
-totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
+ unitPrice: safeUnitPrice,
+totalPrice: safeUnitPrice * safeQuantity,
   needsReview: true,
   reviewReason: "unbekannte_leistung_pruefen",
   sourceText: originalSegment || raw || null,
@@ -3157,7 +3287,7 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
               { role: "user", content: messageText },
             ],
             response_format: { type: "json_object" },
-            max_tokens: 1500,
+            max_tokens: 2600,
           }),
         },
       );
