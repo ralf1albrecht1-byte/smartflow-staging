@@ -479,6 +479,51 @@ function detectExplicitUnitPriceForItem(
   return best?.detected || null;
 }
 
+function detectExplicitFlatPriceForItem(
+  originalText: string,
+  item: ParsedOrderItemForValidation,
+  fallbackCurrency: IntakeCurrency,
+): DetectedUnitPrice | null {
+  const itemEvidence = [item.sourceText, item.evidence, item.description]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join("\n");
+
+  const serviceKey = normalizeCompare(item.serviceName);
+  const tokens = serviceTokens(item.serviceName);
+  const candidates = [
+    ...splitIntoPriceSegments(itemEvidence),
+    ...splitIntoPriceSegments(originalText),
+  ];
+
+  let best: { detected: DetectedUnitPrice; score: number } | null = null;
+
+  for (const segment of candidates) {
+    const normalizedSegment = normalizeCompare(segment);
+    if (!normalizedSegment) continue;
+    if (!/(pauschal|pauschale|fixpreis|festpreis)/i.test(normalizedSegment)) continue;
+
+    const detected =
+      chooseBestPriceFromSegment(segment) ||
+      detectCurrencylessFlatPriceFromSegment(segment, fallbackCurrency);
+    if (!detected || detected.unitType !== "flat") continue;
+
+    let score = 0;
+    if (serviceKey && normalizedSegment.includes(serviceKey)) score += 120;
+    for (const token of tokens) {
+      if (normalizedSegment.includes(token)) score += 70;
+    }
+    if (itemEvidence && normalizeCompare(itemEvidence).includes(normalizedSegment)) score += 80;
+    if (segment.length <= 180) score += 20;
+    if (segment.length > 320) score -= 80;
+
+    if (score < 70) continue;
+    if (!best || score > best.score) best = { detected, score };
+  }
+
+  return best?.detected || null;
+}
+
 function detectFlatPriceItems(
   originalText: string,
   existingItems: ParsedOrderItemForValidation[],
@@ -804,6 +849,23 @@ export function validateAndRepairParsedOrderItems(
     // fälschlich "Menge prüfen" und Total CHF 0.00 entsteht.
     if (isFlatUnit(next.unit) && next.unitPrice > 0) {
       next.quantity = 1;
+      if (next.reviewReason && QUANTITY_REVIEW_REASON_PATTERN.test(next.reviewReason)) {
+        next.reviewReason = null;
+        next.needsReview = false;
+      }
+    }
+
+    const explicitFlatPrice = detectExplicitFlatPriceForItem(
+      input.originalText,
+      next,
+      finalCurrency,
+    );
+
+    if (explicitFlatPrice && explicitFlatPrice.currency === finalCurrency) {
+      next.unit = "Pauschal";
+      next.quantity = 1;
+      next.unitPrice = explicitFlatPrice.amount;
+      next.totalPrice = explicitFlatPrice.amount;
       if (next.reviewReason && QUANTITY_REVIEW_REASON_PATTERN.test(next.reviewReason)) {
         next.reviewReason = null;
         next.needsReview = false;
