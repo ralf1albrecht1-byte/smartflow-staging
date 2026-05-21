@@ -589,20 +589,74 @@ function findColonBlockForWorkItem(
 }
 
 
+function countUnitPriceSignals(text: string | null | undefined): number {
+  const source = normalizeUnitText(text || "");
+  if (!source) return 0;
+
+  const currencyWords =
+    "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|dollar|\\$|gbp|pfund|£)";
+  const unitJoin = "(?:pro|je|per|à|a|/)";
+  const unitWords =
+    "(?:stueck|stück|stk|quadratmeter|qm|m2|m²|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
+
+  const patterns = [
+    new RegExp(`\\d+(?:[.,]\\d{1,2})?\\s*${currencyWords}\\s*${unitJoin}\\s*${unitWords}`, "gi"),
+    new RegExp(`${currencyWords}\\s*\\d+(?:[.,]\\d{1,2})?\\s*${unitJoin}\\s*${unitWords}`, "gi"),
+  ];
+
+  return patterns.reduce((sum, pattern) => sum + Array.from(source.matchAll(pattern)).length, 0);
+}
+
+function parseStructuredUnitPrice(value: unknown): number | null {
+  const parsed = Number(String(value ?? "").replace("'", "").replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function detectUnitPriceForWorkItem(
-  item: { raw?: string | null; name?: string | null },
+  item: {
+    raw?: string | null;
+    name?: string | null;
+    unit_price?: number | string | null;
+    currency?: string | null;
+    evidence?: string | null;
+    source_text?: string | null;
+  },
   fullText: string,
 ): number | null {
-  const colonBlock = findColonBlockForWorkItem(item, fullText);
+  const evidenceText = [item.source_text, item.evidence, item.raw]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ");
 
-  if (colonBlock) {
+  const evidencePrice = detectUnitPriceFromText(evidenceText);
+  if (evidencePrice) return evidencePrice;
+
+  // Strukturierter KI-Preis ist nur zweite Wahl. Er wird später in
+  // lib/order-intake-validation.ts nochmals gegen Evidence/Währung geprüft.
+  const structuredPrice = parseStructuredUnitPrice(item.unit_price);
+  if (structuredPrice && evidenceText) return structuredPrice;
+
+  const localText = [item.raw, item.name].filter(Boolean).join(" ");
+  const localPrice = detectUnitPriceFromText(localText);
+  if (localPrice) return localPrice;
+
+  const originalSegment = findOriginalSegmentForWorkItem(item, fullText);
+  if (originalSegment && countUnitPriceSignals(originalSegment) <= 1) {
+    const segmentPrice = detectUnitPriceFromText(originalSegment);
+    if (segmentPrice) return segmentPrice;
+  }
+
+  const colonBlock = findColonBlockForWorkItem(item, fullText);
+  if (
+    colonBlock &&
+    colonBlock.length <= 240 &&
+    countUnitPriceSignals(colonBlock) <= 1
+  ) {
     return detectUnitPriceFromText(colonBlock);
   }
 
-  const localText = [item.raw, item.name].filter(Boolean).join(" ");
-  return detectUnitPriceFromText(localText);
+  return null;
 }
-
 
 
 function hasAmbiguousCompactLinePrice(text: string | null | undefined): boolean {
@@ -1259,6 +1313,15 @@ AUSGABEFORMAT
   "beschreibung": null,
   "gefahren": [],
   "besonderheiten": [],
+  "ausfuehrungsadresse": {
+    "ist_abweichend": false,
+    "name": null,
+    "strasse": null,
+    "plz": null,
+    "ort": null,
+    "confidence": "niedrig",
+    "evidence": null
+  },
   "arbeitspositionen": []
 },
   "service": {
@@ -1382,14 +1445,33 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
     "name": "kurze Arbeitsbeschreibung",
     "menge": Zahl oder null,
     "einheit": "Quadratmeter" | "Kubikmeter" | "Meter" | "Stunde" | "Tag" | "Tonne" | "Kilogramm" | "Liter" | "Stück" | "Pauschal" | null,
+    "unit_price": Zahl oder null,
+    "currency": "CHF" | "EUR" | "USD" | "GBP" | andere erkannte Währung oder null,
     "raw": "Originalteil aus der Nachricht",
+    "evidence": "exakte Textstelle, aus der Menge, Einheit, Preis und Währung dieser Position stammen",
     "confidence": "hoch" | "mittel" | "niedrig"
   }
-- Keine Preise setzen.
+- Jede Leistung braucht ihre eigene evidence/sourceText.
+- Preis, Menge, Einheit und Währung dürfen NUR gesetzt werden, wenn sie in der evidence derselben Position stehen.
+- Preis aus einer anderen Zeile/anderen Leistung NIEMALS übernehmen.
+- Wenn bei einer Position kein eigener Preis steht → unit_price = null.
+- Wenn mehrere Preise/Währungen im Text stehen, jede Position separat zuordnen; bei Unsicherheit unit_price = null und confidence = "niedrig".
 - Keine Leistungen erfinden.
 - Nicht versuchen, unbekannte Arbeiten einer bestehenden Leistung zuzuordnen.
 - Wenn mehrere Arbeiten genannt werden, jede Arbeit separat ausgeben.
-- Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.`;
+- Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.
+
+12. AUSFÜHRUNGSADRESSE / ARBEITSORT:
+- Erkenne semantisch, ob neben der Rechnungsadresse ein anderer Ort genannt wird, an dem gearbeitet wird.
+- Das gilt sprachunabhängig: z.B. Ausführungsadresse, Baustelle, Objekt, Arbeitsort, Einsatzort, job site, work address, service address, chantier, lugar de trabajo usw.
+- Nutze nicht nur feste Wörter, sondern Bedeutung: Wo bekommt der Kunde die Rechnung? Wo wird tatsächlich gearbeitet?
+- Wenn eindeutig anderer Arbeitsort vorhanden:
+  auftrag.ausfuehrungsadresse.ist_abweichend = true
+  name/strasse/plz/ort befüllen
+  confidence = "hoch" oder "mittel"
+  evidence = exakte Textstelle
+- Wenn unsicher oder unvollständig: ist_abweichend = false und in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
+- Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.`;
 }
 
 // ---------- Main intake function ----------
@@ -2170,7 +2252,11 @@ const hinweisItems = uniqueNormalizedLines([
     name?: string | null;
     menge?: number | null;
     einheit?: string | null;
+    unit_price?: number | string | null;
+    currency?: string | null;
     raw?: string | null;
+    evidence?: string | null;
+    source_text?: string | null;
     confidence?: "hoch" | "mittel" | "niedrig" | string | null;
   };
 
@@ -2441,12 +2527,17 @@ const hasForbiddenServiceWorkConflict = (
       if (!detectedName || detectedName.length < 3) return null;
 
        const matchedService = strictMatchServiceForWorkItem(item, services);
+const evidenceText = String(
+  item.source_text || item.evidence || item.raw || "",
+).trim();
+
 const originalSegment =
-  findColonBlockForWorkItem(
+  evidenceText ||
+  findOriginalSegmentForWorkItem(
     item,
     `${messageText}\n${fullWorkText}`,
   ) ||
-  findOriginalSegmentForWorkItem(
+  findColonBlockForWorkItem(
     item,
     `${messageText}\n${fullWorkText}`,
   ) ||
@@ -2559,6 +2650,9 @@ const reviewReason = mismatchDetected
           totalPrice: unitPrice * quantityValidation.quantity,
           needsReview: quantityValidation.needsReview || !!priceReviewReason,
           reviewReason,
+          sourceText: originalSegment || raw || null,
+          evidence: item.evidence || item.source_text || null,
+          detectedCurrency: item.currency || null,
         };
       }
 
@@ -2588,6 +2682,9 @@ return {
 totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
   needsReview: true,
   reviewReason: "unbekannte_leistung_pruefen",
+  sourceText: originalSegment || raw || null,
+  evidence: item.evidence || item.source_text || null,
+  detectedCurrency: item.currency || null,
 };
     })
     .filter(Boolean) as Array<{
@@ -2599,6 +2696,9 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
       totalPrice: number;
       needsReview: boolean;
       reviewReason: string | null;
+      sourceText?: string | null;
+      evidence?: string | null;
+      detectedCurrency?: string | null;
     }>;
   const hasHourQuantityInText = detectAllQuantityUnitsFromText(
     messageText,
@@ -2668,6 +2768,9 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
     totalPrice: number;
     needsReview: boolean;
     reviewReason: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+    detectedCurrency?: string | null;
   }> =
     cleanedMappedOrderItemsWithHourSafety.length > 0
       ? cleanedMappedOrderItemsWithHourSafety
@@ -2694,8 +2797,24 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
 
   finalOrderItems = intakeValidation.items;
 
+  const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
+  const aiExecutionAddressText =
+    aiExecutionAddress?.ist_abweichend === true
+      ? [
+          "Ausführungsadresse:",
+          aiExecutionAddress?.name,
+          aiExecutionAddress?.strasse,
+          [aiExecutionAddress?.plz, aiExecutionAddress?.ort]
+            .filter(Boolean)
+            .join(" "),
+          aiExecutionAddress?.evidence,
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "";
+
   const extractedExecutionAddress = extractExecutionAddressFromText(
-    `${messageText}\n${fullWorkText}\n${finalSpecialNotes || ""}`,
+    `${aiExecutionAddressText}\n${messageText}\n${fullWorkText}\n${finalSpecialNotes || ""}`,
     {
       customerAddress: addr.street,
       customerPlz: addr.plz,
