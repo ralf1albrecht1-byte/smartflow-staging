@@ -321,11 +321,19 @@ const isNonActionableSemanticHint = (value?: string | null, context?: string | n
     return false;
   }
 
+  const hasRealAccessConstraint =
+    /seiteneingang|hintereingang|nebeneingang|rampe|schmal|enger?\s+zugang|schwieriger\s+zugang|kein lift|ohne lift|back entrance|side entrance|rear entrance|access difficult|difficult access|acces difficile/.test(text);
+
+  const isOnlyNormalDoorInstruction =
+    /klingeln|warten|haustuer|haustür|haupteingang|eingangstuer|eingangstür|kunde ist vor ort|kundin ist vor ort|oeffnet die tuer|öffnet die tür|sonner|attendre|ouvre la porte|main entrance|ring the bell|doorbell/.test(text) &&
+    !hasRealAccessConstraint;
+
   return (
     /kein|keine|keinen|nicht benoetigt|nicht benötigt|muss nicht|kein thema|ohne/.test(text) ||
     /termin flexibel|kein fester termin|kein terminwunsch|irgendwann/.test(text) ||
     /leiter eventuell|eventuell leiter|vielleicht leiter|leiter vielleicht/.test(text) ||
-    /zugang.*(frei|offen|unproblematisch)|tuer.*offen|tür.*offen|kunde ist vor ort/.test(text) ||
+    /zugang.*(frei|offen|unproblematisch)|tuer.*offen|tür.*offen|kunde ist vor ort|kundin ist vor ort/.test(text) ||
+    isOnlyNormalDoorInstruction ||
     /parkplatz.*(kein thema|nicht wichtig)|direkt halten|genug platz/.test(text) ||
     (
       /parkplatz.*(vorhanden|reserviert|frei|innenhof|vor ort)|parkplatz/.test(text) &&
@@ -397,6 +405,11 @@ const parseAppointmentBaseDate = (value?: string | null) => {
   return date;
 };
 
+const parseAppointmentReferenceDate = (value?: string | null) => {
+  const parsed = value ? new Date(value) : new Date();
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
 const addDays = (date: Date, days: number) => {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -422,6 +435,46 @@ const resolveWeekdayAppointmentDate = (
   let daysUntilTarget = weekdayIndex - currentWeekday;
   if (daysUntilTarget < 0) daysUntilTarget += 7;
   return addDays(baseDate, daysUntilTarget);
+};
+
+const buildAppointmentMoment = (
+  date: Date,
+  time?: string,
+  dayPart?: string,
+) => {
+  const appointmentMoment = new Date(date);
+
+  if (time) {
+    const [hour, minute] = time.split(":").map((part) => Number(part));
+    appointmentMoment.setHours(hour || 0, minute || 0, 0, 0);
+  } else if (dayPart === "Vorm.") {
+    appointmentMoment.setHours(12, 0, 0, 0);
+  } else if (dayPart === "Nachm.") {
+    appointmentMoment.setHours(18, 0, 0, 0);
+  } else if (dayPart === "Abend") {
+    appointmentMoment.setHours(23, 59, 0, 0);
+  } else {
+    appointmentMoment.setHours(23, 59, 0, 0);
+  }
+
+  return appointmentMoment;
+};
+
+const isAmbiguousElapsedSameDayAppointment = (
+  date: Date,
+  baseDateInput?: string | null,
+  time?: string,
+  dayPart?: string,
+) => {
+  const reference = parseAppointmentReferenceDate(baseDateInput);
+  const appointmentMoment = buildAppointmentMoment(date, time, dayPart);
+
+  const sameCalendarDay =
+    appointmentMoment.getFullYear() === reference.getFullYear() &&
+    appointmentMoment.getMonth() === reference.getMonth() &&
+    appointmentMoment.getDate() === reference.getDate();
+
+  return sameCalendarDay && appointmentMoment.getTime() <= reference.getTime();
 };
 
 const isNonActionableAppointmentHint = (value?: string | null) => {
@@ -493,13 +546,21 @@ const extractAppointmentBadgeLabel = (
     ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.`
     : "";
 
-  const computedDate =
+  const computedAppointmentDate =
     !explicitDate && weekdayIndex
-      ? formatAppointmentDate(
-          resolveWeekdayAppointmentDate(weekdayIndex, baseDateInput, hasNextWeek),
-        )
-      : "";
+      ? resolveWeekdayAppointmentDate(weekdayIndex, baseDateInput, hasNextWeek)
+      : null;
 
+  const shouldShowGenericAppointmentOnly =
+    computedAppointmentDate &&
+    !hasNextWeek &&
+    isAmbiguousElapsedSameDayAppointment(computedAppointmentDate, baseDateInput, time, dayPart);
+
+  if (shouldShowGenericAppointmentOnly) {
+    return "Termin";
+  }
+
+  const computedDate = computedAppointmentDate ? formatAppointmentDate(computedAppointmentDate) : "";
   const date = explicitDate || computedDate;
 
   // Only show an outside appointment chip when there is a concrete day/date
