@@ -484,7 +484,7 @@ function detectExplicitFlatPriceForItem(
   item: ParsedOrderItemForValidation,
   fallbackCurrency: IntakeCurrency,
 ): DetectedUnitPrice | null {
-    const itemEvidence = [item.sourceText, item.evidence, item.description]
+  const itemEvidence = [item.sourceText, item.evidence, item.description]
     .map((part) => normalizeText(part))
     .filter(Boolean)
     .join("\n");

@@ -367,6 +367,70 @@ const dangerBadgeLabel = (value?: string | null) => {
   return "Achtung";
 };
 
+const badgeSortRank = (badge: ReviewBadge) => {
+  const className = badge.className || "";
+  if (/bg-red-|text-red-|border-red-/.test(className)) return 0;
+  if (/bg-orange-|text-orange-|border-orange-|bg-amber-|text-amber-|border-amber-|bg-yellow-|text-yellow-|border-yellow-/.test(className)) return 1;
+  if (/bg-emerald-|text-emerald-|border-emerald-|bg-green-|text-green-|border-green-/.test(className)) return 2;
+  return 3;
+};
+
+const sortReviewBadges = (badges: ReviewBadge[]) =>
+  badges
+    .map((badge, index) => ({ badge, index }))
+    .sort((a, b) => badgeSortRank(a.badge) - badgeSortRank(b.badge) || a.index - b.index)
+    .map((entry) => entry.badge);
+
+const formatAppointmentTime = (hour: string, minute?: string) => {
+  const normalizedHour = hour.padStart(2, "0");
+  return `${normalizedHour}:${minute || "00"}`;
+};
+
+const extractAppointmentBadgeLabel = (value?: string | null) => {
+  const raw = compactText(value);
+  const text = normalizeForMatch(raw);
+  if (!text || isNonActionableSemanticHint(raw)) return null;
+
+  const weekdayMap: Array<[RegExp, string]> = [
+    [/\b(montag|monday|lundi|lunes|lunedi)\b/i, "Mo"],
+    [/\b(dienstag|tuesday|mardi|martes|martedi)\b/i, "Di"],
+    [/\b(mittwoch|wednesday|mercredi|miercoles|mercoledi)\b/i, "Mi"],
+    [/\b(donnerstag|thursday|jeudi|jueves|giovedi)\b/i, "Do"],
+    [/\b(freitag|friday|vendredi|viernes|venerdi)\b/i, "Fr"],
+    [/\b(samstag|saturday|samedi|sabado|sabato)\b/i, "Sa"],
+    [/\b(sonntag|sunday|dimanche|domingo|domenica)\b/i, "So"],
+  ];
+
+  const weekday = weekdayMap.find(([pattern]) => pattern.test(text))?.[1] || "";
+  const hasNextWeek = /\b(naechste woche|nächste woche|next week|semaine prochaine|proxima semana|settimana prossima)\b/i.test(text);
+  const dayPart = /\b(vormittag|morning|matin|mañana|mattina)\b/i.test(text)
+    ? "Vormittag"
+    : /\b(nachmittag|afternoon|apres midi|après-midi|tarde|pomeriggio)\b/i.test(text)
+      ? "Nachmittag"
+      : /\b(abend|evening|soir|noche|sera)\b/i.test(text)
+        ? "Abend"
+        : "";
+
+  const timeMatch =
+    raw.match(/\b([01]?\d|2[0-3])[:.](\d{2})\b/) ||
+    raw.match(/\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  const time = timeMatch ? formatAppointmentTime(timeMatch[1], timeMatch[2]) : "";
+
+  const dateMatch = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+  const date = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.`
+    : "";
+
+  const parts = [
+    hasNextWeek ? "nächste Woche" : "",
+    date,
+    weekday,
+    time || dayPart,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? `Termin ${parts.join(" ")}` : "Termin";
+};
+
 const getOperationalBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -401,7 +465,7 @@ const getOperationalBadges = (
     if (isNonActionableSemanticHint(line)) return;
 
     const kind = getSemanticBadgeKind(line);
-    if (!kind || kind === "warning") return;
+    if (!kind || kind === "warning" || kind === "appointment") return;
 
     const label = badgeLabelByKind[kind];
     if (!label) return;
@@ -414,13 +478,14 @@ const getOperationalBadges = (
   });
 
   // Unknown operational notes stay inside the order detail. The card only shows short, useful chips.
-  // CARD_BADGE_LIMIT_9_V14
-  if (badges.length <= 9) return badges;
+  // CARD_BADGE_SORT_AND_LIMIT_V15
+  const sortedBadges = sortReviewBadges(badges);
+  if (sortedBadges.length <= 9) return sortedBadges;
 
-  const visible = badges.slice(0, 8);
+  const visible = sortedBadges.slice(0, 8);
   visible.push({
     key: "more_operational_badges",
-    label: `+${badges.length - 8}`,
+    label: `+${sortedBadges.length - 8}`,
     className: "bg-muted text-muted-foreground border border-border",
   });
   return visible;
@@ -487,10 +552,11 @@ const getSystemBadges = (order: Order): ReviewBadge[] => {
 
 const getBottomBadges = (
   order: Order,
-  _parsedNotes: ReturnType<typeof splitSpecialNotes>,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-200";
+  const appointmentClass = "bg-violet-100 text-violet-700 border border-violet-200";
 
   // RUECKRUF_VIA_COMMUNICATION_CHIPS_V8: callback is rendered once by CommunicationChips.
 
@@ -503,6 +569,18 @@ const getBottomBadges = (
       key: "merged",
       label: "Zusammengeführt",
       className: blueClass,
+    });
+  }
+
+  const appointmentLabel = parsedNotes.jobHints
+    .map(extractAppointmentBadgeLabel)
+    .find(Boolean);
+
+  if (appointmentLabel) {
+    pushUniqueBadge(badges, {
+      key: "appointment",
+      label: appointmentLabel,
+      className: appointmentClass,
     });
   }
 
