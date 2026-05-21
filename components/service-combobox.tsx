@@ -24,7 +24,6 @@ currentUnit?: string;
 contextLabel?: string;
 placeholder?: string;
 showManualHint?: boolean;
-saveButtonPlacement?: 'inline' | 'below';
 }
 
 export function ServiceCombobox({
@@ -37,7 +36,6 @@ currentUnit,
 contextLabel = 'Auftrag',
 placeholder = 'Leistung suchen oder eingeben...',
 showManualHint = true,
-saveButtonPlacement = 'inline',
 }: ServiceComboboxProps) {
 const [open, setOpen] = useState(false);
 const [query, setQuery] = useState('');
@@ -173,7 +171,7 @@ inputRef.current?.focus();
 tabIndex={-1}
 > <ChevronsUpDown className="w-3.5 h-3.5" /> </button> </div>
 
-    {isManual && saveButtonPlacement === 'inline' && (
+    {isManual && (
       <button
         type="button"
         onClick={handleSaveAsService}
@@ -192,25 +190,6 @@ tabIndex={-1}
       </button>
     )}
   </div>
-
-  {isManual && saveButtonPlacement === 'below' && (
-    <button
-      type="button"
-      onClick={handleSaveAsService}
-      disabled={
-        saving ||
-        !value ||
-        !currentPrice ||
-        Number(currentPrice) <= 0 ||
-        !currentUnit
-      }
-      className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 disabled:opacity-50"
-      title="Diese Leistung dauerhaft in den Leistungskatalog übernehmen"
-    >
-      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-      <span>In Katalog übernehmen</span>
-    </button>
-  )}
 
   {showManualHint && isManual && !open && (
     <div className="mt-1 space-y-0.5">
