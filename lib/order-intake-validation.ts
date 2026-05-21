@@ -1,4 +1,4 @@
-// INTAKE_VALIDATION_ADDRESS_PRICE_FIX_V8
+// INTAKE_VALIDATION_ADDRESS_PRICE_FIX_V9
 export type IntakeCurrency = "CHF" | "EUR";
 
 export interface ParsedOrderItemForValidation {
@@ -799,26 +799,49 @@ function parseStreet(value: string): string | null {
   const streetSuffix =
     "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\\.?|chemin|via|viale|street|road|lane)";
 
-  // Strict: never capture an object/name prefix such as "Wohnanlage Seefeld".
-  // Good: "Wohnanlage Seefeld Seefeldstrasse 120" -> "Seefeldstrasse 120".
-  // Bad before: "Wohnanlage Seefeld Seefeldstrasse 8008" from polluted AI evidence.
+  const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
+
+  const streetCandidates: string[] = [];
+
+  // Most Swiss/German street names are one compact token ending in -strasse/-weg/etc.
+  // Important: do NOT allow arbitrary words before the street token here.
+  // Before V9, this could capture "Garage Haus Nord Bergstrasse 24" as one street.
   const compactStreet = new RegExp(
-    `\\b([A-ZÄÖÜ][A-Za-zÄÖÜäöüß'.-]*${streetSuffix}\\s+\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?)\\b`,
+    `\\b([A-ZÄÖÜ][A-Za-zÄÖÜäöüß'.-]*${streetSuffix}\\s+${houseNumber})\\b`,
     "gi",
   );
 
-  const matches = Array.from(text.matchAll(compactStreet))
-    .map((match) => match[1]?.replace(/\s+/g, " ").trim())
-    .filter(Boolean) as string[];
+  for (const match of text.matchAll(compactStreet)) {
+    const candidate = match[1]?.replace(/\s+/g, " ").trim();
+    if (candidate) streetCandidates.push(candidate);
+  }
 
-  if (matches.length > 0) {
-    // Prefer the last match because polluted evidence often starts with object text.
-    return matches[matches.length - 1];
+  // Controlled multi-word street names, without swallowing object names like
+  // "Wohnanlage Seefeld" / "Garage Haus Nord" / "Innenhof Haus C".
+  const allowedStreetPrefix =
+    "(?:Alte|Neue|Ober(?:e|er|es)?|Unter(?:e|er|es)?|Mittlere|Hintere|Vordere|Kleine|Grosse|Große|Sankt|St\\.?|Im|Am|Zum|Zur|Auf\\s+der|An\\s+der)";
+  const prefixedStreet = new RegExp(
+    `\\b(${allowedStreetPrefix}\\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'.-]*${streetSuffix}\\s+${houseNumber})\\b`,
+    "gi",
+  );
+
+  for (const match of text.matchAll(prefixedStreet)) {
+    const candidate = match[1]?.replace(/\s+/g, " ").trim();
+    if (candidate) streetCandidates.push(candidate);
+  }
+
+  const cleanedCandidates = unique(streetCandidates)
+    .map((candidate) => candidate.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  if (cleanedCandidates.length > 0) {
+    // Prefer the last concrete street token when polluted evidence contains
+    // object text before the real street.
+    return cleanedCandidates[cleanedCandidates.length - 1];
   }
 
   return null;
 }
-
 function parsePlzCity(value: string): { plz: string | null; city: string | null } {
   const text = cleanAddressLine(value);
   const match = text.match(/\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{2,60})\b/);
