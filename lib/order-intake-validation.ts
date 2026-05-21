@@ -1158,6 +1158,19 @@ function extractInlineExecutionAddressCandidate(
   };
 }
 
+function extractHouseNumber(value?: string | null): string | null {
+  const match = String(value || "").match(/\b(\d+[a-zA-Z]?)(?:\s*[/-]\s*\d+[a-zA-Z]?)?\b/);
+  return match?.[1]?.toLowerCase() || null;
+}
+
+function normalizeStreetForLooseCompare(value?: string | null): string {
+  return normalizeCompare(value)
+    .replace(/\b(rue|route|avenue|av|street|road|lane|chemin|via|viale|str)\b/g, " ")
+    .replace(/\b(centrale|central|zentral)\b/g, "central")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function isSameAddress(args: {
   extractedAddress?: string | null;
   extractedPlz?: string | null;
@@ -1173,7 +1186,59 @@ function isSameAddress(args: {
     [args.customerAddress, args.customerPlz, args.customerCity].filter(Boolean).join(" "),
   );
 
-  return Boolean(extracted && customer && extracted === customer);
+  if (extracted && customer && extracted === customer) return true;
+
+  const extractedPlz = normalizeCompare(args.extractedPlz);
+  const customerPlz = normalizeCompare(args.customerPlz);
+  const extractedCity = normalizeCompare(args.extractedCity);
+  const customerCity = normalizeCompare(args.customerCity);
+
+  const samePlzCity =
+    Boolean(extractedPlz && customerPlz && extractedPlz === customerPlz) &&
+    Boolean(extractedCity && customerCity && extractedCity === customerCity);
+
+  if (!samePlzCity) return false;
+
+  const extractedStreet = normalizeStreetForLooseCompare(args.extractedAddress);
+  const customerStreet = normalizeStreetForLooseCompare(args.customerAddress);
+
+  // If only PLZ/city were extracted, treat it as the same billing address and
+  // never auto-enable a separate execution address. A partial site address must
+  // not be copied into PDFs.
+  if (!extractedStreet || !customerStreet) return true;
+
+  if (extractedStreet === customerStreet) return true;
+
+  const extractedHouseNumber = extractHouseNumber(args.extractedAddress);
+  const customerHouseNumber = extractHouseNumber(args.customerAddress);
+
+  // Protect against original/translation duplicates, e.g.
+  // "Rue Centrale 14" vs. "Zentralstraße 14". Same PLZ/city + same house number
+  // is considered the same address unless an explicit different site was given.
+  if (
+    extractedHouseNumber &&
+    customerHouseNumber &&
+    extractedHouseNumber === customerHouseNumber
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function hasStrongExecutionAddressSignal(
+  markerLine: string,
+  blockLines: string[],
+): boolean {
+  const combined = [markerLine, ...blockLines].filter(Boolean).join(" ");
+  if (EXECUTION_ADDRESS_MARKER.test(combined)) return true;
+
+  // Soft signals are allowed only when they clearly say where the work happens.
+  // Normal access instructions such as "klingeln", "Haupteingang" or
+  // "Kundin öffnet" are not execution addresses.
+  return /\b(gearbeitet\s+wird|arbeit\s+(?:ist|isch|is|wird)|arbeitsort|arbeitsadresse|work\s+location|job\s+location|lieu\s+du\s+travail|sondern\s+(?:in|im|bei))\b/i.test(
+    combined,
+  );
 }
 
 function getExecutionAddressCandidates(lines: string[], markerIndex: number) {
@@ -1308,10 +1373,13 @@ export function extractExecutionAddressFromText(
     if (!EXECUTION_ADDRESS_MARKER.test(line) && !SOFT_EXECUTION_ADDRESS_LINE_PATTERN.test(line)) continue;
 
     const inlineAddress = extractInlineExecutionAddressCandidate(line, customer);
-    if (inlineAddress) return inlineAddress;
+    if (inlineAddress?.siteAddress && inlineAddress.sitePlz && inlineAddress.siteCity) {
+      return inlineAddress;
+    }
 
     const blockLines = getExecutionAddressCandidates(lines, index);
     if (blockLines.length === 0) continue;
+    if (!hasStrongExecutionAddressSignal(line, blockLines)) continue;
 
     const siteAddress = findBestStreet(blockLines);
 
@@ -1323,7 +1391,10 @@ export function extractExecutionAddressFromText(
     const sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
     const siteCity = plzCityFromLine?.city || fallbackPlzCity.city;
 
-    if (!siteAddress && !(sitePlz && siteCity)) continue;
+    // Hard PDF-safety rule:
+    // never auto-enable a different execution address from partial data.
+    // A separate site must have a concrete street + PLZ + city.
+    if (!siteAddress || !sitePlz || !siteCity) continue;
 
     if (
       isSameAddress({
@@ -1340,10 +1411,24 @@ export function extractExecutionAddressFromText(
 
     const siteName = pickSiteName(blockLines, siteAddress, sitePlz);
     const cleanSiteAddress = sanitizeStreetAgainstSiteName(siteAddress, siteName, sitePlz);
+    if (!cleanSiteAddress) continue;
+
+    if (
+      isSameAddress({
+        extractedAddress: cleanSiteAddress,
+        extractedPlz: sitePlz,
+        extractedCity: siteCity,
+        customerAddress: customer?.customerAddress,
+        customerPlz: customer?.customerPlz,
+        customerCity: customer?.customerCity,
+      })
+    ) {
+      return null;
+    }
 
     return {
       siteName,
-      siteAddress: cleanSiteAddress || siteAddress,
+      siteAddress: cleanSiteAddress,
       sitePlz,
       siteCity,
       siteNote: null,

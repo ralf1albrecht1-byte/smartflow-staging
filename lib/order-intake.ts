@@ -1822,15 +1822,20 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.
 
 12. AUSFÜHRUNGSADRESSE / ARBEITSORT:
-- Erkenne semantisch, ob neben der Rechnungsadresse ein anderer Ort genannt wird, an dem gearbeitet wird.
-- Das gilt sprachunabhängig: z.B. Ausführungsadresse, Baustelle, Objekt, Arbeitsort, Einsatzort, job site, work address, service address, chantier, lugar de trabajo usw.
-- Nutze nicht nur feste Wörter, sondern Bedeutung: Wo bekommt der Kunde die Rechnung? Wo wird tatsächlich gearbeitet?
-- Wenn eindeutig anderer Arbeitsort vorhanden:
+- Sehr vorsichtig arbeiten, weil diese Daten später auf Angebot/Rechnung/PDF erscheinen.
+- Eine Ausführungsadresse darf NUR gesetzt werden, wenn im Kundentext klar eine ANDERE vollständige Arbeitsadresse steht.
+- Vollständig bedeutet: Strasse + Hausnummer + PLZ + Ort.
+- Sie muss sich klar von der Rechnungsadresse/Kundenadresse unterscheiden.
+- Originaltext + automatische Übersetzung derselben Adresse sind KEINE zwei verschiedenen Adressen.
+- Zugangshinweise sind KEINE Ausführungsadresse: Haupteingang, Seiteneingang, Hintereingang, Rampe, Klingeln, Warten, Kunde öffnet, Schlüssel, Parkplatz.
+- Wenn nur Zugang/Eingang/Schlüssel/Parkplatz genannt wird: ausfuehrungsadresse.ist_abweichend = false.
+- Wenn nur eine Adresse im Text steht, ist das standardmässig die Rechnungs-/Kundenadresse, NICHT automatisch eine Ausführungsadresse.
+- Wenn eindeutig anderer vollständiger Arbeitsort vorhanden:
   auftrag.ausfuehrungsadresse.ist_abweichend = true
   name/strasse/plz/ort befüllen
-  confidence = "hoch" oder "mittel"
+  confidence = "hoch"
   evidence = exakte Textstelle
-- Wenn unsicher oder unvollständig: ist_abweichend = false und in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
+- Wenn unsicher, unvollständig oder nur wahrscheinlich: ist_abweichend = false und in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
 - Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.`;
 }
 
@@ -3274,8 +3279,13 @@ totalPrice: safeUnitPrice * safeQuantity,
   });
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
+  const aiExecutionAddressConfidence = String(aiExecutionAddress?.confidence || "").toLowerCase();
   const aiExecutionAddressText =
-    aiExecutionAddress?.ist_abweichend === true
+    aiExecutionAddress?.ist_abweichend === true &&
+    aiExecutionAddressConfidence === "hoch" &&
+    aiExecutionAddress?.strasse &&
+    aiExecutionAddress?.plz &&
+    aiExecutionAddress?.ort
       ? [
           "Ausführungsadresse:",
           aiExecutionAddress?.name,
@@ -3301,8 +3311,9 @@ totalPrice: safeUnitPrice * safeQuantity,
     extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
     // Second pass: full work text, if the webhook/transcript moved the address.
     extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
-    // Last fallback: KI evidence only. Do not append special notes; those can
-    // contain service/hint text and pollute the address fields.
+    // Last fallback: KI evidence only, and only when the LLM gave a complete
+    // high-confidence different work address. Do not append special notes;
+    // those can contain service/hint text and pollute the address fields.
     extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext);
 
   const primaryItem = finalOrderItems[0] || null;
