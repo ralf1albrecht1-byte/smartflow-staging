@@ -336,7 +336,28 @@ function isNonActionableSpecialNoteCandidate(line: string): boolean {
     return false;
   }
 
-  return /\b(hund|dog|chien|perro|cane|cao|cão|oel|oil|huile|aceite|olio|scherben|glass|strom|kabel|wire|leiter|ladder|termin|appointment|schluessel|schlussel|key)\b/i.test(normalized);
+  return /\b(hund|dog|chien|perro|cane|cao|cão|oel|oil|huile|aceite|olio|scherben|glass|strom|kabel|wire|leiter|ladder|termin|appointment|schluessel|schlussel|key|parkplatz|parking|zugang|access)\b/i.test(normalized);
+}
+
+function isNonActionablePlanningHint(line: string): boolean {
+  const normalized = normalizeSemanticText(line);
+  if (!normalized) return true;
+
+  return (
+    /\b(parkplatz\s+kein\s+thema|parkplatz\s+nicht\s+wichtig|direkt\s+halten|genug\s+platz|direkt\s+vor\s+dem\s+haus\s+(?:halten|moeglich|moglich))\b/i.test(normalized) ||
+    /\b(zugang\s+(?:frei|offen|unproblematisch)|tuer\s+offen|tur\s+offen|kunde\s+ist\s+vor\s+ort)\b/i.test(normalized)
+  );
+}
+
+function isFalseCallbackHint(line: string): boolean {
+  const normalized = normalizeSemanticText(line);
+  if (!normalized) return false;
+
+  if (!/\b(rueckruf|ruckruf|zurueckrufen|telefonisch|anruf)\b/i.test(normalized)) {
+    return false;
+  }
+
+  return /\b(klingeln|warten|nicht\s+anrufen|kein\s+anruf|kunde\s+ist\s+vor\s+ort|an\s+der\s+tuer|schluessel\s+wird\s+.*tuer)\b/i.test(normalized);
 }
 
 /**
@@ -451,7 +472,12 @@ function extractSemanticSpecialNotesFallback(
     jobHints.push("Leiter eventuell benötigt");
   }
 
-  if (actionableLineHas(/\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|anrufen|call\s+back|please\s+call|rappeler|llamar|richiamare|ligar)\b/i)) {
+  const hasExplicitCallback = normalizedLines.some((line) => {
+    if (isNegatedSpecialNoteLine(line)) return false;
+    if (/\b(klingeln|warten|doorbell|ring\s+the\s+bell|sonner|timbre|campanello|campainha)\b/i.test(line)) return false;
+    return /\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|call\s+back|please\s+call\s+back|telefonisch\s+anrufen|phone\s+back|rappeler|richiamare|devolver\s+la\s+llamada|ligar\s+de\s+volta)\b/i.test(line);
+  });
+  if (hasExplicitCallback) {
     jobHints.push("Rückruf vor Arbeitsbeginn");
   }
 
@@ -1505,12 +1531,14 @@ ZIELE
   (GEFAHREN und BESONDERHEITEN strikt trennen.)
   (Leiter allein ist KEINE Gefahr. Leiter nur dann als Gefahr werten, wenn zusätzlich ein echtes Risiko genannt wird, z.B. Absturzgefahr, instabiler Stand, Arbeiten in großer Höhe.)
   (Hund ist NICHT automatisch Gefahr: freilaufend/aggressiv/ungesichert = gefahr; freundlich/gesichert/Besitzer vor Ort = besonderheit.)
-  (Parkplatz/Zugang unterscheiden: vorhanden/reserviert/frei = positive besonderheit; schwierig/kein Parkplatz/enge Zufahrt = wichtige besonderheit.)
+  (Parkplatz/Zugang unterscheiden: reserviert/vorhanden/Innenhof = positive besonderheit; schwierig/kein Parkplatz/enge Zufahrt = wichtige besonderheit.)
+  (Neutrale oder unwichtige Erleichterungen NICHT als Außen-Hinweis erzwingen: "Parkplatz ist kein Thema", "man kann direkt halten", "Zugang frei", "Tür ist offen".)
+  (Rückruf NUR aufnehmen, wenn der Kunde ausdrücklich einen TELEFONISCHEN Rückruf/Anruf verlangt. Klingeln, warten, an der Tür melden, Kunde ist vor Ort, Schlüsselübergabe an der Tür oder "nicht anrufen" sind KEIN Rückruf. Dann höchstens als normaler Hinweis formulieren, z.B. "Vor Arbeitsbeginn klingeln und warten".)
   (Verneinte oder nicht relevante Aussagen NICHT aufnehmen: "kein Hund", "kein Öl", "keine Scherben", "Leiter nicht benötigt", "Termin flexibel", "Parkplatz kein Thema".)
   (Keine Leistungen, Preise oder Mengen in gefahren/besonderheiten schreiben.)
   (KEINE Systemhinweise.)
   (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist.)
-  (WICHTIG: Erkenne Gefahren semantisch nach Bedeutung, NICHT nur über feste deutsche Wörter. Auch Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischte Nachrichten müssen in deutsche gefahren/besonderheiten übersetzt werden.)
+  (WICHTIG: Erkenne Gefahren, Rückruf, Zugang und Parken semantisch nach Bedeutung, NICHT nur über feste deutsche Wörter. Auch Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischte Nachrichten müssen in deutsche gefahren/besonderheiten übersetzt werden.)
 
 3. Service erkennen:
 - passende Leistung aus "leistungen"
@@ -1742,12 +1770,13 @@ sonst → ""
 - Gefahren semantisch erkennen: Es geht um Bedeutung und Arbeitsrisiko, nicht um feste Wörter.
 - Auch wenn der Kunde in Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischt schreibt, müssen gefahren und besonderheiten auf ${hauptsprache} ausgegeben werden.
 - Beispiele für gefahren: freilaufender/ungesicherter/aggressiver Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
-- Beispiele für besonderheiten: Rückruf, Zugang, Parkplatz, Schlüssel, fester Terminwunsch, Leiter benötigt, Zufahrt, Kunde nur vormittags erreichbar, Hund freundlich vor Ort.
-- Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie nützlich sind: Parkplatz reserviert/vorhanden, Zugang frei, Schlüssel liegt bereit.
+- Beispiele für besonderheiten: telefonischer Rückruf, Zugang über Seiteneingang, Parkplatz reserviert/schwierig, Schlüssel, fester Terminwunsch, Leiter benötigt, Zufahrt, Kunde nur vormittags erreichbar, Hund freundlich vor Ort.
+- Rückruf nur bei echter telefonischer Kontaktaufnahme ausgeben. "Klingeln und warten", "an der Tür melden", "Kunde ist vor Ort", "Schlüssel wird an der Tür übergeben" oder "nicht anrufen" sind KEIN Rückruf.
+- Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie wirklich planungsrelevant sind: Parkplatz reserviert/vorhanden, Schlüssel liegt bereit. Rein neutrale Hinweise wie "Zugang frei", "Tür offen", "Parkplatz kein Thema" oder "direkt halten möglich" nicht als wichtigen Außen-Hinweis erzwingen.
 - Wichtig: "Leiter benötigt" allein ist besonderheit, NICHT gefahr. "Leiter eventuell benötigt" ist nur Innen-Hinweis und darf keinen festen Außen-Chip erzwingen.
 - Wichtig: "Hund freundlich" ist besonderheit, NICHT gefahr. Nur freilaufend/ungesichert/aggressiv ist gefahr.
 - Wichtig: "Öl auf dem Boden", "rutschiger Boden", "offene Kabel", "freilaufender Hund", "Asbestverdacht", "Schimmel", "Chemikalien" sind gefahren, auch wenn sie in anderer Sprache beschrieben werden.
-- Verneinte/nicht relevante Hinweise NICHT ausgeben: kein Hund, kein Öl, keine Scherben, keine Leiter nötig, Termin flexibel, Parkplatz kein Thema.
+- Verneinte/nicht relevante Hinweise NICHT ausgeben: kein Hund, kein Öl, keine Scherben, keine Leiter nötig, Termin flexibel, Parkplatz kein Thema, kein Anruf / nicht anrufen.
 - Keine Doppelung: Eine Information darf entweder in gefahren ODER in besonderheiten stehen, nicht in beiden.
 - Keine Leistung als Gefahr/Besonderheit ausgeben.
 - Keine Gefahren oder Besonderheiten in beschreibung schreiben. Dort nur die Arbeit selbst.
@@ -2574,6 +2603,8 @@ const hinweisItems = dedupeSpecialNoteLines([
   ...semanticFallbackNotes.jobHints,
 ])
   .filter((line) => !isNonActionableSpecialNoteCandidate(line))
+  .filter((line) => !isNonActionablePlanningHint(line))
+  .filter((line) => !isFalseCallbackHint(line))
   .filter(
     (line) =>
       !gefahrItems.some(

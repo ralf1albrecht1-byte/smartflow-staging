@@ -314,10 +314,12 @@ export function CommunicationBlock({
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
 
-  // Detect callback request from customer message (notes + audioTranscript)
+  // Callback is semantic and marker-based: only parsed specialNotes may create it.
+  // Raw customer messages are not scanned, so "nicht anrufen" / "klingeln und warten"
+  // cannot create a false callback chip.
   const callbackNote = useMemo(() => {
-    return detectCallbackRequest(data.notes) || detectCallbackRequest(data.audioTranscript);
-  }, [data.notes, data.audioTranscript]);
+    return detectCallbackRequest(data.specialNotes);
+  }, [data.specialNotes]);
 
   // Detect customer language from parsed notes
   const hasTranslation = !!parsed.translation;
@@ -524,7 +526,7 @@ export function CommunicationChips({
   const hasImages = (data.imageUrls && data.imageUrls.length > 0) || (data.mediaUrl && data.mediaType === 'image');
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
-  const callbackNote = detectCallbackRequest(data.notes) || detectCallbackRequest(data.audioTranscript);
+  const callbackNote = detectCallbackRequest(data.specialNotes);
 
   if (!hasAudio && !hasImages && hazards.length === 0 && equipment.length === 0 && !callbackNote) return null;
 

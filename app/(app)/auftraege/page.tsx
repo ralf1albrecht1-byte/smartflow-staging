@@ -310,8 +310,9 @@ const getSemanticBadgeKind = (value?: string | null) => {
   return null;
 };
 
-const isNonActionableSemanticHint = (value?: string | null) => {
+const isNonActionableSemanticHint = (value?: string | null, context?: string | null) => {
   const text = normalizeForMatch(value);
+  const contextText = normalizeForMatch(context);
   if (!text) return true;
 
   // Negative access/parking information is actionable: no parking / no lift
@@ -323,7 +324,13 @@ const isNonActionableSemanticHint = (value?: string | null) => {
   return (
     /kein|keine|keinen|nicht benoetigt|nicht benötigt|muss nicht|kein thema|ohne/.test(text) ||
     /termin flexibel|kein fester termin|kein terminwunsch|irgendwann/.test(text) ||
-    /leiter eventuell|eventuell leiter|vielleicht leiter|leiter vielleicht/.test(text)
+    /leiter eventuell|eventuell leiter|vielleicht leiter|leiter vielleicht/.test(text) ||
+    /zugang.*(frei|offen|unproblematisch)|tuer.*offen|tür.*offen|kunde ist vor ort/.test(text) ||
+    /parkplatz.*(kein thema|nicht wichtig)|direkt halten|genug platz/.test(text) ||
+    (
+      /parkplatz.*(vorhanden|reserviert|frei|innenhof|vor ort)|parkplatz/.test(text) &&
+      /parkplatz.*kein thema|direkt halten|genug platz|parkplatz.*nicht wichtig/.test(contextText)
+    )
   );
 };
 
@@ -331,10 +338,7 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return (
-    /parkplatz.*(vorhanden|reserviert|frei|innenhof)|parkplatz im innenhof|parkplatz vor ort/.test(text) ||
-    /zugang.*(frei|offen|freigeschaltet|unproblematisch)/.test(text)
-  );
+  return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort/.test(text);
 };
 
 const badgeLabelByKind: Record<string, string> = {
@@ -512,6 +516,14 @@ const getOperationalBadges = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
+  const orderBadgeContext = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  ]
+    .map((part) => compactText(part))
+    .filter(Boolean)
+    .join(" | ");
 
   const redWarningClass = "bg-red-100 text-red-700 border border-red-200";
   const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-200";
@@ -538,7 +550,7 @@ const getOperationalBadges = (
   });
 
   parsedNotes.jobHints.forEach((line) => {
-    if (isNonActionableSemanticHint(line)) return;
+    if (isNonActionableSemanticHint(line, orderBadgeContext)) return;
 
     const kind = getSemanticBadgeKind(line);
     if (!kind || kind === "warning" || kind === "appointment") return;
