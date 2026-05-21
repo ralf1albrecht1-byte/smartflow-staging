@@ -2813,14 +2813,21 @@ totalPrice: (detectedUnitPrice || 0) * (detectedQuantity || 0),
           .join("\n")
       : "";
 
-  const extractedExecutionAddress = extractExecutionAddressFromText(
-    `${aiExecutionAddressText}\n${messageText}\n${fullWorkText}\n${finalSpecialNotes || ""}`,
-    {
-      customerAddress: addr.street,
-      customerPlz: addr.plz,
-      customerCity: addr.city,
-    },
-  );
+  const executionAddressCustomerContext = {
+    customerAddress: addr.street,
+    customerPlz: addr.plz,
+    customerCity: addr.city,
+  };
+
+  const extractedExecutionAddress =
+    // First pass: only the real customer message. This avoids polluted AI
+    // evidence such as "Wohnanlage Seefeld Seefeldstrasse 8008".
+    extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
+    // Second pass: full work text, if the webhook/transcript moved the address.
+    extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
+    // Last fallback: KI evidence only. Do not append special notes; those can
+    // contain service/hint text and pollute the address fields.
+    extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext);
 
   const primaryItem = finalOrderItems[0] || null;
 
