@@ -650,6 +650,262 @@ function structuredOnsitePhoneMatchesCustomerCandidate(
   return onsiteDigits === candidateDigits || onsiteDigits.endsWith(candidateDigits) || candidateDigits.endsWith(onsiteDigits);
 }
 
+
+// INTAKE_CUSTOMER_MASTERDATA_GUARD_V16_16
+// Harte Trennung: Rechnungsadresse/Kundendaten dürfen nur aus einem sicheren
+// Kunden-/Rechnungsblock kommen. Arbeitsort und Kontakt vor Ort dürfen niemals
+// als Kundendaten oben landen.
+type BillingCustomerGuardResult = {
+  safeEvidence: string | null;
+  dropped: string[];
+};
+
+const BILLING_MARKER_RE =
+  /\b(?:kunde\s*\/\s*rechnungsadresse|rechnungsadresse|rechnung\s+(?:geht\s+an|an|ist\s+f[uü]r|bekommt)|kunde|firma\s*\/\s*kunde|firma|auftraggeber|client\s*\/\s*facturation|facturation|billing\s+customer|invoice\s+customer|bill\s+to|client)\b/i;
+
+const BILLING_MARKER_AT_START_RE =
+  /^(?:kunde\s*\/\s*rechnungsadresse|rechnungsadresse|rechnung\s+(?:geht\s+an|an|ist\s+f[uü]r|bekommt)|kunde|firma\s*\/\s*kunde|firma|auftraggeber|client\s*\/\s*facturation|facturation|billing\s+customer|invoice\s+customer|bill\s+to|client)\s*:?\s*/i;
+
+const CUSTOMER_SECTION_STOP_RE =
+  /^(?:arbeitsort|objekt\s*\/\s*arbeitsort|objekt|ausf[uü]hrungsadresse|einsatzort|baustelle|adresse\s+de\s+travail|work\s+address|job\s+site|service\s+address|chantier|kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|person\s+vor\s+ort|contact\s+sur\s+place|onsite\s+contact|hauswart|hausmeister|concierge|caretaker|gardien|besonderheiten|remarques|hinweise|leistungs[uü]bersicht|leistungen|titre|titel)\s*:?\s*$/i;
+
+const CUSTOMER_SECTION_STOP_ANYWHERE_RE =
+  /\b(?:arbeitsort|objekt\s*\/\s*arbeitsort|ausf[uü]hrungsadresse|einsatzort|baustelle|adresse\s+de\s+travail|work\s+address|job\s+site|service\s+address|chantier|kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|person\s+vor\s+ort|contact\s+sur\s+place|onsite\s+contact|hauswart|hausmeister|concierge|caretaker|gardien|besonderheiten|remarques|hinweise|leistungs[uü]bersicht|leistungen|titre|titel)\s*:/i;
+
+function normalizeIntakeSourceLines(rawText: string | null | undefined): string[] {
+  return String(rawText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function lineLooksLikeGreetingOrIntro(line: string): boolean {
+  return /^(?:hallo|guten\s+tag|gr[uü]ezi|bonjour|salut|bitte|neuer\s+auftrag|auftrag\s+erfassen|anbei|hier\s+die\s+daten|ja\s+hallo)\b/i.test(line);
+}
+
+function hasCompanySuffix(value: string | null | undefined): boolean {
+  return /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|gmbh\s*&\s*co|verein|stiftung)\b/i.test(
+    String(value || ""),
+  );
+}
+
+function hasAddressLikeLine(value: string | null | undefined): boolean {
+  return /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\b/i.test(
+    String(value || ""),
+  );
+}
+
+function hasZipCityLikeLine(value: string | null | undefined): boolean {
+  return /\b\d{4,5}\s+[A-Za-zÄÖÜäöüß' .\-]+\b/i.test(String(value || ""));
+}
+
+function collectSectionBlock(lines: string[], startIndex: number, firstValue?: string | null): string {
+  const blockLines: string[] = [];
+
+  if (firstValue?.trim()) {
+    blockLines.push(firstValue.trim());
+  } else if (lines[startIndex]) {
+    blockLines.push(lines[startIndex]);
+  }
+
+  for (let offset = 1; offset <= 6; offset += 1) {
+    const line = lines[startIndex + offset];
+    if (!line) break;
+    if (CUSTOMER_SECTION_STOP_RE.test(line) || CUSTOMER_SECTION_STOP_ANYWHERE_RE.test(line)) break;
+    blockLines.push(line);
+  }
+
+  return blockLines.join("\n").trim();
+}
+
+function extractExplicitBillingEvidence(rawText: string | null | undefined): string | null {
+  const lines = normalizeIntakeSourceLines(rawText);
+  const candidates: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!BILLING_MARKER_RE.test(line)) continue;
+
+    // Marker mit Text auf derselben Zeile, z.B. "Rechnung geht an: Muster AG".
+    const markerMatch = line.match(BILLING_MARKER_RE);
+    const afterMarker = markerMatch
+      ? line.slice((markerMatch.index || 0) + markerMatch[0].length).replace(/^\s*:?\s*/g, "").trim()
+      : "";
+
+    const block = collectSectionBlock(lines, index, afterMarker || null);
+    if (block) candidates.push(block);
+  }
+
+  // Fallback für Einzeiler/Sätze ohne harte Zeilenstruktur.
+  const compact = String(rawText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+
+  const inlinePattern =
+    /(rechnung\s+(?:geht\s+an|an|ist\s+f[uü]r|bekommt)|kunde\s*\/\s*rechnungsadresse|rechnungsadresse|client\s*\/\s*facturation|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*([\s\S]+?)(?=\n\s*(?:arbeitsort|objekt\s*\/\s*arbeitsort|objekt|ausf[uü]hrungsadresse|kontakt\s+vor\s+ort|contact\s+sur\s+place|besonderheiten|remarques|leistungs[uü]bersicht|leistungen|titel|titre)\b|$)/i;
+  const inlineMatch = compact.match(inlinePattern);
+  if (inlineMatch?.[2]) candidates.push(inlineMatch[2].trim());
+
+  const cleaned = candidates
+    .map((candidate) =>
+      candidate
+        .replace(BILLING_MARKER_AT_START_RE, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim(),
+    )
+    .filter(Boolean);
+
+  return cleaned[0] || null;
+}
+
+function extractTopBillingEvidence(rawText: string | null | undefined): string | null {
+  const lines = normalizeIntakeSourceLines(rawText);
+  if (lines.length === 0) return null;
+
+  const topLines: string[] = [];
+  for (const line of lines) {
+    if (CUSTOMER_SECTION_STOP_RE.test(line) || CUSTOMER_SECTION_STOP_ANYWHERE_RE.test(line)) break;
+    topLines.push(line);
+  }
+
+  const meaningful = topLines.filter((line) => !lineLooksLikeGreetingOrIntro(line));
+  if (meaningful.length === 0) return null;
+
+  const nameLine = meaningful.find((line) => {
+    if (/^(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail)\b/i.test(line)) return false;
+    if (hasAddressLikeLine(line) || hasZipCityLikeLine(line)) return false;
+    return !!cleanBillingCustomerNameCandidate(line);
+  });
+
+  const nameCandidate = cleanBillingCustomerNameCandidate(nameLine || "");
+  if (!nameCandidate) return null;
+
+  const hasAddress = meaningful.some(hasAddressLikeLine);
+  const hasZip = meaningful.some(hasZipCityLikeLine);
+  const hasPhone = meaningful.some((line) => /\b(?:tel\.?|telefon|phone|mobile|handy|natel)\b/i.test(line));
+  const isCompany = hasCompanySuffix(nameCandidate);
+
+  if (!isCompany && !(hasAddress && hasZip) && !hasPhone) return null;
+
+  return meaningful.slice(0, 6).join("\n").trim();
+}
+
+function extractSafeBillingEvidenceText(
+  rawText: string | null | undefined,
+): string | null {
+  return extractExplicitBillingEvidence(rawText) || extractTopBillingEvidence(rawText);
+}
+
+function valueSupportedBySafeBillingEvidence(
+  safeEvidence: string | null,
+  value: string | null | undefined,
+  mode: "text" | "phone" = "text",
+): boolean {
+  if (!safeEvidence?.trim()) return false;
+  return rawTextSupportsStructuredValue(safeEvidence, value, mode);
+}
+
+function clearBillingAddressFields(kundeData: any, dropped: string[]) {
+  if (kundeData.strasse || kundeData.hausnummer || kundeData.plz || kundeData.ort) {
+    dropped.push("billing_address");
+  }
+  kundeData.strasse = null;
+  kundeData.hausnummer = null;
+  kundeData.plz = null;
+  kundeData.ort = null;
+}
+
+function sanitizeBillingCustomerAgainstSafeEvidence(
+  kundeData: any,
+  rawText: string,
+  selfIntroFallbackUsed: boolean,
+): BillingCustomerGuardResult {
+  const dropped: string[] = [];
+  const safeEvidence = extractSafeBillingEvidenceText(rawText);
+
+  const name = cleanBillingCustomerNameCandidate(kundeData.name);
+  const nameIsSafe =
+    !!name &&
+    (selfIntroFallbackUsed || valueSupportedBySafeBillingEvidence(safeEvidence, name));
+
+  if (nameIsSafe) {
+    kundeData.name = name;
+  } else if (String(kundeData.name || "").trim()) {
+    dropped.push("billing_name");
+    kundeData.name = null;
+  }
+
+  // Ohne sicheren Kundennamen dürfen Arbeitsortdaten niemals als Rechnungsadresse
+  // oben gespeichert werden. Genau das hatte in den Tests Rosenweg/Arbeitsort
+  // in die Rechnungsadresse geschoben.
+  if (!nameIsSafe) {
+    clearBillingAddressFields(kundeData, dropped);
+    if (kundeData.telefon) {
+      dropped.push("billing_phone");
+      kundeData.telefon = null;
+    }
+    if (kundeData.email) {
+      dropped.push("billing_email");
+      kundeData.email = null;
+    }
+
+    return { safeEvidence, dropped: Array.from(new Set(dropped)) };
+  }
+
+  const phone = cleanStructuredText(kundeData.telefon);
+  if (phone && !valueSupportedBySafeBillingEvidence(safeEvidence, phone, "phone")) {
+    dropped.push("billing_phone");
+    kundeData.telefon = null;
+  }
+
+  const email = cleanStructuredText(kundeData.email);
+  if (email && !valueSupportedBySafeBillingEvidence(safeEvidence, email)) {
+    dropped.push("billing_email");
+    kundeData.email = null;
+  }
+
+  const street = cleanStructuredText(kundeData.strasse);
+  const houseNumber = cleanStructuredText(kundeData.hausnummer);
+  const fullStreet = [street, houseNumber].filter(Boolean).join(" ").trim();
+
+  if (
+    street &&
+    !valueSupportedBySafeBillingEvidence(safeEvidence, street) &&
+    !valueSupportedBySafeBillingEvidence(safeEvidence, fullStreet)
+  ) {
+    dropped.push("billing_street");
+    kundeData.strasse = null;
+    kundeData.hausnummer = null;
+  } else if (
+    houseNumber &&
+    !valueSupportedBySafeBillingEvidence(safeEvidence, fullStreet) &&
+    !valueSupportedBySafeBillingEvidence(safeEvidence, houseNumber)
+  ) {
+    dropped.push("billing_house_number");
+    kundeData.hausnummer = null;
+  }
+
+  const zip = cleanStructuredText(kundeData.plz);
+  if (zip && !valueSupportedBySafeBillingEvidence(safeEvidence, zip)) {
+    dropped.push("billing_zip");
+    kundeData.plz = null;
+  }
+
+  const city = cleanStructuredText(kundeData.ort);
+  if (city && !valueSupportedBySafeBillingEvidence(safeEvidence, city)) {
+    dropped.push("billing_city");
+    kundeData.ort = null;
+  }
+
+  return { safeEvidence, dropped: Array.from(new Set(dropped)) };
+}
+
 function normalizeUnitText(value: any): string {
   return String(value || "")
     .toLowerCase()
@@ -2702,6 +2958,7 @@ const intakeCurrency =
 
   // Ensure address is split properly
   const kundeData = parsed.kunde || {};
+  const intakeCustomerReviewReasons: string[] = [];
 
   // V16.15: KI-JSON-Strukturprüfung als zusätzliche Schutzschicht.
   // Die KI darf Kunde / Ausführungsadresse / Kontakt vor Ort semantisch sortieren,
@@ -2810,6 +3067,27 @@ const intakeCurrency =
         `[${source}] 🧾 Rechnungsnamen-Safety-Net griff: kunde.name='${billingNameFallback}' (LLM hatte leer/null geliefert)`,
       );
     }
+  }
+
+  const billingGuard = sanitizeBillingCustomerAgainstSafeEvidence(
+    kundeData,
+    messageText,
+    selfIntroFallbackUsed,
+  );
+
+  if (billingGuard.dropped.length > 0) {
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
+    intakeCustomerReviewReasons.push("customer_needs_review");
+    console.log(
+      `[${source}] 🛡️ billing-customer guard dropped unsafe fields: ${billingGuard.dropped.join(", ")}`,
+    );
+  }
+
+  if (!String(kundeData.name || "").trim()) {
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
+    intakeCustomerReviewReasons.push("missing_customer_data");
   }
 
   function looksLikeWeakCityOnlyFromWorkText(
@@ -2984,11 +3262,9 @@ const intakeCurrency =
           candidateCustomerNumber: exact.match.customerNumber,
         },
       });
-      // Improve-only update: the existing `else` branch below
-      // (`// Update existing customer with new data - only if it IMPROVES...`)
-      // already runs protectCustomerData(existing, incoming) for any non-null
-      // customerId — so we do nothing extra here and let that canonical path
-      // handle address/plz/city fill-in.
+      // Existing customer master data is intentionally not updated from intake.
+      // The order binds to the exact customer, but address/phone/email changes
+      // remain manual via customer editing or customer merge.
     } else if (
       exact.reason !== "incomplete_incoming" &&
       exact.reason !== "no_candidate"
@@ -3107,30 +3383,13 @@ const intakeCurrency =
     customerId = customer.id;
     customerWasNewlyCreated = true;
   } else {
-    // Update existing customer with new data - only if it IMPROVES existing data
-    const cust = await prisma.customer.findUnique({
-      where: { id: customerId },
-    });
-    if (cust) {
-      const { protectCustomerData } = await import("@/lib/data-protection");
-      const safeCity =
-        normalizeUnitText(addr.city) === "form" ? null : addr.city;
-      const updates = protectCustomerData(cust, {
-        address: addr.street,
-        plz: addr.plz,
-        city: safeCity,
-      });
-      if (Object.keys(updates).length > 0) {
-        await prisma.customer.update({
-          where: { id: customerId },
-          data: updates,
-        });
-        console.log(
-          `[${source}] Updated customer ${customerId} with improved fields:`,
-          Object.keys(updates),
-        );
-      }
-    }
+    // INTAKE_EXISTING_CUSTOMER_NO_AUTO_UPDATE_V16_16
+    // Bestehende Kundendaten sind Stammdaten. WhatsApp-/KI-Intake darf sie
+    // nicht automatisch ergänzen oder überschreiben. Änderungen nur manuell
+    // über Kunden-Bearbeiten bzw. Kundenzusammenführung.
+    console.log(
+      `[${source}] Existing customer ${customerId} reused/assigned; master data not auto-updated from intake.`,
+    );
   }
 
   // --- Build specialNotes (marker-based, NO language/keyword guessing in UI) ---
@@ -4117,6 +4376,7 @@ totalPrice: safeUnitPrice * safeQuantity,
   const allReviewReasons: string[] = [
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
+    ...intakeCustomerReviewReasons,
     ...quantityReviewReasons,
     ...unitMismatchReasons,
     ...intakeValidation.reviewReasons,
