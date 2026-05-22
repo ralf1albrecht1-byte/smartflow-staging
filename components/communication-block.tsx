@@ -140,6 +140,23 @@ function isSameContent(a: string | null | undefined, b: string | null | undefine
   return false;
 }
 
+function isTranscriptOnlyCustomerMessage(
+  message: string | null | undefined,
+  transcript: string | null | undefined,
+  hasAudio: boolean,
+): boolean {
+  if (!message || !hasAudio) return false;
+
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+
+  if (isSameContent(trimmed, transcript)) return true;
+
+  // Voice-only orders often store the same transcript in notes as:
+  // "WhatsApp:\n[Transkription] ...". Do not show that a second time.
+  return /^\[\s*(?:transkription|transcription|transkript)\s*\]/i.test(trimmed);
+}
+
 /**
  * Strips forwarded customer message content from a notes/remarks field.
  * Used for Offers/Invoices where order.notes was wrongly copied into the document notes.
@@ -242,11 +259,6 @@ function detectCommunicationPreferenceChips(
     chips.push(chip);
   };
 
-  const noPhone =
-    /\b(?:keine?|keinen|nicht|ohne)\s+(?:telefonische?\s+)?(?:rueckfrage|rueckruf|anruf|telefon|telefonat)\b/i.test(source) ||
-    /\b(?:bitte\s+)?nicht\s+(?:telefonisch\s+)?(?:anrufen|zurueckrufen|telefonieren)\b/i.test(source) ||
-    /\b(?:kein|keine|keinen)\s+(?:rueckruf|anruf)\s+(?:noetig|notwendig|erwuenscht)\b/i.test(source);
-
   const mail =
     /\b(?:mail|e mail|email|e-mail)\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|antworten|schreiben)\b/i.test(source) ||
     /\b(?:per|via|mit)\s+(?:mail|e mail|email|e-mail)\b/i.test(source) ||
@@ -271,10 +283,6 @@ function detectCommunicationPreferenceChips(
 
   if (sms) {
     addChip({ key: 'sms', label: 'SMS', color: 'purple' });
-  }
-
-  if (noPhone) {
-    addChip({ key: 'no_phone', label: 'Keine Tel.', color: 'amber' });
   }
 
   return chips;
@@ -423,8 +431,13 @@ export function CommunicationBlock({
   // Detect customer language from parsed notes
   const hasTranslation = !!parsed.translation;
 
+  const showOriginalCustomerMessage = Boolean(
+    parsed.originalMessage &&
+      !isTranscriptOnlyCustomerMessage(parsed.originalMessage, data.audioTranscript, Boolean(hasAudio)),
+  );
+
   // Check if there's any content to show
-  const hasContent = parsed.originalMessage || hasAudio || imagePaths.length > 0 || data.audioTranscript || data.specialNotes;
+  const hasContent = showOriginalCustomerMessage || hasAudio || imagePaths.length > 0 || data.audioTranscript || data.specialNotes;
   if (!hasContent && !showDescription) return null;
 
   return (
@@ -585,7 +598,7 @@ export function CommunicationBlock({
           )}
 
           {/* Original text message — shown ONCE (only if substantially different from transcript) */}
-          {parsed.originalMessage && !isSameContent(parsed.originalMessage, data.audioTranscript) && (
+          {showOriginalCustomerMessage && (
             <div className="bg-muted/50 rounded-lg p-3">
               <p className="text-sm whitespace-pre-line">{parsed.originalMessage}</p>
             </div>

@@ -3900,11 +3900,20 @@ const getSafeOrderTotal = (o: Order) => {
 
                         const isManualService = Boolean(item.serviceName?.trim()) && !isServiceInCatalog(item.serviceName);
                         const isMenuOpen = serviceActionMenuKey === item.key;
+                        const hasCriticalItemReview = showPriceReview || showQuantityReview;
+                        const hasAnyItemReview =
+                          hasCriticalItemReview || showUnitConflict || showPriceOverride;
 
                         return (
                           <div
                             key={item.key}
-                            className="relative rounded-lg border-2 border-slate-200 bg-muted/10 p-2 space-y-1.5 min-w-0"
+                            className={`relative rounded-lg border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
+                              hasCriticalItemReview
+                                ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                : hasAnyItemReview
+                                  ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                  : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                            }`}
                           >
                             <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
                               <div className="min-w-0 space-y-1">

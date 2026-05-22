@@ -1251,32 +1251,24 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
 
   const cleanup = (line: string) =>
     normalizeText(line)
-      // INTAKE_SAFE_LINE_COVERAGE_V16_1:
-      // Do NOT strip a naked leading number. In service lines this is often the
-      // real quantity ("4 Stunden", "12 m2", "25 Meter"). Only strip bullets or
-      // numbered-list markers like "1." / "2)".
+      // INTAKE_SAFE_LINE_COVERAGE_V16_7:
+      // Do NOT strip a naked leading quantity. It may be the real measured
+      // quantity ("4 Stunden", "32 m2"). Only strip bullets / numbered lists.
       .replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, "")
       .trim();
 
-  // INTAKE_SERVICE_NAME_CLEANUP_V16_6:
-  // Keep the full original line first. Splitting before quantities is useful
-  // for coverage, but it can destroy the service name:
-  // "Nettoyage du garage 32 m2 EUR 24 par m2" -> "32 m2 EUR 24 par m2".
-  // The full line must win so the visible name stays "Nettoyage du garage".
   const originalLines = source
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
     .map(cleanup)
     .filter(Boolean);
 
-  const splitQuantityLines = source
+  const quantitySplitLines = source
     .replace(/\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi, "\n")
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
     .map(cleanup)
     .filter(Boolean);
 
-  const candidates = unique([...originalLines, ...splitQuantityLines]);
-
-  return candidates.filter((line) => {
+  const candidateLines = unique([...originalLines, ...quantitySplitLines]).filter((line) => {
     const normalized = normalizeCompare(line);
     if (!normalized || normalized.length < 8) return false;
     if (EXPLICIT_SERVICE_NAME_BLOCKLIST.has(normalized.replace(/\s+/g, ""))) return false;
@@ -1292,6 +1284,22 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
       (hasQuantityWithUnit && (hasCurrency || hasCurrencylessUnitPrice)) ||
       (hasFlatSignal && (hasCurrency || hasCurrencylessFlatPrice))
     );
+  });
+
+  // If a full original line exists, drop the generated quantity-only suffix.
+  // Example:
+  // "Büroreinigung 4 Stunden CHF 82 pro Stunde" is kept,
+  // "4 Stunden CHF 82 pro Stunde" is dropped.
+  return candidateLines.filter((line) => {
+    const key = normalizeCompare(line);
+    if (!key) return false;
+
+    return !candidateLines.some((other) => {
+      if (other === line) return false;
+      const otherKey = normalizeCompare(other);
+      if (!otherKey || otherKey.length <= key.length + 4) return false;
+      return otherKey.endsWith(key) && /[a-z]/i.test(otherKey.slice(0, Math.max(0, otherKey.length - key.length)));
+    });
   });
 }
 
@@ -1428,18 +1436,16 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
     .replace(/\b(?:prix\s+(?:à\s+vérifier|a\s+verifier|ouvert|incertain)|comme\s+la\s+dernière\s+fois|comme\s+la\s+derniere\s+fois).*$/i, " ");
 
   cleaned = cleaned
-    // Remove remaining price/quantity fragments from the visible service name.
-    // These fragments are still stored in quantity/unit/unitPrice and must not
-    // leak into offers/invoices as the service label.
-    .replace(new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "gi"), " ")
-    .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\s*${PRICE_NUMBER}(?:\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS})?\\b`, "gi"), " ")
-    .replace(new RegExp(`\\b${PRICE_NUMBER}\\s*(?:${CURRENCY_WORDS})(?:\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS})?\\b`, "gi"), " ")
-    .replace(new RegExp(`\\b${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"), " ")
     .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/gi, " ")
+    .replace(new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\s*\\d+(?:[.,]\\d{1,2})?\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b\\d+(?:[.,]\\d{1,2})?\\s*(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"), " ")
     .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
     .replace(/\b(?:pro|je|per|par|à|a)\b\s*$/i, " ")
     // Remove unit prefixes that may remain in the visible service name.
     .replace(/^\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stück|stueck|stk|piece|pieces)\s+/i, " ")
+    .replace(/\b\d+(?:[.,]\d+)?\b/g, " ")
     .replace(/[,:;|]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -1589,32 +1595,6 @@ function itemCoversExplicitLine(
   return sameUnit && samePrice && tokenOverlap > 0;
 }
 
-
-function isPollutedExplicitServiceName(value?: string | null): boolean {
-  const normalized = normalizeCompare(value);
-  if (!normalized) return true;
-
-  const hasCurrencyOrPrice =
-    new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "i").test(normalized) ||
-    new RegExp(`\\b${PRICE_NUMBER}\\s*(?:pro|je|per|par|a|/)\\s*${UNIT_WORDS}\\b`, "i").test(normalized);
-
-  const hasQuantityAtStart =
-    new RegExp(`^\\s*\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(normalized);
-
-  const onlyNumbersUnitsAndPriceWords =
-    normalized
-      .split(" ")
-      .filter(Boolean)
-      .every((token) =>
-        /^\\d+(?:[.,]\\d+)?$/.test(token) ||
-        unitTypeFromText(token) !== null ||
-        normalizeCurrency(token) !== null ||
-        /^(pro|je|per|par|a|pauschal|pauschale|fixpreis|festpreis)$/.test(token),
-      );
-
-  return hasQuantityAtStart || onlyNumbersUnitsAndPriceWords || (hasCurrencyOrPrice && normalized.split(" ").length <= 6);
-}
-
 function shouldPreferExplicitServiceName(
   item: ParsedOrderItemForValidation,
   explicit: ExplicitServiceLineItem,
@@ -1623,7 +1603,6 @@ function shouldPreferExplicitServiceName(
   const explicitName = normalizeCompare(explicit.serviceName);
   if (!explicitName || explicitName === "unbekannte leistung") return false;
   if (!itemName || itemName === "unbekannte leistung" || itemName === "reinigung") return true;
-  if (isPollutedExplicitServiceName(item.serviceName) && !isPollutedExplicitServiceName(explicit.serviceName)) return true;
 
   const itemTokens = meaningfulServiceTokens(item.serviceName);
   const explicitTokens = meaningfulServiceTokens(explicit.serviceName);
@@ -2332,12 +2311,7 @@ export function extractExecutionAddressFromText(
     const sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
     const siteCity = plzCityFromLine?.city || fallbackPlzCity.city;
 
-    // INTAKE_EXECUTION_ADDRESS_COMPLETE_ONLY_V16_6:
-    // Do not create an execution address from only PLZ/city or a repeated
-    // customer/company name. It creates false "Ausführungsadresse" chips such
-    // as "Multilingual SA, 1003 Lausanne" with no street.
-    if (!siteAddress) continue;
-    if (!(sitePlz && siteCity)) continue;
+    if (!siteAddress && !(sitePlz && siteCity)) continue;
 
     if (
       isSameAddress({
