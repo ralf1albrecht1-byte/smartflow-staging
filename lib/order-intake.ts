@@ -457,6 +457,55 @@ function isFalseCallbackHint(line: string): boolean {
   );
 }
 
+
+function canonicalizeSpecialNoteLine(line: string): string {
+  const original = String(line || "").replace(/\s+/g, " ").trim();
+  const normalized = normalizeSemanticText(original);
+  if (!original || !normalized) return original;
+
+  const mentionsNoPhone = /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|ne\s+pas\s+appeler|ne\s+pas\s+rappeler|pas\s+appeler|merci\s+de\s+ne\s+pas\s+appeler|do\s+not\s+call|dont\s+call|don't\s+call|no\s+phone\s+call)\b/i.test(normalized);
+  const mentionsWhatsApp = /\b(whatsapp|whats\s*app)\b/i.test(normalized);
+  const mentionsSms = /\b(sms|text\s+message|kurznachricht)\b/i.test(normalized);
+  const mentionsMail = /\b(mail|e-mail|email|courriel)\b/i.test(normalized);
+
+  if (mentionsNoPhone && mentionsWhatsApp) return "Nicht telefonisch zurückrufen, WhatsApp reicht";
+  if (mentionsNoPhone && mentionsSms) return "Nicht telefonisch zurückrufen, SMS reicht";
+  if (mentionsNoPhone && mentionsMail) return "Nicht telefonisch zurückrufen, Mail reicht";
+  if (mentionsNoPhone) return "Nicht telefonisch zurückrufen";
+
+  if (/\b(whatsapp\s+(?:suffit|reicht|genuegt|genügt)|par\s+whatsapp|via\s+whatsapp|whatsapp\s+only)\b/i.test(normalized)) {
+    return "WhatsApp reicht";
+  }
+  if (/\b(sms\s+(?:reicht|genuegt|genügt|suffit)|per\s+sms|via\s+sms|sms\s+only)\b/i.test(normalized)) {
+    return "SMS reicht";
+  }
+  if (/\b(mail\s+(?:reicht|genuegt|genügt|suffit)|email\s+(?:reicht|genuegt|genügt|suffit)|per\s+(?:mail|email)|via\s+(?:mail|email)|mail\s+only|email\s+only)\b/i.test(normalized)) {
+    return "Mail reicht";
+  }
+
+  let german = original
+    .replace(/\blundi\b/gi, "Montag")
+    .replace(/\bmardi\b/gi, "Dienstag")
+    .replace(/\bmercredi\b/gi, "Mittwoch")
+    .replace(/\bjeudi\b/gi, "Donnerstag")
+    .replace(/\bvendredi\b/gi, "Freitag")
+    .replace(/\bsamedi\b/gi, "Samstag")
+    .replace(/\bdimanche\b/gi, "Sonntag")
+    .replace(/\bmonday\b/gi, "Montag")
+    .replace(/\btuesday\b/gi, "Dienstag")
+    .replace(/\bwednesday\b/gi, "Mittwoch")
+    .replace(/\bthursday\b/gi, "Donnerstag")
+    .replace(/\bfriday\b/gi, "Freitag")
+    .replace(/\bsaturday\b/gi, "Samstag")
+    .replace(/\bsunday\b/gi, "Sonntag");
+
+  if (/\b(place\s+de\s+parking|parking)\b/i.test(normalized) && /\b(devant|entree|entrée|eingang|vor)\b/i.test(normalized)) {
+    return "Parkplatz vor dem Eingang vorhanden";
+  }
+
+  return german.replace(/\s+/g, " ").trim();
+}
+
 /**
  * Semantic fallback for safety notes.
  *
@@ -2695,6 +2744,7 @@ const intakeCurrency =
  const baseHinweisItems = rawBesonderheitenItems
   .filter((line) => !safetyMarkerRe.test(line) && !isLikelySafetyWarning(line))
   .map(stripSpecialMarker)
+  .map(canonicalizeSpecialNoteLine)
   .filter(Boolean);
 
   const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
@@ -2720,12 +2770,11 @@ const intakeCurrency =
 
 const hinweisItems = dedupeSpecialNoteLines([
   ...baseHinweisItems,
-  ...semanticFallbackNotes.jobHints,
+  ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
   onsiteContactHint.hint || "",
-])
+].map(canonicalizeSpecialNoteLine))
   .filter((line) => !isNonActionableSpecialNoteCandidate(line))
   .filter((line) => !isNonActionablePlanningHint(line))
-  .filter((line) => !isFalseCallbackHint(line))
   .filter(
     (line) =>
       !gefahrItems.some(

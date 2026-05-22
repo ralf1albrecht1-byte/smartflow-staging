@@ -382,13 +382,36 @@ function detectCurrencylessFlatPriceFromSegment(
   return null;
 }
 
+function canonicalGermanServiceNameFromText(value?: string | null): string | null {
+  const normalized = normalizeCompare(value);
+  if (!normalized) return null;
+
+  if (/\b(nettoyage\s+du\s+garage|nettoyage\s+du\s+sol\s+du\s+garage|garage\s+floor|sol\s+du\s+garage|garagenboden)\b/.test(normalized)) {
+    return "Garageboden reinigen";
+  }
+  if (/\b(nettoyage\s+de\s+l\s*entree|nettoyage\s+de\s+lentree|nettoyage\s+de\s+l['’]?\s*entree|entrance\s+clean|eingangsbereich)\b/.test(normalized)) {
+    return "Eingangsbereich reinigen";
+  }
+  if (/\b(nettoyage\s+des\s+vitres|nettoyage\s+vitres|vitres|fenetres|windows|fenster)\b/.test(normalized)) {
+    return "Fenster reinigen";
+  }
+  if (/\b(buroreinigung|buero(?:reinigung)?|office\s+clean|office\s+cleaning)\b/.test(normalized)) {
+    return "Büroreinigung";
+  }
+
+  return null;
+}
+
 function normalizeFlatServiceNameFromText(value: string): string {
+  const canonical = canonicalGermanServiceNameFromText(value);
+  if (canonical) return canonical;
+
   const normalized = normalizeCompare(value);
   if (/\btiefgarage\b/.test(normalized) && /\b(reinigen|reinigung|putzen)\b/.test(normalized)) {
-    return "Reinigung tiefgarage";
+    return "Tiefgarage reinigen";
   }
   if (/\bgarage\b/.test(normalized) && /\b(reinigen|reinigung|putzen)\b/.test(normalized)) {
-    return "Garagenreinigung";
+    return "Garageboden reinigen";
   }
 
   return value
@@ -701,10 +724,14 @@ function repairCommonMultilingualCleaningItems(
       next.serviceName = "Fenster reinigen";
       next.unit = "Stück";
       targetUnitType = "piece";
-    } else if (/\b(nettoyage\s+du\s+sol\s+du\s+garage|sol\s+du\s+garage|garage\s+floor|garagenboden|lagerboden)\b/i.test(key)) {
+    } else if (/\b(nettoyage\s+du\s+garage|nettoyage\s+du\s+sol\s+du\s+garage|sol\s+du\s+garage|garage\s+floor|garagenboden|lagerboden)\b/i.test(key)) {
       next.serviceName = /\blagerboden\b/i.test(key) ? "Lagerboden reinigen" : "Garageboden reinigen";
       next.unit = "Quadratmeter";
       targetUnitType = "square_meter";
+    } else if (/\b(nettoyage\s+de\s+l\s*entree|nettoyage\s+de\s+lentree|entrance\s+clean|eingangsbereich)\b/i.test(key)) {
+      next.serviceName = "Eingangsbereich reinigen";
+      next.unit = "Pauschal";
+      targetUnitType = "flat";
     } else if (/\b(office\s+floor|boden\s+reinigen|floor\s+clean)\b/i.test(key)) {
       next.serviceName = "Boden reinigen";
       next.unit = "Quadratmeter";
@@ -1462,11 +1489,9 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
   if (/\bbuero(?:reinigung)?\b|\bburo(?:reinigung)?\b|\boffice\b/.test(sourceKey) && /\b(stunde|stunden|hour|hours|std|h)\b/.test(sourceKey)) {
     return "Büroreinigung";
   }
-  if (/\bnettoyage\b/.test(sourceKey) && /\bgarage\b/.test(sourceKey)) {
-    return "Nettoyage du garage";
-  }
-  if (/\bnettoyage\b/.test(sourceKey) && /\b(entree|entrée|entrance)\b/.test(sourceKey)) {
-    return "Nettoyage de l'entrée";
+  const canonicalServiceName = canonicalGermanServiceNameFromText(line);
+  if (canonicalServiceName) {
+    return canonicalServiceName;
   }
   if (/\beingangsbereich\b/.test(sourceKey)) {
     return "Eingangsbereich reinigen";
