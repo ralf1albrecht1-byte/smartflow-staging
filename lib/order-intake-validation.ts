@@ -978,6 +978,156 @@ function findQuantityOnlyUnclearLine(line: string): {
   return { quantity, unitType, quantityRaw: quantityMatch[0] };
 }
 
+
+type UnclearPriceLine = {
+  serviceName: string;
+  quantity: number;
+  unitType: string;
+  quantityRaw: string;
+  sourceText: string;
+};
+
+function splitRawIntakeLines(text?: string | null): string[] {
+  const source = normalizeText(text);
+  if (!source) return [];
+
+  return unique(
+    source
+      .replace(/\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi, "\n")
+      .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
+      .map((line) => normalizeText(line).replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, "").trim())
+      .filter(Boolean),
+  );
+}
+
+function extractUnclearPriceLines(originalText: string): UnclearPriceLine[] {
+  const result: UnclearPriceLine[] = [];
+
+  for (const line of splitRawIntakeLines(originalText)) {
+    const unclear = findQuantityOnlyUnclearLine(line);
+    if (!unclear) continue;
+
+    const serviceName = cleanExplicitServiceNameFromLine(line, {
+      quantityRaw: unclear.quantityRaw,
+    });
+
+    result.push({
+      serviceName,
+      quantity: unclear.quantity,
+      unitType: unclear.unitType,
+      quantityRaw: unclear.quantityRaw,
+      sourceText: line,
+    });
+  }
+
+  const byKey = new Map<string, UnclearPriceLine>();
+  for (const line of result) {
+    const key = `${normalizeCompare(line.sourceText)}:${line.quantity}:${line.unitType}`;
+    if (!byKey.has(key)) byKey.set(key, line);
+  }
+
+  return Array.from(byKey.values());
+}
+
+function itemMatchesUnclearPriceLine(
+  item: ParsedOrderItemForValidation,
+  unclear: UnclearPriceLine,
+): boolean {
+  const itemText = normalizeCompare(
+    [item.sourceText, item.evidence, item.description, item.serviceName]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const itemName = normalizeCompare(item.serviceName);
+  const lineText = normalizeCompare(unclear.sourceText);
+  const unclearName = normalizeCompare(unclear.serviceName);
+
+  if (!itemText || !lineText) return false;
+  if (itemText.includes(lineText) || lineText.includes(itemText)) return true;
+  if (itemName && lineText.includes(itemName)) return true;
+  if (unclearName && itemText.includes(unclearName)) return true;
+
+  const itemUnitType = unitTypeFromDisplayUnit(item.unit);
+  const sameUnit = !itemUnitType || itemUnitType === unclear.unitType;
+  const sameQuantity =
+    Number(item.quantity || 0) > 0 &&
+    Math.abs(Number(item.quantity || 0) - unclear.quantity) < 0.001;
+
+  const itemTokens = meaningfulServiceTokens(item.serviceName);
+  const unclearTokens = meaningfulServiceTokens(unclear.serviceName);
+  const overlap = unclearTokens.filter(
+    (token) => itemTokens.includes(token) || itemText.includes(token),
+  ).length;
+
+  if (sameUnit && sameQuantity && overlap > 0) return true;
+
+  // Generic names like "Boden reinigen" may have no meaningful tokens after
+  // generic-token filtering. In that case, the original unclear line itself is
+  // the safest evidence.
+  if (sameUnit && sameQuantity && itemName && lineText.includes(itemName)) return true;
+
+  return false;
+}
+
+function applyUnclearPriceLineGuard(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const unclearLines = extractUnclearPriceLines(originalText);
+  if (unclearLines.length === 0) return { items, reviewReasons: [] };
+
+  const reviewReasons: string[] = [];
+  const nextItems = [...items];
+
+  for (const unclear of unclearLines) {
+    const displayUnit = unitTypeToDisplayUnit(unclear.unitType) || "Pauschal";
+    const reason = `price_unclear:${unclear.serviceName}`;
+    const existingIndex = nextItems.findIndex((item) =>
+      itemMatchesUnclearPriceLine(item, unclear),
+    );
+
+    const guardedItem: ParsedOrderItemForValidation = {
+      serviceName: unclear.serviceName,
+      description: unclear.sourceText,
+      quantity: unclear.quantity,
+      unit: displayUnit,
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: reason,
+      sourceText: unclear.sourceText,
+      evidence: unclear.sourceText,
+      detectedCurrency: null,
+    };
+
+    if (existingIndex >= 0) {
+      const existing = nextItems[existingIndex];
+      nextItems[existingIndex] = {
+        ...existing,
+        serviceName:
+          normalizeCompare(existing.serviceName).length >= 3
+            ? existing.serviceName
+            : unclear.serviceName,
+        description: existing.description || unclear.sourceText,
+        quantity: unclear.quantity,
+        unit: displayUnit,
+        unitPrice: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: reason,
+        sourceText: existing.sourceText || unclear.sourceText,
+        evidence: existing.evidence || unclear.sourceText,
+      };
+    } else {
+      nextItems.push(guardedItem);
+    }
+
+    reviewReasons.push(reason, "unit_price_review");
+  }
+
+  return { items: nextItems, reviewReasons: unique(reviewReasons) };
+}
+
 type ExplicitServiceLineItem = ParsedOrderItemForValidation & {
   detectedCurrency?: string | null;
   sourceText: string;
@@ -1599,6 +1749,10 @@ export function validateAndRepairParsedOrderItems(
 
     return next;
   });
+
+  const unclearGuard = applyUnclearPriceLineGuard(items, input.originalText);
+  items = unclearGuard.items;
+  reviewReasons.push(...unclearGuard.reviewReasons);
 
   items = removeSubsumedReviewOnlyItems(items);
 
