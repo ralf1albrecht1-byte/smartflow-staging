@@ -173,7 +173,7 @@ const unitTypeFromText = (value?: string | null): string | null => {
   if (/\b(kg|kilogramm)\b/i.test(source)) return "kilogram";
   if (/\b(tonne|tonnen)\b/i.test(source)) return "ton";
   if (/\b(liter|ltr|l)\b/i.test(source)) return "liter";
-  if (/\b(pauschal|pauschale|fixpreis|festpreis|flat)\b/i.test(source)) return "flat";
+  if (/\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat|flat)\b/i.test(source)) return "flat";
 
   return null;
 };
@@ -294,12 +294,12 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
       priceGroup: 1,
     },
     {
-      re: new RegExp(`(?:pauschal|pauschale|fixpreis|festpreis)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
+      re: new RegExp(`(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
       currencyGroup: 1,
       priceGroup: 2,
     },
     {
-      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\b`, "gi"),
+      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\b`, "gi"),
       currencyGroup: 1,
       priceGroup: 2,
     },
@@ -359,11 +359,11 @@ function detectCurrencylessFlatPriceFromSegment(
 ): DetectedUnitPrice | null {
   const source = normalizeText(segment);
   if (!source) return null;
-  if (!/\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(source)) return null;
+  if (!/\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(source)) return null;
 
   const patterns = [
-    /\b(?:pauschal|pauschale|fixpreis|festpreis)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
-    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:pauschal|pauschale|fixpreis|festpreis)\b/i,
+    /\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
+    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i,
   ];
 
   for (const pattern of patterns) {
@@ -501,7 +501,7 @@ function detectExplicitFlatPriceForItem(
   for (const segment of candidates) {
     const normalizedSegment = normalizeCompare(segment);
     if (!normalizedSegment) continue;
-    if (!/\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(normalizedSegment)) continue;
+    if (!/\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(normalizedSegment)) continue;
 
     const detected =
       chooseBestPriceFromSegment(segment) ||
@@ -537,7 +537,7 @@ function detectFlatPriceItems(
 
   for (const segment of segments) {
     const normalized = normalizeCompare(segment);
-    if (!/\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(normalized)) {
+    if (!/\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(normalized)) {
       continue;
     }
 
@@ -547,7 +547,7 @@ function detectFlatPriceItems(
     if (!detected || detected.currency !== fallbackCurrency) continue;
 
     const beforeFlat = segment
-      .split(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/i)[0]
+      .split(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i)[0]
       ?.replace(/^\s*(leistung|leistungen|bitte|zusätzlich|zusaetzlich|und|plus|[0-9]+[.)])\s*[:\-–—]?\s*/i, "")
       .replace(/[,;:.]+$/g, "")
       .trim();
@@ -1274,7 +1274,7 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
     if (EXPLICIT_SERVICE_NAME_BLOCKLIST.has(normalized.replace(/\s+/g, ""))) return false;
 
     const hasQuantityWithUnit = new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(line);
-    const hasFlatSignal = /\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(line);
+    const hasFlatSignal = /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(line);
     const hasCurrency = new RegExp(CURRENCY_WORDS, "i").test(line);
     const hasCurrencylessUnitPrice = new RegExp(`${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "i").test(line);
     const hasCurrencylessFlatPrice =
@@ -1372,22 +1372,22 @@ function findExplicitFlatPriceInLine(line: string, fallbackCurrency: IntakeCurre
 } | null {
   const patterns: Array<{ re: RegExp; currencyGroup?: number; priceGroup: number }> = [
     {
-      re: new RegExp(`\\b(?:pauschal|pauschale|fixpreis|festpreis)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "i"),
+      re: new RegExp(`\\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "i"),
       currencyGroup: 1,
       priceGroup: 2,
     },
     {
-      re: new RegExp(`\\b(?:pauschal|pauschale|fixpreis|festpreis)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`, "i"),
+      re: new RegExp(`\\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`, "i"),
       currencyGroup: 2,
       priceGroup: 1,
     },
     {
-      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\b`, "i"),
+      re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\b`, "i"),
       currencyGroup: 1,
       priceGroup: 2,
     },
     {
-      re: /\b(?:pauschal|pauschale|fixpreis|festpreis)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
+      re: /\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
       priceGroup: 1,
     },
   ];
@@ -1436,27 +1436,41 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
     .replace(/\b(?:prix\s+(?:à\s+vérifier|a\s+verifier|ouvert|incertain)|comme\s+la\s+dernière\s+fois|comme\s+la\s+derniere\s+fois).*$/i, " ");
 
   cleaned = cleaned
-    .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/gi, " ")
-    .replace(new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "gi"), " ")
-    .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\s*\\d+(?:[.,]\\d{1,2})?\\b`, "gi"), " ")
-    .replace(new RegExp(`\\b\\d+(?:[.,]\\d{1,2})?\\s*(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
-    .replace(new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"), " ")
-    .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
-    .replace(/\b(?:pro|je|per|par|à|a)\b\s*$/i, " ")
-    // Remove unit prefixes that may remain in the visible service name.
-    .replace(/^\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stück|stueck|stk|piece|pieces)\s+/i, " ")
-    .replace(/\b\d+(?:[.,]\d+)?\b/g, " ")
-    .replace(/[,:;|]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/gi, " ")
+  .replace(new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "gi"), " ")
+  .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\s*\\d+(?:[.,]\\d{1,2})?\\b`, "gi"), " ")
+  .replace(new RegExp(`\\b\\d+(?:[.,]\\d{1,2})?\\s*(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
+  .replace(new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"), " ")
+  .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
+  .replace(/\b(?:pro|je|per|par|à|a)\b\s*$/i, " ")
+  // Remove unit prefixes that may remain in the visible service name.
+  .replace(/^\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunde|stunden|std\.?|h|stück|stueck|stk|piece|pieces)\s+/gi, " ")
+  .replace(/\b\d+(?:[.,]\d+)?\b/g, " ")
+  .replace(/[;:]+/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
 
   // Fallback: when the service name was before a flat-price phrase, keep text before that phrase.
   if (!cleaned || normalizeCompare(cleaned).length < 3) {
-    const beforeFlat = line.split(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/i)[0] || "";
+    const beforeFlat = line.split(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i)[0] || "";
     cleaned = normalizeText(beforeFlat).replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, " ").trim();
   }
 
   if (!cleaned || normalizeCompare(cleaned).length < 3) return "Unbekannte Leistung";
+
+  const sourceKey = normalizeCompare(line);
+  if (/\bbuero(?:reinigung)?\b|\bburo(?:reinigung)?\b|\boffice\b/.test(sourceKey) && /\b(stunde|stunden|hour|hours|std|h)\b/.test(sourceKey)) {
+    return "Büroreinigung";
+  }
+  if (/\bnettoyage\b/.test(sourceKey) && /\bgarage\b/.test(sourceKey)) {
+    return "Nettoyage du garage";
+  }
+  if (/\bnettoyage\b/.test(sourceKey) && /\b(entree|entrée|entrance)\b/.test(sourceKey)) {
+    return "Nettoyage de l'entrée";
+  }
+  if (/\beingangsbereich\b/.test(sourceKey)) {
+    return "Eingangsbereich reinigen";
+  }
 
   return cleaned
     .replace(/^./, (char) => char.toUpperCase());
@@ -1523,7 +1537,7 @@ function extractExplicitServiceLineItems(
       continue;
     }
 
-    if (flatPrice && /\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(line)) {
+    if (flatPrice && /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(line)) {
       const serviceName = cleanExplicitServiceNameFromLine(line, {
         priceRaw: flatPrice.raw,
       });
