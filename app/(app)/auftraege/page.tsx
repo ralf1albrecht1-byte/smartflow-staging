@@ -24,7 +24,6 @@ import {
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import { CommunicationChips } from "@/components/communication-block";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
-import { autoFillCustomerFromNotes } from "@/lib/extract-from-notes";
 import {
   mergeCustomerIntoForm,
   isFallbackCustomerName,
@@ -271,6 +270,11 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
+
+const hasMissingOrFallbackCustomerName = (value?: string | null) => {
+  const name = compactText(value);
+  return !name || isFallbackCustomerName(name);
+};
 
 const pushUniqueBadge = (badges: ReviewBadge[], badge: ReviewBadge) => {
   if (badges.some((existing) => existing.key === badge.key)) return;
@@ -1189,27 +1193,6 @@ export default function AuftraegePage() {
   // previously visited module. Safe version — see lib/use-dialog-back-guard.ts.
   useDialogBackGuard(dialogOpen, () => setDialogOpen(false));
 
-  // Auto-fill customer data from order notes when dialog opens
-  const autoFillCustomer = async (customerId: string) => {
-    if (!customerId) return;
-    try {
-      const res = await fetch(`/api/customers/${customerId}/auto-fill`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setCustomers((prev) => {
-          const exists = prev.some((c) => c.id === updated.id);
-          if (exists)
-            return prev.map((c) =>
-              c.id === updated.id ? { ...c, ...updated } : c,
-            );
-          return [...prev, updated];
-        });
-      }
-    } catch {}
-  };
-
   // Block D — single shared entry point for "Kunde bearbeiten". Used by
   // both the existing "✏️ Bearbeiten" link AND the newly-clickable customer
   // display card. Phase 2f: fetch fresh customer data from the server so
@@ -1247,8 +1230,13 @@ export default function AuftraegePage() {
       const currentOrder = editId
         ? orders.find((o: Order) => o.id === editId)
         : null;
-      const noteSource =
-        noteOverride !== undefined ? noteOverride : currentOrder?.notes;
+      const canUseOrderNotesForCustomer =
+        !hasMissingOrFallbackCustomerName(freshCust.name);
+      const noteSource = canUseOrderNotesForCustomer
+        ? noteOverride !== undefined
+          ? noteOverride
+          : currentOrder?.notes
+        : null;
       // ─── CRITICAL: Use a blank form as the base for merging, NOT the
       // potentially stale `newCust` state. This prevents data from a
       // previously viewed order/customer from leaking into the editor.
@@ -1575,8 +1563,9 @@ export default function AuftraegePage() {
     setOrderVatRate(o.vatRate != null ? Number(o.vatRate) : defaultVatRate);
     setCurrency(o.currency === "EUR" ? "EUR" : "CHF");
     setDialogOpen(true);
-    // Auto-fill: extract missing customer data from notes and update DB
-    if (o.customerId) autoFillCustomer(o.customerId);
+    // V16.22: Do not auto-fill customer master data from order notes on dialog open.
+    // Notes may contain execution addresses / onsite contact details and must not
+    // silently write into the billing customer record. Manual customer editing stays available.
   };
 
   // Stage E (deterministic chip flow): the "open customer editor on dialog open"
@@ -1616,7 +1605,9 @@ export default function AuftraegePage() {
           const currentOrder = editId
             ? orders.find((o: Order) => o.id === editId)
             : null;
-          const noteSource = currentOrder?.notes ?? null;
+          const noteSource = hasMissingOrFallbackCustomerName(freshCust.name)
+            ? null
+            : currentOrder?.notes ?? null;
           const merged = mergeCustomerIntoForm(
             {
               name: "",
@@ -3507,6 +3498,23 @@ const getSafeOrderTotal = (o: Order) => {
                         // Required fields: name/address/plz/city — painted red when missing.
                         // Optional fields: phone/email — always neutral (black), never red.
                         const reqMiss = isRequiredCustomerFieldMissing;
+                        const customerMasterFieldsLocked =
+                          hasMissingOrFallbackCustomerName(cust.name);
+                        const visibleCustomerAddress = customerMasterFieldsLocked
+                          ? ""
+                          : cust.address;
+                        const visibleCustomerPlz = customerMasterFieldsLocked
+                          ? ""
+                          : cust.plz;
+                        const visibleCustomerCity = customerMasterFieldsLocked
+                          ? ""
+                          : cust.city;
+                        const visibleCustomerPhone = customerMasterFieldsLocked
+                          ? ""
+                          : cust.phone;
+                        const visibleCustomerEmail = customerMasterFieldsLocked
+                          ? ""
+                          : cust.email;
                         // Block D: the whole customer card is a shortcut to
                         // "Kunde bearbeiten" (only in edit mode where the card is
                         // static). Keyboard-accessible via Enter/Space. The existing
@@ -3552,48 +3560,48 @@ const getSafeOrderTotal = (o: Order) => {
                               )}
                               <div className="grid grid-cols-1 gap-1 text-xs min-w-0">
                                 <div
-                                  className={`flex items-center gap-1 min-w-0 ${reqMiss(cust.address) ? "text-red-500" : "text-foreground/70"}`}
+                                  className={`flex items-center gap-1 min-w-0 ${reqMiss(visibleCustomerAddress) ? "text-red-500" : "text-foreground/70"}`}
                                 >
                                   <span className="font-medium w-12 sm:w-16 shrink-0">
                                     Strasse:
                                   </span>
                                   <span
-                                    className={`truncate ${reqMiss(cust.address) ? "border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
+                                    className={`truncate ${reqMiss(visibleCustomerAddress) ? "border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
                                   >
-                                    {cust.address || "fehlt"}
+                                    {visibleCustomerAddress || "fehlt"}
                                   </span>
                                 </div>
                                 <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                                   <div
-                                    className={`flex items-center gap-1 ${reqMiss(cust.plz) ? "text-red-500" : "text-foreground/70"}`}
+                                    className={`flex items-center gap-1 ${reqMiss(visibleCustomerPlz) ? "text-red-500" : "text-foreground/70"}`}
                                   >
                                     <span className="font-medium w-12 sm:w-16 shrink-0">
                                       PLZ:
                                     </span>
                                     <span
                                       className={
-                                        reqMiss(cust.plz)
+                                        reqMiss(visibleCustomerPlz)
                                           ? "border-b border-red-400 border-dashed pb-0.5 italic"
                                           : ""
                                       }
                                     >
-                                      {cust.plz || "fehlt"}
+                                      {visibleCustomerPlz || "fehlt"}
                                     </span>
                                   </div>
                                   <div
-                                    className={`flex items-center gap-1 ${reqMiss(cust.city) ? "text-red-500" : "text-foreground/70"}`}
+                                    className={`flex items-center gap-1 ${reqMiss(visibleCustomerCity) ? "text-red-500" : "text-foreground/70"}`}
                                   >
                                     <span className="font-medium shrink-0">
                                       Ort:
                                     </span>
                                     <span
                                       className={
-                                        reqMiss(cust.city)
+                                        reqMiss(visibleCustomerCity)
                                           ? "border-b border-red-400 border-dashed pb-0.5 italic"
                                           : ""
                                       }
                                     >
-                                      {cust.city || "fehlt"}
+                                      {visibleCustomerCity || "fehlt"}
                                     </span>
                                   </div>
                                 </div>
@@ -3602,7 +3610,7 @@ const getSafeOrderTotal = (o: Order) => {
                                     Tel:
                                   </span>
                                   <span className="truncate">
-                                    {cust.phone || "—"}
+                                    {visibleCustomerPhone || "—"}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-1 text-foreground/70">
@@ -3610,7 +3618,7 @@ const getSafeOrderTotal = (o: Order) => {
                                     E-Mail:
                                   </span>
                                   <span className="truncate">
-                                    {cust.email || "—"}
+                                    {visibleCustomerEmail || "—"}
                                   </span>
                                 </div>
                               </div>
@@ -3659,6 +3667,23 @@ const getSafeOrderTotal = (o: Order) => {
                             );
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
+                            const customerMasterFieldsLocked =
+                              hasMissingOrFallbackCustomerName(cust.name);
+                            const visibleCustomerAddress = customerMasterFieldsLocked
+                              ? ""
+                              : cust.address;
+                            const visibleCustomerPlz = customerMasterFieldsLocked
+                              ? ""
+                              : cust.plz;
+                            const visibleCustomerCity = customerMasterFieldsLocked
+                              ? ""
+                              : cust.city;
+                            const visibleCustomerPhone = customerMasterFieldsLocked
+                              ? ""
+                              : cust.phone;
+                            const visibleCustomerEmail = customerMasterFieldsLocked
+                              ? ""
+                              : cust.email;
                             return (
                               <div className="mt-2 border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0">
                                 {/* ISSUE 4 — Neutral display for fallback customers */}
@@ -3686,48 +3711,48 @@ const getSafeOrderTotal = (o: Order) => {
                                 )}
                                 <div className="grid grid-cols-1 gap-1 text-xs min-w-0">
                                   <div
-                                    className={`flex items-center gap-1 min-w-0 ${reqMiss(cust.address) ? "text-red-500" : "text-foreground/70"}`}
+                                    className={`flex items-center gap-1 min-w-0 ${reqMiss(visibleCustomerAddress) ? "text-red-500" : "text-foreground/70"}`}
                                   >
                                     <span className="font-medium w-12 sm:w-16 shrink-0">
                                       Strasse:
                                     </span>
                                     <span
-                                      className={`truncate ${reqMiss(cust.address) ? "border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
+                                      className={`truncate ${reqMiss(visibleCustomerAddress) ? "border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
                                     >
-                                      {cust.address || "fehlt"}
+                                      {visibleCustomerAddress || "fehlt"}
                                     </span>
                                   </div>
                                   <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                                     <div
-                                      className={`flex items-center gap-1 ${reqMiss(cust.plz) ? "text-red-500" : "text-foreground/70"}`}
+                                      className={`flex items-center gap-1 ${reqMiss(visibleCustomerPlz) ? "text-red-500" : "text-foreground/70"}`}
                                     >
                                       <span className="font-medium w-12 sm:w-16 shrink-0">
                                         PLZ:
                                       </span>
                                       <span
                                         className={
-                                          reqMiss(cust.plz)
+                                          reqMiss(visibleCustomerPlz)
                                             ? "border-b border-red-400 border-dashed pb-0.5 italic"
                                             : ""
                                         }
                                       >
-                                        {cust.plz || "fehlt"}
+                                        {visibleCustomerPlz || "fehlt"}
                                       </span>
                                     </div>
                                     <div
-                                      className={`flex items-center gap-1 ${reqMiss(cust.city) ? "text-red-500" : "text-foreground/70"}`}
+                                      className={`flex items-center gap-1 ${reqMiss(visibleCustomerCity) ? "text-red-500" : "text-foreground/70"}`}
                                     >
                                       <span className="font-medium shrink-0">
                                         Ort:
                                       </span>
                                       <span
                                         className={
-                                          reqMiss(cust.city)
+                                          reqMiss(visibleCustomerCity)
                                             ? "border-b border-red-400 border-dashed pb-0.5 italic"
                                             : ""
                                         }
                                       >
-                                        {cust.city || "fehlt"}
+                                        {visibleCustomerCity || "fehlt"}
                                       </span>
                                     </div>
                                   </div>
@@ -3736,7 +3761,7 @@ const getSafeOrderTotal = (o: Order) => {
                                       Tel:
                                     </span>
                                     <span className="truncate">
-                                      {cust.phone || "—"}
+                                      {visibleCustomerPhone || "—"}
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-1 text-foreground/70">
@@ -3744,7 +3769,7 @@ const getSafeOrderTotal = (o: Order) => {
                                       E-Mail:
                                     </span>
                                     <span className="truncate">
-                                      {cust.email || "—"}
+                                      {visibleCustomerEmail || "—"}
                                     </span>
                                   </div>
                                 </div>
