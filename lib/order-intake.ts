@@ -3083,6 +3083,29 @@ const intakeCurrency =
       );
     }
 
+    // V16.20: Final create-path guard.
+    // If the parser did not find a reliable billing/customer block, never let
+    // sanitizeNewCustomerFields re-persist execution-site data from rawText as
+    // customer master data. This specifically protects messages like:
+    // "Arbeitsort: Objekt Alpha ... Kontakt vor Ort: Herr Frei ..."
+    // where the customer should remain empty + needsReview.
+    const safeNewCustomerFields = billingEvidence.hasReliableCustomerBlock
+      ? sanitized
+      : {
+          ...sanitized,
+          street: null,
+          plz: null,
+          city: null,
+          phone: null,
+          email: null,
+        };
+
+    if (!billingEvidence.hasReliableCustomerBlock) {
+      console.log(
+        `[${source}] 🛡️ no reliable billing block → new customer master address/phone/email kept empty`,
+      );
+    }
+
     const { generateCustomerNumber } = await import("@/lib/customer-number");
     const customerNumber = await generateCustomerNumber();
     const customer = await prisma.customer.create({
@@ -3091,12 +3114,12 @@ const intakeCurrency =
         name: kundeData.name || "",
         // New customer master data may store phone/email only after the billing
         // customer guard + sanitizer verified that they belong to the billing block.
-        phone: sanitized.phone,
-        email: sanitized.email,
-        address: sanitized.street,
-        plz: sanitized.plz,
+        phone: safeNewCustomerFields.phone,
+        email: safeNewCustomerFields.email,
+        address: safeNewCustomerFields.street,
+        plz: safeNewCustomerFields.plz,
         city:
-          normalizeUnitText(sanitized.city) === "form" ? null : sanitized.city,
+          normalizeUnitText(safeNewCustomerFields.city) === "form" ? null : safeNewCustomerFields.city,
         notes: `${source}-Kunde`,
         ...(userId ? { userId } : {}),
       },
