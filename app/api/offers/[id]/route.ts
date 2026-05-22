@@ -12,6 +12,21 @@ import {
   CustomerArchivedError,
 } from "@/lib/customer-links";
 
+
+function validateDocumentItemsForUpdate(items: any[]) {
+  if (!Array.isArray(items)) return null;
+  if (items.length === 0) return 'Mindestens eine Leistung ist erforderlich.';
+
+  const invalid = items.some(
+    (item: any) =>
+      !String(item?.description || '').trim() ||
+      Number(item?.quantity || 0) <= 0 ||
+      Number(item?.unitPrice || 0) <= 0,
+  );
+
+  return invalid ? 'Preis/Menge prüfen: Dokument kann nicht mit leeren oder 0-Positionen gespeichert werden.' : null;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { id: string } },
@@ -88,6 +103,8 @@ export async function PUT(
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
 
     const data = await request.json();
+    const itemError = validateDocumentItemsForUpdate(data?.items);
+    if (itemError) return NextResponse.json({ error: itemError }, { status: 400 });
 
     // Guard: reject reassignment to an archived customer
     if (data.customerId && data.customerId !== existing.customerId) {

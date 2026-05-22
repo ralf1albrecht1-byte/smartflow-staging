@@ -871,6 +871,73 @@ const emptyForm = {
   siteNote: "",
 };
 
+
+const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
+  /^currency_/,
+  /^item_currency_mismatch/,
+  /^unit_mismatch:/,
+  /^unit_price_review$/,
+  /^quantity_review$/,
+  /^price_unclear:/,
+  /^price_override:/,
+  /^unbekannte_leistung_pruefen$/,
+  /^stunden_arbeitsposition_pruefen$/,
+  /^total_unrealistic_check$/,
+  /^currency_unsupported$/,
+  /^manual_flat_service_from_text$/,
+];
+
+const getOrderConversionBlockers = (order: Order | any): string[] => {
+  const blockers: string[] = [];
+  const items: any[] = Array.isArray(order?.items) ? order.items : [];
+  const reviewReasons: string[] = Array.isArray(order?.reviewReasons)
+    ? order.reviewReasons.filter(Boolean)
+    : [];
+
+  if (items.length === 0) {
+    blockers.push("Keine Leistungen vorhanden");
+  }
+
+  if (
+    items.some(
+      (item) =>
+        Number(item?.unitPrice || 0) <= 0 ||
+        Number(item?.quantity || 0) <= 0 ||
+        Number(item?.totalPrice ?? Number(item?.unitPrice || 0) * Number(item?.quantity || 0)) <= 0,
+    )
+  ) {
+    blockers.push("Preis/Menge prüfen");
+  }
+
+  if (
+    reviewReasons.some((reason) =>
+      CRITICAL_CONVERSION_REVIEW_PATTERNS.some((pattern) => pattern.test(reason)),
+    )
+  ) {
+    blockers.push("Offene Prüfhinweise im Auftrag");
+  }
+
+  if (order?.needsReview && reviewReasons.length > 0) {
+    blockers.push("Auftrag ist noch auf Prüfen gesetzt");
+  }
+
+  if (isCustomerDataIncomplete(order?.customer)) {
+    blockers.push("Kundendaten prüfen");
+  }
+
+  return Array.from(new Set(blockers));
+};
+
+const blockConversionIfUnsafe = (order: Order | any, targetLabel: "Angebot" | "Rechnung") => {
+  const blockers = getOrderConversionBlockers(order);
+  if (blockers.length === 0) return false;
+
+  toast.error(
+    `${targetLabel} nicht möglich: ${blockers.slice(0, 3).join(", ")}`,
+  );
+  return true;
+};
+
 export default function AuftraegePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -1982,6 +2049,7 @@ const payload = {
     try {
       const saved = await saveOrder();
       if (!saved) return;
+      if (blockConversionIfUnsafe(saved, "Angebot")) return;
       toast.success("Auftrag gespeichert");
 
       // Build items for offer
@@ -2015,7 +2083,7 @@ const payload = {
           items: offerItems,
           orderIds: [saved.id],
           vatRate: fwdVatRate,
-          currency,
+          currency: saved.currency === "EUR" ? "EUR" : "CHF",
         }),
       });
       if (offerRes.ok) {
@@ -2049,6 +2117,7 @@ const payload = {
     try {
       const saved = await saveOrder();
       if (!saved) return;
+      if (blockConversionIfUnsafe(saved, "Rechnung")) return;
       toast.success("Auftrag gespeichert");
 
       const orderItems =
@@ -2081,7 +2150,7 @@ const payload = {
           items: invoiceItems,
           orderIds: [saved.id],
           vatRate: fwdVatRate,
-          currency,
+          currency: saved.currency === "EUR" ? "EUR" : "CHF",
         }),
       });
       if (invRes.ok) {
@@ -2440,6 +2509,10 @@ const openMedia = async (o: Order) => {
   }, [dialogOpen, currentEditOrder?.id]);
 
   const createOffer = async (o: Order) => {
+    if (blockConversionIfUnsafe(o, "Angebot")) {
+      openEdit(o);
+      return;
+    }
     // Direct API create — no extra dialog
     const orderItems =
       o.items && o.items.length > 0
@@ -2470,7 +2543,7 @@ const openMedia = async (o: Order) => {
           items: offerItems,
           orderIds: [o.id],
           vatRate: fwdVatRate,
-          currency,
+          currency: o.currency === "EUR" ? "EUR" : "CHF",
         }),
       });
       if (res.ok) {
@@ -2491,6 +2564,10 @@ const openMedia = async (o: Order) => {
   };
 
   const createInvoice = async (o: Order) => {
+    if (blockConversionIfUnsafe(o, "Rechnung")) {
+      openEdit(o);
+      return;
+    }
     // Direct API create — no extra dialog
     const orderItems =
       o.items && o.items.length > 0
@@ -2521,7 +2598,7 @@ const openMedia = async (o: Order) => {
           items: invoiceItems,
           orderIds: [o.id],
           vatRate: fwdVatRate,
-          currency,
+          currency: o.currency === "EUR" ? "EUR" : "CHF",
         }),
       });
       if (res.ok) {

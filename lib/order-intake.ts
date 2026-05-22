@@ -353,11 +353,17 @@ function isFalseCallbackHint(line: string): boolean {
   const normalized = normalizeSemanticText(line);
   if (!normalized) return false;
 
-  if (!/\b(rueckruf|ruckruf|zurueckrufen|telefonisch|anruf)\b/i.test(normalized)) {
+  if (!/\b(rueckruf|ruckruf|zurueckrufen|telefonisch|anruf|telefon)\b/i.test(normalized)) {
     return false;
   }
 
-  return /\b(klingeln|warten|nicht\s+anrufen|kein\s+anruf|kunde\s+ist\s+vor\s+ort|an\s+der\s+tuer|schluessel\s+wird\s+.*tuer)\b/i.test(normalized);
+  // INTAKE_CALLBACK_NEGATION_SAFE_V16
+  // A callback chip is allowed only for a positive request. These phrases are
+  // explicit negative/door instructions and must never become "Rückruf".
+  return (
+    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|rueckruf\s+(?:nicht\s+)?(?:noetig|nötig|erwuenscht|erwünscht)|nicht\s+erwuenscht|nicht\s+erwünscht)\b/i.test(normalized) ||
+    /\b(klingeln|warten|haupteingang|kunde\s+ist\s+vor\s+ort|kundin\s+ist\s+vor\s+ort|oeffnet\s+die\s+tuer|offnet\s+die\s+tur|an\s+der\s+tuer|schluessel\s+wird\s+.*tuer)\b/i.test(normalized)
+  );
 }
 
 /**

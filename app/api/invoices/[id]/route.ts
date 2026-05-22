@@ -6,6 +6,21 @@ import { logAuditAsync } from '@/lib/audit';
 import { createArchivedPdfSnapshot } from '@/lib/archived-pdf';
 import { assertCustomerNotArchived, CustomerArchivedError } from '@/lib/customer-links';
 
+
+function validateDocumentItemsForUpdate(items: any[]) {
+  if (!Array.isArray(items)) return null;
+  if (items.length === 0) return 'Mindestens eine Leistung ist erforderlich.';
+
+  const invalid = items.some(
+    (item: any) =>
+      !String(item?.description || '').trim() ||
+      Number(item?.quantity || 0) <= 0 ||
+      Number(item?.unitPrice || 0) <= 0,
+  );
+
+  return invalid ? 'Preis/Menge prüfen: Dokument kann nicht mit leeren oder 0-Positionen gespeichert werden.' : null;
+}
+
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   let userId: string;
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
@@ -26,6 +41,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const existing = await prisma.invoice.findFirst({ where: { id: params?.id, userId } });
     if (!existing) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
     const data = await request.json();
+    const itemError = validateDocumentItemsForUpdate(data?.items);
+    if (itemError) return NextResponse.json({ error: itemError }, { status: 400 });
 
     // ── Guard: block data-changing edits on archived (Erledigt) invoices ──
     // Allowed on archived: status changes (e.g. re-open) and notes.

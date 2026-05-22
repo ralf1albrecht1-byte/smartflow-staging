@@ -194,15 +194,45 @@ export function getWarningSegments(
  * Callback detection should be handled semantically by the parser in the future.
  * Kept only for existing imports; does not guess from language-specific keywords anymore.
  */
+const normalizeCallbackText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isNegativeCallbackLine = (line: string) => {
+  const text = normalizeCallbackText(line);
+  if (!text) return true;
+
+  return (
+    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|rueckruf\s+(?:nicht\s+)?(?:noetig|erwuenscht)|nicht\s+erwuenscht)\b/i.test(text) ||
+    /\b(klingeln|warten|haupteingang|kunde\s+ist\s+vor\s+ort|kundin\s+ist\s+vor\s+ort|oeffnet\s+die\s+tuer|offnet\s+die\s+tur)\b/i.test(text)
+  );
+};
+
+/**
+ * Callback detection is intentionally positive-only.
+ * Negative instructions such as "Kein Rückruf" or "Nicht telefonisch
+ * zurückrufen" must never create a callback chip.
+ */
 export function detectCallbackRequest(
   text: string | null | undefined,
 ): string | null {
   if (!text) return null;
 
   const { jobHints } = splitSpecialNotes(text);
-  const callbackHint = jobHints.find((line) =>
-    line.toLowerCase().includes("rückruf"),
-  );
+  const callbackHint = jobHints.find((line) => {
+    const normalized = normalizeCallbackText(line);
+    if (isNegativeCallbackLine(line)) return false;
+    return /\b(rueckruf\s+(?:gewuenscht|erwuenscht|bitte|vor)|bitte\s+(?:zurueckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren)|telefonisch\s+abklaeren|kunde\s+moechte\s+(?:rueckruf|anruf))\b/i.test(normalized);
+  });
 
   return callbackHint || null;
 }

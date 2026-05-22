@@ -6,6 +6,112 @@ import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-s
 import { logAuditAsync } from '@/lib/audit';
 import { assertCustomerNotArchived, CustomerArchivedError } from '@/lib/customer-links';
 
+
+const CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS = [
+  /^currency_/,
+  /^item_currency_mismatch/,
+  /^unit_mismatch:/,
+  /^unit_price_review$/,
+  /^quantity_review$/,
+  /^price_unclear:/,
+  /^price_override:/,
+  /^unbekannte_leistung_pruefen$/,
+  /^stunden_arbeitsposition_pruefen$/,
+  /^total_unrealistic_check$/,
+  /^currency_unsupported$/,
+  /^manual_flat_service_from_text$/,
+];
+
+function sourceOrderBlockers(order: any): string[] {
+  const blockers: string[] = [];
+  const items = Array.isArray(order?.items) ? order.items : [];
+  const reviewReasons = Array.isArray(order?.reviewReasons)
+    ? order.reviewReasons.filter(Boolean)
+    : [];
+
+  if (items.length === 0) blockers.push('Keine Leistungen vorhanden');
+
+  if (
+    items.some(
+      (item: any) =>
+        Number(item?.quantity || 0) <= 0 ||
+        Number(item?.unitPrice || 0) <= 0 ||
+        Number(item?.totalPrice ?? Number(item?.quantity || 0) * Number(item?.unitPrice || 0)) <= 0,
+    )
+  ) {
+    blockers.push('Preis/Menge prüfen');
+  }
+
+  if (
+    reviewReasons.some((reason: string) =>
+      CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS.some((pattern) => pattern.test(reason)),
+    )
+  ) {
+    blockers.push('Offene Prüfhinweise im Auftrag');
+  }
+
+  if (order?.needsReview && reviewReasons.length > 0) {
+    blockers.push('Auftrag ist noch auf Prüfen gesetzt');
+  }
+
+  const customer = order?.customer;
+  if (
+    !String(customer?.name || '').trim() ||
+    !String(customer?.address || '').trim() ||
+    !String(customer?.plz || '').trim() ||
+    !String(customer?.city || '').trim()
+  ) {
+    blockers.push('Kundendaten prüfen');
+  }
+
+  return Array.from(new Set(blockers));
+}
+
+async function validateSourceOrdersForDocument(userId: string, orderIds: unknown) {
+  const ids = Array.isArray(orderIds)
+    ? orderIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (ids.length === 0) return null;
+
+  const orders = await prisma.order.findMany({
+    where: { id: { in: ids }, userId, deletedAt: null },
+    include: { items: true, customer: true },
+  });
+
+  if (orders.length !== ids.length) {
+    return {
+      error: 'Angebot/Rechnung nicht möglich: Mindestens ein Auftrag wurde nicht gefunden.',
+      blockers: ['Auftrag nicht gefunden'],
+    };
+  }
+
+  const blocked = orders
+    .map((order: any) => ({ id: order.id, blockers: sourceOrderBlockers(order) }))
+    .filter((entry: any) => entry.blockers.length > 0);
+
+  if (blocked.length === 0) return null;
+
+  return {
+    error: 'Angebot/Rechnung nicht möglich: Auftrag enthält offene Prüfungen.',
+    blockers: blocked,
+  };
+}
+
+function validateDocumentItems(items: any[]) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return 'Mindestens eine Leistung ist erforderlich.';
+  }
+
+  const invalid = items.some(
+    (item: any) =>
+      !String(item?.description || '').trim() ||
+      Number(item?.quantity || 0) <= 0 ||
+      Number(item?.unitPrice || 0) <= 0,
+  );
+
+  return invalid ? 'Preis/Menge prüfen: Angebot/Rechnung kann nicht mit leeren oder 0-Positionen erstellt werden.' : null;
+}
+
 export async function GET() {
   try {
     let userId: string;
@@ -24,6 +130,10 @@ export async function POST(request: Request) {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
 const data = await request.json();
+    const itemError = validateDocumentItems(data?.items ?? []);
+    if (itemError) return NextResponse.json({ error: itemError }, { status: 400 });
+    const sourceOrderError = await validateSourceOrdersForDocument(userId, data?.orderIds);
+    if (sourceOrderError) return NextResponse.json(sourceOrderError, { status: 409 });
 const currency = data?.currency === 'EUR' ? 'EUR' : 'CHF';    // Use vatRate from client if provided, otherwise fetch from Settings, fallback 8.1%
     let vatRate = 8.1;
     if (data?.vatRate !== undefined && data.vatRate !== null) {
