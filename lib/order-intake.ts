@@ -176,7 +176,7 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     "leistung",
     "leistungen",
   ];
-  if (blockedStarts.some((start) => normalized.startsWith(start))) return null;
+  if (!hasStrongCompanySuffix && blockedStarts.some((start) => normalized.startsWith(start))) return null;
 
   const blockedContained =
     /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|prüfen|pruefen|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext)\b/i;
@@ -323,12 +323,39 @@ function stripBillingLabelPrefix(line: string): string {
     .trim();
 }
 
+function hasBillingCompanySuffix(value: string | null | undefined): boolean {
+  return /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|gmbh\s*&\s*co|verein|stiftung)\b/i.test(
+    String(value || ""),
+  );
+}
+
 function isBillingStopLine(line: string): boolean {
-  return getBillingBlockStopRegex().test(String(line || "").trim());
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return false;
+
+  // Firmen können zufällig mit einem Stop-Wort beginnen:
+  // "Arbeitsort Reihenfolge Test GmbH", "Objekt Service AG" usw.
+  // Solche Zeilen sind echte Rechnungskunden und dürfen den Billing-Block
+  // nicht abbrechen.
+  if (hasBillingCompanySuffix(trimmed)) return false;
+
+  return getBillingBlockStopRegex().test(trimmed);
 }
 
 function isBillingPhoneOrMailLine(line: string): boolean {
-  return /^\s*(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail|email)\b/i.test(String(line || "").trim());
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return false;
+
+  // Firmennamen wie "Telefon Trennung AG" oder "Mobile Clean GmbH"
+  // sind keine Telefon-/Mail-Zeilen.
+  if (hasBillingCompanySuffix(trimmed) && !extractPhoneFromText(trimmed) && !/@/.test(trimmed)) {
+    return false;
+  }
+
+  return (
+    /^\s*(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?\s*(?:$|\+?\d|\()/i.test(trimmed) ||
+    /^\s*(?:e-?mail|email)\b\s*[:.]?\s*(?:$|[^\s]+@)/i.test(trimmed)
+  );
 }
 
 function parseBillingStreetLine(line: string): string | null {
@@ -416,10 +443,11 @@ function parseBillingPlzCityFromBlock(value: string | null | undefined): {
 function parseBillingNameFromBlock(value: string | null | undefined): string | null {
   const lines = splitIntakeLines(value);
   for (const line of lines) {
-    const cleaned = stripBillingLabelPrefix(line)
+    const stripped = stripBillingLabelPrefix(line)
       .replace(/^\s*(?:name|firma|company|société|societe)\s*:?\s*/i, "")
-      .replace(/^\s*(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail|email)\s*[:.]?.*$/i, "")
       .trim();
+
+    const cleaned = isBillingPhoneOrMailLine(stripped) ? "" : stripped;
 
     if (!cleaned) continue;
     if (isBillingStopLine(cleaned)) continue;
@@ -440,8 +468,6 @@ function getBillingBlockStopRegex(): RegExp {
 
 function extractLabeledBillingBlock(lines: string[]): string | null {
   const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*(.*)$/i;
-  const stop = getBillingBlockStopRegex();
-
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(billingMarker);
     if (!match) continue;
@@ -452,7 +478,7 @@ function extractLabeledBillingBlock(lines: string[]): string | null {
     for (let offset = 1; offset <= 7; offset += 1) {
       const line = lines[index + offset];
       if (!line) break;
-      if (stop.test(line)) break;
+      if (isBillingStopLine(line)) break;
       blockLines.push(line);
     }
 
@@ -484,12 +510,12 @@ function extractInlineBillingBlock(source: string): string | null {
 }
 
 function extractTopBillingBlock(lines: string[]): string | null {
-  const stop = getBillingBlockStopRegex();
   const blockLines: string[] = [];
 
   for (const line of lines) {
-    if (stop.test(line)) break;
+    if (isBillingStopLine(line)) break;
     if (/^(?:hallo|guten\s+tag|grüezi|gruezi|salut|bonjour|bitte\b|neuer\s+auftrag|auftrag\s+erfassen|anbei|hier\s+ist)/i.test(line)) continue;
+    if (/^(?:whats\s*app|whatsapp|sms|mail|e-?mail|telegram)\s*:?\s*$/i.test(line)) continue;
     if (/^\[Titel\s*:/i.test(line)) continue;
     blockLines.push(line);
     if (blockLines.length >= 5) break;
