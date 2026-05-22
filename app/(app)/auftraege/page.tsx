@@ -1836,6 +1836,34 @@ export default function AuftraegePage() {
     ""
   ).trim();
 
+  const normalizeCustomerMessageForCompare = (value?: string | null) =>
+    String(value || "")
+      .replace(/^(whatsapp|telegram):\s*/i, "")
+      .replace(/\[\s*(?:transkription|transcription|transkript)\s*\]/gi, "")
+      .replace(/\n?\[Titel:.*?\]/gi, "")
+      .replace(/\n?\[Priorität:.*?\]/gi, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+
+  const customerMessageTranscriptDuplicate = Boolean(
+    currentEditOrder?.audioTranscript &&
+      customerMessageText &&
+      (() => {
+        const msg = normalizeCustomerMessageForCompare(customerMessageText);
+        const transcript = normalizeCustomerMessageForCompare(currentEditOrder.audioTranscript);
+        return Boolean(
+          msg &&
+            transcript &&
+            (msg === transcript || msg.includes(transcript) || transcript.includes(msg)),
+        );
+      })(),
+  );
+
+  const visibleCustomerMessageText = customerMessageTranscriptDuplicate
+    ? ""
+    : customerMessageText;
+
   // Build description from items
   const buildDescription = () => {
     return (
@@ -4384,10 +4412,17 @@ const getSafeOrderTotal = (o: Order) => {
                         </div>
                       )}
 
-                      <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
-                        {customerMessageText ||
-                          "Keine Kundennachricht gespeichert."}
-                      </div>
+                      {visibleCustomerMessageText ? (
+                        <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
+                          {visibleCustomerMessageText}
+                        </div>
+                      ) : !currentEditOrder?.audioTranscript &&
+                        !currentEditOrder?.mediaUrl &&
+                        !customerMessageImagePreviewUrl ? (
+                        <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
+                          Keine Kundennachricht gespeichert.
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </>
