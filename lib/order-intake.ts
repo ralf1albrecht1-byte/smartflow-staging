@@ -387,269 +387,6 @@ function extractOnsiteContactHint(
   return { hint: null, phone: null, phoneBelongsToSiteContact: false };
 }
 
-
-type IntakeStructureConfidence = "hoch" | "mittel" | "niedrig" | null;
-
-type StructuredSection = Record<string, any> & {
-  confidence?: string | null;
-  sourceText?: string | null;
-  evidence?: string | null;
-};
-
-type StructuredIntakeReview = {
-  billingCustomer?: StructuredSection | null;
-  executionAddress?: StructuredSection | null;
-  onsiteContact?: StructuredSection | null;
-  communication?: StructuredSection | null;
-  parking?: StructuredSection | null;
-  appointment?: StructuredSection | null;
-};
-
-function getStructuredIntakeReview(parsed: any): StructuredIntakeReview | null {
-  const candidate =
-    parsed?.strukturpruefung ||
-    parsed?.strukturPruefung ||
-    parsed?.intakeStructure ||
-    parsed?.structuredIntake ||
-    parsed?.structureReview ||
-    null;
-
-  return candidate && typeof candidate === "object" ? candidate : null;
-}
-
-function normalizeStructureConfidence(value?: string | null): IntakeStructureConfidence {
-  const normalized = normalizeUnitText(value || "");
-  if (["hoch", "high", "sicher", "eindeutig"].includes(normalized)) return "hoch";
-  if (["mittel", "medium", "wahrscheinlich", "plausibel"].includes(normalized)) return "mittel";
-  if (["niedrig", "low", "unsicher", "uncertain"].includes(normalized)) return "niedrig";
-  return null;
-}
-
-function isUsableStructureConfidence(value?: string | null) {
-  const confidence = normalizeStructureConfidence(value);
-  return confidence === "hoch" || confidence === "mittel";
-}
-
-function cleanStructuredText(value: any): string | null {
-  const cleaned = String(value ?? "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split(/\n+/)[0]
-    .replace(/^\s*[-–—:;,.]+\s*/g, "")
-    .replace(/\s*[-–—:;,.]+\s*$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return cleaned || null;
-}
-
-function pickStructuredValue(section: StructuredSection | null | undefined, keys: string[]): string | null {
-  if (!section || typeof section !== "object") return null;
-  for (const key of keys) {
-    const value = cleanStructuredText(section[key]);
-    if (value) return value;
-  }
-  return null;
-}
-
-function rawTextSupportsStructuredValue(
-  rawText: string | null | undefined,
-  value: string | null | undefined,
-  mode: "text" | "phone" = "text",
-): boolean {
-  const cleaned = cleanStructuredText(value);
-  if (!cleaned) return false;
-
-  const raw = String(rawText || "");
-  if (!raw.trim()) return false;
-
-  if (mode === "phone") {
-    const rawDigits = normalizePhoneDigits(raw);
-    const valueDigits = normalizePhoneDigits(cleaned);
-    return (
-      valueDigits.length >= 7 &&
-      (rawDigits.includes(valueDigits) ||
-        rawDigits.endsWith(valueDigits) ||
-        valueDigits.endsWith(rawDigits))
-    );
-  }
-
-  const normalizedRaw = normalizeSemanticText(raw);
-  const normalizedValue = normalizeSemanticText(cleaned);
-  if (!normalizedRaw || !normalizedValue) return false;
-  if (normalizedRaw.includes(normalizedValue)) return true;
-
-  const tokens = normalizedValue
-    .split(" ")
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3);
-
-  return tokens.length >= 2 && tokens.every((token) => normalizedRaw.includes(token));
-}
-
-function splitStreetAndHouseNumber(value: string | null): { street: string | null; houseNumber: string | null } {
-  const cleaned = cleanStructuredText(value);
-  if (!cleaned) return { street: null, houseNumber: null };
-
-  const match = cleaned.match(/^(.+?)\s+(\d+[a-zA-Z]?(?:\s*[-/]\s*\d+[a-zA-Z]?)?)$/);
-  if (!match) return { street: cleaned, houseNumber: null };
-
-  return {
-    street: match[1].trim() || cleaned,
-    houseNumber: match[2].replace(/\s+/g, "").trim() || null,
-  };
-}
-
-function applyStructuredBillingCustomerReview(
-  structureReview: StructuredIntakeReview | null,
-  kundeData: any,
-  rawText: string,
-) {
-  const billing = structureReview?.billingCustomer;
-  if (!billing || !isUsableStructureConfidence(billing.confidence)) return;
-
-  const name = cleanBillingCustomerNameCandidate(
-    pickStructuredValue(billing, ["name", "customerName", "firma", "company", "kunde"]),
-  );
-  if (name && rawTextSupportsStructuredValue(rawText, name)) {
-    kundeData.name = name;
-  }
-
-  const phone = pickStructuredValue(billing, ["phone", "telefon", "tel", "mobile", "natel"]);
-  if (phone && rawTextSupportsStructuredValue(rawText, phone, "phone")) {
-    kundeData.telefon = phone;
-  }
-
-  const email = pickStructuredValue(billing, ["email", "eMail", "mail"]);
-  if (email && rawTextSupportsStructuredValue(rawText, email)) {
-    kundeData.email = email;
-  }
-
-  const streetValue = pickStructuredValue(billing, ["street", "strasse", "adresse", "address"]);
-  if (streetValue && rawTextSupportsStructuredValue(rawText, streetValue)) {
-    const split = splitStreetAndHouseNumber(streetValue);
-    if (split.street) kundeData.strasse = split.street;
-    if (split.houseNumber && !kundeData.hausnummer) kundeData.hausnummer = split.houseNumber;
-  }
-
-  const houseNumber = pickStructuredValue(billing, ["houseNumber", "hausnummer", "nr", "number"]);
-  if (houseNumber && rawTextSupportsStructuredValue(rawText, houseNumber)) {
-    kundeData.hausnummer = houseNumber;
-  }
-
-  const zip = pickStructuredValue(billing, ["zip", "plz", "postalCode", "postcode"]);
-  if (zip && rawTextSupportsStructuredValue(rawText, zip)) {
-    kundeData.plz = zip;
-  }
-
-  const city = pickStructuredValue(billing, ["city", "ort", "stadt", "locality"]);
-  if (city && rawTextSupportsStructuredValue(rawText, city)) {
-    kundeData.ort = city;
-  }
-}
-
-function structuredExecutionAddressIsDifferent(value: any): boolean {
-  if (value === true) return true;
-  const normalized = normalizeUnitText(value);
-  return ["true", "ja", "yes", "abweichend", "different"].includes(normalized);
-}
-
-function applyStructuredExecutionAddressReview(
-  structureReview: StructuredIntakeReview | null,
-  parsed: any,
-  rawText: string,
-) {
-  const execution = structureReview?.executionAddress;
-  if (!execution || !isUsableStructureConfidence(execution.confidence)) return;
-
-  const name = pickStructuredValue(execution, ["name", "objectName", "objekt", "siteName"]);
-  const street = pickStructuredValue(execution, ["street", "strasse", "adresse", "address"]);
-  const zip = pickStructuredValue(execution, ["zip", "plz", "postalCode", "postcode"]);
-  const city = pickStructuredValue(execution, ["city", "ort", "stadt", "locality"]);
-  const evidence = pickStructuredValue(execution, ["sourceText", "evidence", "raw"]);
-
-  const supportedName = name && rawTextSupportsStructuredValue(rawText, name) ? name : null;
-  const supportedStreet = street && rawTextSupportsStructuredValue(rawText, street) ? street : null;
-  const supportedZip = zip && rawTextSupportsStructuredValue(rawText, zip) ? zip : null;
-  const supportedCity = city && rawTextSupportsStructuredValue(rawText, city) ? city : null;
-
-  if (!supportedName && !supportedStreet && !supportedZip && !supportedCity) return;
-
-  parsed.auftrag = parsed.auftrag || {};
-  const existing = parsed.auftrag.ausfuehrungsadresse || {};
-
-  parsed.auftrag.ausfuehrungsadresse = {
-    ...existing,
-    ist_abweichend:
-      existing.ist_abweichend === true ||
-      structuredExecutionAddressIsDifferent(execution.isDifferent ?? execution.ist_abweichend) ||
-      Boolean(supportedStreet || supportedZip || supportedCity),
-    name: supportedName || existing.name || null,
-    strasse: supportedStreet || existing.strasse || null,
-    plz: supportedZip || existing.plz || null,
-    ort: supportedCity || existing.ort || null,
-    confidence: normalizeStructureConfidence(execution.confidence) || existing.confidence || "mittel",
-    evidence: evidence || existing.evidence || [supportedName, supportedStreet, [supportedZip, supportedCity].filter(Boolean).join(" ")]
-      .filter(Boolean)
-      .join("\n"),
-  };
-}
-
-function buildStructuredOnsiteContactHint(
-  structureReview: StructuredIntakeReview | null,
-  rawText: string,
-): OnsiteContactHint | null {
-  const onsite = structureReview?.onsiteContact;
-  if (!onsite || !isUsableStructureConfidence(onsite.confidence)) return null;
-
-  const role = pickStructuredValue(onsite, ["role", "rolle", "funktion"]);
-  const name = pickStructuredValue(onsite, ["name", "contactName", "kontakt"]);
-  const phone = pickStructuredValue(onsite, ["phone", "telefon", "tel", "mobile", "natel"]);
-
-  const supportedRole = role && rawTextSupportsStructuredValue(rawText, role) ? role : null;
-  const supportedName = name && rawTextSupportsStructuredValue(rawText, name) ? name : null;
-  const supportedPhone = phone && rawTextSupportsStructuredValue(rawText, phone, "phone") ? phone : null;
-
-  if (!supportedRole && !supportedName && !supportedPhone) return null;
-
-  const contactName = [supportedRole, supportedName]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return {
-    hint: [
-      contactName ? `Kontakt vor Ort: ${contactName}` : "Kontakt vor Ort",
-      supportedPhone ? `Tel. ${supportedPhone}` : null,
-    ]
-      .filter(Boolean)
-      .join(", "),
-    phone: supportedPhone,
-    phoneBelongsToSiteContact: false,
-  };
-}
-
-function structuredOnsitePhoneMatchesCustomerCandidate(
-  structureReview: StructuredIntakeReview | null,
-  candidateCustomerPhone: string | null | undefined,
-): boolean {
-  const candidateDigits = normalizePhoneDigits(candidateCustomerPhone);
-  if (!candidateDigits) return false;
-
-  const onsitePhone = pickStructuredValue(structureReview?.onsiteContact, ["phone", "telefon", "tel", "mobile", "natel"]);
-  const billingPhone = pickStructuredValue(structureReview?.billingCustomer, ["phone", "telefon", "tel", "mobile", "natel"]);
-  const onsiteDigits = normalizePhoneDigits(onsitePhone);
-  const billingDigits = normalizePhoneDigits(billingPhone);
-
-  if (!onsiteDigits) return false;
-  if (billingDigits && (billingDigits === candidateDigits || billingDigits.endsWith(candidateDigits) || candidateDigits.endsWith(billingDigits))) {
-    return false;
-  }
-
-  return onsiteDigits === candidateDigits || onsiteDigits.endsWith(candidateDigits) || candidateDigits.endsWith(onsiteDigits);
-}
-
 function normalizeUnitText(value: any): string {
   return String(value || "")
     .toLowerCase()
@@ -2131,33 +1868,6 @@ CONFIDENCE:
 - "niedrig": unsicher. Werte bei niedrig möglichst null lassen.
 
 --------------------------------------------------
-KI-STRUKTURPRÜFUNG FÜR KUNDENDATEN
---------------------------------------------------
-
-Fülle zusätzlich "strukturpruefung" als unabhängige zweite Sicht auf den Originaltext.
-Diese Strukturprüfung ist NUR für Kundendaten / Arbeitsort / Kontakt / Kommunikation / Parken / Termin.
-Sie ist NICHT für Leistungen, Preise, Mengen, Einheiten oder Währungen zuständig.
-
-Du musst semantisch trennen:
-- billingCustomer = Kunde/Rechnungsadresse/Auftraggeber, der die Rechnung bekommt.
-- executionAddress = abweichender Arbeitsort/Ausführungsadresse/Objekt/Baustelle.
-- onsiteContact = Kontaktperson vor Ort, z.B. Hauswart, Frau Steiner, Ansprechpartner, Concierge.
-- communication = gewünschter Kanal: whatsapp, sms, email, phone oder null.
-- parking = available, reserved, difficult, none oder unknown.
-- appointment = Termin-Rohtext, Datum, Uhrzeit, falls eindeutig.
-
-WICHTIGE SICHERHEITSREGELN:
-- Telefonnummern getrennt halten:
-  Kundentelefon nur unter billingCustomer.phone, wenn es im Kunden-/Rechnungsblock steht.
-  Kontakt-vor-Ort-Telefon nur unter onsiteContact.phone, wenn es bei Hauswart/Kontakt vor Ort steht.
-- Arbeitsort nie als billingCustomer speichern.
-- Kontakt vor Ort nie als billingCustomer speichern.
-- Firmenname darf Wörter wie Telefon, Kontakt, Parkplatz, Objekt oder Service enthalten. Das allein ist KEIN Grund, den Namen zu verwerfen.
-- Wenn Kunde nicht in Zeile 1 steht, aber unter Rechnungsadresse/Kunde/Firma/Auftraggeber steht, trotzdem als billingCustomer erkennen.
-- Jedes Feld braucht sourceText aus dem Originaltext.
-- Bei Unsicherheit: confidence = "niedrig" und Wert null lassen.
-
---------------------------------------------------
 AUSGABEFORMAT
 --------------------------------------------------
 
@@ -2167,56 +1877,7 @@ AUSGABEFORMAT
     "strasse": null,
     "hausnummer": null,
     "plz": null,
-    "ort": null,
-    "telefon": null,
-    "email": null
-  },
-  "strukturpruefung": {
-    "billingCustomer": {
-      "name": null,
-      "street": null,
-      "zip": null,
-      "city": null,
-      "phone": null,
-      "email": null,
-      "confidence": "niedrig",
-      "sourceText": null
-    },
-    "executionAddress": {
-      "isDifferent": false,
-      "name": null,
-      "street": null,
-      "zip": null,
-      "city": null,
-      "confidence": "niedrig",
-      "sourceText": null
-    },
-    "onsiteContact": {
-      "role": null,
-      "name": null,
-      "phone": null,
-      "confidence": "niedrig",
-      "sourceText": null
-    },
-    "communication": {
-      "preferred": null,
-      "phoneCallWanted": false,
-      "phoneCallForbidden": false,
-      "confidence": "niedrig",
-      "sourceText": null
-    },
-    "parking": {
-      "status": "unknown",
-      "confidence": "niedrig",
-      "sourceText": null
-    },
-    "appointment": {
-      "raw": null,
-      "date": null,
-      "time": null,
-      "confidence": "niedrig",
-      "sourceText": null
-    }
+    "ort": null
   },
 "auftrag": {
   "titel": null,
@@ -2588,7 +2249,7 @@ const intakeCurrency =
           },
         ],
         response_format: { type: "json_object" },
-        max_tokens: 3200,
+        max_tokens: 2600,
       }),
     });
   } catch (netErr: any) {
@@ -2703,43 +2364,18 @@ const intakeCurrency =
   // Ensure address is split properly
   const kundeData = parsed.kunde || {};
 
-  // V16.15: KI-JSON-Strukturprüfung als zusätzliche Schutzschicht.
-  // Die KI darf Kunde / Ausführungsadresse / Kontakt vor Ort semantisch sortieren,
-  // aber der Code übernimmt nur raw-text-belegte Felder mit brauchbarer Confidence.
-  // Leistungen, Preise, Mengen, Einheiten und Währungen bleiben hier unangetastet.
-  const structuredIntakeReview = getStructuredIntakeReview(parsed);
-  applyStructuredBillingCustomerReview(structuredIntakeReview, kundeData, messageText);
-  applyStructuredExecutionAddressReview(structuredIntakeReview, parsed, messageText);
-
-  // V16.9/V16.15: Telefonnummern aus "Kontakt vor Ort" dürfen nicht als normale
+  // V16.9: Telefonnummern aus "Kontakt vor Ort" dürfen nicht als normale
   // Kundentelefonnummer gespeichert oder für Matching verwendet werden.
   // Beispiel:
   // Kontakt vor Ort:
   // Hauswart Meier
   // Tel. 079 123 45 67
   // => bleibt als Hinweis erhalten, wird aber nicht zur Rechnungsadresse.
-  let onsiteContactHint = extractOnsiteContactHint(
+  const onsiteContactHint = extractOnsiteContactHint(
     messageText,
     kundeData.telefon || null,
   );
-  const structuredOnsiteContactHint = buildStructuredOnsiteContactHint(
-    structuredIntakeReview,
-    messageText,
-  );
-  if (!onsiteContactHint.hint && structuredOnsiteContactHint) {
-    onsiteContactHint = structuredOnsiteContactHint;
-  }
-
-  const structuredOnsitePhoneBelongsToCustomerCandidate =
-    structuredOnsitePhoneMatchesCustomerCandidate(
-      structuredIntakeReview,
-      kundeData.telefon || null,
-    );
-
-  if (
-    onsiteContactHint.phoneBelongsToSiteContact ||
-    structuredOnsitePhoneBelongsToCustomerCandidate
-  ) {
+  if (onsiteContactHint.phoneBelongsToSiteContact) {
     console.log(
       `[${source}] 🛡️ onsite contact phone removed from customer data: ${maskPhoneForLog(kundeData.telefon || null)}`,
     );
@@ -3906,24 +3542,15 @@ totalPrice: safeUnitPrice * safeQuantity,
     customerCity: addr.city,
   };
 
-  const preferStructuredExecutionAddress =
-    !!structuredIntakeReview?.executionAddress &&
-    isUsableStructureConfidence(structuredIntakeReview.executionAddress.confidence);
-
-  const extractedExecutionAddress = preferStructuredExecutionAddress
-    ? // Preferred pass: structured KI evidence already passed raw-text/confidence guards.
-      // This preserves object names such as "Objekt Nord" instead of reducing them to "Nord".
-      extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext) ||
-      extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
-      extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext)
-    : // First pass: only the real customer message. This avoids polluted AI
-      // evidence such as "Wohnanlage Seefeld Seefeldstrasse 8008".
-      extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
-      // Second pass: full work text, if the webhook/transcript moved the address.
-      extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
-      // Last fallback: KI evidence only. Do not append special notes; those can
-      // contain service/hint text and pollute the address fields.
-      extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext);
+  const extractedExecutionAddress =
+    // First pass: only the real customer message. This avoids polluted AI
+    // evidence such as "Wohnanlage Seefeld Seefeldstrasse 8008".
+    extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
+    // Second pass: full work text, if the webhook/transcript moved the address.
+    extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
+    // Last fallback: KI evidence only. Do not append special notes; those can
+    // contain service/hint text and pollute the address fields.
+    extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext);
 
   const primaryItem = finalOrderItems[0] || null;
 
