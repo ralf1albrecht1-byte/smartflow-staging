@@ -116,79 +116,28 @@ function getMediaTypeLabel(data: CommunicationData): { label: string; icon: any 
 // ─── Fuzzy dedup: check if two strings are substantially the same ───
 function isSameContent(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return false;
-  const normalize = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
+  const normalize = (s: string) =>
+    s
+      .replace(/^(whatsapp|telegram):\s*/i, '')
+      .replace(/\[\s*transkription\s*\]/gi, '')
+      .replace(/\[\s*transcription\s*\]/gi, '')
+      .replace(/\[\s*transkript\s*\]/gi, '')
+      .replace(/\n?\[Titel:.*?\]/gi, '')
+      .replace(/\n?\[Priorität:.*?\]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
   const na = normalize(a);
   const nb = normalize(b);
+  if (!na || !nb) return false;
   if (na === nb) return true;
   // One contains the other (handles extra metadata/whitespace)
   if (na.length > 10 && nb.length > 10) {
     if (na.includes(nb) || nb.includes(na)) return true;
   }
   return false;
-}
-
-type CommunicationPreferenceChip = {
-  key: 'mail' | 'whatsapp' | 'sms' | 'no_phone';
-  label: string;
-  color: 'green' | 'blue' | 'purple' | 'amber' | 'orange' | 'default';
-};
-
-function normalizeCommunicationText(value: string | null | undefined): string {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ä/g, 'ae')
-    .replace(/ö/g, 'oe')
-    .replace(/ü/g, 'ue')
-    .replace(/ß/g, 'ss')
-    .replace(/[^a-z0-9@+\s/-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function detectCommunicationPreferenceChips(
-  data: CommunicationData,
-  parsed?: ParsedNotes,
-): CommunicationPreferenceChip[] {
-  const source = normalizeCommunicationText(
-    [
-      data.specialNotes,
-      parsed?.originalMessage,
-      parsed?.translation,
-      data.audioTranscript,
-    ]
-      .filter(Boolean)
-      .join('\n'),
-  );
-
-  if (!source) return [];
-
-  const chips: CommunicationPreferenceChip[] = [];
-  const add = (chip: CommunicationPreferenceChip) => {
-    if (!chips.some((existing) => existing.key === chip.key)) chips.push(chip);
-  };
-
-  const noPhone =
-    /\b(keine?\s+(?:telefonische\s+)?rueckfrage|nicht\s+(?:telefonisch\s+)?(?:anrufen|zurueckrufen|melden)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|anruf)|ohne\s+(?:telefon|anruf|rueckruf)|nur\s+(?:per\s+)?(?:mail|e\s*mail|email|whatsapp|sms))\b/i.test(source);
-
-  const mail =
-    /\b(mail\s+reicht|per\s+(?:e\s*mail|email|mail)|via\s+(?:e\s*mail|email|mail)|nur\s+(?:per\s+)?(?:e\s*mail|email|mail)|(?:e\s*mail|email|mail)\s+(?:genuegt|genugt|reicht|senden|schicken|antworten|kontakt))\b/i.test(source);
-
-  const whatsapp =
-    /\b(whatsapp|whats\s*app)\b/i.test(source) &&
-    /\b(reicht|genuegt|genugt|schreiben|melden|kontakt|nachricht|senden|schicken|antworten|nur|per|via)\b/i.test(source);
-
-  const sms =
-    /\bsms\b/i.test(source) &&
-    /\b(reicht|genuegt|genugt|schreiben|melden|kontakt|nachricht|senden|schicken|antworten|nur|per|via)\b/i.test(source);
-
-  if (mail) add({ key: 'mail', label: 'Mail', color: 'green' });
-  if (whatsapp) add({ key: 'whatsapp', label: 'WhatsApp', color: 'green' });
-  if (sms) add({ key: 'sms', label: 'SMS', color: 'purple' });
-  if (noPhone) add({ key: 'no_phone', label: 'Keine Tel.', color: 'amber' });
-
-  return chips;
 }
 
 /**
@@ -248,6 +197,87 @@ function useResolvedUrls(paths: string[]): string[] {
     return () => { cancelled = true; };
   }, [key]);
   return urls;
+}
+type CommunicationPreferenceChip = {
+  key: string;
+  label: string;
+  color: 'default' | 'green' | 'blue' | 'purple' | 'red' | 'amber' | 'orange';
+};
+
+function normalizeCommunicationPreferenceText(value: string | null | undefined): string {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9@\s.+-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function detectCommunicationPreferenceChips(
+  data: CommunicationData,
+  parsed: ParsedNotes,
+): CommunicationPreferenceChip[] {
+  const source = normalizeCommunicationPreferenceText(
+    [
+      parsed.originalMessage,
+      parsed.translation,
+      data.specialNotes,
+      data.audioTranscript,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  );
+
+  if (!source) return [];
+
+  const chips: CommunicationPreferenceChip[] = [];
+
+  const addChip = (chip: CommunicationPreferenceChip) => {
+    if (chips.some((existing) => existing.key === chip.key)) return;
+    chips.push(chip);
+  };
+
+  const noPhone =
+    /\b(?:keine?|keinen|nicht|ohne)\s+(?:telefonische?\s+)?(?:rueckfrage|rueckruf|anruf|telefon|telefonat)\b/i.test(source) ||
+    /\b(?:bitte\s+)?nicht\s+(?:telefonisch\s+)?(?:anrufen|zurueckrufen|telefonieren)\b/i.test(source) ||
+    /\b(?:kein|keine|keinen)\s+(?:rueckruf|anruf)\s+(?:noetig|notwendig|erwuenscht)\b/i.test(source);
+
+  const mail =
+    /\b(?:mail|e mail|email|e-mail)\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|antworten|schreiben)\b/i.test(source) ||
+    /\b(?:per|via|mit)\s+(?:mail|e mail|email|e-mail)\b/i.test(source) ||
+    /\b(?:antwort|meldung|rueckmeldung)\s+(?:per|via|mit)\s+(?:mail|e mail|email|e-mail)\b/i.test(source);
+
+  const whatsapp =
+    /\bwhats\s*app\b/i.test(source) ||
+    /\bwhatsapp\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|schreiben)\b/i.test(source) ||
+    /\b(?:per|via|mit)\s+whatsapp\b/i.test(source);
+
+  const sms =
+    /\bsms\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|schreiben)\b/i.test(source) ||
+    /\b(?:per|via|mit)\s+sms\b/i.test(source);
+
+  if (mail) {
+    addChip({ key: 'mail', label: 'Mail', color: 'green' });
+  }
+
+  if (whatsapp) {
+    addChip({ key: 'whatsapp', label: 'WhatsApp', color: 'green' });
+  }
+
+  if (sms) {
+    addChip({ key: 'sms', label: 'SMS', color: 'purple' });
+  }
+
+  if (noPhone) {
+    addChip({ key: 'no_phone', label: 'Keine Tel.', color: 'amber' });
+  }
+
+  return chips;
 }
 
 // ─── Sub-components ───
