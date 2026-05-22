@@ -37,6 +37,154 @@ export interface ExtractedExecutionAddress {
   siteNote: string | null;
 }
 
+
+// INTAKE_READ_ONLY_RISK_VALIDATOR_V16_23
+// Zweiter Prüfer als reine Kontrollschicht:
+// - ändert keine Kundendaten
+// - ändert keine Leistungen, Preise, Mengen oder Währungen
+// - setzt keine Chips und blockiert nichts
+// - liefert nur strukturierte Warnungen für Logs/Debugging
+export interface ReadOnlyIntakeRiskValidatorInput {
+  originalText: string;
+  billingCustomer: {
+    name?: string | null;
+    street?: string | null;
+    plz?: string | null;
+    city?: string | null;
+    phone?: string | null;
+    source?: string | null;
+    hasReliableCustomerBlock?: boolean | null;
+  };
+  executionAddress?: ExtractedExecutionAddress | null;
+  detectedCurrencies?: string[] | null;
+  finalCurrency?: string | null;
+}
+
+export interface ReadOnlyIntakeRiskValidatorResult {
+  active: boolean;
+  riskLevel: "none" | "info" | "warning" | "critical";
+  warnings: string[];
+  checks: {
+    hasReliableBillingCustomer: boolean;
+    hasExecutionMarker: boolean;
+    hasExecutionAddress: boolean;
+    hasOnsiteContactMarker: boolean;
+    phoneCount: number;
+    hasMultipleCurrencies: boolean;
+    hasUnsupportedCurrency: boolean;
+  };
+}
+
+const normalizeRiskText = (value?: string | null) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const normalizeRiskPhone = (value?: string | null) =>
+  String(value || "").replace(/\D/g, "");
+
+function extractRiskPhoneCandidates(value?: string | null): string[] {
+  const source = String(value || "");
+  if (!source.trim()) return [];
+
+  const matches = source.match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
+  const normalized = matches
+    .map((match) => normalizeRiskPhone(match))
+    .filter((digits) => digits.length >= 7 && digits.length <= 15);
+
+  return Array.from(new Set(normalized));
+}
+
+export function runReadOnlyIntakeRiskValidator(
+  input: ReadOnlyIntakeRiskValidatorInput,
+): ReadOnlyIntakeRiskValidatorResult {
+  const text = normalizeRiskText(input.originalText);
+  const detectedCurrencies = input.detectedCurrencies?.length
+    ? input.detectedCurrencies
+    : detectCurrenciesInText(input.originalText);
+  const supportedCurrencies = new Set(["CHF", "EUR"]);
+  const phoneCandidates = extractRiskPhoneCandidates(input.originalText);
+
+  const hasReliableBillingCustomer = Boolean(
+    input.billingCustomer?.hasReliableCustomerBlock &&
+      String(input.billingCustomer?.name || "").trim(),
+  );
+  const hasExecutionMarker =
+    /\b(arbeitsort|objekt|ausfuehrungsadresse|ausfuhrungsadresse|arbeitsadresse|einsatzort|baustelle|adresse de travail|lieu d intervention|work address|job site|service address)\b/i.test(
+      text,
+    );
+  const hasExecutionAddress = Boolean(
+    input.executionAddress &&
+      (input.executionAddress.siteAddress ||
+        input.executionAddress.sitePlz ||
+        input.executionAddress.siteCity ||
+        input.executionAddress.siteName),
+  );
+  const hasOnsiteContactMarker =
+    /\b(kontakt vor ort|kontaktperson|ansprechperson|person vor ort|hauswart|hausmeister|concierge|caretaker|gardien|contact sur place)\b/i.test(
+      text,
+    );
+  const hasMultipleCurrencies = detectedCurrencies.length > 1;
+  const hasUnsupportedCurrency = detectedCurrencies.some(
+    (currency) => !supportedCurrencies.has(currency),
+  );
+
+  const warnings: string[] = [];
+
+  if (!hasReliableBillingCustomer) {
+    warnings.push("billing_customer_missing_or_uncertain");
+  }
+
+  if (hasExecutionMarker && !hasExecutionAddress) {
+    warnings.push("execution_address_marker_without_safe_address");
+  }
+
+  if (hasOnsiteContactMarker && phoneCandidates.length > 1) {
+    warnings.push("onsite_contact_with_multiple_phone_numbers");
+  }
+
+  if (hasMultipleCurrencies) {
+    warnings.push("multiple_currencies_detected");
+  }
+
+  if (hasUnsupportedCurrency) {
+    warnings.push("unsupported_currency_detected");
+  }
+
+  const riskLevel: ReadOnlyIntakeRiskValidatorResult["riskLevel"] = hasMultipleCurrencies || hasUnsupportedCurrency
+    ? "critical"
+    : warnings.length > 0
+      ? "warning"
+      : "none";
+
+  return {
+    active: true,
+    riskLevel,
+    warnings,
+    checks: {
+      hasReliableBillingCustomer,
+      hasExecutionMarker,
+      hasExecutionAddress,
+      hasOnsiteContactMarker,
+      phoneCount: phoneCandidates.length,
+      hasMultipleCurrencies,
+      hasUnsupportedCurrency,
+    },
+  };
+}
+
 type DetectedUnitPrice = {
   amount: number;
   currency: string | null;

@@ -18,6 +18,7 @@ import { maskPhoneForLog } from "@/lib/phone";
 import { buildSpecialNotes } from "@/lib/special-notes-utils";
 import {
   extractExecutionAddressFromText,
+  runReadOnlyIntakeRiskValidator,
   validateAndRepairParsedOrderItems,
 } from "@/lib/order-intake-validation";
 
@@ -3936,6 +3937,33 @@ totalPrice: safeUnitPrice * safeQuantity,
     // Last fallback: KI evidence only. Do not append special notes; those can
     // contain service/hint text and pollute the address fields.
     extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext);
+
+  // V16.23: Zweiter Prüfer als reine Read-only-Kontrolle.
+  // Dieser Validator darf keine Daten ändern, keine Chips setzen und nichts
+  // blockieren. Er schreibt nur strukturierte Warnungen ins Server-Log, damit
+  // wir riskante Strukturen später sauber aktivieren können.
+  const readOnlyRiskValidator = runReadOnlyIntakeRiskValidator({
+    originalText: `${messageText}\n${fullWorkText}`,
+    billingCustomer: {
+      name: kundeData.name || null,
+      street: addr.street || null,
+      plz: addr.plz || null,
+      city: addr.city || null,
+      phone: kundeData.telefon || null,
+      source: billingEvidence.source,
+      hasReliableCustomerBlock: billingEvidence.hasReliableCustomerBlock,
+    },
+    executionAddress: extractedExecutionAddress || null,
+    detectedCurrencies: intakeValidation.detectedCurrencies,
+    finalCurrency: intakeValidation.finalCurrency,
+  });
+
+  if (readOnlyRiskValidator.warnings.length > 0) {
+    console.warn(
+      `[${source}] 🧪 Read-only intake risk validator (${readOnlyRiskValidator.riskLevel}): ${readOnlyRiskValidator.warnings.join(", ")}`,
+      readOnlyRiskValidator.checks,
+    );
+  }
 
   const primaryItem = finalOrderItems[0] || null;
 
