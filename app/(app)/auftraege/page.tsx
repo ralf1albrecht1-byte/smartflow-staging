@@ -758,6 +758,9 @@ const cleanServiceLabel = (value?: string | null) => {
     .replace(/^[-–—•\d.)\s]+/, "")
     .replace(/\s+[–—]\s+.*$/, "")
     .replace(/\s+-\s+.*$/, "")
+    // Einheit-/Preiswörter gehören nicht in den sichtbaren Kartentitel.
+    .replace(/(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)/gi, " ")
+    .replace(/\s+/g, " ")
     .trim();
 
   if (text.length > 55) {
@@ -1769,6 +1772,13 @@ export default function AuftraegePage() {
     ? orders.find((o: Order) => o.id === editId) || null
     : null;
 
+  const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
+  const hasEditCurrencyReview = currentEditReviewReasons.some(
+    (reason: string) =>
+      reason.startsWith("currency_") ||
+      reason.startsWith("item_currency_mismatch"),
+  );
+
   const unitShortLabel = (unit: string) => {
     const normalized = (unit || "").toLowerCase();
     if (normalized === "quadratmeter") return "m²";
@@ -2012,16 +2022,45 @@ export default function AuftraegePage() {
     .map((item) => item.serviceName.trim().toLowerCase()),
 );
 
+const allItemsComplete = validItems.every(
+  (item) =>
+    item.serviceName.trim().length > 0 &&
+    Number(item.quantity || 0) > 0 &&
+    Number(item.unitPrice || 0) > 0,
+);
+
+const allServicesInCatalog = validItems.every((item) =>
+  isServiceInCatalog(item.serviceName),
+);
+
 const cleanedReviewReasons =
   orders
     .find((o) => o.id === editId)
     ?.reviewReasons?.filter((reason) => {
-      if (!reason.startsWith("unit_mismatch:")) return true;
+      if (reason.startsWith("unit_mismatch:")) {
+        const [, reasonService] = reason.split(":");
+        const reasonName = (reasonService || "").trim().toLowerCase();
+        return !validServiceNames.has(reasonName);
+      }
 
-      const [, reasonService] = reason.split(":");
-      const reasonName = (reasonService || "").trim().toLowerCase();
+      if (
+        allItemsComplete &&
+        (reason.startsWith("currency_") ||
+          reason.startsWith("item_currency_mismatch") ||
+          reason.startsWith("price_unclear:") ||
+          reason === "unit_price_review" ||
+          reason === "quantity_review" ||
+          reason === "manual_flat_service_from_text" ||
+          reason === "stunden_arbeitsposition_pruefen")
+      ) {
+        return false;
+      }
 
-      return !validServiceNames.has(reasonName);
+      if (allServicesInCatalog && reason === "unbekannte_leistung_pruefen") {
+        return false;
+      }
+
+      return true;
     }) ?? [];
 
 const payload = {
@@ -3888,6 +3927,16 @@ const getSafeOrderTotal = (o: Order) => {
                       </Button>
                     </div>
 
+                    {hasEditCurrencyReview && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
+                        <div className="font-semibold">⚠ Währung prüfen</div>
+                        <div>
+                          Im Kundentext wurden unterschiedliche Währungen erkannt. Erst bereinigen,
+                          dann Angebot oder Rechnung erstellen.
+                        </div>
+                      </div>
+                    )}
+
                     <div className="space-y-2">
                       {formItems.map((item, index) => {
                         const curOrder = editId
@@ -3916,19 +3965,27 @@ const getSafeOrderTotal = (o: Order) => {
                             );
                           });
 
-                        const showPriceOverride = Boolean(priceOverrideReason);
-                        const showUnitConflict = Boolean(
-                          item.aiWarning?.trim() || unitMismatchReason,
+                        const hasCurrencyConflict = currentEditReviewReasons.some(
+                          (reason: string) =>
+                            reason.startsWith("currency_") ||
+                            reason.startsWith("item_currency_mismatch"),
                         );
+                        const priceInputReview = Number(item.unitPrice || 0) === 0;
+                        const quantityInputReview = Number(item.quantity || 0) === 0;
+                        const showPriceOverride = !hasCurrencyConflict && Boolean(priceOverrideReason);
+                        const showUnitConflict =
+                          !hasCurrencyConflict &&
+                          Boolean(item.aiWarning?.trim() || unitMismatchReason);
 
-                        const showQuantityReview = Number(item.quantity || 0) === 0;
-                        const showPriceReview = Number(item.unitPrice || 0) === 0;
+                        const showQuantityReview = !hasCurrencyConflict && quantityInputReview;
+                        const showPriceReview = !hasCurrencyConflict && priceInputReview;
                         const itemTotal =
                           Number(item.unitPrice || 0) * Number(item.quantity || 0);
 
                         const isManualService = Boolean(item.serviceName?.trim()) && !isServiceInCatalog(item.serviceName);
+                        const showManualServiceChip = !hasCurrencyConflict && isManualService;
                         const isMenuOpen = serviceActionMenuKey === item.key;
-                        const hasCriticalItemReview = showPriceReview || showQuantityReview;
+                        const hasCriticalItemReview = priceInputReview || quantityInputReview;
                         const hasAnyItemReview =
                           hasCriticalItemReview || showUnitConflict || showPriceOverride;
 
@@ -3946,18 +4003,25 @@ const getSafeOrderTotal = (o: Order) => {
                             <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
                               <div className="min-w-0 space-y-1">
                                 <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
-                                  <ServiceCombobox
-                                    value={item.serviceName}
-                                    services={services as ServiceOption[]}
-                                    onChange={(name, svc) =>
-                                      onItemServiceSelect(index, name, svc)
-                                    }
-                                    onServiceCreated={handleServiceCreated}
-                                    currentPrice={item.unitPrice}
-                                    currentUnit={item.unit}
-                                    showManualHint={false}
-                                    saveButtonPlacement="none"
-                                  />
+                                  <div className="group min-w-0">
+                                    <ServiceCombobox
+                                      value={item.serviceName}
+                                      services={services as ServiceOption[]}
+                                      onChange={(name, svc) =>
+                                        onItemServiceSelect(index, name, svc)
+                                      }
+                                      onServiceCreated={handleServiceCreated}
+                                      currentPrice={item.unitPrice}
+                                      currentUnit={item.unit}
+                                      showManualHint={false}
+                                      saveButtonPlacement="none"
+                                    />
+                                    {item.serviceName.trim().length > 28 && (
+                                      <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
+                                        {item.serviceName.trim()}
+                                      </p>
+                                    )}
+                                  </div>
 
                                   <div className="flex flex-wrap justify-end gap-1">
                                     {showPriceReview && (
@@ -3980,7 +4044,7 @@ const getSafeOrderTotal = (o: Order) => {
                                         Einheit prüfen
                                       </Badge>
                                     )}
-                                    {isManualService && (
+                                    {showManualServiceChip && (
                                       <Badge className="px-1.5 py-0 text-[10px] bg-red-50 text-red-700 border border-red-200">
                                         Nicht in Leistungen
                                       </Badge>
@@ -4079,12 +4143,12 @@ const getSafeOrderTotal = (o: Order) => {
                                   type="number"
                                   step="0.05"
                                   className={`h-8 text-xs ${
-                                    showPriceReview
+                                    priceInputReview
                                       ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                       : ""
                                   }`}
-                                  value={showPriceReview ? "" : item.unitPrice}
-                                  placeholder={showPriceReview ? "prüfen" : "0"}
+                                  value={priceInputReview ? "" : item.unitPrice}
+                                  placeholder={priceInputReview ? "prüfen" : "0"}
                                   onFocus={(e) => e.currentTarget.select()}
                                   onChange={(e: any) =>
                                     updateItem(
@@ -4102,12 +4166,12 @@ const getSafeOrderTotal = (o: Order) => {
                                   type="number"
                                   step="0.25"
                                   className={`h-8 text-xs ${
-                                    showQuantityReview
+                                    quantityInputReview
                                       ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                       : ""
                                   }`}
-                                  value={showQuantityReview ? "" : item.quantity}
-                                  placeholder={showQuantityReview ? "prüfen" : "0"}
+                                  value={quantityInputReview ? "" : item.quantity}
+                                  placeholder={quantityInputReview ? "prüfen" : "0"}
                                   onFocus={(e) => e.currentTarget.select()}
                                   onChange={(e: any) =>
                                     updateItem(

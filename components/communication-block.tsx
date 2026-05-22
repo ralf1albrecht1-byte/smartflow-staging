@@ -145,21 +145,16 @@ function isTranscriptOnlyCustomerMessage(
   transcript: string | null | undefined,
   hasAudio: boolean,
 ): boolean {
-  if (!message) return false;
+  if (!message || !hasAudio) return false;
 
   const trimmed = message.trim();
   if (!trimmed) return false;
 
-  // V16.9: Some order views carry an audio transcript even when the media flag is
-  // not available in this component. If the customer message is only the stored
-  // transcript, hide it regardless of the media flag.
   if (isSameContent(trimmed, transcript)) return true;
-
-  if (!hasAudio && !transcript) return false;
 
   // Voice-only orders often store the same transcript in notes as:
   // "WhatsApp:\n[Transkription] ...". Do not show that a second time.
-  return /^\[\s*(?:transkription|transcription|transkript)\s*\]\s*:?/i.test(trimmed);
+  return /^\[\s*(?:transkription|transcription|transkript)\s*\]/i.test(trimmed);
 }
 
 /**
@@ -223,7 +218,7 @@ function useResolvedUrls(paths: string[]): string[] {
 type CommunicationPreferenceChip = {
   key: string;
   label: string;
-  color: 'default' | 'green' | 'blue' | 'purple' | 'red' | 'amber' | 'orange';
+  color: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange';
 };
 
 function normalizeCommunicationPreferenceText(value: string | null | undefined): string {
@@ -279,15 +274,15 @@ function detectCommunicationPreferenceChips(
     /\b(?:per|via|mit)\s+sms\b/i.test(source);
 
   if (mail) {
-    addChip({ key: 'mail', label: 'Mail', color: 'green' });
+    addChip({ key: 'mail', label: 'Mail', color: 'teal' });
   }
 
   if (whatsapp) {
-    addChip({ key: 'whatsapp', label: 'WhatsApp', color: 'green' });
+    addChip({ key: 'whatsapp', label: 'WhatsApp', color: 'teal' });
   }
 
   if (sms) {
-    addChip({ key: 'sms', label: 'SMS', color: 'purple' });
+    addChip({ key: 'sms', label: 'SMS', color: 'teal' });
   }
 
   return chips;
@@ -296,12 +291,13 @@ function detectCommunicationPreferenceChips(
 // ─── Sub-components ───
 
 /** Chip component */
-function Chip({ icon: Icon, label, color = 'default' }: { icon?: any; label: string; color?: 'default' | 'green' | 'blue' | 'purple' | 'red' | 'amber' | 'orange' }) {
+function Chip({ icon: Icon, label, color = 'default' }: { icon?: any; label: string; color?: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange' }) {
   const colors: Record<string, string> = {
     default: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
     green: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
     blue: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
     purple: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+    teal: 'bg-teal-100 text-teal-800 border border-teal-200 dark:bg-teal-900/30 dark:text-teal-200 dark:border-teal-800',
     red: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
     amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
     orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
@@ -438,11 +434,7 @@ export function CommunicationBlock({
 
   const showOriginalCustomerMessage = Boolean(
     parsed.originalMessage &&
-      !isTranscriptOnlyCustomerMessage(
-        parsed.originalMessage,
-        data.audioTranscript,
-        Boolean(hasAudio || data.audioTranscript),
-      ),
+      !isTranscriptOnlyCustomerMessage(parsed.originalMessage, data.audioTranscript, Boolean(hasAudio)),
   );
 
   // Check if there's any content to show
