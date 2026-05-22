@@ -284,6 +284,269 @@ function extractBillingCustomerNameFallback(
 }
 
 
+
+type SafeBillingCustomerEvidence = {
+  source: "labeled" | "inline" | "top" | "none";
+  hasReliableCustomerBlock: boolean;
+  name: string | null;
+  street: string | null;
+  plz: string | null;
+  city: string | null;
+  phone: string | null;
+};
+
+function normalizeIntakeSourceText(value: string | null | undefined): string {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function splitIntakeLines(value: string | null | undefined): string[] {
+  return normalizeIntakeSourceText(value)
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function parseBillingStreetFromBlock(value: string | null | undefined): string | null {
+  const source = normalizeIntakeSourceText(value);
+  if (!source) return null;
+
+  const streetSuffix =
+    "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
+  const foreignPrefix = "(?:rue|avenue|av\\.?|chemin|via|viale)";
+  const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
+  const word = "[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'.-]*";
+
+  const patterns = [
+    new RegExp(`\\b(${word}(?:\\s+${word}){0,3}\\s*${streetSuffix}\\s+${houseNumber})\\b`, "i"),
+    new RegExp(`\\b(${foreignPrefix}\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|${word})){0,4}\\s+${houseNumber})\\b`, "i"),
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match?.[1]) return match[1].replace(/\s+/g, " ").trim();
+  }
+
+  return null;
+}
+
+function parseBillingPlzCityFromBlock(value: string | null | undefined): {
+  plz: string | null;
+  city: string | null;
+} {
+  const source = normalizeIntakeSourceText(value);
+  const match = source.match(/\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{2,60})\b/);
+  if (!match) return { plz: null, city: null };
+
+  const city = String(match[2] || "")
+    .replace(/\b(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail|arbeitsort|objekt|kontakt|besonderheiten|leistungen|leistungsübersicht|leistungsuebersicht)\b.*$/i, "")
+    .replace(/[,;:.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { plz: match[1] || null, city: city || null };
+}
+
+function parseBillingNameFromBlock(value: string | null | undefined): string | null {
+  const lines = splitIntakeLines(value);
+  for (const line of lines) {
+    const cleaned = line
+      .replace(/^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*/i, "")
+      .replace(/^\s*(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail)\s*[:.]?.*$/i, "")
+      .trim();
+    if (!cleaned) continue;
+    if (/^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|besonderheiten|leistungen|leistungsübersicht|leistungsuebersicht|titel)\b/i.test(cleaned)) continue;
+    if (/\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|street|road|lane)\b/i.test(cleaned)) continue;
+    if (/\b\d{4,5}\s+[A-ZÄÖÜ]/i.test(cleaned)) continue;
+    const candidate = cleanBillingCustomerNameCandidate(cleaned);
+    if (candidate) return candidate;
+  }
+
+  return null;
+}
+
+function getBillingBlockStopRegex(): RegExp {
+  return /^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|contact\s+sur\s+place|concierge|hauswart|hausmeister|besonderheiten|bemerkungen|remarques|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|service|services|titel)\b/i;
+}
+
+function extractLabeledBillingBlock(lines: string[]): string | null {
+  const billingMarker = /^(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|client\s*\/\s*facturation|client|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*(.*)$/i;
+  const stop = getBillingBlockStopRegex();
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(billingMarker);
+    if (!match) continue;
+
+    const blockLines: string[] = [];
+    if (match[1]?.trim()) blockLines.push(match[1].trim());
+
+    for (let offset = 1; offset <= 7; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (stop.test(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join("\n").trim();
+    if (block) return block;
+  }
+
+  return null;
+}
+
+function extractInlineBillingBlock(source: string): string | null {
+  const patterns = [
+    /(?:rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|rechnung\s+geht\s+an|rechnung\s+an|kunde\s+ist)\s+(.{4,260}?)(?=\b(?:gearbeitet\s+wird|arbeitsort|kontakt\s+vor\s+ort|vor\s+ort|besonderheiten|termin|leistungsübersicht|leistungsuebersicht|leistungen)\b|$)/i,
+    /(?:client\s*\/\s*facturation|client|facturation)\s*:?\s+(.{4,260}?)(?=\b(?:adresse\s+de\s+travail|contact\s+sur\s+place|remarques|rendez-vous|services?|leistungsübersicht|leistungen)\b|$)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match?.[1]) return match[1].replace(/[,;]\s*/g, "\n").trim();
+  }
+
+  return null;
+}
+
+function extractTopBillingBlock(lines: string[]): string | null {
+  const stop = getBillingBlockStopRegex();
+  const blockLines: string[] = [];
+
+  for (const line of lines) {
+    if (stop.test(line)) break;
+    if (/^(?:hallo|guten\s+tag|grüezi|gruezi|salut|bonjour|bitte\b|neuer\s+auftrag|auftrag\s+erfassen|anbei|hier\s+ist)/i.test(line)) continue;
+    if (/^\[Titel\s*:/i.test(line)) continue;
+    blockLines.push(line);
+    if (blockLines.length >= 5) break;
+  }
+
+  const block = blockLines.join("\n").trim();
+  if (!block) return null;
+
+  const hasName = !!parseBillingNameFromBlock(block);
+  const hasStreet = !!parseBillingStreetFromBlock(block);
+  const { plz, city } = parseBillingPlzCityFromBlock(block);
+  const hasZipCity = !!plz && !!city;
+  const hasCompany = /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(block);
+
+  if (hasName && (hasCompany || (hasStreet && hasZipCity))) return block;
+  return null;
+}
+
+function extractSafeBillingCustomerEvidence(
+  rawText: string | null | undefined,
+): SafeBillingCustomerEvidence {
+  const source = normalizeIntakeSourceText(rawText);
+  const empty: SafeBillingCustomerEvidence = {
+    source: "none",
+    hasReliableCustomerBlock: false,
+    name: null,
+    street: null,
+    plz: null,
+    city: null,
+    phone: null,
+  };
+  if (!source) return empty;
+
+  const lines = splitIntakeLines(source);
+  const labeledBlock = extractLabeledBillingBlock(lines);
+  const inlineBlock = extractInlineBillingBlock(source);
+  const topBlock = extractTopBillingBlock(lines);
+
+  const block = labeledBlock || inlineBlock || topBlock;
+  if (!block) return empty;
+
+  const name = parseBillingNameFromBlock(block);
+  const street = parseBillingStreetFromBlock(block);
+  const { plz, city } = parseBillingPlzCityFromBlock(block);
+  const phone = extractPhoneFromText(block);
+
+  const hasReliableCustomerBlock = Boolean(
+    name &&
+      (/\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(name) || street || plz || phone),
+  );
+
+  return {
+    source: labeledBlock ? "labeled" : inlineBlock ? "inline" : "top",
+    hasReliableCustomerBlock,
+    name: hasReliableCustomerBlock ? name : null,
+    street: hasReliableCustomerBlock ? street : null,
+    plz: hasReliableCustomerBlock ? plz : null,
+    city: hasReliableCustomerBlock ? city : null,
+    phone: hasReliableCustomerBlock ? phone : null,
+  };
+}
+
+function applySafeBillingCustomerGuard(args: {
+  kundeData: any;
+  evidence: SafeBillingCustomerEvidence;
+  allowSelfIntroName: boolean;
+}): { changed: boolean; reviewReason: string | null } {
+  const { kundeData, evidence, allowSelfIntroName } = args;
+  const before = JSON.stringify({
+    name: kundeData.name || null,
+    strasse: kundeData.strasse || null,
+    hausnummer: kundeData.hausnummer || null,
+    plz: kundeData.plz || null,
+    ort: kundeData.ort || null,
+    telefon: kundeData.telefon || null,
+  });
+
+  if (!evidence.hasReliableCustomerBlock) {
+    const safeSelfIntroName = allowSelfIntroName
+      ? cleanBillingCustomerNameCandidate(kundeData.name || null)
+      : null;
+
+    kundeData.name = safeSelfIntroName || null;
+    kundeData.strasse = null;
+    kundeData.hausnummer = null;
+    kundeData.plz = null;
+    kundeData.ort = null;
+    kundeData.telefon = null;
+
+    const after = JSON.stringify({
+      name: kundeData.name || null,
+      strasse: kundeData.strasse || null,
+      hausnummer: kundeData.hausnummer || null,
+      plz: kundeData.plz || null,
+      ort: kundeData.ort || null,
+      telefon: kundeData.telefon || null,
+    });
+
+    return {
+      changed: before !== after,
+      reviewReason: "customer_data_uncertain_no_billing_block",
+    };
+  }
+
+  kundeData.name = evidence.name || null;
+  kundeData.strasse = evidence.street || null;
+  kundeData.hausnummer = null;
+  kundeData.plz = evidence.plz || null;
+  kundeData.ort = evidence.city || null;
+  kundeData.telefon = evidence.phone || null;
+
+  const after = JSON.stringify({
+    name: kundeData.name || null,
+    strasse: kundeData.strasse || null,
+    hausnummer: kundeData.hausnummer || null,
+    plz: kundeData.plz || null,
+    ort: kundeData.ort || null,
+    telefon: kundeData.telefon || null,
+  });
+
+  return {
+    changed: before !== after,
+    reviewReason: null,
+  };
+}
+
 type OnsiteContactHint = {
   hint: string | null;
   phone: string | null;
@@ -2448,6 +2711,24 @@ const intakeCurrency =
     }
   }
 
+  const customerGuardReviewReasons: string[] = [];
+  const billingEvidence = extractSafeBillingCustomerEvidence(messageText);
+  const customerGuard = applySafeBillingCustomerGuard({
+    kundeData,
+    evidence: billingEvidence,
+    allowSelfIntroName: selfIntroFallbackUsed,
+  });
+  if (customerGuard.changed) {
+    console.log(
+      `[${source}] 🛡️ Billing customer guard normalized customer data (source=${billingEvidence.source}, reliable=${billingEvidence.hasReliableCustomerBlock})`,
+    );
+  }
+  if (customerGuard.reviewReason) {
+    customerGuardReviewReasons.push(customerGuard.reviewReason);
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
+  }
+
   function looksLikeWeakCityOnlyFromWorkText(
     kundeData: any,
     text: string,
@@ -2728,10 +3009,10 @@ const intakeCurrency =
       data: {
         customerNumber,
         name: kundeData.name || "",
-        // phone/email stay conservatively null on webhook-created customers
-        // (preserves pre-Phase-2b behavior; unchanged).
-        phone: null,
-        email: null,
+        // New customer master data may store phone/email only after the billing
+        // customer guard + sanitizer verified that they belong to the billing block.
+        phone: sanitized.phone,
+        email: sanitized.email,
         address: sanitized.street,
         plz: sanitized.plz,
         city:
@@ -2743,30 +3024,13 @@ const intakeCurrency =
     customerId = customer.id;
     customerWasNewlyCreated = true;
   } else {
-    // Update existing customer with new data - only if it IMPROVES existing data
-    const cust = await prisma.customer.findUnique({
-      where: { id: customerId },
-    });
-    if (cust) {
-      const { protectCustomerData } = await import("@/lib/data-protection");
-      const safeCity =
-        normalizeUnitText(addr.city) === "form" ? null : addr.city;
-      const updates = protectCustomerData(cust, {
-        address: addr.street,
-        plz: addr.plz,
-        city: safeCity,
-      });
-      if (Object.keys(updates).length > 0) {
-        await prisma.customer.update({
-          where: { id: customerId },
-          data: updates,
-        });
-        console.log(
-          `[${source}] Updated customer ${customerId} with improved fields:`,
-          Object.keys(updates),
-        );
-      }
-    }
+    // V16.18: Existing customer master data is not changed by webhook/AI intake.
+    // Corrections must happen manually via customer edit or customer merge.
+    // The order can still bind to a verified customerId, but address/phone/email
+    // fields on the customer record remain untouched.
+    console.log(
+      `[${source}] Customer ${customerId} reused; master data left unchanged by intake`,
+    );
   }
 
   // --- Build specialNotes (marker-based, NO language/keyword guessing in UI) ---
@@ -3744,6 +4008,7 @@ totalPrice: safeUnitPrice * safeQuantity,
   const allReviewReasons: string[] = [
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
+    ...customerGuardReviewReasons,
     ...quantityReviewReasons,
     ...unitMismatchReasons,
     ...intakeValidation.reviewReasons,

@@ -1946,16 +1946,68 @@ export function validateAndRepairParsedOrderItems(
       .map((item) => normalizeCompare(item.serviceName)),
   );
 
-  const finalReviewReasons = unique(reviewReasons).filter((reason) => {
-    if (!reason.startsWith("unit_mismatch:")) return true;
-    const [, serviceName] = reason.split(":");
-    return !priceUnclearServiceNames.has(normalizeCompare(serviceName));
-  });
+  const hasRealCurrencyProblem =
+    detectedCurrencies.length > 1 ||
+    unsupportedDetectedCurrencies.length > 0 ||
+    items.some((item) => {
+      const detectedCurrency = normalizeCurrency(item.detectedCurrency);
+      return Boolean(detectedCurrency && detectedCurrency !== finalCurrency);
+    });
+
+  if (!hasRealCurrencyProblem) {
+    items = items.map((item) => {
+      const reason = item.reviewReason || "";
+      if (
+        reason === "currency_review" ||
+        reason === "currency_conflict" ||
+        reason === "currency_unsupported" ||
+        reason.startsWith("item_currency_mismatch:")
+      ) {
+        return { ...item, needsReview: false, reviewReason: null };
+      }
+      return item;
+    });
+  }
+
+  const finalReviewReasons = unique(reviewReasons)
+    .filter((reason) => {
+      if (!reason.startsWith("unit_mismatch:")) return true;
+      const [, serviceName] = reason.split(":");
+      return !priceUnclearServiceNames.has(normalizeCompare(serviceName));
+    })
+    .filter((reason) => {
+      if (
+        reason === "currency_review" ||
+        reason === "currency_conflict" ||
+        reason === "currency_unsupported" ||
+        reason.startsWith("item_currency_mismatch:")
+      ) {
+        return hasRealCurrencyProblem;
+      }
+      return true;
+    });
+
+  const finalNeedsReview =
+    finalReviewReasons.length > 0 ||
+    items.some((item) => {
+      if (!item.needsReview) return false;
+      const reason = item.reviewReason || "";
+      if (
+        !hasRealCurrencyProblem &&
+        (reason === "currency_review" ||
+          reason === "currency_conflict" ||
+          reason === "currency_unsupported" ||
+          reason.startsWith("item_currency_mismatch:"))
+      ) {
+        return false;
+      }
+      return true;
+    });
 
   return {
     items,
     reviewReasons: finalReviewReasons,
-    needsReview: finalReviewReasons.length > 0 || items.some((item) => item.needsReview),
+    needsReview: finalNeedsReview,
     finalCurrency,
     detectedCurrencies,
   };
