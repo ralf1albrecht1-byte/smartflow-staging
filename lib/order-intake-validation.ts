@@ -974,17 +974,28 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
   const rawLines = source
     .replace(/\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi, "\n")
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
-    .map((line) => normalizeText(line).replace(/^[-–—•\d.)\s]+/, "").trim())
+    // INTAKE_SAFE_LINE_COVERAGE_V16_1:
+    // Do NOT strip a naked leading number. In service lines this is often the
+    // real quantity ("4 Stunden", "12 m2", "25 Meter"). Only strip bullets or
+    // numbered-list markers like "1." / "2)".
+    .map((line) => normalizeText(line).replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, "").trim())
     .filter(Boolean);
 
   return unique(rawLines).filter((line) => {
     const normalized = normalizeCompare(line);
     if (!normalized || normalized.length < 8) return false;
     if (EXPLICIT_SERVICE_NAME_BLOCKLIST.has(normalized.replace(/\s+/g, ""))) return false;
-    if (!new RegExp(CURRENCY_WORDS, "i").test(line)) return false;
+
+    const hasQuantityWithUnit = new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(line);
+    const hasFlatSignal = /\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(line);
+    const hasCurrency = new RegExp(CURRENCY_WORDS, "i").test(line);
+    const hasCurrencylessUnitPrice = new RegExp(`${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "i").test(line);
+    const hasCurrencylessFlatPrice =
+      hasFlatSignal && /\b\d+(?:[.,]\d{1,2})?\b/i.test(line);
+
     return (
-      new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(line) ||
-      /\b(pauschal|pauschale|fixpreis|festpreis)\b/i.test(line)
+      (hasQuantityWithUnit && (hasCurrency || hasCurrencylessUnitPrice)) ||
+      (hasFlatSignal && (hasCurrency || hasCurrencylessFlatPrice))
     );
   });
 }
@@ -993,14 +1004,22 @@ function normalizeExplicitCurrency(value?: string | null): string | null {
   return normalizeCurrency(value);
 }
 
-function findExplicitUnitPriceInLine(line: string): {
+function findExplicitUnitPriceInLine(
+  line: string,
+  fallbackCurrency: IntakeCurrency,
+): {
   amount: number;
   currency: string | null;
   unitType: string | null;
   index: number;
   raw: string;
 } | null {
-  const patterns: Array<{ re: RegExp; currencyGroup: number; priceGroup: number; unitGroup: number }> = [
+  const patterns: Array<{
+    re: RegExp;
+    currencyGroup?: number;
+    priceGroup: number;
+    unitGroup: number;
+  }> = [
     {
       re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`, "i"),
       currencyGroup: 1,
@@ -1013,12 +1032,21 @@ function findExplicitUnitPriceInLine(line: string): {
       priceGroup: 1,
       unitGroup: 3,
     },
+    // 90 pro Stunde / 35 pro m2 / 11 pro Meter.
+    // Currency is omitted by the customer; use the already resolved fallback currency.
+    {
+      re: new RegExp(`${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`, "i"),
+      priceGroup: 1,
+      unitGroup: 2,
+    },
   ];
 
   for (const pattern of patterns) {
     const match = line.match(pattern.re);
     const amount = parsePriceNumber(match?.[pattern.priceGroup]);
-    const currency = normalizeExplicitCurrency(match?.[pattern.currencyGroup]);
+    const currency = pattern.currencyGroup
+      ? normalizeExplicitCurrency(match?.[pattern.currencyGroup])
+      : fallbackCurrency;
     const unitType = unitTypeFromText(match?.[pattern.unitGroup]);
     if (!match || !amount || !currency) continue;
     return {
@@ -1123,7 +1151,7 @@ function extractExplicitServiceLineItems(
 
   for (const line of lines) {
     const quantityMatch = line.match(new RegExp(`\\b(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_WORDS})\\b`, "i"));
-    const unitPrice = findExplicitUnitPriceInLine(line);
+    const unitPrice = findExplicitUnitPriceInLine(line, fallbackCurrency);
     const flatPrice = findExplicitFlatPriceInLine(line, fallbackCurrency);
 
     if (quantityMatch && unitPrice) {
@@ -1248,6 +1276,32 @@ function shouldPreferExplicitServiceName(
   return false;
 }
 
+function itemIsLikelySameExplicitService(
+  item: ParsedOrderItemForValidation,
+  explicit: ExplicitServiceLineItem,
+): boolean {
+  const itemSource = normalizeCompare(
+    [item.sourceText, item.evidence, item.description, item.serviceName]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const explicitSource = normalizeCompare(explicit.sourceText);
+  if (explicitSource && itemSource && (itemSource.includes(explicitSource) || explicitSource.includes(itemSource))) {
+    return true;
+  }
+
+  const itemTokens = meaningfulServiceTokens(item.serviceName);
+  const explicitTokens = meaningfulServiceTokens(explicit.serviceName);
+  if (itemTokens.length === 0 || explicitTokens.length === 0) return false;
+
+  const overlap = explicitTokens.filter(
+    (token) => itemTokens.includes(token) || itemSource.includes(token),
+  ).length;
+
+  const requiredOverlap = explicitTokens.length >= 2 ? 2 : 1;
+  return overlap >= requiredOverlap;
+}
+
 function applyExplicitLineCoverage(
   items: ParsedOrderItemForValidation[],
   originalText: string,
@@ -1260,7 +1314,10 @@ function applyExplicitLineCoverage(
   const nextItems = [...items];
 
   for (const explicit of explicitItems) {
-    const existingIndex = nextItems.findIndex((item) => itemCoversExplicitLine(item, explicit));
+    let existingIndex = nextItems.findIndex((item) => itemCoversExplicitLine(item, explicit));
+    if (existingIndex < 0) {
+      existingIndex = nextItems.findIndex((item) => itemIsLikelySameExplicitService(item, explicit));
+    }
     const supportedCurrency = explicit.detectedCurrency === "CHF" || explicit.detectedCurrency === "EUR";
     const currencyMatches = supportedCurrency && explicit.detectedCurrency === finalCurrency;
 
@@ -1363,7 +1420,16 @@ export function validateAndRepairParsedOrderItems(
       finalCurrency,
     );
 
-    if (explicitFlatPrice && explicitFlatPrice.currency === finalCurrency) {
+    if (
+      explicitFlatPrice &&
+      explicitFlatPrice.currency === finalCurrency &&
+      !(
+        !isFlatUnit(next.unit) &&
+        new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(
+          [next.sourceText, next.evidence, next.description].filter(Boolean).join(" "),
+        )
+      )
+    ) {
       next.unit = "Pauschal";
       next.quantity = 1;
       next.unitPrice = explicitFlatPrice.amount;
