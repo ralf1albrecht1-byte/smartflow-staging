@@ -3089,21 +3089,37 @@ const intakeCurrency =
     // customer master data. This specifically protects messages like:
     // "Arbeitsort: Objekt Alpha ... Kontakt vor Ort: Herr Frei ..."
     // where the customer should remain empty + needsReview.
-    const safeNewCustomerFields = billingEvidence.hasReliableCustomerBlock
-      ? sanitized
-      : {
+    const hasPersistableCustomerName = Boolean(
+      cleanBillingCustomerNameCandidate(kundeData.name || null),
+    );
+
+    const keepNewCustomerMasterEmpty =
+      !billingEvidence.hasReliableCustomerBlock || !hasPersistableCustomerName;
+
+    const safeNewCustomerFields = keepNewCustomerMasterEmpty
+      ? {
           ...sanitized,
           street: null,
           plz: null,
           city: null,
           phone: null,
           email: null,
-        };
+        }
+      : sanitized;
 
-    if (!billingEvidence.hasReliableCustomerBlock) {
+    const safeNewCustomerName = hasPersistableCustomerName
+      ? cleanBillingCustomerNameCandidate(kundeData.name || null) || ""
+      : "";
+
+    if (keepNewCustomerMasterEmpty) {
       console.log(
-        `[${source}] 🛡️ no reliable billing block → new customer master address/phone/email kept empty`,
+        `[${source}] 🛡️ missing safe billing customer name/block → new customer master name/address/phone/email kept empty`,
       );
+      parsed.system = parsed.system || {};
+      parsed.system.needs_review = true;
+      if (!customerGuardReviewReasons.includes("customer_data_uncertain_no_billing_block")) {
+        customerGuardReviewReasons.push("customer_data_uncertain_no_billing_block");
+      }
     }
 
     const { generateCustomerNumber } = await import("@/lib/customer-number");
@@ -3111,9 +3127,11 @@ const intakeCurrency =
     const customer = await prisma.customer.create({
       data: {
         customerNumber,
-        name: kundeData.name || "",
+        name: safeNewCustomerName,
         // New customer master data may store phone/email only after the billing
-        // customer guard + sanitizer verified that they belong to the billing block.
+        // customer guard + sanitizer verified that they belong to the billing block
+        // AND a real billing customer name exists. If the customer name is missing,
+        // execution-site data must never appear in the billing customer card.
         phone: safeNewCustomerFields.phone,
         email: safeNewCustomerFields.email,
         address: safeNewCustomerFields.street,
