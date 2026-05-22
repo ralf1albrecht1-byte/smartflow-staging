@@ -953,6 +953,31 @@ function unitTypeToDisplayUnit(unitType?: string | null): string | null {
 }
 
 
+
+function hasUnclearPriceSignal(value?: string | null): boolean {
+  const source = normalizeCompare(value);
+  if (!source) return false;
+
+  return (
+    /\b(preis\s+(?:wie\s+letztes\s+mal|offen|unklar|muss\s+(?:noch\s+)?(?:geprueft|pruefen|abgeklaert|abklaeren)|noch\s+(?:pruefen|abklaeren|offen))|wie\s+letztes\s+mal|letzter\s+preis|nach\s+aufwand|ungefaehr|ungefahr|ca\.?|circa)\b/i.test(source) ||
+    /\b(price\s+(?:open|unclear|to\s+check|needs\s+checking)|same\s+as\s+last\s+time|approx(?:imately)?|about|tbd)\b/i.test(source) ||
+    /\b(prix\s+(?:a\s+verifier|ouvert|incertain)|comme\s+la\s+derniere\s+fois|environ)\b/i.test(source)
+  );
+}
+
+function findQuantityOnlyUnclearLine(line: string): {
+  quantity: number;
+  unitType: string;
+  quantityRaw: string;
+} | null {
+  if (!hasUnclearPriceSignal(line)) return null;
+  const quantityMatch = line.match(new RegExp(`\\b(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_WORDS})\\b`, "i"));
+  const quantity = parsePriceNumber(quantityMatch?.[1]);
+  const unitType = unitTypeFromText(quantityMatch?.[2]);
+  if (!quantityMatch || !quantity || !unitType) return null;
+  return { quantity, unitType, quantityRaw: quantityMatch[0] };
+}
+
 type ExplicitServiceLineItem = ParsedOrderItemForValidation & {
   detectedCurrency?: string | null;
   sourceText: string;
@@ -1113,7 +1138,8 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
 }): string {
   let cleaned = normalizeText(line)
     .replace(/^\s*(?:leistung|leistungsübersicht|leistungsuebersicht)\s*:?\s*/i, " ")
-    .replace(/^[-–—•\d.)\s]+/, " ");
+    // INTAKE_SAFE_NAME_CLEANUP_V16_2: keep naked leading quantities until quantityRaw is removed.
+    .replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, " ");
 
   if (parts.quantityRaw) {
     cleaned = cleaned.replace(parts.quantityRaw, " ");
@@ -1126,6 +1152,8 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
     .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/gi, " ")
     .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
     .replace(/\b(?:pro|je|per|par|à|a)\b\s*$/i, " ")
+    // Remove unit prefixes that may remain in the visible service name.
+    .replace(/^\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stück|stueck|stk|piece|pieces)\s+/i, " ")
     .replace(/[,:;|]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -1133,7 +1161,7 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
   // Fallback: when the service name was before a flat-price phrase, keep text before that phrase.
   if (!cleaned || normalizeCompare(cleaned).length < 3) {
     const beforeFlat = line.split(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/i)[0] || "";
-    cleaned = normalizeText(beforeFlat).replace(/^[-–—•\d.)\s]+/, " ").trim();
+    cleaned = normalizeText(beforeFlat).replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, " ").trim();
   }
 
   if (!cleaned || normalizeCompare(cleaned).length < 3) return "Unbekannte Leistung";
@@ -1153,6 +1181,28 @@ function extractExplicitServiceLineItems(
     const quantityMatch = line.match(new RegExp(`\\b(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_WORDS})\\b`, "i"));
     const unitPrice = findExplicitUnitPriceInLine(line, fallbackCurrency);
     const flatPrice = findExplicitFlatPriceInLine(line, fallbackCurrency);
+    const unclearQuantityOnly = findQuantityOnlyUnclearLine(line);
+
+    if (unclearQuantityOnly && !unitPrice && !flatPrice) {
+      const serviceName = cleanExplicitServiceNameFromLine(line, {
+        quantityRaw: unclearQuantityOnly.quantityRaw,
+      });
+
+      result.push({
+        serviceName,
+        description: line,
+        quantity: unclearQuantityOnly.quantity,
+        unit: unitTypeToDisplayUnit(unclearQuantityOnly.unitType) || "Pauschal",
+        unitPrice: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: `price_unclear:${serviceName}`,
+        sourceText: line,
+        evidence: line,
+        detectedCurrency: fallbackCurrency,
+      });
+      continue;
+    }
 
     if (quantityMatch && unitPrice) {
       const quantity = parsePriceNumber(quantityMatch[1]) || 0;
@@ -1314,25 +1364,28 @@ function applyExplicitLineCoverage(
   const nextItems = [...items];
 
   for (const explicit of explicitItems) {
-    let existingIndex = nextItems.findIndex((item) => itemCoversExplicitLine(item, explicit));
-    if (existingIndex < 0) {
-      existingIndex = nextItems.findIndex((item) => itemIsLikelySameExplicitService(item, explicit));
-    }
+    const existingIndex = nextItems.findIndex((item) => itemCoversExplicitLine(item, explicit));
     const supportedCurrency = explicit.detectedCurrency === "CHF" || explicit.detectedCurrency === "EUR";
     const currencyMatches = supportedCurrency && explicit.detectedCurrency === finalCurrency;
+    const explicitNeedsReview = Boolean(explicit.needsReview) || Number(explicit.unitPrice || 0) <= 0;
+    const explicitReviewReason = explicitNeedsReview
+      ? explicit.reviewReason || `price_unclear:${explicit.serviceName}`
+      : null;
 
     const explicitAsItem: ParsedOrderItemForValidation = {
       ...explicit,
-      unitPrice: currencyMatches ? explicit.unitPrice : 0,
-      totalPrice: currencyMatches ? calculateSafeLineTotal(explicit) : 0,
-      needsReview: !currencyMatches,
+      unitPrice: currencyMatches && !explicitNeedsReview ? explicit.unitPrice : 0,
+      totalPrice: currencyMatches && !explicitNeedsReview ? calculateSafeLineTotal(explicit) : 0,
+      needsReview: !currencyMatches || explicitNeedsReview,
       reviewReason: currencyMatches
-        ? null
+        ? explicitReviewReason
         : `item_currency_mismatch:${explicit.serviceName}:${explicit.detectedCurrency || "UNKNOWN"}:${finalCurrency}`,
     };
 
     if (!currencyMatches) {
       reviewReasons.push("currency_review", explicitAsItem.reviewReason as string);
+    } else if (explicitAsItem.needsReview && explicitAsItem.reviewReason) {
+      reviewReasons.push(explicitAsItem.reviewReason);
     }
 
     if (existingIndex >= 0) {
@@ -1345,10 +1398,10 @@ function applyExplicitLineCoverage(
         description: existing.description || explicit.description,
         quantity: currencyMatches ? explicit.quantity : existing.quantity,
         unit: currencyMatches ? explicit.unit : existing.unit,
-        unitPrice: currencyMatches ? explicit.unitPrice : 0,
-        totalPrice: currencyMatches ? calculateSafeLineTotal(explicit) : 0,
-        needsReview: currencyMatches ? false : true,
-        reviewReason: currencyMatches ? null : explicitAsItem.reviewReason,
+        unitPrice: currencyMatches && !explicitNeedsReview ? explicit.unitPrice : 0,
+        totalPrice: currencyMatches && !explicitNeedsReview ? calculateSafeLineTotal(explicit) : 0,
+        needsReview: currencyMatches ? explicitNeedsReview : true,
+        reviewReason: currencyMatches ? explicitReviewReason : explicitAsItem.reviewReason,
         sourceText: existing.sourceText || explicit.sourceText,
         evidence: existing.evidence || explicit.evidence,
         detectedCurrency: explicit.detectedCurrency || existing.detectedCurrency,
@@ -1361,6 +1414,43 @@ function applyExplicitLineCoverage(
   }
 
   return { items: nextItems, reviewReasons: unique(reviewReasons) };
+}
+
+
+function removeSubsumedReviewOnlyItems(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  return items.filter((item, index) => {
+    const itemReviewOnly =
+      Boolean(item.needsReview) ||
+      Number(item.unitPrice || 0) <= 0 ||
+      Number(item.totalPrice || 0) <= 0;
+
+    if (!itemReviewOnly) return true;
+
+    const itemUnit = unitTypeFromDisplayUnit(item.unit);
+    const itemQuantity = Number(item.quantity || 0);
+    const itemTokens = meaningfulServiceTokens(item.serviceName);
+    const itemName = normalizeCompare(item.serviceName);
+
+    if (!itemUnit || itemQuantity <= 0 || itemTokens.length === 0) return true;
+
+    const isSubsumed = items.some((other, otherIndex) => {
+      if (otherIndex === index) return false;
+      if (Number(other.unitPrice || 0) <= 0 || Number(other.totalPrice || 0) <= 0) return false;
+      if (Math.abs(Number(other.quantity || 0) - itemQuantity) >= 0.001) return false;
+      if (unitTypeFromDisplayUnit(other.unit) !== itemUnit) return false;
+
+      const otherName = normalizeCompare(other.serviceName);
+      const otherTokens = meaningfulServiceTokens(other.serviceName);
+      const tokenSubset = itemTokens.every((token) => otherTokens.includes(token) || otherName.includes(token));
+      const genericShortName = itemTokens.length <= 1 || ["wand", "boden", "stunden", "stunde"].includes(itemName);
+
+      return tokenSubset || genericShortName;
+    });
+
+    return !isSubsumed;
+  });
 }
 
 export function validateAndRepairParsedOrderItems(
@@ -1509,6 +1599,8 @@ export function validateAndRepairParsedOrderItems(
 
     return next;
   });
+
+  items = removeSubsumedReviewOnlyItems(items);
 
   return {
     items,

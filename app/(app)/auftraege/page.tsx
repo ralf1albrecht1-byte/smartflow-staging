@@ -2806,6 +2806,12 @@ const getSafeOrderTotal = (o: Order) => {
             const systemBadges = getSystemBadges(o);
             const operationalBadges = getOperationalBadges(o, parsedCardNotes);
             const bottomBadges = getBottomBadges(o, parsedCardNotes);
+            const appointmentBadges = bottomBadges.filter(
+              (badge) => badge.key === "appointment",
+            );
+            const footerBadges = bottomBadges.filter(
+              (badge) => badge.key !== "appointment",
+            );
             const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
               "skipped",
             );
@@ -3040,7 +3046,7 @@ const getSafeOrderTotal = (o: Order) => {
                             onImageClick={() => openMedia(o)}
                           />
 
-                          {bottomBadges.map((badge) => (
+                          {footerBadges.map((badge) => (
                             <span
                               key={badge.key}
                               className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
@@ -3052,18 +3058,32 @@ const getSafeOrderTotal = (o: Order) => {
                             </span>
                           ))}
 
-                          <div className="ml-auto shrink-0 whitespace-nowrap text-right">
-                            <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
-                              {formatCurrency(
-                                getSafeOrderTotal(o),
-                                o.currency === "EUR" ? "EUR" : "CHF",
+                          <div className="ml-auto flex items-center gap-2 shrink-0">
+                            {appointmentBadges.map((badge) => (
+                              <span
+                                key={badge.key}
+                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
+                              >
+                                {badge.icon && (
+                                  <AlertTriangle className="w-3 h-3" />
+                                )}
+                                {badge.label}
+                              </span>
+                            ))}
+
+                            <div className="whitespace-nowrap text-right">
+                              <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
+                                {formatCurrency(
+                                  getSafeOrderTotal(o),
+                                  o.currency === "EUR" ? "EUR" : "CHF",
+                                )}
+                              </div>
+                              {hasOrderVat(o) && (
+                                <div className="text-[9px] leading-none text-muted-foreground">
+                                  inkl. MwSt
+                                </div>
                               )}
                             </div>
-                            {hasOrderVat(o) && (
-                              <div className="text-[9px] leading-none text-muted-foreground">
-                                inkl. MwSt
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>

@@ -506,6 +506,7 @@ function extractSemanticSpecialNotesFallback(
   );
   const hasBadParking = normalizedLines.some(
     (line) =>
+      !isNonActionablePlanningHint(line) &&
       /\b(parkplatz|parking|aparcamiento|parcheggio)\b/i.test(line) &&
       /\b(schwierig|kein|keine|parkverbot|difficult|no\s+parking|sin|sans|senza)\b/i.test(line),
   );
