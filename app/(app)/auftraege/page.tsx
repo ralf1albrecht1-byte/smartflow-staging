@@ -349,6 +349,46 @@ const isPositiveSemanticHint = (value?: string | null) => {
   return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort/.test(text);
 };
 
+const getParkingBadge = (value?: string | null, context?: string | null): { label: string; className: string } | null => {
+  const text = normalizeForMatch(value);
+  const contextText = normalizeForMatch(context);
+  if (!text || !/park|parking|parkplatz|parken|zufahrt|innenhof/.test(text)) return null;
+
+  const noParkingPattern = /kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|kein stellplatz|keine stellplaetze|keine stellplätze|no parking|sans parking|sin parking/;
+  const noParking = noParkingPattern.test(text);
+
+  if (!noParking && noParkingPattern.test(contextText)) return null;
+
+  if (noParking) {
+    return {
+      label: "Kein Parkplatz",
+      className: "bg-amber-100 text-amber-800 border border-amber-300",
+    };
+  }
+
+  const difficultParking =
+    /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/.test(text);
+
+  if (difficultParking) {
+    return {
+      label: "Parkplatz schwierig",
+      className: "bg-amber-100 text-amber-800 border border-amber-300",
+    };
+  }
+
+  if (isPositiveSemanticHint(value)) {
+    return {
+      label: "Parken",
+      className: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+    };
+  }
+
+  return {
+    label: "Parken prüfen",
+    className: "bg-amber-100 text-amber-800 border border-amber-300",
+  };
+};
+
 const badgeLabelByKind: Record<string, string> = {
   warning: "Achtung",
   dog: "Hund",
@@ -606,7 +646,8 @@ const extractAppointmentBadge = (
         : "";
 
   const timeMatch =
-    raw.match(/\b([01]?\d|2[0-3])[:.](\d{2})\b/) ||
+    raw.match(/\b([01]?\d|2[0-3]):(\d{2})\b/) ||
+    raw.match(/\b([01]?\d|2[0-3])\.(\d{2})\s*(?:uhr|h)\b/i) ||
     raw.match(/\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
   const time = timeMatch ? formatAppointmentTime(timeMatch[1], timeMatch[2]) : "";
 
@@ -701,6 +742,13 @@ const getOperationalBadges = (
 
     const kind = getSemanticBadgeKind(line);
     if (!kind || kind === "warning" || kind === "appointment") return;
+
+    if (kind === "parking") {
+      const parkingBadge = getParkingBadge(line, orderBadgeContext);
+      if (!parkingBadge) return;
+      addHint(`hint_parking_${normalizeForMatch(parkingBadge.label)}`, parkingBadge.label, parkingBadge.className);
+      return;
+    }
 
     const label = badgeLabelByKind[kind];
     if (!label) return;

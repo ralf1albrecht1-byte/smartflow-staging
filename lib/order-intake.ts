@@ -271,7 +271,15 @@ function extractOnsiteContactHint(
   rawText: string | null | undefined,
   candidateCustomerPhone: string | null | undefined,
 ): OnsiteContactHint {
-  const source = normalizeBlockText(rawText);
+  const source = String(rawText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
   const candidateDigits = normalizePhoneDigits(candidateCustomerPhone);
   if (!source) {
     return { hint: null, phone: null, phoneBelongsToSiteContact: false };
@@ -282,16 +290,27 @@ function extractOnsiteContactHint(
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const markerRe =
-    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|person\s+vor\s+ort|hauswart|hausmeister|concierge|caretaker|gardien|facility\s+manager)\b/i;
+  const explicitMarkerRe =
+    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|person\s+vor\s+ort)\b/i;
+  const roleMarkerRe = /\b(hauswart|hausmeister|concierge|caretaker|gardien|facility\s+manager)\b/i;
+  const anyMarkerRe = new RegExp(`${explicitMarkerRe.source}|${roleMarkerRe.source}`, "i");
   const stopRe =
     /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt)\s*:?$/i;
 
-  for (let index = 0; index < lines.length; index += 1) {
-    if (!markerRe.test(lines[index])) continue;
+  const cleanContactLine = (line: string, stripExplicitMarker: boolean) =>
+    line
+      .replace(stripExplicitMarker ? explicitMarkerRe : /^\b$/i, "")
+      .replace(/\b(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?.*$/i, "")
+      .replace(/^[\s:.-]+|[\s:.-]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!anyMarkerRe.test(lines[index])) continue;
+
+    const hasExplicitMarker = explicitMarkerRe.test(lines[index]);
     const blockLines: string[] = [];
-    for (let offset = 0; offset <= 3; offset += 1) {
+    for (let offset = 0; offset <= 4; offset += 1) {
       const line = lines[index + offset];
       if (!line) continue;
       if (offset > 0 && stopRe.test(line)) break;
@@ -309,13 +328,7 @@ function extractOnsiteContactHint(
         phoneDigits === candidateDigits);
 
     const contactName = blockLines
-      .map((line) =>
-        line
-          .replace(markerRe, "")
-          .replace(/\b(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?.*$/i, "")
-          .replace(/^[\s:.-]+|[\s:.-]+$/g, "")
-          .trim(),
-      )
+      .map((line, offset) => cleanContactLine(line, hasExplicitMarker && offset === 0))
       .find((line) => line && !/^\+?\d/.test(line));
 
     const parts = [
@@ -387,6 +400,25 @@ function uniqueNormalizedLines(lines: string[]): string[] {
       seen.add(key);
       return true;
     });
+}
+
+function dedupeTitleLinesInText(value: string): string {
+  const seenTitles = new Set<string>();
+
+  return String(value || "")
+    .split("\n")
+    .filter((line) => {
+      const match = line.trim().match(/^\[Titel:\s*(.*?)\]$/i);
+      if (!match) return true;
+      const key = normalizeSemanticText(match[1]);
+      if (!key) return true;
+      if (seenTitles.has(key)) return false;
+      seenTitles.add(key);
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function isNegatedSpecialNoteLine(value: string): boolean {
@@ -3645,7 +3677,7 @@ totalPrice: safeUnitPrice * safeQuantity,
 
   // --- Build notes ---
   const notesParts: string[] = [`${source}:\n${messageText}`];
-  if (parsed.auftrag?.titel)
+  if (parsed.auftrag?.titel && !/\[Titel\s*:/i.test(messageText))
     notesParts.push(`\n[Titel: ${parsed.auftrag.titel}]`);
   if (parsed.system?.prioritaet === "hoch")
     notesParts.push(`[Priorität: hoch]`);
@@ -3712,7 +3744,7 @@ totalPrice: safeUnitPrice * safeQuantity,
       currency: intakeValidation.finalCurrency,
       vatRate: intakeVatRate,
       date: new Date(),
-      notes: notesParts.join("\n"),
+      notes: dedupeTitleLinesInText(notesParts.join("\n")),
       specialNotes: finalSpecialNotes,
       siteAddressDifferent: Boolean(extractedExecutionAddress),
       siteName: extractedExecutionAddress?.siteName || null,

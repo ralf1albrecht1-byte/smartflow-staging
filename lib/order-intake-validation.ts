@@ -1493,6 +1493,9 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
   if (canonicalServiceName) {
     return canonicalServiceName;
   }
+  if (/\btreppenhaus\b/.test(sourceKey) && /\b(reinigen|reinigung|putzen)\b/.test(sourceKey)) {
+    return "Treppenhaus reinigen";
+  }
   if (/\beingangsbereich\b/.test(sourceKey)) {
     return "Eingangsbereich reinigen";
   }
