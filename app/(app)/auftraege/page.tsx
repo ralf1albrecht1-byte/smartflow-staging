@@ -272,30 +272,6 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
-
-const canonicalGermanServiceLabel = (value?: string | null) => {
-  const raw = compactText(value);
-  const key = normalizeForMatch(raw)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-  if (!key) return raw;
-  if (/\b(nettoyage\s+du\s+garage|nettoyage\s+du\s+sol\s+du\s+garage|garage\s+floor|sol\s+du\s+garage)\b/.test(key)) {
-    return "Garageboden reinigen";
-  }
-  if (/\b(nettoyage\s+de\s+l\s*entree|nettoyage\s+de\s+lentree|nettoyage\s+de\s+l['’]?\s*entree|entrance\s+clean|eingangsbereich)\b/.test(key)) {
-    return "Eingangsbereich reinigen";
-  }
-  if (/\b(nettoyage\s+des\s+vitres|nettoyage\s+vitres|vitres|fenetres|windows)\b/.test(key)) {
-    return "Fenster reinigen";
-  }
-  if (/\b(buroreinigung|buero(?:reinigung)?|office\s+clean|office\s+cleaning)\b/.test(key)) {
-    return "Büroreinigung";
-  }
-
-  return raw;
-};
-
 const pushUniqueBadge = (badges: ReviewBadge[], badge: ReviewBadge) => {
   if (badges.some((existing) => existing.key === badge.key)) return;
   badges.push(badge);
@@ -529,39 +505,77 @@ const splitAppointmentSources = (...values: Array<string | null | undefined>) =>
     )
     .filter(Boolean);
 
-type AppointmentBadgeInfo = {
-  label: string;
-  isOverdue: boolean;
-  isToday: boolean;
-};
-
-const isSameCalendarDay = (a: Date, b: Date) =>
+const isSameAppointmentCalendarDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() &&
   a.getMonth() === b.getMonth() &&
   a.getDate() === b.getDate();
 
-const parseExplicitAppointmentDate = (
-  match: RegExpMatchArray | null,
-  baseDateInput?: string | null,
-): Date | null => {
-  if (!match) return null;
+const getAppointmentBadgeVisual = (
+  appointmentMoment: Date | null,
+  labelParts: string[],
+  orderStatus?: string | null,
+) => {
+  const normalClass = "bg-violet-100 text-violet-700 border border-violet-200";
+  const tomorrowClass = "bg-violet-200 text-violet-800 border border-violet-300";
+  const todayClass = "bg-orange-100 text-orange-800 border border-orange-300";
+  const overdueClass = "bg-orange-100 text-orange-800 border border-orange-300";
+  const doneClass = "bg-slate-100 text-slate-600 border border-slate-200";
 
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  if (!day || !month) return null;
+  const cleanLabel = labelParts.filter(Boolean).join(" ").trim();
+  const completed = normalizeForMatch(orderStatus).includes("erledigt");
 
-  const baseDate = parseAppointmentBaseDate(baseDateInput);
-  let year = match[3] ? Number(match[3]) : baseDate.getFullYear();
-  if (year < 100) year += 2000;
+  if (!appointmentMoment || Number.isNaN(appointmentMoment.getTime())) {
+    return {
+      label: cleanLabel ? `Termin ${cleanLabel}` : "Termin",
+      className: normalClass,
+    };
+  }
 
-  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
-  return Number.isNaN(date.getTime()) ? null : date;
+  if (completed) {
+    return {
+      label: cleanLabel ? `Termin ${cleanLabel}` : "Termin",
+      className: doneClass,
+    };
+  }
+
+  const now = new Date();
+  const tomorrow = addDays(now, 1);
+
+  if (appointmentMoment.getTime() < now.getTime()) {
+    return {
+      label: cleanLabel ? `Überfällig ${cleanLabel}` : "Überfällig",
+      className: overdueClass,
+      icon: true,
+    };
+  }
+
+  if (isSameAppointmentCalendarDay(appointmentMoment, now)) {
+    const timeLabel = labelParts.slice(1).filter(Boolean).join(" ").trim();
+    return {
+      label: timeLabel ? `Heute ${timeLabel}` : "Heute",
+      className: todayClass,
+    };
+  }
+
+  if (isSameAppointmentCalendarDay(appointmentMoment, tomorrow)) {
+    const timeLabel = labelParts.slice(1).filter(Boolean).join(" ").trim();
+    return {
+      label: timeLabel ? `Morgen ${timeLabel}` : "Morgen",
+      className: tomorrowClass,
+    };
+  }
+
+  return {
+    label: cleanLabel ? `Termin ${cleanLabel}` : "Termin",
+    className: normalClass,
+  };
 };
 
-const buildAppointmentBadgeInfo = (
+const extractAppointmentBadge = (
   value?: string | null,
   baseDateInput?: string | null,
-): AppointmentBadgeInfo | null => {
+  orderStatus?: string | null,
+) => {
   const raw = compactText(value);
   const text = normalizeForMatch(raw);
   if (!text || isNonActionableSemanticHint(raw) || isNonActionableAppointmentHint(raw)) {
@@ -580,8 +594,10 @@ const buildAppointmentBadgeInfo = (
 
   const weekdayIndex = weekdayMap.find(([pattern]) => pattern.test(text))?.[1] || null;
   const hasNextWeek = /\b(naechste woche|nächste woche|next week|semaine prochaine|proxima semana|settimana prossima)\b/i.test(text);
+  const hasToday = /\b(heute|today|aujourd'hui|hoy|oggi)\b/i.test(text);
+  const hasTomorrow = /\b(morgen|tomorrow|demain|mañana|manana|domani)\b/i.test(text) && !weekdayIndex;
 
-  const dayPart = /vormittag|morning|matin|mañana|mattina/i.test(text)
+  const dayPart = /vormittag|morning|matin|mattina/i.test(text)
     ? "Vorm."
     : /nachmittag|afternoon|apres midi|après-midi|tarde|pomeriggio/i.test(text)
       ? "Nachm."
@@ -595,48 +611,51 @@ const buildAppointmentBadgeInfo = (
   const time = timeMatch ? formatAppointmentTime(timeMatch[1], timeMatch[2]) : "";
 
   const dateMatch = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
-  const explicitAppointmentDate = parseExplicitAppointmentDate(dateMatch, baseDateInput);
-  const explicitDate = explicitAppointmentDate ? formatAppointmentDate(explicitAppointmentDate) : "";
+  const baseDate = parseAppointmentBaseDate(baseDateInput);
+  const explicitDateObject = dateMatch
+    ? new Date(
+        dateMatch[3]
+          ? Number(dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3])
+          : baseDate.getFullYear(),
+        Number(dateMatch[2]) - 1,
+        Number(dateMatch[1]),
+      )
+    : null;
 
-  const computedAppointmentDate =
-    !explicitAppointmentDate && weekdayIndex
+  const computedAppointmentDate = explicitDateObject
+    || (hasToday ? baseDate : null)
+    || (hasTomorrow ? addDays(baseDate, 1) : null)
+    || (!dateMatch && weekdayIndex
       ? resolveWeekdayAppointmentDate(weekdayIndex, baseDateInput, hasNextWeek)
-      : null;
-
-  const appointmentDate = explicitAppointmentDate || computedAppointmentDate;
+      : null);
 
   const shouldShowGenericAppointmentOnly =
     computedAppointmentDate &&
     !hasNextWeek &&
+    !hasToday &&
+    !hasTomorrow &&
+    !explicitDateObject &&
     isAmbiguousElapsedSameDayAppointment(computedAppointmentDate, baseDateInput, time, dayPart);
 
   if (shouldShowGenericAppointmentOnly) {
-    return { label: "Termin", isOverdue: false, isToday: false };
+    return {
+      label: "Termin",
+      className: "bg-violet-100 text-violet-700 border border-violet-200",
+    };
   }
 
-  const computedDate = computedAppointmentDate ? formatAppointmentDate(computedAppointmentDate) : "";
-  const date = explicitDate || computedDate;
+  const date = computedAppointmentDate ? formatAppointmentDate(computedAppointmentDate) : "";
 
-  // Only show an outside appointment chip when there is a concrete day/date
-  // or a concrete time. Vague phrases like "Termin flexibel" stay inside only.
+  // Only show an outside appointment chip when there is a concrete day/date,
+  // a relative date such as heute/morgen, or a concrete time.
   if (!date && !time) return null;
 
-  const now = new Date();
-  const appointmentMoment = appointmentDate
-    ? buildAppointmentMoment(appointmentDate, time, dayPart)
+  const appointmentMoment = computedAppointmentDate
+    ? buildAppointmentMoment(computedAppointmentDate, time, dayPart)
     : null;
-  const isToday = appointmentMoment ? isSameCalendarDay(appointmentMoment, now) : false;
-  const isOverdue = appointmentMoment ? appointmentMoment.getTime() < now.getTime() : false;
+  const parts = [date, time || dayPart].filter(Boolean);
 
-  const displayDate = isToday && !isOverdue ? "Heute" : date;
-  const parts = [displayDate, time || dayPart].filter(Boolean);
-  const label = parts.length > 0 ? `Termin ${parts.join(" ")}` : "Termin";
-
-  return {
-    label: isOverdue ? `Überfällig ${[date, time || dayPart].filter(Boolean).join(" ")}` : label,
-    isOverdue,
-    isToday: isToday && !isOverdue,
-  };
+  return getAppointmentBadgeVisual(appointmentMoment, parts, orderStatus);
 };
 
 const getOperationalBadges = (
@@ -772,8 +791,6 @@ const getBottomBadges = (
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-200";
-  const appointmentClass = "bg-violet-100 text-violet-700 border border-violet-200";
-
   // RUECKRUF_VIA_COMMUNICATION_CHIPS_V8: callback is rendered once by CommunicationChips.
 
   const isMergedOrder =
@@ -789,31 +806,21 @@ const getBottomBadges = (
   }
 
   const appointmentBaseDate = order.createdAt || order.date;
-  const appointmentInfo = splitAppointmentSources(
+  const appointmentBadge = splitAppointmentSources(
     ...parsedNotes.jobHints,
     order.specialNotes,
     order.notes,
     order.audioTranscript,
   )
-    .map((line) => buildAppointmentBadgeInfo(line, appointmentBaseDate))
+    .map((line) => extractAppointmentBadge(line, appointmentBaseDate, order.status))
     .find(Boolean);
 
-  if (appointmentInfo) {
-    const orderIsOpen = normalizeForMatch(order.status) === "offen";
-    const overdueAppointmentClass =
-      "bg-orange-100 text-orange-800 border border-orange-300 dark:bg-orange-900/30 dark:text-orange-200 dark:border-orange-800";
-    const todayAppointmentClass =
-      "bg-violet-200 text-violet-900 border border-violet-300 dark:bg-violet-900/50 dark:text-violet-100 dark:border-violet-700";
-
+  if (appointmentBadge) {
     pushUniqueBadge(badges, {
       key: "appointment",
-      label: appointmentInfo.label,
-      className:
-        appointmentInfo.isOverdue && orderIsOpen
-          ? overdueAppointmentClass
-          : appointmentInfo.isToday
-            ? todayAppointmentClass
-            : appointmentClass,
+      label: appointmentBadge.label,
+      className: appointmentBadge.className,
+      icon: appointmentBadge.icon,
     });
   }
 
@@ -829,7 +836,7 @@ const getBottomBadges = (
 };
 
 const cleanServiceLabel = (value?: string | null) => {
-  let text = canonicalGermanServiceLabel(value);
+  let text = compactText(value);
   if (!text) return "";
 
   text = text
@@ -837,7 +844,7 @@ const cleanServiceLabel = (value?: string | null) => {
     .replace(/\s+[–—]\s+.*$/, "")
     .replace(/\s+-\s+.*$/, "")
     // Einheit-/Preiswörter gehören nicht in den sichtbaren Kartentitel.
-    .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/gi, " ")
+    .replace(/(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -1458,7 +1465,7 @@ export default function AuftraegePage() {
 
           return {
             key: Math.random().toString(36).slice(2),
-            serviceName: canonicalGermanServiceLabel(item.serviceName ?? ""),
+            serviceName: item.serviceName ?? "",
             unit: item.unit ?? "Stunde",
             unitPrice:
               Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
@@ -1477,7 +1484,7 @@ export default function AuftraegePage() {
       setFormItems([
         {
           key: Math.random().toString(36).slice(2),
-          serviceName: canonicalGermanServiceLabel(o.serviceName ?? ""),
+          serviceName: o.serviceName ?? "",
           unit: o.priceType ?? "Stunde",
           unitPrice: Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
           quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
@@ -1883,7 +1890,7 @@ export default function AuftraegePage() {
 
       return {
         index: index + 1,
-        serviceName: canonicalGermanServiceLabel(item.serviceName.trim()),
+        serviceName: item.serviceName.trim(),
         unit: item.unit,
         unitLabel: unitShortLabel(item.unit),
         quantity,
@@ -2208,7 +2215,7 @@ const payload = {
               },
             ];
       const offerItems = orderItems.map((i: any) => ({
-        description: canonicalGermanServiceLabel(i.serviceName || i.description || ""),
+        description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 1),
         unit: i.unit ?? "Stunde",
         unitPrice: String(i.unitPrice ?? 0),
@@ -2275,7 +2282,7 @@ const payload = {
               },
             ];
       const invoiceItems = orderItems.map((i: any) => ({
-        description: canonicalGermanServiceLabel(i.serviceName || i.description || ""),
+        description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 1),
         unit: i.unit ?? "Stunde",
         unitPrice: String(i.unitPrice ?? 0),
@@ -2661,7 +2668,7 @@ const openMedia = async (o: Order) => {
         ? o.items
         : [
             {
-              serviceName: canonicalGermanServiceLabel(o.serviceName ?? ""),
+              serviceName: o.serviceName ?? "",
               description: o.serviceName ?? o.description ?? "",
               quantity: o.quantity ?? 1,
               unit: o.priceType ?? "Stunde",
@@ -2669,7 +2676,7 @@ const openMedia = async (o: Order) => {
             },
           ];
     const offerItems = orderItems.map((i: any) => ({
-      description: canonicalGermanServiceLabel(i.serviceName || i.description || ""),
+      description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 1),
       unit: i.unit ?? "Stunde",
       unitPrice: String(i.unitPrice ?? 0),
@@ -2716,7 +2723,7 @@ const openMedia = async (o: Order) => {
         ? o.items
         : [
             {
-              serviceName: canonicalGermanServiceLabel(o.serviceName ?? ""),
+              serviceName: o.serviceName ?? "",
               description: o.serviceName ?? o.description ?? "",
               quantity: o.quantity ?? 1,
               unit: o.priceType ?? "Stunde",
@@ -2724,7 +2731,7 @@ const openMedia = async (o: Order) => {
             },
           ];
     const invoiceItems = orderItems.map((i: any) => ({
-      description: canonicalGermanServiceLabel(i.serviceName || i.description || ""),
+      description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 1),
       unit: i.unit ?? "Stunde",
       unitPrice: String(i.unitPrice ?? 0),
