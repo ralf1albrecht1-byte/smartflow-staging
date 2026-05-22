@@ -1029,6 +1029,40 @@ function extractUnclearPriceLines(originalText: string): UnclearPriceLine[] {
   return Array.from(byKey.values());
 }
 
+
+function weakServiceTopic(value?: string | null): string | null {
+  const source = normalizeCompare(value);
+  if (!source) return null;
+
+  const topicPatterns: Array<[RegExp, string]> = [
+    [/\btreppenhaus\b/, "treppenhaus"],
+    [/\bkellerboden\b/, "kellerboden"],
+    [/\bboden\b/, "boden"],
+    [/\bwand\b|\bwaende\b|\bwände\b/, "wand"],
+    [/\bmaler\b|\bmalerarbeiten\b|\bstreichen\b/, "malerarbeiten"],
+    [/\bsockelleisten?\b|\bleisten?\b/, "sockelleisten"],
+    [/\bfenster\b|\bvitres?\b|\bwindows?\b|\bfenetres?\b|\bfenêtres?\b/, "fenster"],
+    [/\bgarage\b|\btiefgarage\b/, "garage"],
+    [/\beingangsbereich\b|\bentrée\b|\bentree\b|\bentrance\b/, "eingangsbereich"],
+    [/\banfahrt\b/, "anfahrt"],
+    [/\bentsorgung\b|\bmaterial\b/, "entsorgung"],
+  ];
+
+  for (const [pattern, topic] of topicPatterns) {
+    if (pattern.test(source)) return topic;
+  }
+
+  return null;
+}
+
+function itemHasUnclearPriceSignal(item: ParsedOrderItemForValidation): boolean {
+  return hasUnclearPriceSignal(
+    [item.serviceName, item.description, item.sourceText, item.evidence]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
 function itemMatchesUnclearPriceLine(
   item: ParsedOrderItemForValidation,
   unclear: UnclearPriceLine,
@@ -1062,8 +1096,26 @@ function itemMatchesUnclearPriceLine(
   if (sameUnit && sameQuantity && overlap > 0) return true;
 
   // Generic names like "Boden reinigen" may have no meaningful tokens after
-  // generic-token filtering. In that case, the original unclear line itself is
-  // the safest evidence.
+  // generic-token filtering. In that case, use a weak service topic plus
+  // quantity/unit evidence. This blocks price leakage from neighbouring lines.
+  const itemTopic = weakServiceTopic([item.serviceName, itemText].join(" "));
+  const lineTopic = weakServiceTopic([unclear.serviceName, lineText].join(" "));
+
+  if (sameUnit && sameQuantity && itemTopic && lineTopic && itemTopic === lineTopic) {
+    return true;
+  }
+
+  if (
+    sameUnit &&
+    itemTopic &&
+    lineTopic &&
+    itemTopic === lineTopic &&
+    (Number(item.quantity || 0) <= 0 || item.needsReview)
+  ) {
+    return true;
+  }
+
+  // Generic direct-name fallback.
   if (sameUnit && sameQuantity && itemName && lineText.includes(itemName)) return true;
 
   return false;
@@ -1125,7 +1177,42 @@ function applyUnclearPriceLineGuard(
     reviewReasons.push(reason, "unit_price_review");
   }
 
-  return { items: nextItems, reviewReasons: unique(reviewReasons) };
+  return {
+    items: removeDuplicateUnclearPriceItems(nextItems, unclearLines),
+    reviewReasons: unique(reviewReasons),
+  };
+}
+
+
+function removeDuplicateUnclearPriceItems(
+  items: ParsedOrderItemForValidation[],
+  unclearLines: UnclearPriceLine[],
+): ParsedOrderItemForValidation[] {
+  if (unclearLines.length === 0) return items;
+
+  return items.filter((item, index) => {
+    if (!itemHasUnclearPriceSignal(item)) return true;
+
+    const itemTopic = weakServiceTopic(
+      [item.serviceName, item.description, item.sourceText, item.evidence].join(" "),
+    );
+
+    if (!itemTopic) return true;
+
+    const hasGuardedSibling = items.some((other, otherIndex) => {
+      if (otherIndex === index) return false;
+      if (!other.reviewReason?.startsWith("price_unclear:")) return false;
+
+      const otherTopic = weakServiceTopic(
+        [other.serviceName, other.description, other.sourceText, other.evidence].join(" "),
+      );
+
+      return otherTopic === itemTopic;
+    });
+
+    // Remove only redundant review-only AI artifacts. Keep the guarded item.
+    return !hasGuardedSibling;
+  });
 }
 
 type ExplicitServiceLineItem = ParsedOrderItemForValidation & {
@@ -1297,6 +1384,15 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
   if (parts.priceRaw) {
     cleaned = cleaned.replace(parts.priceRaw, " ");
   }
+
+  // INTAKE_UNCLEAR_PRICE_NAME_CLEANUP_V16_4:
+  // Remove uncertainty tails from visible service names. These words are
+  // instructions for the validator, not part of the service label.
+  cleaned = cleaned
+    .replace(/\b(?:ungefähr|ungefaehr|ungefahr|ca\.?|circa|approximately|approx\.?|about|environ)\b.*$/i, " ")
+    .replace(/\bpreis\s+(?:wie\s+letztes\s+mal|offen|unklar|muss\s+(?:noch\s+)?(?:geprüft|geprueft|prüfen|pruefen|abgeklärt|abgeklaert|abklären|abklaeren)|noch\s+(?:prüfen|pruefen|abklären|abklaeren|offen)).*$/i, " ")
+    .replace(/\b(?:price\s+(?:open|unclear|to\s+check|needs\s+checking)|same\s+as\s+last\s+time|tbd).*$/i, " ")
+    .replace(/\b(?:prix\s+(?:à\s+vérifier|a\s+verifier|ouvert|incertain)|comme\s+la\s+dernière\s+fois|comme\s+la\s+derniere\s+fois).*$/i, " ");
 
   cleaned = cleaned
     .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/gi, " ")
@@ -1756,10 +1852,22 @@ export function validateAndRepairParsedOrderItems(
 
   items = removeSubsumedReviewOnlyItems(items);
 
+  const priceUnclearServiceNames = new Set(
+    items
+      .filter((item) => item.reviewReason?.startsWith("price_unclear:"))
+      .map((item) => normalizeCompare(item.serviceName)),
+  );
+
+  const finalReviewReasons = unique(reviewReasons).filter((reason) => {
+    if (!reason.startsWith("unit_mismatch:")) return true;
+    const [, serviceName] = reason.split(":");
+    return !priceUnclearServiceNames.has(normalizeCompare(serviceName));
+  });
+
   return {
     items,
-    reviewReasons: unique(reviewReasons),
-    needsReview: reviewReasons.length > 0 || items.some((item) => item.needsReview),
+    reviewReasons: finalReviewReasons,
+    needsReview: finalReviewReasons.length > 0 || items.some((item) => item.needsReview),
     finalCurrency,
     detectedCurrencies,
   };

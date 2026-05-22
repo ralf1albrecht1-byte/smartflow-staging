@@ -127,6 +127,70 @@ function isSameContent(a: string | null | undefined, b: string | null | undefine
   return false;
 }
 
+type CommunicationPreferenceChip = {
+  key: 'mail' | 'whatsapp' | 'sms' | 'no_phone';
+  label: string;
+  color: 'green' | 'blue' | 'purple' | 'amber' | 'orange' | 'default';
+};
+
+function normalizeCommunicationText(value: string | null | undefined): string {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9@+\s/-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function detectCommunicationPreferenceChips(
+  data: CommunicationData,
+  parsed?: ParsedNotes,
+): CommunicationPreferenceChip[] {
+  const source = normalizeCommunicationText(
+    [
+      data.specialNotes,
+      parsed?.originalMessage,
+      parsed?.translation,
+      data.audioTranscript,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  );
+
+  if (!source) return [];
+
+  const chips: CommunicationPreferenceChip[] = [];
+  const add = (chip: CommunicationPreferenceChip) => {
+    if (!chips.some((existing) => existing.key === chip.key)) chips.push(chip);
+  };
+
+  const noPhone =
+    /\b(keine?\s+(?:telefonische\s+)?rueckfrage|nicht\s+(?:telefonisch\s+)?(?:anrufen|zurueckrufen|melden)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|anruf)|ohne\s+(?:telefon|anruf|rueckruf)|nur\s+(?:per\s+)?(?:mail|e\s*mail|email|whatsapp|sms))\b/i.test(source);
+
+  const mail =
+    /\b(mail\s+reicht|per\s+(?:e\s*mail|email|mail)|via\s+(?:e\s*mail|email|mail)|nur\s+(?:per\s+)?(?:e\s*mail|email|mail)|(?:e\s*mail|email|mail)\s+(?:genuegt|genugt|reicht|senden|schicken|antworten|kontakt))\b/i.test(source);
+
+  const whatsapp =
+    /\b(whatsapp|whats\s*app)\b/i.test(source) &&
+    /\b(reicht|genuegt|genugt|schreiben|melden|kontakt|nachricht|senden|schicken|antworten|nur|per|via)\b/i.test(source);
+
+  const sms =
+    /\bsms\b/i.test(source) &&
+    /\b(reicht|genuegt|genugt|schreiben|melden|kontakt|nachricht|senden|schicken|antworten|nur|per|via)\b/i.test(source);
+
+  if (mail) add({ key: 'mail', label: 'Mail', color: 'green' });
+  if (whatsapp) add({ key: 'whatsapp', label: 'WhatsApp', color: 'green' });
+  if (sms) add({ key: 'sms', label: 'SMS', color: 'purple' });
+  if (noPhone) add({ key: 'no_phone', label: 'Keine Tel.', color: 'amber' });
+
+  return chips;
+}
+
 /**
  * Strips forwarded customer message content from a notes/remarks field.
  * Used for Offers/Invoices where order.notes was wrongly copied into the document notes.
@@ -321,6 +385,11 @@ export function CommunicationBlock({
     return detectCallbackRequest(data.specialNotes);
   }, [data.specialNotes]);
 
+  const communicationPreferences = useMemo(
+    () => detectCommunicationPreferenceChips(data, parsed),
+    [data.specialNotes, data.notes, data.audioTranscript, parsed],
+  );
+
   // Detect customer language from parsed notes
   const hasTranslation = !!parsed.translation;
 
@@ -332,7 +401,7 @@ export function CommunicationBlock({
     <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
 
       {/* ─── 1. CHIPS ROW ─── */}
-      {(mediaInfo || hasTranslation || hazards.length > 0 || equipment.length > 0 || callbackNote) && (
+      {(mediaInfo || hasTranslation || communicationPreferences.length > 0 || hazards.length > 0 || equipment.length > 0 || callbackNote) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {/* Media type (Sprachnachricht / Bild / Bild+Text only) */}
           {mediaInfo && (
@@ -342,6 +411,10 @@ export function CommunicationBlock({
           {hasTranslation && (
             <Chip icon={Globe} label="Übersetzt" color="purple" />
           )}
+          {/* Communication preference chips */}
+          {communicationPreferences.map((chip) => (
+            <Chip key={chip.key} label={chip.label} color={chip.color} />
+          ))}
           {/* Callback request chip */}
           {callbackNote && (
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700">
@@ -524,11 +597,16 @@ export function CommunicationChips({
 }) {
   const hasAudio = data.mediaUrl && data.mediaType === 'audio';
   const hasImages = (data.imageUrls && data.imageUrls.length > 0) || (data.mediaUrl && data.mediaType === 'image');
+  const parsed = useMemo(() => parseNotesField(data.notes), [data.notes]);
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
   const callbackNote = detectCallbackRequest(data.specialNotes);
+  const communicationPreferences = useMemo(
+    () => detectCommunicationPreferenceChips(data, parsed),
+    [data.specialNotes, data.notes, data.audioTranscript, parsed],
+  );
 
-  if (!hasAudio && !hasImages && hazards.length === 0 && equipment.length === 0 && !callbackNote) return null;
+  if (!hasAudio && !hasImages && hazards.length === 0 && equipment.length === 0 && !callbackNote && communicationPreferences.length === 0) return null;
 
   return (
     <>
@@ -553,6 +631,9 @@ export function CommunicationChips({
           </button>
         );
       })()}
+      {communicationPreferences.map((chip) => (
+        <Chip key={chip.key} label={chip.label} color={chip.color} />
+      ))}
       {hazards.map((h, i) => (
         <span key={`h-${i}`} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700">
           {/hund/i.test(h) ? '🐕' : '⚠️'} {h}

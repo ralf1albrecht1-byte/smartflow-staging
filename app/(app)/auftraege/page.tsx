@@ -976,7 +976,6 @@ export default function AuftraegePage() {
   );
   const isMergeMode = mergeStep === 1;
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [customerMessagesOpen, setCustomerMessagesOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [siteAddressEditing, setSiteAddressEditing] = useState(false);
@@ -1316,7 +1315,6 @@ export default function AuftraegePage() {
     setEditingCustomer(false);
     setOrderVatRate(defaultVatRate);
     setUndoPreviousAddress(null);
-    setCustomerMessagesOpen(false);
     setServiceActionMenuKey(null);
     setDialogOpen(true);
   };
@@ -1331,7 +1329,6 @@ export default function AuftraegePage() {
    */
   const openEdit = (o: Order, opts?: { openCustomerSection?: boolean }) => {
     setEditId(o.id);
-    setCustomerMessagesOpen(false);
     setServiceActionMenuKey(null);
     setDupCheckOpen(false);
     setUndoPreviousAddress(null);
@@ -4322,85 +4319,67 @@ const getSafeOrderTotal = (o: Order) => {
                     </div>
                   </div>
 
-                  {/* Kundennachrichten — collapsed by default */}
+                  {/* Kundennachrichten — always visible for faster review */}
                   <div className="space-y-2 mb-20 md:mb-0">
                     <Label className="font-semibold">Kundennachrichten</Label>
 
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-between"
-                      onClick={() => setCustomerMessagesOpen((open) => !open)}
-                    >
-                      <span>
-                        {customerMessagesOpen
-                          ? "Kundennachrichten ausblenden"
-                          : "Kundennachrichten anzeigen"}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {customerMessagesOpen ? "▲" : "▼"}
-                      </span>
-                    </Button>
-
-                    {customerMessagesOpen && (
-                      <div className="space-y-3 rounded-lg border bg-muted/30 p-3 text-sm">
-                        {currentEditOrder?.mediaUrl &&
-                          currentEditOrder.mediaType === "audio" && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openMedia(currentEditOrder)}
-                            >
-                              <Volume2 className="w-4 h-4 mr-1" />
-                              Sprachnachricht abspielen
-                            </Button>
-                          )}
-
-                        {customerMessageImagePreviewUrl && currentEditOrder && (
-                          <button
+                    <div className="space-y-3 rounded-lg border bg-muted/30 p-3 text-sm">
+                      {currentEditOrder?.mediaUrl &&
+                        currentEditOrder.mediaType === "audio" && (
+                          <Button
                             type="button"
-                            className="group flex w-full items-center gap-3 rounded-lg border bg-background p-2 text-left hover:bg-muted/60"
+                            variant="outline"
+                            size="sm"
                             onClick={() => openMedia(currentEditOrder)}
                           >
-                            <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                              <img
-                                src={customerMessageImagePreviewUrl}
-                                alt="Kundenbild"
-                                className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                              />
-                            </div>
-
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm font-medium">
-                                Bildvorschau
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                Miniatur anklicken für Großansicht
-                              </div>
-                            </div>
-
-                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                          </button>
+                            <Volume2 className="w-4 h-4 mr-1" />
+                            Sprachnachricht abspielen
+                          </Button>
                         )}
 
-                        {currentEditOrder?.audioTranscript && (
-                          <div className="rounded-md border bg-background p-2">
-                            <div className="text-xs font-medium text-muted-foreground mb-1">
-                              Transkription
+                      {customerMessageImagePreviewUrl && currentEditOrder && (
+                        <button
+                          type="button"
+                          className="group flex w-full items-center gap-3 rounded-lg border bg-background p-2 text-left hover:bg-muted/60"
+                          onClick={() => openMedia(currentEditOrder)}
+                        >
+                          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                            <img
+                              src={customerMessageImagePreviewUrl}
+                              alt="Kundenbild"
+                              className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                            />
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium">
+                              Bildvorschau
                             </div>
-                            <div className="whitespace-pre-wrap">
-                              {currentEditOrder.audioTranscript}
+                            <div className="text-xs text-muted-foreground">
+                              Miniatur anklicken für Großansicht
                             </div>
                           </div>
-                        )}
 
-                        <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
-                          {customerMessageText ||
-                            "Keine Kundennachricht gespeichert."}
+                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                      )}
+
+                      {currentEditOrder?.audioTranscript && (
+                        <div className="rounded-md border bg-background p-2">
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            Transkription
+                          </div>
+                          <div className="whitespace-pre-wrap">
+                            {currentEditOrder.audioTranscript}
+                          </div>
                         </div>
+                      )}
+
+                      <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
+                        {customerMessageText ||
+                          "Keine Kundennachricht gespeichert."}
                       </div>
-                    )}
+                    </div>
                   </div>
                 </>
               )}
