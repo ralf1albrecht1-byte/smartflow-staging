@@ -2652,6 +2652,259 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.`;
 }
 
+// INTAKE_SECOND_STRUCTURE_VERIFIER_V16_17
+// Zweiter, unabhängiger KI-Prüfer NACH der normalen Auftragserkennung.
+// Zweck: Kunde/Rechnungsadresse, Ausführungsadresse, Kontakt vor Ort,
+// Telefonnummern, Kommunikation, Parkplatz und Termin validieren.
+// Wichtig: Leistungen/Preise/Mengen/Einheiten/Währungen werden hier NICHT geprüft
+// und dürfen durch diesen zweiten Prüfer nicht verändert werden.
+type SecondStructureVerifierResult = {
+  verdict?: string | null;
+  customerDataSafeToUse?: boolean | null;
+  clearBillingCustomer?: boolean | null;
+  clearExecutionAddress?: boolean | null;
+  reasons?: string[] | null;
+  strukturpruefung?: StructuredIntakeReview | null;
+};
+
+function normalizeSecondVerifierVerdict(value?: string | null): "accept" | "review" | "reject" | null {
+  const normalized = normalizeUnitText(value || "");
+  if (["accept", "accepted", "ok", "safe", "sicher", "freigeben"].includes(normalized)) return "accept";
+  if (["review", "pruefen", "prüfen", "manual_review", "manual", "unsicher"].includes(normalized)) return "review";
+  if (["reject", "rejected", "block", "blocked", "ablehnen", "sperren", "unsafe", "gefaehrlich", "gefährlich"].includes(normalized)) return "reject";
+  return null;
+}
+
+function compactFirstExtractionForSecondVerifier(parsed: any) {
+  return {
+    kunde: {
+      name: parsed?.kunde?.name ?? null,
+      strasse: parsed?.kunde?.strasse ?? null,
+      hausnummer: parsed?.kunde?.hausnummer ?? null,
+      plz: parsed?.kunde?.plz ?? null,
+      ort: parsed?.kunde?.ort ?? null,
+      telefon: parsed?.kunde?.telefon ?? null,
+      email: parsed?.kunde?.email ?? null,
+    },
+    strukturpruefung: getStructuredIntakeReview(parsed),
+    auftrag: {
+      titel: parsed?.auftrag?.titel ?? null,
+      beschreibung: parsed?.auftrag?.beschreibung ?? null,
+      ausfuehrungsadresse: parsed?.auftrag?.ausfuehrungsadresse ?? null,
+      besonderheiten: parsed?.auftrag?.besonderheiten ?? [],
+      gefahren: parsed?.auftrag?.gefahren ?? [],
+    },
+    kundenabgleich: {
+      status: parsed?.kundenabgleich?.status ?? null,
+      bestehende_kunden_id: parsed?.kundenabgleich?.bestehende_kunden_id ?? null,
+      confidence: parsed?.kundenabgleich?.confidence ?? null,
+      warnung: parsed?.kundenabgleich?.warnung ?? null,
+    },
+  };
+}
+
+function normalizeSecondVerifierReasons(value: any): string[] {
+  const raw = Array.isArray(value) ? value : [];
+  return Array.from(
+    new Set(
+      raw
+        .map((item) => normalizeSemanticText(item))
+        .filter(Boolean)
+        .map((item) => `second_structure:${item.replace(/\s+/g, "_").slice(0, 80)}`),
+    ),
+  );
+}
+
+async function runSecondStructureVerifier(input: {
+  source: string;
+  rawText: string;
+  parsed: any;
+  hauptsprache: string;
+}): Promise<SecondStructureVerifierResult | null> {
+  const rawText = String(input.rawText || "").trim();
+  if (!rawText) return null;
+
+  const firstExtraction = compactFirstExtractionForSecondVerifier(input.parsed);
+
+  const verifierSystemPrompt = `Du bist der zweite unabhängige Prüfer für eine Auftragserfassung.
+
+Aufgabe: Prüfe NUR Kundendaten, Rechnungsadresse, Ausführungsadresse, Kontakt vor Ort, Telefonnummern, Kommunikation, Parkplatz und Termin.
+
+WICHTIG: Du darfst KEINE Leistungen, Preise, Mengen, Einheiten oder Währungen prüfen, ändern oder kommentieren.
+
+Vergleiche den Originaltext mit der ersten KI-Extraktion. Entscheide vorsichtig:
+- billingCustomer = Rechnungskunde / Kunde / Auftraggeber, der die Rechnung bekommt.
+- executionAddress = Arbeitsort / Objekt / Ausführungsadresse / Baustelle.
+- onsiteContact = Hauswart / Kontaktperson / Ansprechpartner vor Ort.
+
+HARTE REGELN:
+1. Arbeitsortdaten dürfen NIE als Rechnungsadresse/Kundendaten freigegeben werden.
+2. Kontakt-vor-Ort-Daten dürfen NIE als Rechnungsadresse/Kundendaten freigegeben werden.
+3. Kontakt-vor-Ort-Telefon darf NIE als Kundentelefon freigegeben werden.
+4. Bestehende Kundendaten dürfen NIE automatisch ergänzt oder überschrieben werden. Du prüfst nur den neuen Nachrichtentext.
+5. Wenn Rechnungskunde nicht eindeutig belegt ist: customerDataSafeToUse=false und clearBillingCustomer=true.
+6. Bei zwei Firmen/Orten/Telefonnummern: nur freigeben, wenn der Abschnitt eindeutig als Rechnungsadresse/Kunde markiert ist.
+7. Jedes freigegebene Feld braucht sourceText aus dem Originaltext.
+8. Bei Zweifel: verdict=review, customerDataSafeToUse=false, klare reason schreiben.
+
+Antworte NUR mit gültigem JSON in diesem Format:
+{
+  "verdict": "accept" | "review" | "reject",
+  "customerDataSafeToUse": true,
+  "clearBillingCustomer": false,
+  "clearExecutionAddress": false,
+  "reasons": [],
+  "strukturpruefung": {
+    "billingCustomer": {
+      "name": null,
+      "street": null,
+      "zip": null,
+      "city": null,
+      "phone": null,
+      "email": null,
+      "confidence": "niedrig",
+      "sourceText": null
+    },
+    "executionAddress": {
+      "isDifferent": false,
+      "name": null,
+      "street": null,
+      "zip": null,
+      "city": null,
+      "confidence": "niedrig",
+      "sourceText": null
+    },
+    "onsiteContact": {
+      "role": null,
+      "name": null,
+      "phone": null,
+      "confidence": "niedrig",
+      "sourceText": null
+    },
+    "communication": {
+      "preferred": null,
+      "phoneCallWanted": false,
+      "phoneCallForbidden": false,
+      "confidence": "niedrig",
+      "sourceText": null
+    },
+    "parking": {
+      "status": "unknown",
+      "confidence": "niedrig",
+      "sourceText": null
+    },
+    "appointment": {
+      "raw": null,
+      "date": null,
+      "time": null,
+      "confidence": "niedrig",
+      "sourceText": null
+    }
+  }
+}`;
+
+  try {
+    console.log(`[${input.source}] 🛡️ Starting second structure verifier`);
+    const verifierResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        messages: [
+          { role: "system", content: verifierSystemPrompt },
+          {
+            role: "user",
+            content: JSON.stringify({
+              hauptsprache: input.hauptsprache || "Deutsch",
+              originalText: rawText,
+              firstExtraction,
+            }),
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_tokens: 2200,
+      }),
+    });
+
+    if (!verifierResponse.ok) {
+      const errorText = await verifierResponse.text().catch(() => "");
+      console.error(`[${input.source}] Second structure verifier API error:`, errorText);
+      return {
+        verdict: "review",
+        customerDataSafeToUse: null,
+        clearBillingCustomer: false,
+        clearExecutionAddress: false,
+        reasons: ["second_structure_verifier_api_error"],
+        strukturpruefung: null,
+      };
+    }
+
+    const verifierJson = await verifierResponse.json();
+    const verifierContent = verifierJson?.choices?.[0]?.message?.content;
+    if (!verifierContent) {
+      return {
+        verdict: "review",
+        customerDataSafeToUse: null,
+        clearBillingCustomer: false,
+        clearExecutionAddress: false,
+        reasons: ["second_structure_verifier_empty_response"],
+        strukturpruefung: null,
+      };
+    }
+
+    const parsedVerifier = JSON.parse(verifierContent);
+    if (!parsedVerifier || typeof parsedVerifier !== "object") {
+      return {
+        verdict: "review",
+        customerDataSafeToUse: null,
+        clearBillingCustomer: false,
+        clearExecutionAddress: false,
+        reasons: ["second_structure_verifier_invalid_response"],
+        strukturpruefung: null,
+      };
+    }
+
+    console.log(
+      `[${input.source}] 🛡️ Second structure verifier result:`,
+      JSON.stringify({
+        verdict: parsedVerifier.verdict,
+        customerDataSafeToUse: parsedVerifier.customerDataSafeToUse,
+        clearBillingCustomer: parsedVerifier.clearBillingCustomer,
+        reasons: Array.isArray(parsedVerifier.reasons) ? parsedVerifier.reasons : [],
+      }),
+    );
+
+    return parsedVerifier as SecondStructureVerifierResult;
+  } catch (error: any) {
+    console.error(
+      `[${input.source}] Second structure verifier failed:`,
+      error?.message || error,
+    );
+    return {
+      verdict: "review",
+      customerDataSafeToUse: null,
+      clearBillingCustomer: false,
+      clearExecutionAddress: false,
+      reasons: ["second_structure_verifier_failed"],
+      strukturpruefung: null,
+    };
+  }
+}
+
+function clearUnsafeBillingCustomerData(kundeData: any) {
+  kundeData.name = null;
+  kundeData.strasse = null;
+  kundeData.hausnummer = null;
+  kundeData.plz = null;
+  kundeData.ort = null;
+  kundeData.telefon = null;
+  kundeData.email = null;
+}
+
 // ---------- Main intake function ----------
 export async function processIncomingMessage(
   input: IntakeInput,
@@ -2937,6 +3190,38 @@ const intakeCurrency =
     return await createFallbackOrderFromRawPayload(input, "llm_parse_error");
   }
 
+  // V16.17: zweiter unabhängiger KI-Prüfer für Kunde/Rechnungsadresse,
+  // Ausführungsadresse, Kontakt vor Ort, Telefonnummern, Kommunikation,
+  // Parkplatz und Termin. Leistungen/Preise/Mengen/Einheiten/Währungen werden
+  // hier bewusst nicht verändert.
+  const secondStructureVerifier = await runSecondStructureVerifier({
+    source,
+    rawText: messageText,
+    parsed,
+    hauptsprache,
+  });
+
+  if (secondStructureVerifier?.strukturpruefung) {
+    parsed.strukturpruefung = secondStructureVerifier.strukturpruefung;
+  }
+
+  const secondStructureVerifierVerdict = normalizeSecondVerifierVerdict(
+    secondStructureVerifier?.verdict || null,
+  );
+  const secondStructureVerifierReviewReasons = normalizeSecondVerifierReasons(
+    secondStructureVerifier?.reasons,
+  );
+  if (
+    secondStructureVerifier &&
+    (secondStructureVerifierVerdict !== "accept" ||
+      secondStructureVerifier.customerDataSafeToUse === false ||
+      secondStructureVerifier.clearBillingCustomer === true ||
+      secondStructureVerifierReviewReasons.length > 0)
+  ) {
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
+  }
+
   console.log(
     `[${source}] KI-Analyse:`,
     JSON.stringify({
@@ -2959,6 +3244,34 @@ const intakeCurrency =
   // Ensure address is split properly
   const kundeData = parsed.kunde || {};
   const intakeCustomerReviewReasons: string[] = [];
+
+  if (secondStructureVerifierReviewReasons.length > 0) {
+    intakeCustomerReviewReasons.push(...secondStructureVerifierReviewReasons);
+  }
+
+  if (
+    secondStructureVerifier?.customerDataSafeToUse === false ||
+    secondStructureVerifier?.clearBillingCustomer === true ||
+    secondStructureVerifierVerdict === "reject"
+  ) {
+    clearUnsafeBillingCustomerData(kundeData);
+    abgleichStatus = "kein_treffer";
+    parsed.kundenabgleich = {
+      ...(parsed.kundenabgleich || {}),
+      status: "kein_treffer",
+      bestehende_kunden_id: null,
+      confidence: 0,
+      warnung: "Kundendaten durch zweiten Strukturprüfer blockiert – bitte prüfen",
+    };
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
+    intakeCustomerReviewReasons.push("customer_needs_review", "second_structure_customer_blocked");
+    console.log(
+      `[${source}] 🛡️ Second structure verifier blocked billing customer fields`,
+    );
+  } else if (secondStructureVerifierVerdict === "review") {
+    intakeCustomerReviewReasons.push("second_structure_customer_review");
+  }
 
   // V16.15: KI-JSON-Strukturprüfung als zusätzliche Schutzschicht.
   // Die KI darf Kunde / Ausführungsadresse / Kontakt vor Ort semantisch sortieren,
