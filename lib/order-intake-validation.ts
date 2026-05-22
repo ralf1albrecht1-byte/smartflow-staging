@@ -991,13 +991,29 @@ function splitRawIntakeLines(text?: string | null): string[] {
   const source = normalizeText(text);
   if (!source) return [];
 
-  return unique(
-    source
-      .replace(/\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi, "\n")
-      .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
-      .map((line) => normalizeText(line).replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, "").trim())
-      .filter(Boolean),
-  );
+  const cleanup = (line: string) =>
+    normalizeText(line)
+      .replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, "")
+      .trim();
+
+  // INTAKE_UNCLEAR_PRICE_FULL_LINE_V16_5:
+  // Keep the original customer line first. Earlier we split before every
+  // quantity ("Boden reinigen ca. 55 m2 ..." -> "55 m2 ...") and lost the
+  // service topic. That allowed the following flat price ("Anfahrt CHF 45")
+  // to leak into the uncertain Boden line. For uncertain-price guards the
+  // full original line is the source of truth.
+  const originalLines = source
+    .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
+    .map(cleanup)
+    .filter(Boolean);
+
+  const splitQuantityLines = source
+    .replace(/\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi, "\n")
+    .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
+    .map(cleanup)
+    .filter(Boolean);
+
+  return unique([...originalLines, ...splitQuantityLines]);
 }
 
 function extractUnclearPriceLines(originalText: string): UnclearPriceLine[] {
@@ -1233,17 +1249,34 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
   const source = normalizeText(text);
   if (!source) return [];
 
-  const rawLines = source
-    .replace(/\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi, "\n")
+  const cleanup = (line: string) =>
+    normalizeText(line)
+      // INTAKE_SAFE_LINE_COVERAGE_V16_1:
+      // Do NOT strip a naked leading number. In service lines this is often the
+      // real quantity ("4 Stunden", "12 m2", "25 Meter"). Only strip bullets or
+      // numbered-list markers like "1." / "2)".
+      .replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, "")
+      .trim();
+
+  // INTAKE_SERVICE_NAME_CLEANUP_V16_6:
+  // Keep the full original line first. Splitting before quantities is useful
+  // for coverage, but it can destroy the service name:
+  // "Nettoyage du garage 32 m2 EUR 24 par m2" -> "32 m2 EUR 24 par m2".
+  // The full line must win so the visible name stays "Nettoyage du garage".
+  const originalLines = source
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
-    // INTAKE_SAFE_LINE_COVERAGE_V16_1:
-    // Do NOT strip a naked leading number. In service lines this is often the
-    // real quantity ("4 Stunden", "12 m2", "25 Meter"). Only strip bullets or
-    // numbered-list markers like "1." / "2)".
-    .map((line) => normalizeText(line).replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, "").trim())
+    .map(cleanup)
     .filter(Boolean);
 
-  return unique(rawLines).filter((line) => {
+  const splitQuantityLines = source
+    .replace(/\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi, "\n")
+    .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
+    .map(cleanup)
+    .filter(Boolean);
+
+  const candidates = unique([...originalLines, ...splitQuantityLines]);
+
+  return candidates.filter((line) => {
     const normalized = normalizeCompare(line);
     if (!normalized || normalized.length < 8) return false;
     if (EXPLICIT_SERVICE_NAME_BLOCKLIST.has(normalized.replace(/\s+/g, ""))) return false;
@@ -1395,6 +1428,13 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
     .replace(/\b(?:prix\s+(?:à\s+vérifier|a\s+verifier|ouvert|incertain)|comme\s+la\s+dernière\s+fois|comme\s+la\s+derniere\s+fois).*$/i, " ");
 
   cleaned = cleaned
+    // Remove remaining price/quantity fragments from the visible service name.
+    // These fragments are still stored in quantity/unit/unitPrice and must not
+    // leak into offers/invoices as the service label.
+    .replace(new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\s*${PRICE_NUMBER}(?:\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS})?\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b${PRICE_NUMBER}\\s*(?:${CURRENCY_WORDS})(?:\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS})?\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"), " ")
     .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis)\b/gi, " ")
     .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
     .replace(/\b(?:pro|je|per|par|à|a)\b\s*$/i, " ")
@@ -1549,6 +1589,32 @@ function itemCoversExplicitLine(
   return sameUnit && samePrice && tokenOverlap > 0;
 }
 
+
+function isPollutedExplicitServiceName(value?: string | null): boolean {
+  const normalized = normalizeCompare(value);
+  if (!normalized) return true;
+
+  const hasCurrencyOrPrice =
+    new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "i").test(normalized) ||
+    new RegExp(`\\b${PRICE_NUMBER}\\s*(?:pro|je|per|par|a|/)\\s*${UNIT_WORDS}\\b`, "i").test(normalized);
+
+  const hasQuantityAtStart =
+    new RegExp(`^\\s*\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(normalized);
+
+  const onlyNumbersUnitsAndPriceWords =
+    normalized
+      .split(" ")
+      .filter(Boolean)
+      .every((token) =>
+        /^\\d+(?:[.,]\\d+)?$/.test(token) ||
+        unitTypeFromText(token) !== null ||
+        normalizeCurrency(token) !== null ||
+        /^(pro|je|per|par|a|pauschal|pauschale|fixpreis|festpreis)$/.test(token),
+      );
+
+  return hasQuantityAtStart || onlyNumbersUnitsAndPriceWords || (hasCurrencyOrPrice && normalized.split(" ").length <= 6);
+}
+
 function shouldPreferExplicitServiceName(
   item: ParsedOrderItemForValidation,
   explicit: ExplicitServiceLineItem,
@@ -1557,6 +1623,7 @@ function shouldPreferExplicitServiceName(
   const explicitName = normalizeCompare(explicit.serviceName);
   if (!explicitName || explicitName === "unbekannte leistung") return false;
   if (!itemName || itemName === "unbekannte leistung" || itemName === "reinigung") return true;
+  if (isPollutedExplicitServiceName(item.serviceName) && !isPollutedExplicitServiceName(explicit.serviceName)) return true;
 
   const itemTokens = meaningfulServiceTokens(item.serviceName);
   const explicitTokens = meaningfulServiceTokens(explicit.serviceName);
@@ -2265,7 +2332,12 @@ export function extractExecutionAddressFromText(
     const sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
     const siteCity = plzCityFromLine?.city || fallbackPlzCity.city;
 
-    if (!siteAddress && !(sitePlz && siteCity)) continue;
+    // INTAKE_EXECUTION_ADDRESS_COMPLETE_ONLY_V16_6:
+    // Do not create an execution address from only PLZ/city or a repeated
+    // customer/company name. It creates false "Ausführungsadresse" chips such
+    // as "Multilingual SA, 1003 Lausanne" with no street.
+    if (!siteAddress) continue;
+    if (!(sitePlz && siteCity)) continue;
 
     if (
       isSameAddress({
