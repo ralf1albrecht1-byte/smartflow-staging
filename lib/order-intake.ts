@@ -119,6 +119,8 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     .trim();
 
   const normalized = normalizeUnitText(candidate);
+  const hasStrongCompanySuffix =
+    /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|gmbh\s*&\s*co|verein|stiftung)\b/i.test(candidate);
 
   if (candidate.length < 2 || candidate.length > 80) return null;
   if (!/[A-Za-zÄÖÜäöüß]/.test(candidate)) return null;
@@ -177,7 +179,7 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
 
   const blockedContained =
     /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|prüfen|pruefen|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext)\b/i;
-  if (blockedContained.test(normalized)) return null;
+  if (!hasStrongCompanySuffix && blockedContained.test(normalized)) return null;
 
   // Reine Adresszeilen sind kein Name.
   const addressLike =
@@ -236,6 +238,45 @@ function extractBillingCustomerNameFallback(
       const nextLine = lines[index + 1] || "";
       const candidate = cleanBillingCustomerNameCandidate(nextLine);
       if (candidate) return candidate;
+    }
+  }
+
+  // 3) Unlabelled fallback: first plausible billing/customer block before
+  // Arbeitsort/Kontakt/Besonderheiten/Leistungen. This keeps flexible messages
+  // working without assuming that the customer is always line 1.
+  const sectionStopPattern =
+    /^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|person\s+vor\s+ort|hauswart|hausmeister|concierge|caretaker|gardien|besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel)\s*:?/i;
+  const addressPattern =
+    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\b/i;
+  const zipCityPattern = /\b\d{4,5}\s+[A-Za-zÄÖÜäöüß' .\-]+\b/i;
+  const companySuffixPattern =
+    /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|gmbh\s*&\s*co|verein|stiftung)\b/i;
+  const greetingOrIntroPattern =
+    /^(?:hallo|guten\s+tag|grüezi|gruezi|salut|bonjour|bitte|neuer\s+auftrag|auftrag|anbei|hier|ich\s+brauche|wir\s+brauchen)\b/i;
+
+  const upperCandidateLines: string[] = [];
+  for (const line of lines) {
+    if (sectionStopPattern.test(line) && !companySuffixPattern.test(line)) break;
+    upperCandidateLines.push(line);
+  }
+
+  for (let index = 0; index < upperCandidateLines.length; index += 1) {
+    const line = upperCandidateLines[index];
+    if (!line || greetingOrIntroPattern.test(line)) continue;
+    if (/^(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail)\b/i.test(line) && !companySuffixPattern.test(line)) continue;
+    if (addressPattern.test(line) || zipCityPattern.test(line)) continue;
+
+    const candidate = cleanBillingCustomerNameCandidate(line);
+    if (!candidate) continue;
+
+    const next1 = upperCandidateLines[index + 1] || "";
+    const next2 = upperCandidateLines[index + 2] || "";
+    const hasAddressAfter = addressPattern.test(next1) || addressPattern.test(next2);
+    const hasZipAfter = zipCityPattern.test(next1) || zipCityPattern.test(next2);
+    const hasCompanySuffix = companySuffixPattern.test(candidate);
+
+    if (hasCompanySuffix || (hasAddressAfter && hasZipAfter)) {
+      return candidate;
     }
   }
 

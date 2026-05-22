@@ -535,15 +535,30 @@ const isNonActionableAppointmentHint = (value?: string | null) => {
   );
 };
 
-const splitAppointmentSources = (...values: Array<string | null | undefined>) =>
-  values
-    .flatMap((value) =>
-      compactText(value)
-        .split(/\n+|(?<=[.!?])\s+/g)
-        .map((line) => line.trim())
-        .filter(Boolean),
-    )
-    .filter(Boolean);
+const splitAppointmentSources = (...values: Array<string | null | undefined>) => {
+  const sources: string[] = [];
+
+  values.forEach((value) => {
+    const raw = String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .trim();
+    if (!raw) return;
+
+    raw
+      .split(/\n+/g)
+      .map((line) => compactText(line))
+      .filter(Boolean)
+      .forEach((line) => sources.push(line));
+
+    // Keep the full text as a fallback so "Termin 22.05. 16:00" is not
+    // split after the date dot and the real time stays visible on the chip.
+    const compactRaw = compactText(raw);
+    if (compactRaw) sources.push(compactRaw);
+  });
+
+  return Array.from(new Set(sources));
+};
 
 const isSameAppointmentCalendarDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() &&
@@ -892,7 +907,7 @@ const cleanServiceLabel = (value?: string | null) => {
     .replace(/\s+[–—]\s+.*$/, "")
     .replace(/\s+-\s+.*$/, "")
     // Einheit-/Preiswörter gehören nicht in den sichtbaren Kartentitel.
-    .replace(/(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)/gi, " ")
+    .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
