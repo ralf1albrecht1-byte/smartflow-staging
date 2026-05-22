@@ -145,16 +145,21 @@ function isTranscriptOnlyCustomerMessage(
   transcript: string | null | undefined,
   hasAudio: boolean,
 ): boolean {
-  if (!message || !hasAudio) return false;
+  if (!message) return false;
 
   const trimmed = message.trim();
   if (!trimmed) return false;
 
+  // V16.9: Some order views carry an audio transcript even when the media flag is
+  // not available in this component. If the customer message is only the stored
+  // transcript, hide it regardless of the media flag.
   if (isSameContent(trimmed, transcript)) return true;
+
+  if (!hasAudio && !transcript) return false;
 
   // Voice-only orders often store the same transcript in notes as:
   // "WhatsApp:\n[Transkription] ...". Do not show that a second time.
-  return /^\[\s*(?:transkription|transcription|transkript)\s*\]/i.test(trimmed);
+  return /^\[\s*(?:transkription|transcription|transkript)\s*\]\s*:?/i.test(trimmed);
 }
 
 /**
@@ -433,7 +438,11 @@ export function CommunicationBlock({
 
   const showOriginalCustomerMessage = Boolean(
     parsed.originalMessage &&
-      !isTranscriptOnlyCustomerMessage(parsed.originalMessage, data.audioTranscript, Boolean(hasAudio)),
+      !isTranscriptOnlyCustomerMessage(
+        parsed.originalMessage,
+        data.audioTranscript,
+        Boolean(hasAudio || data.audioTranscript),
+      ),
   );
 
   // Check if there's any content to show

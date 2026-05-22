@@ -242,6 +242,97 @@ function extractBillingCustomerNameFallback(
   return null;
 }
 
+
+type OnsiteContactHint = {
+  hint: string | null;
+  phone: string | null;
+  phoneBelongsToSiteContact: boolean;
+};
+
+function normalizePhoneDigits(value: string | null | undefined): string {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function extractPhoneFromText(value: string | null | undefined): string | null {
+  const source = String(value || "");
+  const explicit = source.match(
+    /\b(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)\b/i,
+  );
+  const loose = explicit?.[1] || source.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] || null;
+  if (!loose) return null;
+
+  const digits = normalizePhoneDigits(loose);
+  if (digits.length < 7 || digits.length > 15) return null;
+
+  return loose.replace(/\s+/g, " ").trim();
+}
+
+function extractOnsiteContactHint(
+  rawText: string | null | undefined,
+  candidateCustomerPhone: string | null | undefined,
+): OnsiteContactHint {
+  const source = normalizeBlockText(rawText);
+  const candidateDigits = normalizePhoneDigits(candidateCustomerPhone);
+  if (!source) {
+    return { hint: null, phone: null, phoneBelongsToSiteContact: false };
+  }
+
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const markerRe =
+    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|person\s+vor\s+ort|hauswart|hausmeister|concierge|caretaker|gardien|facility\s+manager)\b/i;
+  const stopRe =
+    /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt)\s*:?$/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!markerRe.test(lines[index])) continue;
+
+    const blockLines: string[] = [];
+    for (let offset = 0; offset <= 3; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) continue;
+      if (offset > 0 && stopRe.test(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join(" ");
+    const phone = extractPhoneFromText(block);
+    const phoneDigits = normalizePhoneDigits(phone);
+    const phoneBelongsToSiteContact =
+      !!candidateDigits &&
+      !!phoneDigits &&
+      (phoneDigits.endsWith(candidateDigits) ||
+        candidateDigits.endsWith(phoneDigits) ||
+        phoneDigits === candidateDigits);
+
+    const contactName = blockLines
+      .map((line) =>
+        line
+          .replace(markerRe, "")
+          .replace(/\b(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?.*$/i, "")
+          .replace(/^[\s:.-]+|[\s:.-]+$/g, "")
+          .trim(),
+      )
+      .find((line) => line && !/^\+?\d/.test(line));
+
+    const parts = [
+      contactName ? `Kontakt vor Ort: ${contactName}` : "Kontakt vor Ort",
+      phone ? `Tel. ${phone}` : null,
+    ].filter(Boolean);
+
+    return {
+      hint: parts.join(", "),
+      phone,
+      phoneBelongsToSiteContact,
+    };
+  }
+
+  return { hint: null, phone: null, phoneBelongsToSiteContact: false };
+}
+
 function normalizeUnitText(value: any): string {
   return String(value || "")
     .toLowerCase()
@@ -2151,6 +2242,25 @@ const intakeCurrency =
   // Ensure address is split properly
   const kundeData = parsed.kunde || {};
 
+  // V16.9: Telefonnummern aus "Kontakt vor Ort" dürfen nicht als normale
+  // Kundentelefonnummer gespeichert oder für Matching verwendet werden.
+  // Beispiel:
+  // Kontakt vor Ort:
+  // Hauswart Meier
+  // Tel. 079 123 45 67
+  // => bleibt als Hinweis erhalten, wird aber nicht zur Rechnungsadresse.
+  const onsiteContactHint = extractOnsiteContactHint(
+    messageText,
+    kundeData.telefon || null,
+  );
+  if (onsiteContactHint.phoneBelongsToSiteContact) {
+    console.log(
+      `[${source}] 🛡️ onsite contact phone removed from customer data: ${maskPhoneForLog(kundeData.telefon || null)}`,
+    );
+    kundeData.telefon = null;
+  }
+
+
   // Block R — Safety-Net: Wenn die LLM keinen Namen extrahiert hat, aber der
   // Text eine eindeutige Selbstvorstellung enthält ("mein Name ist Aida",
   // "Ich heisse X", "Ich bin X" etc.), den Namen aus dem Text übernehmen.
@@ -2611,6 +2721,7 @@ const intakeCurrency =
 const hinweisItems = dedupeSpecialNoteLines([
   ...baseHinweisItems,
   ...semanticFallbackNotes.jobHints,
+  onsiteContactHint.hint || "",
 ])
   .filter((line) => !isNonActionableSpecialNoteCandidate(line))
   .filter((line) => !isNonActionablePlanningHint(line))
