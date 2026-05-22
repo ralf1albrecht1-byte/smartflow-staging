@@ -2014,7 +2014,7 @@ export function validateAndRepairParsedOrderItems(
 }
 
 const EXECUTION_ADDRESS_MARKER =
-  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
+  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
 
 const STOP_MARKER =
   /\b(rechnungsadresse|rechnung\s+an|kunde|kundendaten|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|bitte|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp)\b/i;
@@ -2071,6 +2071,18 @@ function parseStreet(value: string): string | null {
     if (candidate) streetCandidates.push(candidate);
   }
 
+  // French/Italian multi-word street names: "Rue du Lac 18",
+  // "Avenue des Fleurs 9", "Chemin de la Gare 4".
+  const foreignStreet = new RegExp(
+    `\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*)){0,6}\\s+${houseNumber})\\b`,
+    "gi",
+  );
+
+  for (const match of text.matchAll(foreignStreet)) {
+    const candidate = match[1]?.replace(/\s+/g, " ").trim();
+    if (candidate) streetCandidates.push(candidate);
+  }
+
   const cleanedCandidates = unique(streetCandidates)
     .map((candidate) => candidate.replace(/\s+/g, " ").trim())
     .filter(Boolean);
@@ -2115,7 +2127,7 @@ function isLikelyAddressStreetLine(value: string): boolean {
 
 // INTAKE_EXECUTION_ADDRESS_SAFE_EMPTY_V11
 const SOFT_EXECUTION_ADDRESS_LINE_PATTERN =
-  /\b(liegenschaft|arbeitsort|arbeitsadresse|arbeit\s+(?:ist|isch|is|wird)|gearbeitet\s+wird|work\s+location|job\s+location|lieu\s+du\s+travail|ort\s+der\s+arbeit|sondern\s+(?:in|im|bei))\b/i;
+  /\b(liegenschaft|arbeitsort|arbeitsadresse|arbeit\s+(?:ist|isch|is|wird)|gearbeitet\s+wird|work\s+location|job\s+location|adresse\s+de\s+travail|lieu\s+du\s+travail|ort\s+der\s+arbeit|sondern\s+(?:in|im|bei))\b/i;
 
 function isLikelyServiceOrPriceLine(value: string): boolean {
   const text = normalizeCompare(value);
