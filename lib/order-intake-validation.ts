@@ -949,6 +949,108 @@ function dedupeUnsafeDuplicateItems(
   return result;
 }
 
+function cleanValidationServiceDisplayName(value?: string | null): string {
+  const cleaned = normalizeText(value || "")
+    .replace(/^\s*(?:leistung|service|arbeit|position)\s*:?\s*/i, "")
+    .replace(/\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\s*\d+(?:[.,]\d{1,2})?\b/gi, " ")
+    .replace(/\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\b/gi, " ")
+    .replace(new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"), " ")
+    .replace(/\b(?:pro|je|per|par|à|a)\b\s*[.,;:!?]*$/i, " ")
+    .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
+    .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const canonical = canonicalGermanServiceNameFromText(cleaned);
+  if (canonical) return canonical;
+
+  const key = normalizeCompare(cleaned);
+  if (
+    !key ||
+    key.length < 3 ||
+    /^(?:es\s+sind|es\s+ist|das\s+sind|das\s+ist|sind|ist|ca|circa|ungefaehr|ungefahr|etwa|about|approx)$/.test(key)
+  ) {
+    return "Unbekannte Leistung";
+  }
+
+  return cleaned.replace(/^./, (char) => char.toUpperCase());
+}
+
+function normalizeParsedServiceNames(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  return items.map((item) => {
+    const serviceName = cleanValidationServiceDisplayName(item.serviceName);
+    return {
+      ...item,
+      serviceName,
+      reviewReason: item.reviewReason?.startsWith("price_unclear:")
+        ? `price_unclear:${serviceName}`
+        : item.reviewReason,
+    };
+  });
+}
+
+function serviceDomainTopics(value?: string | null): string[] {
+  const source = normalizeCompare(value);
+  const topics: string[] = [];
+  const tests: Array<[RegExp, string]> = [
+    [/\bfenster\b|\bvitres?\b|\bwindows?\b|\bfenetres?\b/, "fenster"],
+    [/\bboden\b|\bfloor\b|\bsol\b/, "boden"],
+    [/\bwand\b|\bwaende\b|\bwande\b|\bwände\b/, "wand"],
+    [/\bdecke\b|\bdecken\b/, "decke"],
+    [/\bspachtel\w*\b/, "spachtel"],
+    [/\babdeck\w*\b/, "abdecken"],
+    [/\blampe\b|\bleuchte\b/, "lampe"],
+    [/\bkabelkanal\b|\bkabel\b/, "kabelkanal"],
+    [/\bsteckdose\w*\b/, "steckdose"],
+    [/\babfluss\b/, "abfluss"],
+    [/\bdichtung\b/, "dichtung"],
+    [/\bhecke\b|\bhecken\b/, "hecke"],
+    [/\bgruen(?:gut|abfall)\b|\bgrün(?:gut|abfall)\b/, "gruengut"],
+    [/\bregiearbeit\b|\bregie\b/, "regie"],
+    [/\bentsorgung\b|\bentsorgen\b|\bmaterial\b/, "entsorgung"],
+    [/\banfahrt\b/, "anfahrt"],
+  ];
+
+  for (const [pattern, topic] of tests) {
+    if (pattern.test(source)) topics.push(topic);
+  }
+
+  return unique(topics);
+}
+
+function removeCompositeServiceNameArtifacts(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  if (items.length <= 1) return items;
+
+  return items.filter((item, index) => {
+    const name = normalizeCompare(item.serviceName);
+    if (!name) return true;
+
+    const hasJoiner = /\b(?:mit|und|plus)\b|\+/.test(name);
+    if (!hasJoiner) return true;
+
+    const ownTopics = serviceDomainTopics(item.serviceName).filter((topic) => topic !== "anfahrt");
+    if (ownTopics.length < 2) return true;
+
+    const coveredTopics = new Set<string>();
+    items.forEach((other, otherIndex) => {
+      if (otherIndex === index) return;
+      for (const topic of serviceDomainTopics(other.serviceName)) {
+        if (ownTopics.includes(topic)) coveredTopics.add(topic);
+      }
+    });
+
+    // Nur Sammel-/Satzrest löschen, wenn mindestens zwei fachliche Teile
+    // bereits als eigene Positionen vorhanden sind. Sonst bleibt die Position
+    // lieber prüfpflichtig erhalten.
+    return coveredTopics.size < 2;
+  });
+}
+
 
 const QUANTITY_REVIEW_REASON_PATTERN =
   /(menge|quantity|leistung_ist_pauschal|pauschal|pruefen|prüfen)/i;
@@ -1620,7 +1722,9 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
   .replace(new RegExp(`\\b\\d+(?:[.,]\\d{1,2})?\\s*(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
   .replace(new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"), " ")
   .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
-  .replace(/\b(?:pro|je|per|par|à|a)\b\s*$/i, " ")
+  .replace(/\b(?:pro|je|per|par|à|a)\b\s*[.,;:!?]*$/i, " ")
+  .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
+  .replace(/[.,;:!?]+$/g, " ")
   // Remove unit prefixes that may remain in the visible service name.
   .replace(/^\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunde|stunden|std\.?|h|stück|stueck|stk|piece|pieces)\s+/gi, " ")
   .replace(/\b\d+(?:[.,]\d+)?\b/g, " ")
@@ -2175,6 +2279,8 @@ export function validateAndRepairParsedOrderItems(
   }
 
   items = removeItemsUsingForeignFlatPrice(input.originalText, items, finalCurrency);
+  items = normalizeParsedServiceNames(items);
+  items = removeCompositeServiceNameArtifacts(items);
   items = dedupeUnsafeDuplicateItems(items);
 
   items = repairAmbiguousQuantityRangeItems(input.originalText, items).map((item) => {
@@ -2195,7 +2301,8 @@ export function validateAndRepairParsedOrderItems(
   });
 
   const unclearGuard = applyUnclearPriceLineGuard(items, input.originalText);
-  items = unclearGuard.items;
+  items = normalizeParsedServiceNames(unclearGuard.items);
+  items = removeCompositeServiceNameArtifacts(items);
   reviewReasons.push(...unclearGuard.reviewReasons);
 
   items = removeSubsumedReviewOnlyItems(items);
@@ -2423,6 +2530,13 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
   if (!candidate) return null;
 
   candidate = candidate
+    .replace(/^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i, "")
+    .replace(/^\s*(?:beim|bei|am|an|im|in|um|uhr|m)\s*$/i, "")
+    .trim();
+
+  if (!candidate) return null;
+
+  candidate = candidate
     .replace(/^.*?\bsondern\s+(?:in\s+der|in\s+dem|im|in|bei\s+der|beim|bei|bi\s+de|bi)\s+/i, "")
     .replace(/^.*?\b(?:liegenschaft|objektadresse|objekt|baustelle|arbeitsort|arbeitsadresse|leistungsort|serviceadresse|job\s+site|job\s+location|work\s+location|lieu\s+du\s+travail)\b\s*(?:ist|isch|is|:)?\s*/i, "")
     .replace(/^.*?\b(?:arbeit\s+(?:ist|isch|is)|gearbeitet\s+wird)\b\s*(?:aber\s+)?(?:drueben|drüben)?\s*(?:bei\s+der|beim|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in)?\s*/i, "")
@@ -2440,6 +2554,12 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
     .replace(/\s+/g, " ")
     .trim();
 
+  candidate = candidate
+    .replace(/^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i, "")
+    .replace(/^\s*(?:beim|bei|am|an|im|in|um|uhr|m)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
   return candidate || null;
 }
 
@@ -2448,6 +2568,7 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
   const key = normalizeCompare(candidate);
   if (!candidate || !key) return false;
   if (candidate.length < 3 || candidate.length > 80) return false;
+  if (/^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i.test(candidate)) return false;
   if (/\b\d{4,5}\b/.test(candidate)) return false;
   if (/\b\d+(?:[.,]\d+)?\s*(?:stueck|stuck|stück|stk|quadratmeter|qm|m2|meter|stunde|stunden|std|h|tag|tage)\b/i.test(key)) return false;
   if (/\b(chf|franken|stutz|eur|euro|usd|dollar|preis|ansatz|pauschal|pro|per|je)\b/i.test(key)) return false;

@@ -90,6 +90,59 @@ function extractSelfIntroductionName(
 }
 
 // INTAKE_SEMANTIC_ENGINE_V12
+// V16.32: harte Vorbereinigung für Namen aus KI/Transkript.
+// Ziel: keine Satzreste wie "ist Meier Renovationen AG", "Mail reicht"
+// oder "Es geht um kleine Bauarbeiten" als Rechnungskunde speichern.
+function stripNonNameLeadIn(value: string): string {
+  let candidate = String(value || "")
+    .replace(/^\s*(?:der\s+|die\s+|das\s+)?(?:rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|kundin|firma|company|client|billing\s+customer|invoice\s+customer)\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\s+/i, "")
+    .replace(/^\s*(?:das\s+ist|dies\s+ist|es\s+ist|c['’]?est|it\s+is|ist|isch|is)\s+/i, "")
+    .replace(/^\s*(?:für|fuer|an|bei)\s+(?:den|die|das|der|dem)?\s*/i, "")
+    .replace(/^\s*[:\-–—]+\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Einmal wiederholen, falls die KI verschachtelt liefert: "Kunde ist ist X".
+  candidate = candidate
+    .replace(/^\s*(?:das\s+ist|dies\s+ist|es\s+ist|c['’]?est|it\s+is|ist|isch|is)\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return candidate;
+}
+
+function isForbiddenBillingNameSentence(value: string | null | undefined): boolean {
+  const normalized = normalizeUnitText(value || "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return true;
+
+  const exact = new Set([
+    "mail",
+    "email",
+    "e mail",
+    "mail reicht",
+    "email reicht",
+    "e mail reicht",
+    "sms",
+    "whatsapp",
+    "morgen",
+    "heute",
+    "adresse",
+    "adresse wie letztes mal",
+    "wie letztes mal",
+    "unbekannt",
+  ]);
+  if (exact.has(normalized)) return true;
+
+  const forbiddenStarts = /^(?:mail\s+reicht|e\s*mail\s+reicht|email\s+reicht|per\s+mail|bitte\s+per\s+mail|bitte\s+mail|sms\s+reicht|whatsapp\s+reicht|telefon\s+reicht|kein\s+anruf|nicht\s+anrufen|adresse\s+wie|wie\s+letztes\s+mal|es\s+(?:geht|goht|handelt)\s+(?:um|sich)|kleine\s+bauarbeiten|neuer\s+auftrag|auftrag\b|termin\b|morgen\b|heute\b)/i;
+  if (forbiddenStarts.test(normalized)) return true;
+
+  return false;
+}
+
 function cleanBillingCustomerNameCandidate(value: string | null | undefined): string | null {
   let candidate = String(value || "")
     .replace(/\r\n/g, "\n")
@@ -102,7 +155,10 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     .replace(/\s+/g, " ")
     .trim();
 
+  candidate = stripNonNameLeadIn(candidate);
+
   if (!candidate) return null;
+  if (isForbiddenBillingNameSentence(candidate)) return null;
 
   // Bei "Name, Strasse 12, 8000 Ort" nur den Namen behalten.
   candidate = candidate.split(/[,;]/)[0]?.trim() || candidate;
@@ -118,6 +174,10 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     .replace(/\s+\d{4,5}\b.*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
+
+  candidate = stripNonNameLeadIn(candidate);
+  if (!candidate) return null;
+  if (isForbiddenBillingNameSentence(candidate)) return null;
 
   const normalized = normalizeUnitText(candidate);
   const hasStrongCompanySuffix =
@@ -148,6 +208,14 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     "kunde",
     "rechnungsadresse",
     "rechnung",
+    "mail",
+    "email",
+    "mail reicht",
+    "email reicht",
+    "sms",
+    "whatsapp",
+    "morgen",
+    "heute",
     "rechnungskunde",
     "rechnungsempfänger",
     "rechnungsempfaenger",
@@ -192,11 +260,18 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     "garage",
     "lagerhalle",
     "eingang",
+    "mail",
+    "email",
+    "sms",
+    "whatsapp",
+    "adresse wie",
+    "wie letztes",
+    "neuer auftrag",
   ];
   if (!hasStrongCompanySuffix && blockedStarts.some((start) => normalized.startsWith(start))) return null;
 
   const blockedContained =
-    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|montieren|prüfen|pruefen|ersetzen|entsorgen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|zugang|zufahrt|seitentor|schlüssel|schluessel|parkplatz|termin|bauarbeiten)\b/i;
+    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|montieren|prüfen|pruefen|ersetzen|entsorgen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|mail|email|whatsapp|sms|zugang|zufahrt|seitentor|schlüssel|schluessel|parkplatz|termin|bauarbeiten)\b/i;
   if (!hasStrongCompanySuffix && blockedContained.test(normalized)) return null;
 
   // Reine Adresszeilen sind kein Name.
@@ -679,6 +754,14 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
     .replace(/^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i, "")
     .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
     .replace(/^\s*um\s*\d{1,2}[:.]\d{2}\s+(?:uhr\s*)?(?:beim|bei|am|an|in)?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!candidate || /^[-–—]+$/.test(candidate)) return null;
+
+  candidate = candidate
+    .replace(/^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i, "")
+    .replace(/^\s*(?:beim|bei|am|an|im|in|um|uhr|m)\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -1947,14 +2030,46 @@ function cleanDetectedWorkName(segment: string): string {
       " ",
     )
     .replace(/\b(ca|circa|ungefähr|ungefaehr|etwa|rund)\b/gi, " ")
+    .replace(/\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\s*\d+(?:[.,]\d{1,2})?\b/gi, " ")
+    .replace(/\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\b/gi, " ")
+    .replace(/\b(?:pro|je|per|par|à|a|\/)\s*(?:stück|stueck|stk|m2|m²|qm|meter|stunde|stunden|pauschal)\b/gi, " ")
+    .replace(/\b(?:pro|je|per|par|à|a)\s*[.,;:!?]*$/gi, " ")
+    .replace(/[+]+/g, " ")
+    .replace(/[.,;:!?]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
+
+function composeWorkNameSource(item: any, raw: string): string {
+  const action = String(item.action_name || "").trim();
+  const context = String(item.context || "").trim();
+  const name = String(item.name || "").trim();
+  const serviceName = String(item.service_name || item.matched_service_name || "").trim();
+  const actionKey = normalizeUnitText(action).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const contextKey = normalizeUnitText(context).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const nameKey = normalizeUnitText(name).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+  if (name && action && nameKey.includes(actionKey) && name.length > action.length + 3) {
+    return name;
+  }
+
+  const actionTooGeneric = /^(?:reinigen|reinigung|putzen|montieren|demontieren|streichen|malen|prüfen|pruefen|ersetzen|entsorgen|schneiden|stutzen|regiearbeit)$/i.test(actionKey);
+  const contextHasWorkObject = /\b(?:kabelkanal|kabel|lampe|leuchte|wand|waende|wände|decke|boden|fenster|teppich|abfluss|dichtung|hecke|gruen|grün|steckdose|steckdosen|material)\b/i.test(contextKey);
+  if (actionTooGeneric && contextKey && contextHasWorkObject) {
+    return `${context} ${action}`.trim();
+  }
+
+  return action || serviceName || name || raw || "";
+}
+
 function formatWorkNameForDisplay(value: string): string {
   const text = String(value || "")
     .replace(/ae/g, "ä")
     .replace(/oe/g, "ö")
     .replace(/ue/g, "ü")
+    .replace(/\b(?:pro|je|per|par|à|a)\s*[.,;:!?]*$/gi, " ")
+    .replace(/\s+\.\s*$/g, "")
+    .replace(/[.,;:!?]+$/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -2465,6 +2580,21 @@ Das gilt besonders für:
 - einheit
 - unit_price
 - currency
+
+--------------------------------------------------
+KI-VORSORTIERUNG – SEHR WICHTIG
+--------------------------------------------------
+- Du bist die erste Sortierschicht. Sortiere sauber nach Rechnungskunde, Ausführungsadresse und Arbeitspositionen.
+- Wenn ein Wert unklar ist, setze null. Nicht raten.
+- Satzreste wie "ist", "es geht um", "bitte", "mail reicht", "adresse wie letztes Mal" sind niemals Kundennamen.
+- Namen dürfen kein führendes "ist/isch/is" enthalten: aus "ist Meier Renovationen AG" wird "Meier Renovationen AG".
+- "Mail reicht", "Bitte per Mail bestätigen", "SMS", "WhatsApp" gehören in Besonderheiten/Kommunikation, niemals in kunde.name.
+- "Adresse wie letztes Mal" ist keine echte Adresse. Dann alle Adressfelder leer lassen und needs_review=true.
+- Arbeitspositionen dürfen keine zusammengesetzten Satzreste sein.
+- Wenn konkrete Preiszeilen vorhanden sind, bilde Positionen aus diesen Zeilen und NICHT zusätzlich eine Sammelposition aus dem Satz davor.
+- Beispiele: "Wände streichen 42 m2 CHF 18 pro m2" -> eine Position "Wände streichen". "Abdeckarbeiten pauschal CHF 90" -> eine zweite Position "Abdeckarbeiten".
+- Keine Position "Wände streichen mit Abdeckarbeiten und Anfahrt" erstellen, wenn die Einzelleistungen schon vorhanden sind.
+- service/action_name muss die Tätigkeit enthalten, context nur Ort/Teilbereich. Bei "Kabelkanal montieren" darf action_name nicht nur "montieren" sein.
 
 --------------------------------------------------
 ADRESS-SORTIERUNG – SEHR WICHTIG
@@ -3914,7 +4044,7 @@ const hasForbiddenServiceWorkConflict = (
     .map((item) => {
       const raw = String(item.raw || item.name || "").trim();
       const detectedName = cleanDetectedWorkName(
-        String(item.action_name || item.service_name || item.matched_service_name || item.name || raw || ""),
+        composeWorkNameSource(item, raw),
       );
 
       if (!detectedName || detectedName.length < 3) return null;
