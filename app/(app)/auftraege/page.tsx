@@ -271,6 +271,81 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+const canonicalServiceNameForOrderItem = (value?: string | null) => {
+  const name = compactText(value);
+  const key = normalizeForMatch(name);
+
+  // Keep travel costs consistent when orders are merged or saved.
+  // "Anfahrt" and "Anfahrt pauschal" are the same flat service in practice.
+  if (key === "anfahrt" || key === "anfahrt pauschal") {
+    return "Anfahrt pauschal";
+  }
+
+  return name;
+};
+
+const formatMergedNumberString = (value: number) => {
+  if (!Number.isFinite(value)) return "";
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+};
+
+const mergeEquivalentFormItems = (items: FormItem[]) => {
+  const merged: FormItem[] = [];
+  const indexByKey = new Map<string, number>();
+
+  items.forEach((item) => {
+    const serviceName = canonicalServiceNameForOrderItem(item.serviceName);
+    const normalizedItem: FormItem = { ...item, serviceName };
+    const unitKey = normalizeForMatch(normalizedItem.unit);
+    const unitPriceNumber = Number(normalizedItem.unitPrice || 0);
+    const unitPriceKey = Number.isFinite(unitPriceNumber)
+      ? String(unitPriceNumber)
+      : compactText(normalizedItem.unitPrice);
+    const warningKey = normalizeForMatch(normalizedItem.aiWarning);
+    const mergeKey = [
+      normalizeForMatch(serviceName),
+      unitKey,
+      unitPriceKey,
+      warningKey,
+    ].join("|");
+
+    const existingIndex = indexByKey.get(mergeKey);
+    const quantityNumber = Number(normalizedItem.quantity || 0);
+
+    if (existingIndex !== undefined && Number.isFinite(quantityNumber)) {
+      const existing = merged[existingIndex];
+      const existingQuantity = Number(existing.quantity || 0);
+      if (Number.isFinite(existingQuantity)) {
+        existing.quantity = formatMergedNumberString(existingQuantity + quantityNumber);
+      }
+      return;
+    }
+
+    indexByKey.set(mergeKey, merged.length);
+    merged.push(normalizedItem);
+  });
+
+  return merged;
+};
+
+const mergeEquivalentOrderItems = (items: any[]) =>
+  mergeEquivalentFormItems(
+    items.map((item) => ({
+      key: Math.random().toString(36).slice(2),
+      serviceName: item.serviceName ?? item.description ?? "",
+      unit: item.unit ?? item.priceType ?? "Stunde",
+      unitPrice: String(item.unitPrice ?? 0),
+      quantity: String(item.quantity ?? 0),
+      aiWarning: getAiWarningFromItemDescription(item.description),
+    })),
+  ).map((item) => ({
+    serviceName: item.serviceName,
+    description: buildItemDescription(item),
+    quantity: Number(item.quantity || 0),
+    unit: item.unit,
+    unitPrice: Number(item.unitPrice || 0),
+  }));
+
 const hasMissingOrFallbackCustomerName = (value?: string | null) => {
   const name = compactText(value);
   return !name || isFallbackCustomerName(name);
@@ -350,37 +425,98 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort/.test(text);
+  return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available/.test(text);
+};
+
+const PARKING_NO_PATTERN =
+  /kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|kein stellplatz|keine stellplaetze|keine stellplätze|no parking|sans parking|sin parking/;
+
+const PARKING_DIFFICULT_PATTERN =
+  /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
+
+const hasParkingReference = (value?: string | null) =>
+  /park|parking|parkplatz|parken|zufahrt|innenhof/.test(normalizeForMatch(value));
+
+const getParkingSignal = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text || !hasParkingReference(text)) {
+    return {
+      hasParking: false,
+      hasPositive: false,
+      hasNoParking: false,
+      hasDifficult: false,
+    };
+  }
+
+  return {
+    hasParking: true,
+    hasPositive: isPositiveSemanticHint(text),
+    hasNoParking: PARKING_NO_PATTERN.test(text),
+    hasDifficult: PARKING_DIFFICULT_PATTERN.test(text),
+  };
+};
+
+const getParkingConflictBadge = (
+  values: Array<string | null | undefined>,
+): { label: string; className: string } | null => {
+  const signal = values.reduce(
+    (acc, value) => {
+      const next = getParkingSignal(value);
+      return {
+        hasParking: acc.hasParking || next.hasParking,
+        hasPositive: acc.hasPositive || next.hasPositive,
+        hasNoParking: acc.hasNoParking || next.hasNoParking,
+        hasDifficult: acc.hasDifficult || next.hasDifficult,
+      };
+    },
+    {
+      hasParking: false,
+      hasPositive: false,
+      hasNoParking: false,
+      hasDifficult: false,
+    },
+  );
+
+  if (!signal.hasParking) return null;
+
+  // After merging multiple orders, conflicting parking information should not
+  // be shown as a clean "Parken" or "Kein Parkplatz" chip.
+  if (
+    (signal.hasPositive && (signal.hasNoParking || signal.hasDifficult)) ||
+    (signal.hasNoParking && signal.hasDifficult)
+  ) {
+    return {
+      label: "Parken prüfen",
+      className: "bg-amber-100 text-amber-800 border border-amber-300",
+    };
+  }
+
+  return null;
 };
 
 const getParkingBadge = (value?: string | null, context?: string | null): { label: string; className: string } | null => {
   const text = normalizeForMatch(value);
-  const contextText = normalizeForMatch(context);
-  if (!text || !/park|parking|parkplatz|parken|zufahrt|innenhof/.test(text)) return null;
+  const contextSignal = getParkingSignal(context);
+  const ownSignal = getParkingSignal(text);
+  if (!ownSignal.hasParking) return null;
 
-  const noParkingPattern = /kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|kein stellplatz|keine stellplaetze|keine stellplätze|no parking|sans parking|sin parking/;
-  const noParking = noParkingPattern.test(text);
+  if (!ownSignal.hasNoParking && contextSignal.hasNoParking) return null;
 
-  if (!noParking && noParkingPattern.test(contextText)) return null;
-
-  if (noParking) {
+  if (ownSignal.hasNoParking) {
     return {
       label: "Kein Parkplatz",
       className: "bg-amber-100 text-amber-800 border border-amber-300",
     };
   }
 
-  const difficultParking =
-    /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/.test(text);
-
-  if (difficultParking) {
+  if (ownSignal.hasDifficult) {
     return {
       label: "Parkplatz schwierig",
       className: "bg-amber-100 text-amber-800 border border-amber-300",
     };
   }
 
-  if (isPositiveSemanticHint(value)) {
+  if (ownSignal.hasPositive) {
     return {
       label: "Parken",
       className: "bg-emerald-100 text-emerald-700 border border-emerald-200",
@@ -756,6 +892,13 @@ const getOperationalBadges = (
     addDanger(`danger_${normalizeForMatch(label)}`, label);
   });
 
+  const parkingConflictBadge = getParkingConflictBadge([
+    ...parsedNotes.jobHints,
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  ]);
+
   parsedNotes.jobHints.forEach((line) => {
     if (isNonActionableSemanticHint(line, orderBadgeContext)) return;
 
@@ -763,6 +906,7 @@ const getOperationalBadges = (
     if (!kind || kind === "warning" || kind === "appointment") return;
 
     if (kind === "parking") {
+      if (parkingConflictBadge) return;
       const parkingBadge = getParkingBadge(line, orderBadgeContext);
       if (!parkingBadge) return;
       addHint(`hint_parking_${normalizeForMatch(parkingBadge.label)}`, parkingBadge.label, parkingBadge.className);
@@ -778,6 +922,10 @@ const getOperationalBadges = (
       isPositiveSemanticHint(line) ? greenInfoClass : amberHintClass,
     );
   });
+
+  if (parkingConflictBadge) {
+    addHint("hint_parking_review", parkingConflictBadge.label, parkingConflictBadge.className);
+  }
 
   // Unknown operational notes stay inside the order detail. The card only shows short, useful chips.
   // CARD_BADGE_SORT_AND_LIMIT_V15
@@ -1282,6 +1430,14 @@ export default function AuftraegePage() {
     return () => document.removeEventListener("click", handler);
   }, [dropdownOpenId]);
 
+  // Close manual-service action menu when the user clicks anywhere outside it.
+  useEffect(() => {
+    if (!serviceActionMenuKey) return;
+    const handler = () => setServiceActionMenuKey(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [serviceActionMenuKey]);
+
   const load = async () => {
     setLoading(true);
     setLoadError(null);
@@ -1508,40 +1664,44 @@ export default function AuftraegePage() {
      // Populate items from order
     if (o.items && o.items.length > 0) {
       setFormItems(
-        o.items.map((item) => {
-          const hasQuantityReview = hasQuantityReviewForService(
-            o.reviewReasons,
-            item.serviceName,
-          );
+        mergeEquivalentFormItems(
+          o.items.map((item) => {
+            const hasQuantityReview = hasQuantityReviewForService(
+              o.reviewReasons,
+              item.serviceName,
+            );
 
-          return {
-            key: Math.random().toString(36).slice(2),
-            serviceName: item.serviceName ?? "",
-            unit: item.unit ?? "Stunde",
-            unitPrice:
-              Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
-            quantity: hasQuantityReview
-              ? ""
-              : Number(item.quantity || 0) === 0
+            return {
+              key: Math.random().toString(36).slice(2),
+              serviceName: item.serviceName ?? "",
+              unit: item.unit ?? "Stunde",
+              unitPrice:
+                Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
+              quantity: hasQuantityReview
                 ? ""
-                : String(item.quantity),
-            aiWarning: getAiWarningFromItemDescription(item.description),
-          };
-        }),
+                : Number(item.quantity || 0) === 0
+                  ? ""
+                  : String(item.quantity),
+              aiWarning: getAiWarningFromItemDescription(item.description),
+            };
+          }),
+        ),
       );
 
 
     } else {
-      setFormItems([
-        {
-          key: Math.random().toString(36).slice(2),
-          serviceName: o.serviceName ?? "",
-          unit: o.priceType ?? "Stunde",
-          unitPrice: Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
-          quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
-          aiWarning: "",
-        },
-      ]);
+      setFormItems(
+        mergeEquivalentFormItems([
+          {
+            key: Math.random().toString(36).slice(2),
+            serviceName: o.serviceName ?? "",
+            unit: o.priceType ?? "Stunde",
+            unitPrice: Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
+            quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
+            aiWarning: "",
+          },
+        ]),
+      );
     }
     if (opts?.openCustomerSection && o.customerId) {
       // Stage E (deterministic flow): DO NOT call openCustomerEditor() in this
@@ -2142,7 +2302,9 @@ export default function AuftraegePage() {
       toast.error("Bitte Kunde auswählen");
       return null;
     }
-    const validItems = formItems.filter((i) => i.serviceName.trim());
+    const validItems = mergeEquivalentFormItems(
+      formItems.filter((i) => i.serviceName.trim()),
+    );
     if (validItems.length === 0) {
       toast.error("Mindestens eine Leistung auswählen");
       return null;
@@ -2257,7 +2419,7 @@ const payload = {
       toast.success("Auftrag gespeichert");
 
       // Build items for offer
-      const orderItems =
+      const orderItems = mergeEquivalentOrderItems(
         saved.items && saved.items.length > 0
           ? saved.items
           : [
@@ -2268,7 +2430,8 @@ const payload = {
                 unit: saved.priceType ?? "Stunde",
                 unitPrice: saved.unitPrice ?? 0,
               },
-            ];
+            ],
+      );
       const offerItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 1),
@@ -2324,7 +2487,7 @@ const payload = {
       if (blockConversionIfUnsafe(saved, "Rechnung")) return;
       toast.success("Auftrag gespeichert");
 
-      const orderItems =
+      const orderItems = mergeEquivalentOrderItems(
         saved.items && saved.items.length > 0
           ? saved.items
           : [
@@ -2335,7 +2498,8 @@ const payload = {
                 unit: saved.priceType ?? "Stunde",
                 unitPrice: saved.unitPrice ?? 0,
               },
-            ];
+            ],
+      );
       const invoiceItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 1),
@@ -2626,10 +2790,25 @@ const defaultMainOrderId = bestMainOrder.id;
 
   const confirmArchive = async () => {
     if (!archiveId) return;
-    await fetch(`/api/orders/${archiveId}`, { method: "DELETE" });
-    toast.success("Auftrag in Papierkorb verschoben");
-    setArchiveId(null);
-    load();
+    try {
+      const res = await fetch(`/api/orders/${archiveId}`, { method: "DELETE" });
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        toast.error(result?.error || "Auftrag konnte nicht verschoben werden");
+        return;
+      }
+
+      toast.success(
+        result?.removedEmptyCustomer
+          ? "Auftrag in Papierkorb verschoben, leerer Kunde entfernt"
+          : "Auftrag in Papierkorb verschoben",
+      );
+      setArchiveId(null);
+      load();
+    } catch {
+      toast.error("Fehler beim Verschieben in den Papierkorb");
+    }
   };
 
   const resolveS3Url = async (path: string): Promise<string> => {
@@ -2752,7 +2931,7 @@ const openMedia = async (o: Order) => {
     if (!sourceOrder) return;
 
     // Direct API create — no extra dialog
-    const orderItems =
+    const orderItems = mergeEquivalentOrderItems(
       sourceOrder.items && sourceOrder.items.length > 0
         ? sourceOrder.items
         : [
@@ -2763,7 +2942,8 @@ const openMedia = async (o: Order) => {
               unit: sourceOrder.priceType ?? "Stunde",
               unitPrice: sourceOrder.unitPrice ?? 0,
             },
-          ];
+          ],
+    );
     const offerItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 1),
@@ -2810,7 +2990,7 @@ const openMedia = async (o: Order) => {
     if (!sourceOrder) return;
 
     // Direct API create — no extra dialog
-    const orderItems =
+    const orderItems = mergeEquivalentOrderItems(
       sourceOrder.items && sourceOrder.items.length > 0
         ? sourceOrder.items
         : [
@@ -2821,7 +3001,8 @@ const openMedia = async (o: Order) => {
               unit: sourceOrder.priceType ?? "Stunde",
               unitPrice: sourceOrder.unitPrice ?? 0,
             },
-          ];
+          ],
+    );
     const invoiceItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 1),
@@ -3536,23 +3717,11 @@ const getSafeOrderTotal = (o: Order) => {
                         // Required fields: name/address/plz/city — painted red when missing.
                         // Optional fields: phone/email — always neutral (black), never red.
                         const reqMiss = isRequiredCustomerFieldMissing;
-                        const customerMasterFieldsLocked =
-                          hasMissingOrFallbackCustomerName(cust.name);
-                        const visibleCustomerAddress = customerMasterFieldsLocked
-                          ? ""
-                          : cust.address;
-                        const visibleCustomerPlz = customerMasterFieldsLocked
-                          ? ""
-                          : cust.plz;
-                        const visibleCustomerCity = customerMasterFieldsLocked
-                          ? ""
-                          : cust.city;
-                        const visibleCustomerPhone = customerMasterFieldsLocked
-                          ? ""
-                          : cust.phone;
-                        const visibleCustomerEmail = customerMasterFieldsLocked
-                          ? ""
-                          : cust.email;
+                        const visibleCustomerAddress = cust.address;
+                        const visibleCustomerPlz = cust.plz;
+                        const visibleCustomerCity = cust.city;
+                        const visibleCustomerPhone = cust.phone;
+                        const visibleCustomerEmail = cust.email;
                         // Block D: the whole customer card is a shortcut to
                         // "Kunde bearbeiten" (only in edit mode where the card is
                         // static). Keyboard-accessible via Enter/Space. The existing
@@ -3705,23 +3874,11 @@ const getSafeOrderTotal = (o: Order) => {
                             );
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
-                            const customerMasterFieldsLocked =
-                              hasMissingOrFallbackCustomerName(cust.name);
-                            const visibleCustomerAddress = customerMasterFieldsLocked
-                              ? ""
-                              : cust.address;
-                            const visibleCustomerPlz = customerMasterFieldsLocked
-                              ? ""
-                              : cust.plz;
-                            const visibleCustomerCity = customerMasterFieldsLocked
-                              ? ""
-                              : cust.city;
-                            const visibleCustomerPhone = customerMasterFieldsLocked
-                              ? ""
-                              : cust.phone;
-                            const visibleCustomerEmail = customerMasterFieldsLocked
-                              ? ""
-                              : cust.email;
+                            const visibleCustomerAddress = cust.address;
+                            const visibleCustomerPlz = cust.plz;
+                            const visibleCustomerCity = cust.city;
+                            const visibleCustomerPhone = cust.phone;
+                            const visibleCustomerEmail = cust.email;
                             return (
                               <div className="mt-2 border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0">
                                 {/* ISSUE 4 — Neutral display for fallback customers */}
@@ -4276,11 +4433,12 @@ const getSafeOrderTotal = (o: Order) => {
                                   <div className="relative shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() =>
+                                      onClick={(event) => {
+                                        event.stopPropagation();
                                         setServiceActionMenuKey((prev) =>
                                           prev === item.key ? null : item.key,
-                                        )
-                                      }
+                                        );
+                                      }}
                                       className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
                                       title="Aktionen"
                                     >
@@ -4288,7 +4446,10 @@ const getSafeOrderTotal = (o: Order) => {
                                     </button>
 
                                     {isMenuOpen && (
-                                      <div className="absolute right-0 top-8 z-50 w-48 rounded-md border bg-background py-1 text-sm shadow-lg">
+                                      <div
+                                        onClick={(event) => event.stopPropagation()}
+                                        className="absolute right-0 top-8 z-50 w-48 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                      >
                                         <button
                                           type="button"
                                           onClick={() => saveItemToServices(index)}
@@ -4935,7 +5096,8 @@ const getSafeOrderTotal = (o: Order) => {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Der Auftrag wird in den Papierkorb verschoben und kann dort
-            wiederhergestellt werden.
+            wiederhergestellt werden. Wenn der Auftrag nur an einem leeren
+            Dummy-Kunden hängt, wird dieser automatisch mit entfernt.
           </p>
           <div className="flex justify-end gap-2 mt-4">
             <Button
