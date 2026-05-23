@@ -2593,7 +2593,9 @@ KI-VORSORTIERUNG – SEHR WICHTIG
 - Arbeitspositionen dürfen keine zusammengesetzten Satzreste sein.
 - Wenn konkrete Preiszeilen vorhanden sind, bilde Positionen aus diesen Zeilen und NICHT zusätzlich eine Sammelposition aus dem Satz davor.
 - Beispiele: "Wände streichen 42 m2 CHF 18 pro m2" -> eine Position "Wände streichen". "Abdeckarbeiten pauschal CHF 90" -> eine zweite Position "Abdeckarbeiten".
+- "Anfahrt", "Fahrtkosten", "Wegpauschale" oder "Fahrspesen" mit eigenem Preis sind IMMER eine eigene pauschale Arbeitsposition, auch wenn das Wort "pauschal" nicht dabeisteht. Beispiel: "Anfahrt CHF 45" -> eigene Position "Anfahrt pauschal", Menge 1, Einheit "Pauschal", unit_price 45.
 - Keine Position "Wände streichen mit Abdeckarbeiten und Anfahrt" erstellen, wenn die Einzelleistungen schon vorhanden sind.
+- Wenn ein Satz mehrere Arbeiten mit "und", "+" oder Komma verbindet, aber einzelne Preis-/Mengenangaben vorhanden sind, trenne nach fachlicher Arbeit und Preisbeleg. Nicht den ganzen Satz als Leistung speichern.
 - service/action_name muss die Tätigkeit enthalten, context nur Ort/Teilbereich. Bei "Kabelkanal montieren" darf action_name nicht nur "montieren" sein.
 
 --------------------------------------------------
@@ -2790,6 +2792,8 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Preis, Menge, Einheit und Währung dürfen NUR gesetzt werden, wenn sie in der evidence derselben Position stehen.
 - Preis aus einer anderen Zeile/anderen Leistung NIEMALS übernehmen.
 - Pauschalpreise dürfen NIEMALS auf andere Positionen kopiert werden. Wenn eine Zeile "Eingangsbereich pauschal 120" sagt, gilt 120 nur für diese eine Position.
+- Ein reiner Fahrpreis wie "Anfahrt CHF 45", "Fahrtkosten CHF 45" oder "Wegpauschale CHF 45" ist eine eigene Position "Anfahrt pauschal". Nicht weglassen und nicht in eine andere Leistung hineinmischen.
+- Eine Zeile mit "mit Abdeckarbeiten und Anfahrt" ist nur eine Beschreibung, wenn darunter konkrete Preiszeilen stehen. Dann dürfen daraus keine zusätzlichen Sammelpositionen entstehen.
 - Rechnungsadresse/Billing address/Rechnung geht an ist NIE eine Arbeitsposition und darf keine generische Leistung wie "Reinigung" erzeugen.
 - Fremdsprachige Leistungen semantisch übersetzen: "Nettoyage des vitres" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen. Nicht auf falsche Katalogleistung wie Kellerboden/Farbreste ausweichen.
 - Wenn bei einer Position kein eigener Preis steht → unit_price = null.
