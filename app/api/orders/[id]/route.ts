@@ -692,8 +692,11 @@ const FALLBACK_CUSTOMER_NAMES = new Set([
   "--",
   "name fehlt",
   "kunde fehlt",
+  "kunde ohne name",
+  "kunde ohne namen",
   "kunde nicht zugeordnet",
   "nicht zugeordnet",
+  "unbekannter kunde",
   "unbekannt",
   "unknown",
 ]);
@@ -725,6 +728,9 @@ const cleanupEmptyCustomerAfterOrderDelete = async (
   userId: string,
   request: Request,
 ) => {
+  // Safety: this cleanup is scoped to the exact customerId linked to the deleted
+  // order. It never searches/deletes by display name such as "Kunde ohne Name",
+  // because multiple dummy customers can share that label.
   if (!customerId) return null;
 
   const customer = await prisma.customer.findFirst({
