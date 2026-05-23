@@ -2331,6 +2331,17 @@ function parseStreet(value: string): string | null {
     if (candidate) streetCandidates.push(candidate);
   }
 
+  // Standalone type street names: "Untere Gasse 4", "Alter Weg 2".
+  const prefixedGenericStreet = new RegExp(
+    `\\b(${allowedStreetPrefix}\\s+${streetSuffix}\\s+${houseNumber})\\b`,
+    "gi",
+  );
+
+  for (const match of text.matchAll(prefixedGenericStreet)) {
+    const candidate = match[1]?.replace(/\s+/g, " ").trim();
+    if (candidate) streetCandidates.push(candidate);
+  }
+
   // French/Italian multi-word street names: "Rue du Lac 18",
   // "Avenue des Fleurs 9", "Chemin de la Gare 4".
   const foreignStreet = new RegExp(
@@ -2366,7 +2377,7 @@ function parsePlzCity(value: string): { plz: string | null; city: string | null 
     .replace(STOP_MARKER, "")
     .replace(/\b(ausführungsadresse|ausfuehrungsadresse|ausführende|ausfuehrende|adresse|arbeitsort|baustelle|objekt|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung)\b/gi, "")
     // Cut accidental continuation text after a plausible city.
-    .replace(/\b(leisting|leistung|leistungen|bitte|preis|preise|kosten|fenster|treppenhaus|reinigung|reinigen|farbreste|hecke|garage|tiefgarage|pauschal)\b.*$/gi, "")
+    .replace(/\b(leisting|leistung|leistungen|bitte|preis|preise|kosten|fenster|treppenhaus|reinigung|reinigen|farbreste|hecke|garage|tiefgarage|pauschal|arbeiten|kommen|melden|montieren|machen|erledigen|schneiden|streichen|entsorgen)\b.*$/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -2387,7 +2398,7 @@ function isLikelyAddressStreetLine(value: string): boolean {
 
 // INTAKE_EXECUTION_ADDRESS_SAFE_EMPTY_V11
 const SOFT_EXECUTION_ADDRESS_LINE_PATTERN =
-  /\b(liegenschaft|arbeitsort|arbeitsadresse|arbeit\s+(?:ist|isch|is|wird)|gearbeitet\s+wird|work\s+location|job\s+location|adresse\s+de\s+travail|lieu\s+du\s+travail|ort\s+der\s+arbeit|sondern\s+(?:in|im|bei))\b/i;
+  /\b(liegenschaft|arbeitsort|arbeitsadresse|arbeit\s+(?:ist|isch|is|wird)|gearbeitet\s+wird|arbeiten|work\s+location|job\s+location|adresse\s+de\s+travail|lieu\s+du\s+travail|ort\s+der\s+arbeit|sondern\s+(?:in|im|bei|beim))\b/i;
 
 function isLikelyServiceOrPriceLine(value: string): boolean {
   const text = normalizeCompare(value);
@@ -2412,10 +2423,10 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
   if (!candidate) return null;
 
   candidate = candidate
-    .replace(/^.*?\bsondern\s+(?:in\s+der|in\s+dem|im|in|bei\s+der|bei|bi\s+de|bi)\s+/i, "")
+    .replace(/^.*?\bsondern\s+(?:in\s+der|in\s+dem|im|in|bei\s+der|beim|bei|bi\s+de|bi)\s+/i, "")
     .replace(/^.*?\b(?:liegenschaft|objektadresse|objekt|baustelle|arbeitsort|arbeitsadresse|leistungsort|serviceadresse|job\s+site|job\s+location|work\s+location|lieu\s+du\s+travail)\b\s*(?:ist|isch|is|:)?\s*/i, "")
-    .replace(/^.*?\b(?:arbeit\s+(?:ist|isch|is)|gearbeitet\s+wird)\b\s*(?:aber\s+)?(?:drueben|drüben)?\s*(?:bei\s+der|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in)?\s*/i, "")
-    .replace(/^(?:es\s+(?:geht|goht)\s+um(?:s)?|ist|isch|is|aber|drueben|drüben|bei\s+der|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in|de|der|die|das)\s+/i, "")
+    .replace(/^.*?\b(?:arbeit\s+(?:ist|isch|is)|gearbeitet\s+wird)\b\s*(?:aber\s+)?(?:drueben|drüben)?\s*(?:bei\s+der|beim|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in)?\s*/i, "")
+    .replace(/^(?:es\s+(?:geht|goht)\s+um(?:s)?|ist|isch|is|aber|drueben|drüben|bei\s+der|beim|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in|de|der|die|das)\s+/i, "")
     .replace(/^[:\-–—]+\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -2424,7 +2435,7 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
 
   const softSplit = candidate.split(/\b(?:liegenschaft|objekt|baustelle|arbeitsort|arbeitsadresse|leistungsort|sondern)\b/i);
   candidate = (softSplit[softSplit.length - 1] || candidate)
-    .replace(/^(?:es\s+(?:geht|goht)\s+um(?:s)?|ist|isch|is|in\s+der|in\s+dem|im|in|bei\s+der|bei|bi\s+de|bi|de|der|die|das)\s+/i, "")
+    .replace(/^(?:es\s+(?:geht|goht)\s+um(?:s)?|ist|isch|is|in\s+der|in\s+dem|im|in|bei\s+der|beim|bei|bi\s+de|bi|de|der|die|das)\s+/i, "")
     .replace(/[,;:.]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();

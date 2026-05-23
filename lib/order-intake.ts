@@ -311,6 +311,7 @@ type SafeBillingCustomerEvidence = {
   plz: string | null;
   city: string | null;
   phone: string | null;
+  email: string | null;
 };
 
 function normalizeIntakeSourceText(value: string | null | undefined): string {
@@ -401,7 +402,7 @@ function parseBillingStreetLine(line: string): string | null {
     if (!match?.[1]) continue;
 
     const street = match[1]
-      .replace(/^\s*(?:an|bei|beim|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+      .replace(/^\s*(?:beim|bei|an|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -602,6 +603,7 @@ function extractSafeBillingCustomerEvidence(
     plz: null,
     city: null,
     phone: null,
+    email: null,
   };
   if (!source) return empty;
 
@@ -617,6 +619,7 @@ function extractSafeBillingCustomerEvidence(
   const street = parseBillingStreetFromBlock(block);
   const { plz, city } = parseBillingPlzCityFromBlock(block);
   const phone = extractPhoneFromText(block);
+  const email = extractEmailFromText(block);
   const hasCompany = /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(name || "");
   const hasAddress = Boolean(street || (plz && city));
   const hasFullAddress = Boolean(street && plz && city);
@@ -640,6 +643,7 @@ function extractSafeBillingCustomerEvidence(
     plz: hasReliableCustomerBlock ? plz : null,
     city: hasReliableCustomerBlock ? city : null,
     phone: hasReliableCustomerBlock ? phone : null,
+    email: hasReliableCustomerBlock ? email : null,
   };
 }
 
@@ -658,7 +662,7 @@ function cleanIntakeCityCandidate(value: string | null | undefined): string | nu
 function cleanExecutionStreetCandidate(value: string | null | undefined): string | null {
   const raw = String(value || "")
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
-    .replace(/^\s*(?:an|bei|beim|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+    .replace(/^\s*(?:beim|bei|an|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
     .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -674,11 +678,12 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
     .replace(/^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i, "")
     .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
-    .replace(/^\s*um\s*\d{1,2}[:.]\d{2}\s+(?:uhr\s*)?(?:bei|beim|am|an|in)?\s*/i, "")
+    .replace(/^\s*um\s*\d{1,2}[:.]\d{2}\s+(?:uhr\s*)?(?:beim|bei|am|an|in)?\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
+  if (candidate.length < 3 || candidate.length > 80) return null;
 
   const normalized = normalizeUnitText(candidate);
   const blockedExact = new Set([
@@ -819,6 +824,7 @@ function applySafeBillingCustomerGuard(args: {
     plz: kundeData.plz || null,
     ort: kundeData.ort || null,
     telefon: kundeData.telefon || null,
+    email: kundeData.email || null,
   });
 
   if (!evidence.hasReliableCustomerBlock) {
@@ -834,6 +840,7 @@ function applySafeBillingCustomerGuard(args: {
     kundeData.plz = null;
     kundeData.ort = null;
     kundeData.telefon = null;
+    kundeData.email = null;
 
     const after = JSON.stringify({
       name: kundeData.name || null,
@@ -842,6 +849,7 @@ function applySafeBillingCustomerGuard(args: {
       plz: kundeData.plz || null,
       ort: kundeData.ort || null,
       telefon: kundeData.telefon || null,
+      email: kundeData.email || null,
     });
 
     return {
@@ -856,6 +864,7 @@ function applySafeBillingCustomerGuard(args: {
   kundeData.plz = evidence.plz || null;
   kundeData.ort = evidence.city || null;
   kundeData.telefon = evidence.phone || null;
+  kundeData.email = evidence.email || null;
 
   const after = JSON.stringify({
     name: kundeData.name || null,
@@ -864,6 +873,7 @@ function applySafeBillingCustomerGuard(args: {
     plz: kundeData.plz || null,
     ort: kundeData.ort || null,
     telefon: kundeData.telefon || null,
+    email: kundeData.email || null,
   });
 
   return {
@@ -894,6 +904,12 @@ function extractPhoneFromText(value: string | null | undefined): string | null {
   if (digits.length < 7 || digits.length > 15) return null;
 
   return loose.replace(/\s+/g, " ").trim();
+}
+
+function extractEmailFromText(value: string | null | undefined): string | null {
+  const source = String(value || "");
+  const match = source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0]?.trim() || null;
 }
 
 function extractOnsiteContactHint(
@@ -3367,7 +3383,8 @@ const intakeCurrency =
         billingEvidence.street ||
           billingEvidence.plz ||
           billingEvidence.city ||
-          billingEvidence.phone,
+          billingEvidence.phone ||
+          billingEvidence.email,
       );
 
     const keepNewCustomerMasterEmpty =
@@ -3394,8 +3411,12 @@ const intakeCurrency =
             plz: billingEvidence.plz ?? sanitized.plz,
             city: billingEvidence.city ?? sanitized.city,
             phone: billingEvidence.phone ?? sanitized.phone,
+            email: billingEvidence.email ?? sanitized.email,
           }
-        : sanitized;
+        : {
+            ...sanitized,
+            email: billingEvidence.email ?? sanitized.email,
+          };
 
     const safeNewCustomerName = hasPersistableCustomerName
       ? cleanBillingCustomerNameCandidate(kundeData.name || null) || ""
