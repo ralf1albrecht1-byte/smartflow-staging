@@ -148,6 +148,12 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     "kunde",
     "rechnungsadresse",
     "rechnung",
+    "rechnungskunde",
+    "rechnungsempfänger",
+    "rechnungsempfaenger",
+    "facturation",
+    "billing",
+    "invoice",
     "name",
     "unbekannt",
     "weiss",
@@ -175,11 +181,22 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     "arbeit",
     "leistung",
     "leistungen",
+    "es geht",
+    "es handelt",
+    "zugang",
+    "zufahrt",
+    "termin",
+    "schlüssel",
+    "schluessel",
+    "parkplatz",
+    "garage",
+    "lagerhalle",
+    "eingang",
   ];
   if (!hasStrongCompanySuffix && blockedStarts.some((start) => normalized.startsWith(start))) return null;
 
   const blockedContained =
-    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|prüfen|pruefen|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext)\b/i;
+    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|montieren|prüfen|pruefen|ersetzen|entsorgen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|zugang|zufahrt|seitentor|schlüssel|schluessel|parkplatz|termin|bauarbeiten)\b/i;
   if (!hasStrongCompanySuffix && blockedContained.test(normalized)) return null;
 
   // Reine Adresszeilen sind kein Name.
@@ -204,7 +221,7 @@ function extractBillingCustomerNameFallback(
   if (!source) return null;
 
   const marker =
-    "(?:kunde\\s*/\\s*rechnungsadresse|rechnungsadresse|rechnung\\s+geht\\s+an|rechnung\\s+an|rechnung\\s+bekommt|kunde\\s+ist|kunde|invoice\\s+customer\\s+is|invoice\\s+customer|billing\\s+customer\\s+is|billing\\s+customer|bill\\s+to)";
+    "(?:kunde\\s*/\\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|rechnung\\s+geht\\s+an|rechnung\\s+an|rechnung\\s+bekommt|rechnung\\s+(?:für|fuer)|kunde\\s+ist|kunde|invoice\\s+customer\\s+is|invoice\\s+customer|billing\\s+customer\\s+is|billing\\s+customer|billing\\s+address|bill\\s+to)";
 
   // 1) Einzeiler: "Rechnung geht an Swiss Facility Service AG, Badenerstrasse 90 in 8004 Zürich."
   const inlinePattern = new RegExp(`(?:^|[\\n.!?]\\s*)${marker}\\s*:?\\s+([^\\n]+)`, "gi");
@@ -317,7 +334,7 @@ function splitIntakeLines(value: string | null | undefined): string[] {
 function stripBillingLabelPrefix(line: string): string {
   return String(line || "")
     .replace(
-      /^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*/i,
+      /^\s*(?:kunde\s*\/\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|rechnung\s+(?:für|fuer)|client\s*\/\s*facturation|client|facturation|billing\s+customer|billing\s+address|invoice\s+customer|bill\s+to)\s*:?\s*/i,
       "",
     )
     .trim();
@@ -371,14 +388,24 @@ function parseBillingStreetLine(line: string): string | null {
   const germanSuffix = "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
 
   const patterns = [
-    new RegExp(`\\b(${word}${germanSuffix}\\s+${houseNumber})\\b`, "i"),
-    new RegExp(`\\b((?:Alte|Neue|Obere|Oberer|Unterer|Untere|Mittlere|Hintere|Vordere|Kleine|Grosse|Große|Sankt|St\\.?|Im|Am|Zum|Zur|Auf\\s+der|An\\s+der)\\s+${word}${germanSuffix}\\s+${houseNumber})\\b`, "i"),
+    // Bahnhofstrasse 44, Badenerstrasse 90, Zentralstrasse 5
+    new RegExp(`\\b((?:${word}\\s+){0,3}${word}${germanSuffix}\\s+${houseNumber})\\b`, "i"),
+    // Untere Gasse 4, Alte Gasse 7, Im Weg 2
+    new RegExp(`\\b((?:${word}\\s+){1,4}${germanSuffix}\\s+${houseNumber})\\b`, "i"),
+    // Rütistrasse 9 / Rue de Lausanne 10 / Via Roma 3
     new RegExp(`\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,6}\\s+${houseNumber})\\b`, "i"),
   ];
 
   for (const pattern of patterns) {
     const match = raw.match(pattern);
-    if (match?.[1]) return match[1].replace(/\s+/g, " ").trim();
+    if (!match?.[1]) continue;
+
+    const street = match[1]
+      .replace(/^\s*(?:an|bei|beim|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (street && !/^[-–—]+$/.test(street)) return street;
   }
 
   return null;
@@ -419,6 +446,7 @@ function parseBillingPlzCityFromLine(line: string): { plz: string | null; city: 
   if (!match) return { plz: null, city: null };
 
   const city = String(match[2] || "")
+    .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
     .replace(/[,;:.]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -485,7 +513,7 @@ function hasNamelessBillingAddressEvidence(block: string | null | undefined): bo
 }
 
 function extractLabeledBillingBlock(lines: string[]): string | null {
-  const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*(.*)$/i;
+  const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|rechnung\s+(?:für|fuer)|client\s*\/\s*facturation|client|facturation|billing\s+customer|billing\s+address|invoice\s+customer|bill\s+to)\s*:?\s*(.*)$/i;
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(billingMarker);
     if (!match) continue;
@@ -511,7 +539,7 @@ function extractLabeledBillingBlock(lines: string[]): string | null {
 
 function extractInlineBillingBlock(source: string): string | null {
   const patterns = [
-    /(?:rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|rechnung\s+geht\s+an|rechnung\s+an|kunde\s+ist)\s*:?\s+([\s\S]{4,260}?)(?=\s*[.!?]?\s*\b(?:gearbeitet\s+wird|arbeitsort|ausführungsadresse|ausfuehrungsadresse|adresse\s+de\s+travail|kontakt\s+vor\s+ort|vor\s+ort|besonderheiten|termin|leistungsübersicht|leistungsuebersicht|leistungen)\b|$)/i,
+    /(?:rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|rechnung\s+geht\s+an|rechnung\s+an|rechnung\s+(?:für|fuer)|kunde\s+ist)\s*:?\s+([\s\S]{4,260}?)(?=\s*[.!?]?\s*\b(?:gearbeitet\s+wird|arbeitsort|ausführungsadresse|ausfuehrungsadresse|adresse\s+de\s+travail|kontakt\s+vor\s+ort|vor\s+ort|besonderheiten|termin|leistungsübersicht|leistungsuebersicht|leistungen)\b|$)/i,
     /(?:client\s*\/\s*facturation|client|facturation)\s*:?\s+([\s\S]{4,260}?)(?=\s*[.!?]?\s*\b(?:adresse\s+de\s+travail|contact\s+sur\s+place|remarques|rendez-vous|services?|leistungsübersicht|leistungen)\b|$)/i,
   ];
 
@@ -536,7 +564,7 @@ function extractTopBillingBlock(lines: string[]): string | null {
 
   for (const line of lines) {
     if (isBillingStopLine(line)) break;
-    if (/^(?:hallo|guten\s+tag|grüezi|gruezi|salut|bonjour|bitte\b|neuer\s+auftrag|auftrag\s+erfassen|anbei|hier\s+ist)/i.test(line)) continue;
+    if (/^(?:hallo|guten\s+tag|grüezi|gruezi|salut|bonjour|bitte\b|neuer\s+auftrag|auftrag\s+erfassen|anbei|hier\s+ist|es\s+geht\s+um|es\s+handelt\s+sich|zugang\s+über|zugang\s+ueber|termin|schlüssel|schluessel)/i.test(line)) continue;
     if (/^(?:whats\s*app|whatsapp|sms|mail|e-?mail|telegram)\s*:?\s*$/i.test(line)) continue;
     if (/^\[Titel\s*:/i.test(line)) continue;
     blockLines.push(line);
@@ -614,6 +642,169 @@ function extractSafeBillingCustomerEvidence(
     phone: hasReliableCustomerBlock ? phone : null,
   };
 }
+
+
+function cleanIntakeCityCandidate(value: string | null | undefined): string | null {
+  const city = String(value || "")
+    .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
+    .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!city || /^[-–—]+$/.test(city)) return null;
+  return city;
+}
+
+function cleanExecutionStreetCandidate(value: string | null | undefined): string | null {
+  const raw = String(value || "")
+    .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
+    .replace(/^\s*(?:an|bei|beim|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+    .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!raw || /^[-–—]+$/.test(raw)) return null;
+
+  const parsedStreet = parseBillingStreetLine(raw);
+  return parsedStreet || raw;
+}
+
+function cleanExecutionSiteNameCandidate(value: string | null | undefined): string | null {
+  let candidate = String(value || "")
+    .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
+    .replace(/^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i, "")
+    .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+    .replace(/^\s*um\s*\d{1,2}[:.]\d{2}\s+(?:uhr\s*)?(?:bei|beim|am|an|in)?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!candidate || /^[-–—]+$/.test(candidate)) return null;
+
+  const normalized = normalizeUnitText(candidate);
+  const blockedExact = new Set([
+    "rechnungskunde",
+    "rechnungsempfaenger",
+    "rechnungsadresse",
+    "kunde",
+    "termin",
+    "morgen",
+    "heute",
+    "bitte",
+  ]);
+  if (blockedExact.has(normalized)) return null;
+
+  if (/^(?:um\s*\d|am\s*\d|es\s+geht\s+um|es\s+handelt\s+sich|zugang\s+(?:über|ueber)|bitte\b)/i.test(candidate)) {
+    return null;
+  }
+
+  if (parseBillingStreetLine(candidate)) return null;
+  if (parseBillingPlzCityFromLine(candidate).plz) return null;
+
+  return candidate;
+}
+
+function extractExecutionBlockFromText(rawText: string | null | undefined): string | null {
+  const lines = splitIntakeLines(rawText);
+  if (lines.length === 0) return null;
+
+  const startRegex = /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort)\s*:?\s*(.*)$/i;
+  const stopRegex = /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|kontakt\s+vor\s+ort|person\s+vor\s+ort|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin)\s*:?/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(startRegex);
+    if (!match) continue;
+
+    const blockLines: string[] = [];
+    if (match[1]?.trim()) blockLines.push(match[1].trim());
+
+    for (let offset = 1; offset <= 6; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (stopRegex.test(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join("\n").trim();
+    if (block) return block;
+  }
+
+  return null;
+}
+
+function repairExecutionStreetFromText(args: {
+  rawText: string | null | undefined;
+  currentStreet: string | null;
+  siteName: string | null;
+  sitePlz: string | null;
+  siteCity: string | null;
+}): string | null {
+  if (args.currentStreet) return args.currentStreet;
+
+  const executionBlock = extractExecutionBlockFromText(args.rawText);
+  const blockStreet = executionBlock ? parseBillingStreetFromBlock(executionBlock) : null;
+  if (blockStreet) return blockStreet;
+
+  const source = normalizeIntakeSourceText(args.rawText);
+  if (!source) return null;
+
+  const name = args.siteName ? escapeRegExpLocal(args.siteName) : null;
+  const city = args.siteCity ? escapeRegExpLocal(args.siteCity) : null;
+  const plz = args.sitePlz ? escapeRegExpLocal(args.sitePlz) : null;
+
+  const windows: string[] = [];
+  if (name) {
+    const match = source.match(new RegExp(`.{0,120}${name}.{0,180}`, "i"));
+    if (match?.[0]) windows.push(match[0]);
+  }
+  if (plz || city) {
+    const marker = [plz, city].filter(Boolean).join("\\s+");
+    const match = source.match(new RegExp(`.{0,180}${marker}.{0,80}`, "i"));
+    if (match?.[0]) windows.push(match[0]);
+  }
+
+  for (const windowText of windows) {
+    const street = parseBillingStreetLine(windowText);
+    if (street) return street;
+  }
+
+  return null;
+}
+
+function sanitizeExtractedExecutionAddress<T extends {
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+}>(address: T | null | undefined, rawText: string | null | undefined): T | null {
+  if (!address) return null;
+
+  const siteName = cleanExecutionSiteNameCandidate(address.siteName || null);
+  const siteCity = cleanIntakeCityCandidate(address.siteCity || null);
+  let siteAddress = cleanExecutionStreetCandidate(address.siteAddress || null);
+
+  siteAddress = repairExecutionStreetFromText({
+    rawText,
+    currentStreet: siteAddress,
+    siteName,
+    sitePlz: address.sitePlz || null,
+    siteCity,
+  });
+
+  const cleaned = {
+    ...address,
+    siteName,
+    siteAddress,
+    siteCity,
+  };
+
+  if (!cleaned.siteName && !cleaned.siteAddress && !cleaned.sitePlz && !cleaned.siteCity) {
+    return null;
+  }
+
+  return cleaned as T;
+}
+
 
 function applySafeBillingCustomerGuard(args: {
   kundeData: any;
@@ -2258,6 +2449,27 @@ Das gilt besonders für:
 - einheit
 - unit_price
 - currency
+
+--------------------------------------------------
+ADRESS-SORTIERUNG – SEHR WICHTIG
+--------------------------------------------------
+- kunde = NUR Rechnungskunde / Rechnungsempfänger / Kunde, der die Rechnung bekommt.
+- ausfuehrungsadresse = NUR Arbeitsort / Einsatzort / Objekt / Adresse, wo gearbeitet wird.
+- Eine Zeile wie "Rechnungskunde:", "Rechnung an:", "Rechnungsadresse:" oder "Billing customer:" ist ein LABEL, niemals ein Name.
+- Wenn nach "Rechnung an:" nur Strasse, PLZ, Ort, Telefon oder E-Mail stehen und kein Name genannt wird:
+  → kunde.name = null
+  → kunde.strasse / kunde.plz / kunde.ort aus dem Text übernehmen
+  → needs_review = true
+- Wenn nur steht "bei der Seestrasse 90 in 5430 Wettingen reinigen":
+  → kunde bleibt leer
+  → ausfuehrungsadresse.strasse = "Seestrasse 90"
+  → ausfuehrungsadresse.plz = "5430"
+  → ausfuehrungsadresse.ort = "Wettingen"
+- Satzanfänge und Hinweise dürfen NIE als Kundenname gespeichert werden:
+  "Es geht um ...", "Zugang über Seitentor", "Bitte ...", "Termin ...", "Rechnungskunde".
+- Wörter wie "kommen", "arbeiten", "melden", "reinigen" dürfen NIE Teil von Ort oder Strasse sein.
+- Wenn unklar ist, ob eine Adresse Rechnungsadresse oder Arbeitsort ist:
+  → nicht raten; lieber kunde leer lassen und ausfuehrungsadresse nur setzen, wenn Arbeitsort klar belegt ist.
 
 CONFIDENCE:
 - "hoch": eindeutig im Text belegt und keine Widersprüche.
@@ -4015,15 +4227,19 @@ totalPrice: safeUnitPrice * safeQuantity,
     customerCity: addr.city,
   };
 
-  const extractedExecutionAddress =
+  const extractedExecutionAddress = sanitizeExtractedExecutionAddress(
     // First pass: only the real customer message. This avoids polluted AI
     // evidence such as "Wohnanlage Seefeld Seefeldstrasse 8008".
     extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
-    // Second pass: full work text, if the webhook/transcript moved the address.
-    extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
-    // Last fallback: KI evidence only. Do not append special notes; those can
-    // contain service/hint text and pollute the address fields.
-    extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext);
+      // Second pass: full work text, if the webhook/transcript moved the address.
+      extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
+      // Last fallback: KI evidence only. Do not append special notes; those can
+      // contain service/hint text and pollute the address fields.
+      extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext),
+    `${messageText}
+${fullWorkText}
+${aiExecutionAddressText}`,
+  );
 
   // V16.23: Zweiter Prüfer als reine Read-only-Kontrolle.
   // Dieser Validator darf keine Daten ändern, keine Chips setzen und nichts
