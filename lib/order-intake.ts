@@ -466,6 +466,24 @@ function getBillingBlockStopRegex(): RegExp {
   return /^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|contact\s+sur\s+place|concierge|hauswart|hausmeister|besonderheiten|bemerkungen|remarques|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|service|services|titel)\b/i;
 }
 
+function hasNamelessBillingAddressEvidence(block: string | null | undefined): boolean {
+  const source = normalizeIntakeSourceText(block);
+  if (!source) return false;
+
+  const street = parseBillingStreetFromBlock(source);
+  const { plz, city } = parseBillingPlzCityFromBlock(source);
+  const phone = extractPhoneFromText(source);
+
+  const hasFullAddress = Boolean(street && plz && city);
+  const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
+
+  // Nur für explizit gelabelte Rechnungs-/Billing-Blöcke:
+  // Wenn der Name fehlt, dürfen echte Adress-/Telefon-Daten trotzdem nicht
+  // verworfen werden. Der Auftrag bleibt prüfpflichtig, aber die Daten bleiben
+  // in der Kundenkarte sichtbar.
+  return hasFullAddress || hasPartialAddressWithPhone;
+}
+
 function extractLabeledBillingBlock(lines: string[]): string | null {
   const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*(.*)$/i;
   for (let index = 0; index < lines.length; index += 1) {
@@ -483,7 +501,9 @@ function extractLabeledBillingBlock(lines: string[]): string | null {
     }
 
     const block = blockLines.join("\n").trim();
-    if (block && parseBillingNameFromBlock(block)) return block;
+    if (block && (parseBillingNameFromBlock(block) || hasNamelessBillingAddressEvidence(block))) {
+      return block;
+    }
   }
 
   return null;
@@ -503,7 +523,9 @@ function extractInlineBillingBlock(source: string): string | null {
       .replace(/\b(?:adresse|anschrift|telefonnummer|telefon|tel\.?|phone|mobile|handy|natel)\s*:?/gi, "\n$& ")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
-    if (block && parseBillingNameFromBlock(block)) return block;
+    if (block && (parseBillingNameFromBlock(block) || hasNamelessBillingAddressEvidence(block))) {
+      return block;
+    }
   }
 
   return null;
@@ -569,12 +591,17 @@ function extractSafeBillingCustomerEvidence(
   const phone = extractPhoneFromText(block);
   const hasCompany = /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(name || "");
   const hasAddress = Boolean(street || (plz && city));
+  const hasFullAddress = Boolean(street && plz && city);
+  const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
 
   const sourceKind: SafeBillingCustomerEvidence["source"] = labeledBlock ? "labeled" : inlineBlock ? "inline" : "top";
   const hasReliableCustomerBlock = Boolean(
-    name &&
+    (name &&
       ((sourceKind === "top" && (hasCompany || hasAddress)) ||
-        (sourceKind !== "top" && (hasCompany || hasAddress || phone))),
+        (sourceKind !== "top" && (hasCompany || hasAddress || phone)))) ||
+      // Explizit gelabelte Rechnungsadresse ohne Name:
+      // Adresse/Telefon übernehmen, aber weiterhin Kunde prüfen erzwingen.
+      (sourceKind !== "top" && !name && (hasFullAddress || hasPartialAddressWithPhone)),
   );
 
   return {
@@ -3120,8 +3147,20 @@ const intakeCurrency =
       cleanBillingCustomerNameCandidate(kundeData.name || null),
     );
 
+    const hasNamelessBillingAddress =
+      billingEvidence.hasReliableCustomerBlock &&
+      !hasPersistableCustomerName &&
+      billingEvidence.source !== "top" &&
+      Boolean(
+        billingEvidence.street ||
+          billingEvidence.plz ||
+          billingEvidence.city ||
+          billingEvidence.phone,
+      );
+
     const keepNewCustomerMasterEmpty =
-      !billingEvidence.hasReliableCustomerBlock || !hasPersistableCustomerName;
+      !billingEvidence.hasReliableCustomerBlock ||
+      (!hasPersistableCustomerName && !hasNamelessBillingAddress);
 
     const safeNewCustomerFields = keepNewCustomerMasterEmpty
       ? {
@@ -3132,7 +3171,19 @@ const intakeCurrency =
           phone: null,
           email: null,
         }
-      : sanitized;
+      : hasNamelessBillingAddress
+        ? {
+            ...sanitized,
+            // Explizit gelabelte Rechnungsadresse ohne Name:
+            // Sanitizer bleibt aktiv, aber die sicher extrahierten Billing-Felder
+            // aus dem markierten Block werden nicht nur wegen fehlendem Namen
+            // verworfen.
+            street: billingEvidence.street ?? sanitized.street,
+            plz: billingEvidence.plz ?? sanitized.plz,
+            city: billingEvidence.city ?? sanitized.city,
+            phone: billingEvidence.phone ?? sanitized.phone,
+          }
+        : sanitized;
 
     const safeNewCustomerName = hasPersistableCustomerName
       ? cleanBillingCustomerNameCandidate(kundeData.name || null) || ""
@@ -3147,6 +3198,15 @@ const intakeCurrency =
       if (!customerGuardReviewReasons.includes("customer_data_uncertain_no_billing_block")) {
         customerGuardReviewReasons.push("customer_data_uncertain_no_billing_block");
       }
+    } else if (hasNamelessBillingAddress) {
+      console.log(
+        `[${source}] 🛡️ labeled billing address without name → persisted partial customer data with needsReview=true`,
+      );
+      parsed.system = parsed.system || {};
+      parsed.system.needs_review = true;
+      if (!customerGuardReviewReasons.includes("customer_name_missing_billing_address_present")) {
+        customerGuardReviewReasons.push("customer_name_missing_billing_address_present");
+      }
     }
 
     const { generateCustomerNumber } = await import("@/lib/customer-number");
@@ -3156,9 +3216,10 @@ const intakeCurrency =
         customerNumber,
         name: safeNewCustomerName,
         // New customer master data may store phone/email only after the billing
-        // customer guard + sanitizer verified that they belong to the billing block
-        // AND a real billing customer name exists. If the customer name is missing,
-        // execution-site data must never appear in the billing customer card.
+        // customer guard + sanitizer verified that they belong to the billing block.
+        // If the customer name is missing, this is allowed only for explicitly
+        // labelled billing blocks with real address/phone evidence; execution-site
+        // data must still never appear in the billing customer card.
         phone: safeNewCustomerFields.phone,
         email: safeNewCustomerFields.email,
         address: safeNewCustomerFields.street,
