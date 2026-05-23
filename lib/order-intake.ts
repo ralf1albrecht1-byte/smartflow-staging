@@ -90,27 +90,64 @@ function extractSelfIntroductionName(
 }
 
 // INTAKE_SEMANTIC_ENGINE_V12
+// V16.38: Shared billing-marker vocabulary for messy WhatsApp texts.
+// Covers German, English, French, Spanish/Portuguese and Italian invoice labels
+// without accepting execution-site labels as billing customer names.
+const BILLING_MARKER_PATTERN =
+  "kunde\\s*,?\\s*der\\s+die\\s+rechnung\\s+bekommt\\s+und\\s+bezahlt|" +
+  "kunde\\s*/\\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|" +
+  "rechnungsempfängerin|rechnungsempfaengerin|rechnungsadresse|" +
+  "rechnung\\s+(?:geht\\s+)?an|rechnung\\s+bekommt|rechnung\\s+ist\\s+(?:für|fuer)|rechnung\\s+(?:für|fuer)|" +
+  "auftraggeber(?:in)?|besteller(?:in)?|zahler|zahlende\\s+stelle|chef(?:\\s+zahlt)?|" +
+  "firma|company|client\\s*/\\s*facturation|client|billing\\s+customer|billing\\s+address|invoice\\s+customer|invoice\\s+address|bill\\s+to|" +
+  "facturation|facture\\s*(?:à|a)|(?:la\\s+)?facture\\s+(?:va\\s+)?(?:à|a|pour)|" +
+  "factura\\s+(?:para|a|à)|fatura\\s+(?:para|a|à)|facturacion|facturación|" +
+  "fattura\\s+(?:a|per)|fatturazione|cliente|pagador|payer";
+
+const BILLING_LABEL_PREFIX_REGEX = new RegExp(
+  `^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|geht\\s+an|geht\\s+auf|va\\s+(?:à|a)|para|per|pour|a|à|=|:)?\\s*`,
+  "i",
+);
+
 // V16.32: harte Vorbereinigung für Namen aus KI/Transkript.
 // Ziel: keine Satzreste wie "ist Meier Renovationen AG", "Mail reicht"
 // oder "Es geht um kleine Bauarbeiten" als Rechnungskunde speichern.
 function stripNonNameLeadIn(value: string): string {
   let candidate = String(value || "")
-    .replace(/^\s*(?:der\s+|die\s+|das\s+)?(?:rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|kundin|firma|company|client|billing\s+customer|invoice\s+customer)\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\s+/i, "")
-    .replace(/^\s*(?:das\s+ist|dies\s+ist|es\s+ist|c['’]?est|it\s+is|ist|isch|is)\s+/i, "")
-    .replace(/^\s*(?:für|fuer|an|bei)\s+(?:den|die|das|der|dem)?\s*/i, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/)[0]
+    .replace(/^\s*(?:TEXT\s*\d+\s*)$/i, "")
+    .replace(/^\s*(?:TEXT\s*\d+\s*)/i, "")
+    .replace(/^\s*(?:der\s+|die\s+|das\s+)?/i, "")
     .replace(/^\s*[:\-–—]+\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
 
-  // Einmal wiederholen, falls die KI verschachtelt liefert: "Kunde ist ist X".
-  candidate = candidate
-    .replace(/^\s*(?:das\s+ist|dies\s+ist|es\s+ist|c['’]?est|it\s+is|ist|isch|is)\s+/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const leadInPatterns = [
+    BILLING_LABEL_PREFIX_REGEX,
+    /^\s*(?:das\s+ist|dies\s+ist|es\s+ist|c['’]?est|it\s+is|ist|isch|is)\s+/i,
+    /^\s*(?:für|fuer|an|bei)\s+(?:den|die|das|der|dem)?\s*/i,
+    /^\s*(?:la\s+)?facture\s+(?:va\s+)?(?:à|a|pour)\s*:?\s*/i,
+    /^\s*(?:factura|fatura)\s+(?:para|a|à)\s*:?\s*/i,
+    /^\s*fattura\s+(?:a|per)\s*:?\s*/i,
+    /^\s*(?:auftraggeber(?:in)?|besteller(?:in)?|zahler|zahlende\s+stelle|chef(?:\s+zahlt)?|pagador|payer)\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\s*/i,
+  ];
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    const before = candidate;
+    for (const pattern of leadInPatterns) {
+      candidate = candidate.replace(pattern, "");
+    }
+    candidate = candidate
+      .replace(/^\s*[:\-–—]+\s*/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (candidate === before) break;
+  }
 
   return candidate;
 }
-
 function isForbiddenBillingNameSentence(value: string | null | undefined): boolean {
   const normalized = normalizeUnitText(value || "")
     .replace(/[^a-z0-9\s]/g, " ")
@@ -134,10 +171,29 @@ function isForbiddenBillingNameSentence(value: string | null | undefined): boole
     "adresse wie letztes mal",
     "wie letztes mal",
     "unbekannt",
+    "auftraggeber",
+    "auftraggeber ist",
+    "besteller",
+    "zahler",
+    "chef",
+    "chef zahlt",
+    "zahlt",
+    "bezahlt",
+    "factura para",
+    "fatura para",
+    "fattura a",
+    "fattura per",
+    "la facture va a",
+    "la facture va à",
+    "facture a",
+    "facture à",
+    "facture pour",
+    "pagador",
+    "payer",
   ]);
   if (exact.has(normalized)) return true;
 
-  const forbiddenStarts = /^(?:mail\s+reicht|e\s*mail\s+reicht|email\s+reicht|per\s+mail|bitte\s+per\s+mail|bitte\s+mail|sms\s+reicht|whatsapp\s+reicht|telefon\s+reicht|kein\s+anruf|nicht\s+anrufen|adresse\s+wie|wie\s+letztes\s+mal|es\s+(?:geht|goht|handelt)\s+(?:um|sich)|kleine\s+bauarbeiten|neuer\s+auftrag|auftrag\b|termin\b|morgen\b|heute\b)/i;
+  const forbiddenStarts = /^(?:mail\s+reicht|e\s*mail\s+reicht|email\s+reicht|per\s+mail|bitte\s+per\s+mail|bitte\s+mail|sms\s+reicht|whatsapp\s+reicht|telefon\s+reicht|kein\s+anruf|nicht\s+anrufen|adresse\s+wie|wie\s+letztes\s+mal|es\s+(?:geht|goht|handelt)\s+(?:um|sich)|kleine\s+bauarbeiten|neuer\s+auftrag|auftrag\b|auftraggeber\b|besteller\b|zahler\b|chef\b|zahlt\b|bezahlt\b|factura\s+(?:para|a)|fatura\s+(?:para|a)|fattura\s+(?:a|per)|(?:la\s+)?facture\s+(?:va\s+)?(?:a|à|pour)|pagador\b|payer\b|termin\b|morgen\b|heute\b)/i;
   if (forbiddenStarts.test(normalized)) return true;
 
   return false;
@@ -224,6 +280,18 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     "invoice",
     "name",
     "unbekannt",
+    "auftraggeber",
+    "besteller",
+    "zahler",
+    "chef",
+    "zahlt",
+    "bezahlt",
+    "factura",
+    "fatura",
+    "fattura",
+    "facture",
+    "pagador",
+    "payer",
     "weiss",
     "weiß",
     "weis",
@@ -267,6 +335,18 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     "adresse wie",
     "wie letztes",
     "neuer auftrag",
+    "auftraggeber",
+    "besteller",
+    "zahler",
+    "chef",
+    "zahlt",
+    "bezahlt",
+    "factura",
+    "fatura",
+    "fattura",
+    "facture",
+    "pagador",
+    "payer",
   ];
   if (!hasStrongCompanySuffix && blockedStarts.some((start) => normalized.startsWith(start))) return null;
 
@@ -409,13 +489,9 @@ function splitIntakeLines(value: string | null | undefined): string[] {
 
 function stripBillingLabelPrefix(line: string): string {
   return String(line || "")
-    .replace(
-      /^\s*(?:kunde\s*\/\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|rechnung\s+(?:für|fuer)|client\s*\/\s*facturation|client|facturation|billing\s+customer|billing\s+address|invoice\s+customer|bill\s+to)\s*:?\s*/i,
-      "",
-    )
+    .replace(BILLING_LABEL_PREFIX_REGEX, "")
     .trim();
 }
-
 function hasBillingCompanySuffix(value: string | null | undefined): boolean {
   return /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|gmbh\s*&\s*co|verein|stiftung)\b/i.test(
     String(value || ""),
@@ -591,7 +667,7 @@ function hasNamelessBillingAddressEvidence(block: string | null | undefined): bo
 }
 
 function extractLabeledBillingBlock(lines: string[]): string | null {
-  const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|rechnung\s+(?:für|fuer)|client\s*\/\s*facturation|client|facturation|billing\s+customer|billing\s+address|invoice\s+customer|bill\s+to)\s*:?\s*(.*)$/i;
+  const billingMarker = new RegExp(`^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`, "i");
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(billingMarker);
     if (!match) continue;
@@ -617,10 +693,11 @@ function extractLabeledBillingBlock(lines: string[]): string | null {
 
 function extractInlineBillingBlock(source: string): string | null {
   const patterns = [
-    /(?:rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|rechnung\s+geht\s+an|rechnung\s+an|rechnung\s+(?:für|fuer)|kunde\s+ist)\s*:?\s+([\s\S]{4,260}?)(?=\s*[.!?]?\s*\b(?:gearbeitet\s+wird|arbeitsort|ausführungsadresse|ausfuehrungsadresse|adresse\s+de\s+travail|kontakt\s+vor\s+ort|vor\s+ort|besonderheiten|termin|leistungsübersicht|leistungsuebersicht|leistungen)\b|$)/i,
-    /(?:client\s*\/\s*facturation|client|facturation)\s*:?\s+([\s\S]{4,260}?)(?=\s*[.!?]?\s*\b(?:adresse\s+de\s+travail|contact\s+sur\s+place|remarques|rendez-vous|services?|leistungsübersicht|leistungen)\b|$)/i,
+    new RegExp(
+      `(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s+([\\s\\S]{4,260}?)(?=\\s*[.!?]?\\s*\\b(?:gearbeitet\\s+wird|arbeitsort|ausführungsadresse|ausfuehrungsadresse|arbeiten\\s+(?:bitte\\s+)?(?:bei|beim|in|im)|arbeit\\s+(?:bitte\\s+)?(?:bei|beim|in|im)|adresse\\s+de\\s+travail|lieu\\s+d['’]?intervention|indirizzo\\s+(?:di\\s+lavoro|cantiere)|lugar\\s+de\\s+trabajo|kontakt\\s+vor\\s+ort|vor\\s+ort|besonderheiten|termin|rendez-vous|appuntamento|leistungsübersicht|leistungsuebersicht|leistungen|services?)\\b|$)`,
+      "i",
+    ),
   ];
-
   for (const pattern of patterns) {
     const match = source.match(pattern);
     if (!match?.[1]) continue;
@@ -680,8 +757,8 @@ function extractHardLabeledBillingAddressEvidenceV1634(
   const lines = splitIntakeLines(rawText);
   if (lines.length === 0) return null;
 
-  const markerRegex = /^\s*(?:kunde\s*,?\s*der\s+die\s+rechnung\s+bekommt\s+und\s+bezahlt|kunde\s*\/\s*rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+(?:für|fuer)|rechnung\s+bekommt|rechnungsadresse|rechnungsempfänger|rechnungsempfaenger|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|billing\s+customer|client\s*\/\s*facturation|facturation)\s*:?\s*(.*)$/i;
-  const stopRegex = /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
+  const markerRegex = new RegExp(`^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`, "i");
+  const stopRegex = /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(markerRegex);
@@ -745,10 +822,9 @@ function extractDirectNamelessBillingAddressV1637(
   const lines = splitIntakeLines(rawText);
   if (lines.length === 0) return null;
 
-  const markerRegex =
-    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnung\s+(?:für|fuer)|rechnung\s+bekommt|rechnungsadresse|rechnungsempfänger|rechnungsempfaenger|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|billing\s+customer|client\s*\/\s*facturation|facturation)\s*:?\s*(.*)$/i;
+  const markerRegex = new RegExp(`^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`, "i");
   const stopRegex =
-    /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
+    /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(markerRegex);
@@ -943,8 +1019,8 @@ function extractExecutionBlockFromText(rawText: string | null | undefined): stri
   const lines = splitIntakeLines(rawText);
   if (lines.length === 0) return null;
 
-  const startRegex = /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort)\s*:?\s*(.*)$/i;
-  const stopRegex = /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|kontakt\s+vor\s+ort|person\s+vor\s+ort|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin)\s*:?/i;
+  const startRegex = /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+  const stopRegex = /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(startRegex);
