@@ -12,6 +12,7 @@ import {
 import { sanitizeNewCustomerFields } from "@/lib/intake-sanitize";
 import {
   findExactDeterministicMatch,
+  findNearExactDeterministicMatch,
 } from "@/lib/exact-customer-match";
 import { maskPhoneForLog } from "@/lib/phone";
 import { buildSpecialNotes } from "@/lib/special-notes-utils";
@@ -178,7 +179,7 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
   if (!hasStrongCompanySuffix && blockedStarts.some((start) => normalized.startsWith(start))) return null;
 
   const blockedContained =
-    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|prüfen|pruefen|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext|parkplatz|parken|parking|zugang|schlüssel|schluessel|termin|whatsapp|sms|mail|e-?mail|anrufen|melden|bestätigen|bestaetigen|vorhanden|reserviert)\b/i;
+    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|prüfen|pruefen|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext)\b/i;
   if (!hasStrongCompanySuffix && blockedContained.test(normalized)) return null;
 
   // Reine Adresszeilen sind kein Name.
@@ -293,7 +294,6 @@ type SafeBillingCustomerEvidence = {
   plz: string | null;
   city: string | null;
   phone: string | null;
-  email: string | null;
 };
 
 function normalizeIntakeSourceText(value: string | null | undefined): string {
@@ -466,20 +466,6 @@ function getBillingBlockStopRegex(): RegExp {
   return /^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|contact\s+sur\s+place|concierge|hauswart|hausmeister|besonderheiten|bemerkungen|remarques|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|service|services|titel)\b/i;
 }
 
-function isBillingExtractionHardStopLine(line: string): boolean {
-  const trimmed = String(line || "").trim();
-  if (!trimmed) return false;
-
-  // Firmen wie "Termin Service AG" oder "Leistungen Plus GmbH" dürfen nicht
-  // versehentlich den Billing-Block abbrechen.
-  if (hasBillingCompanySuffix(trimmed)) return false;
-
-  // Für explizite Rechnungsblöcke ohne Name darf der Block nur die
-  // Rechnungsdaten enthalten. Termin-/Bitte-/Leistungszeilen sind Auftragstext
-  // und dürfen nicht als Name oder Adresse in den Kundenstamm laufen.
-  return /^(?:termin|datum|zeit|bitte\b|auftrag\b|arbeit\b|arbeiten\b|leistungen?|leistungsübersicht|leistungsuebersicht|preis|preise|total|summe|mwst|ust|vat|[[]titel\s*:)/i.test(trimmed);
-}
-
 function hasNamelessBillingAddressEvidence(block: string | null | undefined): boolean {
   const source = normalizeIntakeSourceText(block);
   if (!source) return false;
@@ -487,21 +473,19 @@ function hasNamelessBillingAddressEvidence(block: string | null | undefined): bo
   const street = parseBillingStreetFromBlock(source);
   const { plz, city } = parseBillingPlzCityFromBlock(source);
   const phone = extractPhoneFromText(source);
-  const email = extractEmailFromText(source);
 
   const hasFullAddress = Boolean(street && plz && city);
   const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
-  const hasPartialAddressWithEmail = Boolean((street || (plz && city)) && email);
 
   // Nur für explizit gelabelte Rechnungs-/Billing-Blöcke:
   // Wenn der Name fehlt, dürfen echte Adress-/Telefon-Daten trotzdem nicht
   // verworfen werden. Der Auftrag bleibt prüfpflichtig, aber die Daten bleiben
   // in der Kundenkarte sichtbar.
-  return hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail;
+  return hasFullAddress || hasPartialAddressWithPhone;
 }
 
 function extractLabeledBillingBlock(lines: string[]): string | null {
-  const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|facture\s*(?:à|a)|facturer\s*(?:à|a)|billing\s+customer|billing\s+address|invoice\s+customer|invoice\s+address|bill\s+to|fattura\s+a|fatturazione|facturacion|facturación)\s*:?\s*(.*)$/i;
+  const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*(.*)$/i;
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(billingMarker);
     if (!match) continue;
@@ -509,10 +493,10 @@ function extractLabeledBillingBlock(lines: string[]): string | null {
     const blockLines: string[] = [];
     if (match[1]?.trim()) blockLines.push(match[1].trim());
 
-    for (let offset = 1; offset <= 9; offset += 1) {
+    for (let offset = 1; offset <= 7; offset += 1) {
       const line = lines[index + offset];
       if (!line) break;
-      if (isBillingStopLine(line) || isBillingExtractionHardStopLine(line)) break;
+      if (isBillingStopLine(line)) break;
       blockLines.push(line);
     }
 
@@ -578,416 +562,6 @@ function escapeRegExpLocal(value: string): string {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-
-
-function extractHardLabeledBillingAddressEvidenceV1628(
-  rawText: string | null | undefined,
-): SafeBillingCustomerEvidence | null {
-  const source = normalizeIntakeSourceText(rawText);
-  if (!source) return null;
-
-  const lines = splitIntakeLines(source);
-  if (lines.length === 0) return null;
-
-  const markerLine =
-    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|billing\s+address|invoice\s+address|bill\s+to)\s*:?\s*(.*)$/i;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const markerMatch = lines[index].match(markerLine);
-    if (!markerMatch) continue;
-
-    const blockLines: string[] = [];
-    if (markerMatch[1]?.trim()) blockLines.push(markerMatch[1].trim());
-
-    for (let offset = 1; offset <= 8; offset += 1) {
-      const line = lines[index + offset];
-      if (!line) break;
-      if (isBillingStopLine(line) || isBillingExtractionHardStopLine(line)) break;
-      blockLines.push(line);
-    }
-
-    const block = blockLines.join("\n").trim();
-    if (!block) continue;
-
-    let name = parseBillingNameFromBlock(block);
-    let street = parseBillingStreetFromBlock(block) || null;
-    let plzCity = parseBillingPlzCityFromBlock(block);
-    let phone = extractPhoneFromText(block);
-    let email = extractEmailFromText(block);
-
-    // Deterministic second pass over individual lines. This intentionally does
-    // not depend on the LLM output or the generic sanitizer. It repairs the
-    // exact production case: labelled invoice/billing block with no name but
-    // real address/contact data.
-    for (const line of blockLines) {
-      const cleaned = stripBillingLabelPrefix(line);
-      if (!street) street = parseBillingStreetLine(cleaned);
-      if (!plzCity.plz || !plzCity.city) {
-        const next = parseBillingPlzCityFromLine(cleaned);
-        if (next.plz && next.city) plzCity = next;
-      }
-      if (!phone) phone = extractPhoneFromText(cleaned);
-      if (!email) email = extractEmailFromText(cleaned);
-      if (!name && !parseBillingStreetLine(cleaned) && !parseBillingPlzCityFromLine(cleaned).plz && !isBillingPhoneOrMailLine(cleaned)) {
-        name = parseBillingNameFromBlock(cleaned);
-      }
-    }
-
-    const hasFullAddress = Boolean(street && plzCity.plz && plzCity.city);
-    const hasPartialAddressWithContact = Boolean((street || (plzCity.plz && plzCity.city)) && (phone || email));
-    const hasAnyPersistableBillingData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
-
-    if (!hasAnyPersistableBillingData) continue;
-
-    return {
-      source: "labeled",
-      hasReliableCustomerBlock: true,
-      name: name || null,
-      street: street || null,
-      plz: plzCity.plz || null,
-      city: plzCity.city || null,
-      phone: phone || null,
-      email: email || null,
-    };
-  }
-
-  return null;
-}
-
-function extractDirectLabeledBillingAddressEvidenceV1630(
-  rawText: string | null | undefined,
-): SafeBillingCustomerEvidence | null {
-  const source = normalizeIntakeSourceText(rawText);
-  if (!source) return null;
-
-  const lines = splitIntakeLines(source);
-  if (lines.length === 0) return null;
-
-  // V16.30: deliberately small and deterministic repair for the confirmed
-  // production case: an explicit "Rechnung an:" / billing-address block with
-  // no customer name, but with real street + PLZ/city + optional phone/email.
-  // This function does not infer anything from work-site text and does not use
-  // LLM output. It only reads lines below an explicit billing label.
-  const explicitBillingMarker =
-    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|billing\s+address|invoice\s+address|invoice\s+customer|billing\s+customer|bill\s+to|facturation|facture\s*(?:à|a)|fattura\s+a|fatturazione|facturacion|facturación)\s*:?\s*(.*)$/i;
-
-  const hardStop =
-    /^(?:termin|datum|zeit|bitte\b|auftrag\b|arbeit\b|arbeiten\b|leistungen?|leistungsübersicht|leistungsuebersicht|preis|preise|total|summe|mwst|ust|vat|\[\s*titel\s*:)/i;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const markerMatch = lines[index].match(explicitBillingMarker);
-    if (!markerMatch) continue;
-
-    const blockLines: string[] = [];
-    if (markerMatch[1]?.trim()) blockLines.push(markerMatch[1].trim());
-
-    for (let offset = 1; offset <= 10; offset += 1) {
-      const line = lines[index + offset];
-      if (!line) break;
-      if (hardStop.test(line) || isBillingStopLine(line)) break;
-      blockLines.push(line);
-    }
-
-    const block = blockLines.join("\n").trim();
-    if (!block) continue;
-
-    let name = parseBillingNameFromBlock(block);
-    let street = parseBillingStreetFromBlock(block) || null;
-    let plz: string | null = null;
-    let city: string | null = null;
-    let phone = extractPhoneFromText(block);
-    let email = extractEmailFromText(block);
-
-    for (const line of blockLines) {
-      const cleaned = stripBillingLabelPrefix(line);
-      if (!cleaned || hardStop.test(cleaned) || isBillingStopLine(cleaned)) continue;
-
-      if (!street) {
-        street = parseBillingStreetLine(cleaned);
-      }
-
-      if (!plz || !city) {
-        const parsedZipCity = parseBillingPlzCityFromLine(cleaned);
-        if (parsedZipCity.plz && parsedZipCity.city) {
-          plz = parsedZipCity.plz;
-          city = parsedZipCity.city;
-        }
-      }
-
-      if (!phone) phone = extractPhoneFromText(cleaned);
-      if (!email) email = extractEmailFromText(cleaned);
-
-      if (
-        !name &&
-        !parseBillingStreetLine(cleaned) &&
-        !parseBillingPlzCityFromLine(cleaned).plz &&
-        !isBillingPhoneOrMailLine(cleaned)
-      ) {
-        name = parseBillingNameFromBlock(cleaned);
-      }
-    }
-
-    if (!plz || !city) {
-      const parsedZipCity = parseBillingPlzCityFromBlock(block);
-      plz = plz || parsedZipCity.plz;
-      city = city || parsedZipCity.city;
-    }
-
-    const hasFullAddress = Boolean(street && plz && city);
-    const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
-    const hasPersistableData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
-
-    if (!hasPersistableData) continue;
-
-    return {
-      source: "labeled",
-      hasReliableCustomerBlock: true,
-      name: name || null,
-      street: street || null,
-      plz: plz || null,
-      city: city || null,
-      phone: phone || null,
-      email: email || null,
-    };
-  }
-
-  return null;
-}
-
-
-function extractStrictLabeledBillingAddressEvidence(
-  rawText: string | null | undefined,
-): SafeBillingCustomerEvidence | null {
-  const lines = splitIntakeLines(rawText);
-  if (lines.length === 0) return null;
-
-  // Bewusst enger als der normale Customer-Name-Fallback:
-  // Diese Routine darf nur explizite Rechnungs-/Billing-Blöcke reparieren,
-  // niemals Arbeitsort-/Ausführungsadressdaten als Rechnungskunde speichern.
-  const explicitBillingMarker =
-    /^\s*(?:kunde\s*\/\s*rechnungsadresse|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|bill\s+to|facturation|facture\s*(?:à|a)|fattura\s+a|fatturazione|facturacion|facturación)\s*:?\s*(.*)$/i;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const markerMatch = lines[index].match(explicitBillingMarker);
-    if (!markerMatch) continue;
-
-    const blockLines: string[] = [];
-    if (markerMatch[1]?.trim()) {
-      blockLines.push(markerMatch[1].trim());
-    }
-
-    for (let offset = 1; offset <= 10; offset += 1) {
-      const line = lines[index + offset];
-      if (!line) break;
-      if (isBillingStopLine(line) || isBillingExtractionHardStopLine(line)) break;
-      blockLines.push(line);
-    }
-
-    const block = blockLines.join("\n").trim();
-    if (!block) continue;
-
-    const name = parseBillingNameFromBlock(block);
-    const street = parseBillingStreetFromBlock(block) || parseBillingStreetLine(block);
-    const { plz, city } = parseBillingPlzCityFromBlock(block);
-    const phone = extractPhoneFromText(block);
-    const email = extractEmailFromText(block);
-
-    const hasFullAddress = Boolean(street && plz && city);
-    const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
-    const hasReliableCustomerBlock = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
-
-    if (!hasReliableCustomerBlock) continue;
-
-    return {
-      source: "labeled",
-      hasReliableCustomerBlock: true,
-      name: name || null,
-      street: street || null,
-      plz: plz || null,
-      city: city || null,
-      phone: phone || null,
-      email: email || null,
-    };
-  }
-
-  return null;
-}
-
-function extractInlineExecutionAddressFallback(
-  rawText: string | null | undefined,
-  customerContext?: {
-    customerAddress?: string | null;
-    customerPlz?: string | null;
-    customerCity?: string | null;
-  },
-): {
-  siteName: string | null;
-  siteAddress: string | null;
-  sitePlz: string | null;
-  siteCity: string | null;
-  siteNote: string | null;
-} | null {
-  const source = normalizeIntakeSourceText(rawText);
-  if (!source) return null;
-
-  // Rechnungsblöcke dürfen niemals als Ausführungsadresse repariert werden.
-  // Dafür ist extractStrictLabeledBillingAddressEvidence zuständig.
-  if (
-    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungsdaten|zahlungsadresse|billing\s+address|invoice\s+address|bill\s+to)\s*:/im.test(
-      source,
-    )
-  ) {
-    return null;
-  }
-
-  const streetWord =
-    "[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\\.?|chemin|via|viale|street|road|lane)";
-  const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
-  const streetPattern = `(${streetWord}\\s+${houseNumber})`;
-  const zipCityPattern = "(\\d{4,5})\\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß'.-]{1,40})";
-
-  const patterns = [
-    new RegExp(
-      `\\b(?:bei|beim|am|an|in|im)\\s+(?:der\\s+|dem\\s+|den\\s+)?${streetPattern}\\s+(?:in\\s+)?${zipCityPattern}(?=\\s*(?:[,.!?]|$|\\b(?:die|den|das|der|fenster|boden|eingangsbereich|treppenhaus|reinigen|putzen|machen|bitte|termin|um|am)\\b))`,
-      "i",
-    ),
-    new RegExp(
-      `\\b(?:arbeitsort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|objekt)\\s*:?\\s*(?:[^\\n,;]{0,60}\\n)?${streetPattern}\\s+${zipCityPattern}`,
-      "i",
-    ),
-  ];
-
-  for (const pattern of patterns) {
-    const match = source.match(pattern);
-    if (!match?.[1] || !match?.[2] || !match?.[3]) continue;
-
-    const siteAddress = match[1].replace(/\s+/g, " ").trim();
-    const sitePlz = match[2].trim();
-    const siteCity = match[3].replace(/[,;:.!?]+$/g, "").trim();
-
-    if (!siteAddress || !sitePlz || !siteCity) continue;
-
-    const customerAddress = normalizeUnitText(customerContext?.customerAddress || "");
-    const customerPlz = normalizeUnitText(customerContext?.customerPlz || "");
-    const customerCity = normalizeUnitText(customerContext?.customerCity || "");
-
-    const sameAsCustomer =
-      customerAddress &&
-      customerPlz &&
-      customerCity &&
-      normalizeUnitText(siteAddress).includes(customerAddress) &&
-      normalizeUnitText(sitePlz) === customerPlz &&
-      normalizeUnitText(siteCity) === customerCity;
-
-    if (sameAsCustomer) return null;
-
-    return {
-      siteName: null,
-      siteAddress,
-      sitePlz,
-      siteCity,
-      siteNote: "Aus Text erkannt",
-    };
-  }
-
-  return null;
-}
-
-
-
-function valueAppearsInOriginalText(
-  value: string | null | undefined,
-  rawText: string | null | undefined,
-): boolean {
-  const candidate = normalizeUnitText(value || "");
-  const source = normalizeUnitText(rawText || "");
-  if (!candidate || !source) return false;
-
-  const compactCandidate = candidate.replace(/\s+/g, "");
-  const compactSource = source.replace(/\s+/g, "");
-
-  return source.includes(candidate) || compactSource.includes(compactCandidate);
-}
-
-function extractAiSortedBillingEvidenceV1629(
-  parsed: any,
-  rawText: string | null | undefined,
-): SafeBillingCustomerEvidence | null {
-  const source = normalizeIntakeSourceText(rawText);
-  if (!source) return null;
-
-  const kunde = parsed?.kunde || {};
-  const explicitBillingMarker =
-    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|bill\s+to|facturation|facture\s*(?:à|a)|fattura\s+a|fatturazione|facturacion|facturación)\s*:/im.test(
-      source,
-    );
-
-  const nameCandidate = cleanBillingCustomerNameCandidate(kunde.name || null);
-  const streetCandidate = String(
-    kunde.strasse ||
-      kunde.street ||
-      kunde.address ||
-      kunde.adresse ||
-      "",
-  ).trim();
-  const houseNumberCandidate = String(kunde.hausnummer || "").trim();
-  const combinedStreet =
-    streetCandidate && houseNumberCandidate && !new RegExp(`\\b${escapeRegExpLocal(houseNumberCandidate)}\\b`).test(streetCandidate)
-      ? `${streetCandidate} ${houseNumberCandidate}`.trim()
-      : streetCandidate;
-
-  const plzCandidate = String(kunde.plz || kunde.zip || kunde.postalCode || "").trim();
-  const cityCandidate = String(kunde.ort || kunde.city || "").trim();
-  const phoneCandidate = String(kunde.telefon || kunde.phone || "").trim();
-  const emailCandidate = String(kunde.email || kunde.mail || "").trim().toLowerCase();
-
-  const name = nameCandidate && valueAppearsInOriginalText(nameCandidate, source) ? nameCandidate : null;
-  const street =
-    combinedStreet && valueAppearsInOriginalText(combinedStreet, source)
-      ? combinedStreet
-      : null;
-  const plz =
-    plzCandidate && valueAppearsInOriginalText(plzCandidate, source)
-      ? plzCandidate
-      : null;
-  const city =
-    cityCandidate && valueAppearsInOriginalText(cityCandidate, source)
-      ? cityCandidate
-      : null;
-  const phone =
-    phoneCandidate && valueAppearsInOriginalText(phoneCandidate, source)
-      ? phoneCandidate
-      : null;
-  const email =
-    emailCandidate && valueAppearsInOriginalText(emailCandidate, source)
-      ? emailCandidate
-      : null;
-
-  const hasFullAddress = Boolean(street && plz && city);
-  const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
-  const hasPersistableData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
-
-  if (!hasPersistableData) return null;
-
-  // Without an explicit billing marker, AI-sorted customer data is allowed only
-  // when it has a real name plus address evidence. This prevents work-site
-  // addresses from becoming customer master data.
-  if (!explicitBillingMarker && !(name && (street || (plz && city)))) {
-    return null;
-  }
-
-  return {
-    source: explicitBillingMarker ? "labeled" : "top",
-    hasReliableCustomerBlock: true,
-    name,
-    street,
-    plz,
-    city,
-    phone,
-    email,
-  };
-}
-
 function extractSafeBillingCustomerEvidence(
   rawText: string | null | undefined,
 ): SafeBillingCustomerEvidence {
@@ -1000,7 +574,6 @@ function extractSafeBillingCustomerEvidence(
     plz: null,
     city: null,
     phone: null,
-    email: null,
   };
   if (!source) return empty;
 
@@ -1016,21 +589,19 @@ function extractSafeBillingCustomerEvidence(
   const street = parseBillingStreetFromBlock(block);
   const { plz, city } = parseBillingPlzCityFromBlock(block);
   const phone = extractPhoneFromText(block);
-  const email = extractEmailFromText(block);
   const hasCompany = /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(name || "");
   const hasAddress = Boolean(street || (plz && city));
   const hasFullAddress = Boolean(street && plz && city);
   const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
-  const hasPartialAddressWithEmail = Boolean((street || (plz && city)) && email);
 
   const sourceKind: SafeBillingCustomerEvidence["source"] = labeledBlock ? "labeled" : inlineBlock ? "inline" : "top";
   const hasReliableCustomerBlock = Boolean(
     (name &&
       ((sourceKind === "top" && (hasCompany || hasAddress)) ||
-        (sourceKind !== "top" && (hasCompany || hasAddress || phone || email)))) ||
+        (sourceKind !== "top" && (hasCompany || hasAddress || phone)))) ||
       // Explizit gelabelte Rechnungsadresse ohne Name:
-      // Adresse/Telefon/E-Mail übernehmen, aber weiterhin Kunde prüfen erzwingen.
-      (sourceKind !== "top" && !name && (hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail)),
+      // Adresse/Telefon übernehmen, aber weiterhin Kunde prüfen erzwingen.
+      (sourceKind !== "top" && !name && (hasFullAddress || hasPartialAddressWithPhone)),
   );
 
   return {
@@ -1041,7 +612,6 @@ function extractSafeBillingCustomerEvidence(
     plz: hasReliableCustomerBlock ? plz : null,
     city: hasReliableCustomerBlock ? city : null,
     phone: hasReliableCustomerBlock ? phone : null,
-    email: hasReliableCustomerBlock ? email : null,
   };
 }
 
@@ -1058,7 +628,6 @@ function applySafeBillingCustomerGuard(args: {
     plz: kundeData.plz || null,
     ort: kundeData.ort || null,
     telefon: kundeData.telefon || null,
-    email: kundeData.email || null,
   });
 
   if (!evidence.hasReliableCustomerBlock) {
@@ -1074,7 +643,6 @@ function applySafeBillingCustomerGuard(args: {
     kundeData.plz = null;
     kundeData.ort = null;
     kundeData.telefon = null;
-    kundeData.email = null;
 
     const after = JSON.stringify({
       name: kundeData.name || null,
@@ -1083,7 +651,6 @@ function applySafeBillingCustomerGuard(args: {
       plz: kundeData.plz || null,
       ort: kundeData.ort || null,
       telefon: kundeData.telefon || null,
-      email: kundeData.email || null,
     });
 
     return {
@@ -1098,7 +665,6 @@ function applySafeBillingCustomerGuard(args: {
   kundeData.plz = evidence.plz || null;
   kundeData.ort = evidence.city || null;
   kundeData.telefon = evidence.phone || null;
-  kundeData.email = evidence.email || null;
 
   const after = JSON.stringify({
     name: kundeData.name || null,
@@ -1107,7 +673,6 @@ function applySafeBillingCustomerGuard(args: {
     plz: kundeData.plz || null,
     ort: kundeData.ort || null,
     telefon: kundeData.telefon || null,
-    email: kundeData.email || null,
   });
 
   return {
@@ -1138,13 +703,6 @@ function extractPhoneFromText(value: string | null | undefined): string | null {
   if (digits.length < 7 || digits.length > 15) return null;
 
   return loose.replace(/\s+/g, " ").trim();
-}
-
-function extractEmailFromText(value: string | null | undefined): string | null {
-  const match = String(value || "").match(
-    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
-  );
-  return match?.[0]?.trim().toLowerCase() || null;
 }
 
 function extractOnsiteContactHint(
@@ -2693,7 +2251,7 @@ EVIDENCE-PFLICHT:
 Jedes automatisch gesetzte Feld braucht eine konkrete evidence aus dem Originaltext.
 Das gilt besonders für:
 - kunde.name
-- kunde.strasse / plz / ort / telefon / email
+- kunde.strasse / plz / ort
 - ausfuehrungsadresse
 - jede Arbeitsposition
 - menge
@@ -2707,47 +2265,6 @@ CONFIDENCE:
 - "niedrig": unsicher. Werte bei niedrig möglichst null lassen.
 
 --------------------------------------------------
-PHASE 1 – SEMANTISCHE SORTIERUNG VOR JEDER AUSGABE
---------------------------------------------------
-
-Bevor du JSON ausgibst, sortierst du die Nachricht gedanklich zwingend in diese Bereiche:
-
-A) RECHNUNGSKUNDE / BILLING CUSTOMER:
-- Wer bekommt und bezahlt die Rechnung?
-- Marker wie "Rechnung an:", "Rechnungsadresse:", "Bill to", "Invoice address", "Facturation", "Fattura a" sind starke Billing-Signale.
-- Wenn ein Billing-Block eine Adresse enthält, aber keinen Namen:
-  kunde.name = null
-  kunde.strasse / plz / ort / telefon / email trotzdem befüllen, wenn sie im Billing-Block stehen.
-  system.needs_review = true.
-- Eine fehlende Person/Firma darf NIEMALS dazu führen, dass echte Rechnungsadresse, PLZ, Ort, Telefon oder E-Mail verworfen werden.
-- kunde enthält NUR Rechnungskunden-Daten. Keine Arbeitsadresse. Kein Kontakt vor Ort.
-
-B) AUSFÜHRUNGSADRESSE / ARBEITSORT:
-- Wo wird tatsächlich gearbeitet?
-- Sätze wie "bei der Seestrasse 90 in 5430 Wettingen die Fenster reinigen" sind Arbeitsort/Ausführungsadresse, NICHT Rechnungskunde.
-- Arbeitsort gehört nach auftrag.ausfuehrungsadresse.
-- Wenn Arbeitsort vorhanden, aber Rechnungskunde fehlt: kunde leer lassen + needs_review=true.
-
-C) KONTAKT VOR ORT:
-- Hauswart, Kontaktperson, Ansprechpartner, Concierge, Person vor Ort, Schlüsselübergabe.
-- Diese Person/Telefonnummer gehört NICHT in kunde.telefon.
-- Als Besonderheit ausgeben, z.B. "Kontakt vor Ort: Hauswart, Tel. ...".
-
-D) LEISTUNGEN:
-- Jede Arbeit als eigene Position in auftrag.arbeitspositionen.
-- Preis/Menge/Einheit nur aus derselben evidence übernehmen.
-- Wenn eine Mengen-/Preiszeile nur sagt "Es sind 4 Stück, CHF 7 pro Stück", nimm die direkt vorher genannte Tätigkeit als action_name, wenn eindeutig.
-- Wenn unklar: Leistung/Preis/Menge leer oder needs_review, nicht raten.
-
-KOMPATIBILITÄT:
-- Schreibe die sortierten Daten direkt in die bestehenden Felder:
-  Rechnungskunde → kunde
-  Ausführungsadresse → auftrag.ausfuehrungsadresse
-  Leistungen → auftrag.arbeitspositionen
-  Hinweise/Kontakt vor Ort → auftrag.besonderheiten
-- Keine zusätzlichen Erklärtexte außerhalb des JSON.
-
---------------------------------------------------
 AUSGABEFORMAT
 --------------------------------------------------
 
@@ -2757,11 +2274,7 @@ AUSGABEFORMAT
     "strasse": null,
     "hausnummer": null,
     "plz": null,
-    "ort": null,
-    "telefon": null,
-    "email": null,
-    "confidence": "niedrig",
-    "evidence": null
+    "ort": null
   },
 "auftrag": {
   "titel": null,
@@ -2804,18 +2317,13 @@ REGELN
 --------------------------------------------------
 
 1. KEINE DATEN ERFINDEN / KEIN ABSCHREIBEN VON BESTEHENDEN KUNDEN
-- Felder unter "kunde" (name, strasse, hausnummer, plz, ort, telefon, email) dürfen AUSSCHLIESSLICH
+- Felder unter "kunde" (name, strasse, hausnummer, plz, ort) dürfen AUSSCHLIESSLICH
   aus dem Nachrichtentext / Audio-Transkript / Bildinhalt stammen.
 - NIEMALS Felder aus der Liste "bestehende_kunden" nach "kunde" kopieren.
 - Wenn ein Feld nicht in der eingehenden Nachricht vorkommt → null setzen, nicht raten.
 - PLZ nur setzen wenn im Text vorhanden; keine Rückschlüsse aus Ort.
-- Bestehende Kunden dürfen NICHT automatisch durch Name-Ähnlichkeit übernommen werden.
-- Automatische Wiederverwendung ist nur möglich, wenn Name + Straße + PLZ + Ort vollständig im eingehenden Text stehen und serverseitig exakt identisch geprüft werden.
 
-2. E-Mail / Telefon im Rechnungskunden:
-- Wenn E-Mail oder Telefon eindeutig zum RECHNUNGSKUNDEN/Billing customer gehört, in kunde.email / kunde.telefon setzen.
-- Wenn E-Mail oder Telefon zu "Kontakt vor Ort", Hauswart, Kontaktperson, Ansprechpartner, Concierge usw. gehört, NICHT in kunde setzen, sondern in besonderheiten als Kontakt vor Ort aufnehmen.
-- E-Mail und Telefon sind Hilfsdaten, aber keine alleinige Grundlage für automatische Kundenübernahme.
+2. E-Mail komplett ignorieren (KEINE Warnung, KEIN needs_review)
 
 3. Telefonnummer:
 - NICHT für Matching verwenden
@@ -3338,42 +2846,7 @@ const intakeCurrency =
   }
 
   const customerGuardReviewReasons: string[] = [];
-  let billingEvidence = extractSafeBillingCustomerEvidence(messageText);
-  const strictBillingAddressEvidence =
-    extractStrictLabeledBillingAddressEvidence(messageText);
-  const hardLabeledBillingAddressEvidence =
-    extractHardLabeledBillingAddressEvidenceV1628(messageText);
-  const directLabeledBillingAddressEvidence =
-    extractDirectLabeledBillingAddressEvidenceV1630(messageText);
-  const aiSortedBillingEvidence =
-    extractAiSortedBillingEvidenceV1629(parsed, messageText);
-
-  // V16.30: Explicit billing labels from the original text are the safest source
-  // for nameless billing addresses. Use them before AI-sorted data so a
-  // confirmed "Rechnung an:" block cannot be lost just because the customer
-  // name is missing.
-  if (directLabeledBillingAddressEvidence?.hasReliableCustomerBlock) {
-    billingEvidence = directLabeledBillingAddressEvidence;
-  } else if (aiSortedBillingEvidence?.hasReliableCustomerBlock) {
-    // V16.29: OpenAI is the first semantic sorter when every persisted field is
-    // still verifiable in the original text.
-    billingEvidence = aiSortedBillingEvidence;
-  } else if (hardLabeledBillingAddressEvidence?.hasReliableCustomerBlock) {
-    billingEvidence = hardLabeledBillingAddressEvidence;
-  } else if (
-    strictBillingAddressEvidence?.hasReliableCustomerBlock &&
-    (
-      !billingEvidence.hasReliableCustomerBlock ||
-      (!billingEvidence.name &&
-        (strictBillingAddressEvidence.street ||
-          strictBillingAddressEvidence.plz ||
-          strictBillingAddressEvidence.city ||
-          strictBillingAddressEvidence.phone ||
-          strictBillingAddressEvidence.email))
-    )
-  ) {
-    billingEvidence = strictBillingAddressEvidence;
-  }
+  const billingEvidence = extractSafeBillingCustomerEvidence(messageText);
   const customerGuard = applySafeBillingCustomerGuard({
     kundeData,
     evidence: billingEvidence,
@@ -3462,16 +2935,27 @@ const intakeCurrency =
     });
 
     if (matchResult.verdict === "auto_assign") {
-      // V16.29: Do NOT auto-assign from LLM customer match / phone / email alone.
-      // Exact deterministic reuse below is the only automatic reuse path and
-      // requires incoming name + street + PLZ + city to match exactly.
-      abgleichStatus = "bestaetigungs_treffer";
-      duplicateWarning = `⚠️ Ähnlicher Kunde gefunden, aber automatische Übernahme ist nur bei identischem Name, Straße, PLZ und Ort erlaubt. Bitte prüfen.`;
-      parsed.system = parsed.system || {};
-      parsed.system.needs_review = true;
-      console.log(
-        `[${source}] 🛡️ auto-assign blocked by strict customer rule (${matchResult.reason}) → confirmation required for ${matchId}`,
-      );
+      // ✅ Strong unique signal verified (phone or email) → safe to auto-assign
+      customerId = matchId;
+      const matchedCust = await prisma.customer.findUnique({
+        where: { id: matchId },
+        select: { address: true, plz: true, city: true },
+      });
+      if (
+        !matchedCust?.address?.trim() ||
+        !matchedCust?.plz?.trim() ||
+        !matchedCust?.city?.trim()
+      ) {
+        parsed.system = parsed.system || {};
+        parsed.system.needs_review = true;
+        console.log(
+          `[${source}] ✅ AUTO-ASSIGN VERIFIED (${matchResult.reason}, conf ${abgleich.confidence}) but address incomplete → needsReview=true`,
+        );
+      } else {
+        console.log(
+          `[${source}] ✅ AUTO-ASSIGN VERIFIED (${matchResult.reason}, conf ${abgleich.confidence}) → auto-assign to ${matchId}`,
+        );
+      }
     } else if (matchResult.verdict === "bestaetigungs_treffer") {
       // 🟡 Name + address match but no unique identifier → needs manual confirmation
       abgleichStatus = "bestaetigungs_treffer";
@@ -3567,11 +3051,62 @@ const intakeCurrency =
     }
   }
 
-  // ═══ PHASE 2d DISABLED: no near-exact automatic reuse ═══
-  // Business rule: automatic customer reuse is allowed only when incoming
-  // name + street + PLZ + city are all present and exactly match one active
-  // existing customer. Missing PLZ or missing city must stay as a review/
-  // duplicate-check case, never auto-bind to an existing customer.
+  // ═══ PHASE 2d: NEAR-EXACT DETERMINISTIC REUSE (strict) ═══
+  // Triggers ONLY when: name+street exact, EXACTLY ONE of {plz, city} missing
+  // on incoming, candidate has that field filled, exactly 1 active candidate,
+  // no phone/email conflict. Completion is implicit (order binds to candidate
+  // which already has the field). Never weakens exact-match. See spec in
+  // lib/exact-customer-match.ts for full rules.
+  if (!customerId) {
+    const nearExact = await findNearExactDeterministicMatch(
+      prisma,
+      userId ?? null,
+      {
+        name: kundeData.name || null,
+        street: addr.street,
+        plz: addr.plz,
+        city: addr.city,
+        phone: kundeData.telefon || null,
+        email: kundeData.email || null,
+      },
+    );
+    if (nearExact.match && nearExact.completedField) {
+      customerId = nearExact.match.id;
+      autoReuseTags.push(
+        `AUTO_REUSED_NEAR_EXACT:${nearExact.match.customerNumber}:${nearExact.completedField}_completed`,
+      );
+      console.log(
+        `[${source}] 🎯 NEAR-EXACT REUSE → binding to existing ${nearExact.match.customerNumber} (${nearExact.match.id}), completed=${nearExact.completedField}`,
+      );
+      logAuditAsync({
+        userId,
+        action: "CUSTOMER_REUSE_NEAR_EXACT",
+        area: "CUSTOMERS",
+        targetType: "Customer",
+        targetId: nearExact.match.id,
+        success: true,
+        details: {
+          source,
+          matchedOn: [
+            "name",
+            "street",
+            nearExact.completedField === "plz" ? "city" : "plz",
+          ],
+          completedField: nearExact.completedField,
+          completedValue: nearExact.completedValue,
+          candidateCustomerNumber: nearExact.match.customerNumber,
+        },
+      });
+    } else if (
+      nearExact.reason !== "not_applicable" &&
+      nearExact.reason !== "incomplete_incoming" &&
+      nearExact.reason !== "no_candidate"
+    ) {
+      console.log(
+        `[${source}] near-exact-reuse skipped (${nearExact.reason}, count=${nearExact.candidateCount}) → normal create/duplicate path`,
+      );
+    }
+  }
 
   // Create new customer if not auto-assigned
   if (!customerId) {
@@ -3585,8 +3120,9 @@ const intakeCurrency =
     // messageText already contains the audio transcript (transcription happens
     // in the webhook before processIncomingMessage is called). For image-only
     // messages messageText is empty → sanitize drops every auto-derived field.
-    // Phone/email are persisted only when they belong to a verified billing
-    // customer block. Contact-person phone numbers stay in specialNotes.
+    // Note: phone/email are NOT auto-persisted from webhook intake today
+    // (historical conservative default). We still run them through the sanitizer
+    // to keep the audit trail accurate about what the LLM tried to set.
     const sanitized = sanitizeNewCustomerFields({
       rawText: messageText,
       street: addr.street,
@@ -3619,8 +3155,7 @@ const intakeCurrency =
         billingEvidence.street ||
           billingEvidence.plz ||
           billingEvidence.city ||
-          billingEvidence.phone ||
-          billingEvidence.email,
+          billingEvidence.phone,
       );
 
     const keepNewCustomerMasterEmpty =
@@ -3647,29 +3182,12 @@ const intakeCurrency =
             plz: billingEvidence.plz ?? sanitized.plz,
             city: billingEvidence.city ?? sanitized.city,
             phone: billingEvidence.phone ?? sanitized.phone,
-            email: billingEvidence.email ?? sanitized.email,
           }
         : sanitized;
 
     const safeNewCustomerName = hasPersistableCustomerName
       ? cleanBillingCustomerNameCandidate(kundeData.name || null) || ""
       : "";
-
-    const createCustomerPhone = hasNamelessBillingAddress
-      ? billingEvidence.phone || null
-      : safeNewCustomerFields.phone;
-    const createCustomerEmail = hasNamelessBillingAddress
-      ? billingEvidence.email || null
-      : safeNewCustomerFields.email;
-    const createCustomerAddress = hasNamelessBillingAddress
-      ? billingEvidence.street || null
-      : safeNewCustomerFields.street;
-    const createCustomerPlz = hasNamelessBillingAddress
-      ? billingEvidence.plz || null
-      : safeNewCustomerFields.plz;
-    const createCustomerCity = hasNamelessBillingAddress
-      ? billingEvidence.city || null
-      : safeNewCustomerFields.city;
 
     if (keepNewCustomerMasterEmpty) {
       console.log(
@@ -3702,12 +3220,12 @@ const intakeCurrency =
         // If the customer name is missing, this is allowed only for explicitly
         // labelled billing blocks with real address/phone evidence; execution-site
         // data must still never appear in the billing customer card.
-        phone: createCustomerPhone,
-        email: createCustomerEmail,
-        address: createCustomerAddress,
-        plz: createCustomerPlz,
+        phone: safeNewCustomerFields.phone,
+        email: safeNewCustomerFields.email,
+        address: safeNewCustomerFields.street,
+        plz: safeNewCustomerFields.plz,
         city:
-          normalizeUnitText(createCustomerCity) === "form" ? null : createCustomerCity,
+          normalizeUnitText(safeNewCustomerFields.city) === "form" ? null : safeNewCustomerFields.city,
         notes: `${source}-Kunde`,
         ...(userId ? { userId } : {}),
       },
@@ -4501,12 +4019,8 @@ totalPrice: safeUnitPrice * safeQuantity,
     // First pass: only the real customer message. This avoids polluted AI
     // evidence such as "Wohnanlage Seefeld Seefeldstrasse 8008".
     extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
-    // Deterministic fallback for natural sentences:
-    // "bei der Seestrasse 90 in 5430 Wettingen die Fenster reinigen".
-    extractInlineExecutionAddressFallback(messageText, executionAddressCustomerContext) ||
     // Second pass: full work text, if the webhook/transcript moved the address.
     extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
-    extractInlineExecutionAddressFallback(fullWorkText, executionAddressCustomerContext) ||
     // Last fallback: KI evidence only. Do not append special notes; those can
     // contain service/hint text and pollute the address fields.
     extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext);
