@@ -580,6 +580,81 @@ function escapeRegExpLocal(value: string): string {
 }
 
 
+
+function extractHardLabeledBillingAddressEvidenceV1628(
+  rawText: string | null | undefined,
+): SafeBillingCustomerEvidence | null {
+  const source = normalizeIntakeSourceText(rawText);
+  if (!source) return null;
+
+  const lines = splitIntakeLines(source);
+  if (lines.length === 0) return null;
+
+  const markerLine =
+    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|billing\s+address|invoice\s+address|bill\s+to)\s*:?\s*(.*)$/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const markerMatch = lines[index].match(markerLine);
+    if (!markerMatch) continue;
+
+    const blockLines: string[] = [];
+    if (markerMatch[1]?.trim()) blockLines.push(markerMatch[1].trim());
+
+    for (let offset = 1; offset <= 8; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (isBillingStopLine(line) || isBillingExtractionHardStopLine(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join("\n").trim();
+    if (!block) continue;
+
+    let name = parseBillingNameFromBlock(block);
+    let street = parseBillingStreetFromBlock(block) || null;
+    let plzCity = parseBillingPlzCityFromBlock(block);
+    let phone = extractPhoneFromText(block);
+    let email = extractEmailFromText(block);
+
+    // Deterministic second pass over individual lines. This intentionally does
+    // not depend on the LLM output or the generic sanitizer. It repairs the
+    // exact production case: labelled invoice/billing block with no name but
+    // real address/contact data.
+    for (const line of blockLines) {
+      const cleaned = stripBillingLabelPrefix(line);
+      if (!street) street = parseBillingStreetLine(cleaned);
+      if (!plzCity.plz || !plzCity.city) {
+        const next = parseBillingPlzCityFromLine(cleaned);
+        if (next.plz && next.city) plzCity = next;
+      }
+      if (!phone) phone = extractPhoneFromText(cleaned);
+      if (!email) email = extractEmailFromText(cleaned);
+      if (!name && !parseBillingStreetLine(cleaned) && !parseBillingPlzCityFromLine(cleaned).plz && !isBillingPhoneOrMailLine(cleaned)) {
+        name = parseBillingNameFromBlock(cleaned);
+      }
+    }
+
+    const hasFullAddress = Boolean(street && plzCity.plz && plzCity.city);
+    const hasPartialAddressWithContact = Boolean((street || (plzCity.plz && plzCity.city)) && (phone || email));
+    const hasAnyPersistableBillingData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
+
+    if (!hasAnyPersistableBillingData) continue;
+
+    return {
+      source: "labeled",
+      hasReliableCustomerBlock: true,
+      name: name || null,
+      street: street || null,
+      plz: plzCity.plz || null,
+      city: plzCity.city || null,
+      phone: phone || null,
+      email: email || null,
+    };
+  }
+
+  return null;
+}
+
 function extractStrictLabeledBillingAddressEvidence(
   rawText: string | null | undefined,
 ): SafeBillingCustomerEvidence | null {
@@ -3022,7 +3097,16 @@ const intakeCurrency =
   let billingEvidence = extractSafeBillingCustomerEvidence(messageText);
   const strictBillingAddressEvidence =
     extractStrictLabeledBillingAddressEvidence(messageText);
-  if (
+  const hardLabeledBillingAddressEvidence =
+    extractHardLabeledBillingAddressEvidenceV1628(messageText);
+
+  // V16.28: A labelled billing block is stronger than every generic fallback.
+  // In production the generic guard still left "Rechnung an:" blocks without
+  // name empty. For explicit billing markers, persist street/ZIP/city/contact
+  // even when name is missing, and keep the order review-required.
+  if (hardLabeledBillingAddressEvidence?.hasReliableCustomerBlock) {
+    billingEvidence = hardLabeledBillingAddressEvidence;
+  } else if (
     strictBillingAddressEvidence?.hasReliableCustomerBlock &&
     (
       !billingEvidence.hasReliableCustomerBlock ||
