@@ -654,6 +654,107 @@ function extractHardLabeledBillingAddressEvidenceV1628(
   return null;
 }
 
+function extractDirectLabeledBillingAddressEvidenceV1630(
+  rawText: string | null | undefined,
+): SafeBillingCustomerEvidence | null {
+  const source = normalizeIntakeSourceText(rawText);
+  if (!source) return null;
+
+  const lines = splitIntakeLines(source);
+  if (lines.length === 0) return null;
+
+  // V16.30: deliberately small and deterministic repair for the confirmed
+  // production case: an explicit "Rechnung an:" / billing-address block with
+  // no customer name, but with real street + PLZ/city + optional phone/email.
+  // This function does not infer anything from work-site text and does not use
+  // LLM output. It only reads lines below an explicit billing label.
+  const explicitBillingMarker =
+    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|billing\s+address|invoice\s+address|invoice\s+customer|billing\s+customer|bill\s+to|facturation|facture\s*(?:à|a)|fattura\s+a|fatturazione|facturacion|facturación)\s*:?\s*(.*)$/i;
+
+  const hardStop =
+    /^(?:termin|datum|zeit|bitte\b|auftrag\b|arbeit\b|arbeiten\b|leistungen?|leistungsübersicht|leistungsuebersicht|preis|preise|total|summe|mwst|ust|vat|\[\s*titel\s*:)/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const markerMatch = lines[index].match(explicitBillingMarker);
+    if (!markerMatch) continue;
+
+    const blockLines: string[] = [];
+    if (markerMatch[1]?.trim()) blockLines.push(markerMatch[1].trim());
+
+    for (let offset = 1; offset <= 10; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (hardStop.test(line) || isBillingStopLine(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join("\n").trim();
+    if (!block) continue;
+
+    let name = parseBillingNameFromBlock(block);
+    let street = parseBillingStreetFromBlock(block) || null;
+    let plz: string | null = null;
+    let city: string | null = null;
+    let phone = extractPhoneFromText(block);
+    let email = extractEmailFromText(block);
+
+    for (const line of blockLines) {
+      const cleaned = stripBillingLabelPrefix(line);
+      if (!cleaned || hardStop.test(cleaned) || isBillingStopLine(cleaned)) continue;
+
+      if (!street) {
+        street = parseBillingStreetLine(cleaned);
+      }
+
+      if (!plz || !city) {
+        const parsedZipCity = parseBillingPlzCityFromLine(cleaned);
+        if (parsedZipCity.plz && parsedZipCity.city) {
+          plz = parsedZipCity.plz;
+          city = parsedZipCity.city;
+        }
+      }
+
+      if (!phone) phone = extractPhoneFromText(cleaned);
+      if (!email) email = extractEmailFromText(cleaned);
+
+      if (
+        !name &&
+        !parseBillingStreetLine(cleaned) &&
+        !parseBillingPlzCityFromLine(cleaned).plz &&
+        !isBillingPhoneOrMailLine(cleaned)
+      ) {
+        name = parseBillingNameFromBlock(cleaned);
+      }
+    }
+
+    if (!plz || !city) {
+      const parsedZipCity = parseBillingPlzCityFromBlock(block);
+      plz = plz || parsedZipCity.plz;
+      city = city || parsedZipCity.city;
+    }
+
+    const hasFullAddress = Boolean(street && plz && city);
+    const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
+    const hasPersistableData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
+
+    if (!hasPersistableData) continue;
+
+    return {
+      source: "labeled",
+      hasReliableCustomerBlock: true,
+      name: name || null,
+      street: street || null,
+      plz: plz || null,
+      city: city || null,
+      phone: phone || null,
+      email: email || null,
+    };
+  }
+
+  return null;
+}
+
+
 function extractStrictLabeledBillingAddressEvidence(
   rawText: string | null | undefined,
 ): SafeBillingCustomerEvidence | null {
@@ -3242,14 +3343,20 @@ const intakeCurrency =
     extractStrictLabeledBillingAddressEvidence(messageText);
   const hardLabeledBillingAddressEvidence =
     extractHardLabeledBillingAddressEvidenceV1628(messageText);
+  const directLabeledBillingAddressEvidence =
+    extractDirectLabeledBillingAddressEvidenceV1630(messageText);
   const aiSortedBillingEvidence =
     extractAiSortedBillingEvidenceV1629(parsed, messageText);
 
-  // V16.29: OpenAI is the first semantic sorter. If it assigns billing fields
-  // and every persisted field is still verifiable in the original text, accept
-  // that sorter result before falling back to regex repair. This fixes labelled
-  // billing blocks without a name while still preventing copied/imagined data.
-  if (aiSortedBillingEvidence?.hasReliableCustomerBlock) {
+  // V16.30: Explicit billing labels from the original text are the safest source
+  // for nameless billing addresses. Use them before AI-sorted data so a
+  // confirmed "Rechnung an:" block cannot be lost just because the customer
+  // name is missing.
+  if (directLabeledBillingAddressEvidence?.hasReliableCustomerBlock) {
+    billingEvidence = directLabeledBillingAddressEvidence;
+  } else if (aiSortedBillingEvidence?.hasReliableCustomerBlock) {
+    // V16.29: OpenAI is the first semantic sorter when every persisted field is
+    // still verifiable in the original text.
     billingEvidence = aiSortedBillingEvidence;
   } else if (hardLabeledBillingAddressEvidence?.hasReliableCustomerBlock) {
     billingEvidence = hardLabeledBillingAddressEvidence;
