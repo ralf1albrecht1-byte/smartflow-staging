@@ -467,6 +467,20 @@ function getBillingBlockStopRegex(): RegExp {
   return /^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|contact\s+sur\s+place|concierge|hauswart|hausmeister|besonderheiten|bemerkungen|remarques|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|service|services|titel)\b/i;
 }
 
+function isBillingExtractionHardStopLine(line: string): boolean {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return false;
+
+  // Firmen wie "Termin Service AG" oder "Leistungen Plus GmbH" dürfen nicht
+  // versehentlich den Billing-Block abbrechen.
+  if (hasBillingCompanySuffix(trimmed)) return false;
+
+  // Für explizite Rechnungsblöcke ohne Name darf der Block nur die
+  // Rechnungsdaten enthalten. Termin-/Bitte-/Leistungszeilen sind Auftragstext
+  // und dürfen nicht als Name oder Adresse in den Kundenstamm laufen.
+  return /^(?:termin|datum|zeit|bitte\b|auftrag\b|arbeit\b|arbeiten\b|leistungen?|leistungsübersicht|leistungsuebersicht|preis|preise|total|summe|mwst|ust|vat|[[]titel\s*:)/i.test(trimmed);
+}
+
 function hasNamelessBillingAddressEvidence(block: string | null | undefined): boolean {
   const source = normalizeIntakeSourceText(block);
   if (!source) return false;
@@ -488,7 +502,7 @@ function hasNamelessBillingAddressEvidence(block: string | null | undefined): bo
 }
 
 function extractLabeledBillingBlock(lines: string[]): string | null {
-  const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|billing\s+customer|invoice\s+customer|bill\s+to)\s*:?\s*(.*)$/i;
+  const billingMarker = /^\s*(?:kunde\s*\/\s*rechnungsadresse|kunde|kundin|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|client\s*\/\s*facturation|client|facturation|facture\s*(?:à|a)|facturer\s*(?:à|a)|billing\s+customer|billing\s+address|invoice\s+customer|invoice\s+address|bill\s+to|fattura\s+a|fatturazione|facturacion|facturación)\s*:?\s*(.*)$/i;
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(billingMarker);
     if (!match) continue;
@@ -496,10 +510,10 @@ function extractLabeledBillingBlock(lines: string[]): string | null {
     const blockLines: string[] = [];
     if (match[1]?.trim()) blockLines.push(match[1].trim());
 
-    for (let offset = 1; offset <= 7; offset += 1) {
+    for (let offset = 1; offset <= 9; offset += 1) {
       const line = lines[index + offset];
       if (!line) break;
-      if (isBillingStopLine(line)) break;
+      if (isBillingStopLine(line) || isBillingExtractionHardStopLine(line)) break;
       blockLines.push(line);
     }
 
@@ -3210,6 +3224,22 @@ const intakeCurrency =
       ? cleanBillingCustomerNameCandidate(kundeData.name || null) || ""
       : "";
 
+    const createCustomerPhone = hasNamelessBillingAddress
+      ? billingEvidence.phone || null
+      : safeNewCustomerFields.phone;
+    const createCustomerEmail = hasNamelessBillingAddress
+      ? billingEvidence.email || null
+      : safeNewCustomerFields.email;
+    const createCustomerAddress = hasNamelessBillingAddress
+      ? billingEvidence.street || null
+      : safeNewCustomerFields.street;
+    const createCustomerPlz = hasNamelessBillingAddress
+      ? billingEvidence.plz || null
+      : safeNewCustomerFields.plz;
+    const createCustomerCity = hasNamelessBillingAddress
+      ? billingEvidence.city || null
+      : safeNewCustomerFields.city;
+
     if (keepNewCustomerMasterEmpty) {
       console.log(
         `[${source}] 🛡️ missing safe billing customer name/block → new customer master name/address/phone/email kept empty`,
@@ -3241,12 +3271,12 @@ const intakeCurrency =
         // If the customer name is missing, this is allowed only for explicitly
         // labelled billing blocks with real address/phone evidence; execution-site
         // data must still never appear in the billing customer card.
-        phone: safeNewCustomerFields.phone,
-        email: safeNewCustomerFields.email,
-        address: safeNewCustomerFields.street,
-        plz: safeNewCustomerFields.plz,
+        phone: createCustomerPhone,
+        email: createCustomerEmail,
+        address: createCustomerAddress,
+        plz: createCustomerPlz,
         city:
-          normalizeUnitText(safeNewCustomerFields.city) === "form" ? null : safeNewCustomerFields.city,
+          normalizeUnitText(createCustomerCity) === "form" ? null : createCustomerCity,
         notes: `${source}-Kunde`,
         ...(userId ? { userId } : {}),
       },

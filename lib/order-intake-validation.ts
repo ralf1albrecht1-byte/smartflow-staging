@@ -537,11 +537,14 @@ function canonicalGermanServiceNameFromText(value?: string | null): string | nul
   if (/\b(nettoyage\s+du\s+garage|nettoyage\s+du\s+sol\s+du\s+garage|garage\s+floor|sol\s+du\s+garage|garagenboden)\b/.test(normalized)) {
     return "Garageboden reinigen";
   }
-  if (/\b(nettoyage\s+de\s+l\s*entree|nettoyage\s+de\s+lentree|nettoyage\s+de\s+l['’]?\s*entree|entrance\s+clean|eingangsbereich)\b/.test(normalized)) {
+  if (/\b(nettoyage\s+de\s+l\s*entree|nettoyage\s+de\s+lentree|nettoyage\s+de\s+l['’]?\s*entree|entrance\s+clean|limpieza\s+de\s+entrada|pulizia\s+ingresso|eingangsbereich)\b/.test(normalized)) {
     return "Eingangsbereich reinigen";
   }
-  if (/\b(nettoyage\s+des\s+vitres|nettoyage\s+vitres|vitres|fenetres|windows|fenster)\b/.test(normalized)) {
+  if (/\b(nettoyage\s+des\s+vitres|nettoyage\s+vitres|vitres|fenetres|windows|window\s+cleaning|fenster|ventanas|limpieza\s+de\s+ventanas|finestre|pulizia\s+finestre|janelas|limpeza\s+de\s+janelas)\b/.test(normalized)) {
     return "Fenster reinigen";
+  }
+  if (/\b(boden\s+reinigen|bodenreinigung|floor\s+cleaning|floor\s+clean|nettoyage\s+du\s+sol|nettoyage\s+sol|limpieza\s+de\s+suelo|limpieza\s+suelo|pulizia\s+pavimento|pulizia\s+del\s+pavimento|pulizia\s+suolo|limpeza\s+do\s+chao|limpeza\s+chao)\b/.test(normalized)) {
+    return "Boden reinigen";
   }
   if (/\b(buroreinigung|buero(?:reinigung)?|office\s+clean|office\s+cleaning)\b/.test(normalized)) {
     return "Büroreinigung";
@@ -1716,15 +1719,15 @@ function inferExplicitServiceNameFromPreviousContext(
 
     const normalized = normalizeCompare(candidate);
     if (
-      /\b(?:fenster|vitres|fenetres|windows)\b/.test(normalized) &&
-      /\b(?:reinigen|reinigung|putzen|clean|nettoyage)\b/.test(normalized)
+      /\b(?:fenster|vitres|fenetres|windows|ventanas|finestre|janelas)\b/.test(normalized) &&
+      /\b(?:reinigen|reinigung|putzen|clean|cleaning|nettoyage|limpieza|limpiar|pulizia|pulire|limpeza)\b/.test(normalized)
     ) {
       return "Fenster reinigen";
     }
 
     if (
-      /\b(?:boden|sol|floor)\b/.test(normalized) &&
-      /\b(?:reinigen|reinigung|putzen|clean|nettoyage)\b/.test(normalized)
+      /\b(?:boden|sol|floor|suelo|pavimento|suolo|chao)\b/.test(normalized) &&
+      /\b(?:reinigen|reinigung|putzen|clean|cleaning|nettoyage|limpieza|limpiar|pulizia|pulire|limpeza)\b/.test(normalized)
     ) {
       return "Boden reinigen";
     }
