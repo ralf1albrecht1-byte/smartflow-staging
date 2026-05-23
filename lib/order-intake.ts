@@ -669,7 +669,7 @@ function escapeRegExpLocal(value: string): string {
 }
 
 
-// V16.34: Final hard guard for explicit nameless billing-address blocks.
+// V16.36: Final hard guard for explicit nameless billing-address blocks.
 // This is intentionally stricter and simpler than the general customer parser:
 // labels like "Rechnung an:" / "Rechnungsadresse:" are trusted as billing
 // section markers, even when no customer name exists. If street + ZIP/city are
@@ -680,8 +680,8 @@ function extractHardLabeledBillingAddressEvidenceV1634(
   const lines = splitIntakeLines(rawText);
   if (lines.length === 0) return null;
 
-  const markerRegex = /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnungsadresse|rechnungsempfänger|rechnungsempfaenger|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|client\s*\/\s*facturation|facturation)\s*:?\s*(.*)$/i;
-  const stopRegex = /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin)\s*:?/i;
+  const markerRegex = /^\s*(?:kunde\s*,?\s*der\s+die\s+rechnung\s+bekommt\s+und\s+bezahlt|kunde\s*\/\s*rechnungsadresse|rechnung\s+(?:geht\s+)?an|rechnung\s+(?:für|fuer)|rechnung\s+bekommt|rechnungsadresse|rechnungsempfänger|rechnungsempfaenger|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|billing\s+customer|client\s*\/\s*facturation|facturation)\s*:?\s*(.*)$/i;
+  const stopRegex = /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(markerRegex);
@@ -3579,20 +3579,35 @@ const intakeCurrency =
       cleanBillingCustomerNameCandidate(kundeData.name || null),
     );
 
-    const hasNamelessBillingAddress =
-      billingEvidence.hasReliableCustomerBlock &&
+    const hardBillingCreateOverride =
+      extractHardLabeledBillingAddressEvidenceV1634(messageText);
+
+    const namelessBillingEvidence =
       !hasPersistableCustomerName &&
-      billingEvidence.source !== "top" &&
-      Boolean(
-        billingEvidence.street ||
-          billingEvidence.plz ||
-          billingEvidence.city ||
-          billingEvidence.phone ||
-          billingEvidence.email,
-      );
+      hardBillingCreateOverride?.hasReliableCustomerBlock &&
+      !hardBillingCreateOverride.name
+        ? hardBillingCreateOverride
+        : !hasPersistableCustomerName &&
+            billingEvidence.hasReliableCustomerBlock &&
+            !billingEvidence.name &&
+            billingEvidence.source !== "top"
+          ? billingEvidence
+          : null;
+
+    const hasNamelessBillingAddress = Boolean(
+      namelessBillingEvidence &&
+        (namelessBillingEvidence.street ||
+          namelessBillingEvidence.plz ||
+          namelessBillingEvidence.city ||
+          namelessBillingEvidence.phone ||
+          namelessBillingEvidence.email),
+    );
+
+    const hasReliableBillingForCreate =
+      billingEvidence.hasReliableCustomerBlock || Boolean(namelessBillingEvidence);
 
     const keepNewCustomerMasterEmpty =
-      !billingEvidence.hasReliableCustomerBlock ||
+      !hasReliableBillingForCreate ||
       (!hasPersistableCustomerName && !hasNamelessBillingAddress);
 
     const safeNewCustomerFields = keepNewCustomerMasterEmpty
@@ -3611,11 +3626,11 @@ const intakeCurrency =
             // Sanitizer bleibt aktiv, aber die sicher extrahierten Billing-Felder
             // aus dem markierten Block werden nicht nur wegen fehlendem Namen
             // verworfen.
-            street: billingEvidence.street ?? sanitized.street,
-            plz: billingEvidence.plz ?? sanitized.plz,
-            city: billingEvidence.city ?? sanitized.city,
-            phone: billingEvidence.phone ?? sanitized.phone,
-            email: billingEvidence.email ?? sanitized.email,
+            street: namelessBillingEvidence?.street ?? billingEvidence.street ?? sanitized.street,
+            plz: namelessBillingEvidence?.plz ?? billingEvidence.plz ?? sanitized.plz,
+            city: namelessBillingEvidence?.city ?? billingEvidence.city ?? sanitized.city,
+            phone: namelessBillingEvidence?.phone ?? billingEvidence.phone ?? sanitized.phone,
+            email: namelessBillingEvidence?.email ?? billingEvidence.email ?? sanitized.email,
           }
         : {
             ...sanitized,
