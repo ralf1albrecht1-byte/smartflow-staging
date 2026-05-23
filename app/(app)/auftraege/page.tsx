@@ -796,6 +796,14 @@ const getOperationalBadges = (
 const getSystemBadges = (order: Order): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
+  if (order.siteAddressDifferent) {
+    pushUniqueBadge(badges, {
+      key: "site_address",
+      label: "Ausführungsadresse",
+      className: "bg-cyan-100 text-cyan-700 border border-cyan-200",
+    });
+  }
+
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
       ? order.items.some(
@@ -888,14 +896,6 @@ const getBottomBadges = (
       label: appointmentBadge.label,
       className: appointmentBadge.className,
       icon: appointmentBadge.icon,
-    });
-  }
-
-  if (order.siteAddressDifferent) {
-    pushUniqueBadge(badges, {
-      key: "site_address",
-      label: "Ausführungsadresse",
-      className: "bg-cyan-100 text-cyan-700 border border-cyan-200",
     });
   }
 
@@ -2137,7 +2137,7 @@ export default function AuftraegePage() {
   };
 
   // Core save function — returns saved order or null
-  const saveOrder = async (): Promise<Order | null> => {
+  const saveOrder = async (payloadOverrides?: Partial<typeof form>): Promise<Order | null> => {
     if (!form.customerId) {
       toast.error("Bitte Kunde auswählen");
       return null;
@@ -2204,6 +2204,7 @@ const cleanedReviewReasons =
 
 const payload = {
   ...form,
+  ...payloadOverrides,
   description: desc,
   vatRate: orderVatRate,
   currency,
@@ -2250,7 +2251,7 @@ const payload = {
   const saveAndCreateOffer = async () => {
     setSaving(true);
     try {
-      const saved = await saveOrder();
+      const saved = await saveOrder({ status: "Erledigt" });
       if (!saved) return;
       if (blockConversionIfUnsafe(saved, "Angebot")) return;
       toast.success("Auftrag gespeichert");
@@ -2318,7 +2319,7 @@ const payload = {
   const saveAndCreateInvoice = async () => {
     setSaving(true);
     try {
-      const saved = await saveOrder();
+      const saved = await saveOrder({ status: "Erledigt" });
       if (!saved) return;
       if (blockConversionIfUnsafe(saved, "Rechnung")) return;
       toast.success("Auftrag gespeichert");
@@ -2711,22 +2712,56 @@ const openMedia = async (o: Order) => {
     };
   }, [dialogOpen, currentEditOrder?.id]);
 
+  const markOrderDoneForConversion = async (order: Order): Promise<Order | null> => {
+    if (order.status === "Erledigt") return order;
+
+    try {
+      const res = await fetch(`/api/orders/${order.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Erledigt" }),
+      });
+
+      if (!res.ok) {
+        toast.error("Status konnte nicht automatisch aktualisiert werden");
+        return null;
+      }
+
+      const updated = await res.json().catch(() => null);
+      const doneOrder = { ...order, ...(updated || {}), status: "Erledigt" } as Order;
+
+      setOrders((prev) =>
+        prev.map((x) =>
+          x.id === order.id ? { ...x, ...doneOrder, status: "Erledigt" } : x,
+        ),
+      );
+
+      return doneOrder;
+    } catch {
+      toast.error("Status konnte nicht automatisch aktualisiert werden");
+      return null;
+    }
+  };
+
   const createOffer = async (o: Order) => {
     if (blockConversionIfUnsafe(o, "Angebot")) {
       openEdit(o);
       return;
     }
+    const sourceOrder = await markOrderDoneForConversion(o);
+    if (!sourceOrder) return;
+
     // Direct API create — no extra dialog
     const orderItems =
-      o.items && o.items.length > 0
-        ? o.items
+      sourceOrder.items && sourceOrder.items.length > 0
+        ? sourceOrder.items
         : [
             {
-              serviceName: o.serviceName ?? "",
-              description: o.serviceName ?? o.description ?? "",
-              quantity: o.quantity ?? 1,
-              unit: o.priceType ?? "Stunde",
-              unitPrice: o.unitPrice ?? 0,
+              serviceName: sourceOrder.serviceName ?? "",
+              description: sourceOrder.serviceName ?? sourceOrder.description ?? "",
+              quantity: sourceOrder.quantity ?? 1,
+              unit: sourceOrder.priceType ?? "Stunde",
+              unitPrice: sourceOrder.unitPrice ?? 0,
             },
           ];
     const offerItems = orderItems.map((i: any) => ({
@@ -2736,17 +2771,17 @@ const openMedia = async (o: Order) => {
       unitPrice: String(i.unitPrice ?? 0),
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
-    const fwdVatRate = o.vatRate != null ? Number(o.vatRate) : defaultVatRate;
+    const fwdVatRate = sourceOrder.vatRate != null ? Number(sourceOrder.vatRate) : defaultVatRate;
     try {
       const res = await fetch("/api/offers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerId: o.customerId,
+          customerId: sourceOrder.customerId,
           items: offerItems,
-          orderIds: [o.id],
+          orderIds: [sourceOrder.id],
           vatRate: fwdVatRate,
-          currency: o.currency === "EUR" ? "EUR" : "CHF",
+          currency: sourceOrder.currency === "EUR" ? "EUR" : "CHF",
         }),
       });
       if (res.ok) {
@@ -2755,7 +2790,7 @@ const openMedia = async (o: Order) => {
         // Paket L: optimistic update — mark the source order as linked so it
         // disappears from the active Orders list immediately.
         setOrders((prev) =>
-          prev.map((x) => (x.id === o.id ? { ...x, offerId: offer.id } : x)),
+          prev.map((x) => (x.id === sourceOrder.id ? { ...x, offerId: offer.id, status: "Erledigt" } : x)),
         );
         window.location.href = "/angebote";
       } else {
@@ -2771,17 +2806,20 @@ const openMedia = async (o: Order) => {
       openEdit(o);
       return;
     }
+    const sourceOrder = await markOrderDoneForConversion(o);
+    if (!sourceOrder) return;
+
     // Direct API create — no extra dialog
     const orderItems =
-      o.items && o.items.length > 0
-        ? o.items
+      sourceOrder.items && sourceOrder.items.length > 0
+        ? sourceOrder.items
         : [
             {
-              serviceName: o.serviceName ?? "",
-              description: o.serviceName ?? o.description ?? "",
-              quantity: o.quantity ?? 1,
-              unit: o.priceType ?? "Stunde",
-              unitPrice: o.unitPrice ?? 0,
+              serviceName: sourceOrder.serviceName ?? "",
+              description: sourceOrder.serviceName ?? sourceOrder.description ?? "",
+              quantity: sourceOrder.quantity ?? 1,
+              unit: sourceOrder.priceType ?? "Stunde",
+              unitPrice: sourceOrder.unitPrice ?? 0,
             },
           ];
     const invoiceItems = orderItems.map((i: any) => ({
@@ -2791,17 +2829,17 @@ const openMedia = async (o: Order) => {
       unitPrice: String(i.unitPrice ?? 0),
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
-    const fwdVatRate = o.vatRate != null ? Number(o.vatRate) : defaultVatRate;
+    const fwdVatRate = sourceOrder.vatRate != null ? Number(sourceOrder.vatRate) : defaultVatRate;
     try {
       const res = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerId: o.customerId,
+          customerId: sourceOrder.customerId,
           items: invoiceItems,
-          orderIds: [o.id],
+          orderIds: [sourceOrder.id],
           vatRate: fwdVatRate,
-          currency: o.currency === "EUR" ? "EUR" : "CHF",
+          currency: sourceOrder.currency === "EUR" ? "EUR" : "CHF",
         }),
       });
       if (res.ok) {
@@ -2811,7 +2849,7 @@ const openMedia = async (o: Order) => {
         // disappears from the active Orders list immediately.
         setOrders((prev) =>
           prev.map((x) =>
-            x.id === o.id ? { ...x, invoiceId: invoice.id } : x,
+            x.id === sourceOrder.id ? { ...x, invoiceId: invoice.id, status: "Erledigt" } : x,
           ),
         );
         window.location.href = "/rechnungen";
@@ -4218,8 +4256,8 @@ const getSafeOrderTotal = (o: Order) => {
                                       </Badge>
                                     )}
                                     {showManualServiceChip && (
-                                      <Badge className="px-1.5 py-0 text-[10px] bg-red-50 text-red-700 border border-red-200">
-                                        Nicht in Leistungen
+                                      <Badge className="px-1.5 py-0 text-[10px] bg-slate-100 text-slate-700 border border-slate-200">
+                                        Nicht im Leistungskatalog
                                       </Badge>
                                     )}
                                   </div>
