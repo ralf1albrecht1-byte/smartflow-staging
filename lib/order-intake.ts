@@ -3667,6 +3667,36 @@ const intakeCurrency =
         ...(userId ? { userId } : {}),
       },
     });
+
+    // V16.35: last-resort persistence for explicitly labelled billing addresses
+    // without a customer name. This intentionally runs AFTER customer.create so
+    // no later sanitizer/create-default can wipe the fields again. It only uses
+    // a hard labelled billing block ("Rechnung an:" etc.) and stops before
+    // Arbeitsort/Einsatzort, so execution addresses cannot leak into the billing
+    // customer card.
+    if (!safeNewCustomerName) {
+      const hardBillingAfterCreate = extractHardLabeledBillingAddressEvidenceV1634(messageText);
+      const hardBillingUpdate: Record<string, string> = {};
+
+      if (hardBillingAfterCreate?.hasReliableCustomerBlock) {
+        if (hardBillingAfterCreate.street) hardBillingUpdate.address = hardBillingAfterCreate.street;
+        if (hardBillingAfterCreate.plz) hardBillingUpdate.plz = hardBillingAfterCreate.plz;
+        if (hardBillingAfterCreate.city) hardBillingUpdate.city = hardBillingAfterCreate.city;
+        if (hardBillingAfterCreate.phone) hardBillingUpdate.phone = hardBillingAfterCreate.phone;
+        if (hardBillingAfterCreate.email) hardBillingUpdate.email = hardBillingAfterCreate.email;
+      }
+
+      if (Object.keys(hardBillingUpdate).length > 0) {
+        await prisma.customer.update({
+          where: { id: customer.id },
+          data: hardBillingUpdate,
+        });
+        console.log(
+          `[${source}] 🛡️ V16.35 persisted labelled nameless billing address after customer create: customerId=${customer.id}`,
+        );
+      }
+    }
+
     customerId = customer.id;
     customerWasNewlyCreated = true;
   } else {
