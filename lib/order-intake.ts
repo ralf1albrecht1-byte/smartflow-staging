@@ -577,15 +577,17 @@ function hasNamelessBillingAddressEvidence(block: string | null | undefined): bo
   const street = parseBillingStreetFromBlock(source);
   const { plz, city } = parseBillingPlzCityFromBlock(source);
   const phone = extractPhoneFromText(source);
+  const email = extractEmailFromText(source);
 
   const hasFullAddress = Boolean(street && plz && city);
   const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
+  const hasPartialAddressWithEmail = Boolean((street || (plz && city)) && email);
 
   // Nur für explizit gelabelte Rechnungs-/Billing-Blöcke:
-  // Wenn der Name fehlt, dürfen echte Adress-/Telefon-Daten trotzdem nicht
+  // Wenn der Name fehlt, dürfen echte Adress-/Telefon-/E-Mail-Daten trotzdem nicht
   // verworfen werden. Der Auftrag bleibt prüfpflichtig, aber die Daten bleiben
   // in der Kundenkarte sichtbar.
-  return hasFullAddress || hasPartialAddressWithPhone;
+  return hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail;
 }
 
 function extractLabeledBillingBlock(lines: string[]): string | null {
@@ -664,6 +666,65 @@ function extractTopBillingBlock(lines: string[]): string | null {
 
 function escapeRegExpLocal(value: string): string {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+
+// V16.34: Final hard guard for explicit nameless billing-address blocks.
+// This is intentionally stricter and simpler than the general customer parser:
+// labels like "Rechnung an:" / "Rechnungsadresse:" are trusted as billing
+// section markers, even when no customer name exists. If street + ZIP/city are
+// present, persist those fields and keep the order/customer in review state.
+function extractHardLabeledBillingAddressEvidenceV1634(
+  rawText: string | null | undefined,
+): SafeBillingCustomerEvidence | null {
+  const lines = splitIntakeLines(rawText);
+  if (lines.length === 0) return null;
+
+  const markerRegex = /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnungsadresse|rechnungsempfänger|rechnungsempfaenger|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|client\s*\/\s*facturation|facturation)\s*:?\s*(.*)$/i;
+  const stopRegex = /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin)\s*:?/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(markerRegex);
+    if (!match) continue;
+
+    const blockLines: string[] = [];
+    if (match[1]?.trim()) blockLines.push(match[1].trim());
+
+    for (let offset = 1; offset <= 8; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (stopRegex.test(line)) break;
+      if (/^\[Titel\s*:/i.test(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join("\n").trim();
+    if (!block) continue;
+
+    const name = parseBillingNameFromBlock(block);
+    const street = parseBillingStreetFromBlock(block);
+    const { plz, city } = parseBillingPlzCityFromBlock(block);
+    const phone = extractPhoneFromText(block);
+    const email = extractEmailFromText(block);
+
+    const hasFullAddress = Boolean(street && plz && city);
+    const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
+
+    if (!name && !hasFullAddress && !hasPartialAddressWithContact) continue;
+
+    return {
+      source: "labeled",
+      hasReliableCustomerBlock: true,
+      name: name || null,
+      street: street || null,
+      plz: plz || null,
+      city: city || null,
+      phone: phone || null,
+      email: email || null,
+    };
+  }
+
+  return null;
 }
 
 function extractSafeBillingCustomerEvidence(
@@ -2593,9 +2654,7 @@ KI-VORSORTIERUNG – SEHR WICHTIG
 - Arbeitspositionen dürfen keine zusammengesetzten Satzreste sein.
 - Wenn konkrete Preiszeilen vorhanden sind, bilde Positionen aus diesen Zeilen und NICHT zusätzlich eine Sammelposition aus dem Satz davor.
 - Beispiele: "Wände streichen 42 m2 CHF 18 pro m2" -> eine Position "Wände streichen". "Abdeckarbeiten pauschal CHF 90" -> eine zweite Position "Abdeckarbeiten".
-- "Anfahrt", "Fahrtkosten", "Wegpauschale" oder "Fahrspesen" mit eigenem Preis sind IMMER eine eigene pauschale Arbeitsposition, auch wenn das Wort "pauschal" nicht dabeisteht. Beispiel: "Anfahrt CHF 45" -> eigene Position "Anfahrt pauschal", Menge 1, Einheit "Pauschal", unit_price 45.
 - Keine Position "Wände streichen mit Abdeckarbeiten und Anfahrt" erstellen, wenn die Einzelleistungen schon vorhanden sind.
-- Wenn ein Satz mehrere Arbeiten mit "und", "+" oder Komma verbindet, aber einzelne Preis-/Mengenangaben vorhanden sind, trenne nach fachlicher Arbeit und Preisbeleg. Nicht den ganzen Satz als Leistung speichern.
 - service/action_name muss die Tätigkeit enthalten, context nur Ort/Teilbereich. Bei "Kabelkanal montieren" darf action_name nicht nur "montieren" sein.
 
 --------------------------------------------------
@@ -2792,8 +2851,6 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Preis, Menge, Einheit und Währung dürfen NUR gesetzt werden, wenn sie in der evidence derselben Position stehen.
 - Preis aus einer anderen Zeile/anderen Leistung NIEMALS übernehmen.
 - Pauschalpreise dürfen NIEMALS auf andere Positionen kopiert werden. Wenn eine Zeile "Eingangsbereich pauschal 120" sagt, gilt 120 nur für diese eine Position.
-- Ein reiner Fahrpreis wie "Anfahrt CHF 45", "Fahrtkosten CHF 45" oder "Wegpauschale CHF 45" ist eine eigene Position "Anfahrt pauschal". Nicht weglassen und nicht in eine andere Leistung hineinmischen.
-- Eine Zeile mit "mit Abdeckarbeiten und Anfahrt" ist nur eine Beschreibung, wenn darunter konkrete Preiszeilen stehen. Dann dürfen daraus keine zusätzlichen Sammelpositionen entstehen.
 - Rechnungsadresse/Billing address/Rechnung geht an ist NIE eine Arbeitsposition und darf keine generische Leistung wie "Reinigung" erzeugen.
 - Fremdsprachige Leistungen semantisch übersetzen: "Nettoyage des vitres" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen. Nicht auf falsche Katalogleistung wie Kellerboden/Farbreste ausweichen.
 - Wenn bei einer Position kein eigener Preis steht → unit_price = null.
@@ -3208,7 +3265,20 @@ const intakeCurrency =
   }
 
   const customerGuardReviewReasons: string[] = [];
-  const billingEvidence = extractSafeBillingCustomerEvidence(messageText);
+  let billingEvidence = extractSafeBillingCustomerEvidence(messageText);
+  const hardLabeledBillingEvidence = extractHardLabeledBillingAddressEvidenceV1634(messageText);
+  if (
+    hardLabeledBillingEvidence?.hasReliableCustomerBlock &&
+    (!billingEvidence.hasReliableCustomerBlock ||
+      (!billingEvidence.name &&
+        (hardLabeledBillingEvidence.street ||
+          hardLabeledBillingEvidence.plz ||
+          hardLabeledBillingEvidence.city ||
+          hardLabeledBillingEvidence.phone ||
+          hardLabeledBillingEvidence.email)))
+  ) {
+    billingEvidence = hardLabeledBillingEvidence;
+  }
   const customerGuard = applySafeBillingCustomerGuard({
     kundeData,
     evidence: billingEvidence,
