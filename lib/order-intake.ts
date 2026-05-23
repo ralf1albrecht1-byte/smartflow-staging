@@ -97,6 +97,8 @@ const BILLING_MARKER_PATTERN =
   "kunde\\s*,?\\s*der\\s+die\\s+rechnung\\s+bekommt\\s+und\\s+bezahlt|" +
   "kunde\\s*/\\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|" +
   "rechnungsempfängerin|rechnungsempfaengerin|rechnungsadresse|" +
+  "bitte\\s+rechnung\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+bitte\\s+an|" +
+  "rechnung\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+per\\s+(?:mail|email)\\s+an|" +
   "rechnung\\s+(?:geht\\s+)?an|rechnung\\s+bekommt|rechnung\\s+ist\\s+(?:für|fuer)|rechnung\\s+(?:für|fuer)|" +
   "auftraggeber(?:in)?|besteller(?:in)?|zahler|zahlende\\s+stelle|chef(?:\\s+zahlt)?|" +
   "firma|company|client\\s*/\\s*facturation|client|billing\\s+customer|billing\\s+address|invoice\\s+customer|invoice\\s+address|bill\\s+to|" +
@@ -376,7 +378,7 @@ function extractBillingCustomerNameFallback(
   if (!source) return null;
 
   const marker =
-    "(?:kunde\\s*/\\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|rechnung\\s+geht\\s+an|rechnung\\s+an|rechnung\\s+bekommt|rechnung\\s+(?:für|fuer)|kunde\\s+ist|kunde|invoice\\s+customer\\s+is|invoice\\s+customer|billing\\s+customer\\s+is|billing\\s+customer|billing\\s+address|bill\\s+to)";
+    "(?:kunde\\s*/\\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|bitte\\s+rechnung\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+bitte\\s+an|rechnung\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+per\\s+(?:mail|email)\\s+an|rechnung\\s+geht\\s+an|rechnung\\s+an|rechnung\\s+bekommt|rechnung\\s+(?:für|fuer)|kunde\\s+ist|kunde|invoice\\s+customer\\s+is|invoice\\s+customer|billing\\s+customer\\s+is|billing\\s+customer|billing\\s+address|bill\\s+to)";
 
   // 1) Einzeiler: "Rechnung geht an Swiss Facility Service AG, Badenerstrasse 90 in 8004 Zürich."
   const inlinePattern = new RegExp(`(?:^|[\\n.!?]\\s*)${marker}\\s*:?\\s+([^\\n]+)`, "gi");
@@ -1090,6 +1092,7 @@ function extractSafeBillingCustomerEvidence(
   const hasAddress = Boolean(street || (plz && city));
   const hasFullAddress = Boolean(street && plz && city);
   const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
+  const hasPartialAddressWithEmail = Boolean((street || (plz && city)) && email);
 
   const sourceKind: SafeBillingCustomerEvidence["source"] = labeledBlock ? "labeled" : inlineBlock ? "inline" : "top";
   const hasReliableCustomerBlock = Boolean(
@@ -1098,7 +1101,7 @@ function extractSafeBillingCustomerEvidence(
         (sourceKind !== "top" && (hasCompany || hasAddress || phone)))) ||
       // Explizit gelabelte Rechnungsadresse ohne Name:
       // Adresse/Telefon übernehmen, aber weiterhin Kunde prüfen erzwingen.
-      (sourceKind !== "top" && !name && (hasFullAddress || hasPartialAddressWithPhone)),
+      (sourceKind !== "top" && !name && (hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail)),
   );
 
   return {
@@ -1110,6 +1113,83 @@ function extractSafeBillingCustomerEvidence(
     city: hasReliableCustomerBlock ? city : null,
     phone: hasReliableCustomerBlock ? phone : null,
     email: hasReliableCustomerBlock ? email : null,
+  };
+}
+
+
+function directNamelessBillingAddressToEvidence(
+  value: ReturnType<typeof extractDirectNamelessBillingAddressV1637>,
+): SafeBillingCustomerEvidence | null {
+  if (!value) return null;
+  const hasAnyBillingData = Boolean(
+    value.street || value.plz || value.city || value.phone || value.email,
+  );
+  if (!hasAnyBillingData) return null;
+
+  return {
+    source: "labeled",
+    hasReliableCustomerBlock: true,
+    name: null,
+    street: value.street || null,
+    plz: value.plz || null,
+    city: value.city || null,
+    phone: value.phone || null,
+    email: value.email || null,
+  };
+}
+
+function billingEvidenceValuesCompatible(
+  primary?: string | null,
+  fallback?: string | null,
+): boolean {
+  const a = normalizeUnitText(primary || "");
+  const b = normalizeUnitText(fallback || "");
+  return !a || !b || a === b;
+}
+
+function billingEvidenceAddressCompatible(
+  primary: SafeBillingCustomerEvidence,
+  fallback: SafeBillingCustomerEvidence,
+): boolean {
+  return (
+    billingEvidenceValuesCompatible(primary.street, fallback.street) &&
+    billingEvidenceValuesCompatible(primary.plz, fallback.plz) &&
+    billingEvidenceValuesCompatible(primary.city, fallback.city)
+  );
+}
+
+function extractDeterministicBillingEvidence(
+  rawText: string | null | undefined,
+): SafeBillingCustomerEvidence | null {
+  const hardEvidence = extractHardLabeledBillingAddressEvidenceV1634(rawText);
+  if (hardEvidence?.hasReliableCustomerBlock) return hardEvidence;
+
+  const directEvidence = directNamelessBillingAddressToEvidence(
+    extractDirectNamelessBillingAddressV1637(rawText),
+  );
+  if (directEvidence?.hasReliableCustomerBlock) return directEvidence;
+
+  const safeEvidence = extractSafeBillingCustomerEvidence(rawText);
+  return safeEvidence.hasReliableCustomerBlock ? safeEvidence : null;
+}
+
+function supplementAiBillingEvidence(
+  aiEvidence: SafeBillingCustomerEvidence,
+  fallbackEvidence: SafeBillingCustomerEvidence | null,
+): SafeBillingCustomerEvidence {
+  if (!fallbackEvidence?.hasReliableCustomerBlock) return aiEvidence;
+  if (!aiEvidence.hasReliableCustomerBlock) return fallbackEvidence;
+  if (!billingEvidenceAddressCompatible(aiEvidence, fallbackEvidence)) return aiEvidence;
+
+  return {
+    ...aiEvidence,
+    hasReliableCustomerBlock: true,
+    name: aiEvidence.name || fallbackEvidence.name || null,
+    street: aiEvidence.street || fallbackEvidence.street || null,
+    plz: aiEvidence.plz || fallbackEvidence.plz || null,
+    city: aiEvidence.city || fallbackEvidence.city || null,
+    phone: aiEvidence.phone || fallbackEvidence.phone || null,
+    email: aiEvidence.email || fallbackEvidence.email || null,
   };
 }
 
@@ -1246,6 +1326,35 @@ function repairExecutionStreetFromText(args: {
     if (street) return street;
   }
 
+
+  return null;
+}
+
+function repairExecutionSiteNameFromText(args: {
+  rawText: string | null | undefined;
+  currentSiteName: string | null;
+  siteAddress: string | null;
+  sitePlz: string | null;
+  siteCity: string | null;
+}): string | null {
+  if (args.currentSiteName) return args.currentSiteName;
+
+  const executionBlock = extractExecutionBlockFromText(args.rawText);
+  if (!executionBlock) return null;
+
+  const siteAddressKey = normalizeUnitText(args.siteAddress || "");
+  const sitePlz = String(args.sitePlz || "").trim();
+
+  for (const rawLine of splitIntakeLines(executionBlock)) {
+    const candidate = cleanExecutionSiteNameCandidate(rawLine);
+    if (!candidate) continue;
+    if (parseBillingStreetLine(candidate)) continue;
+    if (parseBillingPlzCityFromLine(candidate).plz) continue;
+    if (sitePlz && candidate.includes(sitePlz)) continue;
+    if (siteAddressKey && normalizeUnitText(candidate) === siteAddressKey) continue;
+    return candidate;
+  }
+
   return null;
 }
 
@@ -1258,7 +1367,7 @@ function sanitizeExtractedExecutionAddress<T extends {
 }>(address: T | null | undefined, rawText: string | null | undefined): T | null {
   if (!address) return null;
 
-  const siteName = cleanExecutionSiteNameCandidate(address.siteName || null);
+  let siteName = cleanExecutionSiteNameCandidate(address.siteName || null);
   const siteCity = cleanIntakeCityCandidate(address.siteCity || null);
   let siteAddress = cleanExecutionStreetCandidate(address.siteAddress || null);
 
@@ -1266,6 +1375,14 @@ function sanitizeExtractedExecutionAddress<T extends {
     rawText,
     currentStreet: siteAddress,
     siteName,
+    sitePlz: address.sitePlz || null,
+    siteCity,
+  });
+
+  siteName = repairExecutionSiteNameFromText({
+    rawText,
+    currentSiteName: siteName,
+    siteAddress,
     sitePlz: address.sitePlz || null,
     siteCity,
   });
@@ -3607,7 +3724,11 @@ const intakeCurrency =
   }
 
   const customerGuardReviewReasons: string[] = [];
-  const billingEvidence = extractAiStructuredBillingEvidence(kundeData);
+  const rawBillingEvidence = extractDeterministicBillingEvidence(messageText);
+  const billingEvidence = supplementAiBillingEvidence(
+    extractAiStructuredBillingEvidence(kundeData),
+    rawBillingEvidence,
+  );
   const customerGuard = applySafeBillingCustomerGuard({
     kundeData,
     evidence: billingEvidence,

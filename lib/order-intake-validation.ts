@@ -348,6 +348,37 @@ const unitTypeFromDisplayUnit = (unit?: string | null): string | null => {
 
 const isFlatUnit = (unit?: string | null) => unitTypeFromDisplayUnit(unit) === "flat";
 
+function hasExplicitCurrencyAmount(value?: string | null): boolean {
+  const source = normalizeText(value);
+  if (!source) return false;
+
+  return (
+    new RegExp(`\\b(?:${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "i").test(source) ||
+    new RegExp(`\\b${PRICE_NUMBER}\\s*(?:${CURRENCY_WORDS})\\b`, "i").test(source)
+  );
+}
+
+function hasQuantityWithExplicitUnit(value?: string | null): boolean {
+  return new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(
+    String(value || ""),
+  );
+}
+
+function isLikelyStandaloneFlatServiceLine(value?: string | null): boolean {
+  const source = normalizeText(value);
+  const normalized = normalizeCompare(source);
+  if (!source || !normalized) return false;
+  if (!hasExplicitCurrencyAmount(source)) return false;
+  if (hasQuantityWithExplicitUnit(source)) return false;
+
+  // Targeted safety-net for auxiliary services that customers usually write as
+  // flat lines without the word "pauschal": "Abdecken CHF 90", "Anfahrt CHF 45",
+  // "Grüngut entsorgen CHF 75". Measured services like m²/Stück/Meter stay out.
+  return /\b(?:anfahrt|fahrtkosten|fahrpauschale|wegpauschale|abdeck\w*|spachtel\w*|grungut|gruengut|entsorg\w*|material\s+entsorg\w*|deplacement)\b/i.test(
+    normalized,
+  );
+}
+
 const roundMoney = (value: number) =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -1635,10 +1666,12 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
     const hasCurrencylessUnitPrice = new RegExp(`${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "i").test(line);
     const hasCurrencylessFlatPrice =
       hasFlatSignal && /\b\d+(?:[.,]\d{1,2})?\b/i.test(line);
+    const hasStandaloneFlatServicePrice = isLikelyStandaloneFlatServiceLine(line);
 
     return (
       (hasQuantityWithUnit && (hasCurrency || hasCurrencylessUnitPrice)) ||
-      (hasFlatSignal && (hasCurrency || hasCurrencylessFlatPrice))
+      (hasFlatSignal && (hasCurrency || hasCurrencylessFlatPrice)) ||
+      hasStandaloneFlatServicePrice
     );
   });
 
@@ -1738,6 +1771,7 @@ function findExplicitFlatPriceInLine(line: string, fallbackCurrency: IntakeCurre
   index: number;
   raw: string;
 } | null {
+  const allowStandaloneFlatPrice = isLikelyStandaloneFlatServiceLine(line);
   const patterns: Array<{ re: RegExp; currencyGroup?: number; priceGroup: number }> = [
     {
       re: new RegExp(`\\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "i"),
@@ -1759,6 +1793,21 @@ function findExplicitFlatPriceInLine(line: string, fallbackCurrency: IntakeCurre
       priceGroup: 1,
     },
   ];
+
+  if (allowStandaloneFlatPrice) {
+    patterns.push(
+      {
+        re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "i"),
+        currencyGroup: 1,
+        priceGroup: 2,
+      },
+      {
+        re: new RegExp(`${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`, "i"),
+        currencyGroup: 2,
+        priceGroup: 1,
+      },
+    );
+  }
 
   for (const pattern of patterns) {
     const match = line.match(pattern.re);
@@ -2013,7 +2062,7 @@ function extractExplicitServiceLineItems(
       continue;
     }
 
-    if (flatPrice && /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(line)) {
+    if (flatPrice && (/\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(line) || isLikelyStandaloneFlatServiceLine(line))) {
       const serviceName = resolveExplicitServiceNameFromContext(
         originalText,
         line,
