@@ -375,23 +375,50 @@ function normalizeOrderSpecialNotes(data: any) {
  *     though `totalPrice` has a value. We compute a safe fallback on read so
  *     old rows display correctly without rewriting them.
  */
+function roundMoney(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Number((Math.round((value + Number.EPSILON) * 100) / 100).toFixed(2));
+}
+
+function calculateVatTotals(netValue: number, vatRateValue: number) {
+  const totalPrice = roundMoney(Number(netValue ?? 0));
+  const vatRate = Number.isFinite(vatRateValue) && vatRateValue > 0 ? vatRateValue : 0;
+  const vatAmount = roundMoney((totalPrice * vatRate) / 100);
+  const total = roundMoney(totalPrice + vatAmount);
+
+  return {
+    totalPrice,
+    vatRate,
+    vatAmount,
+    total,
+  };
+}
+
 function normalizeOrderVat(o: any) {
   const totalPrice = Number(o?.totalPrice ?? 0);
   const vatRate = o?.vatRate == null ? 8.1 : Number(o.vatRate);
   // If vatAmount/total were never written (legacy rows default to 0), recompute.
   const storedVatAmount = Number(o?.vatAmount ?? 0);
   const storedTotal = Number(o?.total ?? 0);
-  const computedVatAmount = (totalPrice * vatRate) / 100;
-  const computedTotal = totalPrice + computedVatAmount;
-  // Heuristic: if stored total is 0 but totalPrice > 0, these columns have never
-  // been written for this row -> use computed values.
-  const useComputed = storedTotal === 0 && totalPrice > 0;
-  return {
-    vatRate,
-    vatAmount: useComputed ? computedVatAmount : storedVatAmount,
-    total: useComputed ? computedTotal : storedTotal,
-  };
-}
+const computed = calculateVatTotals(totalPrice, vatRate);
+
+// Heuristic:
+// - alte Datensätze mit total = 0 neu berechnen
+// - falsch gerundete gespeicherte Werte ebenfalls beim Lesen korrigiert anzeigen
+const storedVatRounded = roundMoney(storedVatAmount);
+const storedTotalRounded = roundMoney(storedTotal);
+
+const storedLooksWrong =
+  Math.abs(storedVatRounded - computed.vatAmount) >= 0.005 ||
+  Math.abs(storedTotalRounded - computed.total) >= 0.005;
+
+const useComputed = (storedTotal === 0 && totalPrice > 0) || storedLooksWrong;
+
+return {
+  vatRate: computed.vatRate,
+  vatAmount: useComputed ? computed.vatAmount : storedVatRounded,
+  total: useComputed ? computed.total : storedTotalRounded,
+};}
 
 export async function GET(request: Request) {
   let userId: string;
@@ -493,8 +520,11 @@ export async function POST(request: Request) {
       } catch {}
     }
     if (!isFinite(vatRate) || vatRate < 0) vatRate = 0;
-    const vatAmount = (totalPrice * vatRate) / 100;
-    const total = totalPrice + vatAmount;
+  const calculatedTotals = calculateVatTotals(totalPrice, vatRate);
+totalPrice = calculatedTotals.totalPrice;
+vatRate = calculatedTotals.vatRate;
+const vatAmount = calculatedTotals.vatAmount;
+const total = calculatedTotals.total;
     // Guard: reject creation linked to an archived customer
     if (data?.customerId) {
       await assertCustomerNotArchived(prisma, data.customerId);
