@@ -121,10 +121,6 @@ export function runReadOnlyIntakeRiskValidator(
     input.billingCustomer?.hasReliableCustomerBlock &&
       String(input.billingCustomer?.name || "").trim(),
   );
-  const hasExecutionMarker =
-    /\b(arbeitsort|objekt|ausfuehrungsadresse|ausfuhrungsadresse|arbeitsadresse|einsatzort|baustelle|adresse de travail|lieu d intervention|work address|job site|service address)\b/i.test(
-      text,
-    );
   const hasExecutionAddress = Boolean(
     input.executionAddress &&
       (input.executionAddress.siteAddress ||
@@ -132,10 +128,16 @@ export function runReadOnlyIntakeRiskValidator(
         input.executionAddress.siteCity ||
         input.executionAddress.siteName),
   );
-  const hasOnsiteContactMarker =
-    /\b(kontakt vor ort|kontaktperson|ansprechperson|person vor ort|hauswart|hausmeister|concierge|caretaker|gardien|contact sur place)\b/i.test(
-      text,
-    );
+  const hasCompleteExecutionAddress = Boolean(
+    input.executionAddress?.siteAddress &&
+      input.executionAddress?.sitePlz &&
+      input.executionAddress?.siteCity,
+  );
+  // V16.39: structure-based risk check. The validator no longer tries to
+  // detect address roles from multilingual marker words; it only checks the
+  // already sorted structured result.
+  const hasExecutionMarker = hasExecutionAddress;
+  const hasOnsiteContactMarker = false;
   const hasMultipleCurrencies = detectedCurrencies.length > 1;
   const hasUnsupportedCurrency = detectedCurrencies.some(
     (currency) => !supportedCurrencies.has(currency),
@@ -147,8 +149,8 @@ export function runReadOnlyIntakeRiskValidator(
     warnings.push("billing_customer_missing_or_uncertain");
   }
 
-  if (hasExecutionMarker && !hasExecutionAddress) {
-    warnings.push("execution_address_marker_without_safe_address");
+  if (hasExecutionAddress && !hasCompleteExecutionAddress) {
+    warnings.push("execution_address_incomplete");
   }
 
   if (hasOnsiteContactMarker && phoneCandidates.length > 1) {

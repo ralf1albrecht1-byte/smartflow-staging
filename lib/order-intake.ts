@@ -459,7 +459,7 @@ function extractBillingCustomerNameFallback(
 
 
 type SafeBillingCustomerEvidence = {
-  source: "labeled" | "inline" | "top" | "none";
+  source: "ai" | "labeled" | "inline" | "top" | "none";
   hasReliableCustomerBlock: boolean;
   name: string | null;
   street: string | null;
@@ -889,6 +889,161 @@ function extractDirectNamelessBillingAddressV1637(
 
   return null;
 }
+
+
+// V16.39: AI-first address intake.
+// The LLM must sort billing customer and execution site up front. The code below
+// only validates already structured fields and deliberately does NOT infer
+// billing/execution roles from multilingual marker vocabularies.
+function normalizeStructuredTextField(value: any): string | null {
+  const cleaned = String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/)[0]
+    .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned || /^[-–—]+$/.test(cleaned)) return null;
+  if (/^(?:null|undefined|none|keine|kein|fehlt|missing|unknown|unbekannt)$/i.test(cleaned)) return null;
+  return cleaned;
+}
+
+function normalizeStructuredPlz(value: any): string | null {
+  const match = String(value ?? "").match(/\b(\d{4,5})\b/);
+  return match?.[1] || null;
+}
+
+function cleanAiStructuredBillingName(value: any): string | null {
+  let candidate = normalizeStructuredTextField(value);
+  if (!candidate) return null;
+
+  if (/@/.test(candidate)) return null;
+  if (/\d/.test(candidate)) return null;
+  if (parseBillingStreetLine(candidate)) return null;
+  if (parseBillingPlzCityFromLine(candidate).plz) return null;
+
+  candidate = candidate
+    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // If the model returns a phrase with a company suffix plus trailing words,
+  // keep only the company name up to the legal suffix. This is structural, not a
+  // billing-marker lookup.
+  const company = candidate.match(/^(.+?\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b)/i)?.[1];
+  if (company) {
+    const cleanedCompany = company.replace(/\s+/g, " ").trim();
+    return cleanedCompany.length >= 2 && cleanedCompany.length <= 80 ? cleanedCompany : null;
+  }
+
+  const tokens = candidate.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2 || tokens.length > 4) return null;
+
+  const looksLikePersonName = tokens.every((token) =>
+    /^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'’.-]{1,40}$/.test(token),
+  );
+  if (!looksLikePersonName) return null;
+
+  return candidate.length <= 80 ? candidate : null;
+}
+
+function extractAiStructuredBillingEvidence(kundeData: any): SafeBillingCustomerEvidence {
+  const rawStreet = [
+    normalizeStructuredTextField(kundeData?.strasse),
+    normalizeStructuredTextField(kundeData?.hausnummer),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const street = rawStreet ? parseBillingStreetLine(rawStreet) || cleanExecutionStreetCandidate(rawStreet) : null;
+  const plz = normalizeStructuredPlz(kundeData?.plz);
+  const city = cleanIntakeCityCandidate(normalizeStructuredTextField(kundeData?.ort));
+  const phone = extractPhoneFromText(normalizeStructuredTextField(kundeData?.telefon));
+  const email = extractEmailFromText(normalizeStructuredTextField(kundeData?.email));
+  const name = cleanAiStructuredBillingName(kundeData?.name);
+
+  const hasFullAddress = Boolean(street && plz && city);
+  const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
+  const hasReliableCustomerBlock = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
+
+  return {
+    source: "ai",
+    hasReliableCustomerBlock,
+    name: hasReliableCustomerBlock ? name : null,
+    street: hasReliableCustomerBlock ? street : null,
+    plz: hasReliableCustomerBlock ? plz : null,
+    city: hasReliableCustomerBlock ? city : null,
+    phone: hasReliableCustomerBlock ? phone : null,
+    email: hasReliableCustomerBlock ? email : null,
+  };
+}
+
+function sameStructuredAddress(args: {
+  aStreet?: string | null;
+  aPlz?: string | null;
+  aCity?: string | null;
+  bStreet?: string | null;
+  bPlz?: string | null;
+  bCity?: string | null;
+}): boolean {
+  const a = normalizeUnitText([args.aStreet, args.aPlz, args.aCity].filter(Boolean).join(" "));
+  const b = normalizeUnitText([args.bStreet, args.bPlz, args.bCity].filter(Boolean).join(" "));
+  return Boolean(a && b && a === b);
+}
+
+function extractAiStructuredExecutionAddress(
+  aiExecutionAddress: any,
+  customer?: {
+    customerAddress?: string | null;
+    customerPlz?: string | null;
+    customerCity?: string | null;
+  },
+): {
+  siteName: string | null;
+  siteAddress: string | null;
+  sitePlz: string | null;
+  siteCity: string | null;
+  siteNote: string | null;
+} | null {
+  if (!aiExecutionAddress || aiExecutionAddress.ist_abweichend !== true) return null;
+
+  const siteName = cleanExecutionSiteNameCandidate(
+    normalizeStructuredTextField(aiExecutionAddress.name),
+  );
+  const siteAddress = cleanExecutionStreetCandidate(
+    normalizeStructuredTextField(aiExecutionAddress.strasse),
+  );
+  const sitePlz = normalizeStructuredPlz(aiExecutionAddress.plz);
+  const siteCity = cleanIntakeCityCandidate(
+    normalizeStructuredTextField(aiExecutionAddress.ort),
+  );
+
+  const hasUsableAddress = Boolean(siteAddress && sitePlz && siteCity);
+  if (!hasUsableAddress) return null;
+
+  if (
+    sameStructuredAddress({
+      aStreet: siteAddress,
+      aPlz: sitePlz,
+      aCity: siteCity,
+      bStreet: customer?.customerAddress,
+      bPlz: customer?.customerPlz,
+      bCity: customer?.customerCity,
+    })
+  ) {
+    return null;
+  }
+
+  return {
+    siteName,
+    siteAddress,
+    sitePlz,
+    siteCity,
+    siteNote: null,
+  };
+}
+
 
 function extractSafeBillingCustomerEvidence(
   rawText: string | null | undefined,
@@ -2683,6 +2838,8 @@ ZIELE
 - hausnummer
 - plz
 - ort
+- telefon
+- email
 
 2. Auftrag:
 - titel (max 3 Wörter, IMMER auf ${hauptsprache})
@@ -2808,38 +2965,47 @@ Das gilt besonders für:
 --------------------------------------------------
 KI-VORSORTIERUNG – SEHR WICHTIG
 --------------------------------------------------
-- Du bist die erste Sortierschicht. Sortiere sauber nach Rechnungskunde, Ausführungsadresse und Arbeitspositionen.
-- Wenn ein Wert unklar ist, setze null. Nicht raten.
-- Satzreste wie "ist", "es geht um", "bitte", "mail reicht", "adresse wie letztes Mal" sind niemals Kundennamen.
-- Namen dürfen kein führendes "ist/isch/is" enthalten: aus "ist Meier Renovationen AG" wird "Meier Renovationen AG".
-- "Mail reicht", "Bitte per Mail bestätigen", "SMS", "WhatsApp" gehören in Besonderheiten/Kommunikation, niemals in kunde.name.
-- "Adresse wie letztes Mal" ist keine echte Adresse. Dann alle Adressfelder leer lassen und needs_review=true.
-- Arbeitspositionen dürfen keine zusammengesetzten Satzreste sein.
-- Wenn konkrete Preiszeilen vorhanden sind, bilde Positionen aus diesen Zeilen und NICHT zusätzlich eine Sammelposition aus dem Satz davor.
-- Beispiele: "Wände streichen 42 m2 CHF 18 pro m2" -> eine Position "Wände streichen". "Abdeckarbeiten pauschal CHF 90" -> eine zweite Position "Abdeckarbeiten".
-- Keine Position "Wände streichen mit Abdeckarbeiten und Anfahrt" erstellen, wenn die Einzelleistungen schon vorhanden sind.
-- service/action_name muss die Tätigkeit enthalten, context nur Ort/Teilbereich. Bei "Kabelkanal montieren" darf action_name nicht nur "montieren" sein.
+Du bist die erste und wichtigste Sortierschicht. Der nachgelagerte Code verlässt
+sich auf deine strukturierten Felder und validiert nur noch Plausibilität.
+
+Sortiere nach Bedeutung, nicht nach einzelnen Signalwörtern:
+- Wer/was bezahlt oder bekommt die Rechnung? → kunde
+- Wo wird die Arbeit tatsächlich ausgeführt? → auftrag.ausfuehrungsadresse
+- Welche einzelnen Arbeiten werden gemacht? → auftrag.arbeitspositionen
+- Was ist nur Hinweis/Kommunikation/Termin/Zugang? → besonderheiten
+
+Wenn ein Wert nicht sicher ist: null setzen. Nicht raten.
+Labels, Einleitungen, Arbeitsanweisungen, Kommunikationswünsche, Termine und
+Satzreste dürfen niemals als kunde.name gespeichert werden. Ein Kundenname ist
+nur ein echter Personenname oder ein echter Firmenname aus dem Originaltext.
+
+Arbeitspositionen dürfen keine zusammengesetzten Satzreste sein.
+Wenn konkrete Einzelpositionen mit Preis/Menge vorhanden sind, bilde nur diese
+Einzelpositionen und keine zusätzliche Sammelposition aus dem Satz davor.
+Beispiel: Aus einer Nachricht mit Wände streichen, Abdeckarbeiten und Anfahrt
+müssen drei getrennte Positionen entstehen, nicht eine Sammelposition.
+service/action_name muss die vollständige Tätigkeit enthalten; bei Kabelkanal
+montieren darf action_name nicht nur "montieren" sein.
 
 --------------------------------------------------
-ADRESS-SORTIERUNG – SEHR WICHTIG
+ADRESS-SORTIERUNG – AI-FIRST
 --------------------------------------------------
-- kunde = NUR Rechnungskunde / Rechnungsempfänger / Kunde, der die Rechnung bekommt.
-- ausfuehrungsadresse = NUR Arbeitsort / Einsatzort / Objekt / Adresse, wo gearbeitet wird.
-- Eine Zeile wie "Rechnungskunde:", "Rechnung an:", "Rechnungsadresse:" oder "Billing customer:" ist ein LABEL, niemals ein Name.
-- Wenn nach "Rechnung an:" nur Strasse, PLZ, Ort, Telefon oder E-Mail stehen und kein Name genannt wird:
-  → kunde.name = null
-  → kunde.strasse / kunde.plz / kunde.ort aus dem Text übernehmen
-  → needs_review = true
-- Wenn nur steht "bei der Seestrasse 90 in 5430 Wettingen reinigen":
-  → kunde bleibt leer
-  → ausfuehrungsadresse.strasse = "Seestrasse 90"
-  → ausfuehrungsadresse.plz = "5430"
-  → ausfuehrungsadresse.ort = "Wettingen"
-- Satzanfänge und Hinweise dürfen NIE als Kundenname gespeichert werden:
-  "Es geht um ...", "Zugang über Seitentor", "Bitte ...", "Termin ...", "Rechnungskunde".
-- Wörter wie "kommen", "arbeiten", "melden", "reinigen" dürfen NIE Teil von Ort oder Strasse sein.
-- Wenn unklar ist, ob eine Adresse Rechnungsadresse oder Arbeitsort ist:
-  → nicht raten; lieber kunde leer lassen und ausfuehrungsadresse nur setzen, wenn Arbeitsort klar belegt ist.
+kunde ist ausschließlich der Rechnungskunde / Rechnungsempfänger / Zahlende.
+auftrag.ausfuehrungsadresse ist ausschließlich der Ort, an dem gearbeitet wird.
+
+Regeln:
+- Wenn Rechnungskunde ohne Namen, aber mit Straße/PLZ/Ort/E-Mail genannt ist:
+  kunde.name = null, Adresse/Kontaktfelder übernehmen, system.needs_review = true.
+- Wenn nur ein Arbeitsort genannt ist und kein Rechnungskunde erkennbar ist:
+  kunde komplett leer lassen und nur auftrag.ausfuehrungsadresse setzen.
+- Wenn Rechnungsadresse und Arbeitsort gleich sind:
+  auftrag.ausfuehrungsadresse.ist_abweichend = false.
+- Wenn Rechnungsadresse und Arbeitsort unterschiedlich sind:
+  auftrag.ausfuehrungsadresse.ist_abweichend = true und vollständige Arbeitsadresse setzen.
+- Wenn unklar ist, welche Adresse welche Rolle hat:
+  keine Adresse in kunde schreiben; nur sichere Arbeitsadresse setzen oder alles leer lassen.
+- Straße, PLZ und Ort dürfen nur aus echten Adressteilen bestehen, nicht aus
+  Arbeitsanweisungen, Terminen oder Leistungstext.
 
 CONFIDENCE:
 - "hoch": eindeutig im Text belegt und keine Widersprüche.
@@ -2856,7 +3022,9 @@ AUSGABEFORMAT
     "strasse": null,
     "hausnummer": null,
     "plz": null,
-    "ort": null
+    "ort": null,
+    "telefon": null,
+    "email": null
   },
 "auftrag": {
   "titel": null,
@@ -3025,8 +3193,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 
 12. AUSFÜHRUNGSADRESSE / ARBEITSORT:
 - Erkenne semantisch, ob neben der Rechnungsadresse ein anderer Ort genannt wird, an dem gearbeitet wird.
-- Das gilt sprachunabhängig: z.B. Ausführungsadresse, Baustelle, Objekt, Arbeitsort, Einsatzort, job site, work address, service address, chantier, lugar de trabajo usw.
-- Nutze nicht nur feste Wörter, sondern Bedeutung: Wo bekommt der Kunde die Rechnung? Wo wird tatsächlich gearbeitet?
+- Entscheidend ist die Rolle der Adresse, nicht ein bestimmtes Wort in einer bestimmten Sprache.
 - Wenn eindeutig anderer Arbeitsort vorhanden:
   auftrag.ausfuehrungsadresse.ist_abweichend = true
   name/strasse/plz/ort befüllen
@@ -3417,31 +3584,15 @@ const intakeCurrency =
     }
   }
 
+  // V16.39: no name rescue from raw wording. The AI must sort the billing
+  // customer into structured fields; if it does not, the customer stays empty
+  // and the order remains review-required.
   if (!String(kundeData.name || "").trim()) {
-    const billingNameFallback = extractBillingCustomerNameFallback(messageText);
-    if (billingNameFallback) {
-      kundeData.name = billingNameFallback;
-      console.log(
-        `[${source}] 🧾 Rechnungsnamen-Safety-Net griff: kunde.name='${billingNameFallback}' (LLM hatte leer/null geliefert)`,
-      );
-    }
+    kundeData.name = null;
   }
 
   const customerGuardReviewReasons: string[] = [];
-  let billingEvidence = extractSafeBillingCustomerEvidence(messageText);
-  const hardLabeledBillingEvidence = extractHardLabeledBillingAddressEvidenceV1634(messageText);
-  if (
-    hardLabeledBillingEvidence?.hasReliableCustomerBlock &&
-    (!billingEvidence.hasReliableCustomerBlock ||
-      (!billingEvidence.name &&
-        (hardLabeledBillingEvidence.street ||
-          hardLabeledBillingEvidence.plz ||
-          hardLabeledBillingEvidence.city ||
-          hardLabeledBillingEvidence.phone ||
-          hardLabeledBillingEvidence.email)))
-  ) {
-    billingEvidence = hardLabeledBillingEvidence;
-  }
+  const billingEvidence = extractAiStructuredBillingEvidence(kundeData);
   const customerGuard = applySafeBillingCustomerGuard({
     kundeData,
     evidence: billingEvidence,
@@ -3739,23 +3890,15 @@ const intakeCurrency =
     // "Arbeitsort: Objekt Alpha ... Kontakt vor Ort: Herr Frei ..."
     // where the customer should remain empty + needsReview.
     const hasPersistableCustomerName = Boolean(
-      cleanBillingCustomerNameCandidate(kundeData.name || null),
+      cleanAiStructuredBillingName(kundeData.name || null),
     );
-
-    const hardBillingCreateOverride =
-      extractHardLabeledBillingAddressEvidenceV1634(messageText);
 
     const namelessBillingEvidence =
       !hasPersistableCustomerName &&
-      hardBillingCreateOverride?.hasReliableCustomerBlock &&
-      !hardBillingCreateOverride.name
-        ? hardBillingCreateOverride
-        : !hasPersistableCustomerName &&
-            billingEvidence.hasReliableCustomerBlock &&
-            !billingEvidence.name &&
-            billingEvidence.source !== "top"
-          ? billingEvidence
-          : null;
+      billingEvidence.hasReliableCustomerBlock &&
+      !billingEvidence.name
+        ? billingEvidence
+        : null;
 
     const hasNamelessBillingAddress = Boolean(
       namelessBillingEvidence &&
@@ -3782,26 +3925,19 @@ const intakeCurrency =
           phone: null,
           email: null,
         }
-      : hasNamelessBillingAddress
-        ? {
-            ...sanitized,
-            // Explizit gelabelte Rechnungsadresse ohne Name:
-            // Sanitizer bleibt aktiv, aber die sicher extrahierten Billing-Felder
-            // aus dem markierten Block werden nicht nur wegen fehlendem Namen
-            // verworfen.
-            street: namelessBillingEvidence?.street ?? billingEvidence.street ?? sanitized.street,
-            plz: namelessBillingEvidence?.plz ?? billingEvidence.plz ?? sanitized.plz,
-            city: namelessBillingEvidence?.city ?? billingEvidence.city ?? sanitized.city,
-            phone: namelessBillingEvidence?.phone ?? billingEvidence.phone ?? sanitized.phone,
-            email: namelessBillingEvidence?.email ?? billingEvidence.email ?? sanitized.email,
-          }
-        : {
-            ...sanitized,
-            email: billingEvidence.email ?? sanitized.email,
-          };
+      : {
+          ...sanitized,
+          // AI-first: persist only structured billing fields that survived the
+          // customer guard. The raw WhatsApp wording no longer decides the role.
+          street: billingEvidence.street ?? sanitized.street,
+          plz: billingEvidence.plz ?? sanitized.plz,
+          city: billingEvidence.city ?? sanitized.city,
+          phone: billingEvidence.phone ?? sanitized.phone,
+          email: billingEvidence.email ?? sanitized.email,
+        };
 
     const safeNewCustomerName = hasPersistableCustomerName
-      ? cleanBillingCustomerNameCandidate(kundeData.name || null) || ""
+      ? cleanAiStructuredBillingName(kundeData.name || null) || ""
       : "";
 
     if (keepNewCustomerMasterEmpty) {
@@ -3830,11 +3966,9 @@ const intakeCurrency =
       data: {
         customerNumber,
         name: safeNewCustomerName,
-        // New customer master data may store phone/email only after the billing
-        // customer guard + sanitizer verified that they belong to the billing block.
-        // If the customer name is missing, this is allowed only for explicitly
-        // labelled billing blocks with real address/phone evidence; execution-site
-        // data must still never appear in the billing customer card.
+        // New customer master data is stored only after the AI-structured billing
+        // evidence passed the customer guard. Execution-site data must never be
+        // copied into the billing customer card.
         phone: safeNewCustomerFields.phone,
         email: safeNewCustomerFields.email,
         address: safeNewCustomerFields.street,
@@ -3846,46 +3980,9 @@ const intakeCurrency =
       },
     });
 
-    // V16.35: last-resort persistence for explicitly labelled billing addresses
-    // without a customer name. This intentionally runs AFTER customer.create so
-    // no later sanitizer/create-default can wipe the fields again. It only uses
-    // a hard labelled billing block ("Rechnung an:" etc.) and stops before
-    // Arbeitsort/Einsatzort, so execution addresses cannot leak into the billing
-    // customer card.
-    if (!safeNewCustomerName) {
-      const hardBillingAfterCreate = extractHardLabeledBillingAddressEvidenceV1634(messageText);
-      const directBillingAfterCreate = extractDirectNamelessBillingAddressV1637(messageText);
-      const hardBillingUpdate: Record<string, string> = {};
+    // V16.39: No post-create raw-text rescue. Customer master fields were already
+    // decided by the AI-structured billing evidence above.
 
-      if (hardBillingAfterCreate?.hasReliableCustomerBlock) {
-        if (hardBillingAfterCreate.street) hardBillingUpdate.address = hardBillingAfterCreate.street;
-        if (hardBillingAfterCreate.plz) hardBillingUpdate.plz = hardBillingAfterCreate.plz;
-        if (hardBillingAfterCreate.city) hardBillingUpdate.city = hardBillingAfterCreate.city;
-        if (hardBillingAfterCreate.phone) hardBillingUpdate.phone = hardBillingAfterCreate.phone;
-        if (hardBillingAfterCreate.email) hardBillingUpdate.email = hardBillingAfterCreate.email;
-      }
-
-      // V16.37: absolute fallback for "Rechnung an:" blocks without a name.
-      // This deliberately bypasses the name requirement but still requires an
-      // explicit billing marker and a real address/contact inside that block.
-      if (directBillingAfterCreate) {
-        if (directBillingAfterCreate.street) hardBillingUpdate.address = directBillingAfterCreate.street;
-        if (directBillingAfterCreate.plz) hardBillingUpdate.plz = directBillingAfterCreate.plz;
-        if (directBillingAfterCreate.city) hardBillingUpdate.city = directBillingAfterCreate.city;
-        if (directBillingAfterCreate.phone) hardBillingUpdate.phone = directBillingAfterCreate.phone;
-        if (directBillingAfterCreate.email) hardBillingUpdate.email = directBillingAfterCreate.email;
-      }
-
-      if (Object.keys(hardBillingUpdate).length > 0) {
-        await prisma.customer.update({
-          where: { id: customer.id },
-          data: hardBillingUpdate,
-        });
-        console.log(
-          `[${source}] 🛡️ V16.37 persisted labelled nameless billing address after customer create: customerId=${customer.id}`,
-        );
-      }
-    }
 
     customerId = customer.id;
     customerWasNewlyCreated = true;
@@ -4651,39 +4748,26 @@ totalPrice: safeUnitPrice * safeQuantity,
   });
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
-  const aiExecutionAddressText =
-    aiExecutionAddress?.ist_abweichend === true
-      ? [
-          "Ausführungsadresse:",
-          aiExecutionAddress?.name,
-          aiExecutionAddress?.strasse,
-          [aiExecutionAddress?.plz, aiExecutionAddress?.ort]
-            .filter(Boolean)
-            .join(" "),
-          aiExecutionAddress?.evidence,
-        ]
-          .filter(Boolean)
-          .join("\n")
-      : "";
-
   const executionAddressCustomerContext = {
     customerAddress: addr.street,
     customerPlz: addr.plz,
     customerCity: addr.city,
   };
 
+  const legacyAddressFallbackEnabled = process.env.INTAKE_LEGACY_ADDRESS_FALLBACK === "1";
+  const aiStructuredExecutionAddress = extractAiStructuredExecutionAddress(
+    aiExecutionAddress,
+    executionAddressCustomerContext,
+  );
+
   const extractedExecutionAddress = sanitizeExtractedExecutionAddress(
-    // First pass: only the real customer message. This avoids polluted AI
-    // evidence such as "Wohnanlage Seefeld Seefeldstrasse 8008".
-    extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
-      // Second pass: full work text, if the webhook/transcript moved the address.
-      extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
-      // Last fallback: KI evidence only. Do not append special notes; those can
-      // contain service/hint text and pollute the address fields.
-      extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext),
+    aiStructuredExecutionAddress ||
+      (legacyAddressFallbackEnabled
+        ? extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
+          extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext)
+        : null),
     `${messageText}
-${fullWorkText}
-${aiExecutionAddressText}`,
+${fullWorkText}`,
   );
 
   // V16.23: Zweiter Prüfer als reine Read-only-Kontrolle.
@@ -5014,30 +5098,10 @@ ${aiExecutionAddressText}`,
     include: { customer: true, items: true },
   });
 
-  // V16.37: final order-path guard. If a newly created blank customer is linked
-  // to an order whose original text contains an explicit nameless billing block,
-  // persist that billing address now as a last checkpoint before returning.
-  if (customerWasNewlyCreated && customerId) {
-    const directBillingForOrder = extractDirectNamelessBillingAddressV1637(messageText);
-    if (directBillingForOrder) {
-      const directUpdate: Record<string, string> = {};
-      if (directBillingForOrder.street) directUpdate.address = directBillingForOrder.street;
-      if (directBillingForOrder.plz) directUpdate.plz = directBillingForOrder.plz;
-      if (directBillingForOrder.city) directUpdate.city = directBillingForOrder.city;
-      if (directBillingForOrder.phone) directUpdate.phone = directBillingForOrder.phone;
-      if (directBillingForOrder.email) directUpdate.email = directBillingForOrder.email;
+  // V16.39: Final order path deliberately does not re-parse raw text for
+  // billing data. If the AI-structured billing evidence failed validation, the
+  // customer remains review-required instead of being rescued by marker words.
 
-      if (Object.keys(directUpdate).length > 0) {
-        await prisma.customer.update({
-          where: { id: customerId },
-          data: directUpdate,
-        });
-        console.log(
-          `[${source}] 🛡️ V16.37 final order guard persisted nameless billing address: customerId=${customerId}`,
-        );
-      }
-    }
-  }
 
   console.log(
     `[${source}] Order created: ${order.id} | Customer: ${order.customer?.name} (${order.customer?.customerNumber}) | Service: ${serviceName} | Abgleich: ${abgleichStatus} (confidence: ${abgleich.confidence || 0}) | Priorität: ${parsed.system?.prioritaet || "normal"}${duplicateWarning ? " | ⚠️ WARNING" : ""}`,
