@@ -1011,9 +1011,21 @@ function extractAiStructuredExecutionAddress(
   const siteName = cleanExecutionSiteNameCandidate(
     normalizeStructuredTextField(aiExecutionAddress.name),
   );
-  const siteAddress = cleanExecutionStreetCandidate(
-    normalizeStructuredTextField(aiExecutionAddress.strasse),
-  );
+  const rawExecutionStreet = normalizeStructuredTextField(aiExecutionAddress.strasse);
+  const rawExecutionHouseNumber = normalizeStructuredTextField(aiExecutionAddress.hausnummer);
+  const rawExecutionAddress = rawExecutionStreet
+    ? [
+        rawExecutionStreet,
+        rawExecutionHouseNumber &&
+        !new RegExp(`\\b${escapeRegExpLocal(rawExecutionHouseNumber)}\\b`).test(rawExecutionStreet)
+          ? rawExecutionHouseNumber
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : null;
+
+  const siteAddress = cleanExecutionStreetCandidate(rawExecutionAddress);
   const sitePlz = normalizeStructuredPlz(aiExecutionAddress.plz);
   const siteCity = cleanIntakeCityCandidate(
     normalizeStructuredTextField(aiExecutionAddress.ort),
@@ -3002,6 +3014,8 @@ Regeln:
   auftrag.ausfuehrungsadresse.ist_abweichend = false.
 - Wenn Rechnungsadresse und Arbeitsort unterschiedlich sind:
   auftrag.ausfuehrungsadresse.ist_abweichend = true und vollständige Arbeitsadresse setzen.
+- Bei auftrag.ausfuehrungsadresse.strasse nur den Straßennamen setzen und die Hausnummer separat in hausnummer setzen.
+  Wenn du Straße und Hausnummer nicht sicher trennen kannst, schreibe beides vollständig in strasse.
 - Wenn unklar ist, welche Adresse welche Rolle hat:
   keine Adresse in kunde schreiben; nur sichere Arbeitsadresse setzen oder alles leer lassen.
 - Straße, PLZ und Ort dürfen nur aus echten Adressteilen bestehen, nicht aus
@@ -3035,6 +3049,7 @@ AUSGABEFORMAT
     "ist_abweichend": false,
     "name": null,
     "strasse": null,
+    "hausnummer": null,
     "plz": null,
     "ort": null,
     "confidence": "niedrig",

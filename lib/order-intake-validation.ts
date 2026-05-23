@@ -421,6 +421,18 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
       priceGroup: 1,
       unitGroup: 3,
     },
+    // V16.40: "35 m2 Wände streichen à CHF 18" / "30 m2 Decke streichen zu CHF 22".
+    // The quantity unit is anchored earlier in the same segment, not after the price.
+    {
+      re: new RegExp(`(?:à|a|zu|preis|einzelpreis|ep|=|:)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "gi"),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(`(?:à|a|zu|preis|einzelpreis|ep|=|:)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`, "gi"),
+      currencyGroup: 2,
+      priceGroup: 1,
+    },
     {
       re: new RegExp(`(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`, "gi"),
       currencyGroup: 1,
@@ -588,6 +600,27 @@ function segmentContainsQuantity(
   return !segmentUnit || segmentUnit === unitType;
 }
 
+function earliestServiceAnchorIndex(
+  normalizedSegment: string,
+  serviceKey: string,
+  tokens: string[],
+): number {
+  const anchorTokens = tokens.filter(
+    (token) => !/^(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)$/.test(token),
+  );
+  const indexes = [
+    serviceKey ? normalizedSegment.indexOf(serviceKey) : -1,
+    ...anchorTokens.map((token) => normalizedSegment.indexOf(token)),
+  ].filter((index) => index >= 0);
+
+  return indexes.length > 0 ? Math.min(...indexes) : -1;
+}
+
+function flatSignalIndex(normalizedSegment: string): number {
+  const match = normalizedSegment.match(/\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i);
+  return match?.index ?? -1;
+}
+
 function detectExplicitUnitPriceForItem(
   originalText: string,
   item: ParsedOrderItemForValidation,
@@ -616,24 +649,51 @@ function detectExplicitUnitPriceForItem(
     const detected = chooseBestPriceFromSegment(segment);
     if (!detected) continue;
 
+    // V16.40: Do not leak neighbouring flat prices into measured services.
+    // Example: "35 m2 Wände streichen à CHF 18" must never receive the
+    // following "Abdeckarbeiten CHF 90 pauschal" price just because the full
+    // WhatsApp text was copied into item evidence.
+    if (detected.unitType === "flat" && itemUnitType && itemUnitType !== "flat") {
+      continue;
+    }
+    if (itemUnitType && detected.unitType && itemUnitType !== detected.unitType) {
+      continue;
+    }
+
+    const hasExactServiceAnchor = Boolean(serviceKey && normalizedSegment.includes(serviceKey));
+    const anchorTokens = tokens.filter(
+      (token) => !/^(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)$/.test(token),
+    );
+    const serviceTokenHits = anchorTokens.filter((token) => normalizedSegment.includes(token)).length;
+    const hasServiceAnchor = hasExactServiceAnchor || serviceTokenHits > 0;
+    const hasQuantityAnchor = segmentContainsQuantity(segment, itemQuantity, itemUnitType);
+
+    if (detected.unitType === "flat") {
+      const serviceAnchorIndex = earliestServiceAnchorIndex(normalizedSegment, serviceKey, tokens);
+      const flatIndex = flatSignalIndex(normalizedSegment);
+      if (serviceAnchorIndex >= 0 && flatIndex >= 0 && serviceAnchorIndex > flatIndex) continue;
+    }
+
+    // Evidence containment alone is too weak when item evidence contains the
+    // whole customer message. Require the segment to match the service OR the
+    // quantity/unit of this item.
+    if (!hasServiceAnchor && !hasQuantityAnchor) continue;
+
     let score = 0;
 
-    if (serviceKey && normalizedSegment.includes(serviceKey)) score += 150;
-    for (const token of tokens) {
-      if (normalizedSegment.includes(token)) score += 45;
-    }
+    if (hasExactServiceAnchor) score += 150;
+    score += serviceTokenHits * 45;
 
     if (itemEvidence && normalizeCompare(itemEvidence).includes(normalizedSegment)) {
-      score += 80;
+      score += 30;
     }
 
-    if (segmentContainsQuantity(segment, itemQuantity, itemUnitType)) {
+    if (hasQuantityAnchor) {
       score += 110;
     }
 
     if (itemUnitType && detected.unitType) {
       if (itemUnitType === detected.unitType) score += 90;
-      else score -= 140;
     }
 
     if (segment.length <= 180) score += 20;
@@ -684,12 +744,26 @@ function detectExplicitFlatPriceForItem(
       detectCurrencylessFlatPriceFromSegment(segment, fallbackCurrency);
     if (!detected || detected.unitType !== "flat") continue;
 
+    const hasExactServiceAnchor = Boolean(serviceKey && normalizedSegment.includes(serviceKey));
+    const anchorTokens = tokens.filter(
+      (token) => !/^(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)$/.test(token),
+    );
+    const serviceTokenHits = anchorTokens.filter((token) => normalizedSegment.includes(token)).length;
+    const hasServiceAnchor = hasExactServiceAnchor || serviceTokenHits > 0;
+
+    // V16.40: A flat price line may only repair the matching flat service.
+    // Do not copy "Abdeckarbeiten CHF 90 pauschal" onto "Anfahrt pauschal"
+    // just because the whole WhatsApp message was present as item evidence.
+    if (!hasServiceAnchor) continue;
+
+    const serviceAnchorIndex = earliestServiceAnchorIndex(normalizedSegment, serviceKey, tokens);
+    const flatIndex = flatSignalIndex(normalizedSegment);
+    if (serviceAnchorIndex >= 0 && flatIndex >= 0 && serviceAnchorIndex > flatIndex) continue;
+
     let score = 0;
-    if (serviceKey && normalizedSegment.includes(serviceKey)) score += 120;
-    for (const token of tokens) {
-      if (normalizedSegment.includes(token)) score += 70;
-    }
-    if (itemEvidence && normalizeCompare(itemEvidence).includes(normalizedSegment)) score += 80;
+    if (hasExactServiceAnchor) score += 120;
+    score += serviceTokenHits * 70;
+    if (itemEvidence && normalizeCompare(itemEvidence).includes(normalizedSegment)) score += 30;
     if (segment.length <= 180) score += 20;
     if (segment.length > 320) score -= 80;
 
@@ -1603,7 +1677,7 @@ function findExplicitUnitPriceInLine(
     re: RegExp;
     currencyGroup?: number;
     priceGroup: number;
-    unitGroup: number;
+    unitGroup?: number;
   }> = [
     {
       re: new RegExp(`(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`, "i"),
@@ -1616,6 +1690,18 @@ function findExplicitUnitPriceInLine(
       currencyGroup: 2,
       priceGroup: 1,
       unitGroup: 3,
+    },
+    // V16.40: Unit price after a measured quantity without repeated unit:
+    // "35 m2 Wände streichen à CHF 18" / "30 m2 Decke streichen zu CHF 22".
+    {
+      re: new RegExp(`(?:à|a|zu|preis|einzelpreis|ep|=|:)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`, "i"),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(`(?:à|a|zu|preis|einzelpreis|ep|=|:)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`, "i"),
+      currencyGroup: 2,
+      priceGroup: 1,
     },
     // 90 pro Stunde / 35 pro m2 / 11 pro Meter.
     // Currency is omitted by the customer; use the already resolved fallback currency.
@@ -1632,7 +1718,7 @@ function findExplicitUnitPriceInLine(
     const currency = pattern.currencyGroup
       ? normalizeExplicitCurrency(match?.[pattern.currencyGroup])
       : fallbackCurrency;
-    const unitType = unitTypeFromText(match?.[pattern.unitGroup]);
+    const unitType = pattern.unitGroup ? unitTypeFromText(match?.[pattern.unitGroup]) : null;
     if (!match || !amount || !currency) continue;
     return {
       amount,
@@ -1984,23 +2070,29 @@ function itemCoversExplicitLine(
   );
   const explicitSource = normalizeCompare(explicit.sourceText);
 
-  if (explicitSource && itemSource && (itemSource.includes(explicitSource) || explicitSource.includes(itemSource))) {
-    return true;
-  }
-
   const itemUnitType = unitTypeFromDisplayUnit(item.unit);
   const explicitUnitType = unitTypeFromDisplayUnit(explicit.unit);
   const sameUnit = !itemUnitType || !explicitUnitType || itemUnitType === explicitUnitType;
   const sameQuantity = Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) < 0.001;
   const samePrice = Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) < 0.01;
-
-  if (sameUnit && sameQuantity && samePrice) return true;
-
   const itemTokens = meaningfulServiceTokens(item.serviceName);
   const explicitTokens = meaningfulServiceTokens(explicit.serviceName);
-  const tokenOverlap = explicitTokens.filter((token) => itemTokens.includes(token) || itemSource.includes(token)).length;
+  const nameTokenOverlap = explicitTokens.filter((token) => itemTokens.includes(token)).length;
+  const sourceTokenOverlap = explicitTokens.filter((token) => itemTokens.includes(token) || itemSource.includes(token)).length;
 
-  return sameUnit && samePrice && tokenOverlap > 0;
+  if (explicitSource && itemSource && (itemSource.includes(explicitSource) || explicitSource.includes(itemSource))) {
+    // V16.40: Full WhatsApp text in item evidence must not make every item
+    // cover every explicit service line. Broad evidence only counts when the
+    // item also matches the explicit line by unit/quantity/topic.
+    const itemSourceLooksBroad = itemSource.length > explicitSource.length + 120 && /\b(?:rechnung|arbeitsort|termin|anfahrt|whatsapp)\b/i.test(itemSource);
+    if (!itemSourceLooksBroad) return true;
+    if (sameUnit && sameQuantity && nameTokenOverlap > 0) return true;
+  }
+
+  if (sameUnit && sameQuantity && samePrice) return true;
+  if (sameUnit && sameQuantity && nameTokenOverlap > 0) return true;
+
+  return sameUnit && samePrice && sourceTokenOverlap > 0 && nameTokenOverlap > 0;
 }
 
 function shouldPreferExplicitServiceName(
