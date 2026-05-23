@@ -12,7 +12,6 @@ import {
 import { sanitizeNewCustomerFields } from "@/lib/intake-sanitize";
 import {
   findExactDeterministicMatch,
-  findNearExactDeterministicMatch,
 } from "@/lib/exact-customer-match";
 import { maskPhoneForLog } from "@/lib/phone";
 import { buildSpecialNotes } from "@/lib/special-notes-utils";
@@ -793,6 +792,100 @@ function extractInlineExecutionAddressFallback(
   return null;
 }
 
+
+
+function valueAppearsInOriginalText(
+  value: string | null | undefined,
+  rawText: string | null | undefined,
+): boolean {
+  const candidate = normalizeUnitText(value || "");
+  const source = normalizeUnitText(rawText || "");
+  if (!candidate || !source) return false;
+
+  const compactCandidate = candidate.replace(/\s+/g, "");
+  const compactSource = source.replace(/\s+/g, "");
+
+  return source.includes(candidate) || compactSource.includes(compactCandidate);
+}
+
+function extractAiSortedBillingEvidenceV1629(
+  parsed: any,
+  rawText: string | null | undefined,
+): SafeBillingCustomerEvidence | null {
+  const source = normalizeIntakeSourceText(rawText);
+  if (!source) return null;
+
+  const kunde = parsed?.kunde || {};
+  const explicitBillingMarker =
+    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|bill\s+to|facturation|facture\s*(?:à|a)|fattura\s+a|fatturazione|facturacion|facturación)\s*:/im.test(
+      source,
+    );
+
+  const nameCandidate = cleanBillingCustomerNameCandidate(kunde.name || null);
+  const streetCandidate = String(
+    kunde.strasse ||
+      kunde.street ||
+      kunde.address ||
+      kunde.adresse ||
+      "",
+  ).trim();
+  const houseNumberCandidate = String(kunde.hausnummer || "").trim();
+  const combinedStreet =
+    streetCandidate && houseNumberCandidate && !new RegExp(`\\b${escapeRegExpLocal(houseNumberCandidate)}\\b`).test(streetCandidate)
+      ? `${streetCandidate} ${houseNumberCandidate}`.trim()
+      : streetCandidate;
+
+  const plzCandidate = String(kunde.plz || kunde.zip || kunde.postalCode || "").trim();
+  const cityCandidate = String(kunde.ort || kunde.city || "").trim();
+  const phoneCandidate = String(kunde.telefon || kunde.phone || "").trim();
+  const emailCandidate = String(kunde.email || kunde.mail || "").trim().toLowerCase();
+
+  const name = nameCandidate && valueAppearsInOriginalText(nameCandidate, source) ? nameCandidate : null;
+  const street =
+    combinedStreet && valueAppearsInOriginalText(combinedStreet, source)
+      ? combinedStreet
+      : null;
+  const plz =
+    plzCandidate && valueAppearsInOriginalText(plzCandidate, source)
+      ? plzCandidate
+      : null;
+  const city =
+    cityCandidate && valueAppearsInOriginalText(cityCandidate, source)
+      ? cityCandidate
+      : null;
+  const phone =
+    phoneCandidate && valueAppearsInOriginalText(phoneCandidate, source)
+      ? phoneCandidate
+      : null;
+  const email =
+    emailCandidate && valueAppearsInOriginalText(emailCandidate, source)
+      ? emailCandidate
+      : null;
+
+  const hasFullAddress = Boolean(street && plz && city);
+  const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
+  const hasPersistableData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
+
+  if (!hasPersistableData) return null;
+
+  // Without an explicit billing marker, AI-sorted customer data is allowed only
+  // when it has a real name plus address evidence. This prevents work-site
+  // addresses from becoming customer master data.
+  if (!explicitBillingMarker && !(name && (street || (plz && city)))) {
+    return null;
+  }
+
+  return {
+    source: explicitBillingMarker ? "labeled" : "top",
+    hasReliableCustomerBlock: true,
+    name,
+    street,
+    plz,
+    city,
+    phone,
+    email,
+  };
+}
 
 function extractSafeBillingCustomerEvidence(
   rawText: string | null | undefined,
@@ -2499,7 +2592,7 @@ EVIDENCE-PFLICHT:
 Jedes automatisch gesetzte Feld braucht eine konkrete evidence aus dem Originaltext.
 Das gilt besonders für:
 - kunde.name
-- kunde.strasse / plz / ort
+- kunde.strasse / plz / ort / telefon / email
 - ausfuehrungsadresse
 - jede Arbeitsposition
 - menge
@@ -2513,6 +2606,47 @@ CONFIDENCE:
 - "niedrig": unsicher. Werte bei niedrig möglichst null lassen.
 
 --------------------------------------------------
+PHASE 1 – SEMANTISCHE SORTIERUNG VOR JEDER AUSGABE
+--------------------------------------------------
+
+Bevor du JSON ausgibst, sortierst du die Nachricht gedanklich zwingend in diese Bereiche:
+
+A) RECHNUNGSKUNDE / BILLING CUSTOMER:
+- Wer bekommt und bezahlt die Rechnung?
+- Marker wie "Rechnung an:", "Rechnungsadresse:", "Bill to", "Invoice address", "Facturation", "Fattura a" sind starke Billing-Signale.
+- Wenn ein Billing-Block eine Adresse enthält, aber keinen Namen:
+  kunde.name = null
+  kunde.strasse / plz / ort / telefon / email trotzdem befüllen, wenn sie im Billing-Block stehen.
+  system.needs_review = true.
+- Eine fehlende Person/Firma darf NIEMALS dazu führen, dass echte Rechnungsadresse, PLZ, Ort, Telefon oder E-Mail verworfen werden.
+- kunde enthält NUR Rechnungskunden-Daten. Keine Arbeitsadresse. Kein Kontakt vor Ort.
+
+B) AUSFÜHRUNGSADRESSE / ARBEITSORT:
+- Wo wird tatsächlich gearbeitet?
+- Sätze wie "bei der Seestrasse 90 in 5430 Wettingen die Fenster reinigen" sind Arbeitsort/Ausführungsadresse, NICHT Rechnungskunde.
+- Arbeitsort gehört nach auftrag.ausfuehrungsadresse.
+- Wenn Arbeitsort vorhanden, aber Rechnungskunde fehlt: kunde leer lassen + needs_review=true.
+
+C) KONTAKT VOR ORT:
+- Hauswart, Kontaktperson, Ansprechpartner, Concierge, Person vor Ort, Schlüsselübergabe.
+- Diese Person/Telefonnummer gehört NICHT in kunde.telefon.
+- Als Besonderheit ausgeben, z.B. "Kontakt vor Ort: Hauswart, Tel. ...".
+
+D) LEISTUNGEN:
+- Jede Arbeit als eigene Position in auftrag.arbeitspositionen.
+- Preis/Menge/Einheit nur aus derselben evidence übernehmen.
+- Wenn eine Mengen-/Preiszeile nur sagt "Es sind 4 Stück, CHF 7 pro Stück", nimm die direkt vorher genannte Tätigkeit als action_name, wenn eindeutig.
+- Wenn unklar: Leistung/Preis/Menge leer oder needs_review, nicht raten.
+
+KOMPATIBILITÄT:
+- Schreibe die sortierten Daten direkt in die bestehenden Felder:
+  Rechnungskunde → kunde
+  Ausführungsadresse → auftrag.ausfuehrungsadresse
+  Leistungen → auftrag.arbeitspositionen
+  Hinweise/Kontakt vor Ort → auftrag.besonderheiten
+- Keine zusätzlichen Erklärtexte außerhalb des JSON.
+
+--------------------------------------------------
 AUSGABEFORMAT
 --------------------------------------------------
 
@@ -2522,7 +2656,11 @@ AUSGABEFORMAT
     "strasse": null,
     "hausnummer": null,
     "plz": null,
-    "ort": null
+    "ort": null,
+    "telefon": null,
+    "email": null,
+    "confidence": "niedrig",
+    "evidence": null
   },
 "auftrag": {
   "titel": null,
@@ -2565,13 +2703,18 @@ REGELN
 --------------------------------------------------
 
 1. KEINE DATEN ERFINDEN / KEIN ABSCHREIBEN VON BESTEHENDEN KUNDEN
-- Felder unter "kunde" (name, strasse, hausnummer, plz, ort) dürfen AUSSCHLIESSLICH
+- Felder unter "kunde" (name, strasse, hausnummer, plz, ort, telefon, email) dürfen AUSSCHLIESSLICH
   aus dem Nachrichtentext / Audio-Transkript / Bildinhalt stammen.
 - NIEMALS Felder aus der Liste "bestehende_kunden" nach "kunde" kopieren.
 - Wenn ein Feld nicht in der eingehenden Nachricht vorkommt → null setzen, nicht raten.
 - PLZ nur setzen wenn im Text vorhanden; keine Rückschlüsse aus Ort.
+- Bestehende Kunden dürfen NICHT automatisch durch Name-Ähnlichkeit übernommen werden.
+- Automatische Wiederverwendung ist nur möglich, wenn Name + Straße + PLZ + Ort vollständig im eingehenden Text stehen und serverseitig exakt identisch geprüft werden.
 
-2. E-Mail komplett ignorieren (KEINE Warnung, KEIN needs_review)
+2. E-Mail / Telefon im Rechnungskunden:
+- Wenn E-Mail oder Telefon eindeutig zum RECHNUNGSKUNDEN/Billing customer gehört, in kunde.email / kunde.telefon setzen.
+- Wenn E-Mail oder Telefon zu "Kontakt vor Ort", Hauswart, Kontaktperson, Ansprechpartner, Concierge usw. gehört, NICHT in kunde setzen, sondern in besonderheiten als Kontakt vor Ort aufnehmen.
+- E-Mail und Telefon sind Hilfsdaten, aber keine alleinige Grundlage für automatische Kundenübernahme.
 
 3. Telefonnummer:
 - NICHT für Matching verwenden
@@ -3099,12 +3242,16 @@ const intakeCurrency =
     extractStrictLabeledBillingAddressEvidence(messageText);
   const hardLabeledBillingAddressEvidence =
     extractHardLabeledBillingAddressEvidenceV1628(messageText);
+  const aiSortedBillingEvidence =
+    extractAiSortedBillingEvidenceV1629(parsed, messageText);
 
-  // V16.28: A labelled billing block is stronger than every generic fallback.
-  // In production the generic guard still left "Rechnung an:" blocks without
-  // name empty. For explicit billing markers, persist street/ZIP/city/contact
-  // even when name is missing, and keep the order review-required.
-  if (hardLabeledBillingAddressEvidence?.hasReliableCustomerBlock) {
+  // V16.29: OpenAI is the first semantic sorter. If it assigns billing fields
+  // and every persisted field is still verifiable in the original text, accept
+  // that sorter result before falling back to regex repair. This fixes labelled
+  // billing blocks without a name while still preventing copied/imagined data.
+  if (aiSortedBillingEvidence?.hasReliableCustomerBlock) {
+    billingEvidence = aiSortedBillingEvidence;
+  } else if (hardLabeledBillingAddressEvidence?.hasReliableCustomerBlock) {
     billingEvidence = hardLabeledBillingAddressEvidence;
   } else if (
     strictBillingAddressEvidence?.hasReliableCustomerBlock &&
@@ -3208,27 +3355,16 @@ const intakeCurrency =
     });
 
     if (matchResult.verdict === "auto_assign") {
-      // ✅ Strong unique signal verified (phone or email) → safe to auto-assign
-      customerId = matchId;
-      const matchedCust = await prisma.customer.findUnique({
-        where: { id: matchId },
-        select: { address: true, plz: true, city: true },
-      });
-      if (
-        !matchedCust?.address?.trim() ||
-        !matchedCust?.plz?.trim() ||
-        !matchedCust?.city?.trim()
-      ) {
-        parsed.system = parsed.system || {};
-        parsed.system.needs_review = true;
-        console.log(
-          `[${source}] ✅ AUTO-ASSIGN VERIFIED (${matchResult.reason}, conf ${abgleich.confidence}) but address incomplete → needsReview=true`,
-        );
-      } else {
-        console.log(
-          `[${source}] ✅ AUTO-ASSIGN VERIFIED (${matchResult.reason}, conf ${abgleich.confidence}) → auto-assign to ${matchId}`,
-        );
-      }
+      // V16.29: Do NOT auto-assign from LLM customer match / phone / email alone.
+      // Exact deterministic reuse below is the only automatic reuse path and
+      // requires incoming name + street + PLZ + city to match exactly.
+      abgleichStatus = "bestaetigungs_treffer";
+      duplicateWarning = `⚠️ Ähnlicher Kunde gefunden, aber automatische Übernahme ist nur bei identischem Name, Straße, PLZ und Ort erlaubt. Bitte prüfen.`;
+      parsed.system = parsed.system || {};
+      parsed.system.needs_review = true;
+      console.log(
+        `[${source}] 🛡️ auto-assign blocked by strict customer rule (${matchResult.reason}) → confirmation required for ${matchId}`,
+      );
     } else if (matchResult.verdict === "bestaetigungs_treffer") {
       // 🟡 Name + address match but no unique identifier → needs manual confirmation
       abgleichStatus = "bestaetigungs_treffer";
@@ -3324,62 +3460,11 @@ const intakeCurrency =
     }
   }
 
-  // ═══ PHASE 2d: NEAR-EXACT DETERMINISTIC REUSE (strict) ═══
-  // Triggers ONLY when: name+street exact, EXACTLY ONE of {plz, city} missing
-  // on incoming, candidate has that field filled, exactly 1 active candidate,
-  // no phone/email conflict. Completion is implicit (order binds to candidate
-  // which already has the field). Never weakens exact-match. See spec in
-  // lib/exact-customer-match.ts for full rules.
-  if (!customerId) {
-    const nearExact = await findNearExactDeterministicMatch(
-      prisma,
-      userId ?? null,
-      {
-        name: kundeData.name || null,
-        street: addr.street,
-        plz: addr.plz,
-        city: addr.city,
-        phone: kundeData.telefon || null,
-        email: kundeData.email || null,
-      },
-    );
-    if (nearExact.match && nearExact.completedField) {
-      customerId = nearExact.match.id;
-      autoReuseTags.push(
-        `AUTO_REUSED_NEAR_EXACT:${nearExact.match.customerNumber}:${nearExact.completedField}_completed`,
-      );
-      console.log(
-        `[${source}] 🎯 NEAR-EXACT REUSE → binding to existing ${nearExact.match.customerNumber} (${nearExact.match.id}), completed=${nearExact.completedField}`,
-      );
-      logAuditAsync({
-        userId,
-        action: "CUSTOMER_REUSE_NEAR_EXACT",
-        area: "CUSTOMERS",
-        targetType: "Customer",
-        targetId: nearExact.match.id,
-        success: true,
-        details: {
-          source,
-          matchedOn: [
-            "name",
-            "street",
-            nearExact.completedField === "plz" ? "city" : "plz",
-          ],
-          completedField: nearExact.completedField,
-          completedValue: nearExact.completedValue,
-          candidateCustomerNumber: nearExact.match.customerNumber,
-        },
-      });
-    } else if (
-      nearExact.reason !== "not_applicable" &&
-      nearExact.reason !== "incomplete_incoming" &&
-      nearExact.reason !== "no_candidate"
-    ) {
-      console.log(
-        `[${source}] near-exact-reuse skipped (${nearExact.reason}, count=${nearExact.candidateCount}) → normal create/duplicate path`,
-      );
-    }
-  }
+  // ═══ PHASE 2d DISABLED: no near-exact automatic reuse ═══
+  // Business rule: automatic customer reuse is allowed only when incoming
+  // name + street + PLZ + city are all present and exactly match one active
+  // existing customer. Missing PLZ or missing city must stay as a review/
+  // duplicate-check case, never auto-bind to an existing customer.
 
   // Create new customer if not auto-assigned
   if (!customerId) {
@@ -3393,9 +3478,8 @@ const intakeCurrency =
     // messageText already contains the audio transcript (transcription happens
     // in the webhook before processIncomingMessage is called). For image-only
     // messages messageText is empty → sanitize drops every auto-derived field.
-    // Note: phone/email are NOT auto-persisted from webhook intake today
-    // (historical conservative default). We still run them through the sanitizer
-    // to keep the audit trail accurate about what the LLM tried to set.
+    // Phone/email are persisted only when they belong to a verified billing
+    // customer block. Contact-person phone numbers stay in specialNotes.
     const sanitized = sanitizeNewCustomerFields({
       rawText: messageText,
       street: addr.street,
