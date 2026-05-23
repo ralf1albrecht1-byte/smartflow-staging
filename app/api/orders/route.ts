@@ -30,6 +30,154 @@ const normalizeSearchText = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+
+// V16.37: Route-level safety net for browser-created orders.
+// If the UI posts an order with a blank/new customerId and the original text
+// contains a clear nameless "Rechnung an:" block, persist that billing address
+// on the linked blank customer. This catches paths that do not go through
+// lib/order-intake.ts.
+function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]): {
+  street: string | null;
+  plz: string | null;
+  city: string | null;
+  phone: string | null;
+  email: string | null;
+} | null {
+  const source = values
+    .map((value) => String(value ?? ""))
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!source) return null;
+
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const markerRegex =
+    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnung\s+(?:für|fuer)|rechnung\s+bekommt|rechnungsadresse|rechnungsempfänger|rechnungsempfaenger|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|billing\s+customer|client\s*\/\s*facturation|facturation)\s*:?\s*(.*)$/i;
+  const stopRegex =
+    /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
+
+  const parseStreet = (line: string): string | null => {
+    const raw = String(line || "")
+      .replace(/^\s*(?:adresse|anschrift|strasse|straße|street\s+address|address)\s*:?\s*/i, "")
+      .replace(/[,;]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!raw) return null;
+
+    const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
+    const word = "[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*";
+    const suffix = "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
+    const patterns = [
+      new RegExp(`\\b((?:${word}\\s+){0,3}${word}${suffix}\\s+${houseNumber})\\b`, "i"),
+      new RegExp(`\\b((?:${word}\\s+){1,4}${suffix}\\s+${houseNumber})\\b`, "i"),
+      new RegExp(`\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,6}\\s+${houseNumber})\\b`, "i"),
+    ];
+
+    for (const pattern of patterns) {
+      const match = raw.match(pattern);
+      if (match?.[1]) {
+        return match[1]
+          .replace(/^\s*(?:beim|bei|an|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+    }
+
+    return null;
+  };
+
+  const parsePlzCity = (line: string): { plz: string | null; city: string | null } => {
+    const cleaned = String(line || "")
+      .replace(/^\s*(?:plz\s*\/\s*ort|plz|ort|postleitzahl|zip|postal\s+code|ville|city)\s*:?\s*/i, "")
+      .replace(/[,;]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const match = cleaned.match(/\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{1,60}?)(?=\s*(?:$|\b(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail|email|arbeitsort|objekt|kontakt|besonderheiten|leistungen|leistungsübersicht|leistungsuebersicht)\b|[,;.]))/i);
+    if (!match) return { plz: null, city: null };
+
+    const city = String(match[2] || "")
+      .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
+      .replace(/[,;:.]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return { plz: match[1] || null, city: city || null };
+  };
+
+  const extractPhone = (block: string): string | null => {
+    const explicit = block.match(/\b(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)\b/i);
+    const loose = explicit?.[1] || block.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] || null;
+    return loose ? loose.replace(/\s+/g, " ").trim() : null;
+  };
+
+  const extractEmail = (block: string): string | null =>
+    block.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]?.trim() || null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(markerRegex);
+    if (!match) continue;
+
+    const blockLines: string[] = [];
+    if (match[1]?.trim()) blockLines.push(match[1].trim());
+
+    for (let offset = 1; offset <= 10; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (stopRegex.test(line)) break;
+      if (/^\[Titel\s*:/i.test(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join("\n").trim();
+    if (!block) continue;
+
+    let street: string | null = null;
+    let plz: string | null = null;
+    let city: string | null = null;
+
+    for (const line of blockLines) {
+      if (/^\s*(?:e-?mail|email|tel\.?|telefon|phone|mobile|handy|natel)\b/i.test(line)) continue;
+
+      if (!street) street = parseStreet(line);
+
+      const parsedPlzCity = parsePlzCity(line);
+      if (!plz && parsedPlzCity.plz) plz = parsedPlzCity.plz;
+      if (!city && parsedPlzCity.city) city = parsedPlzCity.city;
+    }
+
+    if (!street) street = parseStreet(block);
+    if (!plz || !city) {
+      const wholePlzCity = parsePlzCity(block);
+      if (!plz && wholePlzCity.plz) plz = wholePlzCity.plz;
+      if (!city && wholePlzCity.city) city = wholePlzCity.city;
+    }
+
+    const phone = extractPhone(block);
+    const email = extractEmail(block);
+
+    const hasSafeAddress = Boolean(street && plz && city);
+    const hasSafePartialWithContact = Boolean((street || (plz && city)) && (phone || email));
+    if (!hasSafeAddress && !hasSafePartialWithContact) continue;
+
+    return { street, plz, city, phone, email };
+  }
+
+  return null;
+}
+
+
 const semanticNoteMatches: SemanticNoteMatch[] = [
   {
     label: "Hund vor Ort",
@@ -530,7 +678,7 @@ const total = calculatedTotals.total;
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
-    const order = await prisma.order.create({
+    let order = await prisma.order.create({
       data: {
         customerId: data?.customerId,
         description: data?.description ?? "",
@@ -578,6 +726,63 @@ const total = calculatedTotals.total;
       },
       include: { customer: true, items: true },
     });
+
+    // V16.37: If this browser/API path created an order linked to a blank
+    // customer, persist an explicit nameless "Rechnung an:" block from the
+    // original order text onto that customer. This does not touch real named
+    // customers and never reads the execution address block.
+    if (data?.customerId) {
+      const explicitBillingAddress = extractNamelessBillingAddressFromOrderPayloadV1637(
+        data?.notes,
+        data?.description,
+        data?.audioTranscript,
+        data?.specialNotes,
+      );
+
+      if (explicitBillingAddress) {
+        const linkedCustomer = await prisma.customer.findUnique({
+          where: { id: data.customerId },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            plz: true,
+            city: true,
+            phone: true,
+            email: true,
+          },
+        });
+
+        const customerNameMissing = !String(linkedCustomer?.name || "").trim();
+        const customerAddressMissing =
+          !String(linkedCustomer?.address || "").trim() &&
+          !String(linkedCustomer?.plz || "").trim() &&
+          !String(linkedCustomer?.city || "").trim();
+
+        if (linkedCustomer && customerNameMissing && customerAddressMissing) {
+          const customerUpdate: Record<string, string> = {};
+          if (explicitBillingAddress.street) customerUpdate.address = explicitBillingAddress.street;
+          if (explicitBillingAddress.plz) customerUpdate.plz = explicitBillingAddress.plz;
+          if (explicitBillingAddress.city) customerUpdate.city = explicitBillingAddress.city;
+          if (explicitBillingAddress.phone && !linkedCustomer.phone) customerUpdate.phone = explicitBillingAddress.phone;
+          if (explicitBillingAddress.email && !linkedCustomer.email) customerUpdate.email = explicitBillingAddress.email;
+
+          if (Object.keys(customerUpdate).length > 0) {
+            await prisma.customer.update({
+              where: { id: linkedCustomer.id },
+              data: customerUpdate,
+            });
+
+            order =
+              (await prisma.order.findUnique({
+                where: { id: order.id },
+                include: { customer: true, items: true },
+              })) ?? order;
+          }
+        }
+      }
+    }
+
     const su = await getSessionUser();
     logAuditAsync({
       userId: su?.id,

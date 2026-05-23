@@ -727,6 +727,93 @@ function extractHardLabeledBillingAddressEvidenceV1634(
   return null;
 }
 
+
+// V16.37: Ultra-direct fallback for explicit nameless billing blocks.
+// Grund: Der allgemeine Parser darf weiterhin streng bleiben, aber ein klarer
+// Block "Rechnung an:" mit Strasse + PLZ/Ort darf nicht verloren gehen, nur
+// weil kein Name vorhanden ist. Diese Funktion liest nur den explizit gelabelten
+// Rechnungsblock bis zum nächsten Arbeitsort-/Leistungs-/Termin-Marker.
+function extractDirectNamelessBillingAddressV1637(
+  rawText: string | null | undefined,
+): {
+  street: string | null;
+  plz: string | null;
+  city: string | null;
+  phone: string | null;
+  email: string | null;
+} | null {
+  const lines = splitIntakeLines(rawText);
+  if (lines.length === 0) return null;
+
+  const markerRegex =
+    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnung\s+(?:für|fuer)|rechnung\s+bekommt|rechnungsadresse|rechnungsempfänger|rechnungsempfaenger|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|billing\s+customer|client\s*\/\s*facturation|facturation)\s*:?\s*(.*)$/i;
+  const stopRegex =
+    /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(markerRegex);
+    if (!match) continue;
+
+    const blockLines: string[] = [];
+    if (match[1]?.trim()) blockLines.push(match[1].trim());
+
+    for (let offset = 1; offset <= 10; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (stopRegex.test(line)) break;
+      if (/^\[Titel\s*:/i.test(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join("\n").trim();
+    if (!block) continue;
+
+    let street: string | null = null;
+    let plz: string | null = null;
+    let city: string | null = null;
+
+    for (const rawLine of blockLines) {
+      const line = rawLine.trim();
+      if (!line || isBillingPhoneOrMailLine(line)) continue;
+
+      const parsedStreet = parseBillingStreetLine(line);
+      if (!street && parsedStreet) {
+        street = parsedStreet;
+      }
+
+      const parsedPlzCity = parseBillingPlzCityFromLine(line);
+      if (!plz && parsedPlzCity.plz) plz = parsedPlzCity.plz;
+      if (!city && parsedPlzCity.city) city = parsedPlzCity.city;
+    }
+
+    // Fallback: parse the whole block in case the user wrote it as one line.
+    if (!street) street = parseBillingStreetLine(block);
+    if (!plz || !city) {
+      const parsedWholePlzCity = parseBillingPlzCityFromLine(block);
+      if (!plz && parsedWholePlzCity.plz) plz = parsedWholePlzCity.plz;
+      if (!city && parsedWholePlzCity.city) city = parsedWholePlzCity.city;
+    }
+
+    const phone = extractPhoneFromText(block);
+    const email = extractEmailFromText(block);
+
+    const hasSafeAddress = Boolean(street && plz && city);
+    const hasSafePartialWithContact = Boolean((street || (plz && city)) && (phone || email));
+
+    if (!hasSafeAddress && !hasSafePartialWithContact) continue;
+
+    return {
+      street,
+      plz,
+      city,
+      phone,
+      email,
+    };
+  }
+
+  return null;
+}
+
 function extractSafeBillingCustomerEvidence(
   rawText: string | null | undefined,
 ): SafeBillingCustomerEvidence {
@@ -3691,6 +3778,7 @@ const intakeCurrency =
     // customer card.
     if (!safeNewCustomerName) {
       const hardBillingAfterCreate = extractHardLabeledBillingAddressEvidenceV1634(messageText);
+      const directBillingAfterCreate = extractDirectNamelessBillingAddressV1637(messageText);
       const hardBillingUpdate: Record<string, string> = {};
 
       if (hardBillingAfterCreate?.hasReliableCustomerBlock) {
@@ -3701,13 +3789,24 @@ const intakeCurrency =
         if (hardBillingAfterCreate.email) hardBillingUpdate.email = hardBillingAfterCreate.email;
       }
 
+      // V16.37: absolute fallback for "Rechnung an:" blocks without a name.
+      // This deliberately bypasses the name requirement but still requires an
+      // explicit billing marker and a real address/contact inside that block.
+      if (directBillingAfterCreate) {
+        if (directBillingAfterCreate.street) hardBillingUpdate.address = directBillingAfterCreate.street;
+        if (directBillingAfterCreate.plz) hardBillingUpdate.plz = directBillingAfterCreate.plz;
+        if (directBillingAfterCreate.city) hardBillingUpdate.city = directBillingAfterCreate.city;
+        if (directBillingAfterCreate.phone) hardBillingUpdate.phone = directBillingAfterCreate.phone;
+        if (directBillingAfterCreate.email) hardBillingUpdate.email = directBillingAfterCreate.email;
+      }
+
       if (Object.keys(hardBillingUpdate).length > 0) {
         await prisma.customer.update({
           where: { id: customer.id },
           data: hardBillingUpdate,
         });
         console.log(
-          `[${source}] 🛡️ V16.35 persisted labelled nameless billing address after customer create: customerId=${customer.id}`,
+          `[${source}] 🛡️ V16.37 persisted labelled nameless billing address after customer create: customerId=${customer.id}`,
         );
       }
     }
@@ -4838,6 +4937,31 @@ ${aiExecutionAddressText}`,
     },
     include: { customer: true, items: true },
   });
+
+  // V16.37: final order-path guard. If a newly created blank customer is linked
+  // to an order whose original text contains an explicit nameless billing block,
+  // persist that billing address now as a last checkpoint before returning.
+  if (customerWasNewlyCreated && customerId) {
+    const directBillingForOrder = extractDirectNamelessBillingAddressV1637(messageText);
+    if (directBillingForOrder) {
+      const directUpdate: Record<string, string> = {};
+      if (directBillingForOrder.street) directUpdate.address = directBillingForOrder.street;
+      if (directBillingForOrder.plz) directUpdate.plz = directBillingForOrder.plz;
+      if (directBillingForOrder.city) directUpdate.city = directBillingForOrder.city;
+      if (directBillingForOrder.phone) directUpdate.phone = directBillingForOrder.phone;
+      if (directBillingForOrder.email) directUpdate.email = directBillingForOrder.email;
+
+      if (Object.keys(directUpdate).length > 0) {
+        await prisma.customer.update({
+          where: { id: customerId },
+          data: directUpdate,
+        });
+        console.log(
+          `[${source}] 🛡️ V16.37 final order guard persisted nameless billing address: customerId=${customerId}`,
+        );
+      }
+    }
+  }
 
   console.log(
     `[${source}] Order created: ${order.id} | Customer: ${order.customer?.name} (${order.customer?.customerNumber}) | Service: ${serviceName} | Abgleich: ${abgleichStatus} (confidence: ${abgleich.confidence || 0}) | Priorität: ${parsed.system?.prioritaet || "normal"}${duplicateWarning ? " | ⚠️ WARNING" : ""}`,
