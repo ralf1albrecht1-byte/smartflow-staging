@@ -179,7 +179,7 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
   if (!hasStrongCompanySuffix && blockedStarts.some((start) => normalized.startsWith(start))) return null;
 
   const blockedContained =
-    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|prüfen|pruefen|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext)\b/i;
+    /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|prüfen|pruefen|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext|parkplatz|parken|parking|zugang|schlüssel|schluessel|termin|whatsapp|sms|mail|e-?mail|anrufen|melden|bestätigen|bestaetigen|vorhanden|reserviert)\b/i;
   if (!hasStrongCompanySuffix && blockedContained.test(normalized)) return null;
 
   // Reine Adresszeilen sind kein Name.
@@ -294,6 +294,7 @@ type SafeBillingCustomerEvidence = {
   plz: string | null;
   city: string | null;
   phone: string | null;
+  email: string | null;
 };
 
 function normalizeIntakeSourceText(value: string | null | undefined): string {
@@ -473,15 +474,17 @@ function hasNamelessBillingAddressEvidence(block: string | null | undefined): bo
   const street = parseBillingStreetFromBlock(source);
   const { plz, city } = parseBillingPlzCityFromBlock(source);
   const phone = extractPhoneFromText(source);
+  const email = extractEmailFromText(source);
 
   const hasFullAddress = Boolean(street && plz && city);
   const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
+  const hasPartialAddressWithEmail = Boolean((street || (plz && city)) && email);
 
   // Nur für explizit gelabelte Rechnungs-/Billing-Blöcke:
   // Wenn der Name fehlt, dürfen echte Adress-/Telefon-Daten trotzdem nicht
   // verworfen werden. Der Auftrag bleibt prüfpflichtig, aber die Daten bleiben
   // in der Kundenkarte sichtbar.
-  return hasFullAddress || hasPartialAddressWithPhone;
+  return hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail;
 }
 
 function extractLabeledBillingBlock(lines: string[]): string | null {
@@ -574,6 +577,7 @@ function extractSafeBillingCustomerEvidence(
     plz: null,
     city: null,
     phone: null,
+    email: null,
   };
   if (!source) return empty;
 
@@ -589,19 +593,21 @@ function extractSafeBillingCustomerEvidence(
   const street = parseBillingStreetFromBlock(block);
   const { plz, city } = parseBillingPlzCityFromBlock(block);
   const phone = extractPhoneFromText(block);
+  const email = extractEmailFromText(block);
   const hasCompany = /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(name || "");
   const hasAddress = Boolean(street || (plz && city));
   const hasFullAddress = Boolean(street && plz && city);
   const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
+  const hasPartialAddressWithEmail = Boolean((street || (plz && city)) && email);
 
   const sourceKind: SafeBillingCustomerEvidence["source"] = labeledBlock ? "labeled" : inlineBlock ? "inline" : "top";
   const hasReliableCustomerBlock = Boolean(
     (name &&
       ((sourceKind === "top" && (hasCompany || hasAddress)) ||
-        (sourceKind !== "top" && (hasCompany || hasAddress || phone)))) ||
+        (sourceKind !== "top" && (hasCompany || hasAddress || phone || email)))) ||
       // Explizit gelabelte Rechnungsadresse ohne Name:
-      // Adresse/Telefon übernehmen, aber weiterhin Kunde prüfen erzwingen.
-      (sourceKind !== "top" && !name && (hasFullAddress || hasPartialAddressWithPhone)),
+      // Adresse/Telefon/E-Mail übernehmen, aber weiterhin Kunde prüfen erzwingen.
+      (sourceKind !== "top" && !name && (hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail)),
   );
 
   return {
@@ -612,6 +618,7 @@ function extractSafeBillingCustomerEvidence(
     plz: hasReliableCustomerBlock ? plz : null,
     city: hasReliableCustomerBlock ? city : null,
     phone: hasReliableCustomerBlock ? phone : null,
+    email: hasReliableCustomerBlock ? email : null,
   };
 }
 
@@ -628,6 +635,7 @@ function applySafeBillingCustomerGuard(args: {
     plz: kundeData.plz || null,
     ort: kundeData.ort || null,
     telefon: kundeData.telefon || null,
+    email: kundeData.email || null,
   });
 
   if (!evidence.hasReliableCustomerBlock) {
@@ -643,6 +651,7 @@ function applySafeBillingCustomerGuard(args: {
     kundeData.plz = null;
     kundeData.ort = null;
     kundeData.telefon = null;
+    kundeData.email = null;
 
     const after = JSON.stringify({
       name: kundeData.name || null,
@@ -651,6 +660,7 @@ function applySafeBillingCustomerGuard(args: {
       plz: kundeData.plz || null,
       ort: kundeData.ort || null,
       telefon: kundeData.telefon || null,
+      email: kundeData.email || null,
     });
 
     return {
@@ -665,6 +675,7 @@ function applySafeBillingCustomerGuard(args: {
   kundeData.plz = evidence.plz || null;
   kundeData.ort = evidence.city || null;
   kundeData.telefon = evidence.phone || null;
+  kundeData.email = evidence.email || null;
 
   const after = JSON.stringify({
     name: kundeData.name || null,
@@ -673,6 +684,7 @@ function applySafeBillingCustomerGuard(args: {
     plz: kundeData.plz || null,
     ort: kundeData.ort || null,
     telefon: kundeData.telefon || null,
+    email: kundeData.email || null,
   });
 
   return {
@@ -703,6 +715,13 @@ function extractPhoneFromText(value: string | null | undefined): string | null {
   if (digits.length < 7 || digits.length > 15) return null;
 
   return loose.replace(/\s+/g, " ").trim();
+}
+
+function extractEmailFromText(value: string | null | undefined): string | null {
+  const match = String(value || "").match(
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+  );
+  return match?.[0]?.trim().toLowerCase() || null;
 }
 
 function extractOnsiteContactHint(
@@ -3155,7 +3174,8 @@ const intakeCurrency =
         billingEvidence.street ||
           billingEvidence.plz ||
           billingEvidence.city ||
-          billingEvidence.phone,
+          billingEvidence.phone ||
+          billingEvidence.email,
       );
 
     const keepNewCustomerMasterEmpty =
@@ -3182,6 +3202,7 @@ const intakeCurrency =
             plz: billingEvidence.plz ?? sanitized.plz,
             city: billingEvidence.city ?? sanitized.city,
             phone: billingEvidence.phone ?? sanitized.phone,
+            email: billingEvidence.email ?? sanitized.email,
           }
         : sanitized;
 

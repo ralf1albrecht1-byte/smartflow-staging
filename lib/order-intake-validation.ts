@@ -1631,7 +1631,14 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
     cleaned = normalizeText(beforeFlat).replace(/^\s*(?:[-–—•]+|\d+[.)])\s*/, " ").trim();
   }
 
-  if (!cleaned || normalizeCompare(cleaned).length < 3) return "Unbekannte Leistung";
+  const cleanedKey = normalizeCompare(cleaned);
+  if (
+    !cleaned ||
+    cleanedKey.length < 3 ||
+    /^(?:es\s+sind|es\s+ist|das\s+sind|das\s+ist|sind|ist|ca|circa|etwa|ungefaehr|ungefahr|ungefähr|approx|approximately|about)$/.test(cleanedKey)
+  ) {
+    return "Unbekannte Leistung";
+  }
 
   const sourceKey = normalizeCompare(line);
   if (/\bbuero(?:reinigung)?\b|\bburo(?:reinigung)?\b|\boffice\b/.test(sourceKey) && /\b(stunde|stunden|hour|hours|std|h)\b/.test(sourceKey)) {
@@ -1652,6 +1659,96 @@ function cleanExplicitServiceNameFromLine(line: string, parts: {
     .replace(/^./, (char) => char.toUpperCase());
 }
 
+
+function isWeakExplicitServiceName(value?: string | null): boolean {
+  const normalized = normalizeCompare(value);
+  if (!normalized || normalized === "unbekannte leistung") return true;
+
+  if (
+    /^(?:es\s+sind|es\s+ist|das\s+sind|das\s+ist|sind|ist|ca|circa|etwa|ungefaehr|ungefahr|ungefähr|ungefahr|approx|approximately|about)[\s,.;:-]*$/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  if (/^(?:es\s+sind|es\s+ist|das\s+sind|das\s+ist)\b/i.test(normalized)) {
+    const remainder = normalized
+      .replace(/^(?:es\s+sind|es\s+ist|das\s+sind|das\s+ist)\b/i, "")
+      .replace(/[,\s.;:-]+/g, " ")
+      .trim();
+    if (remainder.length < 4) return true;
+  }
+
+  const canonical = canonicalGermanServiceNameFromText(value);
+  if (canonical) return false;
+
+  const tokens = meaningfulServiceTokens(value);
+  return tokens.length === 0;
+}
+
+function inferExplicitServiceNameFromPreviousContext(
+  originalText: string,
+  currentLine: string,
+): string | null {
+  const source = normalizeText(originalText);
+  const current = normalizeText(currentLine);
+  if (!source || !current) return null;
+
+  const index = source.indexOf(current);
+  const before = index >= 0 ? source.slice(0, index) : source;
+
+  const candidates = before
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((piece) => piece.trim())
+    .filter(Boolean)
+    .slice(-8)
+    .reverse();
+
+  const skipPattern =
+    /^(?:rechnung|rechnungsadresse|kunde|kundin|arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|tel\.?|telefon|phone|mobile|handy|natel|e-?mail|termin|titel|leistungen|leistungsübersicht|leistungsuebersicht)\b/i;
+
+  for (const candidate of candidates) {
+    if (skipPattern.test(candidate)) continue;
+
+    const canonical = canonicalGermanServiceNameFromText(candidate);
+    if (canonical) return canonical;
+
+    const normalized = normalizeCompare(candidate);
+    if (
+      /\b(?:fenster|vitres|fenetres|windows)\b/.test(normalized) &&
+      /\b(?:reinigen|reinigung|putzen|clean|nettoyage)\b/.test(normalized)
+    ) {
+      return "Fenster reinigen";
+    }
+
+    if (
+      /\b(?:boden|sol|floor)\b/.test(normalized) &&
+      /\b(?:reinigen|reinigung|putzen|clean|nettoyage)\b/.test(normalized)
+    ) {
+      return "Boden reinigen";
+    }
+  }
+
+  return null;
+}
+
+function resolveExplicitServiceNameFromContext(
+  originalText: string,
+  line: string,
+  proposedName: string,
+): string {
+  const canonicalFromLine = canonicalGermanServiceNameFromText(line);
+  if (canonicalFromLine) return canonicalFromLine;
+
+  if (!isWeakExplicitServiceName(proposedName)) return proposedName;
+
+  return (
+    inferExplicitServiceNameFromPreviousContext(originalText, line) ||
+    "Unbekannte Leistung"
+  );
+}
+
 function extractExplicitServiceLineItems(
   originalText: string,
   fallbackCurrency: IntakeCurrency,
@@ -1666,9 +1763,13 @@ function extractExplicitServiceLineItems(
     const unclearQuantityOnly = findQuantityOnlyUnclearLine(line);
 
     if (unclearQuantityOnly && !unitPrice && !flatPrice) {
-      const serviceName = cleanExplicitServiceNameFromLine(line, {
-        quantityRaw: unclearQuantityOnly.quantityRaw,
-      });
+      const serviceName = resolveExplicitServiceNameFromContext(
+        originalText,
+        line,
+        cleanExplicitServiceNameFromLine(line, {
+          quantityRaw: unclearQuantityOnly.quantityRaw,
+        }),
+      );
 
       result.push({
         serviceName,
@@ -1692,10 +1793,14 @@ function extractExplicitServiceLineItems(
       const unitType = quantityUnitType || unitPrice.unitType;
       if (!quantity || !unitType) continue;
 
-      const serviceName = cleanExplicitServiceNameFromLine(line, {
-        quantityRaw: quantityMatch[0],
-        priceRaw: unitPrice.raw,
-      });
+      const serviceName = resolveExplicitServiceNameFromContext(
+        originalText,
+        line,
+        cleanExplicitServiceNameFromLine(line, {
+          quantityRaw: quantityMatch[0],
+          priceRaw: unitPrice.raw,
+        }),
+      );
 
       result.push({
         serviceName,
@@ -1714,9 +1819,13 @@ function extractExplicitServiceLineItems(
     }
 
     if (flatPrice && /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(line)) {
-      const serviceName = cleanExplicitServiceNameFromLine(line, {
-        priceRaw: flatPrice.raw,
-      });
+      const serviceName = resolveExplicitServiceNameFromContext(
+        originalText,
+        line,
+        cleanExplicitServiceNameFromLine(line, {
+          priceRaw: flatPrice.raw,
+        }),
+      );
 
       result.push({
         serviceName,
