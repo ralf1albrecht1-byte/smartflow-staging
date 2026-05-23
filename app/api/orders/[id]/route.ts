@@ -710,13 +710,15 @@ const isDisposableEmptyCustomer = (customer: any) => {
     !FALLBACK_CUSTOMER_NAMES.has(normalizedName) &&
     !/^k-?\d+$/i.test(normalizedName);
 
+  // Only visible master-data fields make a customer real.
+  // Customer notes alone must not keep an otherwise empty dummy customer alive,
+  // because parser/test flows can leave hidden notes on fallback customers.
   const hasRealData = [
     customer?.address,
     customer?.plz,
     customer?.city,
     customer?.phone,
     customer?.email,
-    customer?.notes,
   ].some((value) => String(value ?? "").trim().length > 0);
 
   return !hasUsefulName && !hasRealData;
