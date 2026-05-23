@@ -425,37 +425,98 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort/.test(text);
+  return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available/.test(text);
+};
+
+const PARKING_NO_PATTERN =
+  /kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|kein stellplatz|keine stellplaetze|keine stellplätze|no parking|sans parking|sin parking/;
+
+const PARKING_DIFFICULT_PATTERN =
+  /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
+
+const hasParkingReference = (value?: string | null) =>
+  /park|parking|parkplatz|parken|zufahrt|innenhof/.test(normalizeForMatch(value));
+
+const getParkingSignal = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text || !hasParkingReference(text)) {
+    return {
+      hasParking: false,
+      hasPositive: false,
+      hasNoParking: false,
+      hasDifficult: false,
+    };
+  }
+
+  return {
+    hasParking: true,
+    hasPositive: isPositiveSemanticHint(text),
+    hasNoParking: PARKING_NO_PATTERN.test(text),
+    hasDifficult: PARKING_DIFFICULT_PATTERN.test(text),
+  };
+};
+
+const getParkingConflictBadge = (
+  values: Array<string | null | undefined>,
+): { label: string; className: string } | null => {
+  const signal = values.reduce(
+    (acc, value) => {
+      const next = getParkingSignal(value);
+      return {
+        hasParking: acc.hasParking || next.hasParking,
+        hasPositive: acc.hasPositive || next.hasPositive,
+        hasNoParking: acc.hasNoParking || next.hasNoParking,
+        hasDifficult: acc.hasDifficult || next.hasDifficult,
+      };
+    },
+    {
+      hasParking: false,
+      hasPositive: false,
+      hasNoParking: false,
+      hasDifficult: false,
+    },
+  );
+
+  if (!signal.hasParking) return null;
+
+  // After merging multiple orders, conflicting parking information should not
+  // be shown as a clean "Parken" or "Kein Parkplatz" chip.
+  if (
+    (signal.hasPositive && (signal.hasNoParking || signal.hasDifficult)) ||
+    (signal.hasNoParking && signal.hasDifficult)
+  ) {
+    return {
+      label: "Parken prüfen",
+      className: "bg-amber-100 text-amber-800 border border-amber-300",
+    };
+  }
+
+  return null;
 };
 
 const getParkingBadge = (value?: string | null, context?: string | null): { label: string; className: string } | null => {
   const text = normalizeForMatch(value);
-  const contextText = normalizeForMatch(context);
-  if (!text || !/park|parking|parkplatz|parken|zufahrt|innenhof/.test(text)) return null;
+  const contextSignal = getParkingSignal(context);
+  const ownSignal = getParkingSignal(text);
+  if (!ownSignal.hasParking) return null;
 
-  const noParkingPattern = /kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|kein stellplatz|keine stellplaetze|keine stellplätze|no parking|sans parking|sin parking/;
-  const noParking = noParkingPattern.test(text);
+  if (!ownSignal.hasNoParking && contextSignal.hasNoParking) return null;
 
-  if (!noParking && noParkingPattern.test(contextText)) return null;
-
-  if (noParking) {
+  if (ownSignal.hasNoParking) {
     return {
       label: "Kein Parkplatz",
       className: "bg-amber-100 text-amber-800 border border-amber-300",
     };
   }
 
-  const difficultParking =
-    /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/.test(text);
-
-  if (difficultParking) {
+  if (ownSignal.hasDifficult) {
     return {
       label: "Parkplatz schwierig",
       className: "bg-amber-100 text-amber-800 border border-amber-300",
     };
   }
 
-  if (isPositiveSemanticHint(value)) {
+  if (ownSignal.hasPositive) {
     return {
       label: "Parken",
       className: "bg-emerald-100 text-emerald-700 border border-emerald-200",
@@ -831,6 +892,13 @@ const getOperationalBadges = (
     addDanger(`danger_${normalizeForMatch(label)}`, label);
   });
 
+  const parkingConflictBadge = getParkingConflictBadge([
+    ...parsedNotes.jobHints,
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  ]);
+
   parsedNotes.jobHints.forEach((line) => {
     if (isNonActionableSemanticHint(line, orderBadgeContext)) return;
 
@@ -838,6 +906,7 @@ const getOperationalBadges = (
     if (!kind || kind === "warning" || kind === "appointment") return;
 
     if (kind === "parking") {
+      if (parkingConflictBadge) return;
       const parkingBadge = getParkingBadge(line, orderBadgeContext);
       if (!parkingBadge) return;
       addHint(`hint_parking_${normalizeForMatch(parkingBadge.label)}`, parkingBadge.label, parkingBadge.className);
@@ -853,6 +922,10 @@ const getOperationalBadges = (
       isPositiveSemanticHint(line) ? greenInfoClass : amberHintClass,
     );
   });
+
+  if (parkingConflictBadge) {
+    addHint("hint_parking_review", parkingConflictBadge.label, parkingConflictBadge.className);
+  }
 
   // Unknown operational notes stay inside the order detail. The card only shows short, useful chips.
   // CARD_BADGE_SORT_AND_LIMIT_V15
