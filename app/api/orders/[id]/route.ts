@@ -685,6 +685,111 @@ date: data?.date ? new Date(data.date) : undefined,
   }
 }
 
+
+const FALLBACK_CUSTOMER_NAMES = new Set([
+  "",
+  "-",
+  "--",
+  "name fehlt",
+  "kunde fehlt",
+  "kunde nicht zugeordnet",
+  "nicht zugeordnet",
+  "unbekannt",
+  "unknown",
+]);
+
+const isDisposableEmptyCustomer = (customer: any) => {
+  if (!customer) return false;
+
+  const normalizedName = normalizeSearchText(customer?.name);
+  const hasUsefulName =
+    !!normalizedName &&
+    !FALLBACK_CUSTOMER_NAMES.has(normalizedName) &&
+    !/^k-?\d+$/i.test(normalizedName);
+
+  const hasRealData = [
+    customer?.address,
+    customer?.plz,
+    customer?.city,
+    customer?.phone,
+    customer?.email,
+    customer?.notes,
+  ].some((value) => String(value ?? "").trim().length > 0);
+
+  return !hasUsefulName && !hasRealData;
+};
+
+const cleanupEmptyCustomerAfterOrderDelete = async (
+  customerId: string | null | undefined,
+  deletedOrderId: string,
+  userId: string,
+  request: Request,
+) => {
+  if (!customerId) return null;
+
+  const customer = await prisma.customer.findFirst({
+    where: { id: customerId, userId, deletedAt: null },
+    select: {
+      id: true,
+      customerNumber: true,
+      name: true,
+      address: true,
+      plz: true,
+      city: true,
+      phone: true,
+      email: true,
+      notes: true,
+    },
+  });
+
+  if (!customer || !isDisposableEmptyCustomer(customer)) return null;
+
+  const [remainingOrders, remainingOffers, remainingInvoices] = await Promise.all([
+    prisma.order.count({
+      where: {
+        customerId,
+        userId,
+        deletedAt: null,
+        id: { not: deletedOrderId },
+      },
+    }),
+    prisma.offer.count({
+      where: { customerId, userId, deletedAt: null },
+    }),
+    prisma.invoice.count({
+      where: { customerId, userId, deletedAt: null },
+    }),
+  ]);
+
+  if (remainingOrders > 0 || remainingOffers > 0 || remainingInvoices > 0) {
+    return null;
+  }
+
+  await prisma.customer.update({
+    where: { id: customerId },
+    data: { deletedAt: new Date() },
+  });
+
+  const su = await getSessionUser();
+  logAuditAsync({
+    userId: su?.id,
+    userEmail: su?.email,
+    userRole: su?.role,
+    action: "CUSTOMER_AUTO_DELETE_EMPTY_AFTER_ORDER_DELETE",
+    area: "CUSTOMERS",
+    targetType: "Customer",
+    targetId: customerId,
+    details: {
+      orderId: deletedOrderId,
+      customerNumber: customer.customerNumber,
+      reason: "empty_customer_without_remaining_records",
+    },
+    request,
+  });
+
+  return customer;
+};
+
 export async function DELETE(
   request: Request,
   { params }: { params: { id: string } },
@@ -705,6 +810,14 @@ export async function DELETE(
       where: { id: params?.id },
       data: { deletedAt: new Date() },
     });
+
+    const removedEmptyCustomer = await cleanupEmptyCustomerAfterOrderDelete(
+      existing.customerId,
+      params?.id,
+      userId,
+      request,
+    );
+
     const su = await getSessionUser();
     logAuditAsync({
       userId: su?.id,
@@ -714,9 +827,19 @@ export async function DELETE(
       area: "ORDERS",
       targetType: "Order",
       targetId: params?.id,
+      details: removedEmptyCustomer
+        ? {
+            removedEmptyCustomerId: removedEmptyCustomer.id,
+            removedEmptyCustomerNumber: removedEmptyCustomer.customerNumber,
+          }
+        : undefined,
       request,
     });
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      removedEmptyCustomer: Boolean(removedEmptyCustomer),
+      removedEmptyCustomerNumber: removedEmptyCustomer?.customerNumber ?? null,
+    });
   } catch (error: any) {
     console.error(error);
     return NextResponse.json({ error: "Fehler" }, { status: 500 });

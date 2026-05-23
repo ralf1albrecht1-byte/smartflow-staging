@@ -2790,10 +2790,25 @@ const defaultMainOrderId = bestMainOrder.id;
 
   const confirmArchive = async () => {
     if (!archiveId) return;
-    await fetch(`/api/orders/${archiveId}`, { method: "DELETE" });
-    toast.success("Auftrag in Papierkorb verschoben");
-    setArchiveId(null);
-    load();
+    try {
+      const res = await fetch(`/api/orders/${archiveId}`, { method: "DELETE" });
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        toast.error(result?.error || "Auftrag konnte nicht verschoben werden");
+        return;
+      }
+
+      toast.success(
+        result?.removedEmptyCustomer
+          ? "Auftrag in Papierkorb verschoben, leerer Kunde entfernt"
+          : "Auftrag in Papierkorb verschoben",
+      );
+      setArchiveId(null);
+      load();
+    } catch {
+      toast.error("Fehler beim Verschieben in den Papierkorb");
+    }
   };
 
   const resolveS3Url = async (path: string): Promise<string> => {
@@ -5105,7 +5120,8 @@ const getSafeOrderTotal = (o: Order) => {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Der Auftrag wird in den Papierkorb verschoben und kann dort
-            wiederhergestellt werden.
+            wiederhergestellt werden. Wenn der Auftrag nur an einem leeren
+            Dummy-Kunden hängt, wird dieser automatisch mit entfernt.
           </p>
           <div className="flex justify-end gap-2 mt-4">
             <Button
