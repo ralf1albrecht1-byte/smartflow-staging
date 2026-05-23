@@ -271,6 +271,81 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+const canonicalServiceNameForOrderItem = (value?: string | null) => {
+  const name = compactText(value);
+  const key = normalizeForMatch(name);
+
+  // Keep travel costs consistent when orders are merged or saved.
+  // "Anfahrt" and "Anfahrt pauschal" are the same flat service in practice.
+  if (key === "anfahrt" || key === "anfahrt pauschal") {
+    return "Anfahrt pauschal";
+  }
+
+  return name;
+};
+
+const formatMergedNumberString = (value: number) => {
+  if (!Number.isFinite(value)) return "";
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+};
+
+const mergeEquivalentFormItems = (items: FormItem[]) => {
+  const merged: FormItem[] = [];
+  const indexByKey = new Map<string, number>();
+
+  items.forEach((item) => {
+    const serviceName = canonicalServiceNameForOrderItem(item.serviceName);
+    const normalizedItem: FormItem = { ...item, serviceName };
+    const unitKey = normalizeForMatch(normalizedItem.unit);
+    const unitPriceNumber = Number(normalizedItem.unitPrice || 0);
+    const unitPriceKey = Number.isFinite(unitPriceNumber)
+      ? String(unitPriceNumber)
+      : compactText(normalizedItem.unitPrice);
+    const warningKey = normalizeForMatch(normalizedItem.aiWarning);
+    const mergeKey = [
+      normalizeForMatch(serviceName),
+      unitKey,
+      unitPriceKey,
+      warningKey,
+    ].join("|");
+
+    const existingIndex = indexByKey.get(mergeKey);
+    const quantityNumber = Number(normalizedItem.quantity || 0);
+
+    if (existingIndex !== undefined && Number.isFinite(quantityNumber)) {
+      const existing = merged[existingIndex];
+      const existingQuantity = Number(existing.quantity || 0);
+      if (Number.isFinite(existingQuantity)) {
+        existing.quantity = formatMergedNumberString(existingQuantity + quantityNumber);
+      }
+      return;
+    }
+
+    indexByKey.set(mergeKey, merged.length);
+    merged.push(normalizedItem);
+  });
+
+  return merged;
+};
+
+const mergeEquivalentOrderItems = (items: any[]) =>
+  mergeEquivalentFormItems(
+    items.map((item) => ({
+      key: Math.random().toString(36).slice(2),
+      serviceName: item.serviceName ?? item.description ?? "",
+      unit: item.unit ?? item.priceType ?? "Stunde",
+      unitPrice: String(item.unitPrice ?? 0),
+      quantity: String(item.quantity ?? 0),
+      aiWarning: getAiWarningFromItemDescription(item.description),
+    })),
+  ).map((item) => ({
+    serviceName: item.serviceName,
+    description: buildItemDescription(item),
+    quantity: Number(item.quantity || 0),
+    unit: item.unit,
+    unitPrice: Number(item.unitPrice || 0),
+  }));
+
 const hasMissingOrFallbackCustomerName = (value?: string | null) => {
   const name = compactText(value);
   return !name || isFallbackCustomerName(name);
@@ -1282,6 +1357,14 @@ export default function AuftraegePage() {
     return () => document.removeEventListener("click", handler);
   }, [dropdownOpenId]);
 
+  // Close manual-service action menu when the user clicks anywhere outside it.
+  useEffect(() => {
+    if (!serviceActionMenuKey) return;
+    const handler = () => setServiceActionMenuKey(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [serviceActionMenuKey]);
+
   const load = async () => {
     setLoading(true);
     setLoadError(null);
@@ -1508,40 +1591,44 @@ export default function AuftraegePage() {
      // Populate items from order
     if (o.items && o.items.length > 0) {
       setFormItems(
-        o.items.map((item) => {
-          const hasQuantityReview = hasQuantityReviewForService(
-            o.reviewReasons,
-            item.serviceName,
-          );
+        mergeEquivalentFormItems(
+          o.items.map((item) => {
+            const hasQuantityReview = hasQuantityReviewForService(
+              o.reviewReasons,
+              item.serviceName,
+            );
 
-          return {
-            key: Math.random().toString(36).slice(2),
-            serviceName: item.serviceName ?? "",
-            unit: item.unit ?? "Stunde",
-            unitPrice:
-              Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
-            quantity: hasQuantityReview
-              ? ""
-              : Number(item.quantity || 0) === 0
+            return {
+              key: Math.random().toString(36).slice(2),
+              serviceName: item.serviceName ?? "",
+              unit: item.unit ?? "Stunde",
+              unitPrice:
+                Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
+              quantity: hasQuantityReview
                 ? ""
-                : String(item.quantity),
-            aiWarning: getAiWarningFromItemDescription(item.description),
-          };
-        }),
+                : Number(item.quantity || 0) === 0
+                  ? ""
+                  : String(item.quantity),
+              aiWarning: getAiWarningFromItemDescription(item.description),
+            };
+          }),
+        ),
       );
 
 
     } else {
-      setFormItems([
-        {
-          key: Math.random().toString(36).slice(2),
-          serviceName: o.serviceName ?? "",
-          unit: o.priceType ?? "Stunde",
-          unitPrice: Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
-          quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
-          aiWarning: "",
-        },
-      ]);
+      setFormItems(
+        mergeEquivalentFormItems([
+          {
+            key: Math.random().toString(36).slice(2),
+            serviceName: o.serviceName ?? "",
+            unit: o.priceType ?? "Stunde",
+            unitPrice: Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
+            quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
+            aiWarning: "",
+          },
+        ]),
+      );
     }
     if (opts?.openCustomerSection && o.customerId) {
       // Stage E (deterministic flow): DO NOT call openCustomerEditor() in this
@@ -2142,7 +2229,9 @@ export default function AuftraegePage() {
       toast.error("Bitte Kunde auswählen");
       return null;
     }
-    const validItems = formItems.filter((i) => i.serviceName.trim());
+    const validItems = mergeEquivalentFormItems(
+      formItems.filter((i) => i.serviceName.trim()),
+    );
     if (validItems.length === 0) {
       toast.error("Mindestens eine Leistung auswählen");
       return null;
@@ -2257,7 +2346,7 @@ const payload = {
       toast.success("Auftrag gespeichert");
 
       // Build items for offer
-      const orderItems =
+      const orderItems = mergeEquivalentOrderItems(
         saved.items && saved.items.length > 0
           ? saved.items
           : [
@@ -2268,7 +2357,8 @@ const payload = {
                 unit: saved.priceType ?? "Stunde",
                 unitPrice: saved.unitPrice ?? 0,
               },
-            ];
+            ],
+      );
       const offerItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 1),
@@ -2324,7 +2414,7 @@ const payload = {
       if (blockConversionIfUnsafe(saved, "Rechnung")) return;
       toast.success("Auftrag gespeichert");
 
-      const orderItems =
+      const orderItems = mergeEquivalentOrderItems(
         saved.items && saved.items.length > 0
           ? saved.items
           : [
@@ -2335,7 +2425,8 @@ const payload = {
                 unit: saved.priceType ?? "Stunde",
                 unitPrice: saved.unitPrice ?? 0,
               },
-            ];
+            ],
+      );
       const invoiceItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 1),
@@ -2752,7 +2843,7 @@ const openMedia = async (o: Order) => {
     if (!sourceOrder) return;
 
     // Direct API create — no extra dialog
-    const orderItems =
+    const orderItems = mergeEquivalentOrderItems(
       sourceOrder.items && sourceOrder.items.length > 0
         ? sourceOrder.items
         : [
@@ -2763,7 +2854,8 @@ const openMedia = async (o: Order) => {
               unit: sourceOrder.priceType ?? "Stunde",
               unitPrice: sourceOrder.unitPrice ?? 0,
             },
-          ];
+          ],
+    );
     const offerItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 1),
@@ -2810,7 +2902,7 @@ const openMedia = async (o: Order) => {
     if (!sourceOrder) return;
 
     // Direct API create — no extra dialog
-    const orderItems =
+    const orderItems = mergeEquivalentOrderItems(
       sourceOrder.items && sourceOrder.items.length > 0
         ? sourceOrder.items
         : [
@@ -2821,7 +2913,8 @@ const openMedia = async (o: Order) => {
               unit: sourceOrder.priceType ?? "Stunde",
               unitPrice: sourceOrder.unitPrice ?? 0,
             },
-          ];
+          ],
+    );
     const invoiceItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 1),
@@ -4276,11 +4369,12 @@ const getSafeOrderTotal = (o: Order) => {
                                   <div className="relative shrink-0">
                                     <button
                                       type="button"
-                                      onClick={() =>
+                                      onClick={(event) => {
+                                        event.stopPropagation();
                                         setServiceActionMenuKey((prev) =>
                                           prev === item.key ? null : item.key,
-                                        )
-                                      }
+                                        );
+                                      }}
                                       className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
                                       title="Aktionen"
                                     >
@@ -4288,7 +4382,10 @@ const getSafeOrderTotal = (o: Order) => {
                                     </button>
 
                                     {isMenuOpen && (
-                                      <div className="absolute right-0 top-8 z-50 w-48 rounded-md border bg-background py-1 text-sm shadow-lg">
+                                      <div
+                                        onClick={(event) => event.stopPropagation()}
+                                        className="absolute right-0 top-8 z-50 w-48 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                      >
                                         <button
                                           type="button"
                                           onClick={() => saveItemToServices(index)}
