@@ -579,6 +579,146 @@ function escapeRegExpLocal(value: string): string {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+
+function extractStrictLabeledBillingAddressEvidence(
+  rawText: string | null | undefined,
+): SafeBillingCustomerEvidence | null {
+  const lines = splitIntakeLines(rawText);
+  if (lines.length === 0) return null;
+
+  // Bewusst enger als der normale Customer-Name-Fallback:
+  // Diese Routine darf nur explizite Rechnungs-/Billing-Blöcke reparieren,
+  // niemals Arbeitsort-/Ausführungsadressdaten als Rechnungskunde speichern.
+  const explicitBillingMarker =
+    /^\s*(?:kunde\s*\/\s*rechnungsadresse|rechnungsadresse|rechnungsdaten|zahlungsadresse|adresse\s+(?:für|fuer)\s+(?:rechnung|faktura)|rechnung\s+(?:geht\s+)?an|rechnung\s+bekommt|rechnung\s+ist\s+für|rechnung\s+ist\s+fuer|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|bill\s+to|facturation|facture\s*(?:à|a)|fattura\s+a|fatturazione|facturacion|facturación)\s*:?\s*(.*)$/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const markerMatch = lines[index].match(explicitBillingMarker);
+    if (!markerMatch) continue;
+
+    const blockLines: string[] = [];
+    if (markerMatch[1]?.trim()) {
+      blockLines.push(markerMatch[1].trim());
+    }
+
+    for (let offset = 1; offset <= 10; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (isBillingStopLine(line) || isBillingExtractionHardStopLine(line)) break;
+      blockLines.push(line);
+    }
+
+    const block = blockLines.join("\n").trim();
+    if (!block) continue;
+
+    const name = parseBillingNameFromBlock(block);
+    const street = parseBillingStreetFromBlock(block) || parseBillingStreetLine(block);
+    const { plz, city } = parseBillingPlzCityFromBlock(block);
+    const phone = extractPhoneFromText(block);
+    const email = extractEmailFromText(block);
+
+    const hasFullAddress = Boolean(street && plz && city);
+    const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
+    const hasReliableCustomerBlock = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
+
+    if (!hasReliableCustomerBlock) continue;
+
+    return {
+      source: "labeled",
+      hasReliableCustomerBlock: true,
+      name: name || null,
+      street: street || null,
+      plz: plz || null,
+      city: city || null,
+      phone: phone || null,
+      email: email || null,
+    };
+  }
+
+  return null;
+}
+
+function extractInlineExecutionAddressFallback(
+  rawText: string | null | undefined,
+  customerContext?: {
+    customerAddress?: string | null;
+    customerPlz?: string | null;
+    customerCity?: string | null;
+  },
+): {
+  siteName: string | null;
+  siteAddress: string | null;
+  sitePlz: string | null;
+  siteCity: string | null;
+  siteNote: string | null;
+} | null {
+  const source = normalizeIntakeSourceText(rawText);
+  if (!source) return null;
+
+  // Rechnungsblöcke dürfen niemals als Ausführungsadresse repariert werden.
+  // Dafür ist extractStrictLabeledBillingAddressEvidence zuständig.
+  if (
+    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungsdaten|zahlungsadresse|billing\s+address|invoice\s+address|bill\s+to)\s*:/im.test(
+      source,
+    )
+  ) {
+    return null;
+  }
+
+  const streetWord =
+    "[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\\.?|chemin|via|viale|street|road|lane)";
+  const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
+  const streetPattern = `(${streetWord}\\s+${houseNumber})`;
+  const zipCityPattern = "(\\d{4,5})\\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß'.-]{1,40})";
+
+  const patterns = [
+    new RegExp(
+      `\\b(?:bei|beim|am|an|in|im)\\s+(?:der\\s+|dem\\s+|den\\s+)?${streetPattern}\\s+(?:in\\s+)?${zipCityPattern}(?=\\s*(?:[,.!?]|$|\\b(?:die|den|das|der|fenster|boden|eingangsbereich|treppenhaus|reinigen|putzen|machen|bitte|termin|um|am)\\b))`,
+      "i",
+    ),
+    new RegExp(
+      `\\b(?:arbeitsort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|objekt)\\s*:?\\s*(?:[^\\n,;]{0,60}\\n)?${streetPattern}\\s+${zipCityPattern}`,
+      "i",
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (!match?.[1] || !match?.[2] || !match?.[3]) continue;
+
+    const siteAddress = match[1].replace(/\s+/g, " ").trim();
+    const sitePlz = match[2].trim();
+    const siteCity = match[3].replace(/[,;:.!?]+$/g, "").trim();
+
+    if (!siteAddress || !sitePlz || !siteCity) continue;
+
+    const customerAddress = normalizeUnitText(customerContext?.customerAddress || "");
+    const customerPlz = normalizeUnitText(customerContext?.customerPlz || "");
+    const customerCity = normalizeUnitText(customerContext?.customerCity || "");
+
+    const sameAsCustomer =
+      customerAddress &&
+      customerPlz &&
+      customerCity &&
+      normalizeUnitText(siteAddress).includes(customerAddress) &&
+      normalizeUnitText(sitePlz) === customerPlz &&
+      normalizeUnitText(siteCity) === customerCity;
+
+    if (sameAsCustomer) return null;
+
+    return {
+      siteName: null,
+      siteAddress,
+      sitePlz,
+      siteCity,
+      siteNote: "Aus Text erkannt",
+    };
+  }
+
+  return null;
+}
+
+
 function extractSafeBillingCustomerEvidence(
   rawText: string | null | undefined,
 ): SafeBillingCustomerEvidence {
@@ -2879,7 +3019,23 @@ const intakeCurrency =
   }
 
   const customerGuardReviewReasons: string[] = [];
-  const billingEvidence = extractSafeBillingCustomerEvidence(messageText);
+  let billingEvidence = extractSafeBillingCustomerEvidence(messageText);
+  const strictBillingAddressEvidence =
+    extractStrictLabeledBillingAddressEvidence(messageText);
+  if (
+    strictBillingAddressEvidence?.hasReliableCustomerBlock &&
+    (
+      !billingEvidence.hasReliableCustomerBlock ||
+      (!billingEvidence.name &&
+        (strictBillingAddressEvidence.street ||
+          strictBillingAddressEvidence.plz ||
+          strictBillingAddressEvidence.city ||
+          strictBillingAddressEvidence.phone ||
+          strictBillingAddressEvidence.email))
+    )
+  ) {
+    billingEvidence = strictBillingAddressEvidence;
+  }
   const customerGuard = applySafeBillingCustomerGuard({
     kundeData,
     evidence: billingEvidence,
@@ -4070,8 +4226,12 @@ totalPrice: safeUnitPrice * safeQuantity,
     // First pass: only the real customer message. This avoids polluted AI
     // evidence such as "Wohnanlage Seefeld Seefeldstrasse 8008".
     extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
+    // Deterministic fallback for natural sentences:
+    // "bei der Seestrasse 90 in 5430 Wettingen die Fenster reinigen".
+    extractInlineExecutionAddressFallback(messageText, executionAddressCustomerContext) ||
     // Second pass: full work text, if the webhook/transcript moved the address.
     extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext) ||
+    extractInlineExecutionAddressFallback(fullWorkText, executionAddressCustomerContext) ||
     // Last fallback: KI evidence only. Do not append special notes; those can
     // contain service/hint text and pollute the address fields.
     extractExecutionAddressFromText(aiExecutionAddressText, executionAddressCustomerContext);
