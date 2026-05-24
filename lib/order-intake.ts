@@ -97,7 +97,8 @@ const BILLING_MARKER_PATTERN =
   "kunde\\s*,?\\s*der\\s+die\\s+rechnung\\s+bekommt\\s+und\\s+bezahlt|" +
   "kunde\\s*/\\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|" +
   "rechnungsempfängerin|rechnungsempfaengerin|rechnungsadresse|" +
-  "bitte\\s+rechnung\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+bitte\\s+an|" +
+  "bitte\\s+(?:die\\s+)?rechnung\\s+(?:schicken|senden|mailen)\\s+an|" +
+  "rechnung\\s+bitte\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+bitte\\s+an|" +
   "rechnung\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+per\\s+(?:mail|email)\\s+an|" +
   "rechnung\\s+(?:geht\\s+)?an|rechnung\\s+bekommt|rechnung\\s+ist\\s+(?:für|fuer)|rechnung\\s+(?:für|fuer)|" +
   "auftraggeber(?:in)?|besteller(?:in)?|zahler|zahlende\\s+stelle|chef(?:\\s+zahlt)?|" +
@@ -645,7 +646,7 @@ function parseBillingNameFromBlock(value: string | null | undefined): string | n
 }
 
 function getBillingBlockStopRegex(): RegExp {
-  return /^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|contact\s+sur\s+place|concierge|hauswart|hausmeister|besonderheiten|bemerkungen|remarques|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|service|services|titel)\b/i;
+  return /^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|ausführen\s+in\b.*|ausfuehren\s+in\b.*|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|contact\s+sur\s+place|concierge|hauswart|hausmeister|besonderheiten|bemerkungen|remarques|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|service|services|titel)\b/i;
 }
 
 function hasNamelessBillingAddressEvidence(block: string | null | undefined): boolean {
@@ -760,7 +761,7 @@ function extractHardLabeledBillingAddressEvidenceV1634(
   if (lines.length === 0) return null;
 
   const markerRegex = new RegExp(`^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`, "i");
-  const stopRegex = /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
+  const stopRegex = /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|ausführen\s+in\b.*|ausfuehren\s+in\b.*|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(markerRegex);
@@ -826,7 +827,7 @@ function extractDirectNamelessBillingAddressV1637(
 
   const markerRegex = new RegExp(`^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`, "i");
   const stopRegex =
-    /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
+    /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|ausführen\s+in\b.*|ausfuehren\s+in\b.*|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(markerRegex);

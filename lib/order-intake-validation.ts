@@ -680,6 +680,14 @@ function detectExplicitUnitPriceForItem(
     const detected = chooseBestPriceFromSegment(segment);
     if (!detected) continue;
 
+    // V16.41: A measured m²/Meter/Stück line must never repair a flat service.
+    // Example: the combined segment
+    // "42 m2 Wände streichen à CHF 18. Abdecken CHF 90."
+    // contains the word "Abdecken", but CHF 18 belongs only to the m² line.
+    if (itemUnitType === "flat" && hasQuantityWithExplicitUnit(segment)) {
+      continue;
+    }
+
     // V16.40: Do not leak neighbouring flat prices into measured services.
     // Example: "35 m2 Wände streichen à CHF 18" must never receive the
     // following "Abdeckarbeiten CHF 90 pauschal" price just because the full
@@ -818,20 +826,36 @@ function detectFlatPriceItems(
 
   for (const segment of segments) {
     const normalized = normalizeCompare(segment);
-    if (!/\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(normalized)) {
+    const hasFlatSignal = /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(normalized);
+    const standaloneFlatLine = isLikelyStandaloneFlatServiceLine(segment);
+
+    if (!hasFlatSignal && !standaloneFlatLine) {
       continue;
     }
 
+    const explicitFlatLine = findExplicitFlatPriceInLine(segment, fallbackCurrency);
     const detected =
       chooseBestPriceFromSegment(segment) ||
-      detectCurrencylessFlatPriceFromSegment(segment, fallbackCurrency);
+      detectCurrencylessFlatPriceFromSegment(segment, fallbackCurrency) ||
+      (explicitFlatLine
+        ? {
+            amount: explicitFlatLine.amount,
+            currency: explicitFlatLine.currency,
+            segment,
+            unitType: "flat",
+          }
+        : null);
     if (!detected || detected.currency !== fallbackCurrency) continue;
 
-    const beforeFlat = segment
-      .split(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i)[0]
-      ?.replace(/^\s*(leistung|leistungen|bitte|zusätzlich|zusaetzlich|und|plus|[0-9]+[.)])\s*[:\-–—]?\s*/i, "")
-      .replace(/[,;:.]+$/g, "")
-      .trim();
+    const beforeFlat = hasFlatSignal
+      ? segment
+          .split(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i)[0]
+          ?.replace(/^\s*(leistung|leistungen|bitte|zusätzlich|zusaetzlich|und|plus|[0-9]+[.)])\s*[:\-–—]?\s*/i, "")
+          .replace(/[,;:.]+$/g, "")
+          .trim()
+      : cleanExplicitServiceNameFromLine(segment, {
+          priceRaw: explicitFlatLine?.raw,
+        });
 
     if (!beforeFlat || beforeFlat.length < 4 || beforeFlat.length > 80) {
       continue;
@@ -1054,6 +1078,60 @@ function dedupeUnsafeDuplicateItems(
   }
 
   return result;
+}
+
+
+function removeMeasuredFlatDuplicateArtifacts(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  if (items.length <= 1) return items;
+
+  return items.filter((item, index) => {
+    if (!isFlatUnit(item.unit)) return true;
+    if (roundMoney(Number(item.quantity || 0)) !== 1) return true;
+
+    const itemPrice = roundMoney(Number(item.unitPrice || 0));
+    if (itemPrice <= 0) return true;
+
+    const itemName = normalizeCompare(item.serviceName);
+    const itemTokens = meaningfulServiceTokens(item.serviceName);
+    if (!itemName || itemTokens.length === 0) return true;
+
+    const itemEvidence = normalizeCompare(
+      [item.sourceText, item.evidence, item.description]
+        .filter(Boolean)
+        .join(" "),
+    );
+
+    return !items.some((other, otherIndex) => {
+      if (otherIndex === index) return false;
+
+      const otherUnitType = unitTypeFromDisplayUnit(other.unit);
+      if (!otherUnitType || otherUnitType === "flat") return false;
+      if (roundMoney(Number(other.unitPrice || 0)) !== itemPrice) return false;
+
+      const otherName = normalizeCompare(other.serviceName);
+      const otherTokens = meaningfulServiceTokens(other.serviceName);
+      const sameService =
+        itemName === otherName ||
+        itemTokens.some((token) => otherTokens.includes(token) || otherName.includes(token));
+      if (!sameService) return false;
+
+      const otherEvidence = normalizeCompare(
+        [other.sourceText, other.evidence, other.description]
+          .filter(Boolean)
+          .join(" "),
+      );
+
+      return (
+        hasQuantityWithExplicitUnit(otherEvidence) &&
+        Boolean(
+          (itemEvidence && otherEvidence && (itemEvidence.includes(otherEvidence) || otherEvidence.includes(itemEvidence))) ||
+            itemTokens.some((token) => otherEvidence.includes(token)),
+        )
+      );
+    });
+  });
 }
 
 function cleanValidationServiceDisplayName(value?: string | null): string {
@@ -2425,6 +2503,7 @@ export function validateAndRepairParsedOrderItems(
   items = normalizeParsedServiceNames(items);
   items = removeCompositeServiceNameArtifacts(items);
   items = dedupeUnsafeDuplicateItems(items);
+  items = removeMeasuredFlatDuplicateArtifacts(items);
 
   items = repairAmbiguousQuantityRangeItems(input.originalText, items).map((item) => {
     if (!isFlatUnit(item.unit) || item.unitPrice <= 0) return item;
