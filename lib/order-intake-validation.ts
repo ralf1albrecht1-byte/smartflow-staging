@@ -1055,9 +1055,26 @@ function repairCommonMultilingualCleaningItems(
     let targetUnitType: string | null = null;
 
     if (/\b(nettoyage\s+(?:des\s+)?vitres|vitres?|fenetres?|windows?|fenster)\b/i.test(key)) {
+      const ownLineEvidence = [item.description, item.sourceText]
+        .map((part) => normalizeText(part))
+        .filter(Boolean)
+        .join("\n");
+      const explicitUnitType = unitTypeFromText(ownLineEvidence);
+      const hasOwnExplicitQuantityUnit = hasQuantityWithExplicitUnit(ownLineEvidence);
+      const shouldKeepTextUnit = Boolean(
+        hasOwnExplicitQuantityUnit &&
+          explicitUnitType &&
+          explicitUnitType !== "piece",
+      );
+
       next.serviceName = "Fenster reinigen";
-      next.unit = "Stück";
-      targetUnitType = "piece";
+      if (shouldKeepTextUnit) {
+        next.unit = unitTypeToDisplayUnit(explicitUnitType) || next.unit;
+        targetUnitType = explicitUnitType;
+      } else {
+        next.unit = "Stück";
+        targetUnitType = "piece";
+      }
     } else if (/\b(nettoyage\s+du\s+garage|nettoyage\s+du\s+sol\s+du\s+garage|sol\s+du\s+garage|garage\s+floor|garagenboden|lagerboden)\b/i.test(key)) {
       next.serviceName = /\blagerboden\b/i.test(key) ? "Lagerboden reinigen" : "Garageboden reinigen";
       next.unit = "Quadratmeter";
@@ -1578,9 +1595,10 @@ function hasUnclearPriceSignal(value?: string | null): boolean {
   if (!source) return false;
 
   return (
-    /\b(preis\s+(?:wie\s+letztes\s+mal|offen|unklar|muss\s+(?:noch\s+)?(?:geprueft|pruefen|abgeklaert|abklaeren)|noch\s+(?:pruefen|abklaeren|offen))|wie\s+letztes\s+mal|letzter\s+preis|nach\s+aufwand|ungefaehr|ungefahr|ca\.?|circa)\b/i.test(source) ||
-    /\b(price\s+(?:open|unclear|to\s+check|needs\s+checking)|same\s+as\s+last\s+time|approx(?:imately)?|about|tbd)\b/i.test(source) ||
-    /\b(prix\s+(?:a\s+verifier|ouvert|incertain)|comme\s+la\s+derniere\s+fois|environ)\b/i.test(source)
+    /\b(preis\s+(?:wie\s+letztes\s+mal|wie\s+immer|wie\s+gehabt|offen|unklar|normal|standard|muss\s+(?:noch\s+)?(?:geprueft|pruefen|abgeklaert|abklaeren)|noch\s+(?:pruefen|abklaeren|offen))|wie\s+letztes\s+mal|wie\s+immer|wie\s+gehabt|gleicher\s+preis|letzter\s+preis|normaler\s+preis|standardpreis|nach\s+aufwand|ungefaehr|ungefahr|ca\.?|circa)\b/i.test(source) ||
+    /\b(?:anfahrt|fahrt|deplacement)\s+(?:normal|standard|wie\s+immer|wie\s+gehabt)\b/i.test(source) ||
+    /\b(price\s+(?:open|unclear|normal|standard|to\s+check|needs\s+checking)|same\s+as\s+last\s+time|same\s+as\s+always|approx(?:imately)?|about|tbd)\b/i.test(source) ||
+    /\b(prix\s+(?:a\s+verifier|ouvert|incertain|normal|standard)|comme\s+la\s+derniere\s+fois|comme\s+d\s+habitude|environ)\b/i.test(source)
   );
 }
 
@@ -1603,11 +1621,46 @@ function hasExplicitPriceEvidenceForItem(
   const explicitUnit = detectExplicitUnitPriceForItem(originalText, item);
   if (explicitFlat || explicitUnit) return true;
 
-  return hasExplicitCurrencyAmount(
-    [item.sourceText, item.evidence, item.description]
-      .filter(Boolean)
-      .join(" "),
-  );
+  // Broad item evidence can contain the full WhatsApp message. In that case a
+  // price from another line (for example Anfahrt CHF 45) must not count as
+  // explicit price evidence for a neighbouring service with "Preis wie letztes
+  // Mal". Only accept loose evidence when it is anchored to this item's
+  // service name or to this item's quantity/unit.
+  const itemEvidence = [item.sourceText, item.evidence, item.description]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join("\n");
+
+  const itemUnitType = unitTypeFromDisplayUnit(item.unit);
+  const itemQuantity = Number(item.quantity || 0);
+  const serviceKey = normalizeCompare(item.serviceName);
+  const tokens = serviceTokens(item.serviceName);
+
+  return splitIntoPriceSegments(itemEvidence).some((segment) => {
+    const normalizedSegment = normalizeCompare(segment);
+    if (!normalizedSegment) return false;
+
+    const hasAnyPriceSignal =
+      hasExplicitCurrencyAmount(segment) ||
+      extractUnitPricesFromSegment(segment).length > 0 ||
+      Boolean(detectCurrencylessFlatPriceFromSegment(segment, fallbackCurrency));
+
+    if (!hasAnyPriceSignal) return false;
+
+    const hasExactServiceAnchor = Boolean(
+      serviceKey && normalizedSegment.includes(serviceKey),
+    );
+    const serviceTokenHits = tokens.filter((token) =>
+      normalizedSegment.includes(token),
+    ).length;
+    const hasQuantityAnchor = segmentContainsQuantity(
+      segment,
+      itemQuantity,
+      itemUnitType,
+    );
+
+    return hasExactServiceAnchor || serviceTokenHits > 0 || hasQuantityAnchor;
+  });
 }
 
 function findQuantityOnlyUnclearLine(line: string): {

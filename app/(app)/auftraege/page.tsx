@@ -1057,7 +1057,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
     PRICE_AMOUNT_REVIEW_BADGE_KEYS.has(badge.key),
   );
 
-  if (priceBadges.length > 1) {
+  if (priceBadges.length > 1 || (currencyBadges.length > 0 && priceBadges.length > 0)) {
     return [
       ...currencyBadges,
       {
