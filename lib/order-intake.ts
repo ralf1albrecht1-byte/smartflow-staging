@@ -1061,11 +1061,24 @@ function extractAiStructuredBillingEvidence(
   const street = rawStreet ? parseBillingStreetLine(rawStreet) || cleanExecutionStreetCandidate(rawStreet) : null;
   const plz = normalizeStructuredPlz(kundeData?.plz);
   const city = cleanIntakeCityCandidate(normalizeStructuredTextField(kundeData?.ort));
-  const phone = extractPhoneFromText(normalizeStructuredTextField(kundeData?.telefon));
-  const email = extractEmailFromText(normalizeStructuredTextField(kundeData?.email));
+  const evidence = normalizeStructuredTextBlock(
+    kundeData?.evidence ??
+      kundeData?.sourceText ??
+      kundeData?.source_text ??
+      kundeData?.quelle,
+  );
+  const phone = extractPhoneFromText(normalizeStructuredTextField(kundeData?.telefon)) || extractPhoneFromText(evidence);
+  let email = extractEmailFromText(normalizeStructuredTextField(kundeData?.email)) || extractEmailFromText(evidence);
   const name = cleanAiStructuredBillingName(kundeData?.name);
 
+  const allOriginalEmails = Array.from(
+    String(originalText || "").matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi),
+  ).map((match) => match[0]?.trim()).filter(Boolean);
+
   const hasFullAddress = Boolean(street && plz && city);
+  if (!email && hasFullAddress && allOriginalEmails.length === 1) {
+    email = allOriginalEmails[0];
+  }
   const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
   const hasAnyExtractedBillingData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
 
@@ -1364,6 +1377,15 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
 
   if (parseBillingStreetLine(candidate)) return null;
   if (parseBillingPlzCityFromLine(candidate).plz) return null;
+
+  const looksLikeServiceOrPriceLine =
+    /\b\d+(?:[.,]\d+)?\s*(?:stueck|stück|stk|quadratmeter|qm|m2|m²|meter|laufmeter|lfm|stunde|stunden|std\.?|h|tag|tage)\b/i.test(normalized) ||
+    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|preis|pauschal|pro|per|je)\b/i.test(normalized);
+
+  const hasServiceVerb =
+    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken)\b/i.test(normalized);
+
+  if (looksLikeServiceOrPriceLine && hasServiceVerb) return null;
 
   return candidate;
 }

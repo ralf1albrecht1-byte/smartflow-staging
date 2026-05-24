@@ -589,8 +589,17 @@ function canonicalGermanServiceNameFromText(value?: string | null): string | nul
   if (/\b(nettoyage\s+des\s+vitres|nettoyage\s+vitres|vitres|fenetres|windows|window\s+cleaning|fenster|ventanas|limpieza\s+de\s+ventanas|finestre|pulizia\s+finestre|janelas|limpeza\s+de\s+janelas)\b/.test(normalized)) {
     return "Fenster reinigen";
   }
-  if (/\b(boden\s+reinigen|bodenreinigung|floor\s+cleaning|floor\s+clean|nettoyage\s+du\s+sol|nettoyage\s+sol|limpieza\s+de\s+suelo|limpieza\s+suelo|pulizia\s+pavimento|pulizia\s+del\s+pavimento|pulizia\s+suolo|limpeza\s+do\s+chao|limpeza\s+chao)\b/.test(normalized)) {
+  if (/\b(boden\s+reinigen|bodenreinigung|floor\s+cleaning|floor\s+clean|clean\s+floor|nettoyage\s+du\s+sol|nettoyage\s+sol|nettoyer\s+(?:le\s+|du\s+)?sol|nettoyer\s+sol|limpieza\s+de\s+suelo|limpieza\s+suelo|pulizia\s+pavimento|pulizia\s+del\s+pavimento|pulizia\s+suolo|limpeza\s+do\s+chao|limpeza\s+chao)\b/.test(normalized)) {
     return "Boden reinigen";
+  }
+  if (/\b(deplacement|déplacement|fahrtkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(normalized)) {
+    return "Anfahrt pauschal";
+  }
+  if (/\b(abdeckarbeiten|abdecken|abdeck\w*)\b/.test(normalized)) {
+    return "Abdeckarbeiten";
+  }
+  if (/\b(spachtelarbeiten|spachteln|spachtel\w*)\b/.test(normalized)) {
+    return "Spachteln";
   }
   if (/\b(buroreinigung|buero(?:reinigung)?|office\s+clean|office\s+cleaning)\b/.test(normalized)) {
     return "Büroreinigung";
@@ -604,6 +613,9 @@ function normalizeFlatServiceNameFromText(value: string): string {
   if (canonical) return canonical;
 
   const normalized = normalizeCompare(value);
+  if (/\b(deplacement|déplacement|fahrtkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(normalized)) {
+    return "Anfahrt pauschal";
+  }
   if (/\btiefgarage\b/.test(normalized) && /\b(reinigen|reinigung|putzen)\b/.test(normalized)) {
     return "Tiefgarage reinigen";
   }
@@ -814,6 +826,41 @@ function detectExplicitFlatPriceForItem(
   return best?.detected || null;
 }
 
+
+function selectFlatServiceSourceFromSegment(
+  segment: string,
+  explicitFlatLine: { amount: number; currency: string | null; index: number; raw: string } | null,
+): string {
+  const source = normalizeText(segment);
+  if (!source) return source;
+
+  const pieces = source
+    .split(/\n+|(?<=[.!?])\s+|;/g)
+    .map((piece) => piece.trim())
+    .filter(Boolean);
+
+  if (pieces.length <= 1) return source;
+
+  const rawKey = normalizeCompare(explicitFlatLine?.raw || "");
+  const flatSignalPattern = /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i;
+
+  for (const piece of pieces) {
+    const key = normalizeCompare(piece);
+    if (!key) continue;
+
+    const hasMatchingPrice =
+      explicitFlatLine &&
+      (rawKey ? key.includes(rawKey) : true) &&
+      hasExplicitCurrencyAmount(piece);
+
+    if ((flatSignalPattern.test(key) || isLikelyStandaloneFlatServiceLine(piece) || hasMatchingPrice) && hasExplicitCurrencyAmount(piece)) {
+      return piece;
+    }
+  }
+
+  return source;
+}
+
 function detectFlatPriceItems(
   originalText: string,
   existingItems: ParsedOrderItemForValidation[],
@@ -848,13 +895,17 @@ function detectFlatPriceItems(
         : null);
     if (!detected || detected.currency !== fallbackCurrency) continue;
 
-    const beforeFlat = hasFlatSignal
-      ? segment
+    const flatServiceSource = selectFlatServiceSourceFromSegment(segment, explicitFlatLine);
+    const flatSourceHasFlatSignal = /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(
+      normalizeCompare(flatServiceSource),
+    );
+    const beforeFlat = flatSourceHasFlatSignal
+      ? flatServiceSource
           .split(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i)[0]
           ?.replace(/^\s*(leistung|leistungen|bitte|zusätzlich|zusaetzlich|und|plus|[0-9]+[.)])\s*[:\-–—]?\s*/i, "")
           .replace(/[,;:.]+$/g, "")
           .trim()
-      : cleanExplicitServiceNameFromLine(segment, {
+      : cleanExplicitServiceNameFromLine(flatServiceSource, {
           priceRaw: explicitFlatLine?.raw,
         });
 
@@ -1134,6 +1185,108 @@ function removeMeasuredFlatDuplicateArtifacts(
     });
   });
 }
+
+
+function hasOwnStandaloneFlatLineForService(
+  originalText: string,
+  item: ParsedOrderItemForValidation,
+  fallbackCurrency: IntakeCurrency,
+): boolean {
+  const itemPrice = roundMoney(Number(item.unitPrice || 0));
+  if (itemPrice <= 0) return false;
+
+  const serviceKey = normalizeCompare(item.serviceName);
+  const tokens = meaningfulServiceTokens(item.serviceName);
+  if (!serviceKey && tokens.length === 0) return false;
+
+  for (const segment of splitIntoPriceSegments(originalText)) {
+    const segmentText = normalizeText(segment);
+    const normalizedSegment = normalizeCompare(segmentText);
+    if (!normalizedSegment) continue;
+    if (hasQuantityWithExplicitUnit(segmentText)) continue;
+
+    const explicitFlatLine = findExplicitFlatPriceInLine(segmentText, fallbackCurrency);
+    const detected =
+      (explicitFlatLine
+        ? {
+            amount: explicitFlatLine.amount,
+            currency: explicitFlatLine.currency,
+          }
+        : null) || chooseBestPriceFromSegment(segmentText);
+
+    if (!detected || detected.currency !== fallbackCurrency) continue;
+    if (Math.abs(roundMoney(detected.amount) - itemPrice) >= 0.01) continue;
+
+    const hasServiceAnchor =
+      Boolean(serviceKey && normalizedSegment.includes(serviceKey)) ||
+      tokens.some((token) => normalizedSegment.includes(token));
+
+    if (hasServiceAnchor) return true;
+  }
+
+  return false;
+}
+
+function sameServiceDomain(
+  a: ParsedOrderItemForValidation,
+  b: ParsedOrderItemForValidation,
+): boolean {
+  const aKey = normalizeCompare(a.serviceName);
+  const bKey = normalizeCompare(b.serviceName);
+  if (!aKey || !bKey) return false;
+  if (aKey === bKey || aKey.includes(bKey) || bKey.includes(aKey)) return true;
+
+  const aTokens = meaningfulServiceTokens(a.serviceName);
+  const bTokens = meaningfulServiceTokens(b.serviceName);
+  return aTokens.length > 0 && aTokens.some((token) => bTokens.includes(token) || bKey.includes(token));
+}
+
+function removeFlatItemsDuplicatingMeasuredServiceWithoutOwnLine(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  if (items.length <= 1) return items;
+
+  return items.filter((item, index) => {
+    if (!isFlatUnit(item.unit)) return true;
+    if (roundMoney(Number(item.quantity || 0)) !== 1) return true;
+    if (roundMoney(Number(item.unitPrice || 0)) <= 0) return true;
+
+    const hasMeasuredSameService = items.some((other, otherIndex) => {
+      if (otherIndex === index) return false;
+      if (isFlatUnit(other.unit)) return false;
+      if (Number(other.unitPrice || 0) <= 0 || Number(other.totalPrice || 0) <= 0) return false;
+      return sameServiceDomain(item, other);
+    });
+
+    if (!hasMeasuredSameService) return true;
+
+    return hasOwnStandaloneFlatLineForService(originalText, item, fallbackCurrency);
+  });
+}
+
+function removeUnpricedDuplicateServiceArtifacts(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  if (items.length <= 1) return items;
+
+  return items.filter((item, index) => {
+    const isUnpriced =
+      Number(item.unitPrice || 0) <= 0 ||
+      Number(item.totalPrice || 0) <= 0 ||
+      Number(item.quantity || 0) <= 0;
+
+    if (!isUnpriced) return true;
+
+    return !items.some((other, otherIndex) => {
+      if (otherIndex === index) return false;
+      if (Number(other.unitPrice || 0) <= 0 || Number(other.totalPrice || 0) <= 0) return false;
+      return sameServiceDomain(item, other);
+    });
+  });
+}
+
 
 function cleanValidationServiceDisplayName(value?: string | null): string {
   const cleaned = normalizeText(value || "")
@@ -2505,6 +2658,8 @@ export function validateAndRepairParsedOrderItems(
   items = removeCompositeServiceNameArtifacts(items);
   items = dedupeUnsafeDuplicateItems(items);
   items = removeMeasuredFlatDuplicateArtifacts(items);
+  items = removeFlatItemsDuplicatingMeasuredServiceWithoutOwnLine(input.originalText, items, finalCurrency);
+  items = removeUnpricedDuplicateServiceArtifacts(items);
 
   items = repairAmbiguousQuantityRangeItems(input.originalText, items).map((item) => {
     if (!isFlatUnit(item.unit) || item.unitPrice <= 0) return item;
@@ -2526,6 +2681,8 @@ export function validateAndRepairParsedOrderItems(
   const unclearGuard = applyUnclearPriceLineGuard(items, input.originalText);
   items = normalizeParsedServiceNames(unclearGuard.items);
   items = removeCompositeServiceNameArtifacts(items);
+  items = removeFlatItemsDuplicatingMeasuredServiceWithoutOwnLine(input.originalText, items, finalCurrency);
+  items = removeUnpricedDuplicateServiceArtifacts(items);
   reviewReasons.push(...unclearGuard.reviewReasons);
 
   items = removeSubsumedReviewOnlyItems(items);
