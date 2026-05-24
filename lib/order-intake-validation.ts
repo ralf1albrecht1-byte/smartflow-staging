@@ -2315,6 +2315,15 @@ function extractExplicitServiceLineItems(
     const quantityMatch = line.match(new RegExp(`\\b(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_WORDS})\\b`, "i"));
     const unitPrice = findExplicitUnitPriceInLine(line, fallbackCurrency);
     const flatPrice = findExplicitFlatPriceInLine(line, fallbackCurrency);
+    const measuredQuantity = quantityMatch ? parsePriceNumber(quantityMatch[1]) || 0 : 0;
+    const measuredUnitType = quantityMatch ? unitTypeFromText(quantityMatch[2]) : null;
+    const hasMeasuredQuantityWithFlatPrice = Boolean(
+      quantityMatch &&
+        flatPrice &&
+        measuredQuantity > 0 &&
+        measuredUnitType &&
+        /\\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\b/i.test(line),
+    );
     const unclearQuantityOnly = findQuantityOnlyUnclearLine(line);
 
     if (unclearQuantityOnly && !unitPrice && !flatPrice) {
@@ -2382,6 +2391,10 @@ function extractExplicitServiceLineItems(
         }),
       );
 
+      const reviewReason = hasMeasuredQuantityWithFlatPrice && measuredUnitType
+        ? `unit_mismatch:${serviceName}:${unitTypeToDisplayUnit(measuredUnitType) || "Menge"}:Pauschal:${measuredQuantity}`
+        : null;
+
       result.push({
         serviceName,
         description: line,
@@ -2389,8 +2402,8 @@ function extractExplicitServiceLineItems(
         unit: "Pauschal",
         unitPrice: flatPrice.amount,
         totalPrice: flatPrice.amount,
-        needsReview: false,
-        reviewReason: null,
+        needsReview: Boolean(reviewReason),
+        reviewReason,
         sourceText: line,
         evidence: line,
         detectedCurrency: flatPrice.currency,
@@ -2523,11 +2536,19 @@ function applyExplicitLineCoverage(
     const explicitReviewReason = explicitNeedsReview
       ? explicit.reviewReason || `price_unclear:${explicit.serviceName}`
       : null;
+    const keepAmountWhileReviewing = Boolean(
+      currencyMatches &&
+        explicitReviewReason &&
+        explicitReviewReason.startsWith("unit_mismatch:") &&
+        Number(explicit.unitPrice || 0) > 0,
+    );
+    const explicitAmountIsUsable =
+      currencyMatches && (!explicitNeedsReview || keepAmountWhileReviewing);
 
     const explicitAsItem: ParsedOrderItemForValidation = {
       ...explicit,
-      unitPrice: currencyMatches && !explicitNeedsReview ? explicit.unitPrice : 0,
-      totalPrice: currencyMatches && !explicitNeedsReview ? calculateSafeLineTotal(explicit) : 0,
+      unitPrice: explicitAmountIsUsable ? explicit.unitPrice : 0,
+      totalPrice: explicitAmountIsUsable ? calculateSafeLineTotal(explicit) : 0,
       needsReview: !currencyMatches || explicitNeedsReview,
       reviewReason: currencyMatches
         ? explicitReviewReason
@@ -2550,8 +2571,8 @@ function applyExplicitLineCoverage(
         description: existing.description || explicit.description,
         quantity: currencyMatches ? explicit.quantity : existing.quantity,
         unit: currencyMatches ? explicit.unit : existing.unit,
-        unitPrice: currencyMatches && !explicitNeedsReview ? explicit.unitPrice : 0,
-        totalPrice: currencyMatches && !explicitNeedsReview ? calculateSafeLineTotal(explicit) : 0,
+        unitPrice: explicitAmountIsUsable ? explicit.unitPrice : 0,
+        totalPrice: explicitAmountIsUsable ? calculateSafeLineTotal(explicit) : 0,
         needsReview: currencyMatches ? explicitNeedsReview : true,
         reviewReason: currencyMatches ? explicitReviewReason : explicitAsItem.reviewReason,
         sourceText: existing.sourceText || explicit.sourceText,
@@ -2694,6 +2715,7 @@ export function validateAndRepairParsedOrderItems(
     };
 
     const itemReasons: string[] = [];
+    if (next.reviewReason) itemReasons.push(next.reviewReason);
 
     // Pauschalpreise haben fachlich keine Mengenberechnung. Für die UI und
     // die gespeicherte Summe setzen wir sie intern auf Menge 1, damit nicht

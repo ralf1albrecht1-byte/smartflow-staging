@@ -1245,7 +1245,7 @@ const getBottomBadges = (
     pushUniqueBadge(badges, {
       key: "callback_request",
       label: "Rückruf",
-      className: "bg-blue-950 text-white border border-blue-900 shadow-sm",
+      className: "bg-blue-600 text-white border border-blue-700 shadow-sm",
     });
   }
 
@@ -4878,7 +4878,7 @@ const getSafeOrderTotal = (o: Order) => {
                                   {showUnitConflict && catalogService && (
                                     <div className="space-y-0.5">
                                       <div>
-                                        Text: <span className="font-medium">{orderSummary}</span>
+                                        Text: <span className="font-medium">{sourceLineForItem || orderSummary}</span>
                                       </div>
                                       {catalogSummary && (
                                         <div>
@@ -4898,7 +4898,6 @@ const getSafeOrderTotal = (o: Order) => {
                                       <div className="text-amber-700/75 dark:text-amber-200/75">
                                         Katalog: {catalogService.unit} · {formatCurrency(catalogPrice, currency)}
                                       </div>
-                                      <div>Bitte kurz prüfen.</div>
                                     </div>
                                   )}
 
@@ -4923,10 +4922,7 @@ const getSafeOrderTotal = (o: Order) => {
                                   )}
 
                                   {showManualServiceReview && (
-                                    <div className="space-y-0.5">
-                                      <div>Nicht im Leistungskatalog.</div>
-                                      <div>Optional über Menü übernehmen.</div>
-                                    </div>
+                                    <div>Nicht im Leistungskatalog. Optional über Menü übernehmen.</div>
                                   )}
                                 </div>
                               </div>

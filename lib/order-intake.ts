@@ -1198,7 +1198,10 @@ function extractAiStructuredExecutionAddress(
       bCity: customer?.customerCity,
     })
   ) {
-    return null;
+    // Wenn Rechnungs- und Ausführungsadresse identisch sind, aber der Kunde
+    // einen echten Arbeitsort-/Objektnamen nennt ("Einfamilienhaus Süd"),
+    // soll dieser Ort im Auftrag sichtbar bleiben.
+    if (!siteName) return null;
   }
 
   return {
@@ -4924,7 +4927,7 @@ const reviewReason = mismatchDetected
           unit,
           unitPrice,
           totalPrice: unitPrice * quantityValidation.quantity,
-          needsReview: quantityValidation.needsReview || !!priceReviewReason,
+          needsReview: mismatchDetected || quantityValidation.needsReview || !!priceReviewReason,
           reviewReason,
           sourceText: originalSegment || raw || null,
           evidence: item.evidence || item.source_text || null,
