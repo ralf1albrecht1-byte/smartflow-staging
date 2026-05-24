@@ -271,6 +271,56 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+const PRICE_COMPARE_EPSILON = 0.005;
+
+const findCatalogServiceByName = (
+  serviceCatalog: ServiceDef[],
+  serviceName?: string | null,
+) => {
+  const key = normalizeForMatch(serviceName);
+  if (!key) return null;
+  return (
+    serviceCatalog.find((service) => normalizeForMatch(service.name) === key) || null
+  );
+};
+
+const getCatalogPriceDeviation = (
+  serviceCatalog: ServiceDef[],
+  item?: { serviceName?: string | null; unitPrice?: number | string | null },
+) => {
+  const catalogService = findCatalogServiceByName(serviceCatalog, item?.serviceName);
+  if (!catalogService) return null;
+
+  const currentPrice = Number(item?.unitPrice ?? 0);
+  const catalogPrice = Number(catalogService.defaultPrice ?? 0);
+
+  if (!Number.isFinite(currentPrice) || !Number.isFinite(catalogPrice)) return null;
+  if (currentPrice <= 0 || catalogPrice <= 0) return null;
+  if (Math.abs(currentPrice - catalogPrice) <= PRICE_COMPARE_EPSILON) return null;
+
+  return {
+    service: catalogService,
+    currentPrice,
+    catalogPrice,
+  };
+};
+
+const orderHasCatalogPriceDeviation = (
+  order: Order,
+  serviceCatalog: ServiceDef[],
+) => {
+  const items = order.items && order.items.length > 0
+    ? order.items
+    : [
+        {
+          serviceName: order.serviceName,
+          unitPrice: order.unitPrice,
+        },
+      ];
+
+  return items.some((item) => Boolean(getCatalogPriceDeviation(serviceCatalog, item)));
+};
+
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
@@ -951,7 +1001,7 @@ const AMOUNT_REVIEW_BADGE_KEYS = new Set([
 const isAmountReviewBadge = (badge: ReviewBadge) =>
   AMOUNT_REVIEW_BADGE_KEYS.has(badge.key);
 
-const getSystemBadges = (order: Order): ReviewBadge[] => {
+const getSystemBadges = (order: Order, serviceCatalog: ServiceDef[] = []): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
   if (order.siteAddressDifferent) {
@@ -974,7 +1024,7 @@ const getSystemBadges = (order: Order): ReviewBadge[] => {
   if (hasPriceQuantityReview) {
     pushUniqueBadge(badges, {
       key: "price_quantity",
-      label: "Preis/Menge prüfen",
+      label: "Betrag prüfen",
       className: "bg-red-100 text-red-700 border border-red-200",
       icon: true,
     });
@@ -987,7 +1037,8 @@ const getSystemBadges = (order: Order): ReviewBadge[] => {
     pushUniqueBadge(badges, {
       key: "unit_conflict",
       label: "Einheit prüfen",
-      className: "bg-orange-100 text-orange-700 border border-orange-200",
+      className: "bg-red-100 text-red-700 border border-red-200",
+      icon: true,
     });
   }
 
@@ -1004,12 +1055,13 @@ const getSystemBadges = (order: Order): ReviewBadge[] => {
   }
 
   const hasPriceDeviationReview =
-    order.reviewReasons?.some((reason) => reason.startsWith("price_override:")) ?? false;
+    (order.reviewReasons?.some((reason) => reason.startsWith("price_override:")) ?? false) ||
+    orderHasCatalogPriceDeviation(order, serviceCatalog);
 
   if (hasPriceDeviationReview) {
     pushUniqueBadge(badges, {
       key: "price_deviation",
-      label: "Preisabweichung prüfen",
+      label: "Katalogpreis prüfen",
       className: "bg-red-100 text-red-700 border border-red-200",
       icon: true,
     });
@@ -3247,19 +3299,13 @@ const getSafeOrderTotal = (o: Order) => {
                 ));
             const serviceLine = getOrderCardServiceSummary(o);
             const parsedCardNotes = splitSpecialNotes(o.specialNotes);
-            const systemBadges = getSystemBadges(o);
+            const systemBadges = getSystemBadges(o, services);
             const amountReviewBadges = systemBadges.filter(isAmountReviewBadge);
             const leftSystemBadges = systemBadges.filter(
               (badge) => !isAmountReviewBadge(badge),
             );
             const operationalBadges = getOperationalBadges(o, parsedCardNotes);
-            const bottomBadges = getBottomBadges(o, parsedCardNotes);
-            const appointmentBadges = bottomBadges.filter(
-              (badge) => badge.key === "appointment",
-            );
-            const footerBadges = bottomBadges.filter(
-              (badge) => badge.key !== "appointment",
-            );
+            const footerBadges = getBottomBadges(o, parsedCardNotes);
             const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
               "skipped",
             );
@@ -3507,21 +3553,9 @@ const getSafeOrderTotal = (o: Order) => {
                           ))}
 
                           <div className="ml-auto flex max-w-[190px] shrink-0 flex-col items-end gap-1 sm:max-w-[260px]">
-                            {(amountReviewBadges.length > 0 || appointmentBadges.length > 0) && (
+                            {amountReviewBadges.length > 0 && (
                               <div className="flex flex-wrap justify-end gap-1">
                                 {amountReviewBadges.map((badge) => (
-                                  <span
-                                    key={badge.key}
-                                    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
-                                  >
-                                    {badge.icon && (
-                                      <AlertTriangle className="w-3 h-3" />
-                                    )}
-                                    {badge.label}
-                                  </span>
-                                ))}
-
-                                {appointmentBadges.map((badge) => (
                                   <span
                                     key={badge.key}
                                     className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
@@ -4382,7 +4416,13 @@ const getSafeOrderTotal = (o: Order) => {
                         );
                         const priceInputReview = Number(item.unitPrice || 0) === 0;
                         const quantityInputReview = Number(item.quantity || 0) === 0;
-                        const showPriceOverride = !hasCurrencyConflict && Boolean(priceOverrideReason);
+                        const catalogPriceDeviation = getCatalogPriceDeviation(services, {
+                          serviceName: item.serviceName,
+                          unitPrice: item.unitPrice,
+                        });
+                        const showPriceOverride =
+                          !hasCurrencyConflict &&
+                          (Boolean(priceOverrideReason) || Boolean(catalogPriceDeviation));
                         const showUnitConflict =
                           !hasCurrencyConflict &&
                           Boolean(item.aiWarning?.trim() || unitMismatchReason);
@@ -4395,7 +4435,7 @@ const getSafeOrderTotal = (o: Order) => {
                         const isManualService = Boolean(item.serviceName?.trim()) && !isServiceInCatalog(item.serviceName);
                         const showManualServiceChip = !hasCurrencyConflict && isManualService;
                         const isMenuOpen = serviceActionMenuKey === item.key;
-                        const hasCriticalItemReview = priceInputReview || quantityInputReview;
+                        const hasCriticalItemReview = priceInputReview || quantityInputReview || showPriceOverride;
                         const hasAnyItemReview =
                           hasCriticalItemReview || showUnitConflict || showPriceOverride;
 
@@ -4441,7 +4481,7 @@ const getSafeOrderTotal = (o: Order) => {
                                     )}
                                     {showPriceOverride && (
                                       <Badge className="px-1.5 py-0 text-[10px] bg-red-100 text-red-700 border border-red-200">
-                                        Preisabweichung prüfen
+                                        Katalogpreis prüfen
                                       </Badge>
                                     )}
                                     {showQuantityReview && (
@@ -4461,6 +4501,12 @@ const getSafeOrderTotal = (o: Order) => {
                                     )}
                                   </div>
                                 </div>
+
+                                {catalogPriceDeviation && !hasCurrencyConflict && (
+                                  <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] leading-snug text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
+                                    Katalog: {formatCurrency(catalogPriceDeviation.catalogPrice, currency)} · Auftrag: {formatCurrency(catalogPriceDeviation.currentPrice, currency)}
+                                  </div>
+                                )}
                               </div>
 
                               <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
