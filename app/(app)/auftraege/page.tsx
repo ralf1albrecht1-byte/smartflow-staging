@@ -3830,7 +3830,7 @@ const getSafeOrderTotal = (o: Order) => {
                             onImageClick={() => openMedia(o)}
                           />
 
-                          {footerBadges.map(renderOrderCardBadge)}
+                          {footerBadges.map((badge) => renderOrderCardBadge(badge))}
 
                           <div className="ml-auto flex min-w-[118px] max-w-[180px] shrink-0 flex-col items-end self-stretch justify-between gap-2 sm:min-w-[210px] sm:max-w-[300px]">
                             <div className="flex flex-wrap justify-end gap-1 min-h-[24px]">
