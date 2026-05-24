@@ -574,14 +574,15 @@ export async function POST(request: Request) {
       return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
     }
 
-    // ─── TEXT-ONLY (no images, no audio) — queued with sender debounce ───
-    // V1-Sicherheitswarteschleife:
+    // ─── TEXT-ONLY (no images, no audio) — queued individually ───
+    // Sicherheitswarteschleife:
     // - Twilio bekommt sofort eine leere TwiML-Antwort.
-    // - Die Roh-Nachricht wird vorher persistent gespeichert.
-    // - Mehrere schnelle Textnachrichten vom gleichen Absender werden gesammelt
-    //   und erst nach dem Debounce-Fenster als EIN Gesamttext verarbeitet.
+    // - Die Roh-Nachricht wird persistent gespeichert.
+    // - Jede Textnachricht bleibt ein eigener Auftragseingang.
+    // - Es wird nur verzögert und pro Smartflow-Konto seriell verarbeitet.
+    // - Es findet KEINE Zusammenführung mehrerer WhatsApp-Texte statt.
     if (collectedImages.length === 0 && !hasAudio) {
-      console.log(`[WhatsApp] 📝 Text-only message from ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars) — enqueueing with debounce`);
+      console.log(`[WhatsApp] 📝 Text-only message from ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars) — enqueueing individually`);
 
       try {
         await enqueueWhatsAppTextIntakeMessage({
