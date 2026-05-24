@@ -358,3 +358,30 @@ model CompanySettings {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }
+
+model IntakeQueueMessage {
+  id          String    @id @default(cuid())
+  channel     String
+  senderKey   String
+  messageKey  String    @unique
+  messageSid  String?
+  source      String    @default("WhatsApp")
+  senderName  String?
+  phoneNumber String?
+  userId      String?
+  messageText String    @db.Text
+  status      String    @default("pending")
+  groupKey    String?
+  processAfter DateTime
+  processedAt DateTime?
+  error       String?   @db.Text
+  retryCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([channel, messageSid])
+  @@index([channel, senderKey, status])
+  @@index([status, processAfter])
+  @@index([groupKey])
+}
+

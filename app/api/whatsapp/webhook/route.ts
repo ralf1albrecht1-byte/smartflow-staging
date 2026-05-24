@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { uploadBufferToS3 } from '@/lib/s3';
 import { processIncomingMessage } from '@/lib/order-intake';
+import { enqueueWhatsAppTextIntakeMessage } from '@/lib/whatsapp-intake-queue';
 import { logAuditAsync } from '@/lib/audit';
 import { maskPhoneForLog } from '@/lib/phone';
 import { whatsappInboundEnabled, getAppEnv } from '@/lib/env';
@@ -573,26 +574,37 @@ export async function POST(request: Request) {
       return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
     }
 
-    // ─── TEXT-ONLY (no images, no audio) — fire-and-forget (UNCHANGED) ───
+    // ─── TEXT-ONLY (no images, no audio) — queued with sender debounce ───
+    // V1-Sicherheitswarteschleife:
+    // - Twilio bekommt sofort eine leere TwiML-Antwort.
+    // - Die Roh-Nachricht wird vorher persistent gespeichert.
+    // - Mehrere schnelle Textnachrichten vom gleichen Absender werden gesammelt
+    //   und erst nach dem Debounce-Fenster als EIN Gesamttext verarbeitet.
     if (collectedImages.length === 0 && !hasAudio) {
-      console.log(`[WhatsApp] 📝 Text-only message from ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars) — processing async`);
+      console.log(`[WhatsApp] 📝 Text-only message from ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars) — enqueueing with debounce`);
 
-      processIncomingMessage({
-        source: 'WhatsApp', senderName: profileName, messageText,
-        phoneNumber,
-        imageBase64: null, imageMimeType: 'image/jpeg',
-        savedMediaPath: null, savedMediaType: null,
-        optimizedPreviewPath: null, optimizedThumbnailPath: null,
-        userId: resolvedUserId,
-      }).then(orderCreated => {
-        if (orderCreated) {
-          console.log(`[WhatsApp] ✅ Text order created: ${orderCreated.description} (${messageText.length}chars input)`);
-        } else {
-          console.log(`[WhatsApp] ⚠️ Text processing returned no order for ${maskPhoneForLog(phoneNumber)}`);
-        }
-      }).catch(err => {
-        console.error(`[WhatsApp] ❌ Text processing failed for ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars):`, err);
-      });
+      try {
+        await enqueueWhatsAppTextIntakeMessage({
+          messageSid,
+          phoneNumber,
+          profileName,
+          resolvedUserId,
+          messageText,
+        });
+      } catch (queueErr) {
+        console.error(`[WhatsApp] ❌ Text queue failed for ${maskPhoneForLog(phoneNumber)} (${messageText.length}chars):`, queueErr);
+        logAuditAsync({
+          userId: resolvedUserId,
+          action: 'WHATSAPP_TEXT_QUEUE_ERROR',
+          area: 'WEBHOOK',
+          success: false,
+          details: {
+            phone: maskPhoneForLog(phoneNumber),
+            sid: messageSid || null,
+            error: queueErr instanceof Error ? queueErr.message : String(queueErr),
+          },
+        });
+      }
 
       return new Response('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
     }
