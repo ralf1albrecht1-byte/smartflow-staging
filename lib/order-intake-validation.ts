@@ -245,8 +245,25 @@ const GENERIC_SERVICE_WORDS = new Set([
 ]);
 
 // INTAKE_CURRENCY_ONLY_EUR_FIX_V13
+function stripNonPricingCurrencyContext(text?: string | null): string {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+
+      // Titel/Metadaten sind keine Zahlungswährung.
+      // Beispiel: "[Titel: CHF gewinnt trotz EUR Einstellung]" darf keinen
+      // CHF/EUR-Konflikt erzeugen, wenn die Preiszeilen eindeutig CHF sind.
+      return !/^\s*\[?\s*(?:titel|title)\s*:/i.test(trimmed);
+    })
+    .join("\n");
+}
+
 function stripNegatedCurrencyMentions(text?: string | null): string {
-  let source = String(text || "").toLowerCase();
+  let source = stripNonPricingCurrencyContext(text).toLowerCase();
   if (!source.trim()) return "";
 
   // Do not count currencies that are only mentioned as a negative instruction,
@@ -282,9 +299,26 @@ function stripNegatedCurrencyMentions(text?: string | null): string {
   return source.replace(/\s+/g, " ").trim();
 }
 
+function hasExplicitCurrencyAmountForCurrency(source: string, currencyWords: string): boolean {
+  return (
+    new RegExp(`\\b${currencyWords}\\s*${PRICE_NUMBER}\\b`, "i").test(source) ||
+    new RegExp(`\\b${PRICE_NUMBER}\\s*${currencyWords}\\b`, "i").test(source)
+  );
+}
+
 export function detectCurrenciesInText(text?: string | null): string[] {
   const source = stripNegatedCurrencyMentions(text);
   if (!source.trim()) return [];
+
+  const explicitCurrencies: string[] = [];
+  if (hasExplicitCurrencyAmountForCurrency(source, "(?:chf|franken|fr\\.?|sfr\\.?|stutz)")) explicitCurrencies.push("CHF");
+  if (hasExplicitCurrencyAmountForCurrency(source, "(?:eur|euro|€)")) explicitCurrencies.push("EUR");
+  if (hasExplicitCurrencyAmountForCurrency(source, "(?:usd|us-dollar|dollar|us\\$|\\$)")) explicitCurrencies.push("USD");
+  if (hasExplicitCurrencyAmountForCurrency(source, "(?:gbp|pfund|pound|british pound|£)")) explicitCurrencies.push("GBP");
+
+  // Preisnahe Währungen sind verbindlicher als Währungswörter in Kundennamen
+  // oder Titelzeilen. Dadurch bleibt "CHF Trotz EUR AG" mit CHF-Preiszeilen CHF.
+  if (explicitCurrencies.length > 0) return unique(explicitCurrencies);
 
   const currencies: string[] = [];
 

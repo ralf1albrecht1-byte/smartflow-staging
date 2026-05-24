@@ -2326,10 +2326,29 @@ function detectUnitPriceFromText(text: string): number | null {
 }
 
 // INTAKE_CURRENCY_ONLY_EUR_FIX_V13
+function stripNonPricingCurrencyContextForIntake(
+  text: string | null | undefined,
+): string {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+
+      // Titel/Notizen sind Test- oder Metadaten und dürfen keine Währung setzen.
+      // Beispiel: "[Titel: CHF gewinnt trotz EUR Einstellung]" darf aus einem
+      // sauber bepreisten CHF-Auftrag keinen CHF/EUR-Konflikt machen.
+      return !/^\s*\[?\s*(?:titel|title)\s*:/i.test(trimmed);
+    })
+    .join("\n");
+}
+
 function stripNegatedCurrencyMentionsForIntake(
   text: string | null | undefined,
 ): string {
-  let source = normalizeUnitText(text || "");
+  let source = normalizeUnitText(stripNonPricingCurrencyContextForIntake(text));
   if (!source) return "";
 
   // Negative currency instructions are not real order currencies.
@@ -2364,12 +2383,34 @@ function stripNegatedCurrencyMentionsForIntake(
   return source.replace(/\s+/g, " ").trim();
 }
 
+const INTAKE_PRICE_NUMBER_FOR_CURRENCY = "\\d+(?:[.,]\\d{1,2})?";
+const INTAKE_CHF_WORDS_FOR_CURRENCY = "(?:chf|franken|fr\\.?|sfr\\.?|stutz)";
+const INTAKE_EUR_WORDS_FOR_CURRENCY = "(?:eur|euro|€)";
+
+function hasExplicitCurrencyAmountForIntake(source: string, currencyWords: string): boolean {
+  return (
+    new RegExp(`\\b${currencyWords}\\s*${INTAKE_PRICE_NUMBER_FOR_CURRENCY}\\b`, "i").test(source) ||
+    new RegExp(`\\b${INTAKE_PRICE_NUMBER_FOR_CURRENCY}\\s*${currencyWords}\\b`, "i").test(source)
+  );
+}
+
 function detectCurrencyFromText(
   text: string | null | undefined,
 ): "CHF" | "EUR" | null {
   const source = stripNegatedCurrencyMentionsForIntake(text);
 
   if (!source) return null;
+
+  const hasExplicitChf = hasExplicitCurrencyAmountForIntake(source, INTAKE_CHF_WORDS_FOR_CURRENCY);
+  const hasExplicitEur = hasExplicitCurrencyAmountForIntake(source, INTAKE_EUR_WORDS_FOR_CURRENCY);
+
+  // Preisnahe Währungen sind stärker als Währungswörter in Kundennamen/Titeln.
+  // So bleibt "CHF Trotz EUR AG" mit "Fenster ... CHF 5" ein CHF-Auftrag.
+  if (hasExplicitChf || hasExplicitEur) {
+    if (hasExplicitChf && !hasExplicitEur) return "CHF";
+    if (hasExplicitEur && !hasExplicitChf) return "EUR";
+    return null;
+  }
 
   const hasChf = /\b(chf|franken|fr\.?|sfr\.?|stutz)\b/i.test(source);
   const hasEur = /\b(eur|euro)\b|€/i.test(source);

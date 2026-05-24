@@ -1287,11 +1287,22 @@ const getBottomBadges = (
     .filter(Boolean)
     .join("\n");
 
-  if (detectCallbackRequest(callbackSource)) {
+  const directCallbackHint = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  ]
+    .filter(Boolean)
+    .flatMap((part) => String(part).split(/\n+/g))
+    .map((line) => line.trim())
+    .find((line) => isPositiveCallbackChipLine(line));
+
+  if (detectCallbackRequest(callbackSource) || directCallbackHint) {
     pushUniqueBadge(badges, {
       key: "callback_request",
       label: "Rückruf",
-      className: "bg-blue-600 text-white border border-blue-500 shadow-sm",
+      className: "bg-blue-100 text-blue-700 border border-blue-400 shadow-sm",
     });
   }
 
@@ -1336,6 +1347,11 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
     .filter((line) => line && !isPositiveCallbackChipLine(line))
     .join("\n");
 
+const getStrongerCardBadgeClassName = (className?: string | null) =>
+  String(className || "")
+    .replace(/\bborder\s+border-/g, "border-2 border-")
+    .replace(/\bborder\s+border\b/g, "border-2 border");
+
 const renderOrderCardBadge = (badge: ReviewBadge) => {
   const isTextPriceBadge = badge.key === "price_deviation";
 
@@ -1346,7 +1362,7 @@ const renderOrderCardBadge = (badge: ReviewBadge) => {
         isTextPriceBadge
           ? "text-[11px] px-2 py-0.5 font-semibold"
           : "text-[10px] px-1.5 py-0.5 font-medium"
-      } ${badge.className}`}
+      } ${getStrongerCardBadgeClassName(badge.className)}`}
     >
       {badge.key === "callback_request" && (
         <span className="text-red-600 leading-none">☎</span>
@@ -2363,8 +2379,10 @@ export default function AuftraegePage() {
   const addItem = () => setFormItems((prev) => [...prev, createEmptyItem()]);
 
   const removeItem = (index: number) => {
-    if (formItems.length <= 1) return; // keep at least one
-    setFormItems((prev) => prev.filter((_, i) => i !== index));
+    setFormItems((prev) => {
+      if (prev.length <= 1) return [createEmptyItem()];
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const itemsTotal = formItems.reduce(
@@ -3693,7 +3711,7 @@ const getSafeOrderTotal = (o: Order) => {
                           {leftSystemBadges.map((badge) => (
                             <span
                               key={badge.key}
-                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
+                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
                             >
                               {badge.icon && (
                                 <AlertTriangle className="w-3 h-3" />
@@ -3733,7 +3751,7 @@ const getSafeOrderTotal = (o: Order) => {
                             {operationalBadges.map((badge) => (
                               <span
                                 key={badge.key}
-                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
+                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
                               >
                                 {badge.icon && (
                                   <AlertTriangle className="w-3 h-3" />
@@ -3797,7 +3815,7 @@ const getSafeOrderTotal = (o: Order) => {
                                 {rightSideBadges.map((badge) => (
                                   <span
                                     key={badge.key}
-                                    className={`inline-flex items-center gap-0.5 text-[9px] leading-[1.15] px-1.5 py-[2px] rounded-full font-medium shrink-0 ${badge.className}`}
+                                    className={`inline-flex items-center gap-0.5 text-[9px] leading-[1.15] px-1.5 py-[2px] rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
                                   >
                                     {badge.icon && (
                                       <AlertTriangle className="w-2.5 h-2.5" />
@@ -4786,59 +4804,65 @@ const getSafeOrderTotal = (o: Order) => {
                               </div>
 
                               <div className="relative shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setServiceActionMenuKey((prev) =>
-                                      prev === item.key ? null : item.key,
-                                    );
-                                  }}
-                                  className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                  title="Aktionen"
-                                >
-                                  <MoreVertical className="w-3.5 h-3.5" />
-                                </button>
+                                {isManualService ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setServiceActionMenuKey((prev) =>
+                                          prev === item.key ? null : item.key,
+                                        );
+                                      }}
+                                      className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                      title="Aktionen"
+                                    >
+                                      <MoreVertical className="w-3.5 h-3.5" />
+                                    </button>
 
-                                {isMenuOpen && (
-                                  <div
-                                    onClick={(event) => event.stopPropagation()}
-                                    className="absolute right-0 top-8 z-50 w-52 rounded-md border bg-background py-1 text-sm shadow-lg"
-                                  >
-                                    {isManualService && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          saveItemToServices(index);
-                                          setServiceActionMenuKey(null);
-                                        }}
-                                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                    {isMenuOpen && (
+                                      <div
+                                        onClick={(event) => event.stopPropagation()}
+                                        className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
                                       >
-                                        <Plus className="h-3.5 w-3.5" />
-                                        In Leistungen übernehmen
-                                      </button>
-                                    )}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            saveItemToServices(index);
+                                            setServiceActionMenuKey(null);
+                                          }}
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                        >
+                                          <Plus className="h-3.5 w-3.5" />
+                                          In Leistungskatalog übernehmen
+                                        </button>
 
-                                    {formItems.length > 1 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          removeItem(index);
-                                          setServiceActionMenuKey(null);
-                                        }}
-                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                        Löschen
-                                      </button>
-                                    )}
-
-                                    {!isManualService && formItems.length <= 1 && (
-                                      <div className="px-3 py-2 text-xs text-muted-foreground">
-                                        Keine Aktion verfügbar
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            removeItem(index);
+                                            setServiceActionMenuKey(null);
+                                          }}
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                          Löschen
+                                        </button>
                                       </div>
                                     )}
-                                  </div>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      removeItem(index);
+                                    }}
+                                    className="mt-0.5 rounded-md p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700"
+                                    title="Leistung löschen"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
                                 )}
                               </div>
                             </div>
