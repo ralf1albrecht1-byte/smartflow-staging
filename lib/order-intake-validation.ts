@@ -38,12 +38,13 @@ export interface ExtractedExecutionAddress {
 }
 
 
-// INTAKE_READ_ONLY_RISK_VALIDATOR_V16_23
-// Zweiter Prüfer als reine Kontrollschicht:
+// INTAKE_RISK_VALIDATOR_V16_41
+// Zweiter Prüfer als Sicherheitskontrollschicht:
 // - ändert keine Kundendaten
 // - ändert keine Leistungen, Preise, Mengen oder Währungen
-// - setzt keine Chips und blockiert nichts
-// - liefert nur strukturierte Warnungen für Logs/Debugging
+// - liefert strukturierte Warnungen
+// - der Aufrufer setzt daraus Review-Pflicht / Blocker, damit unsichere Daten
+//   nicht ungeprüft in Angebot/Rechnung/PDF weiterlaufen
 export interface ReadOnlyIntakeRiskValidatorInput {
   originalText: string;
   billingCustomer: {

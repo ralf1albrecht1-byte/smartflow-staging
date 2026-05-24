@@ -912,6 +912,102 @@ function normalizeStructuredTextField(value: any): string | null {
   return cleaned;
 }
 
+function normalizeStructuredTextBlock(value: any): string | null {
+  const cleaned = String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
+    .trim();
+
+  if (!cleaned || /^[-–—]+$/.test(cleaned)) return null;
+  if (/^(?:null|undefined|none|keine|kein|fehlt|missing|unknown|unbekannt)$/i.test(cleaned)) return null;
+  return cleaned;
+}
+
+function normalizeStructuredConfidenceLevel(value: any): "hoch" | "mittel" | "niedrig" | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value >= 0.85) return "hoch";
+    if (value >= 0.65) return "mittel";
+    return "niedrig";
+  }
+
+  const normalized = normalizeUnitText(value || "");
+  if (!normalized) return null;
+  if (["hoch", "high", "sicher", "certain", "eindeutig", "clear"].includes(normalized)) return "hoch";
+  if (["mittel", "medium", "wahrscheinlich", "probably", "plausibel"].includes(normalized)) return "mittel";
+  if (["niedrig", "low", "unsicher", "uncertain", "unklar"].includes(normalized)) return "niedrig";
+  return null;
+}
+
+function normalizedEvidenceKey(value: string | null | undefined): string {
+  return normalizeUnitText(value || "")
+    .replace(/[^a-z0-9@.+\s/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function structuredEvidenceMatchesOriginalText(
+  evidence: string | null,
+  originalText: string | null | undefined,
+): boolean {
+  const evidenceKey = normalizedEvidenceKey(evidence);
+  if (!evidenceKey || evidenceKey.length < 3) return false;
+
+  const originalKey = normalizedEvidenceKey(originalText || "");
+
+  // Bei Bild-only-Nachrichten gibt es keinen vollständigen Rohtext, aber die KI
+  // kann sichtbare Daten aus dem Bild extrahieren. Dann reicht vorhandene
+  // Evidence, weil sie nicht gegen messageText gegengeprüft werden kann.
+  if (!originalKey) return true;
+
+  if (originalKey.includes(evidenceKey)) return true;
+
+  const evidenceTokens = evidenceKey
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 || /@/.test(token) || /^\d{4,5}$/.test(token));
+
+  if (evidenceTokens.length === 0) return false;
+
+  const matchingTokens = evidenceTokens.filter((token) => originalKey.includes(token));
+  return matchingTokens.length >= Math.min(3, evidenceTokens.length);
+}
+
+function hasUsableStructuredBillingEvidence(args: {
+  kundeData: any;
+  originalText: string | null | undefined;
+  hasAnyExtractedBillingData: boolean;
+}): boolean {
+  if (!args.hasAnyExtractedBillingData) return false;
+
+  const confidence = normalizeStructuredConfidenceLevel(
+    args.kundeData?.confidence ??
+      args.kundeData?.confidence_level ??
+      args.kundeData?.kunde_confidence ??
+      args.kundeData?.billingConfidence,
+  );
+
+  const evidence = normalizeStructuredTextBlock(
+    args.kundeData?.evidence ??
+      args.kundeData?.sourceText ??
+      args.kundeData?.source_text ??
+      args.kundeData?.quelle,
+  );
+
+  // Fail closed: Ohne Confidence + Evidence wird der Kundenblock nicht als
+  // sicherer Rechnungskunde behandelt. Dann bleibt der Auftrag prüfpflichtig,
+  // statt falsche Kundendaten in den Kundenstamm zu schreiben.
+  if (!confidence || confidence === "niedrig") return false;
+  if (!evidence) return false;
+  if (!structuredEvidenceMatchesOriginalText(evidence, args.originalText)) return false;
+
+  return true;
+}
+
 function normalizeStructuredPlz(value: any): string | null {
   const match = String(value ?? "").match(/\b(\d{4,5})\b/);
   return match?.[1] || null;
@@ -951,7 +1047,10 @@ function cleanAiStructuredBillingName(value: any): string | null {
   return candidate.length <= 80 ? candidate : null;
 }
 
-function extractAiStructuredBillingEvidence(kundeData: any): SafeBillingCustomerEvidence {
+function extractAiStructuredBillingEvidence(
+  kundeData: any,
+  originalText?: string | null,
+): SafeBillingCustomerEvidence {
   const rawStreet = [
     normalizeStructuredTextField(kundeData?.strasse),
     normalizeStructuredTextField(kundeData?.hausnummer),
@@ -968,7 +1067,13 @@ function extractAiStructuredBillingEvidence(kundeData: any): SafeBillingCustomer
 
   const hasFullAddress = Boolean(street && plz && city);
   const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
-  const hasReliableCustomerBlock = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
+  const hasAnyExtractedBillingData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
+
+  const hasReliableCustomerBlock = hasUsableStructuredBillingEvidence({
+    kundeData,
+    originalText,
+    hasAnyExtractedBillingData,
+  });
 
   return {
     source: "ai",
@@ -3145,6 +3250,29 @@ CONFIDENCE:
 - "niedrig": unsicher. Werte bei niedrig möglichst null lassen.
 
 --------------------------------------------------
+FAIL-CLOSED-SICHERHEIT – KEINE WORTLISTEN-LOGIK
+--------------------------------------------------
+- Du musst die Rollen selbst semantisch erkennen.
+- Der Code nach dir soll keine mehrsprachigen Rechnungs-/Arbeitsort-Wortlisten als Hauptlogik verwenden.
+- Deshalb ist deine Strukturierung entscheidend:
+  kunde = nur Rechnungskunde/Rechnungsadresse.
+  auftrag.ausfuehrungsadresse = nur Arbeitsort/Baustelle/Objekt.
+  kontakt vor Ort = nur Hinweis/Besonderheit, niemals Rechnungskunde.
+- kunde.confidence MUSS "hoch", "mittel" oder "niedrig" sein.
+- kunde.evidence MUSS die exakte Original-Textstelle enthalten, aus der die Kundendaten stammen.
+- Wenn du keine exakte evidence hast: alle unsicheren kunde-Felder null lassen und kunde.confidence = "niedrig".
+- Wenn nur eine namenlose Rechnungsadresse sicher vorhanden ist:
+  kunde.name = null,
+  Adresse/E-Mail setzen,
+  kunde.confidence = "mittel" oder "hoch",
+  kunde.evidence = exakter Rechnungsadressblock,
+  system.needs_review = true.
+- Wenn eine Adresse wahrscheinlich nur Arbeitsort ist:
+  NICHT in kunde schreiben.
+- Wenn du unsicher bist, welche Rolle eine Adresse hat:
+  lieber kunde leer lassen und system.needs_review = true.
+
+--------------------------------------------------
 AUSGABEFORMAT
 --------------------------------------------------
 
@@ -3156,7 +3284,9 @@ AUSGABEFORMAT
     "plz": null,
     "ort": null,
     "telefon": null,
-    "email": null
+    "email": null,
+    "confidence": "niedrig",
+    "evidence": null
   },
 "auftrag": {
   "titel": null,
@@ -3725,9 +3855,12 @@ const intakeCurrency =
   }
 
   const customerGuardReviewReasons: string[] = [];
-  const rawBillingEvidence = extractDeterministicBillingEvidence(messageText);
+  const legacyBillingFallbackEnabled = process.env.INTAKE_LEGACY_BILLING_FALLBACK === "1";
+  const rawBillingEvidence = legacyBillingFallbackEnabled
+    ? extractDeterministicBillingEvidence(messageText)
+    : null;
   const billingEvidence = supplementAiBillingEvidence(
-    extractAiStructuredBillingEvidence(kundeData),
+    extractAiStructuredBillingEvidence(kundeData, messageText),
     rawBillingEvidence,
   );
   const customerGuard = applySafeBillingCustomerGuard({
@@ -4929,9 +5062,18 @@ ${fullWorkText}`,
 
   if (readOnlyRiskValidator.warnings.length > 0) {
     console.warn(
-      `[${source}] 🧪 Read-only intake risk validator (${readOnlyRiskValidator.riskLevel}): ${readOnlyRiskValidator.warnings.join(", ")}`,
+      `[${source}] 🧪 Intake risk validator (${readOnlyRiskValidator.riskLevel}): ${readOnlyRiskValidator.warnings.join(", ")}`,
       readOnlyRiskValidator.checks,
     );
+  }
+
+  const structuralRiskReviewReasons = readOnlyRiskValidator.warnings.map(
+    (warning) => `intake_risk:${warning}`,
+  );
+
+  if (structuralRiskReviewReasons.length > 0) {
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
   }
 
   const primaryItem = finalOrderItems[0] || null;
@@ -5130,6 +5272,7 @@ ${fullWorkText}`,
     ...quantityReviewReasons,
     ...unitMismatchReasons,
     ...intakeValidation.reviewReasons,
+    ...structuralRiskReviewReasons,
     ...(extractedExecutionAddress ? ["execution_address_detected"] : []),
   ];
 
