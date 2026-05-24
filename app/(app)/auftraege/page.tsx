@@ -1240,7 +1240,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "price_deviation",
       label: "Textpreis",
-      className: "bg-amber-100 text-amber-800 border border-amber-300",
+      className: "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
     });
   }
 
@@ -1336,20 +1336,28 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
     .filter((line) => line && !isPositiveCallbackChipLine(line))
     .join("\n");
 
-const renderOrderCardBadge = (badge: ReviewBadge) => (
-  <span
-    key={badge.key}
-    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
-  >
-    {badge.key === "callback_request" && (
-      <span className="text-red-600 leading-none">☎</span>
-    )}
-    {badge.icon && badge.key !== "callback_request" && (
-      <AlertTriangle className="w-3 h-3" />
-    )}
-    {badge.label}
-  </span>
-);
+const renderOrderCardBadge = (badge: ReviewBadge) => {
+  const isTextPriceBadge = badge.key === "price_deviation";
+
+  return (
+    <span
+      key={badge.key}
+      className={`inline-flex items-center gap-1 rounded-full shrink-0 ${
+        isTextPriceBadge
+          ? "text-[11px] px-2 py-0.5 font-semibold"
+          : "text-[10px] px-1.5 py-0.5 font-medium"
+      } ${badge.className}`}
+    >
+      {badge.key === "callback_request" && (
+        <span className="text-red-600 leading-none">☎</span>
+      )}
+      {badge.icon && badge.key !== "callback_request" && (
+        <AlertTriangle className="w-3 h-3" />
+      )}
+      {badge.label}
+    </span>
+  );
+};
 
 const cleanServiceLabel = (value?: string | null) => {
   let text = compactText(value);
@@ -4588,22 +4596,11 @@ const getSafeOrderTotal = (o: Order) => {
               ) : (
                 <>
                   <div className="rounded-xl border bg-background p-2.5 sm:p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <Label className="text-base font-semibold">Leistungen *</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 shrink-0"
-                        onClick={addItem}
-                      >
-                        <Plus className="w-3.5 h-3.5 mr-1" />
-                        Leistung hinzufügen
-                      </Button>
+                    <div>
+                      <Label className="text-base font-semibold">Leistungen *</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.
+                      </p>
                     </div>
 
                     {hasEditCurrencyReview && (
