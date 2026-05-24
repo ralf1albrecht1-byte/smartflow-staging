@@ -2764,7 +2764,7 @@ const EXECUTION_ADDRESS_MARKER =
   /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
 
 const STOP_MARKER =
-  /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp)\b/i;
+  /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp|titel|title)\b/i;
 
 const ADDRESS_WORD_PATTERN =
   /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)/i;
@@ -2909,6 +2909,9 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
 
   if (!candidate) return null;
 
+  // Titel-Zeilen sind reine Auftrags-/Karten-Titel und niemals Objekt-/Ortsnamen.
+  if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate)) return null;
+
   candidate = candidate
     .replace(/^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i, "")
     .replace(/^\s*(?:beim|bei|am|an|im|in|um|uhr|m)\s*$/i, "")
@@ -2947,6 +2950,7 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
   const candidate = normalizeText(value || "");
   const key = normalizeCompare(candidate);
   if (!candidate || !key) return false;
+  if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate)) return false;
   if (candidate.length < 3 || candidate.length > 80) return false;
   if (/^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i.test(candidate)) return false;
   if (/\b\d{4,5}\b/.test(candidate)) return false;
@@ -3056,6 +3060,11 @@ function getExecutionAddressCandidates(lines: string[], markerIndex: number) {
 
     const cleaned = stripMarker(nextLine);
     if (!cleaned) continue;
+
+    // Titel-Zeilen sind reine Auftrags-/Karten-Titel und beenden den Adressblock.
+    if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(cleaned)) {
+      break;
+    }
 
     if (
       STOP_MARKER.test(nextLine) &&

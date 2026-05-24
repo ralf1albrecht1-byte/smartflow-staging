@@ -1349,6 +1349,10 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
 
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
 
+  // Titel-Zeilen sind reine Auftrags-/Karten-Titel und niemals Objekt-/Ortsnamen.
+  // Beispiel: "[Titel: Fenster Kontakt vor Ort]" darf nicht als Ausführungsadresse-Label gespeichert werden.
+  if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate)) return null;
+
   candidate = candidate
     .replace(/^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i, "")
     .replace(/^\s*(?:beim|bei|am|an|im|in|um|uhr|m)\s*$/i, "")
@@ -1356,6 +1360,7 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
     .trim();
 
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
+  if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate)) return null;
   if (candidate.length < 3 || candidate.length > 80) return null;
 
   const normalized = normalizeUnitText(candidate);
@@ -1398,7 +1403,7 @@ function extractExecutionBlockFromText(rawText: string | null | undefined): stri
   if (lines.length === 0) return null;
 
   const startRegex = /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
-  const stopRegex = /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin)\s*:?/i;
+  const stopRegex = /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(startRegex);
@@ -3500,6 +3505,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
   evidence = exakte Textstelle
 - Wenn unsicher oder unvollständig: ist_abweichend = false und in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
 - Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.
+- Auftrags-/Karten-Titel wie "[Titel: ...]" sind nur Titel und dürfen NIEMALS als name der Ausführungsadresse gespeichert werden.
 - name der Ausführungsadresse darf nur ein echter Objekt-/Ortsname sein, z.B. "Garage West", "Wohnung 3", "Lagerhalle Süd".
 - name der Ausführungsadresse NIEMALS mit Leistungs-/Preiszeilen füllen, z.B. NICHT "Anfahrt CHF 45", NICHT "10 Fenster reinigen CHF 7 pro Stück", NICHT "Boden reinigen".`;
 }
