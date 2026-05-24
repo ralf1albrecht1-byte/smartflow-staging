@@ -1075,6 +1075,28 @@ const hasCatalogPriceDeviationForItem = (
   return Math.abs(catalogPrice - itemPrice) >= 0.01;
 };
 
+const hasCatalogTextFlatOverrideForItem = (
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  services: ServiceDef[],
+  reviewReasons?: string[] | null,
+) => {
+  if (!item?.serviceName?.trim()) return false;
+  if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName)) return false;
+
+  const catalog = findCatalogServiceForName(services, item.serviceName);
+  if (!catalog) return false;
+
+  const catalogUnit = normalizePriceUnitForCompare(catalog.unit);
+  const itemUnit = normalizePriceUnitForCompare(item.unit);
+  if (!catalogUnit || !itemUnit) return false;
+  if (catalogUnit === itemUnit) return false;
+  if (itemUnit !== "flat") return false;
+
+  const itemPrice = Number(item.unitPrice || 0);
+  const itemQuantity = Number(item.quantity || 0);
+  return Number.isFinite(itemPrice) && itemPrice > 0 && itemQuantity === 1;
+};
+
 const getCatalogPriceDeviationItems = (
   order: Order,
   services: ServiceDef[],
@@ -1096,6 +1118,30 @@ const getCatalogPriceDeviationItems = (
 
   return items.filter((item) =>
     hasCatalogPriceDeviationForItem(item, services, order.reviewReasons),
+  );
+};
+
+const getCatalogTextFlatOverrideItems = (
+  order: Order,
+  services: ServiceDef[],
+) => {
+  const items = order.items && order.items.length > 0
+    ? order.items
+    : order.serviceName
+      ? [
+          {
+            serviceName: order.serviceName,
+            description: order.description || order.serviceName,
+            quantity: order.quantity,
+            unit: order.priceType,
+            unitPrice: order.unitPrice,
+            totalPrice: order.totalPrice,
+          },
+        ]
+      : [];
+
+  return items.filter((item) =>
+    hasCatalogTextFlatOverrideForItem(item, services, order.reviewReasons),
   );
 };
 
@@ -1188,7 +1234,8 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
 
   const hasPriceDeviationReview =
     (order.reviewReasons?.some((reason) => reason.startsWith("price_override:")) ?? false) ||
-    getCatalogPriceDeviationItems(order, services).length > 0;
+    getCatalogPriceDeviationItems(order, services).length > 0 ||
+    getCatalogTextFlatOverrideItems(order, services).length > 0;
 
   if (hasPriceDeviationReview) {
     pushUniqueBadge(badges, {
@@ -1245,7 +1292,7 @@ const getBottomBadges = (
     pushUniqueBadge(badges, {
       key: "callback_request",
       label: "Rückruf",
-      className: "bg-blue-600 text-white border border-blue-700 shadow-sm",
+      className: "bg-blue-600 text-white border border-blue-500 shadow-sm",
     });
   }
 
@@ -1280,7 +1327,7 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
 
   if (negative) return false;
 
-  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+abklaeren|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)/.test(text);
+  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+abklaeren|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)/.test(text);
 };
 
 const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
@@ -4625,6 +4672,15 @@ const getSafeOrderTotal = (o: Order) => {
                           catalogPrice > 0 &&
                           itemPriceNumber > 0 &&
                           Math.abs(catalogPrice - itemPriceNumber) >= 0.01;
+                        const hasFrontendCatalogTextFlatOverride =
+                          Boolean(catalogService) &&
+                          !unitMismatchReason &&
+                          normalizePriceUnitForCompare(catalogService?.unit) !==
+                            normalizePriceUnitForCompare(item.unit) &&
+                          normalizePriceUnitForCompare(item.unit) === "flat" &&
+                          Number.isFinite(itemPriceNumber) &&
+                          itemPriceNumber > 0 &&
+                          Number(item.quantity || 0) === 1;
 
                         const hasCurrencyConflict = currentEditReviewReasons.some(
                           (reason: string) =>
@@ -4639,7 +4695,7 @@ const getSafeOrderTotal = (o: Order) => {
                         const showPriceOverride =
                           !hasCurrencyConflict &&
                           !showUnitConflict &&
-                          Boolean(priceOverrideReason || hasFrontendCatalogPriceDeviation);
+                          Boolean(priceOverrideReason || hasFrontendCatalogPriceDeviation || hasFrontendCatalogTextFlatOverride);
                         const showPriceReferenceReview =
                           !hasCurrencyConflict &&
                           !priceInputReview &&
@@ -4733,36 +4789,36 @@ const getSafeOrderTotal = (o: Order) => {
                                 </div>
                               </div>
 
-                              {formItems.length > 1 && (
-                                isManualService ? (
-                                  <div className="relative shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setServiceActionMenuKey((prev) =>
-                                          prev === item.key ? null : item.key,
-                                        );
-                                      }}
-                                      className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                      title="Aktionen"
-                                    >
-                                      <MoreVertical className="w-3.5 h-3.5" />
-                                    </button>
+                              {isManualService ? (
+                                <div className="relative shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setServiceActionMenuKey((prev) =>
+                                        prev === item.key ? null : item.key,
+                                      );
+                                    }}
+                                    className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                    title="Aktionen"
+                                  >
+                                    <MoreVertical className="w-3.5 h-3.5" />
+                                  </button>
 
-                                    {isMenuOpen && (
-                                      <div
-                                        onClick={(event) => event.stopPropagation()}
-                                        className="absolute right-0 top-8 z-50 w-48 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                  {isMenuOpen && (
+                                    <div
+                                      onClick={(event) => event.stopPropagation()}
+                                      className="absolute right-0 top-8 z-50 w-48 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => saveItemToServices(index)}
+                                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
                                       >
-                                        <button
-                                          type="button"
-                                          onClick={() => saveItemToServices(index)}
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                        >
-                                          <Plus className="h-3.5 w-3.5" />
-                                          In Leistungen übernehmen
-                                        </button>
+                                        <Plus className="h-3.5 w-3.5" />
+                                        In Leistungen übernehmen
+                                      </button>
+                                      {formItems.length > 1 && (
                                         <button
                                           type="button"
                                           onClick={() => {
@@ -4774,10 +4830,12 @@ const getSafeOrderTotal = (o: Order) => {
                                           <Trash2 className="h-3.5 w-3.5" />
                                           Löschen
                                         </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                ) : (
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                formItems.length > 1 && (
                                   <button
                                     type="button"
                                     onClick={() => removeItem(index)}
@@ -4878,7 +4936,7 @@ const getSafeOrderTotal = (o: Order) => {
                                   {showUnitConflict && catalogService && (
                                     <div className="space-y-0.5">
                                       <div>
-                                        Text: <span className="font-medium">{sourceLineForItem || orderSummary}</span>
+                                        Text: <span className="font-medium">{orderSummary}</span>
                                       </div>
                                       {catalogSummary && (
                                         <div>
