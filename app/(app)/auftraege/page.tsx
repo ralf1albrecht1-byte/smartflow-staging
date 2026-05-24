@@ -908,9 +908,9 @@ const getOperationalBadges = (
     .filter(Boolean)
     .join(" | ");
 
-  const redWarningClass = "bg-red-100 text-red-800 border border-red-400";
-  const amberHintClass = "bg-amber-100 text-amber-800 border border-amber-400";
-  const greenInfoClass = "bg-emerald-100 text-emerald-800 border border-emerald-300";
+  const redWarningClass = "bg-red-100 text-red-700 border border-red-300";
+  const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-300";
+  const greenInfoClass = "bg-emerald-100 text-emerald-700 border border-emerald-300";
 
   const addDanger = (key: string, label: string) =>
     pushUniqueBadge(badges, {
@@ -1162,7 +1162,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
       {
         key: "price_inputs_review",
         label: "Preisangaben prüfen",
-        className: "bg-red-100 text-red-800 border border-red-400",
+        className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
       },
     ];
@@ -1203,7 +1203,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "price_quantity",
       label: "Betrag prüfen",
-      className: "bg-red-100 text-red-800 border border-red-400",
+      className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
     });
   }
@@ -1215,7 +1215,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "unit_conflict",
       label: "Einheit prüfen",
-      className: "bg-red-100 text-red-800 border border-red-400",
+      className: "bg-red-100 text-red-700 border border-red-300",
     });
   }
 
@@ -1226,7 +1226,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "currency_review",
       label: "Währung prüfen",
-      className: "bg-red-100 text-red-800 border border-red-400",
+      className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
     });
   }
@@ -1240,7 +1240,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "price_deviation",
       label: "Textpreis",
-      className: "bg-yellow-100 text-yellow-950 border border-yellow-500 shadow-sm ring-1 ring-yellow-300/80",
+      className: "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
     });
   }
 
@@ -1252,7 +1252,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "customer_review",
       label: "Kunde prüfen",
-      className: "bg-yellow-100 text-yellow-800 border border-yellow-400",
+      className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
     });
   }
 
@@ -1302,7 +1302,7 @@ const getBottomBadges = (
     pushUniqueBadge(badges, {
       key: "callback_request",
       label: "Rückruf",
-      className: "bg-sky-100 text-sky-800 border border-sky-400 shadow-sm",
+      className: "bg-blue-100 text-blue-700 border border-blue-400 shadow-sm",
     });
   }
 
@@ -1316,7 +1316,7 @@ const getBottomBadges = (
     pushUniqueBadge(badges, {
       key: "sms_request",
       label: "SMS",
-      className: "bg-emerald-100 text-emerald-800 border border-emerald-300",
+      className: "bg-cyan-100 text-cyan-800 border border-cyan-300",
     });
   }
 
@@ -1366,59 +1366,53 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border-/g, "border-2 border-")
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
-const CARD_BADGE_SYMBOLS: Record<string, string> = {
-  callback_request: "☎",
-  appointment: "▣",
-  sms_request: "✉",
-  key: "🔑",
-  hint_key: "🔑",
-  danger_hund: "🐾",
-  hint_dog: "🐾",
-  hint_ladder: "🪜",
-  hint_parking_parken: "Ⓟ",
-  hint_parking_kein_parkplatz: "Ⓟ",
-  hint_parking_parkplatz_schwierig: "Ⓟ",
-  hint_parking_review: "Ⓟ",
-};
-
-const getCardBadgeSymbol = (badge: ReviewBadge) => {
-  if (badge.key.startsWith("danger_hund")) return "🐾";
-  if (badge.key.includes("ladder")) return "🪜";
-  if (badge.key.includes("parking")) return "Ⓟ";
-  if (badge.key.includes("key") || normalizeForMatch(badge.label) === "schluessel") return "🔑";
-  return CARD_BADGE_SYMBOLS[badge.key] || null;
-};
-
-const renderOrderCardBadge = (badge: ReviewBadge, options?: { priceSide?: boolean }) => {
+const renderOrderCardBadge = (
+  badge: ReviewBadge,
+  options?: { priceSide?: boolean },
+) => {
   const isTextPriceBadge = badge.key === "price_deviation";
   const isPriceSide = Boolean(options?.priceSide);
-  const symbol = getCardBadgeSymbol(badge);
+
+  const icon = (() => {
+    if (badge.key === "callback_request") {
+      return <span className="max-[430px]:hidden text-red-600 leading-none">☎</span>;
+    }
+    if (badge.key === "appointment") {
+      return <span className="max-[430px]:hidden leading-none">▣</span>;
+    }
+    if (badge.key.includes("danger_hund") || normalizeForMatch(badge.label) === "hund") {
+      return <span className="max-[430px]:hidden leading-none">🐾</span>;
+    }
+    if (normalizeForMatch(badge.label) === "leiter") {
+      return <span className="max-[430px]:hidden leading-none">▧</span>;
+    }
+    if (normalizeForMatch(badge.label).includes("park")) {
+      return <span className="max-[430px]:hidden leading-none">Ⓟ</span>;
+    }
+    if (normalizeForMatch(badge.label).includes("schluessel")) {
+      return <span className="max-[430px]:hidden leading-none">🔑</span>;
+    }
+    if (badge.icon) {
+      return <AlertTriangle className={`${isPriceSide ? "w-3 h-3" : "w-3 h-3 max-[430px]:hidden"}`} />;
+    }
+    return null;
+  })();
 
   return (
     <span
       key={badge.key}
-      className={`inline-flex items-center rounded-full shrink-0 whitespace-nowrap ${
+      className={`inline-flex items-center gap-1 rounded-full shrink-0 leading-[1.15] ${
         isPriceSide
-          ? "gap-1 px-2.5 py-1 text-[11px] font-semibold leading-none"
+          ? isTextPriceBadge
+            ? "text-[11px] px-2.5 py-1 font-semibold"
+            : "text-[10.5px] px-2 py-1 font-semibold"
           : isTextPriceBadge
-            ? "gap-1 px-2.5 py-0.5 text-[11px] font-semibold"
-            : "gap-1 px-1.5 py-0.5 text-[10px] font-medium"
+            ? "text-[11px] px-2 py-0.5 font-semibold"
+            : "text-[10px] px-1.5 py-0.5 font-medium"
       } ${getStrongerCardBadgeClassName(badge.className)}`}
     >
-      {symbol && (
-        <span
-          className={`hidden sm:inline leading-none ${
-            badge.key === "callback_request" ? "text-red-600" : ""
-          }`}
-          aria-hidden="true"
-        >
-          {symbol}
-        </span>
-      )}
-      {!symbol && badge.icon && (
-        <AlertTriangle className={`${isPriceSide ? "w-3 h-3" : "w-3 h-3"} hidden sm:inline`} />
-      )}
-      <span>{badge.label}</span>
+      {icon}
+      {badge.label}
     </span>
   );
 };
@@ -2424,7 +2418,7 @@ export default function AuftraegePage() {
     );
   };
 
-  const addItem = () => setFormItems((prev) => [createEmptyItem(), ...prev]);
+  const addItem = () => setFormItems((prev) => [...prev, createEmptyItem()]);
 
   const removeItem = (index: number) => {
     setFormItems((prev) => {
@@ -3608,7 +3602,12 @@ const getSafeOrderTotal = (o: Order) => {
             );
             const operationalBadges = getOperationalBadges(o, parsedCardNotes);
             const bottomBadges = getBottomBadges(o, parsedCardNotes);
-            const footerBadges = bottomBadges;
+            const appointmentBadges = bottomBadges.filter(
+              (badge) => badge.key === "appointment",
+            );
+            const footerBadges = bottomBadges.filter(
+              (badge) => badge.key !== "appointment",
+            );
             const rightSideBadges = amountReviewBadges;
             const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
               "skipped",
@@ -3634,7 +3633,7 @@ const getSafeOrderTotal = (o: Order) => {
                     openEdit(o);
                   }}
                 >
-                  <CardContent className="px-2.5 py-2 sm:px-3 max-w-full overflow-visible">
+                  <CardContent className="relative min-h-[112px] px-2.5 py-2 sm:min-h-[118px] sm:px-3 max-w-full overflow-visible">
                     <div className="flex items-start gap-2 min-w-0 max-w-full overflow-visible">
                       {isMergeMode && (
                         <div
@@ -3719,7 +3718,7 @@ const getSafeOrderTotal = (o: Order) => {
                       </div>
 
                       {/* Center: Main info */}
-                      <div className="flex-1 min-w-0 max-w-full overflow-hidden">
+                      <div className="flex-1 min-w-0 max-w-full overflow-hidden pr-[116px] sm:pr-[230px]">
                         {/* Row 1: date + customer */}
                         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-hidden">
                           <span className="text-muted-foreground shrink-0">
@@ -3751,7 +3750,17 @@ const getSafeOrderTotal = (o: Order) => {
                               </span>
                             )}
 
-                          {leftSystemBadges.map((badge) => renderOrderCardBadge(badge))}
+                          {leftSystemBadges.map((badge) => (
+                            <span
+                              key={badge.key}
+                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
+                            >
+                              {badge.icon && (
+                                <AlertTriangle className="w-3 h-3" />
+                              )}
+                              {badge.label}
+                            </span>
+                          ))}
 
                           {showAudioTooLongBadge && (
                             <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
@@ -3778,12 +3787,6 @@ const getSafeOrderTotal = (o: Order) => {
                           {isSonstiges && "⚠ "}
                           {serviceLine}
                         </p>
-
-                        {operationalBadges.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1 mt-1 max-w-full overflow-hidden">
-                            {operationalBadges.map((badge) => renderOrderCardBadge(badge))}
-                          </div>
-                        )}
 
                         {/* Row 3: [status] [media] ... [price] */}
                         <div className="flex flex-wrap items-center gap-1.5 mt-1 max-w-full overflow-visible">
@@ -3832,25 +3835,29 @@ const getSafeOrderTotal = (o: Order) => {
 
                           {footerBadges.map((badge) => renderOrderCardBadge(badge))}
 
-                          <div className="ml-auto flex min-w-[118px] max-w-[180px] shrink-0 flex-col items-end self-stretch justify-between gap-2 sm:min-w-[210px] sm:max-w-[300px]">
-                            <div className="flex flex-wrap justify-end gap-1 min-h-[24px]">
-                              {rightSideBadges.map((badge) => renderOrderCardBadge(badge, { priceSide: true }))}
-                            </div>
+                          {appointmentBadges.map((badge) => renderOrderCardBadge(badge))}
 
-                            <div className="whitespace-nowrap text-right">
-                              <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
-                                {formatCurrency(
-                                  getSafeOrderTotal(o),
-                                  o.currency === "EUR" ? "EUR" : "CHF",
-                                )}
-                              </div>
-                              {hasOrderVat(o) && (
-                                <div className="text-[9px] leading-none text-muted-foreground">
-                                  inkl. MwSt
-                                </div>
-                              )}
-                            </div>
+                          {operationalBadges.map((badge) => renderOrderCardBadge(badge))}
+
+
+                        </div>
+
+                        <div className="pointer-events-none absolute right-2 top-2 flex max-w-[112px] flex-wrap justify-end gap-1 sm:right-3 sm:max-w-[210px]">
+                          {rightSideBadges.map((badge) => renderOrderCardBadge(badge, { priceSide: true }))}
+                        </div>
+
+                        <div className="pointer-events-none absolute bottom-2 right-2 whitespace-nowrap text-right sm:right-3">
+                          <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
+                            {formatCurrency(
+                              getSafeOrderTotal(o),
+                              o.currency === "EUR" ? "EUR" : "CHF",
+                            )}
                           </div>
+                          {hasOrderVat(o) && (
+                            <div className="text-[9px] leading-none text-muted-foreground">
+                              inkl. MwSt
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -4636,7 +4643,7 @@ const getSafeOrderTotal = (o: Order) => {
                         className="h-7 shrink-0 px-2 text-xs"
                       >
                         <Plus className="mr-1 h-3.5 w-3.5" />
-                        Leistung hinzufügen
+                        Hinzufügen
                       </Button>
                     </div>
 
@@ -4759,31 +4766,6 @@ const getSafeOrderTotal = (o: Order) => {
                             : "Preis prüfen",
                         ].filter(Boolean);
                         const orderSummary = orderSummaryParts.join(" ");
-                        const isCompleteItemForCatalogAction =
-                          Boolean(item.serviceName?.trim()) &&
-                          Boolean(item.unit?.trim()) &&
-                          Number(item.unitPrice || 0) > 0 &&
-                          Number(item.quantity || 0) > 0;
-                        const isCatalogExactMatch =
-                          Boolean(catalogService) &&
-                          normalizePriceUnitForCompare(catalogService?.unit) ===
-                            normalizePriceUnitForCompare(item.unit) &&
-                          Number.isFinite(catalogPrice) &&
-                          Number.isFinite(itemPriceNumber) &&
-                          Math.abs(catalogPrice - itemPriceNumber) < 0.01;
-                        const wasOriginallyReviewItem =
-                          Boolean(
-                            item.aiWarning?.trim() ||
-                              unitMismatchReason ||
-                              priceOverrideReason ||
-                              priceUnclearReason ||
-                              showManualServiceReview ||
-                              hasCurrencyConflict,
-                          );
-                        const showCompletedCatalogActionState =
-                          isCompleteItemForCatalogAction &&
-                          wasOriginallyReviewItem &&
-                          !isCatalogExactMatch;
                         const showItemReviewBlock =
                           !hasCurrencyConflict &&
                           (showUnitConflict ||
@@ -4793,18 +4775,16 @@ const getSafeOrderTotal = (o: Order) => {
                             quantityInputReview ||
                             showManualServiceReview);
                         const isBlockingItemReview =
-                          (priceInputReview || quantityInputReview || showPriceReferenceReview || showUnitConflict) &&
-                          !showCompletedCatalogActionState;
+                          priceInputReview ||
+                          quantityInputReview ||
+                          showPriceReferenceReview ||
+                          showUnitConflict;
                         const isMenuOpen = serviceActionMenuKey === item.key;
                         const hasCriticalItemReview = isBlockingItemReview;
                         const hasCatalogActionMenu =
-                          showCompletedCatalogActionState ||
-                          (!hasCriticalItemReview && (showManualServiceReview || showPriceOverride));
+                          !hasCriticalItemReview && (showManualServiceReview || showPriceOverride);
                         const hasAnyItemReview =
-                          hasCriticalItemReview ||
-                          showPriceOverride ||
-                          showManualServiceReview ||
-                          showCompletedCatalogActionState;
+                          hasCriticalItemReview || showPriceOverride || showManualServiceReview;
 
                         return (
                           <div
