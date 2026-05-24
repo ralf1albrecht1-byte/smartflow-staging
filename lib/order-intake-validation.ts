@@ -2569,6 +2569,54 @@ function applyExplicitLineCoverage(
 }
 
 
+function findUnclearTravelReferenceLine(originalText: string): string | null {
+  const line = splitRawIntakeLines(originalText).find((candidate) => {
+    const normalized = normalizeCompare(candidate);
+    if (!normalized) return false;
+
+    return /\b(?:anfahrt|fahrt|fahrtkosten|fahrpauschale|wegpauschale|deplacement)\b/.test(normalized) &&
+      /\b(?:normal|standard|wie\s+immer|wie\s+gehabt|wie\s+letztes\s+mal)\b/.test(normalized) &&
+      !hasExplicitCurrencyAmount(candidate) &&
+      !detectCurrencylessFlatPriceFromSegment(candidate, "CHF") &&
+      extractUnitPricesFromSegment(candidate).length === 0;
+  });
+
+  return line || null;
+}
+
+function repairUnclearTravelItems(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const travelLine = findUnclearTravelReferenceLine(originalText);
+  if (!travelLine) return { items, reviewReasons: [] };
+
+  const reviewReasons: string[] = [];
+
+  const repaired = items.map((item) => {
+    const serviceName = normalizeCompare(item.serviceName);
+    if (serviceName !== "anfahrt" && serviceName !== "anfahrt pauschal") return item;
+
+    reviewReasons.push("price_unclear:Anfahrt", "unit_price_review");
+
+    return {
+      ...item,
+      serviceName: "Anfahrt",
+      description: item.description || travelLine,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: "price_unclear:Anfahrt",
+      sourceText: item.sourceText || travelLine,
+      evidence: item.evidence || travelLine,
+    };
+  });
+
+  return { items: repaired, reviewReasons: unique(reviewReasons) };
+}
+
 function removeSubsumedReviewOnlyItems(
   items: ParsedOrderItemForValidation[],
 ): ParsedOrderItemForValidation[] {
@@ -2772,6 +2820,10 @@ export function validateAndRepairParsedOrderItems(
   items = removeFlatItemsDuplicatingMeasuredServiceWithoutOwnLine(input.originalText, items, finalCurrency);
   items = removeUnpricedDuplicateServiceArtifacts(items);
   reviewReasons.push(...unclearGuard.reviewReasons);
+
+  const unclearTravelRepair = repairUnclearTravelItems(input.originalText, items);
+  items = unclearTravelRepair.items;
+  reviewReasons.push(...unclearTravelRepair.reviewReasons);
 
   items = removeSubsumedReviewOnlyItems(items);
 

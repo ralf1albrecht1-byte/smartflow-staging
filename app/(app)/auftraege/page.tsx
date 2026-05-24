@@ -47,7 +47,7 @@ import {
   DuplicateCheckPanel,
   type DuplicateMatch,
 } from "@/components/customer-duplicate-check";
-import { buildSpecialNotes, detectCallbackRequest, splitSpecialNotes } from "@/lib/special-notes-utils";
+import { buildSpecialNotes, splitSpecialNotes, detectCallbackRequest } from "@/lib/special-notes-utils";
 import { fetchAllJSON } from "@/lib/fetch-utils";
 import { LoadErrorFallback } from "@/components/load-error-fallback";
 import { ORDER_STATUS_STYLES, getStatusStyle } from "@/lib/status-colors";
@@ -1093,9 +1093,9 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
     PRICE_AMOUNT_REVIEW_BADGE_KEYS.has(badge.key),
   );
 
-  // Währung ist ein eigener Blocker. Wenn gemischte Währungen erkannt wurden,
-  // reicht außen "Währung prüfen"; zusätzliche Preis-/Betrag-Chips wirken
-  // doppelt und werden innen im Warnblock erklärt.
+  // Wenn die Währung selbst unsicher/konfliktbehaftet ist, reicht außen
+  // "Währung prüfen". Zusätzliche Sammelchips wie "Preisangaben prüfen"
+  // sind dann doppelt und machen die Karte unnötig laut.
   if (currencyBadges.length > 0) {
     return currencyBadges;
   }
@@ -1208,7 +1208,6 @@ const getBottomBadges = (
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-200";
-  // RUECKRUF_VIA_COMMUNICATION_CHIPS_V8: callback is rendered once by CommunicationChips.
 
   const isMergedOrder =
     order.reviewReasons?.includes("manual_order_merge") ||
@@ -1222,17 +1221,20 @@ const getBottomBadges = (
     });
   }
 
-  const callbackHint = detectCallbackRequest(
-    [order.specialNotes, order.notes, order.audioTranscript]
-      .filter(Boolean)
-      .join("\n"),
-  );
+  const callbackSource = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  if (callbackHint) {
+  if (detectCallbackRequest(callbackSource)) {
     pushUniqueBadge(badges, {
-      key: "callback",
+      key: "callback_request",
       label: "Rückruf",
-      className: "bg-cyan-100 text-cyan-700 border border-cyan-200",
+      className: "bg-slate-900 text-blue-50 border border-slate-700 shadow-sm",
     });
   }
 
@@ -1257,6 +1259,40 @@ const getBottomBadges = (
 
   return badges;
 };
+
+const isPositiveCallbackChipLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  const negative =
+    /kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|rueckruf\s+(?:nicht\s+)?(?:noetig|erwuenscht)/.test(text);
+
+  if (negative) return false;
+
+  return /rueckruf\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn)|bitte\s+(?:zurueckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren)|telefonischer\s+rueckruf|telefonisch\s+abklaeren|\b\d+\s*minuten\s+vorher\s+anrufen/.test(text);
+};
+
+const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
+  String(value || "")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter((line) => line && !isPositiveCallbackChipLine(line))
+    .join("\n");
+
+const renderOrderCardBadge = (badge: ReviewBadge) => (
+  <span
+    key={badge.key}
+    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
+  >
+    {badge.key === "callback_request" && (
+      <span className="text-red-500 leading-none">☎</span>
+    )}
+    {badge.icon && badge.key !== "callback_request" && (
+      <AlertTriangle className="w-3 h-3" />
+    )}
+    {badge.label}
+  </span>
+);
 
 const cleanServiceLabel = (value?: string | null) => {
   let text = compactText(value);
@@ -3675,25 +3711,21 @@ const getSafeOrderTotal = (o: Order) => {
                           <CommunicationChips
                             data={{
                               ...o,
-                              notes: [o.notes, o.specialNotes, o.audioTranscript]
+                              specialNotes: removeCallbackLinesForCommunicationChips(o.specialNotes),
+                              notes: [
+                                removeCallbackLinesForCommunicationChips(o.notes),
+                                removeCallbackLinesForCommunicationChips(o.specialNotes),
+                                removeCallbackLinesForCommunicationChips(o.audioTranscript),
+                              ]
                                 .filter(Boolean)
                                 .join("\n"),
+                              audioTranscript: removeCallbackLinesForCommunicationChips(o.audioTranscript),
                             }}
                             onAudioClick={() => openMedia(o)}
                             onImageClick={() => openMedia(o)}
                           />
 
-                          {footerBadges.map((badge) => (
-                            <span
-                              key={badge.key}
-                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
-                            >
-                              {badge.icon && (
-                                <AlertTriangle className="w-3 h-3" />
-                              )}
-                              {badge.label}
-                            </span>
-                          ))}
+                          {footerBadges.map(renderOrderCardBadge)}
 
                           <div className="ml-auto flex max-w-[190px] shrink-0 flex-col items-end gap-1 sm:max-w-[260px]">
                             {rightSideBadges.length > 0 && (
@@ -3712,20 +3744,10 @@ const getSafeOrderTotal = (o: Order) => {
                               </div>
                             )}
 
-                            <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-                              {appointmentBadges.map((badge) => (
-                                <span
-                                  key={badge.key}
-                                  className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
-                                >
-                                  {badge.icon && (
-                                    <AlertTriangle className="w-3 h-3" />
-                                  )}
-                                  {badge.label}
-                                </span>
-                              ))}
+                            <div className="flex items-center justify-end gap-1.5">
+                              {appointmentBadges.map(renderOrderCardBadge)}
 
-                              <div className="text-right">
+                              <div className="whitespace-nowrap text-right">
                                 <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
                                   {formatCurrency(
                                     getSafeOrderTotal(o),

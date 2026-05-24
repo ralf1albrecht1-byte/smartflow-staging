@@ -38,8 +38,8 @@ const normalizeLine = (value: string) => value.replace(/\s+/g, " ").trim();
 const stripKnownMarker = (line: string) =>
   normalizeLine(line.replace(SAFETY_MARKER, "").replace(HINT_MARKER, ""));
 
-const normalizeSemanticNoteKey = (value: string) =>
-  normalizeLine(value)
+const normalizeDedupeText = (value: string) =>
+  stripKnownMarker(value)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -51,47 +51,50 @@ const normalizeSemanticNoteKey = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const semanticDuplicateGroup = (value: string) => {
-  const text = normalizeSemanticNoteKey(value);
-  if (/\bhund\b/.test(text)) return "dog";
-  if (/\bleiter\b/.test(text)) return "ladder";
+const semanticNoteKey = (value: string) => {
+  const text = normalizeDedupeText(value);
+  if (!text) return "";
+
+  if (/\bhund\b|\bgartenhund\b|\bdog\b/.test(text)) return "dog";
+  if (/\bleiter\b|\bladder\b/.test(text)) return "ladder";
+  if (/\bschluessel\b|\bschluessel\b|\bkey\b|\bbriefkasten\b/.test(text)) return "key";
+  if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
+  if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
+  if (/\brueckruf\b|\bruckruf\b|\banrufen\b|\btelefonisch\b|\btelefon\b/.test(text)) return "callback";
+
   return text;
 };
 
-const semanticNoteScore = (value: string) => {
-  const text = normalizeSemanticNoteKey(value);
-  let score = Math.min(text.length, 120);
+const noteSpecificityScore = (value: string) => {
+  const text = normalizeDedupeText(value);
+  let score = text.length;
 
-  if (/\bhund\b/.test(text)) {
-    if (/\b(frei|garten|grundstueck|grundstuck|warnt|achtung)\b/.test(text)) score += 40;
-    if (/\bvor ort\b/.test(text)) score -= 20;
-  }
-
-  if (/\bleiter\b/.test(text)) {
-    if (/\b(nötig|noetig|benoetigt|benötigt|obere|fenster|fassade)\b/.test(text)) score += 30;
-    if (/\b(eventuell|vielleicht)\b/.test(text)) score -= 20;
-  }
+  if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
+  if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
+  if (/eventuell|vielleicht|moeglich|möglich/.test(text)) score -= 30;
+  if (/vor ort/.test(text)) score -= 20;
 
   return score;
 };
 
-const dedupeSemanticNotes = (values: string[]) => {
-  const byGroup = new Map<string, string>();
+const dedupeSemanticLines = (values: string[]) => {
+  const byKey = new Map<string, string>();
 
-  values.forEach((value) => {
-    const cleaned = normalizeLine(value);
-    if (!cleaned) return;
+  for (const rawValue of values) {
+    const value = normalizeLine(rawValue);
+    if (!value) continue;
 
-    const group = semanticDuplicateGroup(cleaned);
-    const existing = byGroup.get(group);
-    if (!existing || semanticNoteScore(cleaned) > semanticNoteScore(existing)) {
-      byGroup.set(group, cleaned);
+    const key = semanticNoteKey(value);
+    if (!key) continue;
+
+    const existing = byKey.get(key);
+    if (!existing || noteSpecificityScore(value) > noteSpecificityScore(existing)) {
+      byKey.set(key, value);
     }
-  });
+  }
 
-  return Array.from(byGroup.values());
+  return Array.from(byKey.values());
 };
-
 
 export const isSafetyWarningLine = (line: string | null | undefined) => {
   if (!line) return false;
@@ -152,10 +155,16 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     if (cleaned) jobHints.push(cleaned);
   }
 
+  const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
+  const safetyKeys = new Set(dedupedSafetyWarnings.map(semanticNoteKey));
+  const dedupedJobHints = dedupeSemanticLines(jobHints).filter(
+    (line) => !safetyKeys.has(semanticNoteKey(line)),
+  );
+
   return {
-    systemHints: dedupeSemanticNotes(systemHints),
-    safetyWarnings: dedupeSemanticNotes(safetyWarnings),
-    jobHints: dedupeSemanticNotes(jobHints),
+    systemHints: dedupeSemanticLines(systemHints),
+    safetyWarnings: dedupedSafetyWarnings,
+    jobHints: dedupedJobHints,
   };
 }
 
@@ -203,15 +212,21 @@ export function buildSpecialNotes(input: {
   const jobHints = input.jobHints ?? [];
   const systemHints = input.systemHints ?? [];
 
+  const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
+  const safetyKeys = new Set(dedupedSafetyWarnings.map(semanticNoteKey));
+  const dedupedJobHints = dedupeSemanticLines(jobHints).filter(
+    (line) => !safetyKeys.has(semanticNoteKey(line)),
+  );
+
   const lines = [
-    ...safetyWarnings.map(formatSafetyWarningLine),
-    ...jobHints.map(formatHintLine),
-    ...systemHints.map(stripKnownMarker),
+    ...dedupedSafetyWarnings.map(formatSafetyWarningLine),
+    ...dedupedJobHints.map(formatHintLine),
+    ...dedupeSemanticLines(systemHints).map(stripKnownMarker),
   ]
     .map((line) => line.trim())
     .filter(Boolean);
 
-  return dedupeSemanticNotes(Array.from(new Set(lines))).join("\n");
+  return Array.from(new Set(lines)).join("\n");
 }
 
 /**
