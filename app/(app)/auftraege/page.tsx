@@ -1306,6 +1306,20 @@ const getBottomBadges = (
     });
   }
 
+  const smsSource = [order.specialNotes, order.notes, ...parsedNotes.jobHints]
+    .filter(Boolean)
+    .join("\n");
+  const smsSourceKey = normalizeForMatch(smsSource);
+  const hasPositiveSmsHint = /\bsms\b/.test(smsSourceKey) && !/(kein|keine|keinen|nicht|ohne)\s+sms/.test(smsSourceKey);
+
+  if (hasPositiveSmsHint) {
+    pushUniqueBadge(badges, {
+      key: "sms_request",
+      label: "SMS",
+      className: "bg-cyan-100 text-cyan-800 border border-cyan-300",
+    });
+  }
+
   const appointmentBaseDate = order.createdAt || order.date;
   const appointmentBadge = splitAppointmentSources(
     ...parsedNotes.jobHints,
@@ -1337,7 +1351,7 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
 
   if (negative) return false;
 
-  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+abklaeren|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)/.test(text);
+  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(text);
 };
 
 const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
@@ -4614,11 +4628,23 @@ const getSafeOrderTotal = (o: Order) => {
               ) : (
                 <>
                   <div className="rounded-xl border bg-background p-2.5 sm:p-3 space-y-2">
-                    <div>
-                      <Label className="text-base font-semibold">Leistungen *</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.
-                      </p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <Label className="text-base font-semibold">Leistungen *</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={addItem}
+                        className="h-7 shrink-0 px-2 text-xs"
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        Hinzufügen
+                      </Button>
                     </div>
 
                     {hasEditCurrencyReview && (
@@ -4755,6 +4781,8 @@ const getSafeOrderTotal = (o: Order) => {
                           showUnitConflict;
                         const isMenuOpen = serviceActionMenuKey === item.key;
                         const hasCriticalItemReview = isBlockingItemReview;
+                        const hasCatalogActionMenu =
+                          !hasCriticalItemReview && (showManualServiceReview || showPriceOverride);
                         const hasAnyItemReview =
                           hasCriticalItemReview || showPriceOverride || showManualServiceReview;
 
@@ -4804,7 +4832,7 @@ const getSafeOrderTotal = (o: Order) => {
                               </div>
 
                               <div className="relative shrink-0">
-                                {isManualService ? (
+                                {hasCatalogActionMenu ? (
                                   <>
                                     <button
                                       type="button"

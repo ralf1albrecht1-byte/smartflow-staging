@@ -3081,7 +3081,7 @@ function isLikelyAddressStreetLine(value: string): boolean {
 
 // INTAKE_EXECUTION_ADDRESS_SAFE_EMPTY_V11
 const SOFT_EXECUTION_ADDRESS_LINE_PATTERN =
-  /\b(liegenschaft|arbeitsort|arbeitsadresse|arbeit\s+(?:ist|isch|is|wird)|gearbeitet\s+wird|arbeiten|work\s+location|job\s+location|adresse\s+de\s+travail|lieu\s+du\s+travail|ort\s+der\s+arbeit|sondern\s+(?:in|im|bei|beim))\b/i;
+  /\b(liegenschaft|arbeitsort|arbeitsadresse|arbeit\s+(?:ist|isch|is|wird)|gearbeitet\s+wird|gemacht\s+(?:werden\s+muss|wird|werden)|machen\s+(?:wir|sie)|arbeiten|work\s+location|job\s+location|adresse\s+de\s+travail|lieu\s+du\s+travail|ort\s+der\s+arbeit|sondern\s+(?:in|im|bei|beim))\b/i;
 
 function isLikelyServiceOrPriceLine(value: string): boolean {
   const text = normalizeCompare(value);
@@ -3119,6 +3119,7 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
     .replace(/^.*?\bsondern\s+(?:in\s+der|in\s+dem|im|in|bei\s+der|beim|bei|bi\s+de|bi)\s+/i, "")
     .replace(/^.*?\b(?:liegenschaft|objektadresse|objekt|baustelle|arbeitsort|arbeitsadresse|leistungsort|serviceadresse|job\s+site|job\s+location|work\s+location|lieu\s+du\s+travail)\b\s*(?:ist|isch|is|:)?\s*/i, "")
     .replace(/^.*?\b(?:arbeit\s+(?:ist|isch|is)|gearbeitet\s+wird)\b\s*(?:aber\s+)?(?:drueben|drüben)?\s*(?:bei\s+der|beim|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in)?\s*/i, "")
+    .replace(/^.*?\b(?:gemacht\s+(?:werden\s+muss|wird|werden)|machen\s+(?:wir|sie))\b\s*(?:es\s+)?(?:draussen|draußen|drinnen|hinten|vorne)?\s*(?:bei\s+der|beim|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in)?\s*/i, "")
     .replace(/^(?:es\s+(?:geht|goht)\s+um(?:s)?|ist|isch|is|aber|drueben|drüben|bei\s+der|beim|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in|de|der|die|das)\s+/i, "")
     .replace(/^[:\-–—]+\s*/, "")
     .replace(/\s+/g, " ")
@@ -3126,8 +3127,9 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
 
   if (!candidate) return null;
 
-  const softSplit = candidate.split(/\b(?:liegenschaft|objekt|baustelle|arbeitsort|arbeitsadresse|leistungsort|sondern)\b/i);
+  const softSplit = candidate.split(/\b(?:liegenschaft|objekt|baustelle|arbeitsort|arbeitsadresse|leistungsort|sondern|gemacht\s+(?:werden\s+muss|wird|werden)|machen\s+(?:wir|sie))\b/i);
   candidate = (softSplit[softSplit.length - 1] || candidate)
+    .replace(/^(?:es\s+)?(?:draussen|draußen|drinnen|hinten|vorne)?\s*(?:bei\s+der|beim|bei|bi\s+de|bi|in\s+der|in\s+dem|im|in)?\s*/i, "")
     .replace(/^(?:es\s+(?:geht|goht)\s+um(?:s)?|ist|isch|is|in\s+der|in\s+dem|im|in|bei\s+der|beim|bei|bi\s+de|bi|de|der|die|das)\s+/i, "")
     .replace(/[,;:.]+$/g, "")
     .replace(/\s+/g, " ")
