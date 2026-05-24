@@ -305,7 +305,7 @@ export function detectCallbackRequest(
   const callbackHint = jobHints.find((line) => {
     const normalized = normalizeCallbackText(line);
     if (isNegativeCallbackLine(line)) return false;
-    return /\b(rueckruf\s+(?:gewuenscht|erwuenscht|bitte|vor)|bitte\s+(?:zurueckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren)|telefonisch\s+abklaeren|kunde\s+moechte\s+(?:rueckruf|anruf))\b/i.test(normalized);
+    return /\b(rueckruf\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn)|telefonischer\s+rueckruf|bitte\s+(?:zurueckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren)|telefonisch\s+abklaeren|kunde\s+moechte\s+(?:rueckruf|anruf)|\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn)\s+(?:anrufen|telefonieren))\b/i.test(normalized);
   });
 
   return callbackHint || null;

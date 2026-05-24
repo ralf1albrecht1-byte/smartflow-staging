@@ -1234,7 +1234,7 @@ const getBottomBadges = (
     pushUniqueBadge(badges, {
       key: "callback_request",
       label: "Rückruf",
-      className: "bg-slate-900 text-blue-50 border border-slate-700 shadow-sm",
+      className: "bg-blue-950 text-white border border-blue-900 shadow-sm",
     });
   }
 
@@ -3729,14 +3729,14 @@ const getSafeOrderTotal = (o: Order) => {
 
                           <div className="ml-auto flex max-w-[190px] shrink-0 flex-col items-end gap-1 sm:max-w-[260px]">
                             {rightSideBadges.length > 0 && (
-                              <div className="flex flex-wrap justify-end gap-1">
+                              <div className="flex flex-wrap justify-end gap-0.5">
                                 {rightSideBadges.map((badge) => (
                                   <span
                                     key={badge.key}
-                                    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
+                                    className={`inline-flex items-center gap-0.5 text-[9px] leading-none px-1 py-[1px] rounded-full font-medium shrink-0 ${badge.className}`}
                                   >
                                     {badge.icon && (
-                                      <AlertTriangle className="w-3 h-3" />
+                                      <AlertTriangle className="w-2.5 h-2.5" />
                                     )}
                                     {badge.label}
                                   </span>
