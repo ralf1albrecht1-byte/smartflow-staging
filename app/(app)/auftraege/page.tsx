@@ -941,6 +941,16 @@ const getOperationalBadges = (
   return visible;
 };
 
+const AMOUNT_REVIEW_BADGE_KEYS = new Set([
+  "price_quantity",
+  "unit_conflict",
+  "currency_review",
+  "price_deviation",
+]);
+
+const isAmountReviewBadge = (badge: ReviewBadge) =>
+  AMOUNT_REVIEW_BADGE_KEYS.has(badge.key);
+
 const getSystemBadges = (order: Order): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
@@ -988,6 +998,18 @@ const getSystemBadges = (order: Order): ReviewBadge[] => {
     pushUniqueBadge(badges, {
       key: "currency_review",
       label: "Währung prüfen",
+      className: "bg-red-100 text-red-700 border border-red-200",
+      icon: true,
+    });
+  }
+
+  const hasPriceDeviationReview =
+    order.reviewReasons?.some((reason) => reason.startsWith("price_override:")) ?? false;
+
+  if (hasPriceDeviationReview) {
+    pushUniqueBadge(badges, {
+      key: "price_deviation",
+      label: "Preisabweichung prüfen",
       className: "bg-red-100 text-red-700 border border-red-200",
       icon: true,
     });
@@ -3226,6 +3248,10 @@ const getSafeOrderTotal = (o: Order) => {
             const serviceLine = getOrderCardServiceSummary(o);
             const parsedCardNotes = splitSpecialNotes(o.specialNotes);
             const systemBadges = getSystemBadges(o);
+            const amountReviewBadges = systemBadges.filter(isAmountReviewBadge);
+            const leftSystemBadges = systemBadges.filter(
+              (badge) => !isAmountReviewBadge(badge),
+            );
             const operationalBadges = getOperationalBadges(o, parsedCardNotes);
             const bottomBadges = getBottomBadges(o, parsedCardNotes);
             const appointmentBadges = bottomBadges.filter(
@@ -3375,7 +3401,7 @@ const getSafeOrderTotal = (o: Order) => {
                               </span>
                             )}
 
-                          {systemBadges.map((badge) => (
+                          {leftSystemBadges.map((badge) => (
                             <span
                               key={badge.key}
                               className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
@@ -3480,18 +3506,34 @@ const getSafeOrderTotal = (o: Order) => {
                             </span>
                           ))}
 
-                          <div className="ml-auto flex items-center gap-2 shrink-0">
-                            {appointmentBadges.map((badge) => (
-                              <span
-                                key={badge.key}
-                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
-                              >
-                                {badge.icon && (
-                                  <AlertTriangle className="w-3 h-3" />
-                                )}
-                                {badge.label}
-                              </span>
-                            ))}
+                          <div className="ml-auto flex max-w-[190px] shrink-0 flex-col items-end gap-1 sm:max-w-[260px]">
+                            {(amountReviewBadges.length > 0 || appointmentBadges.length > 0) && (
+                              <div className="flex flex-wrap justify-end gap-1">
+                                {amountReviewBadges.map((badge) => (
+                                  <span
+                                    key={badge.key}
+                                    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
+                                  >
+                                    {badge.icon && (
+                                      <AlertTriangle className="w-3 h-3" />
+                                    )}
+                                    {badge.label}
+                                  </span>
+                                ))}
+
+                                {appointmentBadges.map((badge) => (
+                                  <span
+                                    key={badge.key}
+                                    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
+                                  >
+                                    {badge.icon && (
+                                      <AlertTriangle className="w-3 h-3" />
+                                    )}
+                                    {badge.label}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
 
                             <div className="whitespace-nowrap text-right">
                               <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
@@ -4398,8 +4440,8 @@ const getSafeOrderTotal = (o: Order) => {
                                       </Badge>
                                     )}
                                     {showPriceOverride && (
-                                      <Badge className="px-1.5 py-0 text-[10px] bg-amber-100 text-amber-700 border border-amber-200">
-                                        Preisabweichung
+                                      <Badge className="px-1.5 py-0 text-[10px] bg-red-100 text-red-700 border border-red-200">
+                                        Preisabweichung prüfen
                                       </Badge>
                                     )}
                                     {showQuantityReview && (
