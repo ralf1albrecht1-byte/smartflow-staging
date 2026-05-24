@@ -36,7 +36,10 @@ export interface SplitJobHints {
 const normalizeLine = (value: string) => value.replace(/\s+/g, " ").trim();
 
 const fixVisibleNoteGrammar = (value: string) =>
-  value.replace(/Keine telefonische Rückruf notwendig/gi, "Kein telefonischer Rückruf notwendig");
+  value
+    .replace(/\bKeine telefonische Rückruf notwendig\b/gi, "Kein telefonischer Rückruf notwendig")
+    .replace(/\bKeine telefonische Rückrufwunsch\b/gi, "Kein telefonischer Rückrufwunsch")
+    .replace(/\bKeine telefonischer Rückrufwunsch\b/gi, "Kein telefonischer Rückrufwunsch");
 
 const stripKnownMarker = (line: string) =>
   fixVisibleNoteGrammar(

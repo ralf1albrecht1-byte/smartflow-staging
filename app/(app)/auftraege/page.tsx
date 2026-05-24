@@ -740,10 +740,10 @@ const getAppointmentBadgeVisual = (
   orderStatus?: string | null,
 ) => {
   const normalClass = "bg-violet-100 text-violet-700 border border-violet-300";
-  const tomorrowClass = "bg-violet-200 text-violet-800 border border-violet-300";
+  const tomorrowClass = "bg-violet-200 text-violet-800 border border-violet-400";
   const todayClass = "bg-orange-100 text-orange-800 border border-orange-300";
-  const overdueClass = "bg-orange-100 text-orange-800 border border-orange-300";
-  const doneClass = "bg-slate-100 text-slate-600 border border-slate-200";
+  const overdueClass = "bg-slate-100 text-slate-600 border border-slate-300";
+  const doneClass = "bg-slate-100 text-slate-600 border border-slate-300";
 
   const cleanLabel = labelParts.filter(Boolean).join(" ").trim();
   const completed = normalizeForMatch(orderStatus).includes("erledigt");
@@ -854,13 +854,25 @@ const extractAppointmentBadge = (
       ? resolveWeekdayAppointmentDate(weekdayIndex, baseDateInput, hasNextWeek)
       : null);
 
-  const shouldShowGenericAppointmentOnly =
-    computedAppointmentDate &&
+  const isAmbiguousSameWeekdayAppointment =
+    Boolean(computedAppointmentDate) &&
     !hasNextWeek &&
     !hasToday &&
     !hasTomorrow &&
     !explicitDateObject &&
-    isAmbiguousElapsedSameDayAppointment(computedAppointmentDate, baseDateInput, time, dayPart);
+    weekdayIndex !== null &&
+    isSameAppointmentCalendarDay(computedAppointmentDate, baseDate);
+
+  const shouldShowGenericAppointmentOnly =
+    Boolean(computedAppointmentDate) &&
+    !hasNextWeek &&
+    !hasToday &&
+    !hasTomorrow &&
+    !explicitDateObject &&
+    (
+      isAmbiguousSameWeekdayAppointment ||
+      isAmbiguousElapsedSameDayAppointment(computedAppointmentDate, baseDateInput, time, dayPart)
+    );
 
   if (shouldShowGenericAppointmentOnly) {
     return {
@@ -1181,9 +1193,8 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
   if (hasPriceDeviationReview) {
     pushUniqueBadge(badges, {
       key: "price_deviation",
-      label: "Katalogpreis prüfen",
-      className: "bg-red-100 text-red-700 border border-red-300",
-      icon: true,
+      label: "Textpreis",
+      className: "bg-amber-100 text-amber-800 border border-amber-300",
     });
   }
 
@@ -1426,7 +1437,6 @@ const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^unit_price_review$/,
   /^quantity_review$/,
   /^price_unclear:/,
-  /^price_override:/,
   /^unbekannte_leistung_pruefen$/,
   /^stunden_arbeitsposition_pruefen$/,
   /^total_unrealistic_check$/,
@@ -4881,15 +4891,14 @@ const getSafeOrderTotal = (o: Order) => {
 
                                   {!showUnitConflict && showPriceOverride && catalogService && (
                                     <div className="space-y-0.5">
-                                      {sourceLineForItem && (
-                                        <div>
-                                          Text: <span className="font-medium">{sourceLineForItem}</span>
-                                        </div>
-                                      )}
                                       <div>
-                                        Katalog: {formatCurrency(catalogPrice, currency)} · Auftrag: {formatCurrency(itemPriceNumber, currency)}
+                                        Text: <span className="font-medium">{sourceLineForItem || orderSummary}</span>
+                                        <span className="font-semibold"> — Textpreis übernommen.</span>
                                       </div>
-                                      <div>Textpreis übernommen. Bitte kurz prüfen.</div>
+                                      <div className="text-amber-700/75 dark:text-amber-200/75">
+                                        Katalog: {catalogService.unit} · {formatCurrency(catalogPrice, currency)}
+                                      </div>
+                                      <div>Bitte kurz prüfen.</div>
                                     </div>
                                   )}
 
