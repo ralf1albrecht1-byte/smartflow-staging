@@ -548,7 +548,7 @@ const getParkingBadge = (value?: string | null, context?: string | null): { labe
   if (ownSignal.hasPositive) {
     return {
       label: "Parken",
-      className: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+      className: "bg-emerald-100 text-emerald-700 border border-emerald-300",
     };
   }
 
@@ -739,7 +739,7 @@ const getAppointmentBadgeVisual = (
   labelParts: string[],
   orderStatus?: string | null,
 ) => {
-  const normalClass = "bg-violet-100 text-violet-700 border border-violet-200";
+  const normalClass = "bg-violet-100 text-violet-700 border border-violet-300";
   const tomorrowClass = "bg-violet-200 text-violet-800 border border-violet-300";
   const todayClass = "bg-orange-100 text-orange-800 border border-orange-300";
   const overdueClass = "bg-orange-100 text-orange-800 border border-orange-300";
@@ -865,7 +865,7 @@ const extractAppointmentBadge = (
   if (shouldShowGenericAppointmentOnly) {
     return {
       label: "Termin",
-      className: "bg-violet-100 text-violet-700 border border-violet-200",
+      className: "bg-violet-100 text-violet-700 border border-violet-300",
     };
   }
 
@@ -897,9 +897,9 @@ const getOperationalBadges = (
     .filter(Boolean)
     .join(" | ");
 
-  const redWarningClass = "bg-red-100 text-red-700 border border-red-200";
-  const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-200";
-  const greenInfoClass = "bg-emerald-100 text-emerald-700 border border-emerald-200";
+  const redWarningClass = "bg-red-100 text-red-700 border border-red-300";
+  const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-300";
+  const greenInfoClass = "bg-emerald-100 text-emerald-700 border border-emerald-300";
 
   const addDanger = (key: string, label: string) =>
     pushUniqueBadge(badges, {
@@ -1105,7 +1105,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
       {
         key: "price_inputs_review",
         label: "Preisangaben prüfen",
-        className: "bg-red-100 text-red-700 border border-red-200",
+        className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
       },
     ];
@@ -1121,7 +1121,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "site_address",
       label: "Ausführungsadresse",
-      className: "bg-cyan-100 text-cyan-700 border border-cyan-200",
+      className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
     });
   }
 
@@ -1146,7 +1146,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "price_quantity",
       label: "Betrag prüfen",
-      className: "bg-red-100 text-red-700 border border-red-200",
+      className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
     });
   }
@@ -1158,7 +1158,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "unit_conflict",
       label: "Einheit prüfen",
-      className: "bg-red-100 text-red-700 border border-red-200",
+      className: "bg-red-100 text-red-700 border border-red-300",
     });
   }
 
@@ -1169,7 +1169,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "currency_review",
       label: "Währung prüfen",
-      className: "bg-red-100 text-red-700 border border-red-200",
+      className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
     });
   }
@@ -1182,7 +1182,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "price_deviation",
       label: "Katalogpreis prüfen",
-      className: "bg-red-100 text-red-700 border border-red-200",
+      className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
     });
   }
@@ -1195,7 +1195,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "customer_review",
       label: "Kunde prüfen",
-      className: "bg-yellow-100 text-yellow-700 border border-yellow-200",
+      className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
     });
   }
 
@@ -1207,7 +1207,7 @@ const getBottomBadges = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
-  const blueClass = "bg-blue-100 text-blue-700 border border-blue-200";
+  const blueClass = "bg-blue-100 text-blue-700 border border-blue-300";
 
   const isMergedOrder =
     order.reviewReasons?.includes("manual_order_merge") ||
@@ -1234,7 +1234,7 @@ const getBottomBadges = (
     pushUniqueBadge(badges, {
       key: "callback_request",
       label: "Rückruf",
-      className: "bg-blue-950 text-white border border-blue-900 shadow-sm",
+      className: "bg-red-100 text-red-700 border border-red-300 shadow-sm",
     });
   }
 
@@ -1265,11 +1265,11 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
   if (!text) return false;
 
   const negative =
-    /kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|rueckruf\s+(?:nicht\s+)?(?:noetig|erwuenscht)/.test(text);
+    /kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|(?:rueckruf|ruckruf)\s+(?:nicht\s+)?(?:noetig|notig|erwuenscht)/.test(text);
 
   if (negative) return false;
 
-  return /rueckruf\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn)|bitte\s+(?:zurueckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren)|telefonischer\s+rueckruf|telefonisch\s+abklaeren|\b\d+\s*minuten\s+vorher\s+anrufen/.test(text);
+  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+abklaeren|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|zurueckrufen|zuruckrufen)/.test(text);
 };
 
 const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
@@ -1285,7 +1285,7 @@ const renderOrderCardBadge = (badge: ReviewBadge) => (
     className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}
   >
     {badge.key === "callback_request" && (
-      <span className="text-red-500 leading-none">☎</span>
+      <span className="text-red-600 leading-none">☎</span>
     )}
     {badge.icon && badge.key !== "callback_request" && (
       <AlertTriangle className="w-3 h-3" />
@@ -3500,7 +3500,7 @@ const getSafeOrderTotal = (o: Order) => {
                 transition={{ delay: i * 0.015 }}
               >
                <Card
-                  className={`hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
+                  className={`border-slate-300 dark:border-slate-700 hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   onClick={() => {
                     if (isMergeMode) {
                       handleToggleSelect(o.id);
@@ -3727,7 +3727,7 @@ const getSafeOrderTotal = (o: Order) => {
 
                           {footerBadges.map(renderOrderCardBadge)}
 
-                          <div className="ml-auto flex max-w-[190px] shrink-0 flex-col items-end gap-1 sm:max-w-[260px]">
+                          <div className="ml-auto -mt-0.5 flex max-w-[190px] shrink-0 flex-col items-end gap-0.5 self-start sm:max-w-[260px]">
                             {rightSideBadges.length > 0 && (
                               <div className="flex flex-wrap justify-end gap-0.5">
                                 {rightSideBadges.map((badge) => (
@@ -4232,7 +4232,7 @@ const getSafeOrderTotal = (o: Order) => {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="border rounded-lg p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800"
+                    className="border rounded-lg p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-800"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -4256,7 +4256,7 @@ const getSafeOrderTotal = (o: Order) => {
                           .filter(Boolean)
                           .join(", ");
                         return (
-                          <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2 text-xs text-amber-900 dark:text-amber-100 flex items-start justify-between gap-2">
+                          <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2 text-xs text-amber-900 dark:text-amber-100 flex items-start justify-between gap-2">
                             <span>
                               Vorherige Adresse (nur Hinweis, nicht übernommen):{" "}
                               <span className="font-medium">{parts}</span>
@@ -4551,7 +4551,7 @@ const getSafeOrderTotal = (o: Order) => {
                     </div>
 
                     {hasEditCurrencyReview && (
-                      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
+                      <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
                         <div className="font-semibold">⚠ Währung prüfen</div>
                         <div>
                           Im Kundentext wurden unterschiedliche Währungen erkannt. Erst bereinigen,
@@ -4771,7 +4771,7 @@ const getSafeOrderTotal = (o: Order) => {
                                   <button
                                     type="button"
                                     onClick={() => removeItem(index)}
-                                    className="mt-0.5 rounded-md border border-red-200 bg-red-50 p-1.5 text-red-600 hover:bg-red-100 shrink-0"
+                                    className="mt-0.5 rounded-md border border-red-300 bg-red-50 p-1.5 text-red-600 hover:bg-red-100 shrink-0"
                                     title="Leistung entfernen"
                                   >
                                     <X className="w-3.5 h-3.5" />
@@ -4853,77 +4853,70 @@ const getSafeOrderTotal = (o: Order) => {
 
                             {showItemReviewBlock && (
                               <div
-                                className={`rounded-md border px-2.5 py-2 text-[11px] leading-snug ${
+                                className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
                                   isBlockingItemReview
-                                    ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
-                                    : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
+                                    ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
+                                    : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
                                 }`}
                               >
-                                <div className="mb-1 flex items-center gap-1 font-semibold">
-                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                <div className="mb-0.5 flex items-center gap-1 font-semibold">
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
                                   Manuell prüfen
                                 </div>
 
-                                <div className="space-y-1">
+                                <div className="space-y-0.5">
                                   {showUnitConflict && catalogService && (
                                     <div className="space-y-0.5">
-                                      <div>Die Einheit aus dem Kundentext passt nicht zum Leistungskatalog.</div>
-                                      {sourceLineForItem && (
-                                        <div>
-                                          Kundentext: <span className="font-medium">{sourceLineForItem}</span>
-                                        </div>
-                                      )}
                                       <div>
-                                        Erkannt: <span className="font-medium">{orderSummary}</span>
+                                        Text: <span className="font-medium">{orderSummary}</span>
                                       </div>
                                       {catalogSummary && (
                                         <div>
-                                          Leistungskatalog: <span className="font-medium">{catalogSummary}</span>
+                                          Katalog: <span className="font-medium">{catalogSummary}</span>
                                         </div>
                                       )}
-                                      <div>Bitte Einheit, Menge und Preis manuell bestätigen.</div>
+                                      <div>Einheit passt nicht. Menge, Einheit und Preis prüfen.</div>
                                     </div>
                                   )}
 
                                   {!showUnitConflict && showPriceOverride && catalogService && (
                                     <div className="space-y-0.5">
-                                      <div>Kundentext und Katalog haben dieselbe Einheit, aber unterschiedliche Preise.</div>
                                       {sourceLineForItem && (
                                         <div>
-                                          Kundentext: <span className="font-medium">{sourceLineForItem}</span>
+                                          Text: <span className="font-medium">{sourceLineForItem}</span>
                                         </div>
                                       )}
                                       <div>
                                         Katalog: {formatCurrency(catalogPrice, currency)} · Auftrag: {formatCurrency(itemPriceNumber, currency)}
                                       </div>
-                                      <div>Textpreis wurde übernommen. Bitte kurz kontrollieren.</div>
+                                      <div>Textpreis übernommen. Bitte kurz prüfen.</div>
                                     </div>
                                   )}
 
                                   {!showUnitConflict && showPriceReferenceReview && (
                                     <div className="space-y-0.5">
-                                      <div>Preisangabe unsicher: Der Text verweist auf einen früheren oder normalen Preis.</div>
+                                      <div>Preis im Text unklar.</div>
                                       {sourceLineForItem && (
                                         <div>
-                                          Kundentext: <span className="font-medium">{sourceLineForItem}</span>
+                                          Text: <span className="font-medium">{sourceLineForItem}</span>
                                         </div>
                                       )}
-                                      <div>Bitte Preis manuell bestätigen.</div>
+                                      <div>Bitte Preis bestätigen.</div>
                                     </div>
                                   )}
 
                                   {!showUnitConflict && (priceInputReview || quantityInputReview) && (
                                     <div className="space-y-0.5">
-                                      {priceInputReview && <div>Preis fehlt oder muss geprüft werden.</div>}
-                                      {quantityInputReview && <div>Menge fehlt oder muss geprüft werden.</div>}
-                                      <div>Bitte fehlende Werte ergänzen, bevor Angebot oder Rechnung erstellt wird.</div>
+                                      {priceInputReview && <div>Preis fehlt oder ist unsicher.</div>}
+                                      {quantityInputReview && <div>Menge fehlt oder ist unsicher.</div>}
+                                      <div>Vor Angebot/Rechnung ergänzen.</div>
                                     </div>
                                   )}
 
                                   {showManualServiceReview && (
                                     <div className="space-y-0.5">
-                                      <div>Diese Leistung ist nicht im Leistungskatalog hinterlegt.</div>
-                                      <div>Bitte prüfen oder über das Menü in den Leistungskatalog übernehmen.</div>
+                                      <div>Nicht im Leistungskatalog.</div>
+                                      <div>Bitte prüfen oder in den Katalog übernehmen.</div>
                                     </div>
                                   )}
                                 </div>
@@ -5038,7 +5031,7 @@ const getSafeOrderTotal = (o: Order) => {
                           variant="secondary"
                           onClick={saveAndCreateOffer}
                           disabled={saving}
-                          className="w-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs sm:text-sm"
+                          className="w-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-300 text-xs sm:text-sm"
                         >
                           <FileCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1" />
                           Angebot
@@ -5047,7 +5040,7 @@ const getSafeOrderTotal = (o: Order) => {
                           variant="secondary"
                           onClick={saveAndCreateInvoice}
                           disabled={saving}
-                          className="w-full bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 text-xs sm:text-sm"
+                          className="w-full bg-green-50 text-green-700 hover:bg-green-100 border border-green-300 text-xs sm:text-sm"
                         >
                           <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1" />
                           Rechnung
@@ -5068,14 +5061,14 @@ const getSafeOrderTotal = (o: Order) => {
                     <div className="flex items-center gap-2">
                       <Label className="font-semibold">Besonderheiten</Label>
                       {dangerNoteLines.length > 0 && (
-                        <Badge className="bg-red-100 text-red-700 border border-red-200">
+                        <Badge className="bg-red-100 text-red-700 border border-red-300">
                           Gefahr / Achtung
                         </Badge>
                       )}
                     </div>
 
                     {dangerNoteLines.length > 0 && (
-                      <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 space-y-1">
+                      <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 space-y-1">
                         <div className="font-semibold flex items-center gap-2">
                           <AlertTriangle className="w-4 h-4" />
                           Wichtige Gefahren / Warnhinweise

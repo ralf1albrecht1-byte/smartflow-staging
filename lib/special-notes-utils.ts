@@ -271,22 +271,44 @@ export function getWarningSegments(
 const normalizeCallbackText = (value: string) =>
   value
     .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    // Map German umlauts before Unicode accent stripping. Otherwise
+    // "Rückruf" becomes "ruckruf" and older "rueckruf" patterns miss it.
     .replace(/ä/g, "ae")
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+const CALLBACK_WORD = "(?:rueckruf|ruckruf)";
+const CALL_BACK_VERB = "(?:zurueckrufen|zuruckrufen|anrufen|telefonieren)";
+const CALLBACK_NEGATIVE_PATTERN = new RegExp(
+  `\\b(?:nicht\\s+(?:telefonisch\\s+)?${CALL_BACK_VERB}|kein(?:e[nm]?)?\\s+(?:telefonischer\\s+)?(?:${CALLBACK_WORD}|anruf)|${CALLBACK_WORD}\\s+(?:nicht\\s+)?(?:noetig|notig|erwuenscht)|nicht\\s+erwuenscht)\\b`,
+  "i",
+);
+const CALLBACK_POSITIVE_PATTERN = new RegExp(
+  [
+    `${CALLBACK_WORD}\\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)`,
+    `telefonischer\\s+${CALLBACK_WORD}`,
+    `bitte\\s+${CALL_BACK_VERB}`,
+    `vorher\\s+${CALL_BACK_VERB}`,
+    `vor\\s+ankunft\\s+(?:kurz\\s+)?${CALL_BACK_VERB}`,
+    `telefonisch\\s+abklaeren`,
+    `kunde\\s+moechte\\s+(?:${CALLBACK_WORD}|anruf)`,
+    `\\d+\\s*minuten\\s+(?:vorher|vor\\s+arbeitsbeginn|vor\\s+ankunft)\\s+${CALL_BACK_VERB}`,
+  ].join("|"),
+  "i",
+);
 
 const isNegativeCallbackLine = (line: string) => {
   const text = normalizeCallbackText(line);
   if (!text) return true;
 
   return (
-    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|rueckruf\s+(?:nicht\s+)?(?:noetig|erwuenscht)|nicht\s+erwuenscht)\b/i.test(text) ||
+    CALLBACK_NEGATIVE_PATTERN.test(text) ||
     /\b(klingeln|warten|haupteingang|kunde\s+ist\s+vor\s+ort|kundin\s+ist\s+vor\s+ort|oeffnet\s+die\s+tuer|offnet\s+die\s+tur)\b/i.test(text)
   );
 };
@@ -305,7 +327,7 @@ export function detectCallbackRequest(
   const callbackHint = jobHints.find((line) => {
     const normalized = normalizeCallbackText(line);
     if (isNegativeCallbackLine(line)) return false;
-    return /\b(rueckruf\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn)|telefonischer\s+rueckruf|bitte\s+(?:zurueckrufen|anrufen)|vorher\s+(?:anrufen|telefonieren)|telefonisch\s+abklaeren|kunde\s+moechte\s+(?:rueckruf|anruf)|\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn)\s+(?:anrufen|telefonieren))\b/i.test(normalized);
+    return CALLBACK_POSITIVE_PATTERN.test(normalized);
   });
 
   return callbackHint || null;
