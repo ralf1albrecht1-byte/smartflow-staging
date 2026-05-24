@@ -35,8 +35,13 @@ export interface SplitJobHints {
 
 const normalizeLine = (value: string) => value.replace(/\s+/g, " ").trim();
 
+const fixVisibleNoteGrammar = (value: string) =>
+  value.replace(/Keine telefonische Rückruf notwendig/gi, "Kein telefonischer Rückruf notwendig");
+
 const stripKnownMarker = (line: string) =>
-  normalizeLine(line.replace(SAFETY_MARKER, "").replace(HINT_MARKER, ""));
+  fixVisibleNoteGrammar(
+    normalizeLine(line.replace(SAFETY_MARKER, "").replace(HINT_MARKER, "")),
+  );
 
 const normalizeDedupeText = (value: string) =>
   stripKnownMarker(value)

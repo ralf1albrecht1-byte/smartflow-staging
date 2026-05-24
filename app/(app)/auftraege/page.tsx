@@ -1234,7 +1234,7 @@ const getBottomBadges = (
     pushUniqueBadge(badges, {
       key: "callback_request",
       label: "Rückruf",
-      className: "bg-red-100 text-red-700 border border-red-300 shadow-sm",
+      className: "bg-blue-950 text-white border border-blue-900 shadow-sm",
     });
   }
 
@@ -3500,7 +3500,7 @@ const getSafeOrderTotal = (o: Order) => {
                 transition={{ delay: i * 0.015 }}
               >
                <Card
-                  className={`border-slate-300 dark:border-slate-700 hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
+                  className={`border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   onClick={() => {
                     if (isMergeMode) {
                       handleToggleSelect(o.id);
@@ -3681,7 +3681,7 @@ const getSafeOrderTotal = (o: Order) => {
                         )}
 
                         {/* Row 3: [status] [media] ... [price] */}
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1 max-w-full overflow-hidden">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 max-w-full overflow-visible">
                           <select
                             onClick={(e) => e.stopPropagation()}
                             className="text-[11px] border rounded px-1.5 py-0.5 font-medium"
@@ -3727,13 +3727,13 @@ const getSafeOrderTotal = (o: Order) => {
 
                           {footerBadges.map(renderOrderCardBadge)}
 
-                          <div className="ml-auto -mt-0.5 flex max-w-[190px] shrink-0 flex-col items-end gap-0.5 self-start sm:max-w-[260px]">
+                          <div className="ml-auto flex max-w-[190px] shrink-0 flex-col items-end gap-0.5 self-start pt-0.5 sm:max-w-[260px]">
                             {rightSideBadges.length > 0 && (
                               <div className="flex flex-wrap justify-end gap-0.5">
                                 {rightSideBadges.map((badge) => (
                                   <span
                                     key={badge.key}
-                                    className={`inline-flex items-center gap-0.5 text-[9px] leading-none px-1 py-[1px] rounded-full font-medium shrink-0 ${badge.className}`}
+                                    className={`inline-flex items-center gap-0.5 text-[9px] leading-[1.15] px-1.5 py-[2px] rounded-full font-medium shrink-0 ${badge.className}`}
                                   >
                                     {badge.icon && (
                                       <AlertTriangle className="w-2.5 h-2.5" />
@@ -4916,7 +4916,7 @@ const getSafeOrderTotal = (o: Order) => {
                                   {showManualServiceReview && (
                                     <div className="space-y-0.5">
                                       <div>Nicht im Leistungskatalog.</div>
-                                      <div>Bitte prüfen oder in den Katalog übernehmen.</div>
+                                      <div>Optional über Menü übernehmen.</div>
                                     </div>
                                   )}
                                 </div>
