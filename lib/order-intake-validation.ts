@@ -599,7 +599,7 @@ function canonicalGermanServiceNameFromText(value?: string | null): string | nul
     return "Abdeckarbeiten";
   }
   if (/\b(spachtelarbeiten|spachteln|spachtel\w*)\b/.test(normalized)) {
-    return "Spachteln";
+    return "Spachtelarbeiten";
   }
   if (/\b(buroreinigung|buero(?:reinigung)?|office\s+clean|office\s+cleaning)\b/.test(normalized)) {
     return "Büroreinigung";

@@ -1383,9 +1383,12 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
     /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|preis|pauschal|pro|per|je)\b/i.test(normalized);
 
   const hasServiceVerb =
-    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken)\b/i.test(normalized);
+    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken|anfahrt|fahrtkosten|fahrpauschale|wegpauschale)\b/i.test(normalized);
 
-  if (looksLikeServiceOrPriceLine && hasServiceVerb) return null;
+  // Eine Leistungs-/Preiszeile ist niemals ein Objektname der Ausführungsadresse.
+  // Beispiele: "Anfahrt CHF 45", "10 Fenster reinigen CHF 7 pro Stück".
+  if (looksLikeServiceOrPriceLine) return null;
+  if (hasServiceVerb && /\b(?:leistung|service|arbeit|arbeiten|auftrag)\b/i.test(normalized)) return null;
 
   return candidate;
 }
@@ -3202,6 +3205,15 @@ FÜR JEDE ARBEITSPOSITION MUSST DU TRENNEN:
 - service_id / service_name: nur dann aus der Liste "leistungen", wenn die Arbeit fachlich eindeutig passt.
   Wenn nicht eindeutig: service_id = null, service_name = null, confidence = "niedrig".
 
+LEISTUNGSNAMEN / SICHTBARE ARBEITEN:
+- Alle sichtbaren Leistungsnamen und action_name-Werte IMMER auf ${hauptsprache} zurückgeben.
+- Nicht einfach Originalwörter abschreiben, wenn der Kundentext fremdsprachig, mundartlich oder unprofessionell formuliert ist.
+- Erkenne die Bedeutung semantisch und formuliere daraus einen kurzen professionellen deutschen Leistungsnamen.
+- Bei handwerklichen Neben-/Vorbereitungsleistungen die Form "...arbeiten" bevorzugen, wenn fachlich passend.
+  Beispiele: "spachteln" / "Spachtel" / sinngleiche Formulierungen → "Spachtelarbeiten"; "abdecken" / Schutz abdecken → "Abdeckarbeiten"; "schleifen" → "Schleifarbeiten"; "vorbereiten" → "Vorbereitungsarbeiten".
+- Bei bekannten Standardarbeiten kurze deutsche Fachnamen verwenden: "Nettoyer le sol" → "Boden reinigen", "Déplacement" → "Anfahrt pauschal", "Nettoyage des vitres" → "Fenster reinigen".
+- Der Originaltext gehört nur in raw/evidence/sourceText, nicht als sichtbarer Leistungsname.
+
 WICHTIG:
 Ein Ort oder Kontext ist nicht automatisch die Leistung.
 Wenn eine Formulierung sagt, dass etwas IN einem Bereich gemacht wird, muss die Handlung die Leistung bestimmen.
@@ -3468,7 +3480,9 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Preis aus einer anderen Zeile/anderen Leistung NIEMALS übernehmen.
 - Pauschalpreise dürfen NIEMALS auf andere Positionen kopiert werden. Wenn eine Zeile "Eingangsbereich pauschal 120" sagt, gilt 120 nur für diese eine Position.
 - Rechnungsadresse/Billing address/Rechnung geht an ist NIE eine Arbeitsposition und darf keine generische Leistung wie "Reinigung" erzeugen.
-- Fremdsprachige Leistungen semantisch übersetzen: "Nettoyage des vitres" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen. Nicht auf falsche Katalogleistung wie Kellerboden/Farbreste ausweichen.
+- Fremdsprachige, mundartliche oder unprofessionell formulierte Leistungen semantisch auf deutsche professionelle Leistungsnamen übersetzen: "Nettoyage des vitres" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen, "Déplacement" = Anfahrt pauschal.
+- Bei handwerklichen Nebenleistungen bevorzugt professionelle "...arbeiten"-Namen verwenden, wenn fachlich passend: Spachteln → Spachtelarbeiten, Abdecken → Abdeckarbeiten, Schleifen → Schleifarbeiten.
+- Nicht auf falsche Katalogleistung wie Kellerboden/Farbreste ausweichen.
 - Wenn bei einer Position kein eigener Preis steht → unit_price = null.
 - Wenn mehrere Preise/Währungen im Text stehen, jede Position separat zuordnen; bei Unsicherheit unit_price = null und confidence = "niedrig".
 - Keine Leistungen erfinden.
@@ -3485,7 +3499,9 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
   confidence = "hoch" oder "mittel"
   evidence = exakte Textstelle
 - Wenn unsicher oder unvollständig: ist_abweichend = false und in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
-- Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.`;
+- Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.
+- name der Ausführungsadresse darf nur ein echter Objekt-/Ortsname sein, z.B. "Garage West", "Wohnung 3", "Lagerhalle Süd".
+- name der Ausführungsadresse NIEMALS mit Leistungs-/Preiszeilen füllen, z.B. NICHT "Anfahrt CHF 45", NICHT "10 Fenster reinigen CHF 7 pro Stück", NICHT "Boden reinigen".`;
 }
 
 // ---------- Main intake function ----------
