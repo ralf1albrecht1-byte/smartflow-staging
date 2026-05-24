@@ -271,6 +271,34 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+const findCustomerTextLineForService = (
+  sourceText?: string | null,
+  serviceName?: string | null,
+) => {
+  const source = String(sourceText || "").trim();
+  const serviceKey = normalizeForMatch(serviceName);
+  if (!source || !serviceKey) return "";
+
+  const serviceTokens = serviceKey
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4);
+
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const matchingLine = lines.find((line) => {
+    const lineKey = normalizeForMatch(line);
+    if (!lineKey) return false;
+    if (lineKey.includes(serviceKey)) return true;
+    return serviceTokens.length > 0 && serviceTokens.some((token) => lineKey.includes(token));
+  });
+
+  return matchingLine || "";
+};
+
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
@@ -4540,18 +4568,48 @@ const getSafeOrderTotal = (o: Order) => {
                           !priceInputReview &&
                           Boolean(priceUnclearReason || curOrder?.reviewReasons?.includes("unit_price_review"));
 
-                        const showQuantityReview = !hasCurrencyConflict && quantityInputReview;
-                        const showPriceReview = !hasCurrencyConflict && (priceInputReview || showPriceReferenceReview);
                         const itemTotal =
                           Number(item.unitPrice || 0) * Number(item.quantity || 0);
 
                         const isManualService = Boolean(item.serviceName?.trim()) && !isServiceInCatalog(item.serviceName);
-                        const showManualServiceChip = !hasCurrencyConflict && isManualService;
+                        const showManualServiceReview = !hasCurrencyConflict && isManualService;
+                        const sourceLineForItem = findCustomerTextLineForService(
+                          visibleCustomerMessageText || customerMessageText,
+                          item.serviceName,
+                        );
+                        const catalogSummary = catalogService
+                          ? `${catalogService.unit}${
+                              catalogPrice > 0
+                                ? ` · ${formatCurrency(catalogPrice, currency)}`
+                                : ""
+                            }`
+                          : "";
+                        const orderSummaryParts = [
+                          Number(item.quantity || 0) > 0
+                            ? `${item.quantity} ${unitShortLabel(item.unit)}`
+                            : unitShortLabel(item.unit),
+                          itemPriceNumber > 0
+                            ? `à ${formatCurrency(itemPriceNumber, currency)}`
+                            : "Preis prüfen",
+                        ].filter(Boolean);
+                        const orderSummary = orderSummaryParts.join(" ");
+                        const showItemReviewBlock =
+                          !hasCurrencyConflict &&
+                          (showUnitConflict ||
+                            showPriceOverride ||
+                            showPriceReferenceReview ||
+                            priceInputReview ||
+                            quantityInputReview ||
+                            showManualServiceReview);
+                        const isBlockingItemReview =
+                          priceInputReview ||
+                          quantityInputReview ||
+                          showPriceReferenceReview ||
+                          showUnitConflict;
                         const isMenuOpen = serviceActionMenuKey === item.key;
-                        const hasCriticalItemReview =
-                          priceInputReview || quantityInputReview || showPriceReferenceReview;
+                        const hasCriticalItemReview = isBlockingItemReview;
                         const hasAnyItemReview =
-                          hasCriticalItemReview || showUnitConflict || showPriceOverride;
+                          hasCriticalItemReview || showPriceOverride || showManualServiceReview;
 
                         return (
                           <div
@@ -4587,33 +4645,7 @@ const getSafeOrderTotal = (o: Order) => {
                                     )}
                                   </div>
 
-                                  <div className="flex flex-wrap justify-end gap-1">
-                                    {showPriceReview && (
-                                      <Badge className="px-1.5 py-0 text-[10px] bg-red-100 text-red-700 border border-red-200">
-                                        Betrag prüfen
-                                      </Badge>
-                                    )}
-                                    {showPriceOverride && (
-                                      <Badge className="px-1.5 py-0 text-[10px] bg-red-100 text-red-700 border border-red-200">
-                                        Katalogpreis prüfen
-                                      </Badge>
-                                    )}
-                                    {showQuantityReview && (
-                                      <Badge className="px-1.5 py-0 text-[10px] bg-orange-100 text-orange-700 border border-orange-200">
-                                        Menge prüfen
-                                      </Badge>
-                                    )}
-                                    {showUnitConflict && (
-                                      <Badge className="px-1.5 py-0 text-[10px] bg-red-100 text-red-700 border border-red-200">
-                                        Einheit prüfen
-                                      </Badge>
-                                    )}
-                                    {showManualServiceChip && (
-                                      <Badge className="px-1.5 py-0 text-[10px] bg-slate-100 text-slate-700 border border-slate-200">
-                                        Nicht im Leistungskatalog
-                                      </Badge>
-                                    )}
-                                  </div>
+                                  <div className="h-1" aria-hidden="true" />
                                 </div>
                               </div>
 
@@ -4752,21 +4784,82 @@ const getSafeOrderTotal = (o: Order) => {
                               </div>
                             </div>
 
-                            {(showPriceOverride || showPriceReferenceReview || showUnitConflict) && (
-                              <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] leading-snug text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
-                                {showPriceOverride && catalogService && (
-                                  <div>
-                                    Katalog: {formatCurrency(catalogPrice, currency)} · Auftrag: {formatCurrency(itemPriceNumber, currency)}
-                                  </div>
-                                )}
-                                {showPriceReferenceReview && (
-                                  <div>Preisangabe unsicher: Text verweist auf früheren/normalen Preis.</div>
-                                )}
-                                {showUnitConflict && catalogService && (
-                                  <div>
-                                    Katalog-Einheit: {catalogService.unit} · Auftrag: {item.unit}
-                                  </div>
-                                )}
+                            {showItemReviewBlock && (
+                              <div
+                                className={`rounded-md border px-2.5 py-2 text-[11px] leading-snug ${
+                                  isBlockingItemReview
+                                    ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
+                                    : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
+                                }`}
+                              >
+                                <div className="mb-1 flex items-center gap-1 font-semibold">
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                  Manuell prüfen
+                                </div>
+
+                                <div className="space-y-1">
+                                  {showUnitConflict && catalogService && (
+                                    <div className="space-y-0.5">
+                                      <div>Die Einheit aus dem Kundentext passt nicht zum Leistungskatalog.</div>
+                                      {sourceLineForItem && (
+                                        <div>
+                                          Kundentext: <span className="font-medium">{sourceLineForItem}</span>
+                                        </div>
+                                      )}
+                                      <div>
+                                        Erkannt: <span className="font-medium">{orderSummary}</span>
+                                      </div>
+                                      {catalogSummary && (
+                                        <div>
+                                          Leistungskatalog: <span className="font-medium">{catalogSummary}</span>
+                                        </div>
+                                      )}
+                                      <div>Bitte Einheit, Menge und Preis manuell bestätigen.</div>
+                                    </div>
+                                  )}
+
+                                  {!showUnitConflict && showPriceOverride && catalogService && (
+                                    <div className="space-y-0.5">
+                                      <div>Kundentext und Katalog haben dieselbe Einheit, aber unterschiedliche Preise.</div>
+                                      {sourceLineForItem && (
+                                        <div>
+                                          Kundentext: <span className="font-medium">{sourceLineForItem}</span>
+                                        </div>
+                                      )}
+                                      <div>
+                                        Katalog: {formatCurrency(catalogPrice, currency)} · Auftrag: {formatCurrency(itemPriceNumber, currency)}
+                                      </div>
+                                      <div>Textpreis wurde übernommen. Bitte kurz kontrollieren.</div>
+                                    </div>
+                                  )}
+
+                                  {!showUnitConflict && showPriceReferenceReview && (
+                                    <div className="space-y-0.5">
+                                      <div>Preisangabe unsicher: Der Text verweist auf einen früheren oder normalen Preis.</div>
+                                      {sourceLineForItem && (
+                                        <div>
+                                          Kundentext: <span className="font-medium">{sourceLineForItem}</span>
+                                        </div>
+                                      )}
+                                      <div>Bitte Preis manuell bestätigen.</div>
+                                    </div>
+                                  )}
+
+                                  {!showUnitConflict && (priceInputReview || quantityInputReview) && (
+                                    <div className="space-y-0.5">
+                                      {priceInputReview && <div>Preis fehlt oder muss geprüft werden.</div>}
+                                      {quantityInputReview && <div>Menge fehlt oder muss geprüft werden.</div>}
+                                      <div>Bitte fehlende Werte ergänzen, bevor Angebot oder Rechnung erstellt wird.</div>
+                                    </div>
+                                  )}
+
+                                  {showManualServiceReview && (
+                                    <div className="space-y-0.5">
+                                      <div>Diese Leistung ist nicht im Leistungskatalog hinterlegt.</div>
+                                      <div>Bitte prüfen oder über das Menü in den Leistungskatalog übernehmen.</div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>

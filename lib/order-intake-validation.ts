@@ -1041,46 +1041,6 @@ function detectQuantityForUnitTypeFromText(
   return null;
 }
 
-function detectQuantityForItemFromOriginalText(
-  originalText: string,
-  item: ParsedOrderItemForValidation,
-  unitType: string | null,
-): number | null {
-  if (!unitType) return null;
-
-  const serviceKey = normalizeCompare(item.serviceName);
-  const tokens = meaningfulServiceTokens(item.serviceName);
-  const candidates = unique([
-    ...splitExplicitServiceLineCandidates(originalText),
-    ...splitIntoPriceSegments(originalText),
-  ]);
-
-  for (const segment of candidates) {
-    const normalizedSegment = normalizeCompare(segment);
-    if (!normalizedSegment) continue;
-
-    const segmentUnitType = unitTypeFromText(segment);
-    if (segmentUnitType && segmentUnitType !== unitType) continue;
-
-    const canonicalFromSegment = canonicalGermanServiceNameFromText(segment);
-    const canonicalMatches = Boolean(
-      canonicalFromSegment &&
-        normalizeCompare(canonicalFromSegment) === serviceKey,
-    );
-    const hasExactServiceAnchor = Boolean(
-      serviceKey && normalizedSegment.includes(serviceKey),
-    );
-    const tokenHits = tokens.filter((token) => normalizedSegment.includes(token)).length;
-
-    if (!canonicalMatches && !hasExactServiceAnchor && tokenHits === 0) continue;
-
-    const quantity = detectQuantityForUnitTypeFromText(segment, unitType);
-    if (quantity) return quantity;
-  }
-
-  return null;
-}
-
 function repairCommonMultilingualCleaningItems(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -1131,9 +1091,7 @@ function repairCommonMultilingualCleaningItems(
 
     if (!targetUnitType) return item;
 
-    const quantityFromText =
-      detectQuantityForUnitTypeFromText(evidence, targetUnitType) ||
-      detectQuantityForItemFromOriginalText(originalText, next, targetUnitType);
+    const quantityFromText = detectQuantityForUnitTypeFromText(evidence, targetUnitType);
     if (quantityFromText) next.quantity = quantityFromText;
 
     const explicitPrice = detectExplicitUnitPriceForItem(originalText, next);
