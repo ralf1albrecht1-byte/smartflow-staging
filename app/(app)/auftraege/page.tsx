@@ -271,56 +271,6 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
-const PRICE_COMPARE_EPSILON = 0.005;
-
-const findCatalogServiceByName = (
-  serviceCatalog: ServiceDef[],
-  serviceName?: string | null,
-) => {
-  const key = normalizeForMatch(serviceName);
-  if (!key) return null;
-  return (
-    serviceCatalog.find((service) => normalizeForMatch(service.name) === key) || null
-  );
-};
-
-const getCatalogPriceDeviation = (
-  serviceCatalog: ServiceDef[],
-  item?: { serviceName?: string | null; unitPrice?: number | string | null },
-) => {
-  const catalogService = findCatalogServiceByName(serviceCatalog, item?.serviceName);
-  if (!catalogService) return null;
-
-  const currentPrice = Number(item?.unitPrice ?? 0);
-  const catalogPrice = Number(catalogService.defaultPrice ?? 0);
-
-  if (!Number.isFinite(currentPrice) || !Number.isFinite(catalogPrice)) return null;
-  if (currentPrice <= 0 || catalogPrice <= 0) return null;
-  if (Math.abs(currentPrice - catalogPrice) <= PRICE_COMPARE_EPSILON) return null;
-
-  return {
-    service: catalogService,
-    currentPrice,
-    catalogPrice,
-  };
-};
-
-const orderHasCatalogPriceDeviation = (
-  order: Order,
-  serviceCatalog: ServiceDef[],
-) => {
-  const items = order.items && order.items.length > 0
-    ? order.items
-    : [
-        {
-          serviceName: order.serviceName,
-          unitPrice: order.unitPrice,
-        },
-      ];
-
-  return items.some((item) => Boolean(getCatalogPriceDeviation(serviceCatalog, item)));
-};
-
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
@@ -998,10 +948,131 @@ const AMOUNT_REVIEW_BADGE_KEYS = new Set([
   "price_deviation",
 ]);
 
+const PRICE_AMOUNT_REVIEW_BADGE_KEYS = new Set([
+  "price_quantity",
+  "unit_conflict",
+  "price_deviation",
+]);
+
 const isAmountReviewBadge = (badge: ReviewBadge) =>
   AMOUNT_REVIEW_BADGE_KEYS.has(badge.key);
 
-const getSystemBadges = (order: Order, serviceCatalog: ServiceDef[] = []): ReviewBadge[] => {
+const findCatalogServiceForName = (
+  services: ServiceDef[],
+  serviceName?: string | null,
+) => {
+  const key = normalizeForMatch(canonicalServiceNameForOrderItem(serviceName));
+  if (!key) return null;
+
+  return (
+    services.find(
+      (service) =>
+        normalizeForMatch(canonicalServiceNameForOrderItem(service.name)) === key,
+    ) || null
+  );
+};
+
+const normalizePriceUnitForCompare = (value?: string | null) => {
+  const unit = normalizeForMatch(value);
+  if (!unit) return "";
+  if (["stueck", "stück", "stk", "piece", "pieces"].includes(unit)) return "piece";
+  if (["quadratmeter", "qm", "m2", "m²", "sqm"].includes(unit)) return "square_meter";
+  if (["kubikmeter", "cbm", "m3", "m³"].includes(unit)) return "cubic_meter";
+  if (["stunde", "stunden", "std", "h", "hour", "hours"].includes(unit)) return "hour";
+  if (["tag", "tage", "day", "days"].includes(unit)) return "day";
+  if (["meter", "laufmeter", "lfm", "m"].includes(unit)) return "meter";
+  if (["kilogramm", "kg"].includes(unit)) return "kilogram";
+  if (["tonne", "tonnen"].includes(unit)) return "ton";
+  if (["liter", "ltr", "l"].includes(unit)) return "liter";
+  if (["pauschal", "pauschale", "fixpreis", "festpreis", "flat"].includes(unit)) return "flat";
+  return unit;
+};
+
+const hasUnitMismatchReviewForService = (
+  reviewReasons: string[] | null | undefined,
+  serviceName?: string | null,
+) => {
+  const key = normalizeForMatch(serviceName);
+  if (!key) return false;
+
+  return (
+    reviewReasons?.some((reason) => {
+      if (!reason.startsWith("unit_mismatch:")) return false;
+      const [, reasonService] = reason.split(":");
+      return normalizeForMatch(reasonService) === key;
+    }) ?? false
+  );
+};
+
+const hasCatalogPriceDeviationForItem = (
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice">,
+  services: ServiceDef[],
+  reviewReasons?: string[] | null,
+) => {
+  if (!item?.serviceName?.trim()) return false;
+  if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName)) return false;
+
+  const catalog = findCatalogServiceForName(services, item.serviceName);
+  if (!catalog) return false;
+
+  const catalogUnit = normalizePriceUnitForCompare(catalog.unit);
+  const itemUnit = normalizePriceUnitForCompare(item.unit);
+  if (catalogUnit && itemUnit && catalogUnit !== itemUnit) return false;
+
+  const catalogPrice = Number(catalog.defaultPrice || 0);
+  const itemPrice = Number(item.unitPrice || 0);
+  if (!Number.isFinite(catalogPrice) || !Number.isFinite(itemPrice)) return false;
+  if (catalogPrice <= 0 || itemPrice <= 0) return false;
+
+  return Math.abs(catalogPrice - itemPrice) >= 0.01;
+};
+
+const getCatalogPriceDeviationItems = (
+  order: Order,
+  services: ServiceDef[],
+) => {
+  const items = order.items && order.items.length > 0
+    ? order.items
+    : order.serviceName
+      ? [
+          {
+            serviceName: order.serviceName,
+            description: order.description || order.serviceName,
+            quantity: order.quantity,
+            unit: order.priceType,
+            unitPrice: order.unitPrice,
+            totalPrice: order.totalPrice,
+          },
+        ]
+      : [];
+
+  return items.filter((item) =>
+    hasCatalogPriceDeviationForItem(item, services, order.reviewReasons),
+  );
+};
+
+const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
+  const currencyBadges = badges.filter((badge) => badge.key === "currency_review");
+  const priceBadges = badges.filter((badge) =>
+    PRICE_AMOUNT_REVIEW_BADGE_KEYS.has(badge.key),
+  );
+
+  if (priceBadges.length > 1) {
+    return [
+      ...currencyBadges,
+      {
+        key: "price_inputs_review",
+        label: "Preisangaben prüfen",
+        className: "bg-red-100 text-red-700 border border-red-200",
+        icon: true,
+      },
+    ];
+  }
+
+  return [...currencyBadges, ...priceBadges];
+};
+
+const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
   if (order.siteAddressDifferent) {
@@ -1021,7 +1092,15 @@ const getSystemBadges = (order: Order, serviceCatalog: ServiceDef[] = []): Revie
         )
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
 
-  if (hasPriceQuantityReview) {
+  const hasPriceReferenceReview =
+    order.reviewReasons?.some(
+      (reason) =>
+        reason === "unit_price_review" ||
+        reason === "quantity_review" ||
+        reason.startsWith("price_unclear:"),
+    ) ?? false;
+
+  if (hasPriceQuantityReview || hasPriceReferenceReview) {
     pushUniqueBadge(badges, {
       key: "price_quantity",
       label: "Betrag prüfen",
@@ -1038,7 +1117,6 @@ const getSystemBadges = (order: Order, serviceCatalog: ServiceDef[] = []): Revie
       key: "unit_conflict",
       label: "Einheit prüfen",
       className: "bg-red-100 text-red-700 border border-red-200",
-      icon: true,
     });
   }
 
@@ -1056,7 +1134,7 @@ const getSystemBadges = (order: Order, serviceCatalog: ServiceDef[] = []): Revie
 
   const hasPriceDeviationReview =
     (order.reviewReasons?.some((reason) => reason.startsWith("price_override:")) ?? false) ||
-    orderHasCatalogPriceDeviation(order, serviceCatalog);
+    getCatalogPriceDeviationItems(order, services).length > 0;
 
   if (hasPriceDeviationReview) {
     pushUniqueBadge(badges, {
@@ -3300,12 +3378,18 @@ const getSafeOrderTotal = (o: Order) => {
             const serviceLine = getOrderCardServiceSummary(o);
             const parsedCardNotes = splitSpecialNotes(o.specialNotes);
             const systemBadges = getSystemBadges(o, services);
-            const amountReviewBadges = systemBadges.filter(isAmountReviewBadge);
+            const amountReviewBadges = buildAmountReviewBadges(
+              systemBadges.filter(isAmountReviewBadge),
+            );
             const leftSystemBadges = systemBadges.filter(
               (badge) => !isAmountReviewBadge(badge),
             );
             const operationalBadges = getOperationalBadges(o, parsedCardNotes);
-            const footerBadges = getBottomBadges(o, parsedCardNotes);
+            const bottomBadges = getBottomBadges(o, parsedCardNotes);
+            const appointmentBadges = bottomBadges.filter(
+              (badge) => badge.key === "appointment",
+            );
+            const footerBadges = bottomBadges;
             const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
               "skipped",
             );
@@ -4404,10 +4488,38 @@ const getSafeOrderTotal = (o: Order) => {
                           .find((r: string) => {
                             const [, serviceName] = r.split(":");
                             return (
-                              (serviceName || "").trim().toLowerCase() ===
-                              (item.serviceName || "").trim().toLowerCase()
+                              normalizeForMatch(serviceName) ===
+                              normalizeForMatch(item.serviceName)
                             );
                           });
+
+                        const priceUnclearReason = curOrder?.reviewReasons
+                          ?.filter((r: string) => r.startsWith("price_unclear:"))
+                          .find((r: string) => {
+                            const [, serviceName] = r.split(":");
+                            return (
+                              !serviceName ||
+                              normalizeForMatch(serviceName) ===
+                                normalizeForMatch(item.serviceName)
+                            );
+                          });
+
+                        const catalogService = findCatalogServiceForName(
+                          services,
+                          item.serviceName,
+                        );
+                        const catalogPrice = Number(catalogService?.defaultPrice || 0);
+                        const itemPriceNumber = Number(item.unitPrice || 0);
+                        const hasFrontendCatalogPriceDeviation =
+                          Boolean(catalogService) &&
+                          !unitMismatchReason &&
+                          normalizePriceUnitForCompare(catalogService?.unit) ===
+                            normalizePriceUnitForCompare(item.unit) &&
+                          Number.isFinite(catalogPrice) &&
+                          Number.isFinite(itemPriceNumber) &&
+                          catalogPrice > 0 &&
+                          itemPriceNumber > 0 &&
+                          Math.abs(catalogPrice - itemPriceNumber) >= 0.01;
 
                         const hasCurrencyConflict = currentEditReviewReasons.some(
                           (reason: string) =>
@@ -4416,26 +4528,28 @@ const getSafeOrderTotal = (o: Order) => {
                         );
                         const priceInputReview = Number(item.unitPrice || 0) === 0;
                         const quantityInputReview = Number(item.quantity || 0) === 0;
-                        const catalogPriceDeviation = getCatalogPriceDeviation(services, {
-                          serviceName: item.serviceName,
-                          unitPrice: item.unitPrice,
-                        });
-                        const showPriceOverride =
-                          !hasCurrencyConflict &&
-                          (Boolean(priceOverrideReason) || Boolean(catalogPriceDeviation));
                         const showUnitConflict =
                           !hasCurrencyConflict &&
                           Boolean(item.aiWarning?.trim() || unitMismatchReason);
+                        const showPriceOverride =
+                          !hasCurrencyConflict &&
+                          !showUnitConflict &&
+                          Boolean(priceOverrideReason || hasFrontendCatalogPriceDeviation);
+                        const showPriceReferenceReview =
+                          !hasCurrencyConflict &&
+                          !priceInputReview &&
+                          Boolean(priceUnclearReason || curOrder?.reviewReasons?.includes("unit_price_review"));
 
                         const showQuantityReview = !hasCurrencyConflict && quantityInputReview;
-                        const showPriceReview = !hasCurrencyConflict && priceInputReview;
+                        const showPriceReview = !hasCurrencyConflict && (priceInputReview || showPriceReferenceReview);
                         const itemTotal =
                           Number(item.unitPrice || 0) * Number(item.quantity || 0);
 
                         const isManualService = Boolean(item.serviceName?.trim()) && !isServiceInCatalog(item.serviceName);
                         const showManualServiceChip = !hasCurrencyConflict && isManualService;
                         const isMenuOpen = serviceActionMenuKey === item.key;
-                        const hasCriticalItemReview = priceInputReview || quantityInputReview || showPriceOverride;
+                        const hasCriticalItemReview =
+                          priceInputReview || quantityInputReview || showPriceReferenceReview;
                         const hasAnyItemReview =
                           hasCriticalItemReview || showUnitConflict || showPriceOverride;
 
@@ -4476,7 +4590,7 @@ const getSafeOrderTotal = (o: Order) => {
                                   <div className="flex flex-wrap justify-end gap-1">
                                     {showPriceReview && (
                                       <Badge className="px-1.5 py-0 text-[10px] bg-red-100 text-red-700 border border-red-200">
-                                        Preis prüfen
+                                        Betrag prüfen
                                       </Badge>
                                     )}
                                     {showPriceOverride && (
@@ -4490,7 +4604,7 @@ const getSafeOrderTotal = (o: Order) => {
                                       </Badge>
                                     )}
                                     {showUnitConflict && (
-                                      <Badge className="px-1.5 py-0 text-[10px] bg-yellow-100 text-yellow-700 border border-yellow-200">
+                                      <Badge className="px-1.5 py-0 text-[10px] bg-red-100 text-red-700 border border-red-200">
                                         Einheit prüfen
                                       </Badge>
                                     )}
@@ -4501,12 +4615,6 @@ const getSafeOrderTotal = (o: Order) => {
                                     )}
                                   </div>
                                 </div>
-
-                                {catalogPriceDeviation && !hasCurrencyConflict && (
-                                  <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] leading-snug text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
-                                    Katalog: {formatCurrency(catalogPriceDeviation.catalogPrice, currency)} · Auftrag: {formatCurrency(catalogPriceDeviation.currentPrice, currency)}
-                                  </div>
-                                )}
                               </div>
 
                               <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
@@ -4643,6 +4751,24 @@ const getSafeOrderTotal = (o: Order) => {
                                 />
                               </div>
                             </div>
+
+                            {(showPriceOverride || showPriceReferenceReview || showUnitConflict) && (
+                              <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] leading-snug text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
+                                {showPriceOverride && catalogService && (
+                                  <div>
+                                    Katalog: {formatCurrency(catalogPrice, currency)} · Auftrag: {formatCurrency(itemPriceNumber, currency)}
+                                  </div>
+                                )}
+                                {showPriceReferenceReview && (
+                                  <div>Preisangabe unsicher: Text verweist auf früheren/normalen Preis.</div>
+                                )}
+                                {showUnitConflict && catalogService && (
+                                  <div>
+                                    Katalog-Einheit: {catalogService.unit} · Auftrag: {item.unit}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}

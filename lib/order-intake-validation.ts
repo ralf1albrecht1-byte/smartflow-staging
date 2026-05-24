@@ -1584,6 +1584,32 @@ function hasUnclearPriceSignal(value?: string | null): boolean {
   );
 }
 
+function hasStandaloneUnclearPriceReference(originalText: string): boolean {
+  return splitRawIntakeLines(originalText).some((line) => {
+    if (!hasUnclearPriceSignal(line)) return false;
+    if (hasExplicitCurrencyAmount(line)) return false;
+    if (detectCurrencylessFlatPriceFromSegment(line, "CHF")) return false;
+    if (extractUnitPricesFromSegment(line).length > 0) return false;
+    return true;
+  });
+}
+
+function hasExplicitPriceEvidenceForItem(
+  originalText: string,
+  item: ParsedOrderItemForValidation,
+  fallbackCurrency: IntakeCurrency,
+): boolean {
+  const explicitFlat = detectExplicitFlatPriceForItem(originalText, item, fallbackCurrency);
+  const explicitUnit = detectExplicitUnitPriceForItem(originalText, item);
+  if (explicitFlat || explicitUnit) return true;
+
+  return hasExplicitCurrencyAmount(
+    [item.sourceText, item.evidence, item.description]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
 function findQuantityOnlyUnclearLine(line: string): {
   quantity: number;
   unitType: string;
@@ -2555,6 +2581,8 @@ export function validateAndRepairParsedOrderItems(
   );
   reviewReasons.push(...coverage.reviewReasons);
 
+  const hasGlobalUnclearPriceReference = hasStandaloneUnclearPriceReference(input.originalText);
+
   let items = coverage.items.map((item) => {
     const quantity = Number(item.quantity || 0);
     const unitPrice = Number(item.unitPrice || 0);
@@ -2627,6 +2655,13 @@ export function validateAndRepairParsedOrderItems(
           "currency_review",
         );
       }
+    }
+
+    if (
+      hasGlobalUnclearPriceReference &&
+      !hasExplicitPriceEvidenceForItem(input.originalText, next, finalCurrency)
+    ) {
+      itemReasons.push(`price_unclear:${next.serviceName}`, "unit_price_review");
     }
 
     const safeTotal = calculateSafeLineTotal(next);
