@@ -4986,6 +4986,7 @@ export default function AuftraegePage() {
                               "unit_price_review",
                             ),
                           );
+                        const showCurrencyConflictItemReview = hasCurrencyConflict;
 
                         const itemTotal =
                           Number(item.unitPrice || 0) *
@@ -5024,16 +5025,18 @@ export default function AuftraegePage() {
                         ].filter(Boolean);
                         const orderSummary = orderSummaryParts.join(" ");
                         const showItemReviewBlock =
-                          !hasCurrencyConflict &&
-                          (showUnitConflict ||
-                            showPriceOverride ||
-                            showPriceReferenceReview ||
-                            priceInputReview ||
-                            quantityInputReview ||
-                            showManualServiceReview);
+                          showCurrencyConflictItemReview ||
+                          (!hasCurrencyConflict &&
+                            (showUnitConflict ||
+                              showPriceOverride ||
+                              showPriceReferenceReview ||
+                              priceInputReview ||
+                              quantityInputReview ||
+                              showManualServiceReview));
                         const hasMissingItemInput =
                           priceInputReview || quantityInputReview;
                         const isBlockingItemReview =
+                          showCurrencyConflictItemReview ||
                           hasMissingItemInput ||
                           showPriceReferenceReview ||
                           (showUnitConflict && !isCompleteItemForCatalogAction);
@@ -5057,6 +5060,7 @@ export default function AuftraegePage() {
                             hasResolvedReviewCatalogAction);
                         const hasAnyItemReview =
                           hasCriticalItemReview ||
+                          showCurrencyConflictItemReview ||
                           showPriceOverride ||
                           showManualServiceReview ||
                           hasResolvedReviewCatalogAction;
@@ -5267,7 +5271,20 @@ export default function AuftraegePage() {
                                 </div>
 
                                 <div className="space-y-0.5">
-                                  {showUnitConflict && catalogService && (
+                                  {showCurrencyConflictItemReview && (
+                                    <div className="space-y-0.5">
+                                      <div>
+                                        Währung prüfen: Auftrag enthält mehrere
+                                        Währungen.
+                                      </div>
+                                      <div>
+                                        Diese Position vor Angebot/Rechnung
+                                        bereinigen.
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {!showCurrencyConflictItemReview && showUnitConflict && catalogService && (
                                     <div className="space-y-0.5">
                                       <div>
                                         Text:{" "}
@@ -5290,7 +5307,8 @@ export default function AuftraegePage() {
                                     </div>
                                   )}
 
-                                  {!showUnitConflict &&
+                                  {!showCurrencyConflictItemReview &&
+                                    !showUnitConflict &&
                                     showPriceOverride &&
                                     catalogService && (
                                       <div className="space-y-0.5">
@@ -5314,7 +5332,8 @@ export default function AuftraegePage() {
                                       </div>
                                     )}
 
-                                  {!showUnitConflict &&
+                                  {!showCurrencyConflictItemReview &&
+                                    !showUnitConflict &&
                                     showPriceReferenceReview && (
                                       <div className="space-y-0.5">
                                         <div>Preis im Text unklar.</div>
@@ -5330,7 +5349,8 @@ export default function AuftraegePage() {
                                       </div>
                                     )}
 
-                                  {!showUnitConflict &&
+                                  {!showCurrencyConflictItemReview &&
+                                    !showUnitConflict &&
                                     (priceInputReview ||
                                       quantityInputReview) && (
                                       <div className="space-y-0.5">
@@ -5350,7 +5370,7 @@ export default function AuftraegePage() {
                                       </div>
                                     )}
 
-                                  {showManualServiceReview && (
+                                  {!showCurrencyConflictItemReview && showManualServiceReview && (
                                     <div>
                                       Nicht im Leistungskatalog. Optional über
                                       Menü übernehmen.
