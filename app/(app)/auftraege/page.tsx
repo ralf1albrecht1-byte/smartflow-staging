@@ -855,7 +855,7 @@ const extractAppointmentBadge = (
       : null);
 
   const isAmbiguousSameWeekdayAppointment =
-    Boolean(computedAppointmentDate) &&
+    computedAppointmentDate !== null &&
     !hasNextWeek &&
     !hasToday &&
     !hasTomorrow &&
@@ -864,7 +864,7 @@ const extractAppointmentBadge = (
     isSameAppointmentCalendarDay(computedAppointmentDate, baseDate);
 
   const shouldShowGenericAppointmentOnly =
-    Boolean(computedAppointmentDate) &&
+    computedAppointmentDate !== null &&
     !hasNextWeek &&
     !hasToday &&
     !hasTomorrow &&
