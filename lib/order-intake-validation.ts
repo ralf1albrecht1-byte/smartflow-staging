@@ -2960,7 +2960,7 @@ const EXECUTION_ADDRESS_MARKER =
   /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
 
 const STOP_MARKER =
-  /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp|titel|title)\b/i;
+  /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+ist|hauswart|hausmeister|concierge|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp|titel|title)\b/i;
 
 const ADDRESS_WORD_PATTERN =
   /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)/i;
@@ -3141,6 +3141,11 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
     .replace(/\s+/g, " ")
     .trim();
 
+  if (/\b(kontakt\s+vor\s+ort|vor\s+ort\s+ist|kontaktperson|ansprechperson|person\s+vor\s+ort|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(candidate)) {
+    return null;
+  }
+  if (/\+?\d[\d\s()./-]{6,}\d/.test(candidate)) return null;
+
   return candidate || null;
 }
 
@@ -3154,6 +3159,8 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
   if (/\b\d{4,5}\b/.test(candidate)) return false;
   if (/\b\d+(?:[.,]\d+)?\s*(?:stueck|stuck|stück|stk|quadratmeter|qm|m2|meter|stunde|stunden|std|h|tag|tage)\b/i.test(key)) return false;
   if (/\b(chf|franken|stutz|eur|euro|usd|dollar|preis|ansatz|pauschal|pro|per|je)\b/i.test(key)) return false;
+  if (/\b(kontakt\s+vor\s+ort|vor\s+ort\s+ist|kontaktperson|ansprechperson|person\s+vor\s+ort|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(key)) return false;
+  if (/\+?\d[\d\s()./-]{6,}\d/.test(candidate)) return false;
   if (/\b(reinigen|reinigung|putzen|schneiden|stutzen|entfernen|streichen|malen|maehen|mähen|montieren|demontieren|reparieren|liefern|entsorgen|entsorgung)\b/i.test(key)) return false;
   if (ADDRESS_WORD_PATTERN.test(candidate)) return false;
   if (STOP_MARKER.test(candidate)) return false;
