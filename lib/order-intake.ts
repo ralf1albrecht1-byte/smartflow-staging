@@ -1120,6 +1120,7 @@ function extractAiStructuredExecutionAddress(
     customerPlz?: string | null;
     customerCity?: string | null;
   },
+  originalText?: string | null,
 ): {
   siteName: string | null;
   siteAddress: string | null;
@@ -1128,6 +1129,14 @@ function extractAiStructuredExecutionAddress(
   siteNote: string | null;
 } | null {
   if (!aiExecutionAddress || aiExecutionAddress.ist_abweichend !== true) return null;
+
+  const confidence = normalizeStructuredConfidenceLevel(
+    aiExecutionAddress.confidence ??
+      aiExecutionAddress.confidence_level ??
+      aiExecutionAddress.address_confidence ??
+      aiExecutionAddress.executionConfidence,
+  );
+  if (confidence === "niedrig") return null;
 
   const siteName = cleanExecutionSiteNameCandidate(
     normalizeStructuredTextField(aiExecutionAddress.name),
@@ -1138,7 +1147,7 @@ function extractAiStructuredExecutionAddress(
     ? [
         rawExecutionStreet,
         rawExecutionHouseNumber &&
-        !new RegExp(`\\b${escapeRegExpLocal(rawExecutionHouseNumber)}\\b`).test(rawExecutionStreet)
+        !new RegExp(`\b${escapeRegExpLocal(rawExecutionHouseNumber)}\b`).test(rawExecutionStreet)
           ? rawExecutionHouseNumber
           : null,
       ]
@@ -1154,6 +1163,30 @@ function extractAiStructuredExecutionAddress(
 
   const hasUsableAddress = Boolean(siteAddress && sitePlz && siteCity);
   if (!hasUsableAddress) return null;
+
+  const evidence = normalizeStructuredTextBlock(
+    aiExecutionAddress.evidence ??
+      aiExecutionAddress.sourceText ??
+      aiExecutionAddress.source_text ??
+      aiExecutionAddress.quelle,
+  );
+  const originalKey = normalizedEvidenceKey(originalText || "");
+  if (originalKey) {
+    const addressParts = [siteAddress, sitePlz, siteCity].filter(Boolean) as string[];
+    const everyAddressPartInOriginal = addressParts.every((part) => {
+      const partKey = normalizedEvidenceKey(part);
+      return partKey.length >= 2 && originalKey.includes(partKey);
+    });
+
+    // Fail closed: Wenn die KI eine Ausführungsadresse liefert, müssen die
+    // Kerndaten der Adresse tatsächlich im Eingangstext stehen. Sonst lieber
+    // keine Ausführungsadresse speichern als eine erfundene oder vermischte.
+    if (!everyAddressPartInOriginal) return null;
+
+    if (evidence && !structuredEvidenceMatchesOriginalText(evidence, originalText)) {
+      return null;
+    }
+  }
 
   if (
     sameStructuredAddress({
@@ -1390,10 +1423,12 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
   const hasServiceVerb =
     /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken|anfahrt|fahrtkosten|fahrpauschale|wegpauschale)\b/i.test(normalized);
 
-  // Eine Leistungs-/Preiszeile ist niemals ein Objektname der Ausführungsadresse.
-  // Beispiele: "Anfahrt CHF 45", "10 Fenster reinigen CHF 7 pro Stück".
+  // Eine Leistungs-/Preiszeile oder reine Leistungszusammenfassung ist niemals
+  // ein Objektname der Ausführungsadresse.
+  // Beispiele: "Anfahrt CHF 45", "10 Fenster reinigen CHF 7 pro Stück",
+  // "Fenster reinigen und Anfahrt".
   if (looksLikeServiceOrPriceLine) return null;
-  if (hasServiceVerb && /\b(?:leistung|service|arbeit|arbeiten|auftrag)\b/i.test(normalized)) return null;
+  if (hasServiceVerb) return null;
 
   return candidate;
 }
@@ -3497,17 +3532,24 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 
 12. AUSFÜHRUNGSADRESSE / ARBEITSORT:
 - Erkenne semantisch, ob neben der Rechnungsadresse ein anderer Ort genannt wird, an dem gearbeitet wird.
-- Entscheidend ist die Rolle der Adresse, nicht ein bestimmtes Wort in einer bestimmten Sprache.
-- Wenn eindeutig anderer Arbeitsort vorhanden:
+- Entscheidend ist ausschließlich die Rolle der Adresse im Text: Wer bezahlt die Rechnung ≠ wo wird gearbeitet.
+- Arbeite nicht über feste Stichwortlisten. Verstehe den Satzinhalt, auch wenn der Text kurz, falsch geschrieben, mundartlich, gemischtsprachig oder unordentlich ist.
+- Wenn zwei unterschiedliche Adressblöcke vorhanden sind, trenne sie nach Rolle:
+  kunde/Rechnung = zahlende Stelle;
+  ausfuehrungsadresse = Ort der Arbeit/Baustelle/Objekt/Wohnung/Lager/Büro.
+- Wenn eindeutig anderer Arbeitsort vorhanden UND Strasse + PLZ + Ort dieses Arbeitsorts im Eingangstext vorhanden sind:
   auftrag.ausfuehrungsadresse.ist_abweichend = true
   name/strasse/plz/ort befüllen
   confidence = "hoch" oder "mittel"
-  evidence = exakte Textstelle
-- Wenn unsicher oder unvollständig: ist_abweichend = false und in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
+  evidence = exakte Textstelle, die den Arbeitsort enthält
+- Wenn die Rolle der Adresse unsicher ist, wenn Strasse/PLZ/Ort fehlen oder wenn du nur aus dem Titel/Leistungstext raten müsstest:
+  ist_abweichend = false
+  keine Ausführungsadresse speichern
+  in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
 - Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.
 - Auftrags-/Karten-Titel wie "[Titel: ...]" sind nur Titel und dürfen NIEMALS als name der Ausführungsadresse gespeichert werden.
 - name der Ausführungsadresse darf nur ein echter Objekt-/Ortsname sein, z.B. "Garage West", "Wohnung 3", "Lagerhalle Süd".
-- name der Ausführungsadresse NIEMALS mit Leistungs-/Preiszeilen füllen, z.B. NICHT "Anfahrt CHF 45", NICHT "10 Fenster reinigen CHF 7 pro Stück", NICHT "Boden reinigen".`;
+- name der Ausführungsadresse NIEMALS mit Leistungs-/Preiszeilen oder Leistungszusammenfassungen füllen, z.B. NICHT "Anfahrt CHF 45", NICHT "10 Fenster reinigen CHF 7 pro Stück", NICHT "Fenster reinigen und Anfahrt".`;
 }
 
 // ---------- Main intake function ----------
@@ -5072,6 +5114,8 @@ totalPrice: safeUnitPrice * safeQuantity,
   const aiStructuredExecutionAddress = extractAiStructuredExecutionAddress(
     aiExecutionAddress,
     executionAddressCustomerContext,
+    `${messageText}
+${fullWorkText}`,
   );
 
   const extractedExecutionAddress = sanitizeExtractedExecutionAddress(
