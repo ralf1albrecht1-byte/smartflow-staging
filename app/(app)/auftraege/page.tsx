@@ -47,7 +47,7 @@ import {
   DuplicateCheckPanel,
   type DuplicateMatch,
 } from "@/components/customer-duplicate-check";
-import { buildSpecialNotes, splitSpecialNotes } from "@/lib/special-notes-utils";
+import { buildSpecialNotes, detectCallbackRequest, splitSpecialNotes } from "@/lib/special-notes-utils";
 import { fetchAllJSON } from "@/lib/fetch-utils";
 import { LoadErrorFallback } from "@/components/load-error-fallback";
 import { ORDER_STATUS_STYLES, getStatusStyle } from "@/lib/status-colors";
@@ -1093,9 +1093,15 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
     PRICE_AMOUNT_REVIEW_BADGE_KEYS.has(badge.key),
   );
 
-  if (priceBadges.length > 1 || (currencyBadges.length > 0 && priceBadges.length > 0)) {
+  // Währung ist ein eigener Blocker. Wenn gemischte Währungen erkannt wurden,
+  // reicht außen "Währung prüfen"; zusätzliche Preis-/Betrag-Chips wirken
+  // doppelt und werden innen im Warnblock erklärt.
+  if (currencyBadges.length > 0) {
+    return currencyBadges;
+  }
+
+  if (priceBadges.length > 1) {
     return [
-      ...currencyBadges,
       {
         key: "price_inputs_review",
         label: "Preisangaben prüfen",
@@ -1105,7 +1111,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
     ];
   }
 
-  return [...currencyBadges, ...priceBadges];
+  return priceBadges;
 };
 
 const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge[] => {
@@ -1213,6 +1219,20 @@ const getBottomBadges = (
       key: "merged",
       label: "Zusammengeführt",
       className: blueClass,
+    });
+  }
+
+  const callbackHint = detectCallbackRequest(
+    [order.specialNotes, order.notes, order.audioTranscript]
+      .filter(Boolean)
+      .join("\n"),
+  );
+
+  if (callbackHint) {
+    pushUniqueBadge(badges, {
+      key: "callback",
+      label: "Rückruf",
+      className: "bg-cyan-100 text-cyan-700 border border-cyan-200",
     });
   }
 
@@ -3428,10 +3448,7 @@ const getSafeOrderTotal = (o: Order) => {
             const footerBadges = bottomBadges.filter(
               (badge) => badge.key !== "appointment",
             );
-            const rightSideBadges = [
-              ...amountReviewBadges,
-              ...appointmentBadges,
-            ];
+            const rightSideBadges = amountReviewBadges;
             const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
               "skipped",
             );
@@ -3695,18 +3712,32 @@ const getSafeOrderTotal = (o: Order) => {
                               </div>
                             )}
 
-                            <div className="whitespace-nowrap text-right">
-                              <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
-                                {formatCurrency(
-                                  getSafeOrderTotal(o),
-                                  o.currency === "EUR" ? "EUR" : "CHF",
+                            <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+                              {appointmentBadges.map((badge) => (
+                                <span
+                                  key={badge.key}
+                                  className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
+                                >
+                                  {badge.icon && (
+                                    <AlertTriangle className="w-3 h-3" />
+                                  )}
+                                  {badge.label}
+                                </span>
+                              ))}
+
+                              <div className="text-right">
+                                <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
+                                  {formatCurrency(
+                                    getSafeOrderTotal(o),
+                                    o.currency === "EUR" ? "EUR" : "CHF",
+                                  )}
+                                </div>
+                                {hasOrderVat(o) && (
+                                  <div className="text-[9px] leading-none text-muted-foreground">
+                                    inkl. MwSt
+                                  </div>
                                 )}
                               </div>
-                              {hasOrderVat(o) && (
-                                <div className="text-[9px] leading-none text-muted-foreground">
-                                  inkl. MwSt
-                                </div>
-                              )}
                             </div>
                           </div>
                         </div>

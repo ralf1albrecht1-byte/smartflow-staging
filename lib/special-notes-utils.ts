@@ -38,6 +38,61 @@ const normalizeLine = (value: string) => value.replace(/\s+/g, " ").trim();
 const stripKnownMarker = (line: string) =>
   normalizeLine(line.replace(SAFETY_MARKER, "").replace(HINT_MARKER, ""));
 
+const normalizeSemanticNoteKey = (value: string) =>
+  normalizeLine(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const semanticDuplicateGroup = (value: string) => {
+  const text = normalizeSemanticNoteKey(value);
+  if (/\bhund\b/.test(text)) return "dog";
+  if (/\bleiter\b/.test(text)) return "ladder";
+  return text;
+};
+
+const semanticNoteScore = (value: string) => {
+  const text = normalizeSemanticNoteKey(value);
+  let score = Math.min(text.length, 120);
+
+  if (/\bhund\b/.test(text)) {
+    if (/\b(frei|garten|grundstueck|grundstuck|warnt|achtung)\b/.test(text)) score += 40;
+    if (/\bvor ort\b/.test(text)) score -= 20;
+  }
+
+  if (/\bleiter\b/.test(text)) {
+    if (/\b(nötig|noetig|benoetigt|benötigt|obere|fenster|fassade)\b/.test(text)) score += 30;
+    if (/\b(eventuell|vielleicht)\b/.test(text)) score -= 20;
+  }
+
+  return score;
+};
+
+const dedupeSemanticNotes = (values: string[]) => {
+  const byGroup = new Map<string, string>();
+
+  values.forEach((value) => {
+    const cleaned = normalizeLine(value);
+    if (!cleaned) return;
+
+    const group = semanticDuplicateGroup(cleaned);
+    const existing = byGroup.get(group);
+    if (!existing || semanticNoteScore(cleaned) > semanticNoteScore(existing)) {
+      byGroup.set(group, cleaned);
+    }
+  });
+
+  return Array.from(byGroup.values());
+};
+
+
 export const isSafetyWarningLine = (line: string | null | undefined) => {
   if (!line) return false;
   return SAFETY_MARKER.test(line);
@@ -97,7 +152,11 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     if (cleaned) jobHints.push(cleaned);
   }
 
-  return { systemHints, safetyWarnings, jobHints };
+  return {
+    systemHints: dedupeSemanticNotes(systemHints),
+    safetyWarnings: dedupeSemanticNotes(safetyWarnings),
+    jobHints: dedupeSemanticNotes(jobHints),
+  };
 }
 
 /**
@@ -152,7 +211,7 @@ export function buildSpecialNotes(input: {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  return Array.from(new Set(lines)).join("\n");
+  return dedupeSemanticNotes(Array.from(new Set(lines))).join("\n");
 }
 
 /**
