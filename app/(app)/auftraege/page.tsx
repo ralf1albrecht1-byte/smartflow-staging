@@ -14,7 +14,6 @@ import {
   FileCheck,
   Volume2,
   ImageIcon,
-  X,
   Mail,
   MoreVertical,
   ChevronLeft,
@@ -4789,63 +4788,62 @@ const getSafeOrderTotal = (o: Order) => {
                                 </div>
                               </div>
 
-                              {isManualService ? (
-                                <div className="relative shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      setServiceActionMenuKey((prev) =>
-                                        prev === item.key ? null : item.key,
-                                      );
-                                    }}
-                                    className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                    title="Aktionen"
-                                  >
-                                    <MoreVertical className="w-3.5 h-3.5" />
-                                  </button>
+                              <div className="relative shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setServiceActionMenuKey((prev) =>
+                                      prev === item.key ? null : item.key,
+                                    );
+                                  }}
+                                  className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                  title="Aktionen"
+                                >
+                                  <MoreVertical className="w-3.5 h-3.5" />
+                                </button>
 
-                                  {isMenuOpen && (
-                                    <div
-                                      onClick={(event) => event.stopPropagation()}
-                                      className="absolute right-0 top-8 z-50 w-48 rounded-md border bg-background py-1 text-sm shadow-lg"
-                                    >
+                                {isMenuOpen && (
+                                  <div
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="absolute right-0 top-8 z-50 w-52 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                  >
+                                    {isManualService && (
                                       <button
                                         type="button"
-                                        onClick={() => saveItemToServices(index)}
+                                        onClick={() => {
+                                          saveItemToServices(index);
+                                          setServiceActionMenuKey(null);
+                                        }}
                                         className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
                                       >
                                         <Plus className="h-3.5 w-3.5" />
                                         In Leistungen übernehmen
                                       </button>
-                                      {formItems.length > 1 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            removeItem(index);
-                                            setServiceActionMenuKey(null);
-                                          }}
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                          Löschen
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                formItems.length > 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => removeItem(index)}
-                                    className="mt-0.5 rounded-md border border-red-300 bg-red-50 p-1.5 text-red-600 hover:bg-red-100 shrink-0"
-                                    title="Leistung entfernen"
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                  </button>
-                                )
-                              )}
+                                    )}
+
+                                    {formItems.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          removeItem(index);
+                                          setServiceActionMenuKey(null);
+                                        }}
+                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                        Löschen
+                                      </button>
+                                    )}
+
+                                    {!isManualService && formItems.length <= 1 && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground">
+                                        Keine Aktion verfügbar
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
 
                             <div className="grid grid-cols-3 gap-1.5">
