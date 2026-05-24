@@ -2554,7 +2554,7 @@ export default function AuftraegePage() {
     );
   };
 
-  const addItem = () => setFormItems((prev) => [...prev, createEmptyItem()]);
+  const addItem = () => setFormItems((prev) => [createEmptyItem(), ...prev]);
 
   const removeItem = (index: number) => {
     setFormItems((prev) => {
@@ -3767,8 +3767,17 @@ export default function AuftraegePage() {
             const appointmentBadges = bottomBadges.filter(
               (badge) => badge.key === "appointment",
             );
-            const footerBadges = bottomBadges.filter(
-              (badge) => badge.key !== "appointment",
+            const callbackBadges = bottomBadges.filter(
+              (badge) => badge.key === "callback_request",
+            );
+            const messageBadges = bottomBadges.filter(
+              (badge) => badge.key === "sms_request",
+            );
+            const otherFooterBadges = bottomBadges.filter(
+              (badge) =>
+                !["appointment", "callback_request", "sms_request"].includes(
+                  badge.key,
+                ),
             );
             const rightSideBadges = amountReviewBadges;
             const showAudioTooLongBadge =
@@ -4007,19 +4016,25 @@ export default function AuftraegePage() {
                               onImageClick={() => openMedia(o)}
                             />
 
-                            {appointmentBadges.map((badge) =>
+                            {callbackBadges.map((badge) =>
                               renderOrderCardBadge(badge),
                             )}
+
+                            {messageBadges.map((badge) =>
+                              renderOrderCardBadge(badge),
+                            )}
+
                             {operationalBadges.map((badge) =>
                               renderOrderCardBadge(badge),
                             )}
-                            {footerBadges.map((badge) =>
+
+                            {otherFooterBadges.map((badge) =>
                               renderOrderCardBadge(badge),
                             )}
                           </div>
                         </div>
 
-                        <div className="ml-auto flex w-[108px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[170px]">
+                        <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
                             {rightSideBadges.map((badge) => (
                               <span
@@ -4034,18 +4049,26 @@ export default function AuftraegePage() {
                             ))}
                           </div>
 
-                          <div className="whitespace-nowrap text-right leading-tight">
-                            <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
-                              {formatCurrency(
-                                getSafeOrderTotal(o),
-                                o.currency === "EUR" ? "EUR" : "CHF",
+                          <div className="flex w-full flex-wrap items-end justify-end gap-3">
+                            <div className="flex flex-wrap justify-end gap-1">
+                              {appointmentBadges.map((badge) =>
+                                renderOrderCardBadge(badge),
                               )}
                             </div>
-                            {hasOrderVat(o) && (
-                              <div className="text-[9px] leading-none text-muted-foreground">
-                                inkl. MwSt
+
+                            <div className="whitespace-nowrap text-right leading-tight">
+                              <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
+                                {formatCurrency(
+                                  getSafeOrderTotal(o),
+                                  o.currency === "EUR" ? "EUR" : "CHF",
+                                )}
                               </div>
-                            )}
+                              {hasOrderVat(o) && (
+                                <div className="text-[9px] leading-none text-muted-foreground">
+                                  inkl. MwSt
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -4847,7 +4870,7 @@ export default function AuftraegePage() {
                         className="h-7 shrink-0 px-2 text-xs"
                       >
                         <Plus className="mr-1 h-3.5 w-3.5" />
-                        Hinzufügen
+                        Leistung hinzufügen
                       </Button>
                     </div>
 
@@ -4967,6 +4990,12 @@ export default function AuftraegePage() {
                         const itemTotal =
                           Number(item.unitPrice || 0) *
                           Number(item.quantity || 0);
+                        const isCompleteItemForCatalogAction = Boolean(
+                          item.serviceName?.trim() &&
+                            item.unit?.trim() &&
+                            Number(item.unitPrice || 0) > 0 &&
+                            Number(item.quantity || 0) > 0,
+                        );
 
                         const isManualService =
                           Boolean(item.serviceName?.trim()) &&
@@ -5002,20 +5031,35 @@ export default function AuftraegePage() {
                             priceInputReview ||
                             quantityInputReview ||
                             showManualServiceReview);
+                        const hasMissingItemInput =
+                          priceInputReview || quantityInputReview;
                         const isBlockingItemReview =
-                          priceInputReview ||
-                          quantityInputReview ||
+                          hasMissingItemInput ||
                           showPriceReferenceReview ||
-                          showUnitConflict;
+                          (showUnitConflict && !isCompleteItemForCatalogAction);
                         const isMenuOpen = serviceActionMenuKey === item.key;
                         const hasCriticalItemReview = isBlockingItemReview;
+                        const hasResolvedReviewCatalogAction =
+                          isCompleteItemForCatalogAction &&
+                          Boolean(
+                            hasCurrencyConflict ||
+                              unitMismatchReason ||
+                              item.aiWarning?.trim() ||
+                              priceUnclearReason ||
+                              curOrder?.reviewReasons?.includes(
+                                "unit_price_review",
+                              ),
+                          );
                         const hasCatalogActionMenu =
                           !hasCriticalItemReview &&
-                          (showManualServiceReview || showPriceOverride);
+                          (showManualServiceReview ||
+                            showPriceOverride ||
+                            hasResolvedReviewCatalogAction);
                         const hasAnyItemReview =
                           hasCriticalItemReview ||
                           showPriceOverride ||
-                          showManualServiceReview;
+                          showManualServiceReview ||
+                          hasResolvedReviewCatalogAction;
 
                         return (
                           <div
