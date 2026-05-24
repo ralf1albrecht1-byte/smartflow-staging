@@ -46,7 +46,11 @@ import {
   DuplicateCheckPanel,
   type DuplicateMatch,
 } from "@/components/customer-duplicate-check";
-import { buildSpecialNotes, splitSpecialNotes, detectCallbackRequest } from "@/lib/special-notes-utils";
+import {
+  buildSpecialNotes,
+  splitSpecialNotes,
+  detectCallbackRequest,
+} from "@/lib/special-notes-utils";
 import { fetchAllJSON } from "@/lib/fetch-utils";
 import { LoadErrorFallback } from "@/components/load-error-fallback";
 import { ORDER_STATUS_STYLES, getStatusStyle } from "@/lib/status-colors";
@@ -226,7 +230,6 @@ const hasQuantityReviewForService = (
   );
 };
 
-
 const buildItemDescription = (item: FormItem) => {
   return item.aiWarning?.trim()
     ? `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`
@@ -241,8 +244,6 @@ const CUSTOMER_REVIEW_REASONS = new Set([
   "customer_conflict",
   "customer_data_incomplete",
 ]);
-
-
 
 const hasRealCustomerReviewReason = (order: Order) => {
   return (
@@ -292,7 +293,10 @@ const findCustomerTextLineForService = (
     const lineKey = normalizeForMatch(line);
     if (!lineKey) return false;
     if (lineKey.includes(serviceKey)) return true;
-    return serviceTokens.length > 0 && serviceTokens.some((token) => lineKey.includes(token));
+    return (
+      serviceTokens.length > 0 &&
+      serviceTokens.some((token) => lineKey.includes(token))
+    );
   });
 
   return matchingLine || "";
@@ -314,7 +318,9 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
 
 const formatMergedNumberString = (value: number) => {
   if (!Number.isFinite(value)) return "";
-  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+  return Number.isInteger(value)
+    ? String(value)
+    : String(Number(value.toFixed(4)));
 };
 
 const mergeEquivalentFormItems = (items: FormItem[]) => {
@@ -344,7 +350,9 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
       const existing = merged[existingIndex];
       const existingQuantity = Number(existing.quantity || 0);
       if (Number.isFinite(existingQuantity)) {
-        existing.quantity = formatMergedNumberString(existingQuantity + quantityNumber);
+        existing.quantity = formatMergedNumberString(
+          existingQuantity + quantityNumber,
+        );
       }
       return;
     }
@@ -399,7 +407,11 @@ const getSemanticBadgeKind = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return null;
 
-  if (/oel|öl|rutsch|strom|kabel|gas|rauch|scherb|asbest|schimmel|chem|feuer|brand|sturz|absturz/.test(text)) {
+  if (
+    /oel|öl|rutsch|strom|kabel|gas|rauch|scherb|asbest|schimmel|chem|feuer|brand|sturz|absturz/.test(
+      text,
+    )
+  ) {
     return "warning";
   }
 
@@ -407,8 +419,10 @@ const getSemanticBadgeKind = (value?: string | null) => {
   if (/leiter/.test(text)) return "ladder";
   if (/park|zufahrt|innenhof|reserviert/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
-  if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text)) return "access";
-  if (/termin|datum|uhr|morgen|vormittag|nachmittag/.test(text)) return "appointment";
+  if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
+    return "access";
+  if (/termin|datum|uhr|morgen|vormittag|nachmittag/.test(text))
+    return "appointment";
   if (/schubkarre/.test(text)) return "wheelbarrow";
   if (/absperrband/.test(text)) return "barrier_tape";
   if (/geruest|gerüst/.test(text)) return "scaffold";
@@ -417,35 +431,57 @@ const getSemanticBadgeKind = (value?: string | null) => {
   return null;
 };
 
-const isNonActionableSemanticHint = (value?: string | null, context?: string | null) => {
+const isNonActionableSemanticHint = (
+  value?: string | null,
+  context?: string | null,
+) => {
   const text = normalizeForMatch(value);
   const contextText = normalizeForMatch(context);
   if (!text) return true;
 
   // Negative access/parking information is actionable: no parking / no lift
   // must still create an orange chip. Other negated hints stay inside only.
-  if (/kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|kein lift|ohne lift/.test(text)) {
+  if (
+    /kein parkplatz|keine parkplaetze|keine parkplätze|kein parken|parkverbot|kein lift|ohne lift/.test(
+      text,
+    )
+  ) {
     return false;
   }
 
   const hasRealAccessConstraint =
-    /seiteneingang|hintereingang|nebeneingang|rampe|schmal|enger?\s+zugang|schwieriger\s+zugang|kein lift|ohne lift|back entrance|side entrance|rear entrance|access difficult|difficult access|acces difficile/.test(text);
+    /seiteneingang|hintereingang|nebeneingang|rampe|schmal|enger?\s+zugang|schwieriger\s+zugang|kein lift|ohne lift|back entrance|side entrance|rear entrance|access difficult|difficult access|acces difficile/.test(
+      text,
+    );
 
   const isOnlyNormalDoorInstruction =
-    /klingeln|warten|haustuer|haustür|haupteingang|eingangstuer|eingangstür|kunde ist vor ort|kundin ist vor ort|oeffnet die tuer|öffnet die tür|sonner|attendre|ouvre la porte|main entrance|ring the bell|doorbell/.test(text) &&
-    !hasRealAccessConstraint;
+    /klingeln|warten|haustuer|haustür|haupteingang|eingangstuer|eingangstür|kunde ist vor ort|kundin ist vor ort|oeffnet die tuer|öffnet die tür|sonner|attendre|ouvre la porte|main entrance|ring the bell|doorbell/.test(
+      text,
+    ) && !hasRealAccessConstraint;
 
   return (
-    /kein|keine|keinen|nicht benoetigt|nicht benötigt|muss nicht|kein thema|ohne/.test(text) ||
-    /termin flexibel|kein fester termin|kein terminwunsch|irgendwann/.test(text) ||
-    /leiter eventuell|eventuell leiter|vielleicht leiter|leiter vielleicht/.test(text) ||
-    /zugang.*(frei|offen|unproblematisch)|tuer.*offen|tür.*offen|kunde ist vor ort|kundin ist vor ort/.test(text) ||
+    /kein|keine|keinen|nicht benoetigt|nicht benötigt|muss nicht|kein thema|ohne/.test(
+      text,
+    ) ||
+    /termin flexibel|kein fester termin|kein terminwunsch|irgendwann/.test(
+      text,
+    ) ||
+    /leiter eventuell|eventuell leiter|vielleicht leiter|leiter vielleicht/.test(
+      text,
+    ) ||
+    /zugang.*(frei|offen|unproblematisch)|tuer.*offen|tür.*offen|kunde ist vor ort|kundin ist vor ort/.test(
+      text,
+    ) ||
     isOnlyNormalDoorInstruction ||
-    /parkplatz.*(kein thema|nicht wichtig)|direkt halten|genug platz/.test(text) ||
-    (
-      /parkplatz.*(vorhanden|reserviert|frei|innenhof|vor ort)|parkplatz/.test(text) &&
-      /parkplatz.*kein thema|direkt halten|genug platz|parkplatz.*nicht wichtig/.test(contextText)
-    )
+    /parkplatz.*(kein thema|nicht wichtig)|direkt halten|genug platz/.test(
+      text,
+    ) ||
+    (/parkplatz.*(vorhanden|reserviert|frei|innenhof|vor ort)|parkplatz/.test(
+      text,
+    ) &&
+      /parkplatz.*kein thema|direkt halten|genug platz|parkplatz.*nicht wichtig/.test(
+        contextText,
+      ))
   );
 };
 
@@ -453,7 +489,9 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available/.test(text);
+  return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available/.test(
+    text,
+  );
 };
 
 const PARKING_NO_PATTERN =
@@ -463,7 +501,9 @@ const PARKING_DIFFICULT_PATTERN =
   /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
 
 const hasParkingReference = (value?: string | null) =>
-  /park|parking|parkplatz|parken|zufahrt|innenhof/.test(normalizeForMatch(value));
+  /park|parking|parkplatz|parken|zufahrt|innenhof/.test(
+    normalizeForMatch(value),
+  );
 
 const getParkingSignal = (value?: string | null) => {
   const text = normalizeForMatch(value);
@@ -522,7 +562,10 @@ const getParkingConflictBadge = (
   return null;
 };
 
-const getParkingBadge = (value?: string | null, context?: string | null): { label: string; className: string } | null => {
+const getParkingBadge = (
+  value?: string | null,
+  context?: string | null,
+): { label: string; className: string } | null => {
   const text = normalizeForMatch(value);
   const contextSignal = getParkingSignal(context);
   const ownSignal = getParkingSignal(text);
@@ -590,15 +633,28 @@ const dangerBadgeLabel = (value?: string | null) => {
 const badgeSortRank = (badge: ReviewBadge) => {
   const className = badge.className || "";
   if (/bg-red-|text-red-|border-red-/.test(className)) return 0;
-  if (/bg-orange-|text-orange-|border-orange-|bg-amber-|text-amber-|border-amber-|bg-yellow-|text-yellow-|border-yellow-/.test(className)) return 1;
-  if (/bg-emerald-|text-emerald-|border-emerald-|bg-green-|text-green-|border-green-/.test(className)) return 2;
+  if (
+    /bg-orange-|text-orange-|border-orange-|bg-amber-|text-amber-|border-amber-|bg-yellow-|text-yellow-|border-yellow-/.test(
+      className,
+    )
+  )
+    return 1;
+  if (
+    /bg-emerald-|text-emerald-|border-emerald-|bg-green-|text-green-|border-green-/.test(
+      className,
+    )
+  )
+    return 2;
   return 3;
 };
 
 const sortReviewBadges = (badges: ReviewBadge[]) =>
   badges
     .map((badge, index) => ({ badge, index }))
-    .sort((a, b) => badgeSortRank(a.badge) - badgeSortRank(b.badge) || a.index - b.index)
+    .sort(
+      (a, b) =>
+        badgeSortRank(a.badge) - badgeSortRank(b.badge) || a.index - b.index,
+    )
     .map((entry) => entry.badge);
 
 const formatAppointmentTime = (hour: string, minute?: string) => {
@@ -703,7 +759,9 @@ const isNonActionableAppointmentHint = (value?: string | null) => {
   );
 };
 
-const splitAppointmentSources = (...values: Array<string | null | undefined>) => {
+const splitAppointmentSources = (
+  ...values: Array<string | null | undefined>
+) => {
   const sources: string[] = [];
 
   values.forEach((value) => {
@@ -739,7 +797,8 @@ const getAppointmentBadgeVisual = (
   orderStatus?: string | null,
 ) => {
   const normalClass = "bg-violet-100 text-violet-700 border border-violet-300";
-  const tomorrowClass = "bg-violet-200 text-violet-800 border border-violet-400";
+  const tomorrowClass =
+    "bg-violet-200 text-violet-800 border border-violet-400";
   const todayClass = "bg-orange-100 text-orange-800 border border-orange-300";
   const overdueClass = "bg-slate-100 text-slate-600 border border-slate-300";
   const doneClass = "bg-slate-100 text-slate-600 border border-slate-300";
@@ -801,24 +860,55 @@ const extractAppointmentBadge = (
 ) => {
   const raw = compactText(value);
   const text = normalizeForMatch(raw);
-  if (!text || isNonActionableSemanticHint(raw) || isNonActionableAppointmentHint(raw)) {
+  if (
+    !text ||
+    isNonActionableSemanticHint(raw) ||
+    isNonActionableAppointmentHint(raw)
+  ) {
     return null;
   }
 
   const weekdayMap: Array<[RegExp, number]> = [
-    [/\b(montag|monday|lundi|lunes|lunedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 1],
-    [/\b(dienstag|tuesday|mardi|martes|martedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 2],
-    [/\b(mittwoch|wednesday|mercredi|miercoles|mercoledi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 3],
-    [/\b(donnerstag|thursday|jeudi|jueves|giovedi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 4],
-    [/\b(freitag|friday|vendredi|viernes|venerdi)(?:morgen|vormittag|nachmittag|abend)?\b/i, 5],
-    [/\b(samstag|saturday|samedi|sabado|sabato)(?:morgen|vormittag|nachmittag|abend)?\b/i, 6],
-    [/\b(sonntag|sunday|dimanche|domingo|domenica)(?:morgen|vormittag|nachmittag|abend)?\b/i, 7],
+    [
+      /\b(montag|monday|lundi|lunes|lunedi)(?:morgen|vormittag|nachmittag|abend)?\b/i,
+      1,
+    ],
+    [
+      /\b(dienstag|tuesday|mardi|martes|martedi)(?:morgen|vormittag|nachmittag|abend)?\b/i,
+      2,
+    ],
+    [
+      /\b(mittwoch|wednesday|mercredi|miercoles|mercoledi)(?:morgen|vormittag|nachmittag|abend)?\b/i,
+      3,
+    ],
+    [
+      /\b(donnerstag|thursday|jeudi|jueves|giovedi)(?:morgen|vormittag|nachmittag|abend)?\b/i,
+      4,
+    ],
+    [
+      /\b(freitag|friday|vendredi|viernes|venerdi)(?:morgen|vormittag|nachmittag|abend)?\b/i,
+      5,
+    ],
+    [
+      /\b(samstag|saturday|samedi|sabado|sabato)(?:morgen|vormittag|nachmittag|abend)?\b/i,
+      6,
+    ],
+    [
+      /\b(sonntag|sunday|dimanche|domingo|domenica)(?:morgen|vormittag|nachmittag|abend)?\b/i,
+      7,
+    ],
   ];
 
-  const weekdayIndex = weekdayMap.find(([pattern]) => pattern.test(text))?.[1] || null;
-  const hasNextWeek = /\b(naechste woche|nächste woche|next week|semaine prochaine|proxima semana|settimana prossima)\b/i.test(text);
+  const weekdayIndex =
+    weekdayMap.find(([pattern]) => pattern.test(text))?.[1] || null;
+  const hasNextWeek =
+    /\b(naechste woche|nächste woche|next week|semaine prochaine|proxima semana|settimana prossima)\b/i.test(
+      text,
+    );
   const hasToday = /\b(heute|today|aujourd'hui|hoy|oggi)\b/i.test(text);
-  const hasTomorrow = /\b(morgen|tomorrow|demain|mañana|manana|domani)\b/i.test(text) && !weekdayIndex;
+  const hasTomorrow =
+    /\b(morgen|tomorrow|demain|mañana|manana|domani)\b/i.test(text) &&
+    !weekdayIndex;
 
   const dayPart = /vormittag|morning|matin|mattina/i.test(text)
     ? "Vorm."
@@ -832,24 +922,29 @@ const extractAppointmentBadge = (
     raw.match(/\b([01]?\d|2[0-3]):(\d{2})\b/) ||
     raw.match(/\b([01]?\d|2[0-3])\.(\d{2})\s*(?:uhr|h)\b/i) ||
     raw.match(/\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
-  const time = timeMatch ? formatAppointmentTime(timeMatch[1], timeMatch[2]) : "";
+  const time = timeMatch
+    ? formatAppointmentTime(timeMatch[1], timeMatch[2])
+    : "";
 
   const dateMatch = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   const baseDate = parseAppointmentBaseDate(baseDateInput);
   const explicitDateObject = dateMatch
     ? new Date(
         dateMatch[3]
-          ? Number(dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3])
+          ? Number(
+              dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3],
+            )
           : baseDate.getFullYear(),
         Number(dateMatch[2]) - 1,
         Number(dateMatch[1]),
       )
     : null;
 
-  const computedAppointmentDate = explicitDateObject
-    || (hasToday ? baseDate : null)
-    || (hasTomorrow ? addDays(baseDate, 1) : null)
-    || (!dateMatch && weekdayIndex
+  const computedAppointmentDate =
+    explicitDateObject ||
+    (hasToday ? baseDate : null) ||
+    (hasTomorrow ? addDays(baseDate, 1) : null) ||
+    (!dateMatch && weekdayIndex
       ? resolveWeekdayAppointmentDate(weekdayIndex, baseDateInput, hasNextWeek)
       : null);
 
@@ -868,10 +963,13 @@ const extractAppointmentBadge = (
     !hasToday &&
     !hasTomorrow &&
     !explicitDateObject &&
-    (
-      isAmbiguousSameWeekdayAppointment ||
-      isAmbiguousElapsedSameDayAppointment(computedAppointmentDate, baseDateInput, time, dayPart)
-    );
+    (isAmbiguousSameWeekdayAppointment ||
+      isAmbiguousElapsedSameDayAppointment(
+        computedAppointmentDate,
+        baseDateInput,
+        time,
+        dayPart,
+      ));
 
   if (shouldShowGenericAppointmentOnly) {
     return {
@@ -880,7 +978,9 @@ const extractAppointmentBadge = (
     };
   }
 
-  const date = computedAppointmentDate ? formatAppointmentDate(computedAppointmentDate) : "";
+  const date = computedAppointmentDate
+    ? formatAppointmentDate(computedAppointmentDate)
+    : "";
 
   // Only show an outside appointment chip when there is a concrete day/date,
   // a relative date such as heute/morgen, or a concrete time.
@@ -910,7 +1010,8 @@ const getOperationalBadges = (
 
   const redWarningClass = "bg-red-100 text-red-700 border border-red-300";
   const amberHintClass = "bg-amber-100 text-amber-700 border border-amber-300";
-  const greenInfoClass = "bg-emerald-100 text-emerald-700 border border-emerald-300";
+  const greenInfoClass =
+    "bg-emerald-100 text-emerald-700 border border-emerald-300";
 
   const addDanger = (key: string, label: string) =>
     pushUniqueBadge(badges, {
@@ -949,7 +1050,11 @@ const getOperationalBadges = (
       if (parkingConflictBadge) return;
       const parkingBadge = getParkingBadge(line, orderBadgeContext);
       if (!parkingBadge) return;
-      addHint(`hint_parking_${normalizeForMatch(parkingBadge.label)}`, parkingBadge.label, parkingBadge.className);
+      addHint(
+        `hint_parking_${normalizeForMatch(parkingBadge.label)}`,
+        parkingBadge.label,
+        parkingBadge.className,
+      );
       return;
     }
 
@@ -959,7 +1064,11 @@ const getOperationalBadges = (
     // If a safety warning already created a red danger chip, do not add the
     // same semantic hint again in yellow. Example: "Achtung Hund" must show
     // one Hund chip, not red Hund + yellow Hund.
-    if (badges.some((badge) => normalizeForMatch(badge.label) === normalizeForMatch(label))) {
+    if (
+      badges.some(
+        (badge) => normalizeForMatch(badge.label) === normalizeForMatch(label),
+      )
+    ) {
       return;
     }
 
@@ -971,7 +1080,11 @@ const getOperationalBadges = (
   });
 
   if (parkingConflictBadge) {
-    addHint("hint_parking_review", parkingConflictBadge.label, parkingConflictBadge.className);
+    addHint(
+      "hint_parking_review",
+      parkingConflictBadge.label,
+      parkingConflictBadge.className,
+    );
   }
 
   // Unknown operational notes stay inside the order detail. The card only shows short, useful chips.
@@ -1014,7 +1127,8 @@ const findCatalogServiceForName = (
   return (
     services.find(
       (service) =>
-        normalizeForMatch(canonicalServiceNameForOrderItem(service.name)) === key,
+        normalizeForMatch(canonicalServiceNameForOrderItem(service.name)) ===
+        key,
     ) || null
   );
 };
@@ -1022,16 +1136,20 @@ const findCatalogServiceForName = (
 const normalizePriceUnitForCompare = (value?: string | null) => {
   const unit = normalizeForMatch(value);
   if (!unit) return "";
-  if (["stueck", "stück", "stk", "piece", "pieces"].includes(unit)) return "piece";
-  if (["quadratmeter", "qm", "m2", "m²", "sqm"].includes(unit)) return "square_meter";
+  if (["stueck", "stück", "stk", "piece", "pieces"].includes(unit))
+    return "piece";
+  if (["quadratmeter", "qm", "m2", "m²", "sqm"].includes(unit))
+    return "square_meter";
   if (["kubikmeter", "cbm", "m3", "m³"].includes(unit)) return "cubic_meter";
-  if (["stunde", "stunden", "std", "h", "hour", "hours"].includes(unit)) return "hour";
+  if (["stunde", "stunden", "std", "h", "hour", "hours"].includes(unit))
+    return "hour";
   if (["tag", "tage", "day", "days"].includes(unit)) return "day";
   if (["meter", "laufmeter", "lfm", "m"].includes(unit)) return "meter";
   if (["kilogramm", "kg"].includes(unit)) return "kilogram";
   if (["tonne", "tonnen"].includes(unit)) return "ton";
   if (["liter", "ltr", "l"].includes(unit)) return "liter";
-  if (["pauschal", "pauschale", "fixpreis", "festpreis", "flat"].includes(unit)) return "flat";
+  if (["pauschal", "pauschale", "fixpreis", "festpreis", "flat"].includes(unit))
+    return "flat";
   return unit;
 };
 
@@ -1057,7 +1175,8 @@ const hasCatalogPriceDeviationForItem = (
   reviewReasons?: string[] | null,
 ) => {
   if (!item?.serviceName?.trim()) return false;
-  if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName)) return false;
+  if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName))
+    return false;
 
   const catalog = findCatalogServiceForName(services, item.serviceName);
   if (!catalog) return false;
@@ -1068,7 +1187,8 @@ const hasCatalogPriceDeviationForItem = (
 
   const catalogPrice = Number(catalog.defaultPrice || 0);
   const itemPrice = Number(item.unitPrice || 0);
-  if (!Number.isFinite(catalogPrice) || !Number.isFinite(itemPrice)) return false;
+  if (!Number.isFinite(catalogPrice) || !Number.isFinite(itemPrice))
+    return false;
   if (catalogPrice <= 0 || itemPrice <= 0) return false;
 
   return Math.abs(catalogPrice - itemPrice) >= 0.01;
@@ -1080,7 +1200,8 @@ const hasCatalogTextFlatOverrideForItem = (
   reviewReasons?: string[] | null,
 ) => {
   if (!item?.serviceName?.trim()) return false;
-  if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName)) return false;
+  if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName))
+    return false;
 
   const catalog = findCatalogServiceForName(services, item.serviceName);
   if (!catalog) return false;
@@ -1100,20 +1221,21 @@ const getCatalogPriceDeviationItems = (
   order: Order,
   services: ServiceDef[],
 ) => {
-  const items = order.items && order.items.length > 0
-    ? order.items
-    : order.serviceName
-      ? [
-          {
-            serviceName: order.serviceName,
-            description: order.description || order.serviceName,
-            quantity: order.quantity,
-            unit: order.priceType,
-            unitPrice: order.unitPrice,
-            totalPrice: order.totalPrice,
-          },
-        ]
-      : [];
+  const items =
+    order.items && order.items.length > 0
+      ? order.items
+      : order.serviceName
+        ? [
+            {
+              serviceName: order.serviceName,
+              description: order.description || order.serviceName,
+              quantity: order.quantity,
+              unit: order.priceType,
+              unitPrice: order.unitPrice,
+              totalPrice: order.totalPrice,
+            },
+          ]
+        : [];
 
   return items.filter((item) =>
     hasCatalogPriceDeviationForItem(item, services, order.reviewReasons),
@@ -1124,20 +1246,21 @@ const getCatalogTextFlatOverrideItems = (
   order: Order,
   services: ServiceDef[],
 ) => {
-  const items = order.items && order.items.length > 0
-    ? order.items
-    : order.serviceName
-      ? [
-          {
-            serviceName: order.serviceName,
-            description: order.description || order.serviceName,
-            quantity: order.quantity,
-            unit: order.priceType,
-            unitPrice: order.unitPrice,
-            totalPrice: order.totalPrice,
-          },
-        ]
-      : [];
+  const items =
+    order.items && order.items.length > 0
+      ? order.items
+      : order.serviceName
+        ? [
+            {
+              serviceName: order.serviceName,
+              description: order.description || order.serviceName,
+              quantity: order.quantity,
+              unit: order.priceType,
+              unitPrice: order.unitPrice,
+              totalPrice: order.totalPrice,
+            },
+          ]
+        : [];
 
   return items.filter((item) =>
     hasCatalogTextFlatOverrideForItem(item, services, order.reviewReasons),
@@ -1145,7 +1268,9 @@ const getCatalogTextFlatOverrideItems = (
 };
 
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
-  const currencyBadges = badges.filter((badge) => badge.key === "currency_review");
+  const currencyBadges = badges.filter(
+    (badge) => badge.key === "currency_review",
+  );
   const priceBadges = badges.filter((badge) =>
     PRICE_AMOUNT_REVIEW_BADGE_KEYS.has(badge.key),
   );
@@ -1171,7 +1296,10 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   return priceBadges;
 };
 
-const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge[] => {
+const getSystemBadges = (
+  order: Order,
+  services: ServiceDef[] = [],
+): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
   if (order.siteAddressDifferent) {
@@ -1186,8 +1314,7 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     order.items && order.items.length > 0
       ? order.items.some(
           (it) =>
-            Number(it.unitPrice || 0) <= 0 ||
-            Number(it.quantity || 0) <= 0,
+            Number(it.unitPrice || 0) <= 0 || Number(it.quantity || 0) <= 0,
         )
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
 
@@ -1220,7 +1347,8 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
   }
 
   const hasCurrencyReview =
-    order.reviewReasons?.some((reason) => reason.startsWith("currency_")) ?? false;
+    order.reviewReasons?.some((reason) => reason.startsWith("currency_")) ??
+    false;
 
   if (hasCurrencyReview) {
     pushUniqueBadge(badges, {
@@ -1232,7 +1360,10 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
   }
 
   const hasPriceDeviationReview =
-    (order.reviewReasons?.some((reason) => reason.startsWith("price_override:")) ?? false) ||
+    (order.reviewReasons?.some((reason) =>
+      reason.startsWith("price_override:"),
+    ) ??
+      false) ||
     getCatalogPriceDeviationItems(order, services).length > 0 ||
     getCatalogTextFlatOverrideItems(order, services).length > 0;
 
@@ -1240,7 +1371,8 @@ const getSystemBadges = (order: Order, services: ServiceDef[] = []): ReviewBadge
     pushUniqueBadge(badges, {
       key: "price_deviation",
       label: "Textpreis",
-      className: "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
+      className:
+        "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
     });
   }
 
@@ -1310,7 +1442,9 @@ const getBottomBadges = (
     .filter(Boolean)
     .join("\n");
   const smsSourceKey = normalizeForMatch(smsSource);
-  const hasPositiveSmsHint = /\bsms\b/.test(smsSourceKey) && !/(kein|keine|keinen|nicht|ohne)\s+sms/.test(smsSourceKey);
+  const hasPositiveSmsHint =
+    /\bsms\b/.test(smsSourceKey) &&
+    !/(kein|keine|keinen|nicht|ohne)\s+sms/.test(smsSourceKey);
 
   if (hasPositiveSmsHint) {
     pushUniqueBadge(badges, {
@@ -1327,7 +1461,9 @@ const getBottomBadges = (
     order.notes,
     order.audioTranscript,
   )
-    .map((line) => extractAppointmentBadge(line, appointmentBaseDate, order.status))
+    .map((line) =>
+      extractAppointmentBadge(line, appointmentBaseDate, order.status),
+    )
     .find(Boolean);
 
   if (appointmentBadge) {
@@ -1347,11 +1483,15 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
   if (!text) return false;
 
   const negative =
-    /kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|(?:rueckruf|ruckruf)\s+(?:nicht\s+)?(?:noetig|notig|erwuenscht)/.test(text);
+    /kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|(?:rueckruf|ruckruf)\s+(?:nicht\s+)?(?:noetig|notig|erwuenscht)/.test(
+      text,
+    );
 
   if (negative) return false;
 
-  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(text);
+  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
+    text,
+  );
 };
 
 const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
@@ -1366,52 +1506,24 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border-/g, "border-2 border-")
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
-const renderOrderCardBadge = (
-  badge: ReviewBadge,
-  options?: { priceSide?: boolean },
-) => {
+const renderOrderCardBadge = (badge: ReviewBadge) => {
   const isTextPriceBadge = badge.key === "price_deviation";
-  const isPriceSide = Boolean(options?.priceSide);
-
-  const icon = (() => {
-    if (badge.key === "callback_request") {
-      return <span className="max-[430px]:hidden text-red-600 leading-none">☎</span>;
-    }
-    if (badge.key === "appointment") {
-      return <span className="max-[430px]:hidden leading-none">▣</span>;
-    }
-    if (badge.key.includes("danger_hund") || normalizeForMatch(badge.label) === "hund") {
-      return <span className="max-[430px]:hidden leading-none">🐾</span>;
-    }
-    if (normalizeForMatch(badge.label) === "leiter") {
-      return <span className="max-[430px]:hidden leading-none">▧</span>;
-    }
-    if (normalizeForMatch(badge.label).includes("park")) {
-      return <span className="max-[430px]:hidden leading-none">Ⓟ</span>;
-    }
-    if (normalizeForMatch(badge.label).includes("schluessel")) {
-      return <span className="max-[430px]:hidden leading-none">🔑</span>;
-    }
-    if (badge.icon) {
-      return <AlertTriangle className={`${isPriceSide ? "w-3 h-3" : "w-3 h-3 max-[430px]:hidden"}`} />;
-    }
-    return null;
-  })();
 
   return (
     <span
       key={badge.key}
-      className={`inline-flex items-center gap-1 rounded-full shrink-0 leading-[1.15] ${
-        isPriceSide
-          ? isTextPriceBadge
-            ? "text-[11px] px-2.5 py-1 font-semibold"
-            : "text-[10.5px] px-2 py-1 font-semibold"
-          : isTextPriceBadge
-            ? "text-[11px] px-2 py-0.5 font-semibold"
-            : "text-[10px] px-1.5 py-0.5 font-medium"
+      className={`inline-flex items-center gap-1 rounded-full shrink-0 ${
+        isTextPriceBadge
+          ? "text-[11px] px-2 py-0.5 font-semibold"
+          : "text-[10px] px-1.5 py-0.5 font-medium"
       } ${getStrongerCardBadgeClassName(badge.className)}`}
     >
-      {icon}
+      {badge.key === "callback_request" && (
+        <span className="text-red-600 leading-none">☎</span>
+      )}
+      {badge.icon && badge.key !== "callback_request" && (
+        <AlertTriangle className="w-3 h-3" />
+      )}
       {badge.label}
     </span>
   );
@@ -1426,7 +1538,10 @@ const cleanServiceLabel = (value?: string | null) => {
     .replace(/\s+[–—]\s+.*$/, "")
     .replace(/\s+-\s+.*$/, "")
     // Einheit-/Preiswörter gehören nicht in den sichtbaren Kartentitel.
-    .replace(/\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/gi, " ")
+    .replace(
+      /\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/gi,
+      " ",
+    )
     .replace(/\s+/g, " ")
     .trim();
 
@@ -1499,7 +1614,10 @@ const extractFallbackServiceLabels = (order: Order) => {
     .replace(/das beigefuegte bild zeigt.*$/i, "")
     .replace(/das beigefügte bild zeigt.*$/i, "")
     .replace(/weitere details.*$/i, "")
-    .replace(/der kunde moechte|der kunde möchte|kunde moechte|kunde möchte/gi, "")
+    .replace(
+      /der kunde moechte|der kunde möchte|kunde moechte|kunde möchte/gi,
+      "",
+    )
     .replace(/\b(ein|eine|einen|soll|sollen|muss|muessen|müssen|bitte)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -1514,7 +1632,8 @@ const getOrderCardServiceSummary = (order: Order) => {
       ? order.items.map((item) => item.serviceName)
       : [];
 
-  const structuredLabels = itemLabels.length > 0 ? itemLabels : [order.serviceName || ""];
+  const structuredLabels =
+    itemLabels.length > 0 ? itemLabels : [order.serviceName || ""];
   const usableStructuredLabels = structuredLabels.filter(
     (label) => normalizeForMatch(label) !== "sonstiges",
   );
@@ -1522,7 +1641,9 @@ const getOrderCardServiceSummary = (order: Order) => {
   const structuredSummary = formatServiceSummary(usableStructuredLabels);
   if (structuredSummary) return structuredSummary;
 
-  const fallbackSummary = formatServiceSummary(extractFallbackServiceLabels(order));
+  const fallbackSummary = formatServiceSummary(
+    extractFallbackServiceLabels(order),
+  );
   return fallbackSummary || "Leistung prüfen";
 };
 
@@ -1540,7 +1661,6 @@ const emptyForm = {
   siteCity: "",
   siteNote: "",
 };
-
 
 const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^currency_/,
@@ -1572,7 +1692,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
       (item) =>
         Number(item?.unitPrice || 0) <= 0 ||
         Number(item?.quantity || 0) <= 0 ||
-        Number(item?.totalPrice ?? Number(item?.unitPrice || 0) * Number(item?.quantity || 0)) <= 0,
+        Number(
+          item?.totalPrice ??
+            Number(item?.unitPrice || 0) * Number(item?.quantity || 0),
+        ) <= 0,
     )
   ) {
     blockers.push("Preis/Menge prüfen");
@@ -1580,7 +1703,9 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
 
   if (
     reviewReasons.some((reason) =>
-      CRITICAL_CONVERSION_REVIEW_PATTERNS.some((pattern) => pattern.test(reason)),
+      CRITICAL_CONVERSION_REVIEW_PATTERNS.some((pattern) =>
+        pattern.test(reason),
+      ),
     )
   ) {
     blockers.push("Offene Prüfhinweise im Auftrag");
@@ -1597,7 +1722,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
   return Array.from(new Set(blockers));
 };
 
-const blockConversionIfUnsafe = (order: Order | any, targetLabel: "Angebot" | "Rechnung") => {
+const blockConversionIfUnsafe = (
+  order: Order | any,
+  targetLabel: "Angebot" | "Rechnung",
+) => {
   const blockers = getOrderConversionBlockers(order);
   if (blockers.length === 0) return false;
 
@@ -1744,8 +1872,9 @@ export default function AuftraegePage() {
       const currentOrder = editId
         ? orders.find((o: Order) => o.id === editId)
         : null;
-      const canUseOrderNotesForCustomer =
-        !hasMissingOrFallbackCustomerName(freshCust.name);
+      const canUseOrderNotesForCustomer = !hasMissingOrFallbackCustomerName(
+        freshCust.name,
+      );
       const noteSource = canUseOrderNotesForCustomer
         ? noteOverride !== undefined
           ? noteOverride
@@ -1786,7 +1915,9 @@ export default function AuftraegePage() {
 
   // Dropdown menu for create offer/invoice
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
-  const [serviceActionMenuKey, setServiceActionMenuKey] = useState<string | null>(null);
+  const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
+    string | null
+  >(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -1951,8 +2082,8 @@ export default function AuftraegePage() {
           );
         case "name":
           return (a.customer?.name ?? "").localeCompare(b.customer?.name ?? "");
-   case "amount":
-  return getSafeOrderTotal(b) - getSafeOrderTotal(a);
+        case "amount":
+          return getSafeOrderTotal(b) - getSafeOrderTotal(a);
         case "review":
           return (
             (b.needsReview ? 1 : 0) - (a.needsReview ? 1 : 0) ||
@@ -2026,8 +2157,13 @@ export default function AuftraegePage() {
       siteCity: o.siteCity ?? "",
       siteNote: o.siteNote ?? "",
     });
-    setSiteAddressEditing(Boolean(o.siteAddressDifferent) && ![o.siteName, o.siteAddress, o.sitePlz, o.siteCity, o.siteNote].some((value) => String(value || "").trim()));
-     // Populate items from order
+    setSiteAddressEditing(
+      Boolean(o.siteAddressDifferent) &&
+        ![o.siteName, o.siteAddress, o.sitePlz, o.siteCity, o.siteNote].some(
+          (value) => String(value || "").trim(),
+        ),
+    );
+    // Populate items from order
     if (o.items && o.items.length > 0) {
       setFormItems(
         mergeEquivalentFormItems(
@@ -2053,8 +2189,6 @@ export default function AuftraegePage() {
           }),
         ),
       );
-
-
     } else {
       setFormItems(
         mergeEquivalentFormItems([
@@ -2062,7 +2196,8 @@ export default function AuftraegePage() {
             key: Math.random().toString(36).slice(2),
             serviceName: o.serviceName ?? "",
             unit: o.priceType ?? "Stunde",
-            unitPrice: Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
+            unitPrice:
+              Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
             quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
             aiWarning: "",
           },
@@ -2133,7 +2268,7 @@ export default function AuftraegePage() {
             : null;
           const noteSource = hasMissingOrFallbackCustomerName(freshCust.name)
             ? null
-            : currentOrder?.notes ?? null;
+            : (currentOrder?.notes ?? null);
           const merged = mergeCustomerIntoForm(
             {
               name: "",
@@ -2373,7 +2508,8 @@ export default function AuftraegePage() {
 
     const normalizedName = item.serviceName.trim().replace(/\s+/g, " ");
     const existing = services.find(
-      (service) => normalizeForMatch(service.name) === normalizeForMatch(normalizedName),
+      (service) =>
+        normalizeForMatch(service.name) === normalizeForMatch(normalizedName),
     );
 
     if (existing) {
@@ -2525,16 +2661,20 @@ export default function AuftraegePage() {
 
   const customerMessageTranscriptDuplicate = Boolean(
     currentEditOrder?.audioTranscript &&
-      customerMessageText &&
-      (() => {
-        const msg = normalizeCustomerMessageForCompare(customerMessageText);
-        const transcript = normalizeCustomerMessageForCompare(currentEditOrder.audioTranscript);
-        return Boolean(
-          msg &&
-            transcript &&
-            (msg === transcript || msg.includes(transcript) || transcript.includes(msg)),
-        );
-      })(),
+    customerMessageText &&
+    (() => {
+      const msg = normalizeCustomerMessageForCompare(customerMessageText);
+      const transcript = normalizeCustomerMessageForCompare(
+        currentEditOrder.audioTranscript,
+      );
+      return Boolean(
+        msg &&
+        transcript &&
+        (msg === transcript ||
+          msg.includes(transcript) ||
+          transcript.includes(msg)),
+      );
+    })(),
   );
 
   const visibleCustomerMessageText = customerMessageTranscriptDuplicate
@@ -2665,7 +2805,9 @@ export default function AuftraegePage() {
   };
 
   // Core save function — returns saved order or null
-  const saveOrder = async (payloadOverrides?: Partial<typeof form>): Promise<Order | null> => {
+  const saveOrder = async (
+    payloadOverrides?: Partial<typeof form>,
+  ): Promise<Order | null> => {
     if (!form.customerId) {
       toast.error("Bitte Kunde auswählen");
       return null;
@@ -2685,69 +2827,75 @@ export default function AuftraegePage() {
 
     const url = editId ? `/api/orders/${editId}` : "/api/orders";
     const method = editId ? "PUT" : "POST";
-  const validServiceNames = new Set(
-  validItems
-    .filter((item) => Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0)
-    .map((item) => item.serviceName.trim().toLowerCase()),
-);
+    const validServiceNames = new Set(
+      validItems
+        .filter(
+          (item) =>
+            Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0,
+        )
+        .map((item) => item.serviceName.trim().toLowerCase()),
+    );
 
-const allItemsComplete = validItems.every(
-  (item) =>
-    item.serviceName.trim().length > 0 &&
-    Number(item.quantity || 0) > 0 &&
-    Number(item.unitPrice || 0) > 0,
-);
+    const allItemsComplete = validItems.every(
+      (item) =>
+        item.serviceName.trim().length > 0 &&
+        Number(item.quantity || 0) > 0 &&
+        Number(item.unitPrice || 0) > 0,
+    );
 
-const allServicesInCatalog = validItems.every((item) =>
-  isServiceInCatalog(item.serviceName),
-);
+    const allServicesInCatalog = validItems.every((item) =>
+      isServiceInCatalog(item.serviceName),
+    );
 
-const cleanedReviewReasons =
-  orders
-    .find((o) => o.id === editId)
-    ?.reviewReasons?.filter((reason) => {
-      if (reason.startsWith("unit_mismatch:")) {
-        const [, reasonService] = reason.split(":");
-        const reasonName = (reasonService || "").trim().toLowerCase();
-        return !validServiceNames.has(reasonName);
-      }
+    const cleanedReviewReasons =
+      orders
+        .find((o) => o.id === editId)
+        ?.reviewReasons?.filter((reason) => {
+          if (reason.startsWith("unit_mismatch:")) {
+            const [, reasonService] = reason.split(":");
+            const reasonName = (reasonService || "").trim().toLowerCase();
+            return !validServiceNames.has(reasonName);
+          }
 
-      if (
-        allItemsComplete &&
-        (reason.startsWith("currency_") ||
-          reason.startsWith("item_currency_mismatch") ||
-          reason.startsWith("price_unclear:") ||
-          reason === "unit_price_review" ||
-          reason === "quantity_review" ||
-          reason === "manual_flat_service_from_text" ||
-          reason === "stunden_arbeitsposition_pruefen")
-      ) {
-        return false;
-      }
+          if (
+            allItemsComplete &&
+            (reason.startsWith("currency_") ||
+              reason.startsWith("item_currency_mismatch") ||
+              reason.startsWith("price_unclear:") ||
+              reason === "unit_price_review" ||
+              reason === "quantity_review" ||
+              reason === "manual_flat_service_from_text" ||
+              reason === "stunden_arbeitsposition_pruefen")
+          ) {
+            return false;
+          }
 
-      if (allServicesInCatalog && reason === "unbekannte_leistung_pruefen") {
-        return false;
-      }
+          if (
+            allServicesInCatalog &&
+            reason === "unbekannte_leistung_pruefen"
+          ) {
+            return false;
+          }
 
-      return true;
-    }) ?? [];
+          return true;
+        }) ?? [];
 
-const payload = {
-  ...form,
-  ...payloadOverrides,
-  description: desc,
-  vatRate: orderVatRate,
-  currency,
-  reviewReasons: cleanedReviewReasons,
-  needsReview: cleanedReviewReasons.length > 0,
-  items: validItems.map((item) => ({
-    serviceName: item.serviceName,
-    description: buildItemDescription(item),
-    quantity: Number(item.quantity || 0),
-    unit: item.unit,
-    unitPrice: Number(item.unitPrice || 0),
-  })),
-};
+    const payload = {
+      ...form,
+      ...payloadOverrides,
+      description: desc,
+      vatRate: orderVatRate,
+      currency,
+      reviewReasons: cleanedReviewReasons,
+      needsReview: cleanedReviewReasons.length > 0,
+      items: validItems.map((item) => ({
+        serviceName: item.serviceName,
+        description: buildItemDescription(item),
+        quantity: Number(item.quantity || 0),
+        unit: item.unit,
+        unitPrice: Number(item.unitPrice || 0),
+      })),
+    };
     const res = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
@@ -2950,7 +3098,6 @@ const payload = {
     setSelectedCustomerId(null);
     setTextPreviewOpen({});
     setMerging(false);
-    ;
     setMergePreviewUrls({});
   };
 
@@ -3038,50 +3185,50 @@ const payload = {
         }),
     );
     setMergeAudioUrls(audioMap);
-const getFullCustomer = (order: Order) => {
-  return customers.find((c) => c.id === order.customerId) || order.customer;
-};
+    const getFullCustomer = (order: Order) => {
+      return customers.find((c) => c.id === order.customerId) || order.customer;
+    };
 
-const getBestMainOrder = (ordersToCheck: Order[]) => {
-  const scored = ordersToCheck.map((order, index) => {
-    const customer = getFullCustomer(order);
+    const getBestMainOrder = (ordersToCheck: Order[]) => {
+      const scored = ordersToCheck.map((order, index) => {
+        const customer = getFullCustomer(order);
 
-    const name = (customer?.name || "").trim();
-    const address = (customer?.address || "").trim();
-    const plz = (customer?.plz || "").trim();
-    const city = (customer?.city || "").trim();
-    const phone = (customer?.phone || "").trim();
-    const email = (customer?.email || "").trim();
-    const customerNumber = (customer?.customerNumber || "").trim();
+        const name = (customer?.name || "").trim();
+        const address = (customer?.address || "").trim();
+        const plz = (customer?.plz || "").trim();
+        const city = (customer?.city || "").trim();
+        const phone = (customer?.phone || "").trim();
+        const email = (customer?.email || "").trim();
+        const customerNumber = (customer?.customerNumber || "").trim();
 
-    const hasRealName = name.length > 0 && !isFallbackCustomerName(name);
-    const hasFullName = hasRealName && name.split(/\s+/).length >= 2;
-    const hasAddress = address.length > 0;
-    const hasPlzCity = plz.length > 0 && city.length > 0;
-    const hasContact = phone.length > 0 || email.length > 0;
+        const hasRealName = name.length > 0 && !isFallbackCustomerName(name);
+        const hasFullName = hasRealName && name.split(/\s+/).length >= 2;
+        const hasAddress = address.length > 0;
+        const hasPlzCity = plz.length > 0 && city.length > 0;
+        const hasContact = phone.length > 0 || email.length > 0;
 
-    let score = 0;
+        let score = 0;
 
-    if (hasRealName) score += 20;
-    if (hasFullName) score += 30;
-    if (hasAddress) score += 40;
-    if (hasPlzCity) score += 40;
-    if (hasContact) score += 10;
-    if (customerNumber) score += 5;
+        if (hasRealName) score += 20;
+        if (hasFullName) score += 30;
+        if (hasAddress) score += 40;
+        if (hasPlzCity) score += 40;
+        if (hasContact) score += 10;
+        if (customerNumber) score += 5;
 
-    return { order, score, index };
-  });
+        return { order, score, index };
+      });
 
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return a.index - b.index;
-  });
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.index - b.index;
+      });
 
-  return scored[0]?.order || ordersToCheck[0];
-};
+      return scored[0]?.order || ordersToCheck[0];
+    };
     const bestMainOrder = getBestMainOrder(selected);
 
-const defaultMainOrderId = bestMainOrder.id;
+    const defaultMainOrderId = bestMainOrder.id;
     setSelectedMainOrderId(defaultMainOrderId || null);
     const defaultMainOrder = orders.find(
       (o) => o.id === (defaultMainOrderId || selectedOrderIds[0]),
@@ -3093,7 +3240,6 @@ const defaultMainOrderId = bestMainOrder.id;
   };
 
   // Step 2 → Step 3
- 
 
   // Step 3: Execute merge
   const executeMerge = async () => {
@@ -3193,42 +3339,37 @@ const defaultMainOrderId = bestMainOrder.id;
     }
   };
 
+  const openMedia = async (o: Order) => {
+    const hasImageUrls = (o.imageUrls?.length ?? 0) > 0;
 
-const openMedia = async (o: Order) => {
-  const hasImageUrls = (o.imageUrls?.length ?? 0) > 0;
+    if (!o.mediaUrl && !hasImageUrls) return;
 
-  if (!o.mediaUrl && !hasImageUrls) return;
+    if (o.mediaUrl && o.mediaType === "audio") {
+      const url = await resolveS3Url(o.mediaUrl);
+      setMediaUrl(url);
+      setMediaType("audio");
+      setGalleryUrls([]);
+      setMediaDialogOpen(true);
+      return;
+    }
 
-  if (o.mediaUrl && o.mediaType === "audio") {
-    const url = await resolveS3Url(o.mediaUrl);
-    setMediaUrl(url);
-    setMediaType("audio");
-    setGalleryUrls([]);
+    const paths =
+      hasImageUrls && o.imageUrls
+        ? o.imageUrls
+        : o.mediaUrl
+          ? [o.mediaUrl]
+          : [];
+
+    if (paths.length === 0) return;
+
+    const resolved = await Promise.all(paths.map((p) => resolveS3Url(p)));
+
+    setGalleryUrls(resolved);
+    setGalleryIdx(0);
+    setMediaType("image");
+    setMediaUrl(null);
     setMediaDialogOpen(true);
-    return;
-  }
-
-  const paths =
-    hasImageUrls && o.imageUrls
-      ? o.imageUrls
-      : o.mediaUrl
-        ? [o.mediaUrl]
-        : [];
-
-  if (paths.length === 0) return;
-
-  const resolved = await Promise.all(paths.map((p) => resolveS3Url(p)));
-
-  setGalleryUrls(resolved);
-  setGalleryIdx(0);
-  setMediaType("image");
-  setMediaUrl(null);
-  setMediaDialogOpen(true);
-};
-
-
-
-
+  };
 
   useEffect(() => {
     if (!dialogOpen || !currentEditOrder) {
@@ -3238,7 +3379,9 @@ const openMedia = async (o: Order) => {
 
     const firstImagePath =
       currentEditOrder.imageUrls?.[0] ||
-      (currentEditOrder.mediaType === "image" ? currentEditOrder.mediaUrl : null);
+      (currentEditOrder.mediaType === "image"
+        ? currentEditOrder.mediaUrl
+        : null);
 
     if (!firstImagePath) {
       setCustomerMessageImagePreviewUrl(null);
@@ -3259,7 +3402,9 @@ const openMedia = async (o: Order) => {
     };
   }, [dialogOpen, currentEditOrder?.id]);
 
-  const markOrderDoneForConversion = async (order: Order): Promise<Order | null> => {
+  const markOrderDoneForConversion = async (
+    order: Order,
+  ): Promise<Order | null> => {
     if (order.status === "Erledigt") return order;
 
     try {
@@ -3275,7 +3420,11 @@ const openMedia = async (o: Order) => {
       }
 
       const updated = await res.json().catch(() => null);
-      const doneOrder = { ...order, ...(updated || {}), status: "Erledigt" } as Order;
+      const doneOrder = {
+        ...order,
+        ...(updated || {}),
+        status: "Erledigt",
+      } as Order;
 
       setOrders((prev) =>
         prev.map((x) =>
@@ -3305,7 +3454,8 @@ const openMedia = async (o: Order) => {
         : [
             {
               serviceName: sourceOrder.serviceName ?? "",
-              description: sourceOrder.serviceName ?? sourceOrder.description ?? "",
+              description:
+                sourceOrder.serviceName ?? sourceOrder.description ?? "",
               quantity: sourceOrder.quantity ?? 1,
               unit: sourceOrder.priceType ?? "Stunde",
               unitPrice: sourceOrder.unitPrice ?? 0,
@@ -3319,7 +3469,10 @@ const openMedia = async (o: Order) => {
       unitPrice: String(i.unitPrice ?? 0),
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
-    const fwdVatRate = sourceOrder.vatRate != null ? Number(sourceOrder.vatRate) : defaultVatRate;
+    const fwdVatRate =
+      sourceOrder.vatRate != null
+        ? Number(sourceOrder.vatRate)
+        : defaultVatRate;
     try {
       const res = await fetch("/api/offers", {
         method: "POST",
@@ -3338,7 +3491,11 @@ const openMedia = async (o: Order) => {
         // Paket L: optimistic update — mark the source order as linked so it
         // disappears from the active Orders list immediately.
         setOrders((prev) =>
-          prev.map((x) => (x.id === sourceOrder.id ? { ...x, offerId: offer.id, status: "Erledigt" } : x)),
+          prev.map((x) =>
+            x.id === sourceOrder.id
+              ? { ...x, offerId: offer.id, status: "Erledigt" }
+              : x,
+          ),
         );
         window.location.href = "/angebote";
       } else {
@@ -3364,7 +3521,8 @@ const openMedia = async (o: Order) => {
         : [
             {
               serviceName: sourceOrder.serviceName ?? "",
-              description: sourceOrder.serviceName ?? sourceOrder.description ?? "",
+              description:
+                sourceOrder.serviceName ?? sourceOrder.description ?? "",
               quantity: sourceOrder.quantity ?? 1,
               unit: sourceOrder.priceType ?? "Stunde",
               unitPrice: sourceOrder.unitPrice ?? 0,
@@ -3378,7 +3536,10 @@ const openMedia = async (o: Order) => {
       unitPrice: String(i.unitPrice ?? 0),
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
-    const fwdVatRate = sourceOrder.vatRate != null ? Number(sourceOrder.vatRate) : defaultVatRate;
+    const fwdVatRate =
+      sourceOrder.vatRate != null
+        ? Number(sourceOrder.vatRate)
+        : defaultVatRate;
     try {
       const res = await fetch("/api/invoices", {
         method: "POST",
@@ -3398,7 +3559,9 @@ const openMedia = async (o: Order) => {
         // disappears from the active Orders list immediately.
         setOrders((prev) =>
           prev.map((x) =>
-            x.id === sourceOrder.id ? { ...x, invoiceId: invoice.id, status: "Erledigt" } : x,
+            x.id === sourceOrder.id
+              ? { ...x, invoiceId: invoice.id, status: "Erledigt" }
+              : x,
           ),
         );
         window.location.href = "/rechnungen";
@@ -3412,43 +3575,43 @@ const openMedia = async (o: Order) => {
 
   // Display items summary for list
 
-const getSafeOrderNetTotal = (o: Order) => {
-  if (o.items && o.items.length > 0) {
-    return o.items.reduce((sum, item) => {
-      const hasUnitReview = hasQuantityReviewForService(
-        o.reviewReasons,
-        item.serviceName,
-      );
+  const getSafeOrderNetTotal = (o: Order) => {
+    if (o.items && o.items.length > 0) {
+      return o.items.reduce((sum, item) => {
+        const hasUnitReview = hasQuantityReviewForService(
+          o.reviewReasons,
+          item.serviceName,
+        );
 
-      const qty = Number(item.quantity || 0);
-      const price = Number(item.unitPrice || 0);
+        const qty = Number(item.quantity || 0);
+        const price = Number(item.unitPrice || 0);
 
-      if (hasUnitReview || qty <= 0 || price <= 0) {
-        return sum;
-      }
+        if (hasUnitReview || qty <= 0 || price <= 0) {
+          return sum;
+        }
 
-      return sum + qty * price;
-    }, 0);
-  }
+        return sum + qty * price;
+      }, 0);
+    }
 
-  const qty = Number(o.quantity || 0);
-  const price = Number(o.unitPrice || 0);
+    const qty = Number(o.quantity || 0);
+    const price = Number(o.unitPrice || 0);
 
-  if (qty <= 0 || price <= 0) return 0;
+    if (qty <= 0 || price <= 0) return 0;
 
-  return qty * price;
-};
+    return qty * price;
+  };
 
-const hasOrderVat = (o: Order) => Number(o.vatRate || 0) > 0;
+  const hasOrderVat = (o: Order) => Number(o.vatRate || 0) > 0;
 
-const getSafeOrderTotal = (o: Order) => {
-  const netTotal = getSafeOrderNetTotal(o);
-  const vatRate = Number(o.vatRate || 0);
+  const getSafeOrderTotal = (o: Order) => {
+    const netTotal = getSafeOrderNetTotal(o);
+    const vatRate = Number(o.vatRate || 0);
 
-  if (vatRate <= 0) return netTotal;
+    if (vatRate <= 0) return netTotal;
 
-  return netTotal + (netTotal * vatRate) / 100;
-};
+    return netTotal + (netTotal * vatRate) / 100;
+  };
 
   const itemsSummary = (o: Order) => {
     if (o.items && o.items.length > 1) {
@@ -3521,7 +3684,6 @@ const getSafeOrderTotal = (o: Order) => {
                 setSelectedMainOrderId(null);
                 setSelectedCustomerId(null);
                 setTextPreviewOpen({});
-           
               }
             }}
           >
@@ -3609,12 +3771,10 @@ const getSafeOrderTotal = (o: Order) => {
               (badge) => badge.key !== "appointment",
             );
             const rightSideBadges = amountReviewBadges;
-            const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
-              "skipped",
-            );
-            const showImageOnlyBadge = o.reviewReasons?.includes(
-              "image_only_no_text",
-            );
+            const showAudioTooLongBadge =
+              o.audioTranscriptionStatus?.startsWith("skipped");
+            const showImageOnlyBadge =
+              o.reviewReasons?.includes("image_only_no_text");
             const isSelected = selectedOrderIds.includes(o.id);
             return (
               <motion.div
@@ -3623,7 +3783,7 @@ const getSafeOrderTotal = (o: Order) => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.015 }}
               >
-               <Card
+                <Card
                   className={`border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   onClick={() => {
                     if (isMergeMode) {
@@ -3633,7 +3793,7 @@ const getSafeOrderTotal = (o: Order) => {
                     openEdit(o);
                   }}
                 >
-                  <CardContent className="relative min-h-[112px] px-2.5 py-2 sm:min-h-[118px] sm:px-3 max-w-full overflow-visible">
+                  <CardContent className="px-2.5 py-1.5 sm:px-3 sm:py-2 max-w-full overflow-visible">
                     <div className="flex items-start gap-2 min-w-0 max-w-full overflow-visible">
                       {isMergeMode && (
                         <div
@@ -3667,7 +3827,7 @@ const getSafeOrderTotal = (o: Order) => {
                           <MoreVertical className="w-3.5 h-3.5" />
                         </button>
                         {dropdownOpenId === o.id && (
-                         <div className="absolute left-0 top-full mt-1 z-[9999] bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                          <div className="absolute left-0 top-full mt-1 z-[9999] bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -3718,146 +3878,175 @@ const getSafeOrderTotal = (o: Order) => {
                       </div>
 
                       {/* Center: Main info */}
-                      <div className="flex-1 min-w-0 max-w-full overflow-hidden pr-[116px] sm:pr-[230px]">
-                        {/* Row 1: date + customer */}
-                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-hidden">
-                          <span className="text-muted-foreground shrink-0">
-                            {o.createdAt
-                              ? new Date(o.createdAt).toLocaleDateString(
-                                  "de-CH",
-                                  { day: "2-digit", month: "2-digit" },
-                                ) +
-                                " " +
-                                new Date(o.createdAt).toLocaleTimeString(
-                                  "de-CH",
-                                  { hour: "2-digit", minute: "2-digit" },
-                                )
-                              : ""}
-                          </span>
-                          <span className="text-muted-foreground shrink-0">·</span>
-                          <span
-                            className={`font-medium truncate min-w-0 max-w-[150px] sm:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
-                          >
-                            {isFallbackCustomerName(o.customer?.name)
-                              ? "Kunde nicht zugeordnet"
-                              : o.customer?.name || "–"}
-                          </span>
+                      <div className="flex min-w-0 flex-1 items-stretch gap-2 sm:gap-3">
+                        <div className="flex-1 min-w-0 max-w-full overflow-hidden">
+                          {/* Row 1: date + customer */}
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-hidden">
+                            <span className="text-muted-foreground shrink-0">
+                              {o.createdAt
+                                ? new Date(o.createdAt).toLocaleDateString(
+                                    "de-CH",
+                                    { day: "2-digit", month: "2-digit" },
+                                  ) +
+                                  " " +
+                                  new Date(o.createdAt).toLocaleTimeString(
+                                    "de-CH",
+                                    { hour: "2-digit", minute: "2-digit" },
+                                  )
+                                : ""}
+                            </span>
+                            <span className="text-muted-foreground shrink-0">
+                              ·
+                            </span>
+                            <span
+                              className={`font-medium truncate min-w-0 max-w-[150px] sm:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                            >
+                              {isFallbackCustomerName(o.customer?.name)
+                                ? "Kunde nicht zugeordnet"
+                                : o.customer?.name || "–"}
+                            </span>
 
-                          {!isFallbackCustomerName(o.customer?.name) &&
-                            o.customer?.customerNumber && (
-                              <span className="text-muted-foreground shrink-0">
-                                ({o.customer.customerNumber})
+                            {!isFallbackCustomerName(o.customer?.name) &&
+                              o.customer?.customerNumber && (
+                                <span className="text-muted-foreground shrink-0">
+                                  ({o.customer.customerNumber})
+                                </span>
+                              )}
+
+                            {leftSystemBadges.map((badge) => (
+                              <span
+                                key={badge.key}
+                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
+                              >
+                                {badge.icon && (
+                                  <AlertTriangle className="w-3 h-3" />
+                                )}
+                                {badge.label}
+                              </span>
+                            ))}
+
+                            {showAudioTooLongBadge && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                                ⚠️ Audio zu lang
                               </span>
                             )}
 
-                          {leftSystemBadges.map((badge) => (
-                            <span
-                              key={badge.key}
-                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
-                            >
-                              {badge.icon && (
-                                <AlertTriangle className="w-3 h-3" />
-                              )}
-                              {badge.label}
-                            </span>
-                          ))}
-
-                          {showAudioTooLongBadge && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
-                              ⚠️ Audio zu lang
-                            </span>
-                          )}
-
-                          {showImageOnlyBadge && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
-                              ⚠️ Bild prüfen
-                            </span>
-                          )}
-
-                        </div>
-
-                        {/* Row 2: compact service-only preview */}
-                        <p
-                          className={`text-sm font-medium mt-0.5 whitespace-normal break-words max-md:line-clamp-5 max-md:overflow-hidden max-md:leading-snug ${
-                            isSonstiges
-                              ? "text-red-600 dark:text-red-400"
-                              : "text-foreground"
-                          }`}
-                        >
-                          {isSonstiges && "⚠ "}
-                          {serviceLine}
-                        </p>
-
-                        {/* Row 3: [status] [media] ... [price] */}
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1 max-w-full overflow-visible">
-                          <select
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[11px] border rounded px-1.5 py-0.5 font-medium"
-                            style={getStatusStyle(
-                              ORDER_STATUS_STYLES,
-                              o?.status ?? "",
-                            )}
-                            value={o?.status ?? ""}
-                            onChange={(e: any) =>
-                              updateOrderStatus(
-                                e,
-                                o?.id,
-                                e?.target?.value ?? "",
-                              )
-                            }
-                          >
-                            {orderStatuses.map((s) => (
-                              <option
-                                key={s}
-                                style={getStatusStyle(ORDER_STATUS_STYLES, s)}
-                              >
-                                {s}
-                              </option>
-                            ))}
-                          </select>
-
-                          <CommunicationChips
-                            data={{
-                              ...o,
-                              specialNotes: removeCallbackLinesForCommunicationChips(o.specialNotes),
-                              notes: [
-                                removeCallbackLinesForCommunicationChips(o.notes),
-                                removeCallbackLinesForCommunicationChips(o.specialNotes),
-                                removeCallbackLinesForCommunicationChips(o.audioTranscript),
-                              ]
-                                .filter(Boolean)
-                                .join("\n"),
-                              audioTranscript: removeCallbackLinesForCommunicationChips(o.audioTranscript),
-                            }}
-                            onAudioClick={() => openMedia(o)}
-                            onImageClick={() => openMedia(o)}
-                          />
-
-                          {footerBadges.map((badge) => renderOrderCardBadge(badge))}
-
-                          {appointmentBadges.map((badge) => renderOrderCardBadge(badge))}
-
-                          {operationalBadges.map((badge) => renderOrderCardBadge(badge))}
-
-
-                        </div>
-
-                        <div className="pointer-events-none absolute right-2 top-2 flex max-w-[112px] flex-wrap justify-end gap-1 sm:right-3 sm:max-w-[210px]">
-                          {rightSideBadges.map((badge) => renderOrderCardBadge(badge, { priceSide: true }))}
-                        </div>
-
-                        <div className="pointer-events-none absolute bottom-2 right-2 whitespace-nowrap text-right sm:right-3">
-                          <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
-                            {formatCurrency(
-                              getSafeOrderTotal(o),
-                              o.currency === "EUR" ? "EUR" : "CHF",
+                            {showImageOnlyBadge && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
+                                ⚠️ Bild prüfen
+                              </span>
                             )}
                           </div>
-                          {hasOrderVat(o) && (
-                            <div className="text-[9px] leading-none text-muted-foreground">
-                              inkl. MwSt
+
+                          {/* Row 2: compact service-only preview */}
+                          <p
+                            className={`text-sm font-medium mt-0.5 whitespace-normal break-words max-md:line-clamp-5 max-md:overflow-hidden max-md:leading-snug ${
+                              isSonstiges
+                                ? "text-red-600 dark:text-red-400"
+                                : "text-foreground"
+                            }`}
+                          >
+                            {isSonstiges && "⚠ "}
+                            {serviceLine}
+                          </p>
+
+                          {/* Row 3: compact footer chips */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 max-w-full overflow-visible pr-1 sm:pr-0">
+                            <select
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-[11px] border rounded px-1.5 py-0.5 font-medium shrink-0"
+                              style={getStatusStyle(
+                                ORDER_STATUS_STYLES,
+                                o?.status ?? "",
+                              )}
+                              value={o?.status ?? ""}
+                              onChange={(e: any) =>
+                                updateOrderStatus(
+                                  e,
+                                  o?.id,
+                                  e?.target?.value ?? "",
+                                )
+                              }
+                            >
+                              {orderStatuses.map((s) => (
+                                <option
+                                  key={s}
+                                  style={getStatusStyle(ORDER_STATUS_STYLES, s)}
+                                >
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+
+                            <CommunicationChips
+                              data={{
+                                ...o,
+                                specialNotes:
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.specialNotes,
+                                  ),
+                                notes: [
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.notes,
+                                  ),
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.specialNotes,
+                                  ),
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.audioTranscript,
+                                  ),
+                                ]
+                                  .filter(Boolean)
+                                  .join("\n"),
+                                audioTranscript:
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.audioTranscript,
+                                  ),
+                              }}
+                              onAudioClick={() => openMedia(o)}
+                              onImageClick={() => openMedia(o)}
+                            />
+
+                            {appointmentBadges.map((badge) =>
+                              renderOrderCardBadge(badge),
+                            )}
+                            {operationalBadges.map((badge) =>
+                              renderOrderCardBadge(badge),
+                            )}
+                            {footerBadges.map((badge) =>
+                              renderOrderCardBadge(badge),
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="ml-auto flex w-[108px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[170px]">
+                          <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
+                            {rightSideBadges.map((badge) => (
+                              <span
+                                key={badge.key}
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold leading-tight shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
+                              >
+                                {badge.icon && (
+                                  <AlertTriangle className="hidden h-3 w-3 sm:inline" />
+                                )}
+                                {badge.label}
+                              </span>
+                            ))}
+                          </div>
+
+                          <div className="whitespace-nowrap text-right leading-tight">
+                            <div className="font-mono font-bold tabular-nums text-[13px] sm:text-sm">
+                              {formatCurrency(
+                                getSafeOrderTotal(o),
+                                o.currency === "EUR" ? "EUR" : "CHF",
+                              )}
                             </div>
-                          )}
+                            {hasOrderVat(o) && (
+                              <div className="text-[9px] leading-none text-muted-foreground">
+                                inkl. MwSt
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3887,7 +4076,7 @@ const getSafeOrderTotal = (o: Order) => {
         label="Angebote"
         ariaLabel="Zu Angebote"
       />
-           <MergeOrdersDialog
+      <MergeOrdersDialog
         open={mergeStep === 2}
         onOpenChange={(open) => {
           if (!open) handleDialogClose(false);
@@ -3906,13 +4095,12 @@ const getSafeOrderTotal = (o: Order) => {
         currency={currency}
       />
 
-
       {/* Order Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent
           className={`${dupCheckOpen ? "max-w-4xl w-[95vw]" : "max-w-2xl"} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}
         >
-                    <DialogHeader>
+          <DialogHeader>
             <DialogTitle className="flex items-center gap-2 flex-wrap">
               {editId ? "Auftrag bearbeiten" : "Neuer Auftrag"}
             </DialogTitle>
@@ -4459,7 +4647,6 @@ const getSafeOrderTotal = (o: Order) => {
                 )}
               </div>
 
-
               {/* Ausführungsadresse / Baustellenadresse */}
               <div className="rounded-lg border bg-slate-50/70 dark:bg-slate-900/30 p-3 space-y-3">
                 <label className="flex items-start gap-2 cursor-pointer">
@@ -4490,7 +4677,8 @@ const getSafeOrderTotal = (o: Order) => {
                       Ausführungsadresse abweichend von Rechnungsadresse
                     </span>
                     <span className="block text-xs text-muted-foreground">
-                      Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
+                      Nur aktivieren, wenn die Arbeit an einem anderen Ort
+                      ausgeführt wird.
                     </span>
                   </span>
                 </label>
@@ -4508,21 +4696,33 @@ const getSafeOrderTotal = (o: Order) => {
                           📍 {form.siteName?.trim() || "Ausführungsadresse"}
                         </div>
                         <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-0.5 text-sm">
-                          <span className="text-muted-foreground">Strasse:</span>
-                          <span className="truncate">{form.siteAddress?.trim() || "–"}</span>
-                          <span className="text-muted-foreground">PLZ / Ort:</span>
+                          <span className="text-muted-foreground">
+                            Strasse:
+                          </span>
                           <span className="truncate">
-                            {[form.sitePlz, form.siteCity].filter(Boolean).join(" ") || "–"}
+                            {form.siteAddress?.trim() || "–"}
+                          </span>
+                          <span className="text-muted-foreground">
+                            PLZ / Ort:
+                          </span>
+                          <span className="truncate">
+                            {[form.sitePlz, form.siteCity]
+                              .filter(Boolean)
+                              .join(" ") || "–"}
                           </span>
                           {form.siteNote?.trim() && (
                             <>
-                              <span className="text-muted-foreground">Hinweis:</span>
+                              <span className="text-muted-foreground">
+                                Hinweis:
+                              </span>
                               <span className="truncate">{form.siteNote}</span>
                             </>
                           )}
                         </div>
                       </div>
-                      <span className="shrink-0 text-xs text-primary">Bearbeiten</span>
+                      <span className="shrink-0 text-xs text-primary">
+                        Bearbeiten
+                      </span>
                     </div>
                   </button>
                 )}
@@ -4534,7 +4734,8 @@ const getSafeOrderTotal = (o: Order) => {
                         Ausführungsadresse / Baustellenadresse
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Gilt nur für diesen Auftrag. Wird später in Angebot, Rechnung und PDF separat angezeigt.
+                        Gilt nur für diesen Auftrag. Wird später in Angebot,
+                        Rechnung und PDF separat angezeigt.
                       </p>
                     </div>
 
@@ -4630,9 +4831,12 @@ const getSafeOrderTotal = (o: Order) => {
                   <div className="rounded-xl border bg-background p-2.5 sm:p-3 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <Label className="text-base font-semibold">Leistungen *</Label>
+                        <Label className="text-base font-semibold">
+                          Leistungen *
+                        </Label>
                         <p className="text-xs text-muted-foreground">
-                          Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.
+                          Klein, kompakt: Leistung, Prüfung, Preis und Menge pro
+                          Position.
                         </p>
                       </div>
                       <Button
@@ -4651,8 +4855,9 @@ const getSafeOrderTotal = (o: Order) => {
                       <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
                         <div className="font-semibold">⚠ Währung prüfen</div>
                         <div>
-                          Im Kundentext wurden unterschiedliche Währungen erkannt. Erst bereinigen,
-                          dann Angebot oder Rechnung erstellen.
+                          Im Kundentext wurden unterschiedliche Währungen
+                          erkannt. Erst bereinigen, dann Angebot oder Rechnung
+                          erstellen.
                         </div>
                       </div>
                     )}
@@ -4676,7 +4881,9 @@ const getSafeOrderTotal = (o: Order) => {
                           });
 
                         const priceOverrideReason = curOrder?.reviewReasons
-                          ?.filter((r: string) => r.startsWith("price_override:"))
+                          ?.filter((r: string) =>
+                            r.startsWith("price_override:"),
+                          )
                           .find((r: string) => {
                             const [, serviceName] = r.split(":");
                             return (
@@ -4686,7 +4893,9 @@ const getSafeOrderTotal = (o: Order) => {
                           });
 
                         const priceUnclearReason = curOrder?.reviewReasons
-                          ?.filter((r: string) => r.startsWith("price_unclear:"))
+                          ?.filter((r: string) =>
+                            r.startsWith("price_unclear:"),
+                          )
                           .find((r: string) => {
                             const [, serviceName] = r.split(":");
                             return (
@@ -4700,7 +4909,9 @@ const getSafeOrderTotal = (o: Order) => {
                           services,
                           item.serviceName,
                         );
-                        const catalogPrice = Number(catalogService?.defaultPrice || 0);
+                        const catalogPrice = Number(
+                          catalogService?.defaultPrice || 0,
+                        );
                         const itemPriceNumber = Number(item.unitPrice || 0);
                         const hasFrontendCatalogPriceDeviation =
                           Boolean(catalogService) &&
@@ -4722,34 +4933,51 @@ const getSafeOrderTotal = (o: Order) => {
                           itemPriceNumber > 0 &&
                           Number(item.quantity || 0) === 1;
 
-                        const hasCurrencyConflict = currentEditReviewReasons.some(
-                          (reason: string) =>
-                            reason.startsWith("currency_") ||
-                            reason.startsWith("item_currency_mismatch"),
-                        );
-                        const priceInputReview = Number(item.unitPrice || 0) === 0;
-                        const quantityInputReview = Number(item.quantity || 0) === 0;
+                        const hasCurrencyConflict =
+                          currentEditReviewReasons.some(
+                            (reason: string) =>
+                              reason.startsWith("currency_") ||
+                              reason.startsWith("item_currency_mismatch"),
+                          );
+                        const priceInputReview =
+                          Number(item.unitPrice || 0) === 0;
+                        const quantityInputReview =
+                          Number(item.quantity || 0) === 0;
                         const showUnitConflict =
                           !hasCurrencyConflict &&
                           Boolean(item.aiWarning?.trim() || unitMismatchReason);
                         const showPriceOverride =
                           !hasCurrencyConflict &&
                           !showUnitConflict &&
-                          Boolean(priceOverrideReason || hasFrontendCatalogPriceDeviation || hasFrontendCatalogTextFlatOverride);
+                          Boolean(
+                            priceOverrideReason ||
+                            hasFrontendCatalogPriceDeviation ||
+                            hasFrontendCatalogTextFlatOverride,
+                          );
                         const showPriceReferenceReview =
                           !hasCurrencyConflict &&
                           !priceInputReview &&
-                          Boolean(priceUnclearReason || curOrder?.reviewReasons?.includes("unit_price_review"));
+                          Boolean(
+                            priceUnclearReason ||
+                            curOrder?.reviewReasons?.includes(
+                              "unit_price_review",
+                            ),
+                          );
 
                         const itemTotal =
-                          Number(item.unitPrice || 0) * Number(item.quantity || 0);
+                          Number(item.unitPrice || 0) *
+                          Number(item.quantity || 0);
 
-                        const isManualService = Boolean(item.serviceName?.trim()) && !isServiceInCatalog(item.serviceName);
-                        const showManualServiceReview = !hasCurrencyConflict && isManualService;
-                        const sourceLineForItem = findCustomerTextLineForService(
-                          visibleCustomerMessageText || customerMessageText,
-                          item.serviceName,
-                        );
+                        const isManualService =
+                          Boolean(item.serviceName?.trim()) &&
+                          !isServiceInCatalog(item.serviceName);
+                        const showManualServiceReview =
+                          !hasCurrencyConflict && isManualService;
+                        const sourceLineForItem =
+                          findCustomerTextLineForService(
+                            visibleCustomerMessageText || customerMessageText,
+                            item.serviceName,
+                          );
                         const catalogSummary = catalogService
                           ? `${catalogService.unit}${
                               catalogPrice > 0
@@ -4782,9 +5010,12 @@ const getSafeOrderTotal = (o: Order) => {
                         const isMenuOpen = serviceActionMenuKey === item.key;
                         const hasCriticalItemReview = isBlockingItemReview;
                         const hasCatalogActionMenu =
-                          !hasCriticalItemReview && (showManualServiceReview || showPriceOverride);
+                          !hasCriticalItemReview &&
+                          (showManualServiceReview || showPriceOverride);
                         const hasAnyItemReview =
-                          hasCriticalItemReview || showPriceOverride || showManualServiceReview;
+                          hasCriticalItemReview ||
+                          showPriceOverride ||
+                          showManualServiceReview;
 
                         return (
                           <div
@@ -4850,7 +5081,9 @@ const getSafeOrderTotal = (o: Order) => {
 
                                     {isMenuOpen && (
                                       <div
-                                        onClick={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
                                         className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
                                       >
                                         <button
@@ -4897,7 +5130,9 @@ const getSafeOrderTotal = (o: Order) => {
 
                             <div className="grid grid-cols-3 gap-1.5">
                               <div>
-                                <Label className="text-[10px] leading-none">Einheit</Label>
+                                <Label className="text-[10px] leading-none">
+                                  Einheit
+                                </Label>
                                 <select
                                   className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                                   value={item.unit}
@@ -4930,7 +5165,9 @@ const getSafeOrderTotal = (o: Order) => {
                                       : ""
                                   }`}
                                   value={priceInputReview ? "" : item.unitPrice}
-                                  placeholder={priceInputReview ? "prüfen" : "0"}
+                                  placeholder={
+                                    priceInputReview ? "prüfen" : "0"
+                                  }
                                   onFocus={(e) => e.currentTarget.select()}
                                   onChange={(e: any) =>
                                     updateItem(
@@ -4943,7 +5180,9 @@ const getSafeOrderTotal = (o: Order) => {
                               </div>
 
                               <div>
-                                <Label className="text-[10px] leading-none">Menge</Label>
+                                <Label className="text-[10px] leading-none">
+                                  Menge
+                                </Label>
                                 <Input
                                   type="number"
                                   step="0.25"
@@ -4952,8 +5191,12 @@ const getSafeOrderTotal = (o: Order) => {
                                       ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                       : ""
                                   }`}
-                                  value={quantityInputReview ? "" : item.quantity}
-                                  placeholder={quantityInputReview ? "prüfen" : "0"}
+                                  value={
+                                    quantityInputReview ? "" : item.quantity
+                                  }
+                                  placeholder={
+                                    quantityInputReview ? "prüfen" : "0"
+                                  }
                                   onFocus={(e) => e.currentTarget.select()}
                                   onChange={(e: any) =>
                                     updateItem(
@@ -4983,51 +5226,91 @@ const getSafeOrderTotal = (o: Order) => {
                                   {showUnitConflict && catalogService && (
                                     <div className="space-y-0.5">
                                       <div>
-                                        Text: <span className="font-medium">{orderSummary}</span>
+                                        Text:{" "}
+                                        <span className="font-medium">
+                                          {orderSummary}
+                                        </span>
                                       </div>
                                       {catalogSummary && (
                                         <div>
-                                          Katalog: <span className="font-medium">{catalogSummary}</span>
+                                          Katalog:{" "}
+                                          <span className="font-medium">
+                                            {catalogSummary}
+                                          </span>
                                         </div>
                                       )}
-                                      <div>Einheit passt nicht. Menge, Einheit und Preis prüfen.</div>
-                                    </div>
-                                  )}
-
-                                  {!showUnitConflict && showPriceOverride && catalogService && (
-                                    <div className="space-y-0.5">
                                       <div>
-                                        Text: <span className="font-medium">{sourceLineForItem || orderSummary}</span>
-                                        <span className="font-semibold"> — Textpreis übernommen.</span>
-                                      </div>
-                                      <div className="text-amber-700/75 dark:text-amber-200/75">
-                                        Katalog: {catalogService.unit} · {formatCurrency(catalogPrice, currency)}
+                                        Einheit passt nicht. Menge, Einheit und
+                                        Preis prüfen.
                                       </div>
                                     </div>
                                   )}
 
-                                  {!showUnitConflict && showPriceReferenceReview && (
-                                    <div className="space-y-0.5">
-                                      <div>Preis im Text unklar.</div>
-                                      {sourceLineForItem && (
+                                  {!showUnitConflict &&
+                                    showPriceOverride &&
+                                    catalogService && (
+                                      <div className="space-y-0.5">
                                         <div>
-                                          Text: <span className="font-medium">{sourceLineForItem}</span>
+                                          Text:{" "}
+                                          <span className="font-medium">
+                                            {sourceLineForItem || orderSummary}
+                                          </span>
+                                          <span className="font-semibold">
+                                            {" "}
+                                            — Textpreis übernommen.
+                                          </span>
                                         </div>
-                                      )}
-                                      <div>Bitte Preis bestätigen.</div>
-                                    </div>
-                                  )}
+                                        <div className="text-amber-700/75 dark:text-amber-200/75">
+                                          Katalog: {catalogService.unit} ·{" "}
+                                          {formatCurrency(
+                                            catalogPrice,
+                                            currency,
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
 
-                                  {!showUnitConflict && (priceInputReview || quantityInputReview) && (
-                                    <div className="space-y-0.5">
-                                      {priceInputReview && <div>Preis fehlt oder ist unsicher.</div>}
-                                      {quantityInputReview && <div>Menge fehlt oder ist unsicher.</div>}
-                                      <div>Vor Angebot/Rechnung ergänzen.</div>
-                                    </div>
-                                  )}
+                                  {!showUnitConflict &&
+                                    showPriceReferenceReview && (
+                                      <div className="space-y-0.5">
+                                        <div>Preis im Text unklar.</div>
+                                        {sourceLineForItem && (
+                                          <div>
+                                            Text:{" "}
+                                            <span className="font-medium">
+                                              {sourceLineForItem}
+                                            </span>
+                                          </div>
+                                        )}
+                                        <div>Bitte Preis bestätigen.</div>
+                                      </div>
+                                    )}
+
+                                  {!showUnitConflict &&
+                                    (priceInputReview ||
+                                      quantityInputReview) && (
+                                      <div className="space-y-0.5">
+                                        {priceInputReview && (
+                                          <div>
+                                            Preis fehlt oder ist unsicher.
+                                          </div>
+                                        )}
+                                        {quantityInputReview && (
+                                          <div>
+                                            Menge fehlt oder ist unsicher.
+                                          </div>
+                                        )}
+                                        <div>
+                                          Vor Angebot/Rechnung ergänzen.
+                                        </div>
+                                      </div>
+                                    )}
 
                                   {showManualServiceReview && (
-                                    <div>Nicht im Leistungskatalog. Optional über Menü übernehmen.</div>
+                                    <div>
+                                      Nicht im Leistungskatalog. Optional über
+                                      Menü übernehmen.
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -5134,7 +5417,11 @@ const getSafeOrderTotal = (o: Order) => {
                   {!showNewCustomer && (
                     <div className="rounded-lg border bg-background p-2 sm:p-3">
                       <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                        <Button onClick={save} disabled={saving} className="w-full">
+                        <Button
+                          onClick={save}
+                          disabled={saving}
+                          className="w-full"
+                        >
                           {saving ? "Speichern..." : "Speichern"}
                         </Button>
                         <Button
@@ -5202,7 +5489,9 @@ const getSafeOrderTotal = (o: Order) => {
                   {/* Leistungsübersicht — live from the editable items above */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <Label className="font-semibold">Leistungsübersicht</Label>
+                      <Label className="font-semibold">
+                        Leistungsübersicht
+                      </Label>
                       <span className="text-xs text-muted-foreground">
                         Live aus den Leistungen oben
                       </span>
@@ -5215,9 +5504,15 @@ const getSafeOrderTotal = (o: Order) => {
                             <th className="px-2 py-2 font-medium w-10">Nr.</th>
                             <th className="px-2 py-2 font-medium">Leistung</th>
                             <th className="px-2 py-2 font-medium">Einheit</th>
-                            <th className="px-2 py-2 font-medium text-right">Menge</th>
-                            <th className="px-2 py-2 font-medium text-right">Einzelpreis</th>
-                            <th className="px-2 py-2 font-medium text-right">Summe</th>
+                            <th className="px-2 py-2 font-medium text-right">
+                              Menge
+                            </th>
+                            <th className="px-2 py-2 font-medium text-right">
+                              Einzelpreis
+                            </th>
+                            <th className="px-2 py-2 font-medium text-right">
+                              Summe
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -5232,14 +5527,19 @@ const getSafeOrderTotal = (o: Order) => {
                             </tr>
                           ) : (
                             liveOverviewRows.map((row) => (
-                              <tr key={`${row.index}-${row.serviceName}`} className="border-t">
+                              <tr
+                                key={`${row.index}-${row.serviceName}`}
+                                className="border-t"
+                              >
                                 <td className="px-2 py-2">{row.index}</td>
                                 <td className="px-2 py-2 font-medium">
                                   {row.serviceName}
                                 </td>
                                 <td className="px-2 py-2">{row.unitLabel}</td>
                                 <td className="px-2 py-2 text-right">
-                                  {row.hasQuantity ? row.quantity : "Menge prüfen"}
+                                  {row.hasQuantity
+                                    ? row.quantity
+                                    : "Menge prüfen"}
                                 </td>
                                 <td className="px-2 py-2 text-right">
                                   {row.hasPrice ? (
