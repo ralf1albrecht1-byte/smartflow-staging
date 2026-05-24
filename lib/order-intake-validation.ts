@@ -593,7 +593,7 @@ function canonicalGermanServiceNameFromText(value?: string | null): string | nul
     return "Boden reinigen";
   }
   if (/\b(deplacement|déplacement|fahrtkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(normalized)) {
-    return "Anfahrt pauschal";
+    return "Anfahrt";
   }
   if (/\b(abdeckarbeiten|abdecken|abdeck\w*)\b/.test(normalized)) {
     return "Abdeckarbeiten";
@@ -614,7 +614,7 @@ function normalizeFlatServiceNameFromText(value: string): string {
 
   const normalized = normalizeCompare(value);
   if (/\b(deplacement|déplacement|fahrtkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(normalized)) {
-    return "Anfahrt pauschal";
+    return "Anfahrt";
   }
   if (/\btiefgarage\b/.test(normalized) && /\b(reinigen|reinigung|putzen)\b/.test(normalized)) {
     return "Tiefgarage reinigen";
@@ -804,7 +804,7 @@ function detectExplicitFlatPriceForItem(
     const hasServiceAnchor = hasExactServiceAnchor || serviceTokenHits > 0;
 
     // V16.40: A flat price line may only repair the matching flat service.
-    // Do not copy "Abdeckarbeiten CHF 90 pauschal" onto "Anfahrt pauschal"
+    // Do not copy "Abdeckarbeiten CHF 90 pauschal" onto "Anfahrt"
     // just because the whole WhatsApp message was present as item evidence.
     if (!hasServiceAnchor) continue;
 

@@ -304,9 +304,10 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const key = normalizeForMatch(name);
 
   // Keep travel costs consistent when orders are merged or saved.
-  // "Anfahrt" and "Anfahrt pauschal" are the same flat service in practice.
+  // The service catalog uses "Anfahrt" as service name; "pauschal" is the unit,
+  // not part of the service name.
   if (key === "anfahrt" || key === "anfahrt pauschal") {
-    return "Anfahrt pauschal";
+    return "Anfahrt";
   }
 
   return name;
@@ -943,6 +944,13 @@ const getOperationalBadges = (
 
     const label = badgeLabelByKind[kind];
     if (!label) return;
+
+    // If a safety warning already created a red danger chip, do not add the
+    // same semantic hint again in yellow. Example: "Achtung Hund" must show
+    // one Hund chip, not red Hund + yellow Hund.
+    if (badges.some((badge) => normalizeForMatch(badge.label) === normalizeForMatch(label))) {
+      return;
+    }
 
     addHint(
       `hint_${kind}`,
@@ -3417,7 +3425,13 @@ const getSafeOrderTotal = (o: Order) => {
             const appointmentBadges = bottomBadges.filter(
               (badge) => badge.key === "appointment",
             );
-            const footerBadges = bottomBadges;
+            const footerBadges = bottomBadges.filter(
+              (badge) => badge.key !== "appointment",
+            );
+            const rightSideBadges = [
+              ...amountReviewBadges,
+              ...appointmentBadges,
+            ];
             const showAudioTooLongBadge = o.audioTranscriptionStatus?.startsWith(
               "skipped",
             );
@@ -3665,9 +3679,9 @@ const getSafeOrderTotal = (o: Order) => {
                           ))}
 
                           <div className="ml-auto flex max-w-[190px] shrink-0 flex-col items-end gap-1 sm:max-w-[260px]">
-                            {amountReviewBadges.length > 0 && (
+                            {rightSideBadges.length > 0 && (
                               <div className="flex flex-wrap justify-end gap-1">
-                                {amountReviewBadges.map((badge) => (
+                                {rightSideBadges.map((badge) => (
                                   <span
                                     key={badge.key}
                                     className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${badge.className}`}
