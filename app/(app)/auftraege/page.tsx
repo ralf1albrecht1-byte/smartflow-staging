@@ -207,7 +207,7 @@ interface FormItem {
   unitPrice: string;
   quantity: string;
   aiWarning?: string;
-  priceConfirmed?: boolean;
+  catalogReviewConfirmed?: boolean;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
 }
@@ -218,12 +218,35 @@ const createEmptyItem = (): FormItem => ({
   unit: "Stunde",
   unitPrice: "",
   quantity: "",
-  priceConfirmed: false,
+  catalogReviewConfirmed: false,
   workSiteId: null,
 });
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
-const PRICE_CONFIRMED_PREFIX = "[PRICE_CONFIRMED]";
+const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
+
+const isCatalogReviewConfirmedDescription = (
+  description?: string | null,
+) => compactText(description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
+
+const getCatalogReviewConfirmedFromItemDescription = (
+  description?: string | null,
+) => isCatalogReviewConfirmedDescription(description);
+
+const stripInternalItemDescriptionMarkers = (description?: string | null) => {
+  const value = compactText(description);
+  if (!value) return "";
+  return value
+    .replace(new RegExp(`^\\s*${PRICE_REVIEW_CONFIRMED_PREFIX}\\s*`, "i"), "")
+    .replace(new RegExp(`^\\s*${AI_WARNING_PREFIX}\\s*`, "i"), "")
+    .trim();
+};
+
+const isCatalogReviewConfirmedItem = (item?: {
+  description?: string | null;
+  catalogReviewConfirmed?: boolean | null;
+}) => Boolean(item?.catalogReviewConfirmed) ||
+  isCatalogReviewConfirmedDescription(item?.description);
 
 const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
   if (!order) return true;
@@ -244,23 +267,11 @@ const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
   );
 };
 
-const stripPriceConfirmedMarker = (description?: string | null) => {
-  const value = String(description || "").trim();
-  return value.startsWith(PRICE_CONFIRMED_PREFIX)
-    ? value.replace(PRICE_CONFIRMED_PREFIX, "").trim()
-    : value;
-};
-
-const getPriceConfirmedFromItemDescription = (description?: string | null) => {
-  if (!description) return false;
-  return String(description).trim().startsWith(PRICE_CONFIRMED_PREFIX);
-};
-
 const getAiWarningFromItemDescription = (description?: string | null) => {
-  const cleaned = stripPriceConfirmedMarker(description);
-  if (!cleaned) return "";
-  return cleaned.startsWith(AI_WARNING_PREFIX)
-    ? cleaned.replace(AI_WARNING_PREFIX, "").trim()
+  if (!description) return "";
+  const value = compactText(description);
+  return value.startsWith(AI_WARNING_PREFIX)
+    ? value.replace(AI_WARNING_PREFIX, "").trim()
     : "";
 };
 
@@ -288,9 +299,11 @@ const buildItemDescription = (item: FormItem) => {
     return `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`;
   }
 
-  return item.priceConfirmed
-    ? `${PRICE_CONFIRMED_PREFIX} ${item.serviceName}`
-    : item.serviceName;
+  if (item.catalogReviewConfirmed) {
+    return `${PRICE_REVIEW_CONFIRMED_PREFIX} ${item.serviceName}`.trim();
+  }
+
+  return item.serviceName;
 };
 
 const CUSTOMER_REVIEW_REASONS = new Set([
@@ -459,7 +472,7 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   // Keep service names user-facing and German. This is display/merge safety,
   // not the primary parser: the parser still decides the position itself.
   if (
-    /(^|\b)(anfahrt|anfahrt pauschal|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
+    /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
       key,
     )
   ) {
@@ -505,7 +518,9 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
       ? String(unitPriceNumber)
       : compactText(normalizedItem.unitPrice);
     const warningKey = normalizeForMatch(normalizedItem.aiWarning);
-    const confirmedKey = normalizedItem.priceConfirmed ? "price_confirmed" : "";
+    const confirmedKey = normalizedItem.catalogReviewConfirmed
+      ? "catalog_review_confirmed"
+      : "";
     const mergeKey = [
       normalizeForMatch(serviceName),
       unitKey,
@@ -545,7 +560,9 @@ const mergeEquivalentOrderItems = (items: any[]) =>
       unitPrice: String(item.unitPrice ?? 0),
       quantity: String(item.quantity ?? 0),
       aiWarning: getAiWarningFromItemDescription(item.description),
-      priceConfirmed: getPriceConfirmedFromItemDescription(item.description),
+      catalogReviewConfirmed: getCatalogReviewConfirmedFromItemDescription(
+        item.description,
+      ),
       workSiteId: item.workSiteId || null,
       workSite: item.workSite || null,
     })),
@@ -677,7 +694,7 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich|direkt)|(?:innenhof).*(park(?:platz|ieren|en)?|zufahrt)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parkieren kann man direkt|parking available|parking allowed/.test(
+  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|(?:innenhof).*(park(?:platz|ieren|en)?|zufahrt)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
     text,
   );
 };
@@ -1358,11 +1375,15 @@ const hasUnitMismatchReviewForService = (
 };
 
 const hasCatalogPriceDeviationForItem = (
-  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice">,
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice"> & {
+    description?: string | null;
+    catalogReviewConfirmed?: boolean | null;
+  },
   services: ServiceDef[],
   reviewReasons?: string[] | null,
 ) => {
   if (!item?.serviceName?.trim()) return false;
+  if (isCatalogReviewConfirmedItem(item)) return false;
   if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName))
     return false;
 
@@ -1383,11 +1404,15 @@ const hasCatalogPriceDeviationForItem = (
 };
 
 const hasCatalogTextFlatOverrideForItem = (
-  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity"> & {
+    description?: string | null;
+    catalogReviewConfirmed?: boolean | null;
+  },
   services: ServiceDef[],
   reviewReasons?: string[] | null,
 ) => {
   if (!item?.serviceName?.trim()) return false;
+  if (isCatalogReviewConfirmedItem(item)) return false;
   if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName))
     return false;
 
@@ -2106,13 +2131,15 @@ export default function AuftraegePage() {
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
-  const [catalogDecision, setCatalogDecision] = useState<{
+  const [catalogDecision, setCatalogDecision] = useState<null | {
     index: number;
+    itemKey: string;
     normalizedName: string;
+    existing: ServiceDef;
     price: number;
     unit: string;
-    existing: ServiceDef;
-  } | null>(null);
+  }>(null);
+  const [catalogDecisionSaving, setCatalogDecisionSaving] = useState(false);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -2405,7 +2432,6 @@ export default function AuftraegePage() {
                   ? ""
                   : String(item.quantity),
               aiWarning: getAiWarningFromItemDescription(item.description),
-              priceConfirmed: getPriceConfirmedFromItemDescription(item.description),
               workSiteId: item.workSiteId || null,
             };
           }),
@@ -2422,7 +2448,7 @@ export default function AuftraegePage() {
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
             quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
             aiWarning: "",
-            priceConfirmed: getPriceConfirmedFromItemDescription(o.description),
+            catalogReviewConfirmed: false,
             workSiteId: null,
           },
         ]),
@@ -2712,21 +2738,13 @@ export default function AuftraegePage() {
 
   const handleServiceCreated = (newSvc: ServiceOption) => {
     setServices((prev) => {
-      const nextService = newSvc as any;
-      const next = prev.some(
+      const next = prev.filter(
         (service) =>
-          service.id === nextService.id ||
-          normalizeForMatch(service.name) === normalizeForMatch(nextService.name),
-      )
-        ? prev.map((service) =>
-            service.id === nextService.id ||
-            normalizeForMatch(service.name) === normalizeForMatch(nextService.name)
-              ? { ...service, ...nextService }
-              : service,
-          )
-        : [...prev, nextService];
+          service.id !== newSvc.id &&
+          normalizeForMatch(service.name) !== normalizeForMatch(newSvc.name),
+      );
 
-      return next.sort((a, b) =>
+      return [...next, newSvc as any].sort((a, b) =>
         (a?.name ?? "").localeCompare(b?.name ?? "", "de", {
           sensitivity: "base",
         }),
@@ -2740,54 +2758,17 @@ export default function AuftraegePage() {
     return services.some((service) => normalizeForMatch(service.name) === key);
   };
 
-  const markCatalogItemAsReviewed = (
+  const markItemCatalogReviewResolved = (
     index: number,
-    existing?: ServiceDef | ServiceOption | null,
-    confirmLocalPrice = false,
+    overrides: Partial<FormItem> = {},
   ) => {
     setFormItems((prev) =>
       prev.map((item, itemIndex) =>
         itemIndex === index
           ? {
               ...item,
-              serviceName: existing?.name || item.serviceName,
+              ...overrides,
               aiWarning: "",
-              priceConfirmed: confirmLocalPrice,
-            }
-          : item,
-      ),
-    );
-    setServiceActionMenuKey(null);
-  };
-
-  const updateExistingCatalogService = async (
-    decision: NonNullable<typeof catalogDecision>,
-  ) => {
-    const res = await fetch("/api/services", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: decision.existing.id,
-        name: decision.existing.name || decision.normalizedName,
-        defaultPrice: decision.price,
-        unit: decision.unit,
-      }),
-    });
-
-    if (!res.ok) throw new Error("Fehler beim Speichern");
-
-    const savedService: ServiceOption = await res.json();
-    handleServiceCreated(savedService);
-    setFormItems((prev) =>
-      prev.map((item, itemIndex) =>
-        itemIndex === decision.index
-          ? {
-              ...item,
-              serviceName: savedService.name,
-              unit: savedService.unit || item.unit,
-              unitPrice: String(savedService.defaultPrice ?? decision.price),
-              aiWarning: "",
-              priceConfirmed: false,
             }
           : item,
       ),
@@ -2813,26 +2794,31 @@ export default function AuftraegePage() {
     const existingUnit = normalizePriceUnitForCompare(existing?.unit);
     const itemUnit = normalizePriceUnitForCompare(item.unit);
     const existingPrice = Number(existing?.defaultPrice || 0);
-    const existingNeedsDecision = Boolean(
+    const existingNeedsUpdate = Boolean(
       existing &&
         (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
     );
 
-    if (existing && existingNeedsDecision) {
+    if (existing && existingNeedsUpdate) {
       setCatalogDecision({
         index,
+        itemKey: item.key,
         normalizedName,
+        existing,
         price,
         unit: item.unit,
-        existing,
       });
       setServiceActionMenuKey(null);
       return;
     }
 
-    if (existing) {
-      markCatalogItemAsReviewed(index, existing, false);
-      toast.success("Leistung im Auftrag als geprüft markiert ✓");
+    if (existing && !existingNeedsUpdate) {
+      markItemCatalogReviewResolved(index, {
+        serviceName: existing.name,
+        catalogReviewConfirmed: false,
+      });
+      setServiceActionMenuKey(null);
+      toast.success("Leistung ist im Katalog und wurde im Auftrag als geprüft markiert ✓");
       return;
     }
 
@@ -2851,24 +2837,80 @@ export default function AuftraegePage() {
 
       const savedService: ServiceOption = await res.json();
       handleServiceCreated(savedService);
-      setFormItems((prev) =>
-        prev.map((item, itemIndex) =>
-          itemIndex === index
-            ? {
-                ...item,
-                serviceName: savedService.name,
-                unit: savedService.unit || item.unit,
-                unitPrice: String(savedService.defaultPrice ?? price),
-                aiWarning: "",
-                priceConfirmed: false,
-              }
-            : item,
-        ),
-      );
+      onItemServiceSelect(index, savedService.name, savedService);
+      markItemCatalogReviewResolved(index, {
+        serviceName: savedService.name,
+        catalogReviewConfirmed: false,
+      });
       setServiceActionMenuKey(null);
       toast.success("Leistung wurde in Leistungen übernommen ✓");
     } catch {
       toast.error("Leistung konnte nicht übernommen werden");
+    }
+  };
+
+  const resolveCatalogDecisionForCurrentOrder = () => {
+    if (!catalogDecision) return;
+
+    const index = formItems.findIndex(
+      (item) => item.key === catalogDecision.itemKey,
+    );
+    if (index < 0) {
+      setCatalogDecision(null);
+      return;
+    }
+
+    markItemCatalogReviewResolved(index, {
+      serviceName: catalogDecision.existing.name || catalogDecision.normalizedName,
+      catalogReviewConfirmed: true,
+    });
+    setCatalogDecision(null);
+    setServiceActionMenuKey(null);
+    toast.success("Nur dieser Auftrag wurde als geprüft markiert ✓");
+  };
+
+  const updateCatalogPriceFromDecision = async () => {
+    if (!catalogDecision) return;
+
+    const index = formItems.findIndex(
+      (item) => item.key === catalogDecision.itemKey,
+    );
+    if (index < 0) {
+      setCatalogDecision(null);
+      return;
+    }
+
+    setCatalogDecisionSaving(true);
+    try {
+      const res = await fetch("/api/services", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: catalogDecision.existing.id,
+          name: catalogDecision.existing.name || catalogDecision.normalizedName,
+          defaultPrice: catalogDecision.price,
+          unit: catalogDecision.unit,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Fehler beim Speichern");
+
+      const savedService: ServiceOption = await res.json();
+      handleServiceCreated(savedService);
+      onItemServiceSelect(index, savedService.name, savedService);
+      markItemCatalogReviewResolved(index, {
+        serviceName: savedService.name,
+        unit: catalogDecision.unit,
+        unitPrice: String(catalogDecision.price),
+        catalogReviewConfirmed: false,
+      });
+      setCatalogDecision(null);
+      setServiceActionMenuKey(null);
+      toast.success("Katalogpreis wurde global aktualisiert ✓");
+    } catch {
+      toast.error("Katalogpreis konnte nicht aktualisiert werden");
+    } finally {
+      setCatalogDecisionSaving(false);
     }
   };
 
@@ -3509,7 +3551,13 @@ export default function AuftraegePage() {
           (item) =>
             Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0,
         )
-        .map((item) => item.serviceName.trim().toLowerCase()),
+        .map((item) => normalizeForMatch(item.serviceName)),
+    );
+
+    const confirmedCatalogReviewServiceNames = new Set(
+      validItems
+        .filter((item) => Boolean(item.catalogReviewConfirmed))
+        .map((item) => normalizeForMatch(item.serviceName)),
     );
 
     const allItemsComplete = validItems.every(
@@ -3523,47 +3571,20 @@ export default function AuftraegePage() {
       isServiceInCatalog(item.serviceName),
     );
 
-    const locallyConfirmedServiceNames = new Set(
-      validItems
-        .filter((item) => item.priceConfirmed)
-        .map((item) => item.serviceName.trim().toLowerCase()),
-    );
-
-    const catalogMatchedServiceNames = new Set(
-      validItems
-        .filter(
-          (item) =>
-            !item.priceConfirmed &&
-            isServiceInCatalog(item.serviceName) &&
-            !hasCatalogPriceDeviationForItem(
-              {
-                serviceName: item.serviceName,
-                unit: item.unit,
-                unitPrice: Number(item.unitPrice || 0),
-              },
-              services,
-            ),
-        )
-        .map((item) => item.serviceName.trim().toLowerCase()),
-    );
-
     const cleanedReviewReasons =
       orders
         .find((o) => o.id === editId)
         ?.reviewReasons?.filter((reason) => {
           if (reason.startsWith("unit_mismatch:")) {
             const [, reasonService] = reason.split(":");
-            const reasonName = (reasonService || "").trim().toLowerCase();
+            const reasonName = normalizeForMatch(reasonService);
             return !validServiceNames.has(reasonName);
           }
 
           if (reason.startsWith("price_override:")) {
             const [, reasonService] = reason.split(":");
-            const reasonName = (reasonService || "").trim().toLowerCase();
-            return !(
-              locallyConfirmedServiceNames.has(reasonName) ||
-              catalogMatchedServiceNames.has(reasonName)
-            );
+            const reasonName = normalizeForMatch(reasonService);
+            return !confirmedCatalogReviewServiceNames.has(reasonName);
           }
 
           if (
@@ -5755,7 +5776,7 @@ export default function AuftraegePage() {
                           const itemPriceNumber = Number(item.unitPrice || 0);
                           const hasFrontendCatalogPriceDeviation =
                             Boolean(catalogService) &&
-                            !item.priceConfirmed &&
+                            !item.catalogReviewConfirmed &&
                             !unitMismatchReason &&
                             normalizePriceUnitForCompare(
                               catalogService?.unit,
@@ -5767,7 +5788,7 @@ export default function AuftraegePage() {
                             Math.abs(catalogPrice - itemPriceNumber) >= 0.01;
                           const hasFrontendCatalogTextFlatOverride =
                             Boolean(catalogService) &&
-                            !item.priceConfirmed &&
+                            !item.catalogReviewConfirmed &&
                             !unitMismatchReason &&
                             normalizePriceUnitForCompare(
                               catalogService?.unit,
@@ -5792,7 +5813,7 @@ export default function AuftraegePage() {
                             !hasCurrencyConflict &&
                             !showUnitConflict &&
                             Boolean(
-                              priceOverrideReason ||
+                              (!item.catalogReviewConfirmed && priceOverrideReason) ||
                               hasFrontendCatalogPriceDeviation ||
                               hasFrontendCatalogTextFlatOverride,
                             );
@@ -5891,7 +5912,6 @@ export default function AuftraegePage() {
                           );
                           const hasCatalogActionMenu =
                             isCompleteItemForCatalogAction &&
-                            !item.priceConfirmed &&
                             !priceInputReview &&
                             !quantityInputReview &&
                             (showManualServiceReview ||
@@ -5979,6 +5999,7 @@ export default function AuftraegePage() {
                                 });
                               const groupCatalogPriceDeviation = Boolean(
                                 groupCatalogService &&
+                                  !groupItem.catalogReviewConfirmed &&
                                   !groupUnitMismatchReason &&
                                   normalizePriceUnitForCompare(
                                     groupCatalogService.unit,
@@ -5991,6 +6012,7 @@ export default function AuftraegePage() {
                               );
                               const groupTextFlatOverride = Boolean(
                                 groupCatalogService &&
+                                  !groupItem.catalogReviewConfirmed &&
                                   !groupUnitMismatchReason &&
                                   normalizePriceUnitForCompare(
                                     groupCatalogService.unit,
@@ -6024,7 +6046,7 @@ export default function AuftraegePage() {
                                 );
                               }
                               if (
-                                groupPriceOverrideReason ||
+                                (!groupItem.catalogReviewConfirmed && groupPriceOverrideReason) ||
                                 groupCatalogPriceDeviation ||
                                 groupTextFlatOverride
                               ) {
@@ -7428,55 +7450,65 @@ export default function AuftraegePage() {
         </DialogContent>
       </Dialog>
 
+      {/* Catalog decision dialog */}
       <Dialog
-        open={Boolean(catalogDecision)}
+        open={!!catalogDecision}
         onOpenChange={(open) => {
-          if (!open) setCatalogDecision(null);
+          if (!open && !catalogDecisionSaving) setCatalogDecision(null);
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Leistung im Katalog vorhanden</DialogTitle>
           </DialogHeader>
           {catalogDecision && (
             <div className="space-y-4">
-              <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900">
+              <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-950">
                 <div className="font-semibold">
-                  {catalogDecision.existing.name} existiert bereits im Leistungskatalog.
+                  {catalogDecision.existing.name} existiert bereits im
+                  Leistungskatalog.
                 </div>
                 <div className="mt-1">
-                  Wähle bewusst, ob nur dieser Auftrag geprüft werden soll oder ob der Standardpreis im Katalog global geändert wird.
+                  Wähle bewusst, ob nur dieser Auftrag geprüft werden soll oder
+                  ob der Standardpreis im Katalog global geändert wird.
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-lg border bg-background p-3">
-                  <div className="text-muted-foreground font-semibold">Katalog aktuell</div>
-                  <div className="mt-1 font-semibold">{catalogDecision.existing.unit}</div>
+                  <div className="text-muted-foreground font-medium">
+                    Katalog aktuell
+                  </div>
+                  <div className="mt-1 font-semibold">
+                    {catalogDecision.existing.unit}
+                  </div>
                   <div className="font-mono text-lg font-bold">
-                    {formatCurrency(Number(catalogDecision.existing.defaultPrice || 0), currency)}
+                    {formatCurrency(
+                      Number(catalogDecision.existing.defaultPrice || 0),
+                      currency,
+                    )}
                   </div>
                 </div>
+
                 <div className="rounded-lg border bg-background p-3">
-                  <div className="text-muted-foreground font-semibold">Dieser Auftrag</div>
-                  <div className="mt-1 font-semibold">{catalogDecision.unit}</div>
+                  <div className="text-muted-foreground font-medium">
+                    Dieser Auftrag
+                  </div>
+                  <div className="mt-1 font-semibold">
+                    {catalogDecision.unit}
+                  </div>
                   <div className="font-mono text-lg font-bold">
                     {formatCurrency(catalogDecision.price, currency)}
                   </div>
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Button
                   type="button"
                   className="w-full"
-                  onClick={() => {
-                    markCatalogItemAsReviewed(
-                      catalogDecision.index,
-                      catalogDecision.existing,
-                      true,
-                    );
-                    setCatalogDecision(null);
-                    toast.success("Nur diesen Auftrag als geprüft übernommen ✓");
-                  }}
+                  disabled={catalogDecisionSaving}
+                  onClick={resolveCatalogDecisionForCurrentOrder}
                 >
                   Nur diesen Auftrag als geprüft übernehmen
                 </Button>
@@ -7484,22 +7516,23 @@ export default function AuftraegePage() {
                   type="button"
                   variant="outline"
                   className="w-full"
-                  onClick={async () => {
-                    try {
-                      await updateExistingCatalogService(catalogDecision);
-                      setCatalogDecision(null);
-                      toast.success("Katalogpreis global aktualisiert ✓");
-                    } catch {
-                      toast.error("Leistungskatalog konnte nicht aktualisiert werden");
-                    }
-                  }}
+                  disabled={catalogDecisionSaving}
+                  onClick={updateCatalogPriceFromDecision}
                 >
-                  Katalogpreis global aktualisieren
+                  {catalogDecisionSaving ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Aktualisiere ...
+                    </span>
+                  ) : (
+                    "Katalogpreis global aktualisieren"
+                  )}
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   className="w-full"
+                  disabled={catalogDecisionSaving}
                   onClick={() => setCatalogDecision(null)}
                 >
                   Abbrechen

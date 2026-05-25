@@ -55,7 +55,7 @@ const canonicalMergeServiceName = (value?: string | null) => {
   const key = normalizeServiceKey(name);
 
   if (
-    /\b(anfahrt|anfahrt pauschal|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+    /\b(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
       key,
     )
   ) {
@@ -587,8 +587,6 @@ export async function POST(request: NextRequest) {
       }
 
       const hasExecutionAddressMismatch = workSiteGroups.length > 1;
-      const executionAddressMismatchNote =
-        buildExecutionAddressMismatchNote(workSiteGroups);
 
       const hasDoubleMerge = allOrders.some(
         (o) =>

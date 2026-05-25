@@ -16,7 +16,7 @@
  */
 
 const SYSTEM_KEYWORDS =
-  /Kundentreffer|prüfen|Confidence|⚠️|🚨|Kundendaten|Konflikt|Zuordnung|manuelle.*prüfung|Priorität.*HOCH/i;
+  /Kundentreffer|prüfen|geprüft|Confidence|⚠️|🚨|Kundendaten|Konflikt|Zuordnung|manuelle.*prüfung|Priorität.*HOCH|Mehrere Ausführungsorte|verbundenen Aufträge|unterschiedliche Arbeitsorte|Angebot\/Rechnung\/PDF/i;
 
 const SAFETY_MARKER = /^\s*\[(GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i;
 const HINT_MARKER = /^\s*\[(HINWEIS|INFO|NOTIZ)\]\s*/i;
@@ -35,50 +35,20 @@ export interface SplitJobHints {
 
 const normalizeLine = (value: string) => value.replace(/\s+/g, " ").trim();
 
+const NON_OPERATIONAL_JOB_HINT =
+  /^(Termin\b|Arbeit am\b|Ausführung am\b|Ausfuehrung am\b|Mehrere Ausführungsorte\b|Mehrere Ausfuehrungsorte\b)/i;
+
+const isOperationalJobHint = (value: string) => {
+  const line = normalizeLine(value);
+  if (!line) return false;
+  return !NON_OPERATIONAL_JOB_HINT.test(line);
+};
+
 const fixVisibleNoteGrammar = (value: string) =>
   value
     .replace(/\bKeine telefonische Rückruf notwendig\b/gi, "Kein telefonischer Rückruf notwendig")
     .replace(/\bKeine telefonische Rückrufwunsch\b/gi, "Kein telefonischer Rückrufwunsch")
     .replace(/\bKeine telefonischer Rückrufwunsch\b/gi, "Kein telefonischer Rückrufwunsch");
-
-
-const isGeneratedSystemNoteLine = (value: string) => {
-  const text = normalizeLine(value);
-  if (!text) return false;
-
-  return (
-    /^Mehrere Ausführungsorte:/i.test(text) ||
-    /verbundenen Aufträge.*unterschiedliche Arbeitsorte/i.test(text) ||
-    /Leistungen bleiben nach Ausführungsort getrennt gespeichert/i.test(text) ||
-    /Angebot\/Rechnung\/PDF geprüft werden/i.test(text) ||
-    /^MwSt prüfen:/i.test(text) ||
-    /^Der verbundene Auftrag verwendet den MwSt-Satz/i.test(text) ||
-    /^Quelle \d+:/i.test(text) ||
-    /^Bitte vor Angebot oder Rechnung prüfen\.?$/i.test(text)
-  );
-};
-
-const isAppointmentOnlyNoteLine = (value: string) => {
-  const text = normalizeLine(value);
-  if (!text) return false;
-
-  return (
-    /^Termin\b/i.test(text) ||
-    /^Arbeit\s+(?:am|nach|vor)\b/i.test(text) ||
-    /^Ausführung\s+(?:am|nach|vor)\b/i.test(text) ||
-    /^Exécution\b/i.test(text) ||
-    /^Guest leaves\b/i.test(text) ||
-    /\bTerminwunsch\b/i.test(text)
-  );
-};
-
-const shouldStoreAsVisibleJobHint = (value: string) => {
-  const text = stripKnownMarker(value);
-  if (!text) return false;
-  if (isGeneratedSystemNoteLine(text)) return false;
-  if (isAppointmentOnlyNoteLine(text)) return false;
-  return true;
-};
 
 const stripKnownMarker = (line: string) =>
   fixVisibleNoteGrammar(
@@ -187,11 +157,6 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     const line = normalizeLine(rawLine);
     if (!line) continue;
 
-    if (isGeneratedSystemNoteLine(line) || isAppointmentOnlyNoteLine(line)) {
-      systemHints.push(stripKnownMarker(line));
-      continue;
-    }
-
     if (SYSTEM_KEYWORDS.test(line)) {
       systemHints.push(stripKnownMarker(line));
       continue;
@@ -204,14 +169,14 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     }
 
     const cleaned = stripKnownMarker(line);
-    if (cleaned) jobHints.push(cleaned);
+    if (cleaned && isOperationalJobHint(cleaned)) jobHints.push(cleaned);
   }
 
   const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
   const safetyKeys = new Set(dedupedSafetyWarnings.map(semanticNoteKey));
-  const dedupedJobHints = dedupeSemanticLines(jobHints)
-    .filter((line) => shouldStoreAsVisibleJobHint(line))
-    .filter((line) => !safetyKeys.has(semanticNoteKey(line)));
+  const dedupedJobHints = dedupeSemanticLines(jobHints).filter(
+    (line) => !safetyKeys.has(semanticNoteKey(line)),
+  );
 
   return {
     systemHints: dedupeSemanticLines(systemHints),
@@ -261,14 +226,14 @@ export function buildSpecialNotes(input: {
   systemHints?: string[];
 }) {
   const safetyWarnings = input.safetyWarnings ?? [];
-  const jobHints = input.jobHints ?? [];
+  const jobHints = (input.jobHints ?? []).filter(isOperationalJobHint);
   const systemHints = input.systemHints ?? [];
 
   const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
   const safetyKeys = new Set(dedupedSafetyWarnings.map(semanticNoteKey));
-  const dedupedJobHints = dedupeSemanticLines(jobHints)
-    .filter((line) => shouldStoreAsVisibleJobHint(line))
-    .filter((line) => !safetyKeys.has(semanticNoteKey(line)));
+  const dedupedJobHints = dedupeSemanticLines(jobHints).filter(
+    (line) => !safetyKeys.has(semanticNoteKey(line)),
+  );
 
   const lines = [
     ...dedupedSafetyWarnings.map(formatSafetyWarningLine),
