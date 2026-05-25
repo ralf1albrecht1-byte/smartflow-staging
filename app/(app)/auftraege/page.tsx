@@ -1832,6 +1832,9 @@ export default function AuftraegePage() {
     null,
   );
   const [activeWorkSiteId, setActiveWorkSiteId] = useState<string | null>(null);
+  const [expandedWorkSiteIds, setExpandedWorkSiteIds] = useState<string[]>([]);
+  const [customerMessagesExpanded, setCustomerMessagesExpanded] =
+    useState(false);
   const [movingItemKey, setMovingItemKey] = useState<string | null>(null);
   // Persisted MwSt on Auftrag — saved on the Order itself (see app/api/orders)
   // and forwarded to the derived Offer/Invoice when converting.
@@ -2153,6 +2156,8 @@ export default function AuftraegePage() {
     setFormWorkSites([]);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(null);
+    setExpandedWorkSiteIds([]);
+    setCustomerMessagesExpanded(false);
     setSiteAddressEditing(false);
     setShowNewCustomer(false);
     setEditingCustomer(false);
@@ -2218,6 +2223,8 @@ export default function AuftraegePage() {
     setFormWorkSites(nextWorkSites);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(nextWorkSites[0]?.id || null);
+    setExpandedWorkSiteIds([]);
+    setCustomerMessagesExpanded(false);
     setMovingItemKey(null);
     setSiteAddressEditing(
       nextWorkSites.length <= 1 &&
@@ -2588,7 +2595,7 @@ export default function AuftraegePage() {
     const existingPrice = Number(existing?.defaultPrice || 0);
     const existingNeedsUpdate = Boolean(
       existing &&
-        (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
+      (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
     );
 
     if (existing && !existingNeedsUpdate) {
@@ -2643,6 +2650,9 @@ export default function AuftraegePage() {
     };
 
     setFormItems((prev) => [nextItem, ...prev]);
+    setExpandedWorkSiteIds((prev) =>
+      prev.includes("__unassigned__") ? prev : ["__unassigned__", ...prev],
+    );
     setMovingItemKey(hasMultipleEditWorkSites ? nextItem.key : null);
     setServiceActionMenuKey(null);
   };
@@ -2764,6 +2774,9 @@ export default function AuftraegePage() {
     ]);
     setEditingWorkSiteId(newId);
     setActiveWorkSiteId(newId);
+    setExpandedWorkSiteIds((prev) =>
+      prev.includes(newId) ? prev : [newId, ...prev],
+    );
   };
 
   const removeFormWorkSite = (siteId: string) => {
@@ -2790,6 +2803,46 @@ export default function AuftraegePage() {
   const getWorkSiteShortLabel = (site?: OrderWorkSite | null) => {
     if (!site) return "Ohne Arbeitsort";
     return formatWorkSiteTitle(site);
+  };
+
+  const getWorkSiteGroupKey = (site?: OrderWorkSite | null) =>
+    site?.id || "__unassigned__";
+
+  const getWorkSiteGroupItems = (site?: OrderWorkSite | null) =>
+    site
+      ? getWorkSiteItems(site.id)
+      : formItems.filter((item) => !item.workSiteId);
+
+  const isWorkSiteGroupExpanded = (site?: OrderWorkSite | null) =>
+    !hasMultipleEditWorkSites ||
+    expandedWorkSiteIds.includes(getWorkSiteGroupKey(site)) ||
+    (!site && formItems.some((item) => !item.workSiteId));
+
+  const toggleWorkSiteGroup = (site?: OrderWorkSite | null) => {
+    const key = getWorkSiteGroupKey(site);
+    setExpandedWorkSiteIds((prev) =>
+      prev.includes(key)
+        ? prev.filter((entry) => entry !== key)
+        : [key, ...prev],
+    );
+  };
+
+  const collapseAllWorkSiteGroups = () => {
+    setExpandedWorkSiteIds([]);
+    setEditingWorkSiteId(null);
+    setMovingItemKey(null);
+  };
+
+  const formatWorkSiteItemSummary = (item: FormItem) => {
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    const total = quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
+    const quantityLabel =
+      quantity > 0
+        ? `${item.quantity} ${unitShortLabel(item.unit)}`
+        : "Menge prüfen";
+    const totalLabel = total > 0 ? ` · ${formatCurrency(total, currency)}` : "";
+    return `${item.serviceName || "Leistung prüfen"} · ${quantityLabel}${totalLabel}`;
   };
 
   const formItemDisplayRows = hasMultipleEditWorkSites
@@ -2872,9 +2925,27 @@ export default function AuftraegePage() {
         unitPrice,
         hasQuantity,
         hasPrice,
+        workSiteId: item.workSiteId || null,
         sum,
       };
     });
+
+  const liveOverviewGroups = hasMultipleEditWorkSites
+    ? [
+        {
+          key: "__unassigned__",
+          title: "Ohne Arbeitsort",
+          address: "Bitte zuordnen",
+          rows: liveOverviewRows.filter((row) => !row.workSiteId),
+        },
+        ...currentEditWorkSites.map((site) => ({
+          key: site.id,
+          title: formatWorkSiteTitle(site),
+          address: formatWorkSiteAddress(site),
+          rows: liveOverviewRows.filter((row) => row.workSiteId === site.id),
+        })),
+      ].filter((group) => group.rows.length > 0)
+    : [];
 
   const parsedFormSpecialNotes = splitSpecialNotes(form.specialNotes);
   const dangerNoteLines = parsedFormSpecialNotes.safetyWarnings;
@@ -3789,9 +3860,7 @@ export default function AuftraegePage() {
         // disappears from the active Orders list immediately.
         setOrders((prev) =>
           prev.map((x) =>
-            x.id === sourceOrder.id
-              ? { ...x, offerId: offer.id }
-              : x,
+            x.id === sourceOrder.id ? { ...x, offerId: offer.id } : x,
           ),
         );
         window.location.href = "/angebote";
@@ -3855,9 +3924,7 @@ export default function AuftraegePage() {
         // disappears from the active Orders list immediately.
         setOrders((prev) =>
           prev.map((x) =>
-            x.id === sourceOrder.id
-              ? { ...x, invoiceId: invoice.id }
-              : x,
+            x.id === sourceOrder.id ? { ...x, invoiceId: invoice.id } : x,
           ),
         );
         window.location.href = "/rechnungen";
@@ -5162,14 +5229,24 @@ export default function AuftraegePage() {
                         </p>
                       </div>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={addFormWorkSite}
-                    >
-                      + Arbeitsort
-                    </Button>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={collapseAllWorkSiteGroups}
+                      >
+                        Übersicht
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={addFormWorkSite}
+                      >
+                        + Arbeitsort
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="grid gap-2">
@@ -5352,8 +5429,7 @@ export default function AuftraegePage() {
                                   }
                                   className="rounded-full border bg-muted px-2 py-0.5 text-[11px]"
                                 >
-                                  {item.serviceName} · {item.quantity}{" "}
-                                  {item.unit}
+                                  {formatWorkSiteItemSummary(item)}
                                 </span>
                               ))
                             ) : (
@@ -5593,16 +5669,17 @@ export default function AuftraegePage() {
                             );
                           const existingCatalogUnitMismatch = Boolean(
                             catalogService &&
-                              normalizePriceUnitForCompare(catalogService.unit) !==
-                                normalizePriceUnitForCompare(item.unit),
+                            normalizePriceUnitForCompare(
+                              catalogService.unit,
+                            ) !== normalizePriceUnitForCompare(item.unit),
                           );
                           const existingCatalogPriceMismatch = Boolean(
                             catalogService &&
-                              Number.isFinite(catalogPrice) &&
-                              Number.isFinite(itemPriceNumber) &&
-                              catalogPrice > 0 &&
-                              itemPriceNumber > 0 &&
-                              Math.abs(catalogPrice - itemPriceNumber) >= 0.01,
+                            Number.isFinite(catalogPrice) &&
+                            Number.isFinite(itemPriceNumber) &&
+                            catalogPrice > 0 &&
+                            itemPriceNumber > 0 &&
+                            Math.abs(catalogPrice - itemPriceNumber) >= 0.01,
                           );
                           const hasCatalogActionMenu =
                             isCompleteItemForCatalogAction &&
@@ -5634,6 +5711,17 @@ export default function AuftraegePage() {
                             siteIndex % 2 === 0
                               ? "border-l-purple-400"
                               : "border-l-amber-400";
+                          const groupExpanded = isWorkSiteGroupExpanded(site);
+                          const groupItemCount =
+                            getWorkSiteGroupItems(site).length;
+
+                          if (
+                            hasMultipleEditWorkSites &&
+                            !isFirstInSite &&
+                            !groupExpanded
+                          ) {
+                            return null;
+                          }
 
                           return (
                             <div
@@ -5644,22 +5732,23 @@ export default function AuftraegePage() {
                             >
                               {hasMultipleEditWorkSites && isFirstInSite && (
                                 <div
-                                  role={site ? "button" : undefined}
-                                  tabIndex={site ? 0 : undefined}
-                                  onClick={() =>
-                                    site && setActiveWorkSiteId(site.id)
-                                  }
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => {
+                                    if (site) setActiveWorkSiteId(site.id);
+                                    toggleWorkSiteGroup(site);
+                                  }}
                                   onKeyDown={(event) => {
                                     if (
-                                      site &&
-                                      (event.key === "Enter" ||
-                                        event.key === " ")
+                                      event.key === "Enter" ||
+                                      event.key === " "
                                     ) {
                                       event.preventDefault();
-                                      setActiveWorkSiteId(site.id);
+                                      if (site) setActiveWorkSiteId(site.id);
+                                      toggleWorkSiteGroup(site);
                                     }
                                   }}
-                                  className={`rounded-t-xl border-2 border-b-0 px-3 py-2 shadow-sm ${
+                                  className={`rounded-xl border-2 px-3 py-2 shadow-sm ${groupExpanded ? "rounded-b-none border-b-0" : ""} ${
                                     site
                                       ? siteAccentClass
                                       : "border-red-200 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
@@ -5668,11 +5757,18 @@ export default function AuftraegePage() {
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                       <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+                                        <span className="shrink-0 text-base leading-none">
+                                          {groupExpanded ? "▾" : "▸"}
+                                        </span>
                                         <span>
                                           📍{" "}
                                           {site
                                             ? `${siteIndex + 1}. ${formatWorkSiteTitle(site)}`
                                             : "Neue Leistung: Arbeitsort wählen"}
+                                        </span>
+                                        <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
+                                          {groupItemCount} Leistung
+                                          {groupItemCount === 1 ? "" : "en"}
                                         </span>
                                         {isActiveSite && (
                                           <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-cyan-700 ring-1 ring-cyan-200">
@@ -5702,376 +5798,389 @@ export default function AuftraegePage() {
                                 </div>
                               )}
 
-                              <div
-                                className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
-                                  hasMultipleEditWorkSites
-                                    ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
-                                    : "rounded-lg"
-                                } ${
-                                  hasCriticalItemReview
-                                    ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
-                                    : hasAnyItemReview
-                                      ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                      : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
-                                }`}
-                                onClick={() =>
-                                  site && setActiveWorkSiteId(site.id)
-                                }
-                              >
-                                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
-                                  <div className="min-w-0 space-y-1">
-                                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
-                                      <div className="group min-w-0">
-                                        <ServiceCombobox
-                                          value={item.serviceName}
-                                          services={services as ServiceOption[]}
-                                          onChange={(name, svc) =>
-                                            onItemServiceSelect(
-                                              index,
-                                              name,
-                                              svc,
-                                            )
-                                          }
-                                          onServiceCreated={
-                                            handleServiceCreated
-                                          }
-                                          currentPrice={item.unitPrice}
-                                          currentUnit={item.unit}
-                                          showManualHint={false}
-                                          saveButtonPlacement="none"
-                                        />
-                                        {item.serviceName.trim().length >
-                                          28 && (
-                                          <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
-                                            {item.serviceName.trim()}
-                                          </p>
-                                        )}
-                                      </div>
-
-                                      <div className="h-1" aria-hidden="true" />
-                                    </div>
-                                  </div>
-
-                                  <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
-                                    <div>Total</div>
-                                    <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
-                                      {formatCurrency(itemTotal, currency)}
-                                    </div>
-                                  </div>
-
-                                  <div className="relative shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setServiceActionMenuKey((prev) =>
-                                          prev === item.key ? null : item.key,
-                                        );
-                                      }}
-                                      className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                      title="Aktionen"
-                                    >
-                                      <MoreVertical className="w-3.5 h-3.5" />
-                                    </button>
-
-                                    {isMenuOpen && (
-                                      <div
-                                        onClick={(event) =>
-                                          event.stopPropagation()
-                                        }
-                                        className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
-                                      >
-                                        {hasMultipleEditWorkSites && (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setMovingItemKey(item.key);
-                                              setActiveWorkSiteId(
-                                                item.workSiteId ||
-                                                  activeWorkSiteId,
-                                              );
-                                              setServiceActionMenuKey(null);
-                                            }}
-                                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                          >
-                                            📍 Arbeitsort ändern
-                                          </button>
-                                        )}
-
-                                        {hasCatalogActionMenu && (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              saveItemToServices(index);
-                                              setServiceActionMenuKey(null);
-                                            }}
-                                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                          >
-                                            <Plus className="h-3.5 w-3.5" />
-                                            In Leistungskatalog übernehmen
-                                          </button>
-                                        )}
-
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            removeItem(index);
-                                            setServiceActionMenuKey(null);
-                                          }}
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                          Löschen
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-1.5">
-                                  <div>
-                                    <Label className="text-[10px] leading-none">
-                                      Einheit
-                                    </Label>
-                                    <select
-                                      className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                      value={item.unit}
-                                      onChange={(e: any) =>
-                                        updateItem(
-                                          index,
-                                          "unit",
-                                          e?.target?.value ?? "Stunde",
-                                        )
-                                      }
-                                    >
-                                      {priceTypes.map((pt) => (
-                                        <option key={pt} value={pt}>
-                                          {pt}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-
-                                  <div>
-                                    <Label className="text-[10px] leading-none">
-                                      Preis ({currency})
-                                    </Label>
-                                    <Input
-                                      type="number"
-                                      step="0.05"
-                                      className={`h-8 text-xs ${
-                                        priceInputReview
-                                          ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                          : ""
-                                      }`}
-                                      value={
-                                        priceInputReview ? "" : item.unitPrice
-                                      }
-                                      placeholder={
-                                        priceInputReview ? "prüfen" : "0"
-                                      }
-                                      onFocus={(e) => e.currentTarget.select()}
-                                      onChange={(e: any) =>
-                                        updateItem(
-                                          index,
-                                          "unitPrice",
-                                          e?.target?.value ?? "",
-                                        )
-                                      }
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <Label className="text-[10px] leading-none">
-                                      Menge
-                                    </Label>
-                                    <Input
-                                      type="number"
-                                      step="0.25"
-                                      className={`h-8 text-xs ${
-                                        quantityInputReview
-                                          ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                          : ""
-                                      }`}
-                                      value={
-                                        quantityInputReview ? "" : item.quantity
-                                      }
-                                      placeholder={
-                                        quantityInputReview ? "prüfen" : "0"
-                                      }
-                                      onFocus={(e) => e.currentTarget.select()}
-                                      onChange={(e: any) =>
-                                        updateItem(
-                                          index,
-                                          "quantity",
-                                          e?.target?.value ?? "",
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                </div>
-
-                                {hasMultipleEditWorkSites &&
-                                  (movingItemKey === item.key ||
-                                    !item.workSiteId) && (
-                                    <div className="flex justify-end">
-                                      <div className="flex w-full items-end gap-2 sm:w-auto">
-                                        <div className="min-w-0 flex-1 sm:w-72">
-                                          <Label className="text-[10px] leading-none">
-                                            Arbeitsort ändern
-                                          </Label>
-                                          <select
-                                            className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                            value={item.workSiteId || ""}
-                                            onChange={(e: any) => {
-                                              updateItem(
-                                                index,
-                                                "workSiteId",
-                                                e?.target?.value ?? "",
-                                              );
-                                              setMovingItemKey(null);
-                                            }}
-                                          >
-                                            <option value="">
-                                              Arbeitsort wählen
-                                            </option>
-                                            {currentEditWorkSites.map(
-                                              (siteOption) => (
-                                                <option
-                                                  key={siteOption.id}
-                                                  value={siteOption.id}
-                                                >
-                                                  {getWorkSiteSelectLabel(
-                                                    siteOption,
-                                                  )}
-                                                </option>
-                                              ),
-                                            )}
-                                          </select>
-                                        </div>
-                                        {item.workSiteId && (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setMovingItemKey(null)
+                              {groupExpanded && (
+                                <div
+                                  className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
+                                    hasMultipleEditWorkSites
+                                      ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
+                                      : "rounded-lg"
+                                  } ${
+                                    hasCriticalItemReview
+                                      ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                      : hasAnyItemReview
+                                        ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                        : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                                  }`}
+                                  onClick={() =>
+                                    site && setActiveWorkSiteId(site.id)
+                                  }
+                                >
+                                  <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
+                                    <div className="min-w-0 space-y-1">
+                                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
+                                        <div className="group min-w-0">
+                                          <ServiceCombobox
+                                            value={item.serviceName}
+                                            services={
+                                              services as ServiceOption[]
                                             }
-                                            className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
-                                          >
-                                            Fertig
-                                          </button>
-                                        )}
+                                            onChange={(name, svc) =>
+                                              onItemServiceSelect(
+                                                index,
+                                                name,
+                                                svc,
+                                              )
+                                            }
+                                            onServiceCreated={
+                                              handleServiceCreated
+                                            }
+                                            currentPrice={item.unitPrice}
+                                            currentUnit={item.unit}
+                                            showManualHint={false}
+                                            saveButtonPlacement="none"
+                                          />
+                                          {item.serviceName.trim().length >
+                                            28 && (
+                                            <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
+                                              {item.serviceName.trim()}
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div
+                                          className="h-1"
+                                          aria-hidden="true"
+                                        />
                                       </div>
                                     </div>
-                                  )}
 
-                                {showItemReviewBlock && (
-                                  <div
-                                    className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
-                                      isBlockingItemReview
-                                        ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
-                                        : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
-                                    }`}
-                                  >
-                                    <div className="mb-0.5 flex items-center gap-1 font-semibold">
-                                      <AlertTriangle className="h-3 w-3 shrink-0" />
-                                      Manuell prüfen
+                                    <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
+                                      <div>Total</div>
+                                      <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
+                                        {formatCurrency(itemTotal, currency)}
+                                      </div>
                                     </div>
 
-                                    <div className="space-y-0.5">
-                                      {showUnitConflict && catalogService && (
-                                        <div className="space-y-0.5">
-                                          <div>
-                                            Text:{" "}
-                                            <span className="font-medium">
-                                              {orderSummary}
-                                            </span>
-                                          </div>
-                                          {catalogSummary && (
-                                            <div>
-                                              Katalog:{" "}
-                                              <span className="font-medium">
-                                                {catalogSummary}
-                                              </span>
-                                            </div>
+                                    <div className="relative shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setServiceActionMenuKey((prev) =>
+                                            prev === item.key ? null : item.key,
+                                          );
+                                        }}
+                                        className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                        title="Aktionen"
+                                      >
+                                        <MoreVertical className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {isMenuOpen && (
+                                        <div
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                        >
+                                          {hasMultipleEditWorkSites && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setMovingItemKey(item.key);
+                                                setActiveWorkSiteId(
+                                                  item.workSiteId ||
+                                                    activeWorkSiteId,
+                                                );
+                                                setServiceActionMenuKey(null);
+                                              }}
+                                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                            >
+                                              📍 Arbeitsort ändern
+                                            </button>
                                           )}
-                                          <div>
-                                            Einheit passt nicht. Menge, Einheit
-                                            und Preis prüfen.
-                                          </div>
+
+                                          {hasCatalogActionMenu && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                saveItemToServices(index);
+                                                setServiceActionMenuKey(null);
+                                              }}
+                                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                            >
+                                              <Plus className="h-3.5 w-3.5" />
+                                              In Leistungskatalog übernehmen
+                                            </button>
+                                          )}
+
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              removeItem(index);
+                                              setServiceActionMenuKey(null);
+                                            }}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                            Löschen
+                                          </button>
                                         </div>
                                       )}
+                                    </div>
+                                  </div>
 
-                                      {!showUnitConflict &&
-                                        showPriceOverride &&
-                                        catalogService && (
+                                  <div className="grid grid-cols-3 gap-1.5">
+                                    <div>
+                                      <Label className="text-[10px] leading-none">
+                                        Einheit
+                                      </Label>
+                                      <select
+                                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                        value={item.unit}
+                                        onChange={(e: any) =>
+                                          updateItem(
+                                            index,
+                                            "unit",
+                                            e?.target?.value ?? "Stunde",
+                                          )
+                                        }
+                                      >
+                                        {priceTypes.map((pt) => (
+                                          <option key={pt} value={pt}>
+                                            {pt}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+
+                                    <div>
+                                      <Label className="text-[10px] leading-none">
+                                        Preis ({currency})
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        step="0.05"
+                                        className={`h-8 text-xs ${
+                                          priceInputReview
+                                            ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                            : ""
+                                        }`}
+                                        value={
+                                          priceInputReview ? "" : item.unitPrice
+                                        }
+                                        placeholder={
+                                          priceInputReview ? "prüfen" : "0"
+                                        }
+                                        onFocus={(e) =>
+                                          e.currentTarget.select()
+                                        }
+                                        onChange={(e: any) =>
+                                          updateItem(
+                                            index,
+                                            "unitPrice",
+                                            e?.target?.value ?? "",
+                                          )
+                                        }
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <Label className="text-[10px] leading-none">
+                                        Menge
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        step="0.25"
+                                        className={`h-8 text-xs ${
+                                          quantityInputReview
+                                            ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                            : ""
+                                        }`}
+                                        value={
+                                          quantityInputReview
+                                            ? ""
+                                            : item.quantity
+                                        }
+                                        placeholder={
+                                          quantityInputReview ? "prüfen" : "0"
+                                        }
+                                        onFocus={(e) =>
+                                          e.currentTarget.select()
+                                        }
+                                        onChange={(e: any) =>
+                                          updateItem(
+                                            index,
+                                            "quantity",
+                                            e?.target?.value ?? "",
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {hasMultipleEditWorkSites &&
+                                    (movingItemKey === item.key ||
+                                      !item.workSiteId) && (
+                                      <div className="flex justify-end">
+                                        <div className="flex w-full items-end gap-2 sm:w-auto">
+                                          <div className="min-w-0 flex-1 sm:w-72">
+                                            <Label className="text-[10px] leading-none">
+                                              Arbeitsort ändern
+                                            </Label>
+                                            <select
+                                              className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                              value={item.workSiteId || ""}
+                                              onChange={(e: any) => {
+                                                updateItem(
+                                                  index,
+                                                  "workSiteId",
+                                                  e?.target?.value ?? "",
+                                                );
+                                                setMovingItemKey(null);
+                                              }}
+                                            >
+                                              <option value="">
+                                                Arbeitsort wählen
+                                              </option>
+                                              {currentEditWorkSites.map(
+                                                (siteOption) => (
+                                                  <option
+                                                    key={siteOption.id}
+                                                    value={siteOption.id}
+                                                  >
+                                                    {getWorkSiteSelectLabel(
+                                                      siteOption,
+                                                    )}
+                                                  </option>
+                                                ),
+                                              )}
+                                            </select>
+                                          </div>
+                                          {item.workSiteId && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setMovingItemKey(null)
+                                              }
+                                              className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
+                                            >
+                                              Fertig
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                  {showItemReviewBlock && (
+                                    <div
+                                      className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
+                                        isBlockingItemReview
+                                          ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
+                                          : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
+                                      }`}
+                                    >
+                                      <div className="mb-0.5 flex items-center gap-1 font-semibold">
+                                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                                        Manuell prüfen
+                                      </div>
+
+                                      <div className="space-y-0.5">
+                                        {showUnitConflict && catalogService && (
                                           <div className="space-y-0.5">
                                             <div>
                                               Text:{" "}
                                               <span className="font-medium">
-                                                {sourceLineForItem ||
-                                                  orderSummary}
-                                              </span>
-                                              <span className="font-semibold">
-                                                {" "}
-                                                — Textpreis übernommen.
+                                                {orderSummary}
                                               </span>
                                             </div>
-                                            <div className="text-amber-700/75 dark:text-amber-200/75">
-                                              Katalog: {catalogService.unit} ·{" "}
-                                              {formatCurrency(
-                                                catalogPrice,
-                                                currency,
-                                              )}
-                                            </div>
-                                          </div>
-                                        )}
-
-                                      {!showUnitConflict &&
-                                        showPriceReferenceReview && (
-                                          <div className="space-y-0.5">
-                                            <div>Preis im Text unklar.</div>
-                                            {sourceLineForItem && (
+                                            {catalogSummary && (
                                               <div>
-                                                Text:{" "}
+                                                Katalog:{" "}
                                                 <span className="font-medium">
-                                                  {sourceLineForItem}
+                                                  {catalogSummary}
                                                 </span>
                                               </div>
                                             )}
-                                            <div>Bitte Preis bestätigen.</div>
-                                          </div>
-                                        )}
-
-                                      {!showUnitConflict &&
-                                        (priceInputReview ||
-                                          quantityInputReview) && (
-                                          <div className="space-y-0.5">
-                                            {priceInputReview && (
-                                              <div>
-                                                Preis fehlt oder ist unsicher.
-                                              </div>
-                                            )}
-                                            {quantityInputReview && (
-                                              <div>
-                                                Menge fehlt oder ist unsicher.
-                                              </div>
-                                            )}
                                             <div>
-                                              Vor Angebot/Rechnung ergänzen.
+                                              Einheit passt nicht. Menge,
+                                              Einheit und Preis prüfen.
                                             </div>
                                           </div>
                                         )}
 
-                                      {showManualServiceReview && (
-                                        <div>
-                                          Nicht im Leistungskatalog. Optional
-                                          über Menü übernehmen.
-                                        </div>
-                                      )}
+                                        {!showUnitConflict &&
+                                          showPriceOverride &&
+                                          catalogService && (
+                                            <div className="space-y-0.5">
+                                              <div>
+                                                Text:{" "}
+                                                <span className="font-medium">
+                                                  {sourceLineForItem ||
+                                                    orderSummary}
+                                                </span>
+                                                <span className="font-semibold">
+                                                  {" "}
+                                                  — Textpreis übernommen.
+                                                </span>
+                                              </div>
+                                              <div className="text-amber-700/75 dark:text-amber-200/75">
+                                                Katalog: {catalogService.unit} ·{" "}
+                                                {formatCurrency(
+                                                  catalogPrice,
+                                                  currency,
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                        {!showUnitConflict &&
+                                          showPriceReferenceReview && (
+                                            <div className="space-y-0.5">
+                                              <div>Preis im Text unklar.</div>
+                                              {sourceLineForItem && (
+                                                <div>
+                                                  Text:{" "}
+                                                  <span className="font-medium">
+                                                    {sourceLineForItem}
+                                                  </span>
+                                                </div>
+                                              )}
+                                              <div>Bitte Preis bestätigen.</div>
+                                            </div>
+                                          )}
+
+                                        {!showUnitConflict &&
+                                          (priceInputReview ||
+                                            quantityInputReview) && (
+                                            <div className="space-y-0.5">
+                                              {priceInputReview && (
+                                                <div>
+                                                  Preis fehlt oder ist unsicher.
+                                                </div>
+                                              )}
+                                              {quantityInputReview && (
+                                                <div>
+                                                  Menge fehlt oder ist unsicher.
+                                                </div>
+                                              )}
+                                              <div>
+                                                Vor Angebot/Rechnung ergänzen.
+                                              </div>
+                                            </div>
+                                          )}
+
+                                        {showManualServiceReview && (
+                                          <div>
+                                            Nicht im Leistungskatalog. Optional
+                                            über Menü übernehmen.
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
-                              </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         },
@@ -6275,145 +6384,257 @@ export default function AuftraegePage() {
                       </span>
                     </div>
 
-                    <div className="rounded-lg border overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/60">
-                          <tr className="text-left">
-                            <th className="px-2 py-2 font-medium w-10">Nr.</th>
-                            <th className="px-2 py-2 font-medium">Leistung</th>
-                            <th className="px-2 py-2 font-medium">Einheit</th>
-                            <th className="px-2 py-2 font-medium text-right">
-                              Menge
-                            </th>
-                            <th className="px-2 py-2 font-medium text-right">
-                              Einzelpreis
-                            </th>
-                            <th className="px-2 py-2 font-medium text-right">
-                              Summe
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {liveOverviewRows.length === 0 ? (
-                            <tr>
-                              <td
-                                colSpan={6}
-                                className="px-2 py-4 text-center text-muted-foreground"
+                    {hasMultipleEditWorkSites ? (
+                      <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
+                        {liveOverviewGroups.length === 0 ? (
+                          <div className="rounded-md border bg-background p-3 text-center text-sm text-muted-foreground">
+                            Keine Leistung erfasst.
+                          </div>
+                        ) : (
+                          liveOverviewGroups.map((group) => {
+                            const groupTotal = group.rows.reduce(
+                              (sum, row) => sum + row.sum,
+                              0,
+                            );
+
+                            return (
+                              <div
+                                key={group.key}
+                                className="rounded-md border bg-background p-2"
                               >
-                                Keine Leistung erfasst.
-                              </td>
+                                <div className="flex items-start justify-between gap-2 border-b pb-1.5">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-semibold">
+                                      📍 {group.title}
+                                    </div>
+                                    {group.address && (
+                                      <div className="text-xs text-muted-foreground">
+                                        {group.address}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="shrink-0 text-right font-mono text-sm font-semibold">
+                                    {formatCurrency(groupTotal, currency)}
+                                  </div>
+                                </div>
+                                <div className="divide-y text-sm">
+                                  {group.rows.map((row) => (
+                                    <div
+                                      key={`${group.key}-${row.index}-${row.serviceName}`}
+                                      className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 py-1.5"
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="font-medium">
+                                          {row.serviceName}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {row.hasQuantity
+                                            ? `${row.quantity} ${row.unitLabel}`
+                                            : "Menge prüfen"}
+                                          {" · "}
+                                          {row.hasPrice
+                                            ? formatCurrency(
+                                                row.unitPrice,
+                                                currency,
+                                              )
+                                            : "Preis prüfen"}
+                                        </div>
+                                      </div>
+                                      <div className="text-right font-mono text-sm font-medium">
+                                        {formatCurrency(row.sum, currency)}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                        <div className="flex justify-between rounded-md bg-muted/70 px-3 py-2 text-sm font-semibold">
+                          <span>Gesamt netto</span>
+                          <span className="font-mono text-primary">
+                            {formatCurrency(itemsTotal, currency)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-muted/60">
+                            <tr className="text-left">
+                              <th className="px-2 py-2 font-medium w-10">
+                                Nr.
+                              </th>
+                              <th className="px-2 py-2 font-medium">
+                                Leistung
+                              </th>
+                              <th className="px-2 py-2 font-medium">Einheit</th>
+                              <th className="px-2 py-2 font-medium text-right">
+                                Menge
+                              </th>
+                              <th className="px-2 py-2 font-medium text-right">
+                                Einzelpreis
+                              </th>
+                              <th className="px-2 py-2 font-medium text-right">
+                                Summe
+                              </th>
                             </tr>
-                          ) : (
-                            liveOverviewRows.map((row) => (
-                              <tr
-                                key={`${row.index}-${row.serviceName}`}
-                                className="border-t"
-                              >
-                                <td className="px-2 py-2">{row.index}</td>
-                                <td className="px-2 py-2 font-medium">
-                                  {row.serviceName}
-                                </td>
-                                <td className="px-2 py-2">{row.unitLabel}</td>
-                                <td className="px-2 py-2 text-right">
-                                  {row.hasQuantity
-                                    ? row.quantity
-                                    : "Menge prüfen"}
-                                </td>
-                                <td className="px-2 py-2 text-right">
-                                  {row.hasPrice ? (
-                                    formatCurrency(row.unitPrice, currency)
-                                  ) : (
-                                    <span className="text-red-700 font-medium">
-                                      Preis prüfen
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="px-2 py-2 text-right font-medium">
-                                  {formatCurrency(row.sum, currency)}
+                          </thead>
+                          <tbody>
+                            {liveOverviewRows.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={6}
+                                  className="px-2 py-4 text-center text-muted-foreground"
+                                >
+                                  Keine Leistung erfasst.
                                 </td>
                               </tr>
-                            ))
-                          )}
-                          <tr className="border-t bg-muted/40 font-semibold">
-                            <td className="px-2 py-2" colSpan={5}>
-                              Gesamt
-                            </td>
-                            <td className="px-2 py-2 text-right text-primary">
-                              {formatCurrency(itemsTotal, currency)}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                            ) : (
+                              liveOverviewRows.map((row) => (
+                                <tr
+                                  key={`${row.index}-${row.serviceName}`}
+                                  className="border-t"
+                                >
+                                  <td className="px-2 py-2">{row.index}</td>
+                                  <td className="px-2 py-2 font-medium">
+                                    {row.serviceName}
+                                  </td>
+                                  <td className="px-2 py-2">{row.unitLabel}</td>
+                                  <td className="px-2 py-2 text-right">
+                                    {row.hasQuantity
+                                      ? row.quantity
+                                      : "Menge prüfen"}
+                                  </td>
+                                  <td className="px-2 py-2 text-right">
+                                    {row.hasPrice ? (
+                                      formatCurrency(row.unitPrice, currency)
+                                    ) : (
+                                      <span className="text-red-700 font-medium">
+                                        Preis prüfen
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-2 py-2 text-right font-medium">
+                                    {formatCurrency(row.sum, currency)}
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                            <tr className="border-t bg-muted/40 font-semibold">
+                              <td className="px-2 py-2" colSpan={5}>
+                                Gesamt
+                              </td>
+                              <td className="px-2 py-2 text-right text-primary">
+                                {formatCurrency(itemsTotal, currency)}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Kundennachrichten — always visible for faster review */}
+                  {/* Kundennachrichten — compact by default, full content on demand */}
                   <div className="space-y-2 mb-20 md:mb-0">
-                    <Label className="font-semibold">Kundennachrichten</Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="font-semibold">Kundennachrichten</Label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() =>
+                          setCustomerMessagesExpanded((prev) => !prev)
+                        }
+                      >
+                        {customerMessagesExpanded
+                          ? "Nachrichten einklappen"
+                          : "Nachrichten anzeigen"}
+                      </Button>
+                    </div>
 
-                    <div className="space-y-3 rounded-lg border bg-muted/30 p-3 text-sm">
-                      {currentEditOrder?.mediaUrl &&
-                        currentEditOrder.mediaType === "audio" && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openMedia(currentEditOrder)}
-                          >
-                            <Volume2 className="w-4 h-4 mr-1" />
-                            Sprachnachricht abspielen
-                          </Button>
-                        )}
+                    <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                      {!customerMessagesExpanded ? (
+                        <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                          <span>
+                            {visibleCustomerMessageText
+                              ? `${visibleCustomerMessageText.length.toLocaleString("de-CH")} Zeichen Kundentext vorhanden`
+                              : currentEditOrder?.audioTranscript
+                                ? "Transkription vorhanden"
+                                : currentEditOrder?.mediaUrl
+                                  ? "Mediendatei vorhanden"
+                                  : "Keine Kundennachricht gespeichert"}
+                          </span>
+                          <span>Bei Bedarf öffnen und Original prüfen.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {currentEditOrder?.mediaUrl &&
+                            currentEditOrder.mediaType === "audio" && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openMedia(currentEditOrder)}
+                              >
+                                <Volume2 className="w-4 h-4 mr-1" />
+                                Sprachnachricht abspielen
+                              </Button>
+                            )}
 
-                      {customerMessageImagePreviewUrl && currentEditOrder && (
-                        <button
-                          type="button"
-                          className="group flex w-full items-center gap-3 rounded-lg border bg-background p-2 text-left hover:bg-muted/60"
-                          onClick={() => openMedia(currentEditOrder)}
-                        >
-                          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                            <img
-                              src={customerMessageImagePreviewUrl}
-                              alt="Kundenbild"
-                              className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                            />
-                          </div>
+                          {customerMessageImagePreviewUrl &&
+                            currentEditOrder && (
+                              <button
+                                type="button"
+                                className="group flex w-full items-center gap-3 rounded-lg border bg-background p-2 text-left hover:bg-muted/60"
+                                onClick={() => openMedia(currentEditOrder)}
+                              >
+                                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                                  <img
+                                    src={customerMessageImagePreviewUrl}
+                                    alt="Kundenbild"
+                                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                                  />
+                                </div>
 
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium">
-                              Bildvorschau
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-medium">
+                                    Bildvorschau
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    Miniatur anklicken für Großansicht
+                                  </div>
+                                </div>
+
+                                <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                              </button>
+                            )}
+
+                          {currentEditOrder?.audioTranscript && (
+                            <div className="rounded-md border bg-background p-2">
+                              <div className="text-xs font-medium text-muted-foreground mb-1">
+                                Transkription
+                              </div>
+                              <div className="whitespace-pre-wrap">
+                                {currentEditOrder.audioTranscript}
+                              </div>
                             </div>
-                            <div className="text-xs text-muted-foreground">
-                              Miniatur anklicken für Großansicht
+                          )}
+
+                          {visibleCustomerMessageText ? (
+                            <div className="max-h-[420px] overflow-auto rounded-md border bg-background p-2 whitespace-pre-wrap">
+                              {visibleCustomerMessageText}
                             </div>
-                          </div>
-
-                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                        </button>
-                      )}
-
-                      {currentEditOrder?.audioTranscript && (
-                        <div className="rounded-md border bg-background p-2">
-                          <div className="text-xs font-medium text-muted-foreground mb-1">
-                            Transkription
-                          </div>
-                          <div className="whitespace-pre-wrap">
-                            {currentEditOrder.audioTranscript}
-                          </div>
+                          ) : !currentEditOrder?.audioTranscript &&
+                            !currentEditOrder?.mediaUrl &&
+                            !customerMessageImagePreviewUrl ? (
+                            <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
+                              Keine Kundennachricht gespeichert.
+                            </div>
+                          ) : null}
                         </div>
                       )}
-
-                      {visibleCustomerMessageText ? (
-                        <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
-                          {visibleCustomerMessageText}
-                        </div>
-                      ) : !currentEditOrder?.audioTranscript &&
-                        !currentEditOrder?.mediaUrl &&
-                        !customerMessageImagePreviewUrl ? (
-                        <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
-                          Keine Kundennachricht gespeichert.
-                        </div>
-                      ) : null}
                     </div>
                   </div>
                 </>
