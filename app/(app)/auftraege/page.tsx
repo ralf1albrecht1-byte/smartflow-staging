@@ -455,7 +455,7 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   }
 
   if (
-    /(^|\b)(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|nettoyage des vitrines|nettoyage vitrines|vitrines|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)(\b|$)/i.test(
+    /(^|\b)(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)(\b|$)/i.test(
       key,
     )
   ) {
@@ -582,7 +582,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
     )
   )
     return "ladder";
-  if (/\b(?:park|parking|parkplatz|parken|parkieren|stellplatz)\b/.test(text)) return "parking";
+  if (/park|zufahrt|innenhof|reserviert/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
     return "access";
@@ -666,7 +666,7 @@ const PARKING_DIFFICULT_PATTERN =
   /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
 
 const hasParkingReference = (value?: string | null) =>
-  /\b(?:park|parking|parkplatz|parken|parkieren|stellplatz)\b/.test(
+  /park|parking|parkplatz|parken|zufahrt|innenhof/.test(
     normalizeForMatch(value),
   );
 
@@ -1298,6 +1298,56 @@ const findCatalogServiceForName = (
   );
 };
 
+const getCanonicalServiceKey = (value?: string | null) =>
+  normalizeForMatch(canonicalServiceNameForOrderItem(value));
+
+const sortServiceDefinitions = <T extends { name?: string | null }>(items: T[]) =>
+  [...items].sort((a, b) =>
+    (a?.name ?? "").localeCompare(b?.name ?? "", "de", {
+      sensitivity: "base",
+    }),
+  );
+
+const mergeServiceDefinitionIntoList = (
+  current: ServiceDef[],
+  incoming: ServiceDef,
+) => {
+  const incomingKey = getCanonicalServiceKey(incoming.name);
+  const next = current.filter((service) => {
+    if (incoming.id && service.id === incoming.id) return false;
+    return getCanonicalServiceKey(service.name) !== incomingKey;
+  });
+  next.push(incoming);
+  return sortServiceDefinitions(next);
+};
+
+const serviceItemMatchesCatalog = (
+  item: Pick<FormItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  catalog?: ServiceDef | null,
+) => {
+  if (!catalog) return false;
+  const quantity = Number(item.quantity || 0);
+  const price = Number(item.unitPrice || 0);
+  const catalogPrice = Number(catalog.defaultPrice || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0) return false;
+  if (!Number.isFinite(price) || price <= 0) return false;
+  if (!Number.isFinite(catalogPrice) || catalogPrice <= 0) return false;
+  if (
+    normalizePriceUnitForCompare(item.unit) !==
+    normalizePriceUnitForCompare(catalog.unit)
+  ) {
+    return false;
+  }
+  return Math.abs(price - catalogPrice) < 0.01;
+};
+
+const getReviewReasonServiceKey = (reason?: string | null) => {
+  const value = String(reason || "");
+  if (!value.includes(":")) return "";
+  const [, serviceName] = value.split(":");
+  return getCanonicalServiceKey(serviceName);
+};
+
 const normalizePriceUnitForCompare = (value?: string | null) => {
   const unit = normalizeForMatch(value);
   if (!unit) return "";
@@ -1432,142 +1482,6 @@ const getCatalogTextFlatOverrideItems = (
   );
 };
 
-type WorkSiteHeaderReviewBadge = {
-  key: string;
-  label: string;
-  className: string;
-};
-
-const pushUniqueWorkSiteHeaderBadge = (
-  badges: WorkSiteHeaderReviewBadge[],
-  badge: WorkSiteHeaderReviewBadge,
-) => {
-  if (badges.some((existing) => existing.key === badge.key)) return;
-  badges.push(badge);
-};
-
-const hasReviewReasonForService = (
-  reviewReasons: string[] | null | undefined,
-  prefix: string,
-  serviceName?: string | null,
-) => {
-  const serviceKey = normalizeForMatch(canonicalServiceNameForOrderItem(serviceName));
-
-  return (
-    reviewReasons?.some((reason) => {
-      if (!reason.startsWith(prefix)) return false;
-      const [, reasonService] = reason.split(":");
-      if (!reasonService) return true;
-      return (
-        normalizeForMatch(canonicalServiceNameForOrderItem(reasonService)) ===
-        serviceKey
-      );
-    }) ?? false
-  );
-};
-
-const hasUnresolvedPriceOverrideReviewForItem = (
-  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
-  services: ServiceDef[],
-  reviewReasons?: string[] | null,
-) => {
-  if (!hasReviewReasonForService(reviewReasons, "price_override:", item.serviceName)) {
-    return false;
-  }
-
-  const catalog = findCatalogServiceForName(services, item.serviceName);
-  if (!catalog) return true;
-
-  return (
-    hasCatalogPriceDeviationForItem(item, services, reviewReasons) ||
-    hasCatalogTextFlatOverrideForItem(item, services, reviewReasons)
-  );
-};
-
-const getWorkSiteHeaderReviewBadges = (
-  items: FormItem[],
-  services: ServiceDef[],
-  reviewReasons: string[] | null | undefined,
-  hasCurrencyReview: boolean,
-): WorkSiteHeaderReviewBadge[] => {
-  const badges: WorkSiteHeaderReviewBadge[] = [];
-
-  if (hasCurrencyReview) {
-    pushUniqueWorkSiteHeaderBadge(badges, {
-      key: "currency",
-      label: "Währung prüfen",
-      className: "bg-red-100 text-red-700 ring-1 ring-red-200",
-    });
-  }
-
-  const hasPriceQuantityReview = items.some(
-    (item) => Number(item.unitPrice || 0) <= 0 || Number(item.quantity || 0) <= 0,
-  );
-
-  if (hasPriceQuantityReview) {
-    pushUniqueWorkSiteHeaderBadge(badges, {
-      key: "price_quantity",
-      label: "Preis/Menge prüfen",
-      className: "bg-red-100 text-red-700 ring-1 ring-red-200",
-    });
-  }
-
-  const hasUnitReview = items.some(
-    (item) =>
-      Boolean(item.aiWarning?.trim()) ||
-      hasReviewReasonForService(reviewReasons, "unit_mismatch:", item.serviceName),
-  );
-
-  if (hasUnitReview) {
-    pushUniqueWorkSiteHeaderBadge(badges, {
-      key: "unit",
-      label: "Einheit prüfen",
-      className: "bg-orange-100 text-orange-800 ring-1 ring-orange-200",
-    });
-  }
-
-  const hasTextPriceReview = items.some((item) => {
-    const comparableItem = {
-      serviceName: canonicalServiceNameForOrderItem(item.serviceName),
-      unit: item.unit,
-      unitPrice: Number(item.unitPrice || 0),
-      quantity: Number(item.quantity || 0),
-    };
-
-    return (
-      hasUnresolvedPriceOverrideReviewForItem(
-        comparableItem,
-        services,
-        reviewReasons,
-      ) ||
-      hasCatalogPriceDeviationForItem(comparableItem, services, reviewReasons) ||
-      hasCatalogTextFlatOverrideForItem(comparableItem, services, reviewReasons)
-    );
-  });
-
-  if (hasTextPriceReview) {
-    pushUniqueWorkSiteHeaderBadge(badges, {
-      key: "textprice",
-      label: "Textpreis",
-      className: "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
-    });
-  }
-
-  const hasManualServiceReview = items.some(
-    (item) => Boolean(item.serviceName?.trim()) && !findCatalogServiceForName(services, item.serviceName),
-  );
-
-  if (hasManualServiceReview) {
-    pushUniqueWorkSiteHeaderBadge(badges, {
-      key: "manual",
-      label: "Prüfen",
-      className: "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
-    });
-  }
-
-  return badges.slice(0, 3);
-};
-
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const currencyBadges = badges.filter(
     (badge) => badge.key === "currency_review",
@@ -1672,28 +1586,11 @@ const getSystemBadges = (
     });
   }
 
-  const orderItemsForPriceReview =
-    order.items && order.items.length > 0
-      ? order.items
-      : order.serviceName
-        ? [
-            {
-              serviceName: order.serviceName,
-              description: order.description || order.serviceName,
-              quantity: order.quantity,
-              unit: order.priceType,
-              unitPrice: order.unitPrice,
-              totalPrice: order.totalPrice,
-            },
-          ]
-        : [];
-
-  const hasStoredUnresolvedPriceOverride = orderItemsForPriceReview.some((item) =>
-    hasUnresolvedPriceOverrideReviewForItem(item, services, order.reviewReasons),
-  );
-
   const hasPriceDeviationReview =
-    hasStoredUnresolvedPriceOverride ||
+    (order.reviewReasons?.some((reason) =>
+      reason.startsWith("price_override:"),
+    ) ??
+      false) ||
     getCatalogPriceDeviationItems(order, services).length > 0 ||
     getCatalogTextFlatOverrideItems(order, services).length > 0;
 
@@ -2048,6 +1945,7 @@ export default function AuftraegePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [services, setServices] = useState<ServiceDef[]>([]);
+  const [resolvedServiceReviewKeys, setResolvedServiceReviewKeys] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string[] | null>(null);
   const [statusFilter, setStatusFilter] = useState("Alle");
@@ -2136,7 +2034,6 @@ export default function AuftraegePage() {
     string | null
   >(null);
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
-  const specialNotesTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // New duplicate check (Phase C — Sheet-based)
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
@@ -2499,6 +2396,7 @@ export default function AuftraegePage() {
     setExpandedWorkSiteIds([]);
     setCustomerMessagesExpanded(!shouldCollapseCustomerMessagesForOrder(o));
     setServiceOverviewExpanded(false);
+    setResolvedServiceReviewKeys(new Set());
     setMovingItemKey(null);
     setSiteAddressEditing(
       nextWorkSites.length <= 1 &&
@@ -2512,22 +2410,13 @@ export default function AuftraegePage() {
       setFormItems(
         mergeEquivalentFormItems(
           o.items.map((item) => {
-            const hasQuantityReview = hasQuantityReviewForService(
-              o.reviewReasons,
-              item.serviceName,
-            );
-
             return {
               key: Math.random().toString(36).slice(2),
-              serviceName: canonicalServiceNameForOrderItem(item.serviceName) ?? "",
+              serviceName: item.serviceName ?? "",
               unit: item.unit ?? "Stunde",
               unitPrice:
                 Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
-              quantity: hasQuantityReview
-                ? ""
-                : Number(item.quantity || 0) === 0
-                  ? ""
-                  : String(item.quantity),
+              quantity: Number(item.quantity || 0) === 0 ? "" : String(item.quantity),
               aiWarning: getAiWarningFromItemDescription(item.description),
               workSiteId: item.workSiteId || null,
             };
@@ -2539,7 +2428,7 @@ export default function AuftraegePage() {
         mergeEquivalentFormItems([
           {
             key: Math.random().toString(36).slice(2),
-            serviceName: canonicalServiceNameForOrderItem(o.serviceName) ?? "",
+            serviceName: o.serviceName ?? "",
             unit: o.priceType ?? "Stunde",
             unitPrice:
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
@@ -2808,7 +2697,7 @@ export default function AuftraegePage() {
         if (svc) {
           return {
             ...item,
-            serviceName: svc.name,
+            serviceName: canonicalServiceNameForOrderItem(svc.name),
             unitPrice: item.unitPrice || String(svc.defaultPrice ?? 0),
             unit: item.unit || svc.unit || "Stunde",
             aiWarning: "",
@@ -2822,7 +2711,6 @@ export default function AuftraegePage() {
             unitPrice: "",
             quantity: "",
             unit: "Stunde",
-            aiWarning: "",
           };
         }
 
@@ -2836,28 +2724,24 @@ export default function AuftraegePage() {
 
   const handleServiceCreated = (newSvc: ServiceOption) => {
     setServices((prev) =>
-      [...prev, newSvc as any].sort((a, b) =>
-        (a?.name ?? "").localeCompare(b?.name ?? "", "de", {
-          sensitivity: "base",
-        }),
-      ),
+      mergeServiceDefinitionIntoList(prev, newSvc as ServiceDef),
     );
   };
 
   const isServiceInCatalog = (name?: string | null) => {
-    const key = normalizeForMatch(name);
+    const key = getCanonicalServiceKey(name);
     if (!key) return false;
-    return services.some((service) => normalizeForMatch(service.name) === key);
+    return services.some((service) => getCanonicalServiceKey(service.name) === key);
   };
 
   const saveItemToServices = async (index: number) => {
     const item = formItems[index];
     if (!item?.serviceName?.trim()) return;
 
-    const normalizedName = item.serviceName.trim().replace(/\s+/g, " ");
+    const canonicalName = canonicalServiceNameForOrderItem(item.serviceName);
+    const canonicalKey = getCanonicalServiceKey(canonicalName);
     const existing = services.find(
-      (service) =>
-        normalizeForMatch(service.name) === normalizeForMatch(normalizedName),
+      (service) => getCanonicalServiceKey(service.name) === canonicalKey,
     );
 
     const price = Number(item.unitPrice || 0);
@@ -2875,14 +2759,22 @@ export default function AuftraegePage() {
     );
 
     if (existing && !existingNeedsUpdate) {
-      toast.info(`Leistung "${existing.name}" ist bereits im Katalog`);
-      onItemServiceSelect(index, existing.name, existing as ServiceOption);
       setFormItems((prev) =>
-        prev.map((entry, i) =>
-          i === index ? { ...entry, aiWarning: "" } : entry,
+        prev.map((current, i) =>
+          i === index
+            ? {
+                ...current,
+                serviceName: canonicalName,
+                unit: existing.unit || current.unit,
+                unitPrice: String(existing.defaultPrice ?? price),
+                aiWarning: "",
+              }
+            : current,
         ),
       );
+      setResolvedServiceReviewKeys((prev) => new Set(prev).add(canonicalKey));
       setServiceActionMenuKey(null);
+      toast.info(`Leistung "${existing.name}" ist bereits im Katalog`);
       return;
     }
 
@@ -2892,7 +2784,7 @@ export default function AuftraegePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: existing?.id,
-          name: normalizedName,
+          name: canonicalName,
           defaultPrice: price,
           unit: item.unit,
         }),
@@ -2901,13 +2793,28 @@ export default function AuftraegePage() {
       if (!res.ok) throw new Error("Fehler beim Speichern");
 
       const savedService: ServiceOption = await res.json();
-      handleServiceCreated(savedService);
-      onItemServiceSelect(index, savedService.name, savedService);
+      const savedCanonicalName = canonicalServiceNameForOrderItem(savedService.name);
+      const savedKey = getCanonicalServiceKey(savedCanonicalName);
+
+      handleServiceCreated({
+        ...savedService,
+        name: savedCanonicalName,
+      });
+
       setFormItems((prev) =>
-        prev.map((entry, i) =>
-          i === index ? { ...entry, aiWarning: "" } : entry,
+        prev.map((current, i) =>
+          i === index
+            ? {
+                ...current,
+                serviceName: savedCanonicalName,
+                unit: savedService.unit || current.unit,
+                unitPrice: String(savedService.defaultPrice ?? price),
+                aiWarning: "",
+              }
+            : current,
         ),
       );
+      setResolvedServiceReviewKeys((prev) => new Set(prev).add(savedKey));
       setServiceActionMenuKey(null);
       toast.success(
         existingNeedsUpdate
@@ -2925,21 +2832,7 @@ export default function AuftraegePage() {
     }
 
     setFormItems((prev) =>
-      prev.map((item, i) => {
-        if (i !== index) return item;
-        const shouldClearItemWarning = [
-          "serviceName",
-          "unit",
-          "unitPrice",
-          "quantity",
-        ].includes(String(field));
-
-        return {
-          ...item,
-          [field]: value,
-          aiWarning: shouldClearItemWarning ? "" : item.aiWarning,
-        };
-      }),
+      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     );
   };
 
@@ -3337,20 +3230,6 @@ export default function AuftraegePage() {
   const dangerNoteLines = parsedFormSpecialNotes.safetyWarnings;
   const normalSpecialNotesText = parsedFormSpecialNotes.jobHints.join("\n");
 
-  useEffect(() => {
-    const field = specialNotesTextareaRef.current;
-    if (!field) return;
-
-    const minHeight =
-      normalSpecialNotesText.length > 180 ||
-      normalSpecialNotesText.split(/\n/).length > 2
-        ? 132
-        : 76;
-
-    field.style.height = "auto";
-    field.style.height = `${Math.max(minHeight, field.scrollHeight)}px`;
-  }, [dialogOpen, normalSpecialNotesText]);
-
   const updateNormalSpecialNotes = (value: string) => {
     const nextJobHints = value
       .split(/\n+/)
@@ -3578,6 +3457,15 @@ export default function AuftraegePage() {
 
     const url = editId ? `/api/orders/${editId}` : "/api/orders";
     const method = editId ? "PUT" : "POST";
+    const validServiceNames = new Set(
+      validItems
+        .filter(
+          (item) =>
+            Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0,
+        )
+        .map((item) => getCanonicalServiceKey(item.serviceName)),
+    );
+
     const allItemsComplete = validItems.every(
       (item) =>
         item.serviceName.trim().length > 0 &&
@@ -3589,65 +3477,41 @@ export default function AuftraegePage() {
       isServiceInCatalog(item.serviceName),
     );
 
+    const itemByServiceKey = new Map(
+      validItems.map((item) => [getCanonicalServiceKey(item.serviceName), item]),
+    );
+
+    const itemReviewIsResolved = (serviceKey: string) => {
+      if (!serviceKey) return false;
+      if (resolvedServiceReviewKeys.has(serviceKey)) return true;
+      const item = itemByServiceKey.get(serviceKey);
+      if (!item) return false;
+      const catalog = findCatalogServiceForName(services, item.serviceName);
+      return serviceItemMatchesCatalog(item, catalog);
+    };
+
     const cleanedReviewReasons =
       orders
         .find((o) => o.id === editId)
         ?.reviewReasons?.filter((reason) => {
           if (reason.startsWith("unit_mismatch:")) {
-            const [, reasonService] = reason.split(":");
-            const reasonKey = normalizeForMatch(
-              canonicalServiceNameForOrderItem(reasonService),
-            );
-            const matchingItem = validItems.find(
-              (item) =>
-                normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
-                reasonKey,
-            );
-            const catalog = matchingItem
-              ? findCatalogServiceForName(services, matchingItem.serviceName)
-              : null;
-            const unitStillDiffers = Boolean(
-              matchingItem &&
-                catalog &&
-                normalizePriceUnitForCompare(catalog.unit) !==
-                  normalizePriceUnitForCompare(matchingItem.unit),
-            );
-
-            return unitStillDiffers;
+            const reasonKey = getReviewReasonServiceKey(reason);
+            return !itemReviewIsResolved(reasonKey);
           }
 
           if (reason.startsWith("price_override:")) {
-            const [, reasonService] = reason.split(":");
-            const reasonKey = normalizeForMatch(
-              canonicalServiceNameForOrderItem(reasonService),
-            );
-            const matchingItem = validItems.find(
-              (item) =>
-                normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
-                reasonKey,
-            );
-            if (!matchingItem) return true;
+            const reasonKey = getReviewReasonServiceKey(reason);
+            return !itemReviewIsResolved(reasonKey);
+          }
 
-            const comparableItem = {
-              serviceName: canonicalServiceNameForOrderItem(matchingItem.serviceName),
-              unit: matchingItem.unit,
-              unitPrice: Number(matchingItem.unitPrice || 0),
-              quantity: Number(matchingItem.quantity || 0),
-            };
-
-            return hasUnresolvedPriceOverrideReviewForItem(
-              comparableItem,
-              services,
-              [reason],
-            );
+          if (reason.startsWith("price_unclear:")) {
+            const reasonKey = getReviewReasonServiceKey(reason);
+            return reasonKey ? !itemReviewIsResolved(reasonKey) : !allItemsComplete;
           }
 
           if (
             allItemsComplete &&
-            (reason.startsWith("currency_") ||
-              reason.startsWith("item_currency_mismatch") ||
-              reason.startsWith("price_unclear:") ||
-              reason === "unit_price_review" ||
+            (reason === "unit_price_review" ||
               reason === "quantity_review" ||
               reason === "manual_flat_service_from_text" ||
               reason === "stunden_arbeitsposition_pruefen")
@@ -3664,6 +3528,13 @@ export default function AuftraegePage() {
 
           return true;
         }) ?? [];
+
+    const shouldClearItemWarningOnSave = (item: FormItem) => {
+      const serviceKey = getCanonicalServiceKey(item.serviceName);
+      if (resolvedServiceReviewKeys.has(serviceKey)) return true;
+      const catalog = findCatalogServiceForName(services, item.serviceName);
+      return serviceItemMatchesCatalog(item, catalog);
+    };
 
     const payload = {
       ...form,
@@ -3688,33 +3559,17 @@ export default function AuftraegePage() {
             }))
           : undefined,
       items: validItems.map((item) => {
-        const comparableItem = {
-          serviceName: canonicalServiceNameForOrderItem(item.serviceName),
+        const cleanWarning = shouldClearItemWarningOnSave(item);
+        const serviceName = canonicalServiceNameForOrderItem(item.serviceName);
+        return {
+          serviceName,
+          description: cleanWarning
+            ? serviceName
+            : buildItemDescription({ ...item, serviceName }),
+          quantity: Number(item.quantity || 0),
           unit: item.unit,
           unitPrice: Number(item.unitPrice || 0),
-          quantity: Number(item.quantity || 0),
-        };
-        const itemHasOpenStoredReview =
-          hasReviewReasonForService(cleanedReviewReasons, "unit_mismatch:", item.serviceName) ||
-          hasUnresolvedPriceOverrideReviewForItem(
-            comparableItem,
-            services,
-            cleanedReviewReasons,
-          ) ||
-          Number(item.quantity || 0) <= 0 ||
-          Number(item.unitPrice || 0) <= 0;
-
-        const safeItem = itemHasOpenStoredReview
-          ? item
-          : { ...item, aiWarning: "" };
-
-        return {
-          serviceName: canonicalServiceNameForOrderItem(safeItem.serviceName),
-          description: buildItemDescription(safeItem),
-          quantity: Number(safeItem.quantity || 0),
-          unit: safeItem.unit,
-          unitPrice: Number(safeItem.unitPrice || 0),
-          workSiteId: safeItem.workSiteId || null,
+          workSiteId: item.workSiteId || null,
         };
       }),
     };
@@ -5884,19 +5739,13 @@ export default function AuftraegePage() {
                             Boolean(
                               item.aiWarning?.trim() || unitMismatchReason,
                             );
-                          const hasUnresolvedStoredPriceOverride = Boolean(
-                            priceOverrideReason &&
-                              (!catalogService ||
-                                hasFrontendCatalogPriceDeviation ||
-                                hasFrontendCatalogTextFlatOverride),
-                          );
                           const showPriceOverride =
                             !hasCurrencyConflict &&
                             !showUnitConflict &&
                             Boolean(
-                              hasUnresolvedStoredPriceOverride ||
-                                hasFrontendCatalogPriceDeviation ||
-                                hasFrontendCatalogTextFlatOverride,
+                              priceOverrideReason ||
+                              hasFrontendCatalogPriceDeviation ||
+                              hasFrontendCatalogTextFlatOverride,
                             );
                           const showPriceReferenceReview =
                             !hasCurrencyConflict &&
@@ -6024,22 +5873,16 @@ export default function AuftraegePage() {
                           const siteHasNoItems = Boolean(
                             site && groupItemCount === 0,
                           );
-                          const workSiteHeaderReviewBadges = getWorkSiteHeaderReviewBadges(
-                            groupItems,
-                            services,
-                            curOrder?.reviewReasons,
-                            hasEditCurrencyReview,
-                          );
                           const siteAccentClass = siteNeedsReview
                             ? "border-red-300 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
                             : siteHasNoItems
                               ? "border-amber-300 bg-amber-50/80 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/20 dark:text-amber-100"
-                              : "border-slate-400 bg-slate-100/90 text-slate-900 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-50";
+                              : "border-slate-300 bg-slate-50/80 text-slate-900 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-50";
                           const itemAccentClass = siteNeedsReview
                             ? "border-l-red-400"
                             : siteHasNoItems
                               ? "border-l-amber-400"
-                              : "border-l-slate-500";
+                              : "border-l-slate-300";
                           const groupExpanded = isWorkSiteGroupExpanded(site);
                           const isEditingSite = Boolean(
                             site && editingWorkSiteId === site.id,
@@ -6078,7 +5921,7 @@ export default function AuftraegePage() {
                                       toggleWorkSiteGroup(site);
                                     }
                                   }}
-                                  className={`rounded-xl border-2 px-3 py-2 shadow-sm ${
+                                  className={`rounded-xl border-2 px-3 py-2 shadow-sm ${groupExpanded ? "rounded-b-none border-b-0" : ""} ${
                                     site
                                       ? siteAccentClass
                                       : "border-red-200 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
@@ -6105,14 +5948,6 @@ export default function AuftraegePage() {
                                             aktiv
                                           </span>
                                         )}
-                                        {workSiteHeaderReviewBadges.map((badge) => (
-                                          <span
-                                            key={badge.key}
-                                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}
-                                          >
-                                            {badge.label}
-                                          </span>
-                                        ))}
                                         {siteNeedsReview && (
                                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-200">
                                             Arbeitsort prüfen
@@ -6323,14 +6158,14 @@ export default function AuftraegePage() {
                                 <div
                                   className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
                                     hasMultipleEditWorkSites
-                                      ? `ml-6 rounded-xl border-l-[6px] ${itemAccentClass} before:absolute before:-left-4 before:-top-2 before:-bottom-2 before:w-1 before:rounded-full before:bg-slate-300 dark:before:bg-slate-700`
+                                      ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
                                       : "rounded-lg"
                                   } ${
                                     hasCriticalItemReview
                                       ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
                                       : hasAnyItemReview
                                         ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                        : "border-slate-300 bg-slate-100/70 dark:border-slate-700 dark:bg-slate-900/30"
+                                        : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
                                   }`}
                                   onClick={() =>
                                     site && setActiveWorkSiteId(site.id)
@@ -6895,13 +6730,9 @@ export default function AuftraegePage() {
                     )}
 
                     <textarea
-                      ref={specialNotesTextareaRef}
-                      rows={Math.max(
-                        normalSpecialNotesText.length > 180 ? 5 : 2,
-                        normalSpecialNotesText.split(/\n/).length,
-                      )}
+                      className="w-full min-h-[132px] resize-none overflow-hidden rounded-md border border-amber-300 bg-amber-50/45 px-3 py-2 text-sm leading-relaxed text-slate-900 dark:border-amber-800/70 dark:bg-amber-950/15 dark:text-slate-100"
+                      rows={Math.max(5, Math.min(12, Math.ceil((normalSpecialNotesText || "").length / 72)))}
                       spellCheck={false}
-                      className="min-h-[132px] w-full resize-none overflow-hidden rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm leading-relaxed text-foreground focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 dark:border-amber-800/70 dark:bg-amber-950/15"
                       placeholder="z.B. Rückruf, Zugang, Parkplatz, Leiter nötig, Terminwunsch..."
                       value={normalSpecialNotesText}
                       onChange={(e) => updateNormalSpecialNotes(e.target.value)}

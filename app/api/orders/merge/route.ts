@@ -359,21 +359,11 @@ const buildWorkSiteGroups = (orders: any[]) => {
     });
   });
 
-  const values = Array.from(groups.values()).sort(
-    (a, b) =>
-      Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
-      Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
-  );
-
+  const values = Array.from(groups.values());
   if (!values.some((site) => site.isPrimary) && values[0]) {
     values[0].isPrimary = true;
   }
-
-  return values.map((site, index) => ({
-    ...site,
-    sortOrder: index,
-    isPrimary: index === 0 || Boolean(site.isPrimary),
-  }));
+  return values;
 };
 
 const buildExecutionAddressMismatchNote = (workSites: MergeWorkSiteInput[]) => {
