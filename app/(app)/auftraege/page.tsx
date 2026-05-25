@@ -328,6 +328,7 @@ type ReviewBadge = {
   label: string;
   className: string;
   icon?: boolean;
+  tooltip?: string;
 };
 
 const compactText = (value?: string | null) =>
@@ -1218,24 +1219,31 @@ const getOperationalBadges = (
   const greenInfoClass =
     "bg-emerald-100 text-emerald-700 border border-emerald-300";
 
-  const addDanger = (key: string, label: string) =>
+  const addDanger = (key: string, label: string, tooltip?: string) =>
     pushUniqueBadge(badges, {
       key,
       label,
       className: redWarningClass,
       icon: true,
+      tooltip,
     });
 
-  const addHint = (key: string, label: string, className = amberHintClass) =>
+  const addHint = (
+    key: string,
+    label: string,
+    className = amberHintClass,
+    tooltip?: string,
+  ) =>
     pushUniqueBadge(badges, {
       key,
       label,
       className,
+      tooltip,
     });
 
   parsedNotes.safetyWarnings.forEach((line) => {
     const label = dangerBadgeLabel(line);
-    addDanger(`danger_${normalizeForMatch(label)}`, label);
+    addDanger(`danger_${normalizeForMatch(label)}`, label, line);
   });
 
   const parkingConflictBadge = getParkingConflictBadge([
@@ -1259,6 +1267,7 @@ const getOperationalBadges = (
         `hint_parking_${normalizeForMatch(parkingBadge.label)}`,
         parkingBadge.label,
         parkingBadge.className,
+        line,
       );
       return;
     }
@@ -1281,6 +1290,7 @@ const getOperationalBadges = (
       `hint_${kind}`,
       label,
       isPositiveSemanticHint(line) ? greenInfoClass : amberHintClass,
+      line,
     );
   });
 
@@ -1289,6 +1299,7 @@ const getOperationalBadges = (
       "hint_parking_review",
       parkingConflictBadge.label,
       parkingConflictBadge.className,
+      "Es gibt unterschiedliche oder unklare Parkhinweise. Bitte Auftrag öffnen und prüfen.",
     );
   }
 
@@ -1311,6 +1322,7 @@ const AMOUNT_REVIEW_BADGE_KEYS = new Set([
   "unit_conflict",
   "currency_review",
   "price_deviation",
+  "catalog_missing",
 ]);
 
 const PRICE_AMOUNT_REVIEW_BADGE_KEYS = new Set([
@@ -1480,33 +1492,114 @@ const getCatalogTextFlatOverrideItems = (
   );
 };
 
+const formatReviewUnitLabel = (unit?: string | null) => {
+  const normalized = normalizePriceUnitForCompare(unit);
+  if (normalized === "square_meter") return "m²";
+  if (normalized === "cubic_meter") return "m³";
+  if (normalized === "piece") return "Stück";
+  if (normalized === "hour") return "Std.";
+  if (normalized === "day") return "Tag";
+  if (normalized === "meter") return "Meter";
+  if (normalized === "flat") return "pauschal";
+  return unit || "";
+};
+
+const getCatalogMissingItems = (order: Order, services: ServiceDef[]) => {
+  const items =
+    order.items && order.items.length > 0
+      ? order.items
+      : order.serviceName
+        ? [
+            {
+              serviceName: order.serviceName,
+              description: order.description || order.serviceName,
+              quantity: order.quantity,
+              unit: order.priceType,
+              unitPrice: order.unitPrice,
+              totalPrice: order.totalPrice,
+              catalogReviewConfirmed: false,
+            },
+          ]
+        : [];
+
+  return items.filter((item) => {
+    if (!item?.serviceName?.trim()) return false;
+    if ((item as any).catalogReviewConfirmed) return false;
+    return !findCatalogServiceForName(services, item.serviceName);
+  });
+};
+
+const formatCatalogReviewTooltip = (input: {
+  title: string;
+  item?: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity"> | null;
+  catalog?: ServiceDef | null;
+  currency?: "CHF" | "EUR" | null;
+  sourceLine?: string | null;
+}) => {
+  const currency = input.currency === "EUR" ? "EUR" : "CHF";
+  const lines = [input.title];
+
+  if (input.item?.serviceName) {
+    lines.push(`Leistung: ${input.item.serviceName}`);
+  }
+
+  if (input.item) {
+    const itemUnit = input.item.unit || "Einheit prüfen";
+    const itemPrice = Number(input.item.unitPrice || 0);
+    const itemQuantity = Number(input.item.quantity || 0);
+    const itemPriceLabel = itemPrice > 0 ? formatCurrency(itemPrice, currency) : "Preis prüfen";
+    const itemQuantityLabel = itemQuantity > 0 ? String(input.item.quantity) : "Menge prüfen";
+    lines.push(`Auftrag: ${itemQuantityLabel} ${formatReviewUnitLabel(itemUnit)} · ${itemPriceLabel}`);
+  }
+
+  if (input.catalog) {
+    lines.push(
+      `Katalog: ${input.catalog.unit} · ${formatCurrency(
+        Number(input.catalog.defaultPrice || 0),
+        currency,
+      )}`,
+    );
+  }
+
+  if (input.sourceLine?.trim()) {
+    lines.push(`Text: ${input.sourceLine.trim()}`);
+  }
+
+  return lines.filter(Boolean).join("\n");
+};
+
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const currencyBadges = badges.filter(
     (badge) => badge.key === "currency_review",
   );
-  const priceBadges = badges.filter((badge) =>
-    PRICE_AMOUNT_REVIEW_BADGE_KEYS.has(badge.key),
+  const blockingBadges = badges.filter((badge) =>
+    ["price_quantity", "unit_conflict"].includes(badge.key),
+  );
+  const catalogBadges = badges.filter((badge) =>
+    ["price_deviation", "catalog_missing"].includes(badge.key),
   );
 
   // Wenn die Währung selbst unsicher/konfliktbehaftet ist, reicht außen
-  // "Währung prüfen". Zusätzliche Sammelchips wie "Preisangaben prüfen"
-  // sind dann doppelt und machen die Karte unnötig laut.
+  // "Währung prüfen". Zusätzliche Sammelchips sind dann doppelt.
   if (currencyBadges.length > 0) {
     return currencyBadges;
   }
 
-  if (priceBadges.length > 1) {
+  if (blockingBadges.length > 1) {
     return [
       {
         key: "price_inputs_review",
         label: "Preisangaben prüfen",
         className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
+        tooltip:
+          "Mehrere Preis-/Mengenprobleme gefunden. Bitte vor Angebot/Rechnung korrigieren.",
       },
+      ...catalogBadges,
     ];
   }
 
-  return priceBadges;
+  return [...blockingBadges, ...catalogBadges];
 };
 
 const getSystemBadges = (
@@ -1520,6 +1613,7 @@ const getSystemBadges = (
       key: "site_address",
       label: "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
+      tooltip: "Die Arbeit wird an einer anderen Adresse ausgeführt als die Rechnung.",
     });
   }
 
@@ -1532,6 +1626,7 @@ const getSystemBadges = (
       key: "merged",
       label: "Zusammengeführt",
       className: "bg-blue-100 text-blue-700 border border-blue-300",
+      tooltip: "Dieser Auftrag besteht aus mehreren verbundenen Ursprungsaufträgen.",
     });
   }
 
@@ -1557,6 +1652,8 @@ const getSystemBadges = (
       label: "Betrag prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
+      tooltip:
+        "Preis oder Menge fehlt/ist unsicher. Bitte vor Angebot/Rechnung korrigieren.",
     });
   }
 
@@ -1568,6 +1665,8 @@ const getSystemBadges = (
       key: "unit_conflict",
       label: "Einheit prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
+      tooltip:
+        "Einheit aus Kundentext und Leistungskatalog passen nicht sicher zusammen. Bitte Menge, Einheit und Preis prüfen.",
     });
   }
 
@@ -1581,23 +1680,55 @@ const getSystemBadges = (
       label: "Währung prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
+      tooltip: "Die Währung ist unklar oder mehrere Währungen wurden erkannt.",
     });
   }
 
+  const priceDeviationItems = getCatalogPriceDeviationItems(order, services);
+  const flatOverrideItems = getCatalogTextFlatOverrideItems(order, services);
+  const catalogMissingItems = getCatalogMissingItems(order, services);
+  const firstPriceDeviationItem = priceDeviationItems[0] || flatOverrideItems[0];
+  const firstCatalogMissingItem = catalogMissingItems[0];
+  const firstPriceCatalog = firstPriceDeviationItem
+    ? findCatalogServiceForName(services, firstPriceDeviationItem.serviceName)
+    : null;
   const hasPriceDeviationReview =
     (order.reviewReasons?.some((reason) =>
       reason.startsWith("price_override:"),
     ) ??
       false) ||
-    getCatalogPriceDeviationItems(order, services).length > 0 ||
-    getCatalogTextFlatOverrideItems(order, services).length > 0;
+    priceDeviationItems.length > 0 ||
+    flatOverrideItems.length > 0;
 
   if (hasPriceDeviationReview) {
     pushUniqueBadge(badges, {
       key: "price_deviation",
-      label: "Textpreis",
+      label: "Preis abweichend",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
+      tooltip: formatCatalogReviewTooltip({
+        title: "Auftragspreis weicht vom Leistungskatalog ab.",
+        item: firstPriceDeviationItem || null,
+        catalog: firstPriceCatalog,
+        currency: order.currency,
+      }),
+    });
+  }
+
+  if (catalogMissingItems.length > 0) {
+    pushUniqueBadge(badges, {
+      key: "catalog_missing",
+      label: "Nicht im Katalog",
+      className:
+        "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
+      tooltip: formatCatalogReviewTooltip({
+        title:
+          catalogMissingItems.length > 1
+            ? `${catalogMissingItems.length} Leistungen sind nicht im Leistungskatalog.`
+            : "Leistung ist nicht im Leistungskatalog.",
+        item: firstCatalogMissingItem || null,
+        currency: order.currency,
+      }),
     });
   }
 
@@ -1610,6 +1741,7 @@ const getSystemBadges = (
       key: "customer_review",
       label: "Kunde prüfen",
       className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
+      tooltip: "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
     });
   }
 
@@ -1650,6 +1782,7 @@ const getBottomBadges = (
       key: "callback_request",
       label: "Rückruf",
       className: "bg-blue-100 text-blue-700 border border-blue-400 shadow-sm",
+      tooltip: directCallbackHint || "Kunde wünscht Rückruf oder telefonische Rücksprache.",
     });
   }
 
@@ -1674,6 +1807,7 @@ const getBottomBadges = (
       label: appointmentBadge.label,
       className: appointmentBadge.className,
       icon: appointmentBadge.icon,
+      tooltip: "Erkannter Termin aus Kundentext oder Auftragshinweisen.",
     });
   }
 
@@ -1708,17 +1842,35 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border-/g, "border-2 border-")
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
-const renderOrderCardBadge = (badge: ReviewBadge) => {
-  const isTextPriceBadge = badge.key === "price_deviation";
+const renderBadgeTooltip = (badge: ReviewBadge) => {
+  const tooltip = compactText(badge.tooltip);
+  if (!tooltip) return null;
+
+  return (
+    <span className="pointer-events-none absolute left-1/2 bottom-full z-[9999] mb-1 hidden w-max max-w-[280px] -translate-x-1/2 whitespace-pre-line rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      {tooltip}
+    </span>
+  );
+};
+
+const renderReviewBadge = (
+  badge: ReviewBadge,
+  className: string,
+  options: { strong?: boolean } = {},
+) => {
+  const hasTooltip = Boolean(compactText(badge.tooltip));
 
   return (
     <span
       key={badge.key}
-      className={`inline-flex items-center gap-1 rounded-full shrink-0 ${
-        isTextPriceBadge
-          ? "text-[11px] px-2 py-0.5 font-semibold"
-          : "text-[10px] px-1.5 py-0.5 font-medium"
-      } ${getStrongerCardBadgeClassName(badge.className)}`}
+      tabIndex={hasTooltip ? 0 : undefined}
+      title={compactText(badge.tooltip) || badge.label}
+      onClick={(event) => {
+        if (hasTooltip) event.stopPropagation();
+      }}
+      className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${className} ${
+        options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
+      }`}
     >
       {badge.key === "callback_request" && (
         <span className="text-red-600 leading-none">☎</span>
@@ -1727,7 +1879,22 @@ const renderOrderCardBadge = (badge: ReviewBadge) => {
         <AlertTriangle className="w-3 h-3" />
       )}
       {badge.label}
+      {renderBadgeTooltip(badge)}
     </span>
+  );
+};
+
+const renderOrderCardBadge = (badge: ReviewBadge) => {
+  const isLargeYellowBadge = ["price_deviation", "catalog_missing"].includes(
+    badge.key,
+  );
+
+  return renderReviewBadge(
+    badge,
+    isLargeYellowBadge
+      ? "text-[11px] px-2 py-0.5 font-semibold"
+      : "text-[10px] px-1.5 py-0.5 font-medium",
+    { strong: true },
   );
 };
 
@@ -4682,17 +4849,9 @@ export default function AuftraegePage() {
 
                             {leftSystemBadges.length > 0 && (
                               <span className="inline-flex max-w-full flex-nowrap items-center gap-1 shrink-0">
-                                {leftSystemBadges.map((badge) => (
-                                  <span
-                                    key={badge.key}
-                                    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
-                                  >
-                                    {badge.icon && (
-                                      <AlertTriangle className="w-3 h-3" />
-                                    )}
-                                    {badge.label}
-                                  </span>
-                                ))}
+                                {leftSystemBadges.map((badge) =>
+                                  renderOrderCardBadge(badge),
+                                )}
                               </span>
                             )}
 
@@ -4798,17 +4957,9 @@ export default function AuftraegePage() {
 
                         <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[220px] xl:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
-                            {rightSideBadges.map((badge) => (
-                              <span
-                                key={badge.key}
-                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold leading-tight shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
-                              >
-                                {badge.icon && (
-                                  <AlertTriangle className="hidden h-3 w-3 sm:inline" />
-                                )}
-                                {badge.label}
-                              </span>
-                            ))}
+                            {rightSideBadges.map((badge) =>
+                              renderOrderCardBadge(badge),
+                            )}
                           </div>
 
                           <div className="flex w-full flex-wrap items-end justify-end gap-3">
@@ -5935,18 +6086,15 @@ export default function AuftraegePage() {
                           const groupItems = getWorkSiteGroupItems(site);
                           const groupItemCount = groupItems.length;
                           const groupReviewBadges = (() => {
-                            const badges: Array<{
-                              key: string;
-                              label: string;
-                              className: string;
-                            }> = [];
+                            const badges: ReviewBadge[] = [];
                             const addBadge = (
                               key: string,
                               label: string,
                               className: string,
+                              tooltip?: string,
                             ) => {
                               if (!badges.some((badge) => badge.key === key)) {
-                                badges.push({ key, label, className });
+                                badges.push({ key, label, className, tooltip });
                               }
                             };
 
@@ -6022,12 +6170,18 @@ export default function AuftraegePage() {
                                   groupItemPrice > 0 &&
                                   groupItemQuantity === 1,
                               );
+                              const groupCatalogMissing = Boolean(
+                                itemName.trim() &&
+                                  !groupItem.catalogReviewConfirmed &&
+                                  !groupCatalogService,
+                              );
 
                               if (groupItemPrice <= 0 || groupItemQuantity <= 0) {
                                 addBadge(
                                   "amount",
                                   "Preis/Menge prüfen",
                                   "bg-red-100 text-red-700 ring-1 ring-red-200",
+                                  `${itemName || "Leistung"}: Preis oder Menge fehlt/ist unsicher.`,
                                 );
                                 continue;
                               }
@@ -6036,6 +6190,7 @@ export default function AuftraegePage() {
                                   "unit",
                                   "Einheit prüfen",
                                   "bg-orange-100 text-orange-800 ring-1 ring-orange-200",
+                                  `${itemName || "Leistung"}: Einheit, Menge oder Preis prüfen.`,
                                 );
                               }
                               if (groupPriceUnclearReason) {
@@ -6043,6 +6198,7 @@ export default function AuftraegePage() {
                                   "price_unclear",
                                   "Betrag prüfen",
                                   "bg-red-100 text-red-700 ring-1 ring-red-200",
+                                  `${itemName || "Leistung"}: Preis im Text unklar.`,
                                 );
                               }
                               if (
@@ -6051,9 +6207,27 @@ export default function AuftraegePage() {
                                 groupTextFlatOverride
                               ) {
                                 addBadge(
-                                  "text_price",
-                                  "Textpreis",
+                                  "price_deviation",
+                                  "Preis abweichend",
                                   "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
+                                  formatCatalogReviewTooltip({
+                                    title: "Auftragspreis weicht vom Leistungskatalog ab.",
+                                    item: groupItem as any,
+                                    catalog: groupCatalogService,
+                                    currency,
+                                  }),
+                                );
+                              }
+                              if (groupCatalogMissing) {
+                                addBadge(
+                                  "catalog_missing",
+                                  "Nicht im Katalog",
+                                  "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
+                                  formatCatalogReviewTooltip({
+                                    title: "Leistung ist nicht im Leistungskatalog.",
+                                    item: groupItem as any,
+                                    currency,
+                                  }),
                                 );
                               }
                             }
@@ -6144,14 +6318,12 @@ export default function AuftraegePage() {
                                             aktiv
                                           </span>
                                         )}
-                                        {groupReviewBadges.map((badge) => (
-                                          <span
-                                            key={badge.key}
-                                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}
-                                          >
-                                            {badge.label}
-                                          </span>
-                                        ))}
+                                        {groupReviewBadges.map((badge) =>
+                                          renderReviewBadge(
+                                            badge,
+                                            "px-2 py-0.5 text-[10px] font-semibold",
+                                          ),
+                                        )}
                                         {siteNeedsReview && (
                                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-200">
                                             Arbeitsort prüfen
@@ -6634,6 +6806,15 @@ export default function AuftraegePage() {
 
                                   {showItemReviewBlock && (
                                     <div
+                                      title={
+                                        showManualServiceReview
+                                          ? "Diese Leistung ist nicht im Leistungskatalog. Sie kann im Auftrag bleiben oder bewusst in den Katalog übernommen werden."
+                                          : showPriceOverride
+                                            ? "Auftragspreis weicht vom Leistungskatalog ab."
+                                            : isBlockingItemReview
+                                              ? "Diese Position muss vor Angebot/Rechnung geprüft werden."
+                                              : "Diese Position bitte prüfen."
+                                      }
                                       className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
                                         isBlockingItemReview
                                           ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
