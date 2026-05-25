@@ -1491,21 +1491,8 @@ const getBottomBadges = (
     });
   }
 
-  const smsSource = [order.specialNotes, order.notes, ...parsedNotes.jobHints]
-    .filter(Boolean)
-    .join("\n");
-  const smsSourceKey = normalizeForMatch(smsSource);
-  const hasPositiveSmsHint =
-    /\bsms\b/.test(smsSourceKey) &&
-    !/(kein|keine|keinen|nicht|ohne)\s+sms/.test(smsSourceKey);
-
-  if (hasPositiveSmsHint) {
-    pushUniqueBadge(badges, {
-      key: "sms_request",
-      label: "SMS",
-      className: "bg-emerald-100 text-emerald-700 border border-emerald-300",
-    });
-  }
+  // Communication chips (Mail/SMS/WhatsApp) are rendered by CommunicationChips only.
+  // Do not add an extra SMS review badge here; otherwise SMS appears twice.
 
   const appointmentBaseDate = order.createdAt || order.date;
   const appointmentBadge = splitAppointmentSources(
@@ -1838,6 +1825,8 @@ export default function AuftraegePage() {
     city: string | null;
   } | null>(null);
   const [formItems, setFormItems] = useState<FormItem[]>([createEmptyItem()]);
+  const [formWorkSites, setFormWorkSites] = useState<OrderWorkSite[]>([]);
+  const [editingWorkSiteId, setEditingWorkSiteId] = useState<string | null>(null);
   // Persisted MwSt on Auftrag — saved on the Order itself (see app/api/orders)
   // and forwarded to the derived Offer/Invoice when converting.
   const [orderVatRate, setOrderVatRate] = useState(8.1);
@@ -2155,6 +2144,8 @@ export default function AuftraegePage() {
     setEditId(null);
     setForm(emptyForm);
     setFormItems([createEmptyItem()]);
+    setFormWorkSites([]);
+    setEditingWorkSiteId(null);
     setSiteAddressEditing(false);
     setShowNewCustomer(false);
     setEditingCustomer(false);
@@ -2210,8 +2201,18 @@ export default function AuftraegePage() {
       siteCity: o.siteCity ?? "",
       siteNote: o.siteNote ?? "",
     });
+    const nextWorkSites = (o.workSites ?? [])
+      .slice()
+      .sort(
+        (a, b) =>
+          Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
+          Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
+      );
+    setFormWorkSites(nextWorkSites);
+    setEditingWorkSiteId(null);
     setSiteAddressEditing(
-      Boolean(o.siteAddressDifferent) &&
+      nextWorkSites.length <= 1 &&
+        Boolean(o.siteAddressDifferent) &&
         ![o.siteName, o.siteAddress, o.sitePlz, o.siteCity, o.siteNote].some(
           (value) => String(value || "").trim(),
         ),
@@ -2630,9 +2631,13 @@ export default function AuftraegePage() {
     ? orders.find((o: Order) => o.id === editId) || null
     : null;
 
-  const currentEditWorkSites = (currentEditOrder?.workSites ?? [])
+  const currentEditWorkSites = formWorkSites
     .slice()
-    .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+    .sort(
+      (a, b) =>
+        Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
+        Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
+    );
 
   const hasMultipleEditWorkSites = currentEditWorkSites.length > 1;
 
@@ -2656,9 +2661,57 @@ export default function AuftraegePage() {
   };
 
   const getWorkSiteItems = (siteId?: string | null) =>
-    (currentEditOrder?.items ?? []).filter(
+    formItems.filter(
       (item) => item.workSiteId && item.workSiteId === siteId,
     );
+
+
+  const updateFormWorkSite = (
+    siteId: string,
+    field: keyof OrderWorkSite,
+    value: string | boolean | number | null,
+  ) => {
+    setFormWorkSites((prev) =>
+      prev.map((site) =>
+        site.id === siteId ? { ...site, [field]: value } : site,
+      ),
+    );
+  };
+
+  const addFormWorkSite = () => {
+    const newId = `tmp-${Math.random().toString(36).slice(2)}`;
+    setFormWorkSites((prev) => [
+      ...prev,
+      {
+        id: newId,
+        siteName: "",
+        siteAddress: "",
+        sitePlz: "",
+        siteCity: "",
+        siteNote: "",
+        isPrimary: false,
+        sortOrder: prev.length,
+      },
+    ]);
+    setEditingWorkSiteId(newId);
+  };
+
+  const removeFormWorkSite = (siteId: string) => {
+    const assignedItems = formItems.filter((item) => item.workSiteId === siteId);
+    if (assignedItems.length > 0) {
+      toast.error("Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.");
+      return;
+    }
+
+    setFormWorkSites((prev) => prev.filter((site) => site.id !== siteId));
+    setEditingWorkSiteId((prev) => (prev === siteId ? null : prev));
+  };
+
+  const getWorkSiteSelectLabel = (site: OrderWorkSite) => {
+    const title = formatWorkSiteTitle(site);
+    const address = formatWorkSiteAddress(site);
+    return [title, address].filter(Boolean).join(" · ") || "Arbeitsort prüfen";
+  };
 
   const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
   const hasEditCurrencyReview = currentEditReviewReasons.some(
@@ -2904,6 +2957,10 @@ export default function AuftraegePage() {
       toast.error("Mindestens eine Leistung auswählen");
       return null;
     }
+    if (formWorkSites.length > 1 && validItems.some((item) => !item.workSiteId)) {
+      toast.error("Bitte jeder Leistung einen Arbeitsort zuordnen.");
+      return null;
+    }
     const desc = form.description?.trim() || buildDescription();
     if (!desc) {
       toast.error("Beschreibung erforderlich");
@@ -2973,6 +3030,20 @@ export default function AuftraegePage() {
       currency,
       reviewReasons: cleanedReviewReasons,
       needsReview: cleanedReviewReasons.length > 0,
+      workSites:
+        editId && formWorkSites.length > 0
+          ? formWorkSites.map((site, index) => ({
+              id: site.id,
+              siteName: site.siteName?.trim() || null,
+              siteAddress: site.siteAddress?.trim() || null,
+              sitePlz: site.sitePlz?.trim() || null,
+              siteCity: site.siteCity?.trim() || null,
+              siteNote: site.siteNote?.trim() || null,
+              isPrimary: Boolean(site.isPrimary) || index === 0,
+              sortOrder: index,
+              sourceOrderId: (site as any).sourceOrderId || null,
+            }))
+          : undefined,
       items: validItems.map((item) => ({
         serviceName: item.serviceName,
         description: buildItemDescription(item),
@@ -4789,7 +4860,9 @@ export default function AuftraegePage() {
                 )}
               </div>
 
-              {/* Ausführungsadresse / Baustellenadresse */}
+              {/* Ausführungsadresse / Baustellenadresse.
+                  Bei mehreren Arbeitsorten ist der bearbeitbare Block darunter die einzige Wahrheit. */}
+              {!hasMultipleEditWorkSites && (
               <div className="rounded-lg border bg-slate-50/70 dark:bg-slate-900/30 p-3 space-y-3">
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
@@ -4955,62 +5028,152 @@ export default function AuftraegePage() {
                   </div>
                 )}
               </div>
+              )}
 
               {hasMultipleEditWorkSites && (
                 <div className="rounded-lg border-2 border-cyan-200 bg-cyan-50/70 dark:bg-cyan-950/20 p-3 space-y-3">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700" />
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-cyan-900 dark:text-cyan-100">
-                        Mehrere Ausführungsorte
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-cyan-900 dark:text-cyan-100">
+                          Mehrere Ausführungsorte
+                        </div>
+                        <p className="text-xs text-cyan-800/80 dark:text-cyan-100/80">
+                          Dieser zusammengeführte Auftrag enthält mehrere Arbeitsorte. Bearbeite hier die Orte und ordne unten jede Leistung dem richtigen Arbeitsort zu.
+                        </p>
                       </div>
-                      <p className="text-xs text-cyan-800/80 dark:text-cyan-100/80">
-                        Dieser zusammengeführte Auftrag enthält mehrere
-                        Arbeitsorte. Die Leistungen bleiben je Arbeitsort
-                        getrennt und werden so in Angebot, Rechnung und PDF
-                        übernommen.
-                      </p>
                     </div>
+                    <Button type="button" size="sm" variant="outline" onClick={addFormWorkSite}>
+                      + Arbeitsort
+                    </Button>
                   </div>
 
                   <div className="grid gap-2">
                     {currentEditWorkSites.map((site, index) => {
                       const siteItems = getWorkSiteItems(site.id);
                       const siteTotal = siteItems.reduce(
-                        (sum, item) => sum + Number(item.totalPrice || 0),
+                        (sum, item) =>
+                          sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
                         0,
                       );
+                      const isEditingSite = editingWorkSiteId === site.id;
 
                       return (
-                        <div
-                          key={site.id || index}
-                          className="rounded-md border bg-background p-2"
-                        >
+                        <div key={site.id || index} className="rounded-md border bg-background p-2">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <div className="text-sm font-semibold">
                                 {index + 1}. {formatWorkSiteTitle(site)}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {formatWorkSiteAddress(site) ||
-                                  "Adresse prüfen"}
+                                {formatWorkSiteAddress(site) || "Adresse prüfen"}
                               </div>
                             </div>
-                            <div className="shrink-0 text-xs font-semibold">
-                              {formatCurrency(siteTotal, currency)}
+                            <div className="flex shrink-0 items-center gap-2">
+                              <div className="text-xs font-semibold">
+                                {formatCurrency(siteTotal, currency)}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingWorkSiteId((prev) =>
+                                    prev === site.id ? null : site.id,
+                                  )
+                                }
+                                className="text-xs text-primary hover:underline"
+                              >
+                                {isEditingSite ? "Schließen" : "Bearbeiten"}
+                              </button>
                             </div>
                           </div>
+
+                          {isEditingSite && (
+                            <div className="mt-2 rounded-md border bg-muted/20 p-2 space-y-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-[10px]">Bezeichnung</Label>
+                                  <Input
+                                    className="h-8 text-xs"
+                                    value={site.siteName || ""}
+                                    onChange={(e) =>
+                                      updateFormWorkSite(site.id, "siteName", e.target.value)
+                                    }
+                                    placeholder="z. B. Haus A, EG rechts"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-[10px]">Strasse</Label>
+                                  <Input
+                                    className="h-8 text-xs"
+                                    value={site.siteAddress || ""}
+                                    onChange={(e) =>
+                                      updateFormWorkSite(site.id, "siteAddress", e.target.value)
+                                    }
+                                    placeholder="Strasse + Hausnr."
+                                  />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-[110px_1fr] gap-2">
+                                <div>
+                                  <Label className="text-[10px]">PLZ</Label>
+                                  <Input
+                                    className="h-8 text-xs"
+                                    value={site.sitePlz || ""}
+                                    onChange={(e) =>
+                                      updateFormWorkSite(site.id, "sitePlz", e.target.value)
+                                    }
+                                    placeholder="PLZ"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-[10px]">Ort</Label>
+                                  <Input
+                                    className="h-8 text-xs"
+                                    value={site.siteCity || ""}
+                                    onChange={(e) =>
+                                      updateFormWorkSite(site.id, "siteCity", e.target.value)
+                                    }
+                                    placeholder="Ort"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <Label className="text-[10px]">Hinweis</Label>
+                                <Input
+                                  className="h-8 text-xs"
+                                  value={site.siteNote || ""}
+                                  onChange={(e) =>
+                                    updateFormWorkSite(site.id, "siteNote", e.target.value)
+                                  }
+                                  placeholder="z. B. Eingang hinten, Rampe 2"
+                                />
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[11px] text-muted-foreground">
+                                  Zugeordnet: {siteItems.length} Leistung(en)
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-red-600 hover:text-red-700"
+                                  onClick={() => removeFormWorkSite(site.id)}
+                                >
+                                  Löschen
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
                           <div className="mt-2 flex flex-wrap gap-1">
                             {siteItems.length > 0 ? (
                               siteItems.map((item) => (
                                 <span
-                                  key={
-                                    item.id || `${site.id}-${item.serviceName}`
-                                  }
+                                  key={item.key || `${site.id}-${item.serviceName}`}
                                   className="rounded-full border bg-muted px-2 py-0.5 text-[11px]"
                                 >
-                                  {item.serviceName} · {item.quantity}{" "}
-                                  {item.unit}
+                                  {item.serviceName} · {item.quantity} {item.unit}
                                 </span>
                               ))
                             ) : (
@@ -5441,6 +5604,32 @@ export default function AuftraegePage() {
                                 />
                               </div>
                             </div>
+
+                            {hasMultipleEditWorkSites && (
+                              <div>
+                                <Label className="text-[10px] leading-none">
+                                  Arbeitsort
+                                </Label>
+                                <select
+                                  className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                  value={item.workSiteId || ""}
+                                  onChange={(e: any) =>
+                                    updateItem(
+                                      index,
+                                      "workSiteId",
+                                      e?.target?.value ?? "",
+                                    )
+                                  }
+                                >
+                                  <option value="">Arbeitsort wählen</option>
+                                  {currentEditWorkSites.map((site) => (
+                                    <option key={site.id} value={site.id}>
+                                      {getWorkSiteSelectLabel(site)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
 
                             {showItemReviewBlock && (
                               <div

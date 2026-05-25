@@ -512,9 +512,74 @@ export async function PUT(
       const qty = primaryQuantity ?? Number(existing?.quantity ?? 1);
       totalPrice = qty * up;
     }
-    if (items) {
+    const workSiteIdMap = new Map<string, string>();
+    const workSitePayload = Array.isArray(data?.workSites) ? data.workSites : null;
+
+    if (workSitePayload) {
+      const existingWorkSites = await prisma.orderWorkSite.findMany({
+        where: { orderId: params?.id },
+        select: { id: true },
+      });
+      const existingIds = new Set(existingWorkSites.map((site: any) => site.id));
+      const keptIds: string[] = [];
+
+      for (let index = 0; index < workSitePayload.length; index += 1) {
+        const site = workSitePayload[index] || {};
+        const originalId = String(site.id || "").trim();
+        const siteData = {
+          siteName: String(site.siteName || "").trim() || null,
+          siteAddress: String(site.siteAddress || "").trim() || null,
+          sitePlz: String(site.sitePlz || "").trim() || null,
+          siteCity: String(site.siteCity || "").trim() || null,
+          siteNote: String(site.siteNote || "").trim() || null,
+          isPrimary: Boolean(site.isPrimary) || index === 0,
+          sortOrder: Number.isFinite(Number(site.sortOrder))
+            ? Number(site.sortOrder)
+            : index,
+          sourceOrderId: String(site.sourceOrderId || "").trim() || null,
+        };
+
+        let savedSite: any;
+        if (originalId && existingIds.has(originalId)) {
+          savedSite = await prisma.orderWorkSite.update({
+            where: { id: originalId },
+            data: siteData,
+          });
+        } else {
+          savedSite = await prisma.orderWorkSite.create({
+            data: {
+              ...siteData,
+              orderId: params?.id,
+            },
+          });
+        }
+
+        keptIds.push(savedSite.id);
+        if (originalId) workSiteIdMap.set(originalId, savedSite.id);
+        workSiteIdMap.set(savedSite.id, savedSite.id);
+      }
+
+      if (items) {
+        await prisma.orderItem.deleteMany({ where: { orderId: params?.id } });
+      }
+
+      if (keptIds.length > 0) {
+        await prisma.orderWorkSite.deleteMany({
+          where: {
+            orderId: params?.id,
+            id: { notIn: keptIds },
+          },
+        });
+      }
+    } else if (items) {
       await prisma.orderItem.deleteMany({ where: { orderId: params?.id } });
     }
+
+    const resolveWorkSiteId = (value?: string | null) => {
+      const raw = String(value || "").trim();
+      if (!raw) return null;
+      return workSiteIdMap.get(raw) || raw;
+    };
 
     // Resolve VAT rate for this update.
     //  - If the client explicitly sent `vatRate`, that value always wins (incl. 0 = disabled).
@@ -634,7 +699,7 @@ export async function PUT(
                   unitPrice: Number(item.unitPrice ?? 0),
                   totalPrice:
                     Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
-                  workSiteId: item.workSiteId || null,
+                  workSiteId: resolveWorkSiteId(item.workSiteId),
                 })),
               },
             }

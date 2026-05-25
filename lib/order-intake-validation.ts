@@ -3192,6 +3192,89 @@ function removeSubsumedReviewOnlyItems(
   });
 }
 
+
+function addMissingStandaloneFlatLineItems(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const existingSourceKeys = new Set(
+    items
+      .flatMap((item) => [item.sourceText, item.evidence, item.description])
+      .map((value) => normalizeCompare(value || ""))
+      .filter(Boolean),
+  );
+  const existingServiceAmountKeys = new Set(
+    items.map(
+      (item) =>
+        `${normalizeCompare(item.serviceName)}|${roundMoney(Number(item.unitPrice || 0))}`,
+    ),
+  );
+
+  const candidates = splitExplicitServiceLineCandidates(originalText)
+    .flatMap((part) => String(part || "").split(/\n+/g))
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const additions: ParsedOrderItemForValidation[] = [];
+  const seenLineKeys = new Set<string>();
+
+  for (const line of candidates) {
+    const lineKey = normalizeCompare(line);
+    if (!lineKey || seenLineKeys.has(lineKey)) continue;
+    seenLineKeys.add(lineKey);
+
+    // Safety-net only: a standalone fixed-price row that the LLM omitted.
+    // We do not store foreign wording. The visible service name is normalized.
+    const hasFlatSignal = /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(
+      lineKey,
+    );
+    if (!hasFlatSignal && !isLikelyStandaloneFlatServiceLine(line)) continue;
+
+    const flatPrice = findExplicitFlatPriceInLine(line, fallbackCurrency);
+    if (!flatPrice || flatPrice.currency !== fallbackCurrency) continue;
+
+    // A measured unit-price row is not a flat cost row.
+    if (new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*(${UNIT_WORDS})\\b`, "i").test(line)) {
+      continue;
+    }
+
+    const rawName = cleanExplicitServiceNameFromLine(line, {
+      priceRaw: flatPrice.raw,
+    });
+    const serviceName = normalizeFlatServiceNameFromText(rawName);
+    const serviceKey = normalizeCompare(serviceName);
+    if (!serviceKey || serviceKey === "unbekannte leistung") continue;
+
+    const sourceAlreadyCaptured = Array.from(existingSourceKeys).some((sourceKey) =>
+      sourceKey.includes(lineKey) || lineKey.includes(sourceKey),
+    );
+    const serviceAmountKey = `${serviceKey}|${roundMoney(flatPrice.amount)}`;
+    if (sourceAlreadyCaptured || existingServiceAmountKeys.has(serviceAmountKey)) {
+      continue;
+    }
+
+    additions.push({
+      serviceName,
+      description: line,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: flatPrice.amount,
+      totalPrice: flatPrice.amount,
+      needsReview: false,
+      reviewReason: null,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: flatPrice.currency,
+    });
+
+    existingSourceKeys.add(lineKey);
+    existingServiceAmountKeys.add(serviceAmountKey);
+  }
+
+  return additions.length > 0 ? [...items, ...additions] : items;
+}
+
 export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
@@ -3356,6 +3439,12 @@ export function validateAndRepairParsedOrderItems(
     items = [...missingFlatItems, ...items];
     reviewReasons.push("manual_flat_service_from_text");
   }
+
+  items = addMissingStandaloneFlatLineItems(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
 
   items = removeItemsUsingForeignFlatPrice(
     input.originalText,
