@@ -2646,9 +2646,36 @@ export default function AuftraegePage() {
   const normalizeWorkSiteText = (value?: string | null) =>
     compactText(value).toLowerCase();
 
+  const escapeWorkSiteRegExp = (value: string) =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const stripDuplicateAddressFromSiteTitle = (
+    titleValue?: string | null,
+    addressValue?: string | null,
+  ) => {
+    let title = compactText(titleValue);
+    const address = compactText(addressValue);
+    if (!title) return "";
+    if (!address) return title;
+
+    const escapedAddress = escapeWorkSiteRegExp(address);
+    title = title
+      .replace(new RegExp(`\\s*[·,;-]\\s*${escapedAddress}\\s*$`, "i"), "")
+      .replace(new RegExp(`\\s+${escapedAddress}\\s*$`, "i"), "")
+      .replace(/\s*[·,;-]\s*$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return title;
+  };
+
   const formatWorkSiteTitle = (site?: OrderWorkSite | null) => {
     if (!site) return "Ausführungsort";
-    return compactText(site.siteName) || compactText(site.siteAddress) || "Ausführungsort";
+    return (
+      stripDuplicateAddressFromSiteTitle(site.siteName, site.siteAddress) ||
+      compactText(site.siteAddress) ||
+      "Ausführungsort"
+    );
   };
 
   const formatWorkSiteAddress = (site?: OrderWorkSite | null) => {
@@ -2758,11 +2785,21 @@ export default function AuftraegePage() {
       }));
 
   const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
-  const hasEditCurrencyReview = currentEditReviewReasons.some(
-    (reason: string) =>
-      reason.startsWith("currency_") ||
-      reason.startsWith("item_currency_mismatch"),
-  );
+  const formHasResolvedCurrencyReview =
+    (currency === "CHF" || currency === "EUR") &&
+    formItems.length > 0 &&
+    formItems.every(
+      (item) =>
+        item.serviceName.trim().length > 0 &&
+        Number(item.unitPrice || 0) > 0 &&
+        Number(item.quantity || 0) > 0,
+    );
+  const hasEditCurrencyReview =
+    currentEditReviewReasons.some(
+      (reason: string) =>
+        reason.startsWith("currency_") ||
+        reason.startsWith("item_currency_mismatch"),
+    ) && !formHasResolvedCurrencyReview;
 
   const unitShortLabel = (unit: string) => {
     const normalized = (unit || "").toLowerCase();
@@ -5374,12 +5411,7 @@ export default function AuftraegePage() {
                           itemPriceNumber > 0 &&
                           Number(item.quantity || 0) === 1;
 
-                        const hasCurrencyConflict =
-                          currentEditReviewReasons.some(
-                            (reason: string) =>
-                              reason.startsWith("currency_") ||
-                              reason.startsWith("item_currency_mismatch"),
-                          );
+                        const hasCurrencyConflict = hasEditCurrencyReview;
                         const priceInputReview =
                           Number(item.unitPrice || 0) === 0;
                         const quantityInputReview =

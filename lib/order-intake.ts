@@ -1903,10 +1903,13 @@ function extractPhoneFromText(value: string | null | undefined): string | null {
     explicit?.[1] || source.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] || null;
   if (!loose) return null;
 
-  const digits = normalizePhoneDigits(loose);
+  const cleanedLoose = loose.replace(/\s+/g, " ").trim();
+  if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(cleanedLoose)) return null;
+
+  const digits = normalizePhoneDigits(cleanedLoose);
   if (digits.length < 7 || digits.length > 15) return null;
 
-  return loose.replace(/\s+/g, " ").trim();
+  return cleanedLoose;
 }
 
 function extractEmailFromText(value: string | null | undefined): string | null {
@@ -1939,7 +1942,7 @@ function extractOnsiteContactHint(
     .filter(Boolean);
 
   const explicitMarkerRe =
-    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|person\s+vor\s+ort)\b/i;
+    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner\s+vor\s+ort|person\s+vor\s+ort)\b/i;
   const roleMarkerRe =
     /\b(hauswart|hausmeister|concierge|caretaker|gardien|facility\s+manager)\b/i;
   const anyMarkerRe = new RegExp(
@@ -1947,7 +1950,7 @@ function extractOnsiteContactHint(
     "i",
   );
   const stopRe =
-    /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt)\s*:?$/i;
+    /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
 
   const cleanContactLine = (line: string, stripExplicitMarker: boolean) =>
     line
@@ -2193,6 +2196,18 @@ function canonicalizeSpecialNoteLine(line: string): string {
   if (mentionsNoPhone && mentionsMail)
     return "Nicht telefonisch zurückrufen, Mail reicht";
   if (mentionsNoPhone) return "Nicht telefonisch zurückrufen";
+
+  if (/kontakt\s+vor\s+ort.*ist\s+nur\s*,\s*nicht/i.test(normalized)) {
+    return original.replace(/ist\s+nur\s*,\s*nicht/gi, "ist nur Ansprechpartner vor Ort, nicht");
+  }
+
+  if (/^kontakt\s+vor\s+ort:/i.test(normalized)) {
+    return original
+      .replace(/,\s*Tel\.\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/gi, "")
+      .replace(/ist\s+nur\s*,\s*nicht/gi, "ist nur Ansprechpartner vor Ort, nicht")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
 
   if (
     /\b(whatsapp\s+(?:suffit|reicht|genuegt|genügt)|par\s+whatsapp|via\s+whatsapp|whatsapp\s+only)\b/i.test(

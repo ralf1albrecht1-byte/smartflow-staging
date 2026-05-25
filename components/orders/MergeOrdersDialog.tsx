@@ -572,6 +572,15 @@ export default function MergeOrdersDialog({
       ? "1 weiterer Auftrag wird mit diesem Hauptauftrag verbunden."
       : `${additionalOrders.length} weitere Aufträge werden mit diesem Hauptauftrag verbunden.`;
   const reviewOrderCountLabel = `${reviewOrders.length} ${reviewOrders.length === 1 ? "Auftrag" : "Aufträge"}`;
+  const reviewItemCount = reviewOrders.reduce(
+    (sum, order) => sum + getOrderItems(order).length,
+    0,
+  );
+  const reviewSiteCount = new Set(
+    reviewOrders
+      .map((order) => getExecutionAddressLines(order).join("|"))
+      .filter((value) => value && value !== "—"),
+  ).size;
 
   const openReviewDialog = () => {
     setReviewAccepted(false);
@@ -1126,6 +1135,16 @@ export default function MergeOrdersDialog({
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-3">
+              <div className="rounded-lg border bg-slate-50 px-4 py-3 text-sm">
+                <div className="font-semibold">Zusammenfassung</div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <div><span className="text-muted-foreground">Ursprungsaufträge:</span><br /><strong>{reviewOrders.length}</strong></div>
+                  <div><span className="text-muted-foreground">Arbeitsorte:</span><br /><strong>{reviewSiteCount || 1}</strong></div>
+                  <div><span className="text-muted-foreground">Leistungen:</span><br /><strong>{reviewItemCount}</strong></div>
+                  <div><span className="text-muted-foreground">Netto:</span><br /><strong>{formatMoney(reviewOrdersTotal, reviewCurrency)}</strong></div>
+                </div>
+              </div>
+
               {hasVatConflict && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                   <div className="font-bold">MwSt abweichend</div>
@@ -1167,7 +1186,7 @@ export default function MergeOrdersDialog({
                   {reviewDetailsOpen && (
                     <div className="mx-4 mb-4 rounded-lg border border-red-100 bg-background/70 p-3">
                       <div className="grid grid-cols-[1fr_auto_1fr] gap-3 text-xs text-slate-600 mb-2">
-                        <div>Weiterer Arbeitsort</div>
+                        <div>Quelle (abweichend)</div>
                         <div>→</div>
                         <div>Hauptkunde (Ziel)</div>
                       </div>

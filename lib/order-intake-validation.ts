@@ -1178,6 +1178,115 @@ function detectFlatPriceItems(
   return result;
 }
 
+function isLikelyTravelFlatCostLine(value?: string | null): boolean {
+  const source = normalizeText(value);
+  const normalized = normalizeCompare(source);
+  if (!source || !normalized) return false;
+  if (!hasExplicitCurrencyAmount(source) && !detectCurrencylessFlatPriceFromSegment(source, "CHF")) {
+    return false;
+  }
+  if (hasQuantityWithExplicitUnit(source)) return false;
+
+  const canonical = canonicalGermanServiceNameFromText(source);
+  if (canonical === "Anfahrt") return true;
+
+  // Deterministic safety-net only: the LLM remains responsible for semantic
+  // service detection. This guard catches explicit flat travel/visit-cost rows
+  // that were otherwise dropped, but stores only the canonical German service.
+  const hasFlatSignal = /\b(pauschal|pauschale|forfait|flat|fixpreis|festpreis)\b/i.test(normalized);
+  const hasTravelConcept = /\b(anfahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|einsatzpauschale|deplacement|trasferta|transferta|travel\s+(?:fee|costs?)|trip\s+fee|viaje)\b/i.test(normalized);
+  return hasFlatSignal && hasTravelConcept;
+}
+
+function addMissingTravelFlatCostItems(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const existingAnfahrt = items.filter(
+    (item) => normalizeCompare(item.serviceName) === "anfahrt",
+  );
+  const existingAmountKeys = new Set(
+    existingAnfahrt
+      .filter((item) => Number(item.unitPrice || 0) > 0)
+      .map((item) => roundMoney(Number(item.unitPrice || 0))),
+  );
+  const existingSourceKeys = new Set(
+    items
+      .flatMap((item) => [item.sourceText, item.evidence, item.description])
+      .map((value) => normalizeCompare(value || ""))
+      .filter(Boolean),
+  );
+
+  const candidateLines = unique([
+    ...splitRawIntakeLines(originalText),
+    ...splitExplicitServiceLineCandidates(originalText),
+  ]);
+
+  let nextItems = items.slice();
+
+  for (const line of candidateLines) {
+    const lineKey = normalizeCompare(line);
+    if (!lineKey || !isLikelyTravelFlatCostLine(line)) continue;
+
+    const flatPrice =
+      findExplicitFlatPriceInLine(line, fallbackCurrency) ||
+      detectCurrencylessFlatPriceFromSegment(line, fallbackCurrency);
+    if (!flatPrice || flatPrice.currency !== fallbackCurrency) continue;
+
+    const amountKey = roundMoney(flatPrice.amount);
+    const sourceAlreadyCaptured = Array.from(existingSourceKeys).some(
+      (sourceKey) => sourceKey.includes(lineKey) || lineKey.includes(sourceKey),
+    );
+
+    const incompleteExistingIndex = nextItems.findIndex(
+      (item) =>
+        normalizeCompare(item.serviceName) === "anfahrt" &&
+        (Number(item.unitPrice || 0) <= 0 || Number(item.quantity || 0) <= 0),
+    );
+
+    if (incompleteExistingIndex >= 0) {
+      nextItems[incompleteExistingIndex] = {
+        ...nextItems[incompleteExistingIndex],
+        serviceName: "Anfahrt",
+        description: nextItems[incompleteExistingIndex].description || line,
+        quantity: 1,
+        unit: "Pauschal",
+        unitPrice: flatPrice.amount,
+        totalPrice: flatPrice.amount,
+        needsReview: false,
+        reviewReason: null,
+        sourceText: nextItems[incompleteExistingIndex].sourceText || line,
+        evidence: nextItems[incompleteExistingIndex].evidence || line,
+        detectedCurrency: flatPrice.currency,
+      };
+      existingAmountKeys.add(amountKey);
+      existingSourceKeys.add(lineKey);
+      continue;
+    }
+
+    if (sourceAlreadyCaptured || existingAmountKeys.has(amountKey)) continue;
+
+    nextItems.push({
+      serviceName: "Anfahrt",
+      description: line,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: flatPrice.amount,
+      totalPrice: flatPrice.amount,
+      needsReview: false,
+      reviewReason: null,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: flatPrice.currency,
+    });
+    existingAmountKeys.add(amountKey);
+    existingSourceKeys.add(lineKey);
+  }
+
+  return nextItems;
+}
+
 function removeItemsUsingForeignFlatPrice(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -3503,6 +3612,9 @@ export function validateAndRepairParsedOrderItems(
   reviewReasons.push(...unclearTravelRepair.reviewReasons);
 
   items = removeSubsumedReviewOnlyItems(items);
+  items = addMissingTravelFlatCostItems(input.originalText, items, finalCurrency);
+  items = normalizeParsedServiceNames(items);
+  items = dedupeUnsafeDuplicateItems(items);
 
   const priceUnclearServiceNames = new Set(
     items
