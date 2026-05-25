@@ -222,6 +222,25 @@ const createEmptyItem = (): FormItem => ({
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
 
+const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
+  if (!order) return true;
+
+  const originCount = Array.isArray(order.originOrderIds)
+    ? order.originOrderIds.filter(Boolean).length
+    : 0;
+
+  const mergedText = [order.notes, order.description]
+    .filter(Boolean)
+    .join("\n");
+
+  return (
+    originCount > 1 ||
+    /(?:hauptauftrag|zusammengeführt\s+mit|zusammengefuehrt\s+mit|verbunden\s+von\s+auftrag)/i.test(
+      mergedText,
+    )
+  );
+};
+
 const getAiWarningFromItemDescription = (description?: string | null) => {
   if (!description) return "";
   return description.startsWith(AI_WARNING_PREFIX)
@@ -289,35 +308,128 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+const SOURCE_LINE_GENERIC_TOKENS = new Set([
+  "arbeiten",
+  "arbeit",
+  "auftrag",
+  "service",
+  "leistung",
+  "leistungen",
+  "reinigen",
+  "reinigung",
+  "cleaning",
+  "clean",
+  "nettoyage",
+  "pulizia",
+  "limpieza",
+  "machen",
+  "bitte",
+]);
+
+const sourceLineServiceTokens = (serviceName?: string | null) => {
+  const serviceKey = normalizeForMatch(serviceName);
+  const tokens = serviceKey
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !SOURCE_LINE_GENERIC_TOKENS.has(token));
+
+  if (/fenster|vitrin|vitre|window|fenetre|finestr|ventan/.test(serviceKey)) {
+    tokens.push("fenster", "vitrin", "vitre", "window", "fenetre", "finestr", "ventan");
+  }
+
+  if (/boden|floor|sol|paviment|suelo/.test(serviceKey)) {
+    tokens.push("boden", "floor", "sol", "paviment", "suelo");
+  }
+
+  if (/anfahrt|fahrt|weg|deplacement|deplacement|travel|trip|transport|trasfert|viaje/.test(serviceKey)) {
+    tokens.push("anfahrt", "fahrt", "deplacement", "travel", "trip", "transport", "trasfert", "viaje");
+  }
+
+  return Array.from(new Set(tokens));
+};
+
+const normalizeSourceNumber = (value?: string | number | null) => {
+  const numeric = Number(String(value ?? "").replace("'", "").replace(",", "."));
+  if (!Number.isFinite(numeric) || numeric <= 0) return "";
+  return Number.isInteger(numeric)
+    ? String(numeric)
+    : String(Number(numeric.toFixed(2))).replace(".", "[.,]");
+};
+
+const sourceLineContainsNumber = (line: string, value?: string | number | null) => {
+  const numberPattern = normalizeSourceNumber(value);
+  if (!numberPattern) return false;
+  return new RegExp(`(^|[^0-9])${numberPattern}([^0-9]|$)`).test(line);
+};
+
+const sourceLineUnitTokens = (unit?: string | null) => {
+  const key = normalizeForMatch(unit);
+  if (!key) return [];
+  if (key === "quadratmeter") return ["quadratmeter", "qm", "m2", "m²", "sqm"];
+  if (key === "kubikmeter") return ["kubikmeter", "cbm", "m3", "m³"];
+  if (key === "meter") return ["meter", "laufmeter", "lfm"];
+  if (key === "stueck" || key === "stuck") return ["stueck", "stuck", "stück", "stk", "piece", "pieces", "vitrine", "vitrines"];
+  if (key === "stunde") return ["stunde", "stunden", "std", "hour", "hours"];
+  if (key === "tag") return ["tag", "tage", "day", "days"];
+  if (key === "pauschal") return ["pauschal", "pauschale", "flat", "forfait"];
+  if (key === "kilogramm") return ["kilogramm", "kg"];
+  if (key === "tonne") return ["tonne", "tonnen", "t"];
+  if (key === "liter") return ["liter", "ltr", "l"];
+  return [key];
+};
+
 const findCustomerTextLineForService = (
   sourceText?: string | null,
   serviceName?: string | null,
+  item?: { quantity?: string | number | null; unit?: string | null; unitPrice?: string | number | null },
 ) => {
   const source = String(sourceText || "").trim();
   const serviceKey = normalizeForMatch(serviceName);
   if (!source || !serviceKey) return "";
 
-  const serviceTokens = serviceKey
-    .split(" ")
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 4);
+  const importantTokens = sourceLineServiceTokens(serviceName);
+  if (importantTokens.length === 0) return "";
 
   const lines = source
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const matchingLine = lines.find((line) => {
-    const lineKey = normalizeForMatch(line);
-    if (!lineKey) return false;
-    if (lineKey.includes(serviceKey)) return true;
-    return (
-      serviceTokens.length > 0 &&
-      serviceTokens.some((token) => lineKey.includes(token))
-    );
-  });
+  let bestLine = "";
+  let bestScore = 0;
 
-  return matchingLine || "";
+  for (const line of lines) {
+    const lineKey = normalizeForMatch(line);
+    if (!lineKey) continue;
+
+    const directNameMatch = lineKey.includes(serviceKey);
+    const tokenHits = importantTokens.filter((token) =>
+      lineKey.includes(normalizeForMatch(token)),
+    ).length;
+
+    // Important: never match only on generic words such as "reinigen".
+    // This prevents "Boden reinigen" from being shown as evidence for
+    // "Fenster reinigen".
+    if (!directNameMatch && tokenHits === 0) continue;
+
+    let score = directNameMatch ? 10 : tokenHits * 4;
+
+    if (sourceLineContainsNumber(lineKey, item?.quantity)) score += 3;
+    if (sourceLineContainsNumber(lineKey, item?.unitPrice)) score += 3;
+
+    const unitTokens = sourceLineUnitTokens(item?.unit);
+    if (unitTokens.some((token) => lineKey.includes(normalizeForMatch(token)))) {
+      score += 1;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = line;
+    }
+  }
+
+  return bestScore >= 4 ? bestLine : "";
 };
 
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
@@ -1835,6 +1947,8 @@ export default function AuftraegePage() {
   const [expandedWorkSiteIds, setExpandedWorkSiteIds] = useState<string[]>([]);
   const [customerMessagesExpanded, setCustomerMessagesExpanded] =
     useState(false);
+  const [serviceOverviewExpanded, setServiceOverviewExpanded] =
+    useState(false);
   const [movingItemKey, setMovingItemKey] = useState<string | null>(null);
   // Persisted MwSt on Auftrag — saved on the Order itself (see app/api/orders)
   // and forwarded to the derived Offer/Invoice when converting.
@@ -2063,6 +2177,10 @@ export default function AuftraegePage() {
       if (custId) newForm.customerId = custId;
       setForm(newForm);
       setFormItems([createEmptyItem()]);
+      setFormWorkSites([]);
+      setExpandedWorkSiteIds([]);
+      setCustomerMessagesExpanded(false);
+      setServiceOverviewExpanded(false);
       setShowNewCustomer(false);
       setDialogOpen(true);
       return;
@@ -2158,6 +2276,7 @@ export default function AuftraegePage() {
     setActiveWorkSiteId(null);
     setExpandedWorkSiteIds([]);
     setCustomerMessagesExpanded(false);
+    setServiceOverviewExpanded(false);
     setSiteAddressEditing(false);
     setShowNewCustomer(false);
     setEditingCustomer(false);
@@ -2224,7 +2343,8 @@ export default function AuftraegePage() {
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(nextWorkSites[0]?.id || null);
     setExpandedWorkSiteIds([]);
-    setCustomerMessagesExpanded(false);
+    setCustomerMessagesExpanded(!shouldCollapseCustomerMessagesForOrder(o));
+    setServiceOverviewExpanded(false);
     setMovingItemKey(null);
     setSiteAddressEditing(
       nextWorkSites.length <= 1 &&
@@ -3094,6 +3214,12 @@ export default function AuftraegePage() {
   const visibleCustomerMessageText = customerMessageTranscriptDuplicate
     ? ""
     : customerMessageText;
+
+  const shouldCollapseCustomerMessages = currentEditOrder
+    ? shouldCollapseCustomerMessagesForOrder(currentEditOrder)
+    : false;
+  const customerMessagesVisible =
+    !shouldCollapseCustomerMessages || customerMessagesExpanded;
 
   // Build description from items
   const buildDescription = () => {
@@ -5545,6 +5671,11 @@ export default function AuftraegePage() {
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
                               item.serviceName,
+                              {
+                                quantity: item.quantity,
+                                unit: item.unit,
+                                unitPrice: item.unitPrice,
+                              },
                             );
                           const catalogSummary = catalogService
                             ? `${catalogService.unit}${
@@ -6233,17 +6364,25 @@ export default function AuftraegePage() {
                                           showPriceOverride &&
                                           catalogService && (
                                             <div className="space-y-0.5">
-                                              <div>
-                                                Text:{" "}
-                                                <span className="font-medium">
-                                                  {sourceLineForItem ||
-                                                    orderSummary}
-                                                </span>
-                                                <span className="font-semibold">
-                                                  {" "}
-                                                  — Textpreis übernommen.
-                                                </span>
-                                              </div>
+                                              {sourceLineForItem ? (
+                                                <div>
+                                                  Text:{" "}
+                                                  <span className="font-medium">
+                                                    {sourceLineForItem}
+                                                  </span>
+                                                  <span className="font-semibold">
+                                                    {" "}
+                                                    — Textpreis übernommen.
+                                                  </span>
+                                                </div>
+                                              ) : (
+                                                <div>
+                                                  Textpreis übernommen: Preis
+                                                  stammt aus dem Kundentext.
+                                                  Genaue Textzeile bitte bei
+                                                  Bedarf unten prüfen.
+                                                </div>
+                                              )}
                                               <div className="text-amber-700/75 dark:text-amber-200/75">
                                                 Katalog: {catalogService.unit} ·{" "}
                                                 {formatCurrency(
@@ -6496,16 +6635,50 @@ export default function AuftraegePage() {
                   {/* Leistungsübersicht — live from the editable items above */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <Label className="font-semibold">
-                        Leistungsübersicht
-                      </Label>
-                      <span className="text-xs text-muted-foreground">
-                        Live aus den Leistungen oben
-                      </span>
+                      <div className="min-w-0">
+                        <Label className="font-semibold">
+                          Leistungsübersicht
+                        </Label>
+                        <div className="text-xs text-muted-foreground">
+                          Live aus den Leistungen oben
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() =>
+                          setServiceOverviewExpanded((prev) => !prev)
+                        }
+                      >
+                        {serviceOverviewExpanded ? "Einklappen" : "Anzeigen"}
+                      </Button>
                     </div>
 
-                    {hasMultipleEditWorkSites ? (
-                      <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
+                    {!serviceOverviewExpanded ? (
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2 text-left text-sm hover:bg-muted/40"
+                        onClick={() => setServiceOverviewExpanded(true)}
+                      >
+                        <span className="min-w-0 truncate text-muted-foreground">
+                          {hasMultipleEditWorkSites
+                            ? `${liveOverviewGroups.length} Arbeitsort${
+                                liveOverviewGroups.length === 1 ? "" : "e"
+                              } · ${liveOverviewRows.length} Leistung${
+                                liveOverviewRows.length === 1 ? "" : "en"
+                              }`
+                            : `${liveOverviewRows.length} Leistung${
+                                liveOverviewRows.length === 1 ? "" : "en"
+                              }`}
+                        </span>
+                        <span className="shrink-0 font-mono font-semibold text-primary">
+                          {formatCurrency(itemsTotal, currency)}
+                        </span>
+                      </button>
+                    ) : hasMultipleEditWorkSites ? (
+                      <div className="space-y-2 rounded-lg border-2 border-slate-300 bg-muted/20 p-2 dark:border-slate-700">
                         {liveOverviewGroups.length === 0 ? (
                           <div className="rounded-md border bg-background p-3 text-center text-sm text-muted-foreground">
                             Keine Leistung erfasst.
@@ -6520,11 +6693,11 @@ export default function AuftraegePage() {
                             return (
                               <div
                                 key={group.key}
-                                className="rounded-md border bg-background p-2"
+                                className="overflow-hidden rounded-md border-2 border-slate-300 bg-background shadow-sm dark:border-slate-700"
                               >
-                                <div className="flex items-start justify-between gap-2 border-b pb-1.5">
+                                <div className="flex items-start justify-between gap-2 border-b-2 border-slate-200 bg-muted/40 px-2 py-1.5 dark:border-slate-700">
                                   <div className="min-w-0">
-                                    <div className="text-sm font-semibold">
+                                    <div className="text-sm font-semibold leading-tight">
                                       📍 {group.title}
                                     </div>
                                     {group.address && (
@@ -6533,11 +6706,11 @@ export default function AuftraegePage() {
                                       </div>
                                     )}
                                   </div>
-                                  <div className="shrink-0 text-right font-mono text-sm font-semibold">
+                                  <div className="shrink-0 rounded-md border border-slate-300 bg-background px-2 py-1 text-right font-mono text-sm font-bold text-primary dark:border-slate-700">
                                     {formatCurrency(groupTotal, currency)}
                                   </div>
                                 </div>
-                                <div className="divide-y text-sm">
+                                <div className="divide-y divide-slate-200 px-2 text-sm dark:divide-slate-700">
                                   {group.rows.map((row) => (
                                     <div
                                       key={`${group.key}-${row.index}-${row.serviceName}`}
@@ -6570,7 +6743,7 @@ export default function AuftraegePage() {
                             );
                           })
                         )}
-                        <div className="flex justify-between rounded-md bg-muted/70 px-3 py-2 text-sm font-semibold">
+                        <div className="flex justify-between rounded-md border border-slate-300 bg-muted/70 px-3 py-2 text-sm font-semibold dark:border-slate-700">
                           <span>Gesamt netto</span>
                           <span className="font-mono text-primary">
                             {formatCurrency(itemsTotal, currency)}
@@ -6578,7 +6751,7 @@ export default function AuftraegePage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="rounded-lg border overflow-x-auto">
+                      <div className="rounded-lg border-2 border-slate-300 overflow-x-auto dark:border-slate-700">
                         <table className="w-full text-sm">
                           <thead className="bg-muted/60">
                             <tr className="text-left">
@@ -6641,7 +6814,7 @@ export default function AuftraegePage() {
                                 </tr>
                               ))
                             )}
-                            <tr className="border-t bg-muted/40 font-semibold">
+                            <tr className="border-t-2 bg-muted/40 font-semibold">
                               <td className="px-2 py-2" colSpan={5}>
                                 Gesamt
                               </td>
@@ -6655,27 +6828,29 @@ export default function AuftraegePage() {
                     )}
                   </div>
 
-                  {/* Kundennachrichten — compact by default, full content on demand */}
+                  {/* Kundennachrichten — offen bei Einzelauftrag, kompakt bei Zusammenführung */}
                   <div className="space-y-2 mb-20 md:mb-0">
                     <div className="flex items-center justify-between gap-2">
                       <Label className="font-semibold">Kundennachrichten</Label>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs"
-                        onClick={() =>
-                          setCustomerMessagesExpanded((prev) => !prev)
-                        }
-                      >
-                        {customerMessagesExpanded
-                          ? "Nachrichten einklappen"
-                          : "Nachrichten anzeigen"}
-                      </Button>
+                      {shouldCollapseCustomerMessages && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs"
+                          onClick={() =>
+                            setCustomerMessagesExpanded((prev) => !prev)
+                          }
+                        >
+                          {customerMessagesExpanded
+                            ? "Nachrichten einklappen"
+                            : "Nachrichten anzeigen"}
+                        </Button>
+                      )}
                     </div>
 
                     <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-                      {!customerMessagesExpanded ? (
+                      {!customerMessagesVisible ? (
                         <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                           <span>
                             {visibleCustomerMessageText
@@ -6686,7 +6861,7 @@ export default function AuftraegePage() {
                                   ? "Mediendatei vorhanden"
                                   : "Keine Kundennachricht gespeichert"}
                           </span>
-                          <span>Bei Bedarf öffnen und Original prüfen.</span>
+                          <span>Zusammenführung: bei Bedarf Original öffnen und prüfen.</span>
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -6757,6 +6932,7 @@ export default function AuftraegePage() {
                       )}
                     </div>
                   </div>
+
                 </>
               )}
             </div>
