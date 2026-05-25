@@ -455,7 +455,7 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   }
 
   if (
-    /(^|\b)(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)(\b|$)/i.test(
+    /(^|\b)(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|nettoyage des vitrines|nettoyage vitrines|vitrines|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)(\b|$)/i.test(
       key,
     )
   ) {
@@ -1432,6 +1432,120 @@ const getCatalogTextFlatOverrideItems = (
   );
 };
 
+type WorkSiteHeaderReviewBadge = {
+  key: string;
+  label: string;
+  className: string;
+};
+
+const pushUniqueWorkSiteHeaderBadge = (
+  badges: WorkSiteHeaderReviewBadge[],
+  badge: WorkSiteHeaderReviewBadge,
+) => {
+  if (badges.some((existing) => existing.key === badge.key)) return;
+  badges.push(badge);
+};
+
+const hasReviewReasonForService = (
+  reviewReasons: string[] | null | undefined,
+  prefix: string,
+  serviceName?: string | null,
+) => {
+  const serviceKey = normalizeForMatch(canonicalServiceNameForOrderItem(serviceName));
+
+  return (
+    reviewReasons?.some((reason) => {
+      if (!reason.startsWith(prefix)) return false;
+      const [, reasonService] = reason.split(":");
+      if (!reasonService) return true;
+      return (
+        normalizeForMatch(canonicalServiceNameForOrderItem(reasonService)) ===
+        serviceKey
+      );
+    }) ?? false
+  );
+};
+
+const getWorkSiteHeaderReviewBadges = (
+  items: FormItem[],
+  services: ServiceDef[],
+  reviewReasons: string[] | null | undefined,
+  hasCurrencyReview: boolean,
+): WorkSiteHeaderReviewBadge[] => {
+  const badges: WorkSiteHeaderReviewBadge[] = [];
+
+  if (hasCurrencyReview) {
+    pushUniqueWorkSiteHeaderBadge(badges, {
+      key: "currency",
+      label: "Währung prüfen",
+      className: "bg-red-100 text-red-700 ring-1 ring-red-200",
+    });
+  }
+
+  const hasPriceQuantityReview = items.some(
+    (item) => Number(item.unitPrice || 0) <= 0 || Number(item.quantity || 0) <= 0,
+  );
+
+  if (hasPriceQuantityReview) {
+    pushUniqueWorkSiteHeaderBadge(badges, {
+      key: "price_quantity",
+      label: "Preis/Menge prüfen",
+      className: "bg-red-100 text-red-700 ring-1 ring-red-200",
+    });
+  }
+
+  const hasUnitReview = items.some(
+    (item) =>
+      Boolean(item.aiWarning?.trim()) ||
+      hasReviewReasonForService(reviewReasons, "unit_mismatch:", item.serviceName),
+  );
+
+  if (hasUnitReview) {
+    pushUniqueWorkSiteHeaderBadge(badges, {
+      key: "unit",
+      label: "Einheit prüfen",
+      className: "bg-orange-100 text-orange-800 ring-1 ring-orange-200",
+    });
+  }
+
+  const hasTextPriceReview = items.some((item) => {
+    const comparableItem = {
+      serviceName: canonicalServiceNameForOrderItem(item.serviceName),
+      unit: item.unit,
+      unitPrice: Number(item.unitPrice || 0),
+      quantity: Number(item.quantity || 0),
+    };
+
+    return (
+      hasReviewReasonForService(reviewReasons, "price_override:", item.serviceName) ||
+      hasCatalogPriceDeviationForItem(comparableItem, services, reviewReasons) ||
+      hasCatalogTextFlatOverrideForItem(comparableItem, services, reviewReasons)
+    );
+  });
+
+  if (hasTextPriceReview) {
+    pushUniqueWorkSiteHeaderBadge(badges, {
+      key: "textprice",
+      label: "Textpreis",
+      className: "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
+    });
+  }
+
+  const hasManualServiceReview = items.some(
+    (item) => Boolean(item.serviceName?.trim()) && !findCatalogServiceForName(services, item.serviceName),
+  );
+
+  if (hasManualServiceReview) {
+    pushUniqueWorkSiteHeaderBadge(badges, {
+      key: "manual",
+      label: "Prüfen",
+      className: "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
+    });
+  }
+
+  return badges.slice(0, 3);
+};
+
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const currencyBadges = badges.filter(
     (badge) => badge.key === "currency_review",
@@ -1983,6 +2097,7 @@ export default function AuftraegePage() {
     string | null
   >(null);
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
+  const specialNotesTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // New duplicate check (Phase C — Sheet-based)
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
@@ -2365,7 +2480,7 @@ export default function AuftraegePage() {
 
             return {
               key: Math.random().toString(36).slice(2),
-              serviceName: item.serviceName ?? "",
+              serviceName: canonicalServiceNameForOrderItem(item.serviceName) ?? "",
               unit: item.unit ?? "Stunde",
               unitPrice:
                 Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
@@ -2385,7 +2500,7 @@ export default function AuftraegePage() {
         mergeEquivalentFormItems([
           {
             key: Math.random().toString(36).slice(2),
-            serviceName: o.serviceName ?? "",
+            serviceName: canonicalServiceNameForOrderItem(o.serviceName) ?? "",
             unit: o.priceType ?? "Stunde",
             unitPrice:
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
@@ -3156,6 +3271,14 @@ export default function AuftraegePage() {
   const parsedFormSpecialNotes = splitSpecialNotes(form.specialNotes);
   const dangerNoteLines = parsedFormSpecialNotes.safetyWarnings;
   const normalSpecialNotesText = parsedFormSpecialNotes.jobHints.join("\n");
+
+  useEffect(() => {
+    const field = specialNotesTextareaRef.current;
+    if (!field) return;
+
+    field.style.height = "auto";
+    field.style.height = `${Math.max(76, field.scrollHeight)}px`;
+  }, [dialogOpen, normalSpecialNotesText]);
 
   const updateNormalSpecialNotes = (value: string) => {
     const nextJobHints = value
@@ -5768,6 +5891,12 @@ export default function AuftraegePage() {
                           const siteHasNoItems = Boolean(
                             site && groupItemCount === 0,
                           );
+                          const workSiteHeaderReviewBadges = getWorkSiteHeaderReviewBadges(
+                            groupItems,
+                            services,
+                            curOrder?.reviewReasons,
+                            hasEditCurrencyReview,
+                          );
                           const siteAccentClass = siteNeedsReview
                             ? "border-red-300 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
                             : siteHasNoItems
@@ -5816,7 +5945,7 @@ export default function AuftraegePage() {
                                       toggleWorkSiteGroup(site);
                                     }
                                   }}
-                                  className={`rounded-xl border-2 px-3 py-2 shadow-sm ${groupExpanded ? "rounded-b-none border-b-0" : ""} ${
+                                  className={`rounded-xl border-2 px-3 py-2 shadow-sm ${
                                     site
                                       ? siteAccentClass
                                       : "border-red-200 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
@@ -5843,6 +5972,14 @@ export default function AuftraegePage() {
                                             aktiv
                                           </span>
                                         )}
+                                        {workSiteHeaderReviewBadges.map((badge) => (
+                                          <span
+                                            key={badge.key}
+                                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}
+                                          >
+                                            {badge.label}
+                                          </span>
+                                        ))}
                                         {siteNeedsReview && (
                                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-200">
                                             Arbeitsort prüfen
@@ -6053,7 +6190,7 @@ export default function AuftraegePage() {
                                 <div
                                   className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
                                     hasMultipleEditWorkSites
-                                      ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
+                                      ? `ml-4 rounded-lg border-l-4 ${itemAccentClass}`
                                       : "rounded-lg"
                                   } ${
                                     hasCriticalItemReview
@@ -6625,7 +6762,13 @@ export default function AuftraegePage() {
                     )}
 
                     <textarea
-                      className="w-full min-h-[84px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      ref={specialNotesTextareaRef}
+                      rows={Math.max(
+                        2,
+                        normalSpecialNotesText.split(/\n/).length,
+                      )}
+                      spellCheck={false}
+                      className="w-full resize-none overflow-hidden rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm leading-relaxed text-foreground focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 dark:border-amber-800/70 dark:bg-amber-950/15"
                       placeholder="z.B. Rückruf, Zugang, Parkplatz, Leiter nötig, Terminwunsch..."
                       value={normalSpecialNotesText}
                       onChange={(e) => updateNormalSpecialNotes(e.target.value)}

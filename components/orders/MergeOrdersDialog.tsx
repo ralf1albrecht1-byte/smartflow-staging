@@ -168,6 +168,47 @@ const normalizeCompareValue = (value?: string | null) => {
   return (value || "").toLowerCase().trim().replace(/\s+/g, " ");
 };
 
+const normalizeServiceValue = (value?: string | null) => {
+  return normalizeCompareValue(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss");
+};
+
+const canonicalMergeDialogServiceName = (value?: string | null) => {
+  const name = (value || "").trim().replace(/\s+/g, " ");
+  const key = normalizeServiceValue(name);
+
+  if (
+    /\b(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+      key,
+    )
+  ) {
+    return "Anfahrt";
+  }
+
+  if (
+    /\b(clean floor|floor cleaning|bodenreinigung|boden reinigen|nettoyage du sol|nettoyage sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)\b/i.test(
+      key,
+    )
+  ) {
+    return "Boden reinigen";
+  }
+
+  if (
+    /\b(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|nettoyage des vitrines|nettoyage vitrines|vitres|vitrines|fenetres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)\b/i.test(
+      key,
+    )
+  ) {
+    return "Fenster reinigen";
+  }
+
+  return name;
+};
+
 const normalizePhone = (value?: string | null) => {
   return (value || "").replace(/[^\d+]/g, "").trim();
 };
@@ -392,7 +433,7 @@ const getReviewServiceExcerpt = (order: MergeOrder) => {
   return items
     .slice(0, 2)
     .map((item) => {
-      const service = item.serviceName || "Leistung prüfen";
+      const service = canonicalMergeDialogServiceName(item.serviceName) || "Leistung prüfen";
       const quantity = formatQuantity(item);
 
       if (!quantity || quantity === "—") return service;
@@ -510,11 +551,18 @@ const getOrderTotal = (order: MergeOrder) => {
 };
 
 const getOrderItems = (order: MergeOrder): MergeOrderItem[] => {
-  if (order.items && order.items.length > 0) return order.items;
+  if (order.items && order.items.length > 0) {
+    return order.items.map((item) => ({
+      ...item,
+      serviceName: canonicalMergeDialogServiceName(item.serviceName),
+    }));
+  }
 
   return [
     {
-      serviceName: order.serviceName || order.description || "Leistung prüfen",
+      serviceName: canonicalMergeDialogServiceName(
+        order.serviceName || order.description || "Leistung prüfen",
+      ),
       quantity: Number(order.quantity || 0),
       unit: order.priceType || "",
       unitPrice: Number(order.unitPrice || 0),
@@ -1067,7 +1115,7 @@ export default function MergeOrdersDialog({
                                     className="grid grid-cols-[1fr_110px] xl:grid-cols-[1fr_110px_110px] gap-2 text-sm"
                                   >
                                     <div className="font-medium truncate">
-                                      {item.serviceName || "Leistung prüfen"}
+                                      {canonicalMergeDialogServiceName(item.serviceName) || "Leistung prüfen"}
                                     </div>
 
                                     <div className="text-muted-foreground">

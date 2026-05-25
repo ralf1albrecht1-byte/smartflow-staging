@@ -41,6 +41,46 @@ interface MergeItemInput {
 const normalizeMergeKeyPart = (value?: string | null) =>
   (value || "").trim().replace(/\s+/g, " ").toLowerCase();
 
+const normalizeServiceKey = (value?: string | null) =>
+  normalizeMergeKeyPart(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss");
+
+const canonicalMergeServiceName = (value?: string | null) => {
+  const name = String(value || "").trim().replace(/\s+/g, " ");
+  const key = normalizeServiceKey(name);
+
+  if (
+    /\b(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+      key,
+    )
+  ) {
+    return "Anfahrt";
+  }
+
+  if (
+    /\b(clean floor|floor cleaning|bodenreinigung|boden reinigen|nettoyage du sol|nettoyage sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)\b/i.test(
+      key,
+    )
+  ) {
+    return "Boden reinigen";
+  }
+
+  if (
+    /\b(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|nettoyage des vitrines|nettoyage vitrines|vitres|vitrines|fenetres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)\b/i.test(
+      key,
+    )
+  ) {
+    return "Fenster reinigen";
+  }
+
+  return name;
+};
+
 const normalizeVatRate = (value?: number | string | null) => {
   const rate = Number(value || 0);
   if (!Number.isFinite(rate) || rate <= 0) return 0;
@@ -241,9 +281,13 @@ const toMergeItem = (order: any, item: any): MergeItemInput => {
   const quantity = Number(item.quantity || 0);
   const unitPrice = Number(item.unitPrice || 0);
 
+  const serviceName = canonicalMergeServiceName(
+    item.serviceName || item.description || "Manuell prüfen",
+  );
+
   return {
-    serviceName: item.serviceName || "Manuell prüfen",
-    description: item.description || item.serviceName || "",
+    serviceName,
+    description: item.description || serviceName || "",
     quantity,
     unit: item.unit || "Stück",
     unitPrice,

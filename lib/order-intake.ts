@@ -3277,7 +3277,7 @@ function canonicalGermanServiceNameFromText(
   }
 
   if (
-    /\b(clean windows|window cleaning|windows cleaning|fenster reinigen|fensterreinigung|nettoyage des vitres|nettoyage vitres|vitres|fenetres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)\b/i.test(
+    /\b(clean windows|window cleaning|windows cleaning|fenster reinigen|fensterreinigung|nettoyage des vitres|nettoyage vitres|nettoyage des vitrines|nettoyage vitrines|vitres|vitrines|fenetres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)\b/i.test(
       normalized,
     )
   ) {
@@ -3796,7 +3796,7 @@ LEISTUNGSNAMEN / SICHTBARE ARBEITEN:
 - Erkenne die Bedeutung semantisch und formuliere daraus einen kurzen professionellen deutschen Leistungsnamen.
 - Bei handwerklichen Neben-/Vorbereitungsleistungen die Form "...arbeiten" bevorzugen, wenn fachlich passend.
   Beispiele: "spachteln" / "Spachtel" / sinngleiche Formulierungen → "Spachtelarbeiten"; "abdecken" / Schutz abdecken → "Abdeckarbeiten"; "schleifen" → "Schleifarbeiten"; "vorbereiten" → "Vorbereitungsarbeiten".
-- Bei bekannten Standardarbeiten kurze deutsche Fachnamen verwenden: "Nettoyer le sol" → "Boden reinigen", "Déplacement" → "Anfahrt", "Nettoyage des vitres" → "Fenster reinigen".
+- Bei bekannten Standardarbeiten kurze deutsche Fachnamen verwenden: "Nettoyer le sol" → "Boden reinigen", "Déplacement" → "Anfahrt", "Nettoyage des vitres"/"Nettoyage des vitrines" → "Fenster reinigen".
 - Der Originaltext gehört nur in raw/evidence/sourceText, nicht als sichtbarer Leistungsname.
 
 WICHTIG:
@@ -4065,7 +4065,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Preis aus einer anderen Zeile/anderen Leistung NIEMALS übernehmen.
 - Pauschalpreise dürfen NIEMALS auf andere Positionen kopiert werden. Wenn eine Zeile "Eingangsbereich pauschal 120" sagt, gilt 120 nur für diese eine Position.
 - Rechnungsadresse/Billing address/Rechnung geht an ist NIE eine Arbeitsposition und darf keine generische Leistung wie "Reinigung" erzeugen.
-- Fremdsprachige, mundartliche oder unprofessionell formulierte Leistungen semantisch auf deutsche professionelle Leistungsnamen übersetzen: "Nettoyage des vitres" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen, "Déplacement" = Anfahrt.
+- Fremdsprachige, mundartliche oder unprofessionell formulierte Leistungen semantisch auf deutsche professionelle Leistungsnamen übersetzen: "Nettoyage des vitres"/"Nettoyage des vitrines" = Fenster reinigen, "Nettoyage du sol du garage" = Garageboden reinigen, "Déplacement" = Anfahrt.
 - Erkenne semantisch jede eigenständige Kostenposition für Weg/Fahrt/Einsatz beim Kunden als eigene Leistung "Anfahrt". Das gilt unabhängig von Sprache oder Formulierung. Speichere niemals die fremdsprachige Originalform als Leistungsnamen. Wenn der Kundentext dafür einen klaren Pauschalpreis nennt: name/action_name = "Anfahrt", einheit = "Pauschal", menge = 1, unit_price = Betrag, currency = erkannte Währung, evidence = exakte Preiszeile.
 - Keine reine Wortlistenlogik: Entscheidend ist die Bedeutung der Kostenposition. Nicht als Anfahrt werten: Personen fahren irgendwohin, Tür öffnen, Parkplatz, Zugang, Bauleiter/Polier/Vorarbeiter oder normale Kontaktangaben ohne eigene Kostenposition.
 - Bei handwerklichen Nebenleistungen bevorzugt professionelle "...arbeiten"-Namen verwenden, wenn fachlich passend: Spachteln → Spachtelarbeiten, Abdecken → Abdeckarbeiten, Schleifen → Schleifarbeiten.

@@ -711,7 +711,7 @@ function canonicalGermanServiceNameFromText(
     return "Eingangsbereich reinigen";
   }
   if (
-    /\b(nettoyage\s+des\s+vitres|nettoyage\s+vitres|vitres|fenetres|windows|window\s+cleaning|fenster|ventanas|limpieza\s+de\s+ventanas|finestre|pulizia\s+finestre|janelas|limpeza\s+de\s+janelas)\b/.test(
+    /\b(nettoyage\s+des\s+vitres|nettoyage\s+vitres|nettoyage\s+des\s+vitrines|nettoyage\s+vitrines|vitres|vitrines|fenetres|windows|window\s+cleaning|fenster|ventanas|limpieza\s+de\s+ventanas|finestre|pulizia\s+finestre|janelas|limpeza\s+de\s+janelas)\b/.test(
       normalized,
     )
   ) {
@@ -1396,7 +1396,7 @@ function repairCommonMultilingualCleaningItems(
     let targetUnitType: string | null = null;
 
     if (
-      /\b(nettoyage\s+(?:des\s+)?vitres|vitres?|fenetres?|windows?|fenster)\b/i.test(
+      /\b(nettoyage\s+(?:des\s+)?vitres|nettoyage\s+(?:des\s+)?vitrines|vitres?|vitrines?|fenetres?|windows?|fenster)\b/i.test(
         key,
       )
     ) {
@@ -2816,7 +2816,7 @@ function inferExplicitServiceNameFromPreviousContext(
 
     const normalized = normalizeCompare(candidate);
     if (
-      /\b(?:fenster|vitres|fenetres|windows|ventanas|finestre|janelas)\b/.test(
+      /\b(?:fenster|vitres|vitrines|fenetres|windows|ventanas|finestre|janelas)\b/.test(
         normalized,
       ) &&
       /\b(?:reinigen|reinigung|putzen|clean|cleaning|nettoyage|limpieza|limpiar|pulizia|pulire|limpeza)\b/.test(
