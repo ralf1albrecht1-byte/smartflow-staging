@@ -1827,6 +1827,7 @@ export default function AuftraegePage() {
   const [formItems, setFormItems] = useState<FormItem[]>([createEmptyItem()]);
   const [formWorkSites, setFormWorkSites] = useState<OrderWorkSite[]>([]);
   const [editingWorkSiteId, setEditingWorkSiteId] = useState<string | null>(null);
+  const [movingItemKey, setMovingItemKey] = useState<string | null>(null);
   // Persisted MwSt on Auftrag — saved on the Order itself (see app/api/orders)
   // and forwarded to the derived Offer/Invoice when converting.
   const [orderVatRate, setOrderVatRate] = useState(8.1);
@@ -2210,6 +2211,7 @@ export default function AuftraegePage() {
       );
     setFormWorkSites(nextWorkSites);
     setEditingWorkSiteId(null);
+    setMovingItemKey(null);
     setSiteAddressEditing(
       nextWorkSites.length <= 1 &&
         Boolean(o.siteAddressDifferent) &&
@@ -2641,28 +2643,35 @@ export default function AuftraegePage() {
 
   const hasMultipleEditWorkSites = currentEditWorkSites.length > 1;
 
+  const normalizeWorkSiteText = (value?: string | null) =>
+    compactText(value).toLowerCase();
+
   const formatWorkSiteTitle = (site?: OrderWorkSite | null) => {
     if (!site) return "Ausführungsort";
-    return (
-      [site.siteName, site.siteAddress].filter(Boolean).join(" · ") ||
-      "Ausführungsort"
-    );
+    return compactText(site.siteName) || compactText(site.siteAddress) || "Ausführungsort";
   };
 
   const formatWorkSiteAddress = (site?: OrderWorkSite | null) => {
     if (!site) return "";
+    const titleKey = normalizeWorkSiteText(site.siteName);
+    const address = compactText(site.siteAddress);
+    const addressKey = normalizeWorkSiteText(site.siteAddress);
     return [
-      site.siteAddress,
-      [site.sitePlz, site.siteCity].filter(Boolean).join(" "),
-      site.siteNote,
+      address && addressKey !== titleKey ? address : "",
+      [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
+      compactText(site.siteNote),
     ]
       .filter(Boolean)
       .join(" · ");
   };
 
   const getWorkSiteItems = (siteId?: string | null) =>
-    formItems.filter(
-      (item) => item.workSiteId && item.workSiteId === siteId,
+    formItems.filter((item) => item.workSiteId && item.workSiteId === siteId);
+
+  const getWorkSiteTotal = (siteId?: string | null) =>
+    getWorkSiteItems(siteId).reduce(
+      (sum, item) => sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+      0,
     );
 
 
@@ -2712,6 +2721,41 @@ export default function AuftraegePage() {
     const address = formatWorkSiteAddress(site);
     return [title, address].filter(Boolean).join(" · ") || "Arbeitsort prüfen";
   };
+
+  const getWorkSiteShortLabel = (site?: OrderWorkSite | null) => {
+    if (!site) return "Ohne Arbeitsort";
+    return formatWorkSiteTitle(site);
+  };
+
+  const formItemDisplayRows = hasMultipleEditWorkSites
+    ? [
+        ...currentEditWorkSites.flatMap((site) =>
+          formItems
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.workSiteId === site.id)
+            .map(({ item, index }, siteItemIndex) => ({
+              item,
+              index,
+              site,
+              isFirstInSite: siteItemIndex === 0,
+            })),
+        ),
+        ...formItems
+          .map((item, index) => ({ item, index }))
+          .filter(({ item }) => !item.workSiteId)
+          .map(({ item, index }, siteItemIndex) => ({
+            item,
+            index,
+            site: null as OrderWorkSite | null,
+            isFirstInSite: siteItemIndex === 0,
+          })),
+      ]
+    : formItems.map((item, index) => ({
+        item,
+        index,
+        site: null as OrderWorkSite | null,
+        isFirstInSite: false,
+      }));
 
   const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
   const hasEditCurrencyReview = currentEditReviewReasons.some(
@@ -5060,7 +5104,25 @@ export default function AuftraegePage() {
                       const isEditingSite = editingWorkSiteId === site.id;
 
                       return (
-                        <div key={site.id || index} className="rounded-md border bg-background p-2">
+                        <div
+                          key={site.id || index}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            setEditingWorkSiteId((prev) =>
+                              prev === site.id ? null : site.id,
+                            )
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setEditingWorkSiteId((prev) =>
+                                prev === site.id ? null : site.id,
+                              );
+                            }
+                          }}
+                          className="cursor-pointer rounded-md border bg-background p-2 transition hover:border-cyan-300 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/20"
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <div className="text-sm font-semibold">
@@ -5076,11 +5138,12 @@ export default function AuftraegePage() {
                               </div>
                               <button
                                 type="button"
-                                onClick={() =>
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   setEditingWorkSiteId((prev) =>
                                     prev === site.id ? null : site.id,
-                                  )
-                                }
+                                  );
+                                }}
                                 className="text-xs text-primary hover:underline"
                               >
                                 {isEditingSite ? "Schließen" : "Bearbeiten"}
@@ -5089,7 +5152,10 @@ export default function AuftraegePage() {
                           </div>
 
                           {isEditingSite && (
-                            <div className="mt-2 rounded-md border bg-muted/20 p-2 space-y-2">
+                            <div
+                              onClick={(event) => event.stopPropagation()}
+                              className="mt-2 rounded-md border bg-muted/20 p-2 space-y-2"
+                            >
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div>
                                   <Label className="text-[10px]">Bezeichnung</Label>
@@ -5238,7 +5304,7 @@ export default function AuftraegePage() {
                     )}
 
                     <div className="space-y-2">
-                      {formItems.map((item, index) => {
+                      {formItemDisplayRows.map(({ item, index, site, isFirstInSite }) => {
                         const curOrder = editId
                           ? orders.find((o: Order) => o.id === editId)
                           : null;
@@ -5414,16 +5480,45 @@ export default function AuftraegePage() {
                           hasResolvedReviewCatalogAction;
 
                         return (
-                          <div
-                            key={item.key}
-                            className={`relative rounded-lg border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
-                              hasCriticalItemReview
-                                ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
-                                : hasAnyItemReview
-                                  ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                  : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
-                            }`}
-                          >
+                          <div key={item.key} className={hasMultipleEditWorkSites ? "space-y-1.5" : ""}>
+                            {hasMultipleEditWorkSites && isFirstInSite && (
+                              <div
+                                className={`rounded-xl border-2 px-3 py-2 shadow-sm ${
+                                  site
+                                    ? "border-cyan-200 bg-cyan-50/80 text-cyan-950 dark:border-cyan-800/70 dark:bg-cyan-950/25 dark:text-cyan-50"
+                                    : "border-red-200 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-semibold leading-tight">
+                                      📍 {site ? formatWorkSiteTitle(site) : "Ohne Arbeitsort"}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-muted-foreground">
+                                      {site ? formatWorkSiteAddress(site) || "Adresse prüfen" : "Leistungen bitte einem Arbeitsort zuordnen"}
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <div className="text-[10px] text-muted-foreground">Zwischensumme</div>
+                                    <div className="font-mono text-sm font-semibold">
+                                      {formatCurrency(site ? getWorkSiteTotal(site.id) : 0, currency)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            <div
+                              className={`relative rounded-lg border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
+                                hasMultipleEditWorkSites ? "ml-2 border-l-4 border-l-cyan-300" : ""
+                              } ${
+                                hasCriticalItemReview
+                                  ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                  : hasAnyItemReview
+                                    ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                    : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                              }`}
+                            >
                             <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
                               <div className="min-w-0 space-y-1">
                                 <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
@@ -5606,28 +5701,52 @@ export default function AuftraegePage() {
                             </div>
 
                             {hasMultipleEditWorkSites && (
-                              <div>
-                                <Label className="text-[10px] leading-none">
-                                  Arbeitsort
-                                </Label>
-                                <select
-                                  className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                  value={item.workSiteId || ""}
-                                  onChange={(e: any) =>
-                                    updateItem(
-                                      index,
-                                      "workSiteId",
-                                      e?.target?.value ?? "",
-                                    )
-                                  }
-                                >
-                                  <option value="">Arbeitsort wählen</option>
-                                  {currentEditWorkSites.map((site) => (
-                                    <option key={site.id} value={site.id}>
-                                      {getWorkSiteSelectLabel(site)}
-                                    </option>
-                                  ))}
-                                </select>
+                              <div className="flex justify-end">
+                                {movingItemKey === item.key || !item.workSiteId ? (
+                                  <div className="flex w-full items-end gap-2 sm:w-auto">
+                                    <div className="min-w-0 flex-1 sm:w-72">
+                                      <Label className="text-[10px] leading-none">
+                                        Arbeitsort ändern
+                                      </Label>
+                                      <select
+                                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                        value={item.workSiteId || ""}
+                                        onChange={(e: any) => {
+                                          updateItem(
+                                            index,
+                                            "workSiteId",
+                                            e?.target?.value ?? "",
+                                          );
+                                          setMovingItemKey(null);
+                                        }}
+                                      >
+                                        <option value="">Arbeitsort wählen</option>
+                                        {currentEditWorkSites.map((siteOption) => (
+                                          <option key={siteOption.id} value={siteOption.id}>
+                                            {getWorkSiteSelectLabel(siteOption)}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    {item.workSiteId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setMovingItemKey(null)}
+                                        className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
+                                      >
+                                        Fertig
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setMovingItemKey(item.key)}
+                                    className="rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
+                                  >
+                                    Arbeitsort ändern
+                                  </button>
+                                )}
                               </div>
                             )}
 
@@ -5737,6 +5856,7 @@ export default function AuftraegePage() {
                                 </div>
                               </div>
                             )}
+                            </div>
                           </div>
                         );
                       })}
