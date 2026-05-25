@@ -150,6 +150,71 @@ const uniqueTrimmedLines = (lines: string[]) => {
   return result;
 };
 
+const normalizeMergeCompareValue = (value?: string | null) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getOrderExecutionAddressLines = (order: any): string[] => {
+  const lines = [
+    order.siteName,
+    order.siteAddress,
+    [order.sitePlz, order.siteCity].filter(Boolean).join(' '),
+    order.siteNote,
+  ]
+    .map((line) => String(line || '').trim())
+    .filter(Boolean);
+
+  if (lines.length > 0) return lines;
+
+  const customerFallback = [
+    order.customer?.address,
+    [order.customer?.plz, order.customer?.city].filter(Boolean).join(' '),
+  ]
+    .map((line) => String(line || '').trim())
+    .filter(Boolean);
+
+  return customerFallback;
+};
+
+const getOrderExecutionAddressKey = (order: any) =>
+  getOrderExecutionAddressLines(order)
+    .map(normalizeMergeCompareValue)
+    .filter(Boolean)
+    .join('|');
+
+const buildExecutionAddressMismatchNote = (targetOrder: any, sourceOrders: any[]) => {
+  const allOrders = [targetOrder, ...sourceOrders];
+  const uniqueAddresses = Array.from(
+    new Map(
+      allOrders
+        .map((order) => [getOrderExecutionAddressKey(order), getOrderExecutionAddressLines(order)] as const)
+        .filter(([key, lines]) => Boolean(key) && lines.length > 0),
+    ).values(),
+  );
+
+  if (uniqueAddresses.length <= 1) return '';
+
+  const targetAddress = getOrderExecutionAddressLines(targetOrder).join(', ') || 'nicht angegeben';
+  const sourceAddresses = sourceOrders
+    .map((order, index) => {
+      const address = getOrderExecutionAddressLines(order).join(', ');
+      return address ? `Quelle ${index + 1}: ${address}` : '';
+    })
+    .filter(Boolean)
+    .join('; ');
+
+  return [
+    'Ausführungsadresse prüfen: Die verbundenen Aufträge hatten unterschiedliche Arbeitsorte.',
+    `Sichtbarer Arbeitsort bleibt der Hauptauftrag: ${targetAddress}.`,
+    sourceAddresses,
+    'Bitte vor Angebot oder Rechnung prüfen.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+};
+
 const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
   const safetyWarnings: string[] = [];
   const jobHints: string[] = [];
@@ -300,9 +365,10 @@ export async function POST(request: NextRequest) {
         ...sourceOrders.map((o) => o.customerId),
       ];
 
-      if (finalCustomerId && !allCustomerIds.includes(finalCustomerId)) {
-        throw new Error('Kunde muss aus ausgewählten Aufträgen stammen');
-      }
+      const safeFinalCustomerId =
+        finalCustomerId && allCustomerIds.includes(finalCustomerId)
+          ? finalCustomerId
+          : targetOrder.customerId;
 
       const uniqueCustomerIds = [...new Set(allCustomerIds)];
       const hasCustomerMismatch = uniqueCustomerIds.length > 1;
@@ -323,6 +389,14 @@ if (currencies.length > 1) {
       const vatKeys = new Set(allOrders.map(getVatRateKey));
       const hasVatMismatch = vatKeys.size > 1;
       const vatMismatchNote = buildVatMismatchNote(targetOrder, sourceOrders);
+      const executionAddressKeys = new Set(
+        allOrders.map(getOrderExecutionAddressKey).filter(Boolean),
+      );
+      const hasExecutionAddressMismatch = executionAddressKeys.size > 1;
+      const executionAddressMismatchNote = buildExecutionAddressMismatchNote(
+        targetOrder,
+        sourceOrders,
+      );
 
       const hasDoubleMerge = allOrders.some((o) =>
         o.reviewReasons?.includes('manual_order_merge'),
@@ -376,7 +450,7 @@ const mergedNotes = [
       const mergedItems = mergeOrderItems(allOrders);
       const mergedSpecialNotes = mergeSpecialNotes(
         allOrders,
-        vatMismatchNote ? [vatMismatchNote] : [],
+        [vatMismatchNote, executionAddressMismatchNote].filter(Boolean),
       );
 
       const totalPrice = mergedItems.reduce(
@@ -399,6 +473,10 @@ const mergedNotes = [
 
       if (hasVatMismatch) {
         newReviewReasons.push('vat_mismatch');
+      }
+
+      if (hasExecutionAddressMismatch) {
+        newReviewReasons.push('merged_different_execution_addresses');
       }
 
       if (hasDoubleMerge) {
@@ -424,7 +502,7 @@ const mergedNotes = [
       const updatedOrder = await tx.order.update({
         where: { id: targetOrderId },
       data: {
-  customerId: finalCustomerId || targetOrder.customerId,
+  customerId: safeFinalCustomerId || targetOrder.customerId,
   imageUrls: mergedImageUrls,
   thumbnailUrls: mergedThumbnailUrls,
   notes: mergedNotes,

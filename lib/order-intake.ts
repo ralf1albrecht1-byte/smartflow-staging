@@ -2710,7 +2710,7 @@ function splitWorkSegments(text: string): string[] {
     const hasQuantityUnit = detectAllQuantityUnitsFromText(segment).length > 0;
 
     const hasWorkVerb =
-      /\b(reinigen|reinigung|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen)\b/i.test(
+      /\b(reinigen|reinigung|putzen|clean|cleaning|nettoyage|nettoyer|pulizia|pulire|limpieza|limpiar|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen|anfahrt|fahrtkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel|transport|trasferta|transferta)\b/i.test(
         normalized,
       );
 
@@ -2785,7 +2785,33 @@ function composeWorkNameSource(item: any, raw: string): string {
   return action || serviceName || name || raw || "";
 }
 
+function canonicalGermanServiceNameFromText(value?: string | null): string | null {
+  const normalized = normalizeUnitText(value || "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return null;
+
+  if (/(anfahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta)/i.test(normalized)) {
+    return "Anfahrt";
+  }
+
+  if (/(clean floor|floor cleaning|boden reinigen|bodenreinigung|nettoyage du sol|nettoyage sol|nettoyer sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)/i.test(normalized)) {
+    return "Boden reinigen";
+  }
+
+  if (/(clean windows|window cleaning|windows cleaning|fenster reinigen|fensterreinigung|nettoyage des vitres|nettoyage vitres|vitres|fenetres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)/i.test(normalized)) {
+    return "Fenster reinigen";
+  }
+
+  return null;
+}
+
 function formatWorkNameForDisplay(value: string): string {
+  const canonical = canonicalGermanServiceNameFromText(value);
+  if (canonical) return canonical;
+
   const text = String(value || "")
     .replace(/ae/g, "ä")
     .replace(/oe/g, "ö")
@@ -4648,11 +4674,15 @@ const hasForbiddenServiceWorkConflict = (
       },
       {
         service: ["fenster", "fensterreinigung"],
-        work: ["fenster", "fensterreinigung", "vitre", "vitres", "fenetre", "fenetres", "window", "windows", "reinigen", "reinigung", "nettoyage"],
+        work: ["fenster", "fensterreinigung", "vitre", "vitres", "fenetre", "fenetres", "window", "windows", "finestre", "ventanas", "reinigen", "reinigung", "clean", "cleaning", "nettoyage", "pulizia", "limpieza"],
       },
       {
         service: ["boden", "garage", "garagenboden", "lagerboden"],
-        work: ["boden", "floor", "sol", "garage", "garagenboden", "lagerboden", "reinigen", "reinigung", "nettoyage"],
+        work: ["boden", "floor", "sol", "pavimento", "suelo", "garage", "garagenboden", "lagerboden", "reinigen", "reinigung", "clean", "cleaning", "nettoyage", "pulizia", "limpieza"],
+      },
+      {
+        service: ["anfahrt", "fahrtkosten", "fahrkosten", "wegpauschale", "fahrpauschale"],
+        work: ["anfahrt", "fahrtkosten", "fahrkosten", "wegpauschale", "fahrpauschale", "deplacement", "déplacement", "travel", "travel fee", "trip", "transport", "trasferta", "transferta"],
       },
     ];
 

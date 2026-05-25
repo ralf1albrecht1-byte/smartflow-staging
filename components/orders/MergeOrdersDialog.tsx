@@ -37,6 +37,12 @@ currency?: Currency | null;
   quantity?: number;
   unitPrice?: number;
   priceType?: string;
+  siteAddressDifferent?: boolean | null;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
  customer?: {
     name?: string;
     customerNumber?: string | null;
@@ -247,6 +253,63 @@ const getReviewCustomerLines = (order?: MergeOrder | null) => {
   return lines.length > 0 ? lines : ['—'];
 };
 
+const getExecutionAddressLines = (order?: MergeOrder | null) => {
+  if (!order) return ['—'];
+
+  const lines = [
+    order.siteName,
+    order.siteAddress,
+    [order.sitePlz, order.siteCity].filter(Boolean).join(' '),
+    order.siteNote,
+  ]
+    .map((line) => (line || '').trim())
+    .filter(Boolean);
+
+  if (lines.length > 0) return lines;
+
+  const customer = order.customer;
+  const fallback = [
+    customer?.address,
+    [customer?.plz, customer?.city].filter(Boolean).join(' '),
+  ]
+    .map((line) => (line || '').trim())
+    .filter(Boolean);
+
+  return fallback.length > 0 ? fallback : ['—'];
+};
+
+const getExecutionAddressCompareValue = (order: MergeOrder) => {
+  return getExecutionAddressLines(order)
+    .join(' | ')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const hasExecutionAddressConflict = (orders: MergeOrder[]) => {
+  const values = orders.map(getExecutionAddressCompareValue).filter(Boolean);
+  return new Set(values).size > 1;
+};
+
+const findExecutionConflictSourceOrder = (
+  orders: MergeOrder[],
+  mainOrder?: MergeOrder,
+) => {
+  if (!mainOrder) return orders[0];
+  const mainValue = getExecutionAddressCompareValue(mainOrder);
+
+  return (
+    orders.find(
+      (order) =>
+        order.id !== mainOrder.id &&
+        getExecutionAddressCompareValue(order) &&
+        getExecutionAddressCompareValue(order) !== mainValue,
+    ) ||
+    orders.find((order) => order.id !== mainOrder.id) ||
+    orders[0]
+  );
+};
+
 const findIdentityConflictSourceOrder = (
   orders: MergeOrder[],
   mainOrder?: MergeOrder,
@@ -439,6 +502,7 @@ export default function MergeOrdersDialog({
   if (!open) return null;
 const customerFieldConflicts = getCustomerFieldConflicts(selectedOrders);
 const hasCustomerConflict = hasCustomerIdentityConflictFromFields(customerFieldConflicts);
+const hasSiteConflict = hasExecutionAddressConflict(selectedOrders);
 const contactMergeFields = getContactMergeFields(selectedOrders);
 const hasMergedContactData = Boolean(contactMergeFields.phone || contactMergeFields.email);
 
@@ -474,6 +538,10 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
     selectedMainOrder,
     customerFieldConflicts,
   );
+  const reviewSiteSourceOrder = findExecutionConflictSourceOrder(
+    selectedOrders,
+    selectedMainOrder,
+  );
   const reviewCurrency = selectedMainOrder ? getOrderCurrency(selectedMainOrder) : currency;
   const reviewOrdersTotal = reviewOrders.reduce((sum, order) => sum + getOrderTotal(order), 0);
   const additionalOrdersSentence =
@@ -484,7 +552,7 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
 
   const openReviewDialog = () => {
     setReviewAccepted(false);
-    setReviewDetailsOpen(hasCustomerConflict || hasVatConflict);
+    setReviewDetailsOpen(hasCustomerConflict || hasSiteConflict || hasVatConflict);
     setShowReviewDialog(true);
   };
 
@@ -607,6 +675,12 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                 </div>
 
                 <div>
+                  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+                    Arbeitsort abweichend
+                  </span>
+                </div>
+
+                <div>
                   <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold">
                     MwSt abweichend
                   </span>
@@ -631,6 +705,12 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
 {hasCustomerConflict && (
   <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
     ⚠ Kundendaten abweichend. Name oder Adresse bitte prüfen.
+  </div>
+)}
+
+{hasSiteConflict && (
+  <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+    ⚠ Arbeitsort abweichend. Hauptauftrag bestimmt die sichtbare Ausführungsadresse.
   </div>
 )}
 
@@ -737,6 +817,11 @@ const fieldMismatch = {
     ⚠️ Kundendaten abweichend
   </span>
 )}
+{hasSiteConflict && (
+  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+    ⚠️ Arbeitsort abweichend
+  </span>
+)}
 {hasDifferentCurrency && (
   <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
     Unterschiedliche Währung: {orderCurrency}
@@ -819,6 +904,15 @@ const fieldMismatch = {
         )}
       </div>
     )}
+  </div>
+)}
+
+{hasSiteConflict && (
+  <div className="mt-2 mb-2 rounded-lg border border-red-100 bg-red-50/50 p-2 text-xs leading-5 text-red-900">
+    <div className="font-semibold">Ausführungsadresse</div>
+    {getExecutionAddressLines(order).map((line) => (
+      <div key={`${order.id}-site-${line}`}>{line}</div>
+    ))}
   </div>
 )}
 
@@ -1067,6 +1161,57 @@ const fieldMismatch = {
                 </div>
               )}
 
+              {hasSiteConflict && (
+                <div className="rounded-lg border border-red-200 bg-red-50 text-red-900 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setReviewDetailsOpen((value) => !value)}
+                    className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+                  >
+                    <div className="flex gap-3">
+                      <span className="text-lg leading-none">⚠</span>
+                      <div>
+                        <div className="font-bold text-sm">Arbeitsorte zusammengeführt</div>
+                        <div className="mt-1 text-sm text-red-950">
+                          Die Ausführungsadressen unterscheiden sich. Hauptauftrag bleibt die Zieladresse.
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-lg leading-none">
+                      {reviewDetailsOpen ? '⌃' : '⌄'}
+                    </span>
+                  </button>
+
+                  {reviewDetailsOpen && (
+                    <div className="mx-4 mb-4 rounded-lg border border-red-100 bg-background/70 p-3">
+                      <div className="grid grid-cols-[1fr_auto_1fr] gap-3 text-xs text-slate-600 mb-2">
+                        <div>Quelle (abweichend)</div>
+                        <div>→</div>
+                        <div>Arbeitsort Hauptauftrag (Ziel)</div>
+                      </div>
+
+                      <div className="grid grid-cols-[1fr_auto_1fr] gap-3">
+                        <div className="rounded-md border border-red-100 bg-red-50/70 p-3 text-sm leading-6">
+                          {getExecutionAddressLines(reviewSiteSourceOrder).map((line) => (
+                            <div key={`site-source-${line}`}>{line}</div>
+                          ))}
+                        </div>
+                        <div className="flex items-center text-lg text-slate-500">→</div>
+                        <div className="rounded-md border border-emerald-100 bg-emerald-50/70 p-3 text-sm leading-6">
+                          {getExecutionAddressLines(selectedMainOrder).map((line) => (
+                            <div key={`site-target-${line}`}>{line}</div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs font-semibold text-red-900">
+                        Für Angebot/Rechnung/PDF muss der Arbeitsort vor dem Erstellen geprüft werden.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {!hasCustomerConflict && hasMergedContactData && (
                 <div className="rounded-lg border bg-slate-50 px-4 py-3 text-sm">
                   <div className="font-semibold">Kontaktdaten werden ergänzt</div>
@@ -1092,6 +1237,15 @@ const fieldMismatch = {
                   <div className="font-semibold leading-6">
                     {getReviewCustomerLines(selectedMainOrder).map((line) => (
                       <div key={`selected-${line}`}>{line}</div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 border-b text-sm">
+                  <div className="text-muted-foreground">Arbeitsort</div>
+                  <div className="font-semibold leading-6">
+                    {getExecutionAddressLines(selectedMainOrder).map((line) => (
+                      <div key={`selected-site-${line}`}>{line}</div>
                     ))}
                   </div>
                 </div>
@@ -1163,9 +1317,9 @@ const fieldMismatch = {
                 </div>
               )}
 
-              {hasCustomerConflict && (
+              {(hasCustomerConflict || hasSiteConflict) && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
-                  ⚠ Bitte überprüfe Kunde und Hauptauftrag.
+                  ⚠ Bitte überprüfe Kunde, Arbeitsort und Hauptauftrag.
                 </div>
               )}
 

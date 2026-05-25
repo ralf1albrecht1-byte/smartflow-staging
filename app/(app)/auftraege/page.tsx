@@ -306,11 +306,18 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
 
-  // Keep travel costs consistent when orders are merged or saved.
-  // The service catalog uses "Anfahrt" as service name; "pauschal" is the unit,
-  // not part of the service name.
-  if (key === "anfahrt" || key === "anfahrt pauschal") {
+  // Keep service names user-facing and German. This is display/merge safety,
+  // not the primary parser: the parser still decides the position itself.
+  if (/(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta)(\b|$)/i.test(key)) {
     return "Anfahrt";
+  }
+
+  if (/(^|\b)(clean floor|floor cleaning|bodenreinigung|boden reinigen|nettoyage du sol|nettoyage sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)(\b|$)/i.test(key)) {
+    return "Boden reinigen";
+  }
+
+  if (/(^|\b)(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)(\b|$)/i.test(key)) {
+    return "Fenster reinigen";
   }
 
   return name;
@@ -416,7 +423,13 @@ const getSemanticBadgeKind = (value?: string | null) => {
   }
 
   if (/hund/.test(text)) return "dog";
-  if (/leiter/.test(text)) return "ladder";
+  // Leiter nur als Werkzeug anzeigen, nicht bei Rollenwörtern wie Bauleiter.
+  // Darum nicht mehr auf jedes "leiter" reagieren, sondern nur bei echtem
+  // Ausrüstungs-/Mitbring-Signal.
+  if (
+    /\b(?:kleine|grosse|große|hohe|eigene|tritt|steh|auszieh)?\s*leiter\b/.test(text) &&
+    /\b(?:benoetigt|benötigt|braucht|mitbringen|bringen|nehmen|erforderlich|noetig|nötig|vorhanden|aufstellen|kleine|grosse|große|tritt|steh|auszieh)\b/.test(text)
+  ) return "ladder";
   if (/park|zufahrt|innenhof|reserviert/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
@@ -489,7 +502,7 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /parkplatz.*(reserviert|innenhof|vorhanden)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available/.test(
+  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|(?:innenhof).*(park(?:platz|ieren|en)?|zufahrt)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
     text,
   );
 };
@@ -1450,7 +1463,7 @@ const getBottomBadges = (
     pushUniqueBadge(badges, {
       key: "sms_request",
       label: "SMS",
-      className: "bg-cyan-100 text-cyan-800 border border-cyan-300",
+      className: "bg-emerald-100 text-emerald-700 border border-emerald-300",
     });
   }
 
@@ -3230,12 +3243,12 @@ export default function AuftraegePage() {
 
     const defaultMainOrderId = bestMainOrder.id;
     setSelectedMainOrderId(defaultMainOrderId || null);
-    const defaultMainOrder = orders.find(
+    const defaultMainOrder = selected.find(
       (o) => o.id === (defaultMainOrderId || selectedOrderIds[0]),
     );
-    setSelectedCustomerId(
-      (prev) => prev || defaultMainOrder?.customerId || null,
-    );
+    // Wichtig: keinen alten selectedCustomerId behalten. Der Zielkunde muss
+    // immer aus den aktuell ausgewählten Aufträgen stammen.
+    setSelectedCustomerId(defaultMainOrder?.customerId || null);
     setMergeStep(2);
   };
 
@@ -3245,6 +3258,25 @@ export default function AuftraegePage() {
   const executeMerge = async () => {
     if (merging) return; // GUARD
     if (!selectedMainOrderId) return;
+
+    const selectedForMerge = orders.filter((order) =>
+      selectedOrderIds.includes(order.id),
+    );
+    const mainOrderForMerge = selectedForMerge.find(
+      (order) => order.id === selectedMainOrderId,
+    );
+    const validCustomerIds = new Set(
+      selectedForMerge.map((order) => order.customerId).filter(Boolean),
+    );
+    const safeFinalCustomerId =
+      selectedCustomerId && validCustomerIds.has(selectedCustomerId)
+        ? selectedCustomerId
+        : mainOrderForMerge?.customerId || null;
+
+    if (!safeFinalCustomerId) {
+      toast.error("Kunde für Hauptauftrag fehlt");
+      return;
+    }
 
     setMerging(true);
 
@@ -3257,7 +3289,7 @@ export default function AuftraegePage() {
           sourceOrderIds: selectedOrderIds.filter(
             (id) => id !== selectedMainOrderId,
           ),
-          finalCustomerId: selectedCustomerId || undefined,
+          finalCustomerId: safeFinalCustomerId || undefined,
         }),
       });
 
@@ -4106,7 +4138,11 @@ export default function AuftraegePage() {
         }}
         selectedOrders={getSelectedOrders()}
         selectedMainOrderId={selectedMainOrderId}
-        onSelectMainOrder={setSelectedMainOrderId}
+        onSelectMainOrder={(orderId) => {
+          setSelectedMainOrderId(orderId);
+          const selectedOrder = orders.find((order) => order.id === orderId);
+          setSelectedCustomerId(selectedOrder?.customerId || null);
+        }}
         selectedCustomerId={selectedCustomerId}
         onSelectCustomerId={setSelectedCustomerId}
         customers={getUniqueCustomersFromSelected()}
@@ -4879,8 +4915,8 @@ export default function AuftraegePage() {
                         <div className="font-semibold">⚠ Währung prüfen</div>
                         <div>
                           Im Kundentext wurden unterschiedliche Währungen
-                          erkannt. Erst bereinigen, dann Angebot oder Rechnung
-                          erstellen.
+                          erkannt. Total nicht berechenbar. Erst bereinigen,
+                          dann Angebot oder Rechnung erstellen.
                         </div>
                       </div>
                     )}
