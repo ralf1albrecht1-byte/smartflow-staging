@@ -1,4 +1,4 @@
-export type DocumentTemplate = 'classic' | 'modern' | 'minimal' | 'elegant';
+export type DocumentTemplate = "classic" | "modern" | "minimal" | "elegant";
 
 export interface CompanyInfo {
   firmenname: string;
@@ -29,33 +29,38 @@ export interface CompanyInfo {
   companyLogoUrl?: string | null;
   logoVisible?: boolean | null;
   showLogo?: boolean | null;
-currency?: string | null;
+  currency?: string | null;
 }
 
 const DEFAULT_COMPANY: CompanyInfo = {
-  firmenname: 'Mein Unternehmen',
-  ansprechpartner: 'Ralf Albrecht',
-  strasse: 'Schartenstrasse',
-  hausnummer: '127',
-  plz: '5430',
-  ort: 'Wettingen',
-  email: 'smiley.albi@web.de',
+  firmenname: "Mein Unternehmen",
+  ansprechpartner: "Ralf Albrecht",
+  strasse: "Schartenstrasse",
+  hausnummer: "127",
+  plz: "5430",
+  ort: "Wettingen",
+  email: "smiley.albi@web.de",
 };
-const getCurrency = (c?: CompanyInfo | null): 'CHF' | 'EUR' =>
-  c?.currency === 'EUR' ? 'EUR' : 'CHF';
+const getCurrency = (c?: CompanyInfo | null): "CHF" | "EUR" =>
+  c?.currency === "EUR" ? "EUR" : "CHF";
 
 const formatMoney = (amount: number, c?: CompanyInfo | null) =>
   `${getCurrency(c)} ${(amount ?? 0).toFixed(2)}`;
 const formatDate = (date: string | Date | null | undefined) => {
-  if (!date) return '';
+  if (!date) return "";
   const d = new Date(date);
-  return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return d.toLocaleDateString("de-CH", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 };
 
 function pickTemplate(company?: CompanyInfo | null): DocumentTemplate {
-  const raw = (company?.documentTemplate || '').toLowerCase();
-  if (raw === 'modern' || raw === 'minimal' || raw === 'elegant') return raw as DocumentTemplate;
-  return 'classic';
+  const raw = (company?.documentTemplate || "").toLowerCase();
+  if (raw === "modern" || raw === "minimal" || raw === "elegant")
+    return raw as DocumentTemplate;
+  return "classic";
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -90,74 +95,73 @@ const classicStyles = `
 `;
 
 function buildClassicCompanyBlock(c: CompanyInfo): string {
-  const addrLine = [c.strasse, c.hausnummer].filter(Boolean).join(' ');
-  const plzLine = [c.plz, c.ort].filter(Boolean).join(' ');
+  const addrLine = [c.strasse, c.hausnummer].filter(Boolean).join(" ");
+  const plzLine = [c.plz, c.ort].filter(Boolean).join(" ");
   const showLogo = letterheadVisible(c);
   return `
   <div class="company">
-    ${showLogo
-      ? `<div style="margin-bottom:6px;">${letterheadImg(c, 'lg')}</div>`
-      : `<div class="company-name">${c.firmenname || ''}</div>`
+    ${
+      showLogo
+        ? `<div style="margin-bottom:6px;">${letterheadImg(c, "lg")}</div>`
+        : `<div class="company-name">${c.firmenname || ""}</div>`
     }
-    ${c.ansprechpartner ? `<div>${c.ansprechpartner}</div>` : ''}
-    ${addrLine ? `<div>${addrLine}</div>` : ''}
-    ${plzLine ? `<div>${plzLine}, Schweiz</div>` : ''}
-    ${c.email ? `<div>${c.email}</div>` : ''}
-    ${c.telefon ? `<div>Tel. ${c.telefon}${c.telefon2 ? ` / ${c.telefon2}` : ''}</div>` : ''}
-    ${c.mwstAktiv && c.mwstNummer ? `<div>${c.mwstNummer}</div>` : ''}
+    ${c.ansprechpartner ? `<div>${c.ansprechpartner}</div>` : ""}
+    ${addrLine ? `<div>${addrLine}</div>` : ""}
+    ${plzLine ? `<div>${plzLine}, Schweiz</div>` : ""}
+    ${c.email ? `<div>${c.email}</div>` : ""}
+    ${c.telefon ? `<div>Tel. ${c.telefon}${c.telefon2 ? ` / ${c.telefon2}` : ""}</div>` : ""}
+    ${c.mwstAktiv && c.mwstNummer ? `<div>${c.mwstNummer}</div>` : ""}
   </div>`;
 }
 
 function buildClassicFooterBlock(c: CompanyInfo): string {
-  const addrLine = [c.strasse, c.hausnummer].filter(Boolean).join(' ');
-  const plzLine = [c.plz, c.ort].filter(Boolean).join(' ');
-  const parts = [c.firmenname, c.ansprechpartner, [addrLine, plzLine].filter(Boolean).join(', '), c.email].filter(Boolean);
-  return `<div class="footer">${parts.join(' &middot; ')}</div>`;
+  const addrLine = [c.strasse, c.hausnummer].filter(Boolean).join(" ");
+  const plzLine = [c.plz, c.ort].filter(Boolean).join(" ");
+  const parts = [
+    c.firmenname,
+    c.ansprechpartner,
+    [addrLine, plzLine].filter(Boolean).join(", "),
+    c.email,
+  ].filter(Boolean);
+  return `<div class="footer">${parts.join(" &middot; ")}</div>`;
 }
 
 function buildClassicBankBlock(c: CompanyInfo): string {
-  if (!c.iban && !c.bank) return '';
+  if (!c.iban && !c.bank) return "";
   const parts: string[] = [];
   if (c.iban) parts.push(`IBAN: ${c.iban}`);
   if (c.bank) parts.push(`Bank: ${c.bank}`);
-  return `<div class="bank-info"><strong>Bankverbindung:</strong> ${parts.join(' &middot; ')}</div>`;
+  return `<div class="bank-info"><strong>Bankverbindung:</strong> ${parts.join(" &middot; ")}</div>`;
 }
 
 function buildClassicMwstNote(c: CompanyInfo): string {
-  if (c.mwstAktiv) return '';
-  const hint = c.mwstHinweis || 'Nicht MWST-pflichtig';
+  if (c.mwstAktiv) return "";
+  const hint = c.mwstHinweis || "Nicht MWST-pflichtig";
   return `<div style="font-size:9px;color:#888;margin-top:5px;">${hint}</div>`;
 }
 
 function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
   const items = invoice?.items ?? [];
   const customer = invoice?.customer ?? {};
-  const itemsHtml = items.map((item: any) => `
-    <tr>
-      <td>${item?.description ?? ''}</td>
-      <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
-      <td>${item?.unit ?? ''}</td>
-      <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
-      <td>${formatMoney(Number(item?.totalPrice ?? 0), c)}</td>
-    </tr>
-  `).join('');
+  const itemsHtml = buildItemsRows(items, c);
 
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
 
   return `<!DOCTYPE html><html><head><style>${classicStyles}</style></head><body>
     <div class="header">
       <div>
         <div class="doc-title">Rechnung</div>
-        <div class="doc-number">${invoice?.invoiceNumber ?? ''}</div>
+        <div class="doc-number">${invoice?.invoiceNumber ?? ""}</div>
       </div>
       ${buildClassicCompanyBlock(c)}
     </div>
     <div class="customer-box">
-      <p><strong>${customer?.name ?? ''}</strong></p>
-      ${customer?.address ? `<p>${customer.address}</p>` : ''}
-      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+      <p><strong>${customer?.name ?? ""}</strong></p>
+      ${customer?.address ? `<p>${customer.address}</p>` : ""}
+      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
     </div>
     <div class="meta-grid">
       <div class="meta-item"><span class="meta-label">Rechnungsdatum:</span> ${formatDate(invoice?.invoiceDate)}</div>
@@ -170,13 +174,13 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
     <div class="totals">
       <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
 
- ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ''}
+ ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ""}
 
       <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
     </div>
     ${buildClassicBankBlock(c)}
     ${buildClassicMwstNote(c)}
-    ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ''}
+    ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ""}
     ${buildClassicFooterBlock(c)}
   </body></html>`;
 }
@@ -184,36 +188,29 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
 function renderClassicOffer(offer: any, c: CompanyInfo): string {
   const items = offer?.items ?? [];
   const customer = offer?.customer ?? {};
-  const itemsHtml = items.map((item: any) => `
-    <tr>
-      <td>${item?.description ?? ''}</td>
-      <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
-      <td>${item?.unit ?? ''}</td>
-      <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
-      <td>${formatMoney(Number(item?.totalPrice ?? 0), c)}</td>
-    </tr>
-  `).join('');
+  const itemsHtml = buildItemsRows(items, c);
 
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
 
   const priceNote = c.mwstAktiv
-    ? 'Die Preise verstehen sich inkl. MwSt.'
-    : (c.mwstHinweis || 'Nicht MWST-pflichtig') + '.';
+    ? "Die Preise verstehen sich inkl. MwSt."
+    : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
 
   return `<!DOCTYPE html><html><head><style>${classicStyles}</style></head><body>
     <div class="header">
       <div>
         <div class="doc-title">Angebot</div>
-        <div class="doc-number">${offer?.offerNumber ?? ''}</div>
+        <div class="doc-number">${offer?.offerNumber ?? ""}</div>
       </div>
       ${buildClassicCompanyBlock(c)}
     </div>
     <div class="customer-box">
-      <p><strong>${customer?.name ?? ''}</strong></p>
-      ${customer?.address ? `<p>${customer.address}</p>` : ''}
-      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+      <p><strong>${customer?.name ?? ""}</strong></p>
+      ${customer?.address ? `<p>${customer.address}</p>` : ""}
+      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
     </div>
     <div class="meta-grid">
       <div class="meta-item"><span class="meta-label">Angebotsdatum:</span> ${formatDate(offer?.offerDate)}</div>
@@ -225,10 +222,10 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
     </table>
     <div class="totals">
       <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
-      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ''}
+      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
       <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
     </div>
-    ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
+    ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ""}
     <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
     ${buildClassicFooterBlock(c)}
   </body></html>`;
@@ -239,10 +236,10 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function addrLineHelper(c: CompanyInfo) {
-  return [c.strasse, c.hausnummer].filter(Boolean).join(' ');
+  return [c.strasse, c.hausnummer].filter(Boolean).join(" ");
 }
 function plzLineHelper(c: CompanyInfo) {
-  return [c.plz, c.ort].filter(Boolean).join(' ');
+  return [c.plz, c.ort].filter(Boolean).join(" ");
 }
 function buildCompanyLines(c: CompanyInfo): string[] {
   const lines: string[] = [];
@@ -251,25 +248,103 @@ function buildCompanyLines(c: CompanyInfo): string[] {
   if (addrLine) lines.push(addrLine);
   const plzLine = plzLineHelper(c);
   if (plzLine) lines.push(plzLine);
-  if (c.telefon) lines.push(`Tel. ${c.telefon}${c.telefon2 ? ` / ${c.telefon2}` : ''}`);
+  if (c.telefon)
+    lines.push(`Tel. ${c.telefon}${c.telefon2 ? ` / ${c.telefon2}` : ""}`);
   if (c.email) lines.push(c.email);
   if (c.webseite) lines.push(c.webseite);
   if (c.mwstAktiv && c.mwstNummer) lines.push(c.mwstNummer);
   return lines;
 }
-function buildItemsRows(items: any[], c: CompanyInfo): string {
-  return items.map((item: any) => `
-    <tr>
-      <td>${item?.description ?? ''}</td>
-      <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
-      <td>${item?.unit ?? ''}</td>
-     <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
-<td>${formatMoney(Number(item?.totalPrice ?? 0), c)}</td>
-    </tr>
-  `).join('');
+function cleanWorkSiteValue(value?: string | null): string {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
+
+function getItemWorkSiteKey(item: any): string {
+  return [item?.siteName, item?.siteAddress, item?.sitePlz, item?.siteCity]
+    .map(cleanWorkSiteValue)
+    .filter(Boolean)
+    .join("|")
+    .toLowerCase();
+}
+
+function getItemWorkSiteLabel(item: any): string {
+  const title = [item?.siteName, item?.siteAddress]
+    .map(cleanWorkSiteValue)
+    .filter(Boolean)
+    .join(" · ");
+  const cityLine = [item?.sitePlz, item?.siteCity]
+    .map(cleanWorkSiteValue)
+    .filter(Boolean)
+    .join(" ");
+  const note = cleanWorkSiteValue(item?.siteNote);
+  return [title || "Ausführungsort", cityLine, note]
+    .filter(Boolean)
+    .join("<br/>");
+}
+
+function hasMultipleItemWorkSites(items: any[]): boolean {
+  const keys = new Set((items || []).map(getItemWorkSiteKey).filter(Boolean));
+  return keys.size > 1;
+}
+
+function buildPlainItemRow(item: any, c: CompanyInfo): string {
+  return `
+    <tr>
+      <td>${item?.description ?? ""}</td>
+      <td>${Number(item?.quantity ?? 0).toFixed(2)}</td>
+      <td>${item?.unit ?? ""}</td>
+      <td>${formatMoney(Number(item?.unitPrice ?? 0), c)}</td>
+      <td>${formatMoney(Number(item?.totalPrice ?? 0), c)}</td>
+    </tr>
+  `;
+}
+
+function buildItemsRows(items: any[], c: CompanyInfo): string {
+  const source = items || [];
+  if (!hasMultipleItemWorkSites(source)) {
+    return source.map((item: any) => buildPlainItemRow(item, c)).join("");
+  }
+
+  const groups = new Map<string, { label: string; items: any[] }>();
+  for (const item of source) {
+    const key = getItemWorkSiteKey(item) || "without-site";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        label: getItemWorkSiteLabel(item),
+        items: [],
+      });
+    }
+    groups.get(key)!.items.push(item);
+  }
+
+  return Array.from(groups.values())
+    .map((group, index) => {
+      const siteTotal = group.items.reduce(
+        (sum, item) => sum + Number(item?.totalPrice ?? 0),
+        0,
+      );
+      const header = `
+        <tr>
+          <td colspan="5" style="background:#eefbf6;border-top:1px solid #b7e4cf;border-bottom:1px solid #b7e4cf;padding:9px 8px;text-align:left;">
+            <strong>Ausführungsort ${index + 1}</strong><br/>
+            <span style="font-size:9px;color:#475569;">${group.label}</span>
+            <span style="float:right;font-size:9px;color:#475569;">${formatMoney(siteTotal, c)}</span>
+          </td>
+        </tr>
+      `;
+      return (
+        header + group.items.map((item) => buildPlainItemRow(item, c)).join("")
+      );
+    })
+    .join("");
+}
+
 function resolveLetterheadUrl(c: CompanyInfo): string | null {
-  return c.letterheadUrl || c.logoUrl || c.companyLogo || c.companyLogoUrl || null;
+  return (
+    c.letterheadUrl || c.logoUrl || c.companyLogo || c.companyLogoUrl || null
+  );
 }
 
 function resolveLetterheadVisible(c: CompanyInfo): boolean {
@@ -290,14 +365,17 @@ function letterheadVisible(c: CompanyInfo): boolean {
   const resolvedVisible = resolveLetterheadVisible(c);
   return !!resolvedUrl && resolvedVisible;
 }
-function letterheadImg(c: CompanyInfo, size: 'sm' | 'md' | 'lg' = 'md'): string {
+function letterheadImg(
+  c: CompanyInfo,
+  size: "sm" | "md" | "lg" = "md",
+): string {
   const url = resolveLetterheadUrl(c);
   const show = letterheadVisible(c);
   if (!url || !show) {
-    return '';
+    return "";
   }
-  const h = size === 'sm' ? '65px' : size === 'lg' ? '145px' : '105px';
-  return `<img src="${url}" alt="${c.firmenname || 'Logo'}" style="max-height:${h};max-width:260px;object-fit:contain;" />`;
+  const h = size === "sm" ? "65px" : size === "lg" ? "145px" : "105px";
+  return `<img src="${url}" alt="${c.firmenname || "Logo"}" style="max-height:${h};max-width:260px;object-fit:contain;" />`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -330,14 +408,18 @@ const modernStyles = `
   .clearfix::after { content: ''; display: block; clear: both; }
 `;
 
-function renderModernHeader(title: string, docNumber: string, c: CompanyInfo): string {
+function renderModernHeader(
+  title: string,
+  docNumber: string,
+  c: CompanyInfo,
+): string {
   return `
   <div class="band">
     <div>
       <div class="title">${title}</div>
       <div class="subtitle">${docNumber}</div>
     </div>
-    ${letterheadVisible(c) ? `<div class="logo">${letterheadImg(c, 'md')}</div>` : `<div style="font-size:15px;font-weight:700;">${c.firmenname || ''}</div>`}
+    ${letterheadVisible(c) ? `<div class="logo">${letterheadImg(c, "md")}</div>` : `<div style="font-size:15px;font-weight:700;">${c.firmenname || ""}</div>`}
   </div>`;
 }
 
@@ -346,8 +428,8 @@ function renderModernCompanyBlock(c: CompanyInfo): string {
   return `
     <div class="block">
       <h4>Absender</h4>
-      <p><strong>${c.firmenname || ''}</strong></p>
-      ${lines.map(l => `<p>${l}</p>`).join('')}
+      <p><strong>${c.firmenname || ""}</strong></p>
+      ${lines.map((l) => `<p>${l}</p>`).join("")}
     </div>`;
 }
 
@@ -355,19 +437,22 @@ function renderModernCustomerBlock(customer: any): string {
   return `
     <div class="block">
       <h4>Rechnungsempfänger</h4>
-      <p><strong>${customer?.name ?? ''}</strong></p>
-      ${customer?.address ? `<p>${customer.address}</p>` : ''}
-      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+      <p><strong>${customer?.name ?? ""}</strong></p>
+      ${customer?.address ? `<p>${customer.address}</p>` : ""}
+      ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
     </div>`;
 }
 
 function renderModernInvoice(invoice: any, c: CompanyInfo): string {
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
-  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`].filter(Boolean).join(' · ');
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
+  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
+    .filter(Boolean)
+    .join(" · ");
   return `<!DOCTYPE html><html><head><style>${modernStyles}</style></head><body>
-    ${renderModernHeader('RECHNUNG', invoice?.invoiceNumber ?? '', c)}
+    ${renderModernHeader("RECHNUNG", invoice?.invoiceNumber ?? "", c)}
     <div class="container">
       <div class="top-grid">
         ${renderModernCompanyBlock(c)}
@@ -384,28 +469,28 @@ function renderModernInvoice(invoice: any, c: CompanyInfo): string {
       <div class="clearfix">
         <div class="totals">
           <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
-          ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ''}
+          ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ""}
           <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
         </div>
       </div>
-      ${bankLine ? `<div style="clear:both;margin-top:22px;font-size:10px;color:#475569;"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ''}
-      ${!c.mwstAktiv ? `<div class="vat-note">${c.mwstHinweis || 'Nicht MWST-pflichtig'}</div>` : ''}
-      ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ''}
-      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+      ${bankLine ? `<div style="clear:both;margin-top:22px;font-size:10px;color:#475569;"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ""}
+      ${!c.mwstAktiv ? `<div class="vat-note">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
+      ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ""}
+      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
 }
 
-
 function renderModernOffer(offer: any, c: CompanyInfo): string {
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
   const priceNote = c.mwstAktiv
-    ? 'Die Preise verstehen sich inkl. MwSt.'
-    : (c.mwstHinweis || 'Nicht MWST-pflichtig') + '.';
+    ? "Die Preise verstehen sich inkl. MwSt."
+    : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
   return `<!DOCTYPE html><html><head><style>${modernStyles}</style></head><body>
-    ${renderModernHeader('ANGEBOT', offer?.offerNumber ?? '', c)}
+    ${renderModernHeader("ANGEBOT", offer?.offerNumber ?? "", c)}
     <div class="container">
       <div class="top-grid">
         ${renderModernCompanyBlock(c)}
@@ -422,13 +507,13 @@ function renderModernOffer(offer: any, c: CompanyInfo): string {
       <div class="clearfix">
         <div class="totals">
           <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
-          ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ''}
+          ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
           <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
         </div>
       </div>
-      ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
+      ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ""}
       <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
-      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
 }
@@ -459,7 +544,11 @@ const minimalStyles = `
   .footer { clear: both; margin-top: 46px; padding-top: 14px; border-top: 1px solid #eee; text-align: center; font-size: 9px; color: #999; letter-spacing: 0.5px; }
 `;
 
-function renderMinimalHeader(title: string, docNumber: string, c: CompanyInfo): string {
+function renderMinimalHeader(
+  title: string,
+  docNumber: string,
+  c: CompanyInfo,
+): string {
   const lines = buildCompanyLines(c);
   return `
     <div class="head">
@@ -468,9 +557,9 @@ function renderMinimalHeader(title: string, docNumber: string, c: CompanyInfo): 
         <div class="num">${docNumber}</div>
       </div>
       <div>
-        ${letterheadVisible(c) ? `<div style="text-align:right;margin-bottom:6px;">${letterheadImg(c, 'sm')}</div>` : ''}
-        <div class="company-name">${c.firmenname || ''}</div>
-        <div class="company-lines">${lines.join('<br/>')}</div>
+        ${letterheadVisible(c) ? `<div style="text-align:right;margin-bottom:6px;">${letterheadImg(c, "sm")}</div>` : ""}
+        <div class="company-name">${c.firmenname || ""}</div>
+        <div class="company-lines">${lines.join("<br/>")}</div>
       </div>
     </div>
     <div class="divider"></div>`;
@@ -478,18 +567,21 @@ function renderMinimalHeader(title: string, docNumber: string, c: CompanyInfo): 
 
 function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
   const customer = invoice?.customer ?? {};
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
-  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`].filter(Boolean).join(' · ');
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
+  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
+    .filter(Boolean)
+    .join(" · ");
   return `<!DOCTYPE html><html><head><style>${minimalStyles}</style></head><body>
-    ${renderMinimalHeader('Rechnung', invoice?.invoiceNumber ?? '', c)}
+    ${renderMinimalHeader("Rechnung", invoice?.invoiceNumber ?? "", c)}
     <div class="columns">
       <div>
         <h5>Rechnungsempfänger</h5>
-        <p><strong>${customer?.name ?? ''}</strong></p>
-        ${customer?.address ? `<p>${customer.address}</p>` : ''}
-        ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+        <p><strong>${customer?.name ?? ""}</strong></p>
+        ${customer?.address ? `<p>${customer.address}</p>` : ""}
+        ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
       </div>
       <div>
         <h5>Details</h5>
@@ -503,31 +595,32 @@ function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
     </table>
     <div class="totals">
       <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
-      ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ''}
+      ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ""}
       <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
     </div>
-    ${bankLine ? `<div class="notes"><strong>Bankverbindung</strong><br/>${bankLine}</div>` : ''}
-    ${!c.mwstAktiv ? `<div style="margin-top:8px;font-size:9px;color:#999;">${c.mwstHinweis || 'Nicht MWST-pflichtig'}</div>` : ''}
-    ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${invoice.notes}</div>` : ''}
-    <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+    ${bankLine ? `<div class="notes"><strong>Bankverbindung</strong><br/>${bankLine}</div>` : ""}
+    ${!c.mwstAktiv ? `<div style="margin-top:8px;font-size:9px;color:#999;">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
+    ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${invoice.notes}</div>` : ""}
+    <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
   </body></html>`;
 }
 function renderMinimalOffer(offer: any, c: CompanyInfo): string {
   const customer = offer?.customer ?? {};
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
   const priceNote = c.mwstAktiv
-    ? 'Die Preise verstehen sich inkl. MwSt.'
-    : (c.mwstHinweis || 'Nicht MWST-pflichtig') + '.';
+    ? "Die Preise verstehen sich inkl. MwSt."
+    : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
   return `<!DOCTYPE html><html><head><style>${minimalStyles}</style></head><body>
-    ${renderMinimalHeader('Angebot', offer?.offerNumber ?? '', c)}
+    ${renderMinimalHeader("Angebot", offer?.offerNumber ?? "", c)}
     <div class="columns">
       <div>
         <h5>Angebotsempfänger</h5>
-        <p><strong>${customer?.name ?? ''}</strong></p>
-        ${customer?.address ? `<p>${customer.address}</p>` : ''}
-        ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+        <p><strong>${customer?.name ?? ""}</strong></p>
+        ${customer?.address ? `<p>${customer.address}</p>` : ""}
+        ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
       </div>
       <div>
         <h5>Details</h5>
@@ -541,12 +634,12 @@ function renderMinimalOffer(offer: any, c: CompanyInfo): string {
     </table>
     <div class="totals">
       <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
-      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ''}
+      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
       <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
     </div>
-    ${offer?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${offer.notes}</div>` : ''}
+    ${offer?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${offer.notes}</div>` : ""}
     <div class="notes"><strong>Hinweis</strong><br/>Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
-    <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+    <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
   </body></html>`;
 }
 
@@ -581,40 +674,50 @@ const elegantStyles = `
 function renderElegantHead(c: CompanyInfo): string {
   const addrLine = addrLineHelper(c);
   const plzLine = plzLineHelper(c);
-  const addr = [addrLine, plzLine, c.email, c.telefon ? `Tel. ${c.telefon}` : ''].filter(Boolean).join(' · ');
+  const addr = [
+    addrLine,
+    plzLine,
+    c.email,
+    c.telefon ? `Tel. ${c.telefon}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return `
     <div class="brand">
-      ${letterheadVisible(c) ? `<div class="logo">${letterheadImg(c, 'md')}</div>` : ''}
-      <div class="firm">${c.firmenname || ''}</div>
-      ${addr ? `<div class="addr">${addr}</div>` : ''}
+      ${letterheadVisible(c) ? `<div class="logo">${letterheadImg(c, "md")}</div>` : ""}
+      <div class="firm">${c.firmenname || ""}</div>
+      ${addr ? `<div class="addr">${addr}</div>` : ""}
     </div>`;
 }
 
 function renderElegantInvoice(invoice: any, c: CompanyInfo): string {
   const customer = invoice?.customer ?? {};
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
-  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`].filter(Boolean).join(' · ');
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
+  const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
+    .filter(Boolean)
+    .join(" · ");
   return `<!DOCTYPE html><html><head><style>${elegantStyles}</style></head><body>
     <div class="wrap">
       ${renderElegantHead(c)}
       <div class="center-title">
         <h1>Rechnung</h1>
-        <div class="num">${invoice?.invoiceNumber ?? ''}</div>
+        <div class="num">${invoice?.invoiceNumber ?? ""}</div>
       </div>
       <div class="two-col">
         <div>
           <h4>Rechnungsempfänger</h4>
-          <p><strong>${customer?.name ?? ''}</strong></p>
-          ${customer?.address ? `<p>${customer.address}</p>` : ''}
-          ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+          <p><strong>${customer?.name ?? ""}</strong></p>
+          ${customer?.address ? `<p>${customer.address}</p>` : ""}
+          ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
         </div>
         <div>
           <h4>Details</h4>
           <p><em>Rechnungsdatum:</em> ${formatDate(invoice?.invoiceDate)}</p>
           <p><em>Zahlungsziel:</em> ${formatDate(invoice?.dueDate)}</p>
-          ${c.mwstAktiv && c.mwstNummer ? `<p><em>MwSt-Nr.:</em> ${c.mwstNummer}</p>` : ''}
+          ${c.mwstAktiv && c.mwstNummer ? `<p><em>MwSt-Nr.:</em> ${c.mwstNummer}</p>` : ""}
         </div>
       </div>
       <table>
@@ -623,38 +726,39 @@ function renderElegantInvoice(invoice: any, c: CompanyInfo): string {
       </table>
       <div class="totals">
         <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(invoice?.subtotal ?? 0), c)}</span></div>
-        ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ''}
+        ${Number(invoice?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(invoice?.vatAmount ?? 0), c)}</span></div>` : ""}
         <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(invoice?.total ?? 0), c)}</span></div>
       </div>
-      ${bankLine ? `<div class="notes"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ''}
-      ${!c.mwstAktiv ? `<div style="clear:both;margin-top:8px;font-size:9px;color:#a08864;font-style:italic;">${c.mwstHinweis || 'Nicht MWST-pflichtig'}</div>` : ''}
-      ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ''}
-      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+      ${bankLine ? `<div class="notes"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ""}
+      ${!c.mwstAktiv ? `<div style="clear:both;margin-top:8px;font-size:9px;color:#a08864;font-style:italic;">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
+      ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ""}
+      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
 }
 
 function renderElegantOffer(offer: any, c: CompanyInfo): string {
   const customer = offer?.customer ?? {};
-  const vatLabel = c.mwstAktiv === false
-    ? (c.mwstHinweis || 'Nicht MWST-pflichtig')
-    : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
+  const vatLabel =
+    c.mwstAktiv === false
+      ? c.mwstHinweis || "Nicht MWST-pflichtig"
+      : `MwSt. ${Number(offer?.vatRate ?? 7.7)}%`;
   const priceNote = c.mwstAktiv
-    ? 'Die Preise verstehen sich inkl. MwSt.'
-    : (c.mwstHinweis || 'Nicht MWST-pflichtig') + '.';
+    ? "Die Preise verstehen sich inkl. MwSt."
+    : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
   return `<!DOCTYPE html><html><head><style>${elegantStyles}</style></head><body>
     <div class="wrap">
       ${renderElegantHead(c)}
       <div class="center-title">
         <h1>Angebot</h1>
-        <div class="num">${offer?.offerNumber ?? ''}</div>
+        <div class="num">${offer?.offerNumber ?? ""}</div>
       </div>
       <div class="two-col">
         <div>
           <h4>Angebotsempfänger</h4>
-          <p><strong>${customer?.name ?? ''}</strong></p>
-          ${customer?.address ? `<p>${customer.address}</p>` : ''}
-          ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ''} ${customer?.city ?? ''}</p>` : ''}
+          <p><strong>${customer?.name ?? ""}</strong></p>
+          ${customer?.address ? `<p>${customer.address}</p>` : ""}
+          ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
         </div>
         <div>
           <h4>Details</h4>
@@ -668,12 +772,12 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
       </table>
       <div class="totals">
         <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
-        ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ''}
+        ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
         <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
       </div>
-      ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ''}
+      ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ""}
       <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
-      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(' · ')}</div>
+      <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
 }
@@ -682,26 +786,40 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
 // PUBLIC API — dispatcher (signatures unchanged)
 // ──────────────────────────────────────────────────────────────────────────────
 
-export function generateInvoiceHtml(invoice: any, company?: CompanyInfo | null): string {
+export function generateInvoiceHtml(
+  invoice: any,
+  company?: CompanyInfo | null,
+): string {
   const c = company ?? DEFAULT_COMPANY;
   const tpl = pickTemplate(c);
   switch (tpl) {
-    case 'modern':  return renderModernInvoice(invoice, c);
-    case 'minimal': return renderMinimalInvoice(invoice, c);
-    case 'elegant': return renderElegantInvoice(invoice, c);
-    case 'classic':
-    default:        return renderClassicInvoice(invoice, c);
+    case "modern":
+      return renderModernInvoice(invoice, c);
+    case "minimal":
+      return renderMinimalInvoice(invoice, c);
+    case "elegant":
+      return renderElegantInvoice(invoice, c);
+    case "classic":
+    default:
+      return renderClassicInvoice(invoice, c);
   }
 }
 
-export function generateOfferHtml(offer: any, company?: CompanyInfo | null): string {
+export function generateOfferHtml(
+  offer: any,
+  company?: CompanyInfo | null,
+): string {
   const c = company ?? DEFAULT_COMPANY;
   const tpl = pickTemplate(c);
   switch (tpl) {
-    case 'modern':  return renderModernOffer(offer, c);
-    case 'minimal': return renderMinimalOffer(offer, c);
-    case 'elegant': return renderElegantOffer(offer, c);
-    case 'classic':
-    default:        return renderClassicOffer(offer, c);
+    case "modern":
+      return renderModernOffer(offer, c);
+    case "minimal":
+      return renderMinimalOffer(offer, c);
+    case "elegant":
+      return renderElegantOffer(offer, c);
+    case "classic":
+    default:
+      return renderClassicOffer(offer, c);
   }
 }

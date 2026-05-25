@@ -12,9 +12,10 @@ import {
   CustomerArchivedError,
   isCustomerDataIncomplete,
 } from "@/lib/customer-links";
-import { buildSpecialNotes, splitSpecialNotes } from "@/lib/special-notes-utils";
-
-
+import {
+  buildSpecialNotes,
+  splitSpecialNotes,
+} from "@/lib/special-notes-utils";
 
 type SemanticNoteMatch = {
   label: string;
@@ -406,7 +407,11 @@ export async function GET(
   try {
     const order = await prisma.order.findFirst({
       where: { id: params?.id, userId },
-      include: { customer: true, items: true },
+      include: {
+        customer: true,
+        items: { include: { workSite: true } },
+        workSites: true,
+      },
     });
     if (!order)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
@@ -565,23 +570,44 @@ export async function PUT(
         // totalPrice only updates if items or price fields were provided
         ...(hasItemsField || hasPriceFields ? { totalPrice } : {}),
         // VAT only re-persists when prices/items/vatRate changed — not on metadata-only updates
-      ...(shouldRecalculate
-  ? { vatRate: effectiveVatRate, vatAmount: effectiveVatAmount, total: effectiveTotal }
-  : {}),
-currency: data?.currency === 'EUR' ? 'EUR' : data?.currency === 'CHF' ? 'CHF' : undefined,
-siteAddressDifferent:
-  data?.siteAddressDifferent !== undefined
-    ? Boolean(data.siteAddressDifferent)
-    : undefined,
-siteName: data?.siteName !== undefined ? data.siteName?.trim() || null : undefined,
-siteAddress:
-  data?.siteAddress !== undefined ? data.siteAddress?.trim() || null : undefined,
-sitePlz: data?.sitePlz !== undefined ? data.sitePlz?.trim() || null : undefined,
-siteCity:
-  data?.siteCity !== undefined ? data.siteCity?.trim() || null : undefined,
-siteNote:
-  data?.siteNote !== undefined ? data.siteNote?.trim() || null : undefined,
-date: data?.date ? new Date(data.date) : undefined,
+        ...(shouldRecalculate
+          ? {
+              vatRate: effectiveVatRate,
+              vatAmount: effectiveVatAmount,
+              total: effectiveTotal,
+            }
+          : {}),
+        currency:
+          data?.currency === "EUR"
+            ? "EUR"
+            : data?.currency === "CHF"
+              ? "CHF"
+              : undefined,
+        siteAddressDifferent:
+          data?.siteAddressDifferent !== undefined
+            ? Boolean(data.siteAddressDifferent)
+            : undefined,
+        siteName:
+          data?.siteName !== undefined
+            ? data.siteName?.trim() || null
+            : undefined,
+        siteAddress:
+          data?.siteAddress !== undefined
+            ? data.siteAddress?.trim() || null
+            : undefined,
+        sitePlz:
+          data?.sitePlz !== undefined
+            ? data.sitePlz?.trim() || null
+            : undefined,
+        siteCity:
+          data?.siteCity !== undefined
+            ? data.siteCity?.trim() || null
+            : undefined,
+        siteNote:
+          data?.siteNote !== undefined
+            ? data.siteNote?.trim() || null
+            : undefined,
+        date: data?.date ? new Date(data.date) : undefined,
         notes: data?.notes,
         specialNotes: normalizedSpecialNotes,
         needsReview:
@@ -608,12 +634,17 @@ date: data?.date ? new Date(data.date) : undefined,
                   unitPrice: Number(item.unitPrice ?? 0),
                   totalPrice:
                     Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
+                  workSiteId: item.workSiteId || null,
                 })),
               },
             }
           : {}),
       },
-      include: { customer: true, items: true },
+      include: {
+        customer: true,
+        items: { include: { workSite: true } },
+        workSites: true,
+      },
     });
     const su = await getSessionUser();
     logAuditAsync({
@@ -647,7 +678,11 @@ date: data?.date ? new Date(data.date) : undefined,
       finalOrder = await prisma.order.update({
         where: { id: params?.id },
         data: { needsReview: false, reviewReasons: [], hinweisLevel: "none" },
-        include: { customer: true, items: true },
+        include: {
+          customer: true,
+          items: { include: { workSite: true } },
+          workSites: true,
+        },
       });
       logAuditAsync({
         userId: su?.id,
@@ -684,7 +719,6 @@ date: data?.date ? new Date(data.date) : undefined,
     return NextResponse.json({ error: "Fehler" }, { status: 500 });
   }
 }
-
 
 const FALLBACK_CUSTOMER_NAMES = new Set([
   "",
@@ -752,22 +786,23 @@ const cleanupEmptyCustomerAfterOrderDelete = async (
 
   if (!customer || !isDisposableEmptyCustomer(customer)) return null;
 
-  const [remainingOrders, remainingOffers, remainingInvoices] = await Promise.all([
-    prisma.order.count({
-      where: {
-        customerId,
-        userId,
-        deletedAt: null,
-        id: { not: deletedOrderId },
-      },
-    }),
-    prisma.offer.count({
-      where: { customerId, userId, deletedAt: null },
-    }),
-    prisma.invoice.count({
-      where: { customerId, userId, deletedAt: null },
-    }),
-  ]);
+  const [remainingOrders, remainingOffers, remainingInvoices] =
+    await Promise.all([
+      prisma.order.count({
+        where: {
+          customerId,
+          userId,
+          deletedAt: null,
+          id: { not: deletedOrderId },
+        },
+      }),
+      prisma.offer.count({
+        where: { customerId, userId, deletedAt: null },
+      }),
+      prisma.invoice.count({
+        where: { customerId, userId, deletedAt: null },
+      }),
+    ]);
 
   if (remainingOrders > 0 || remainingOffers > 0 || remainingInvoices > 0) {
     return null;

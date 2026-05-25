@@ -161,6 +161,8 @@ date        DateTime @default(now())
   userId      String?
   user        User?    @relation(fields: [userId], references: [id])
   items       OrderItem[]
+  workSites   OrderWorkSite[]
+  originOrderIds String[] @default([])
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -168,16 +170,41 @@ date        DateTime @default(now())
   @@index([userId])
 }
 
+model OrderWorkSite {
+  id            String @id @default(cuid())
+  orderId       String
+  order         Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  siteName      String?
+  siteAddress   String?
+  sitePlz       String?
+  siteCity      String?
+  siteNote      String?
+  isPrimary     Boolean @default(false)
+  sortOrder     Int     @default(0)
+  sourceOrderId String?
+  items         OrderItem[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([sourceOrderId])
+}
+
 model OrderItem {
   id          String @id @default(cuid())
   orderId     String
   order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  workSiteId  String?
+  workSite    OrderWorkSite? @relation(fields: [workSiteId], references: [id], onDelete: SetNull)
   serviceName String
   description String @default("")
   quantity    Float  @default(1)
   unit        String @default("Stunde")
   unitPrice   Float
   totalPrice  Float
+
+  @@index([orderId])
+  @@index([workSiteId])
 }
 
 model Invoice {
@@ -216,6 +243,14 @@ model InvoiceItem {
   unit        String  @default("Stunde")
   unitPrice   Float
   totalPrice  Float
+  siteName    String?
+  siteAddress String?
+  sitePlz     String?
+  siteCity    String?
+  siteNote    String?
+  sourceOrderId String?
+
+  @@index([invoiceId])
 }
 
 model Offer {
@@ -252,6 +287,14 @@ model OfferItem {
   unit        String @default("Stunde")
   unitPrice   Float
   totalPrice  Float
+  siteName    String?
+  siteAddress String?
+  sitePlz     String?
+  siteCity    String?
+  siteNote    String?
+  sourceOrderId String?
+
+  @@index([offerId])
 }
 
 model Counter {

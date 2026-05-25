@@ -11,9 +11,10 @@ import {
   assertCustomerNotArchived,
   CustomerArchivedError,
 } from "@/lib/customer-links";
-import { buildSpecialNotes, splitSpecialNotes } from "@/lib/special-notes-utils";
-
-
+import {
+  buildSpecialNotes,
+  splitSpecialNotes,
+} from "@/lib/special-notes-utils";
 
 type SemanticNoteMatch = {
   label: string;
@@ -30,13 +31,14 @@ const normalizeSearchText = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
-
 // V16.37: Route-level safety net for browser-created orders.
 // If the UI posts an order with a blank/new customerId and the original text
 // contains a clear nameless "Rechnung an:" block, persist that billing address
 // on the linked blank customer. This catches paths that do not go through
 // lib/order-intake.ts.
-function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]): {
+function extractNamelessBillingAddressFromOrderPayloadV1637(
+  ...values: unknown[]
+): {
   street: string | null;
   plz: string | null;
   city: string | null;
@@ -69,7 +71,10 @@ function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]
 
   const parseStreet = (line: string): string | null => {
     const raw = String(line || "")
-      .replace(/^\s*(?:adresse|anschrift|strasse|straße|street\s+address|address)\s*:?\s*/i, "")
+      .replace(
+        /^\s*(?:adresse|anschrift|strasse|straße|street\s+address|address)\s*:?\s*/i,
+        "",
+      )
       .replace(/[,;]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -77,18 +82,31 @@ function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]
 
     const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
     const word = "[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*";
-    const suffix = "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
+    const suffix =
+      "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
     const patterns = [
-      new RegExp(`\\b((?:${word}\\s+){0,3}${word}${suffix}\\s+${houseNumber})\\b`, "i"),
-      new RegExp(`\\b((?:${word}\\s+){1,4}${suffix}\\s+${houseNumber})\\b`, "i"),
-      new RegExp(`\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,6}\\s+${houseNumber})\\b`, "i"),
+      new RegExp(
+        `\\b((?:${word}\\s+){0,3}${word}${suffix}\\s+${houseNumber})\\b`,
+        "i",
+      ),
+      new RegExp(
+        `\\b((?:${word}\\s+){1,4}${suffix}\\s+${houseNumber})\\b`,
+        "i",
+      ),
+      new RegExp(
+        `\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,6}\\s+${houseNumber})\\b`,
+        "i",
+      ),
     ];
 
     for (const pattern of patterns) {
       const match = raw.match(pattern);
       if (match?.[1]) {
         return match[1]
-          .replace(/^\s*(?:beim|bei|an|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+          .replace(
+            /^\s*(?:beim|bei|an|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i,
+            "",
+          )
           .replace(/\s+/g, " ")
           .trim();
       }
@@ -97,18 +115,28 @@ function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]
     return null;
   };
 
-  const parsePlzCity = (line: string): { plz: string | null; city: string | null } => {
+  const parsePlzCity = (
+    line: string,
+  ): { plz: string | null; city: string | null } => {
     const cleaned = String(line || "")
-      .replace(/^\s*(?:plz\s*\/\s*ort|plz|ort|postleitzahl|zip|postal\s+code|ville|city)\s*:?\s*/i, "")
+      .replace(
+        /^\s*(?:plz\s*\/\s*ort|plz|ort|postleitzahl|zip|postal\s+code|ville|city)\s*:?\s*/i,
+        "",
+      )
       .replace(/[,;]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
 
-    const match = cleaned.match(/\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{1,60}?)(?=\s*(?:$|\b(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail|email|arbeitsort|objekt|kontakt|besonderheiten|leistungen|leistungsübersicht|leistungsuebersicht)\b|[,;.]))/i);
+    const match = cleaned.match(
+      /\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{1,60}?)(?=\s*(?:$|\b(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail|email|arbeitsort|objekt|kontakt|besonderheiten|leistungen|leistungsübersicht|leistungsuebersicht)\b|[,;.]))/i,
+    );
     if (!match) return { plz: null, city: null };
 
     const city = String(match[2] || "")
-      .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
+      .replace(
+        /\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i,
+        "",
+      )
       .replace(/[,;:.]+$/g, "")
       .replace(/\s+/g, " ")
       .trim();
@@ -117,8 +145,11 @@ function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]
   };
 
   const extractPhone = (block: string): string | null => {
-    const explicit = block.match(/\b(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)\b/i);
-    const loose = explicit?.[1] || block.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] || null;
+    const explicit = block.match(
+      /\b(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)\b/i,
+    );
+    const loose =
+      explicit?.[1] || block.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] || null;
     return loose ? loose.replace(/\s+/g, " ").trim() : null;
   };
 
@@ -148,7 +179,12 @@ function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]
     let city: string | null = null;
 
     for (const line of blockLines) {
-      if (/^\s*(?:e-?mail|email|tel\.?|telefon|phone|mobile|handy|natel)\b/i.test(line)) continue;
+      if (
+        /^\s*(?:e-?mail|email|tel\.?|telefon|phone|mobile|handy|natel)\b/i.test(
+          line,
+        )
+      )
+        continue;
 
       if (!street) street = parseStreet(line);
 
@@ -168,7 +204,9 @@ function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]
     const email = extractEmail(block);
 
     const hasSafeAddress = Boolean(street && plz && city);
-    const hasSafePartialWithContact = Boolean((street || (plz && city)) && (phone || email));
+    const hasSafePartialWithContact = Boolean(
+      (street || (plz && city)) && (phone || email),
+    );
     if (!hasSafeAddress && !hasSafePartialWithContact) continue;
 
     return { street, plz, city, phone, email };
@@ -176,7 +214,6 @@ function extractNamelessBillingAddressFromOrderPayloadV1637(...values: unknown[]
 
   return null;
 }
-
 
 const semanticNoteMatches: SemanticNoteMatch[] = [
   {
@@ -303,7 +340,15 @@ const semanticNoteMatches: SemanticNoteMatch[] = [
   {
     label: "Schimmel / Gesundheitsgefahr",
     type: "safety",
-    patterns: [/\bschimmel\b/, /\bmold\b/, /\bmould\b/, /\bmoho\b/, /\bmoisi/, /\bmuffa\b/, /\bbolor\b/],
+    patterns: [
+      /\bschimmel\b/,
+      /\bmold\b/,
+      /\bmould\b/,
+      /\bmoho\b/,
+      /\bmoisi/,
+      /\bmuffa\b/,
+      /\bbolor\b/,
+    ],
   },
   {
     label: "Chemikalien vor Ort",
@@ -464,7 +509,9 @@ function normalizeOrderSpecialNotes(data: any) {
   const parsed = splitSpecialNotes(data?.specialNotes);
   const itemText = Array.isArray(data?.items)
     ? data.items
-        .map((item: any) => [item?.serviceName, item?.description].filter(Boolean).join(" "))
+        .map((item: any) =>
+          [item?.serviceName, item?.description].filter(Boolean).join(" "),
+        )
         .join("\n")
     : "";
 
@@ -530,7 +577,8 @@ function roundMoney(value: number): number {
 
 function calculateVatTotals(netValue: number, vatRateValue: number) {
   const totalPrice = roundMoney(Number(netValue ?? 0));
-  const vatRate = Number.isFinite(vatRateValue) && vatRateValue > 0 ? vatRateValue : 0;
+  const vatRate =
+    Number.isFinite(vatRateValue) && vatRateValue > 0 ? vatRateValue : 0;
   const vatAmount = roundMoney((totalPrice * vatRate) / 100);
   const total = roundMoney(totalPrice + vatAmount);
 
@@ -548,25 +596,26 @@ function normalizeOrderVat(o: any) {
   // If vatAmount/total were never written (legacy rows default to 0), recompute.
   const storedVatAmount = Number(o?.vatAmount ?? 0);
   const storedTotal = Number(o?.total ?? 0);
-const computed = calculateVatTotals(totalPrice, vatRate);
+  const computed = calculateVatTotals(totalPrice, vatRate);
 
-// Heuristic:
-// - alte Datensätze mit total = 0 neu berechnen
-// - falsch gerundete gespeicherte Werte ebenfalls beim Lesen korrigiert anzeigen
-const storedVatRounded = roundMoney(storedVatAmount);
-const storedTotalRounded = roundMoney(storedTotal);
+  // Heuristic:
+  // - alte Datensätze mit total = 0 neu berechnen
+  // - falsch gerundete gespeicherte Werte ebenfalls beim Lesen korrigiert anzeigen
+  const storedVatRounded = roundMoney(storedVatAmount);
+  const storedTotalRounded = roundMoney(storedTotal);
 
-const storedLooksWrong =
-  Math.abs(storedVatRounded - computed.vatAmount) >= 0.005 ||
-  Math.abs(storedTotalRounded - computed.total) >= 0.005;
+  const storedLooksWrong =
+    Math.abs(storedVatRounded - computed.vatAmount) >= 0.005 ||
+    Math.abs(storedTotalRounded - computed.total) >= 0.005;
 
-const useComputed = (storedTotal === 0 && totalPrice > 0) || storedLooksWrong;
+  const useComputed = (storedTotal === 0 && totalPrice > 0) || storedLooksWrong;
 
-return {
-  vatRate: computed.vatRate,
-  vatAmount: useComputed ? computed.vatAmount : storedVatRounded,
-  total: useComputed ? computed.total : storedTotalRounded,
-};}
+  return {
+    vatRate: computed.vatRate,
+    vatAmount: useComputed ? computed.vatAmount : storedVatRounded,
+    total: useComputed ? computed.total : storedTotalRounded,
+  };
+}
 
 export async function GET(request: Request) {
   let userId: string;
@@ -596,7 +645,8 @@ export async function GET(request: Request) {
             customerNumber: true,
           },
         },
-        items: true,
+        items: { include: { workSite: true } },
+        workSites: true,
       },
     });
     return NextResponse.json(
@@ -668,11 +718,11 @@ export async function POST(request: Request) {
       } catch {}
     }
     if (!isFinite(vatRate) || vatRate < 0) vatRate = 0;
-  const calculatedTotals = calculateVatTotals(totalPrice, vatRate);
-totalPrice = calculatedTotals.totalPrice;
-vatRate = calculatedTotals.vatRate;
-const vatAmount = calculatedTotals.vatAmount;
-const total = calculatedTotals.total;
+    const calculatedTotals = calculateVatTotals(totalPrice, vatRate);
+    totalPrice = calculatedTotals.totalPrice;
+    vatRate = calculatedTotals.vatRate;
+    const vatAmount = calculatedTotals.vatAmount;
+    const total = calculatedTotals.total;
     // Guard: reject creation linked to an archived customer
     if (data?.customerId) {
       await assertCustomerNotArchived(prisma, data.customerId);
@@ -702,7 +752,8 @@ const total = calculatedTotals.total;
         notes: data?.notes ?? null,
         specialNotes: normalizedSpecialNotes,
         hinweisLevel:
-          data?.hinweisLevel ?? (hasNormalizedSafetyWarnings ? "warning" : "none"),
+          data?.hinweisLevel ??
+          (hasNormalizedSafetyWarnings ? "warning" : "none"),
         mediaUrl: data?.mediaUrl ?? null,
         mediaType: data?.mediaType ?? null,
         imageUrls: data?.imageUrls ?? [],
@@ -724,7 +775,11 @@ const total = calculatedTotals.total;
             }
           : {}),
       },
-      include: { customer: true, items: true },
+      include: {
+        customer: true,
+        items: { include: { workSite: true } },
+        workSites: true,
+      },
     });
 
     // V16.37: If this browser/API path created an order linked to a blank
@@ -732,12 +787,13 @@ const total = calculatedTotals.total;
     // original order text onto that customer. This does not touch real named
     // customers and never reads the execution address block.
     if (data?.customerId) {
-      const explicitBillingAddress = extractNamelessBillingAddressFromOrderPayloadV1637(
-        data?.notes,
-        data?.description,
-        data?.audioTranscript,
-        data?.specialNotes,
-      );
+      const explicitBillingAddress =
+        extractNamelessBillingAddressFromOrderPayloadV1637(
+          data?.notes,
+          data?.description,
+          data?.audioTranscript,
+          data?.specialNotes,
+        );
 
       if (explicitBillingAddress) {
         const linkedCustomer = await prisma.customer.findUnique({
@@ -761,11 +817,16 @@ const total = calculatedTotals.total;
 
         if (linkedCustomer && customerNameMissing && customerAddressMissing) {
           const customerUpdate: Record<string, string> = {};
-          if (explicitBillingAddress.street) customerUpdate.address = explicitBillingAddress.street;
-          if (explicitBillingAddress.plz) customerUpdate.plz = explicitBillingAddress.plz;
-          if (explicitBillingAddress.city) customerUpdate.city = explicitBillingAddress.city;
-          if (explicitBillingAddress.phone && !linkedCustomer.phone) customerUpdate.phone = explicitBillingAddress.phone;
-          if (explicitBillingAddress.email && !linkedCustomer.email) customerUpdate.email = explicitBillingAddress.email;
+          if (explicitBillingAddress.street)
+            customerUpdate.address = explicitBillingAddress.street;
+          if (explicitBillingAddress.plz)
+            customerUpdate.plz = explicitBillingAddress.plz;
+          if (explicitBillingAddress.city)
+            customerUpdate.city = explicitBillingAddress.city;
+          if (explicitBillingAddress.phone && !linkedCustomer.phone)
+            customerUpdate.phone = explicitBillingAddress.phone;
+          if (explicitBillingAddress.email && !linkedCustomer.email)
+            customerUpdate.email = explicitBillingAddress.email;
 
           if (Object.keys(customerUpdate).length > 0) {
             await prisma.customer.update({
@@ -776,7 +837,11 @@ const total = calculatedTotals.total;
             order =
               (await prisma.order.findUnique({
                 where: { id: order.id },
-                include: { customer: true, items: true },
+                include: {
+                  customer: true,
+                  items: { include: { workSite: true } },
+                  workSites: true,
+                },
               })) ?? order;
           }
         }

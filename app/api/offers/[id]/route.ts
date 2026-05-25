@@ -12,19 +12,20 @@ import {
   CustomerArchivedError,
 } from "@/lib/customer-links";
 
-
 function validateDocumentItemsForUpdate(items: any[]) {
   if (!Array.isArray(items)) return null;
-  if (items.length === 0) return 'Mindestens eine Leistung ist erforderlich.';
+  if (items.length === 0) return "Mindestens eine Leistung ist erforderlich.";
 
   const invalid = items.some(
     (item: any) =>
-      !String(item?.description || '').trim() ||
+      !String(item?.description || "").trim() ||
       Number(item?.quantity || 0) <= 0 ||
       Number(item?.unitPrice || 0) <= 0,
   );
 
-  return invalid ? 'Preis/Menge prüfen: Dokument kann nicht mit leeren oder 0-Positionen gespeichert werden.' : null;
+  return invalid
+    ? "Preis/Menge prüfen: Dokument kann nicht mit leeren oder 0-Positionen gespeichert werden."
+    : null;
 }
 
 export async function GET(
@@ -104,7 +105,8 @@ export async function PUT(
 
     const data = await request.json();
     const itemError = validateDocumentItemsForUpdate(data?.items);
-    if (itemError) return NextResponse.json({ error: itemError }, { status: 400 });
+    if (itemError)
+      return NextResponse.json({ error: itemError }, { status: 400 });
 
     // Guard: reject reassignment to an archived customer
     if (data.customerId && data.customerId !== existing.customerId) {
@@ -121,6 +123,12 @@ export async function PUT(
         unit: item.unit || "Stunde",
         unitPrice: Number(item.unitPrice || 0),
         totalPrice: Number(item.quantity || 1) * Number(item.unitPrice || 0),
+        siteName: item.siteName || null,
+        siteAddress: item.siteAddress || null,
+        sitePlz: item.sitePlz || null,
+        siteCity: item.siteCity || null,
+        siteNote: item.siteNote || null,
+        sourceOrderId: item.sourceOrderId || null,
       }));
 
       const subtotal = itemsData.reduce(
@@ -140,9 +148,9 @@ export async function PUT(
           status: data.status,
           notes: data.notes,
           currency:
-  data?.currency === "EUR" || data?.currency === "CHF"
-    ? data.currency
-    : existing.currency,
+            data?.currency === "EUR" || data?.currency === "CHF"
+              ? data.currency
+              : existing.currency,
           customerId: data.customerId || undefined,
           subtotal,
           vatRate,

@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
+import { useState } from "react";
 
-type Currency = 'CHF' | 'EUR';
-type ContentKind = 'original' | 'ai' | 'none';
+type Currency = "CHF" | "EUR";
+type ContentKind = "original" | "ai" | "none";
 
 interface MergeOrderItem {
   id?: string;
@@ -16,7 +16,7 @@ interface MergeOrderItem {
 }
 
 interface MergeOrder {
-currency?: Currency | null;
+  currency?: Currency | null;
   vatRate?: number | null;
   vatAmount?: number | null;
   total?: number | null;
@@ -43,15 +43,15 @@ currency?: Currency | null;
   sitePlz?: string | null;
   siteCity?: string | null;
   siteNote?: string | null;
- customer?: {
+  customer?: {
     name?: string;
     customerNumber?: string | null;
-   address?: string | null;
-plz?: string | null;
+    address?: string | null;
+    plz?: string | null;
     city?: string | null;
     phone?: string | null;
     email?: string | null;
-};
+  };
   items?: MergeOrderItem[];
 }
 
@@ -79,44 +79,44 @@ interface MergeOrdersDialogProps {
 }
 
 const shortText = (value?: string | null, max = 340) => {
-  const text = (value || '').replace(/\s+/g, ' ').trim();
-  if (!text) return '';
+  const text = (value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
   return text.length > max ? `${text.slice(0, max).trim()}…` : text;
 };
 
 const cleanOriginalMessageText = (value?: string | null) => {
-  return (value || '')
-    .replace(/\[Verbunden von Auftrag [^\]]+\]/g, '')
-    .replace(/^WhatsApp:\s*/im, '')
+  return (value || "")
+    .replace(/\[Verbunden von Auftrag [^\]]+\]/g, "")
+    .replace(/^WhatsApp:\s*/im, "")
     .trim();
 };
 
 const limitOriginalText = (value?: string | null, max = 420) => {
   const text = cleanOriginalMessageText(value);
-  if (!text) return '';
+  if (!text) return "";
   return text.length > max ? `${text.slice(0, max).trim()}…` : text;
 };
 
 const formatDate = (date?: string) => {
-  if (!date) return '–';
+  if (!date) return "–";
   const dt = new Date(date);
-  if (Number.isNaN(dt.getTime())) return '–';
+  if (Number.isNaN(dt.getTime())) return "–";
 
-  return dt.toLocaleDateString('de-CH', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
+  return dt.toLocaleDateString("de-CH", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
   });
 };
 
 const formatMoney = (amount: number, currency: Currency) => {
-  return `${currency} ${amount.toLocaleString('de-CH', {
+  return `${currency} ${amount.toLocaleString("de-CH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 };
 const getOrderCurrency = (order: MergeOrder): Currency => {
-  return order.currency === 'EUR' ? 'EUR' : 'CHF';
+  return order.currency === "EUR" ? "EUR" : "CHF";
 };
 
 const normalizeVatRate = (value?: number | string | null) => {
@@ -129,7 +129,7 @@ const getVatRateKey = (order: MergeOrder) =>
   normalizeVatRate(order.vatRate).toFixed(2);
 
 const formatVatPercent = (rate: number) => {
-  return rate.toLocaleString('de-CH', {
+  return rate.toLocaleString("de-CH", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
@@ -137,45 +137,42 @@ const formatVatPercent = (rate: number) => {
 
 const getVatRateLabel = (order: MergeOrder) => {
   const rate = normalizeVatRate(order.vatRate);
-  if (rate <= 0) return 'keine MwSt';
+  if (rate <= 0) return "keine MwSt";
   return `${formatVatPercent(rate)} % MwSt`;
 };
 
 const isRealCustomerName = (name?: string | null) => {
-  const value = (name || '').trim();
+  const value = (name || "").trim();
   if (!value) return false;
 
   const lower = value.toLowerCase();
 
-  if (lower.includes('nicht zugeordnet')) return false;
-  if (lower.includes('ohne kundenzuordnung')) return false;
-  if (lower.startsWith('#k-')) return false;
-  if (lower.startsWith('k-')) return false;
+  if (lower.includes("nicht zugeordnet")) return false;
+  if (lower.includes("ohne kundenzuordnung")) return false;
+  if (lower.startsWith("#k-")) return false;
+  if (lower.startsWith("k-")) return false;
 
   return true;
 };
 const normalizeCompareValue = (value?: string | null) => {
-  return (value || '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, ' ');
+  return (value || "").toLowerCase().trim().replace(/\s+/g, " ");
 };
 
 const normalizePhone = (value?: string | null) => {
-  return (value || '')
-    .replace(/[^\d+]/g, '')
-    .trim();
+  return (value || "").replace(/[^\d+]/g, "").trim();
 };
 
 const getCustomerIdentityCompareValue = (order: MergeOrder) => {
-  const name = (order.customer?.name || '').trim();
-  const customerNumber = (order.customer?.customerNumber || '').trim();
+  const name = (order.customer?.name || "").trim();
+  const customerNumber = (order.customer?.customerNumber || "").trim();
 
   if (isRealCustomerName(name)) return normalizeCompareValue(name);
-  if (customerNumber) return normalizeCompareValue(customerNumber.replace(/^#/, ''));
-  if (order.customerId) return normalizeCompareValue(order.customerId.replace(/^#/, ''));
+  if (customerNumber)
+    return normalizeCompareValue(customerNumber.replace(/^#/, ""));
+  if (order.customerId)
+    return normalizeCompareValue(order.customerId.replace(/^#/, ""));
 
-  return '';
+  return "";
 };
 
 const hasDifferentProvidedValues = (values: string[]) => {
@@ -183,7 +180,9 @@ const hasDifferentProvidedValues = (values: string[]) => {
 };
 
 const getCustomerFieldConflicts = (orders: MergeOrder[]) => {
-  const identityValues = orders.map(getCustomerIdentityCompareValue).filter(Boolean);
+  const identityValues = orders
+    .map(getCustomerIdentityCompareValue)
+    .filter(Boolean);
 
   const conflicts: Record<string, boolean> = {
     name: new Set(identityValues).size > 1,
@@ -217,8 +216,12 @@ const getCustomerFieldConflicts = (orders: MergeOrder[]) => {
   return conflicts;
 };
 
-const hasCustomerIdentityConflictFromFields = (conflicts: Record<string, boolean>) => {
-  return Boolean(conflicts.name || conflicts.address || conflicts.plz || conflicts.city);
+const hasCustomerIdentityConflictFromFields = (
+  conflicts: Record<string, boolean>,
+) => {
+  return Boolean(
+    conflicts.name || conflicts.address || conflicts.plz || conflicts.city,
+  );
 };
 
 const getContactMergeFields = (orders: MergeOrder[]) => {
@@ -237,32 +240,32 @@ const getContactMergeFields = (orders: MergeOrder[]) => {
 };
 
 const getReviewCustomerLines = (order?: MergeOrder | null) => {
-  if (!order) return ['—'];
+  if (!order) return ["—"];
 
   const customer = order.customer;
   const lines = [
     getCustomerLabel(order),
     customer?.address,
-    [customer?.plz, customer?.city].filter(Boolean).join(' '),
-    customer?.phone ? `Tel. ${customer.phone}` : '',
-    customer?.email || '',
+    [customer?.plz, customer?.city].filter(Boolean).join(" "),
+    customer?.phone ? `Tel. ${customer.phone}` : "",
+    customer?.email || "",
   ]
-    .map((line) => (line || '').trim())
+    .map((line) => (line || "").trim())
     .filter(Boolean);
 
-  return lines.length > 0 ? lines : ['—'];
+  return lines.length > 0 ? lines : ["—"];
 };
 
 const getExecutionAddressLines = (order?: MergeOrder | null) => {
-  if (!order) return ['—'];
+  if (!order) return ["—"];
 
   const lines = [
     order.siteName,
     order.siteAddress,
-    [order.sitePlz, order.siteCity].filter(Boolean).join(' '),
+    [order.sitePlz, order.siteCity].filter(Boolean).join(" "),
     order.siteNote,
   ]
-    .map((line) => (line || '').trim())
+    .map((line) => (line || "").trim())
     .filter(Boolean);
 
   if (lines.length > 0) return lines;
@@ -270,19 +273,19 @@ const getExecutionAddressLines = (order?: MergeOrder | null) => {
   const customer = order.customer;
   const fallback = [
     customer?.address,
-    [customer?.plz, customer?.city].filter(Boolean).join(' '),
+    [customer?.plz, customer?.city].filter(Boolean).join(" "),
   ]
-    .map((line) => (line || '').trim())
+    .map((line) => (line || "").trim())
     .filter(Boolean);
 
-  return fallback.length > 0 ? fallback : ['—'];
+  return fallback.length > 0 ? fallback : ["—"];
 };
 
 const getExecutionAddressCompareValue = (order: MergeOrder) => {
   return getExecutionAddressLines(order)
-    .join(' | ')
+    .join(" | ")
     .toLowerCase()
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, " ")
     .trim();
 };
 
@@ -315,9 +318,10 @@ const findIdentityConflictSourceOrder = (
   mainOrder?: MergeOrder,
   conflicts?: Record<string, boolean>,
 ) => {
-  if (!mainOrder || !conflicts) return orders.find((order) => order.id !== mainOrder?.id) || orders[0];
+  if (!mainOrder || !conflicts)
+    return orders.find((order) => order.id !== mainOrder?.id) || orders[0];
 
-  const fields = ['name', 'address', 'plz', 'city'] as const;
+  const fields = ["name", "address", "plz", "city"] as const;
 
   return (
     orders.find((order) => {
@@ -343,42 +347,44 @@ const getReviewServiceExcerpt = (order: MergeOrder) => {
   return items
     .slice(0, 2)
     .map((item) => {
-      const service = item.serviceName || 'Leistung prüfen';
+      const service = item.serviceName || "Leistung prüfen";
       const quantity = formatQuantity(item);
 
-      if (!quantity || quantity === '—') return service;
+      if (!quantity || quantity === "—") return service;
       return `${service} ${quantity}`;
     })
-    .join(' + ');
+    .join(" + ");
 };
 
 const getCustomerLabel = (order: MergeOrder) => {
-  const name = (order.customer?.name || '').trim();
-  const customerNumber = (order.customer?.customerNumber || '').trim();
+  const name = (order.customer?.name || "").trim();
+  const customerNumber = (order.customer?.customerNumber || "").trim();
 
   if (isRealCustomerName(name)) return name;
-  if (customerNumber) return `#${customerNumber.replace(/^#/, '')}`;
-  if (order.customerId) return `#${order.customerId.replace(/^#/, '')}`;
+  if (customerNumber) return `#${customerNumber.replace(/^#/, "")}`;
+  if (order.customerId) return `#${order.customerId.replace(/^#/, "")}`;
 
-  return 'Ohne Kundenzuordnung';
+  return "Ohne Kundenzuordnung";
 };
 
 const looksLikeProblemAiHint = (text?: string | null) => {
-  const lower = (text || '').toLowerCase();
+  const lower = (text || "").toLowerCase();
 
   return (
-    lower.includes('[review-hinweis]') ||
-    lower.includes('review-hinweis') ||
-    lower.includes('bild ohne beschreibung') ||
-    lower.includes('bitte auftrag manuell prüfen') ||
-    lower.includes('unbekannte leistung') ||
-    lower.includes('leistung prüfen') ||
-    lower.includes('manuell prüfen') ||
-    lower.includes('ki-hinweis')
+    lower.includes("[review-hinweis]") ||
+    lower.includes("review-hinweis") ||
+    lower.includes("bild ohne beschreibung") ||
+    lower.includes("bitte auftrag manuell prüfen") ||
+    lower.includes("unbekannte leistung") ||
+    lower.includes("leistung prüfen") ||
+    lower.includes("manuell prüfen") ||
+    lower.includes("ki-hinweis")
   );
 };
 
-const getContentInfo = (order: MergeOrder): {
+const getContentInfo = (
+  order: MergeOrder,
+): {
   kind: ContentKind;
   label: string;
   buttonTitle: string;
@@ -388,10 +394,10 @@ const getContentInfo = (order: MergeOrder): {
   const audioText = limitOriginalText(order.audioTranscript, 420);
   if (audioText) {
     return {
-      kind: 'original',
-      label: 'Text vorhanden',
-      buttonTitle: 'Originaltext',
-      buttonLabel: 'Inhalt anzeigen',
+      kind: "original",
+      label: "Text vorhanden",
+      buttonTitle: "Originaltext",
+      buttonLabel: "Inhalt anzeigen",
       text: audioText,
     };
   }
@@ -400,40 +406,43 @@ const getContentInfo = (order: MergeOrder): {
   if (noteText) {
     if (looksLikeProblemAiHint(noteText)) {
       return {
-        kind: 'ai',
-        label: 'KI-Hinweis',
-        buttonTitle: 'KI-Hinweis',
-        buttonLabel: 'Inhalt anzeigen',
+        kind: "ai",
+        label: "KI-Hinweis",
+        buttonTitle: "KI-Hinweis",
+        buttonLabel: "Inhalt anzeigen",
         text: noteText,
       };
     }
 
     return {
-      kind: 'original',
-      label: 'Text vorhanden',
-      buttonTitle: 'Originaltext',
-      buttonLabel: 'Inhalt anzeigen',
+      kind: "original",
+      label: "Text vorhanden",
+      buttonTitle: "Originaltext",
+      buttonLabel: "Inhalt anzeigen",
       text: noteText,
     };
   }
 
-  const fallbackText = limitOriginalText(order.description || order.specialNotes || null, 420);
+  const fallbackText = limitOriginalText(
+    order.description || order.specialNotes || null,
+    420,
+  );
   if (fallbackText && looksLikeProblemAiHint(fallbackText)) {
     return {
-      kind: 'ai',
-      label: 'KI-Hinweis',
-      buttonTitle: 'KI-Hinweis',
-      buttonLabel: 'Inhalt anzeigen',
+      kind: "ai",
+      label: "KI-Hinweis",
+      buttonTitle: "KI-Hinweis",
+      buttonLabel: "Inhalt anzeigen",
       text: fallbackText,
     };
   }
 
   return {
-    kind: 'none',
-    label: '',
-    buttonTitle: 'Inhalt',
-    buttonLabel: 'Kein Inhalt',
-    text: '',
+    kind: "none",
+    label: "",
+    buttonTitle: "Inhalt",
+    buttonLabel: "Kein Inhalt",
+    text: "",
   };
 };
 
@@ -460,9 +469,9 @@ const getOrderItems = (order: MergeOrder): MergeOrderItem[] => {
 
   return [
     {
-      serviceName: order.serviceName || order.description || 'Leistung prüfen',
+      serviceName: order.serviceName || order.description || "Leistung prüfen",
       quantity: Number(order.quantity || 0),
-      unit: order.priceType || '',
+      unit: order.priceType || "",
       unitPrice: Number(order.unitPrice || 0),
     },
   ];
@@ -470,9 +479,9 @@ const getOrderItems = (order: MergeOrder): MergeOrderItem[] => {
 
 const formatQuantity = (item: MergeOrderItem) => {
   const qty = Number(item.quantity || 0);
-  const unit = (item.unit || '').trim();
+  const unit = (item.unit || "").trim();
 
-  if (qty <= 0 && !unit) return '—';
+  if (qty <= 0 && !unit) return "—";
   if (qty <= 0) return unit;
   return `${qty} ${unit}`.trim();
 };
@@ -493,43 +502,52 @@ export default function MergeOrdersDialog({
   currency,
 }: MergeOrdersDialogProps) {
   const [expandedInfo, setExpandedInfo] = useState(false);
-  const [expandedContent, setExpandedContent] = useState<Record<string, boolean>>({});
+  const [expandedContent, setExpandedContent] = useState<
+    Record<string, boolean>
+  >({});
   const [largeImageUrl, setLargeImageUrl] = useState<string | null>(null);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [reviewDetailsOpen, setReviewDetailsOpen] = useState(false);
   const [reviewAccepted, setReviewAccepted] = useState(false);
 
   if (!open) return null;
-const customerFieldConflicts = getCustomerFieldConflicts(selectedOrders);
-const hasCustomerConflict = hasCustomerIdentityConflictFromFields(customerFieldConflicts);
-const hasSiteConflict = hasExecutionAddressConflict(selectedOrders);
-const contactMergeFields = getContactMergeFields(selectedOrders);
-const hasMergedContactData = Boolean(contactMergeFields.phone || contactMergeFields.email);
+  const customerFieldConflicts = getCustomerFieldConflicts(selectedOrders);
+  const hasCustomerConflict = hasCustomerIdentityConflictFromFields(
+    customerFieldConflicts,
+  );
+  const hasSiteConflict = hasExecutionAddressConflict(selectedOrders);
+  const contactMergeFields = getContactMergeFields(selectedOrders);
+  const hasMergedContactData = Boolean(
+    contactMergeFields.phone || contactMergeFields.email,
+  );
 
- 
-const selectedCurrencies = Array.from(
-  new Set(
-    selectedOrders.map((order) => (order.currency || 'CHF').trim()),
-  ),
-);
+  const selectedCurrencies = Array.from(
+    new Set(selectedOrders.map((order) => (order.currency || "CHF").trim())),
+  );
 
-const hasCurrencyConflict = selectedCurrencies.length > 1;
+  const hasCurrencyConflict = selectedCurrencies.length > 1;
 
-  const selectedMainOrder = selectedOrders.find((order) => order.id === selectedMainOrderId);
-  const selectedVatRateKeys = Array.from(new Set(selectedOrders.map(getVatRateKey)));
+  const selectedMainOrder = selectedOrders.find(
+    (order) => order.id === selectedMainOrderId,
+  );
+  const selectedVatRateKeys = Array.from(
+    new Set(selectedOrders.map(getVatRateKey)),
+  );
   const hasVatConflict = selectedVatRateKeys.length > 1;
   const referenceVatRateKey = selectedMainOrder
     ? getVatRateKey(selectedMainOrder)
     : selectedOrders[0]
       ? getVatRateKey(selectedOrders[0])
-      : '0.00';
+      : "0.00";
   const selectedMainVatLabel = selectedMainOrder
     ? getVatRateLabel(selectedMainOrder)
-    : 'keine MwSt';
+    : "keine MwSt";
   const vatSummary = selectedOrders
     .map((order) => `${getCustomerLabel(order)}: ${getVatRateLabel(order)}`)
-    .join(' · ');
-  const additionalOrders = selectedOrders.filter((order) => order.id !== selectedMainOrderId);
+    .join(" · ");
+  const additionalOrders = selectedOrders.filter(
+    (order) => order.id !== selectedMainOrderId,
+  );
   const reviewOrders = selectedMainOrder
     ? [selectedMainOrder, ...additionalOrders]
     : selectedOrders;
@@ -542,22 +560,35 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
     selectedOrders,
     selectedMainOrder,
   );
-  const reviewCurrency = selectedMainOrder ? getOrderCurrency(selectedMainOrder) : currency;
-  const reviewOrdersTotal = reviewOrders.reduce((sum, order) => sum + getOrderTotal(order), 0);
+  const reviewCurrency = selectedMainOrder
+    ? getOrderCurrency(selectedMainOrder)
+    : currency;
+  const reviewOrdersTotal = reviewOrders.reduce(
+    (sum, order) => sum + getOrderTotal(order),
+    0,
+  );
   const additionalOrdersSentence =
     additionalOrders.length === 1
-      ? '1 weiterer Auftrag wird mit diesem Hauptauftrag verbunden.'
+      ? "1 weiterer Auftrag wird mit diesem Hauptauftrag verbunden."
       : `${additionalOrders.length} weitere Aufträge werden mit diesem Hauptauftrag verbunden.`;
-  const reviewOrderCountLabel = `${reviewOrders.length} ${reviewOrders.length === 1 ? 'Auftrag' : 'Aufträge'}`;
+  const reviewOrderCountLabel = `${reviewOrders.length} ${reviewOrders.length === 1 ? "Auftrag" : "Aufträge"}`;
 
   const openReviewDialog = () => {
     setReviewAccepted(false);
-    setReviewDetailsOpen(hasCustomerConflict || hasSiteConflict || hasVatConflict);
+    setReviewDetailsOpen(
+      hasCustomerConflict || hasSiteConflict || hasVatConflict,
+    );
     setShowReviewDialog(true);
   };
 
   const confirmMerge = () => {
-    if (!reviewAccepted || hasCurrencyConflict || !selectedMainOrderId || !selectedCustomerId) return;
+    if (
+      !reviewAccepted ||
+      hasCurrencyConflict ||
+      !selectedMainOrderId ||
+      !selectedCustomerId
+    )
+      return;
 
     setShowReviewDialog(false);
     onNext();
@@ -581,10 +612,10 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
         <div className="flex h-full flex-col lg:grid lg:grid-cols-[230px_1fr]">
           <aside
             className={[
-              'border-b lg:border-b-0 lg:border-r bg-slate-50 dark:bg-slate-900/40 p-3 lg:p-4 overflow-y-auto',
-              expandedInfo ? 'max-h-[38vh]' : 'max-h-[64px]',
-              'lg:max-h-none',
-            ].join(' ')}
+              "border-b lg:border-b-0 lg:border-r bg-slate-50 dark:bg-slate-900/40 p-3 lg:p-4 overflow-y-auto",
+              expandedInfo ? "max-h-[38vh]" : "max-h-[64px]",
+              "lg:max-h-none",
+            ].join(" ")}
           >
             <button
               type="button"
@@ -592,10 +623,12 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
               className="lg:hidden w-full flex items-center justify-between rounded-lg border bg-background px-3 py-2 text-sm font-semibold"
             >
               <span>So funktioniert es</span>
-              <span>{expandedInfo ? '▲' : '▼'}</span>
+              <span>{expandedInfo ? "▲" : "▼"}</span>
             </button>
 
-            <div className={`${expandedInfo ? 'block' : 'hidden'} lg:block mt-3 lg:mt-0`}>
+            <div
+              className={`${expandedInfo ? "block" : "hidden"} lg:block mt-3 lg:mt-0`}
+            >
               <h2 className="hidden lg:block text-base font-bold mb-4">
                 So funktioniert es
               </h2>
@@ -620,9 +653,7 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                     2
                   </div>
                   <div>
-                    <div className="font-bold leading-4">
-                      Andere Aufträge
-                    </div>
+                    <div className="font-bold leading-4">Andere Aufträge</div>
                     <p className="mt-1 leading-5 text-muted-foreground">
                       Bilder, Audio und Leistungen ergänzen.
                     </p>
@@ -698,33 +729,37 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                       Schritt 2: Hauptauftrag + Kunde festlegen
                     </h2>
                     <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-                      Hauptauftrag wählen, Kunde prüfen, Leistungen kontrollieren.
+                      Hauptauftrag wählen, Kunde prüfen, Leistungen
+                      kontrollieren.
                     </p>
                   </div>
 
-{hasCustomerConflict && (
-  <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-    ⚠ Kundendaten abweichend. Name oder Adresse bitte prüfen.
-  </div>
-)}
+                  {hasCustomerConflict && (
+                    <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                      ⚠ Kundendaten abweichend. Name oder Adresse bitte prüfen.
+                    </div>
+                  )}
 
-{hasSiteConflict && (
-  <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-    ⚠ Arbeitsort abweichend. Hauptauftrag bestimmt die sichtbare Ausführungsadresse.
-  </div>
-)}
+                  {hasSiteConflict && (
+                    <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                      ⚠ Arbeitsort abweichend. Hauptauftrag bestimmt die
+                      sichtbare Ausführungsadresse.
+                    </div>
+                  )}
 
-{hasCurrencyConflict && (
-  <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-    ⚠ Aufträge mit unterschiedlichen Währungen können nicht verbunden werden.
-  </div>
-)}
+                  {hasCurrencyConflict && (
+                    <div className="col-span-2 lg:col-span-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                      ⚠ Aufträge mit unterschiedlichen Währungen können nicht
+                      verbunden werden.
+                    </div>
+                  )}
 
-{hasVatConflict && (
-  <div className="col-span-2 lg:col-span-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-    ⚠ MwSt abweichend. Der verbundene Auftrag nutzt: {selectedMainVatLabel}.
-  </div>
-)}
+                  {hasVatConflict && (
+                    <div className="col-span-2 lg:col-span-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      ⚠ MwSt abweichend. Der verbundene Auftrag nutzt:{" "}
+                      {selectedMainVatLabel}.
+                    </div>
+                  )}
 
                   <button
                     onClick={() => onOpenChange(false)}
@@ -743,35 +778,37 @@ const hasCurrencyConflict = selectedCurrencies.length > 1;
                   const audioUrl = audioUrls[order.id];
                   const items = getOrderItems(order);
                   const total = getOrderTotal(order);
-const orderCurrency = getOrderCurrency(order);
-const hasDifferentCurrency =
-  hasCurrencyConflict && orderCurrency !== getOrderCurrency(selectedMainOrder || order);
-const hasDifferentVat =
-  hasVatConflict && getVatRateKey(order) !== referenceVatRateKey;
+                  const orderCurrency = getOrderCurrency(order);
+                  const hasDifferentCurrency =
+                    hasCurrencyConflict &&
+                    orderCurrency !==
+                      getOrderCurrency(selectedMainOrder || order);
+                  const hasDifferentVat =
+                    hasVatConflict &&
+                    getVatRateKey(order) !== referenceVatRateKey;
 
-const customer = order.customer;
-const showCustomerDetails = hasCustomerConflict;
+                  const customer = order.customer;
+                  const showCustomerDetails = hasCustomerConflict;
 
-const fieldMismatch = {
-  name: customerFieldConflicts.name,
-  address: customerFieldConflicts.address,
-  plz: customerFieldConflicts.plz,
-  city: customerFieldConflicts.city,
-  phone: customerFieldConflicts.phone,
-  email: customerFieldConflicts.email,
-};
+                  const fieldMismatch = {
+                    name: customerFieldConflicts.name,
+                    address: customerFieldConflicts.address,
+                    plz: customerFieldConflicts.plz,
+                    city: customerFieldConflicts.city,
+                    phone: customerFieldConflicts.phone,
+                    email: customerFieldConflicts.email,
+                  };
 
-                
                   return (
                     <div
                       key={order.id}
                       onClick={() => selectMainOrder(order)}
                       className={[
-                        'rounded-xl border px-3 py-3 transition cursor-pointer',
+                        "rounded-xl border px-3 py-3 transition cursor-pointer",
                         isMain
-                          ? 'border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-400 shadow-sm'
-                          : 'border-slate-200 bg-background hover:bg-slate-50',
-                      ].join(' ')}
+                          ? "border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-400 shadow-sm"
+                          : "border-slate-200 bg-background hover:bg-slate-50",
+                      ].join(" ")}
                     >
                       <div className="grid grid-cols-[24px_1fr] gap-3">
                         <input
@@ -800,38 +837,38 @@ const fieldMismatch = {
                                 </span>
                               )}
 
-                              {contentInfo.kind === 'original' && (
+                              {contentInfo.kind === "original" && (
                                 <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold">
                                   Text vorhanden
                                 </span>
                               )}
 
-                              {contentInfo.kind === 'ai' && (
+                              {contentInfo.kind === "ai" && (
                                 <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px] font-semibold">
                                   KI-Hinweis
                                 </span>
                               )}
 
-{hasCustomerConflict && (
-  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
-    ⚠️ Kundendaten abweichend
-  </span>
-)}
-{hasSiteConflict && (
-  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
-    ⚠️ Arbeitsort abweichend
-  </span>
-)}
-{hasDifferentCurrency && (
-  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
-    Unterschiedliche Währung: {orderCurrency}
-  </span>
-)}
-{hasDifferentVat && (
-  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold">
-    MwSt abweichend: {getVatRateLabel(order)}
-  </span>
-)}
+                              {hasCustomerConflict && (
+                                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+                                  ⚠️ Kundendaten abweichend
+                                </span>
+                              )}
+                              {hasSiteConflict && (
+                                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+                                  ⚠️ Arbeitsort abweichend
+                                </span>
+                              )}
+                              {hasDifferentCurrency && (
+                                <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[11px] font-bold">
+                                  Unterschiedliche Währung: {orderCurrency}
+                                </span>
+                              )}
+                              {hasDifferentVat && (
+                                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold">
+                                  MwSt abweichend: {getVatRateLabel(order)}
+                                </span>
+                              )}
                             </div>
 
                             <button
@@ -844,97 +881,107 @@ const fieldMismatch = {
                               Entfernen
                             </button>
                           </div>
-{showCustomerDetails && (
-  <div className="mt-3 mb-2 text-xs space-y-1">
-    {customer?.name && fieldMismatch.name && (
-      <div className="flex flex-wrap items-center gap-2">
-        <span>{customer.name}</span>
-        <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
-          Name abweichend
-        </span>
-      </div>
-    )}
-    
-    {customer?.address && (
-      <div className="flex flex-wrap items-center gap-2">
-        <span>{customer.address}</span>
+                          {showCustomerDetails && (
+                            <div className="mt-3 mb-2 text-xs space-y-1">
+                              {customer?.name && fieldMismatch.name && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span>{customer.name}</span>
+                                  <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+                                    Name abweichend
+                                  </span>
+                                </div>
+                              )}
 
-        {fieldMismatch.address && (
-          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
-            Straße abweichend
-          </span>
-        )}
-      </div>
-    )}
+                              {customer?.address && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span>{customer.address}</span>
 
-    {(customer?.plz || customer?.city) && (
-      <div className="flex flex-wrap items-center gap-2">
-        <span>
-          {[customer?.plz, customer?.city].filter(Boolean).join(' ')}
-        </span>
+                                  {fieldMismatch.address && (
+                                    <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+                                      Straße abweichend
+                                    </span>
+                                  )}
+                                </div>
+                              )}
 
-        {(fieldMismatch.plz || fieldMismatch.city) && (
-          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
-            Ort/PLZ abweichend
-          </span>
-        )}
-      </div>
-    )}
+                              {(customer?.plz || customer?.city) && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span>
+                                    {[customer?.plz, customer?.city]
+                                      .filter(Boolean)
+                                      .join(" ")}
+                                  </span>
 
-    {customer?.phone && (
-      <div className="flex flex-wrap items-center gap-2">
-        <span>{customer.phone}</span>
+                                  {(fieldMismatch.plz ||
+                                    fieldMismatch.city) && (
+                                    <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+                                      Ort/PLZ abweichend
+                                    </span>
+                                  )}
+                                </div>
+                              )}
 
-        {fieldMismatch.phone && (
-          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
-            Telefon abweichend
-          </span>
-        )}
-      </div>
-    )}
+                              {customer?.phone && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span>{customer.phone}</span>
 
-    {customer?.email && (
-      <div className="flex flex-wrap items-center gap-2">
-        <span>{customer.email}</span>
+                                  {fieldMismatch.phone && (
+                                    <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+                                      Telefon abweichend
+                                    </span>
+                                  )}
+                                </div>
+                              )}
 
-        {fieldMismatch.email && (
-          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
-            E-Mail abweichend
-          </span>
-        )}
-      </div>
-    )}
-  </div>
-)}
+                              {customer?.email && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span>{customer.email}</span>
 
-{hasSiteConflict && (
-  <div className="mt-2 mb-2 rounded-lg border border-red-100 bg-red-50/50 p-2 text-xs leading-5 text-red-900">
-    <div className="font-semibold">Ausführungsadresse</div>
-    {getExecutionAddressLines(order).map((line) => (
-      <div key={`${order.id}-site-${line}`}>{line}</div>
-    ))}
-  </div>
-)}
+                                  {fieldMismatch.email && (
+                                    <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold">
+                                      E-Mail abweichend
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {hasSiteConflict && (
+                            <div className="mt-2 mb-2 rounded-lg border border-red-100 bg-red-50/50 p-2 text-xs leading-5 text-red-900">
+                              <div className="font-semibold">
+                                Ausführungsadresse
+                              </div>
+                              {getExecutionAddressLines(order).map((line) => (
+                                <div key={`${order.id}-site-${line}`}>
+                                  {line}
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
                           <div className="mt-3 grid grid-cols-1 xl:grid-cols-[145px_1fr_145px_170px_130px] gap-3 items-center">
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (contentInfo.kind !== 'none') toggleContent(order.id);
+                                if (contentInfo.kind !== "none")
+                                  toggleContent(order.id);
                               }}
-                              disabled={contentInfo.kind === 'none'}
+                              disabled={contentInfo.kind === "none"}
                               className="rounded-lg border bg-slate-50 hover:bg-slate-100 disabled:opacity-50 px-3 py-2 text-left text-xs"
                             >
                               <div className="font-semibold">
-                                {contentInfo.kind === 'ai'
-                                  ? 'KI-Hinweis'
-                                  : contentInfo.kind === 'original'
-                                    ? 'Originaltext'
-                                    : 'Kein Inhalt'}
+                                {contentInfo.kind === "ai"
+                                  ? "KI-Hinweis"
+                                  : contentInfo.kind === "original"
+                                    ? "Originaltext"
+                                    : "Kein Inhalt"}
                               </div>
                               <div className="text-muted-foreground">
-                                {expandedContent[order.id] ? 'Inhalt ausblenden' : 'Inhalt anzeigen'}
+                                {expandedContent[order.id]
+                                  ? "Inhalt ausblenden"
+                                  : "Inhalt anzeigen"}
                               </div>
                             </button>
 
@@ -942,7 +989,9 @@ const fieldMismatch = {
                               <div className="grid grid-cols-[1fr_110px] xl:grid-cols-[1fr_110px_110px] gap-2 text-xs text-muted-foreground mb-1">
                                 <div>Leistungen</div>
                                 <div>Menge</div>
-                                <div className="hidden xl:block">Einzelpreis</div>
+                                <div className="hidden xl:block">
+                                  Einzelpreis
+                                </div>
                               </div>
 
                               <div className="space-y-1">
@@ -952,7 +1001,7 @@ const fieldMismatch = {
                                     className="grid grid-cols-[1fr_110px] xl:grid-cols-[1fr_110px_110px] gap-2 text-sm"
                                   >
                                     <div className="font-medium truncate">
-                                      {item.serviceName || 'Leistung prüfen'}
+                                      {item.serviceName || "Leistung prüfen"}
                                     </div>
 
                                     <div className="text-muted-foreground">
@@ -961,8 +1010,11 @@ const fieldMismatch = {
 
                                     <div className="hidden xl:block text-muted-foreground">
                                       {Number(item.unitPrice || 0) > 0
-                                        ? formatMoney(Number(item.unitPrice || 0), orderCurrency)
-                                        : '—'}
+                                        ? formatMoney(
+                                            Number(item.unitPrice || 0),
+                                            orderCurrency,
+                                          )
+                                        : "—"}
                                     </div>
                                   </div>
                                 ))}
@@ -1011,13 +1063,13 @@ const fieldMismatch = {
                           {expandedContent[order.id] && (
                             <div
                               className={[
-                                'mt-3 rounded-lg border px-3 py-2 text-sm leading-5 whitespace-pre-line',
-                                contentInfo.kind === 'ai'
-                                  ? 'bg-purple-50 border-purple-100'
-                                  : 'bg-slate-50',
-                              ].join(' ')}
+                                "mt-3 rounded-lg border px-3 py-2 text-sm leading-5 whitespace-pre-line",
+                                contentInfo.kind === "ai"
+                                  ? "bg-purple-50 border-purple-100"
+                                  : "bg-slate-50",
+                              ].join(" ")}
                             >
-                              {contentInfo.text || 'Kein Inhalt vorhanden.'}
+                              {contentInfo.text || "Kein Inhalt vorhanden."}
                             </div>
                           )}
                         </div>
@@ -1036,13 +1088,13 @@ const fieldMismatch = {
                 Zurück
               </button>
 
-             <button
-  onClick={openReviewDialog}
-  disabled={
-    !selectedMainOrderId ||
-    !selectedCustomerId ||
-    hasCurrencyConflict
-  }
+              <button
+                onClick={openReviewDialog}
+                disabled={
+                  !selectedMainOrderId ||
+                  !selectedCustomerId ||
+                  hasCurrencyConflict
+                }
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
               >
                 Weiter zur Prüfung
@@ -1078,11 +1130,10 @@ const fieldMismatch = {
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                   <div className="font-bold">MwSt abweichend</div>
                   <div className="mt-1">
-                    Der verbundene Auftrag verwendet den MwSt-Satz des Hauptauftrags: {selectedMainVatLabel}.
+                    Der verbundene Auftrag verwendet den MwSt-Satz des
+                    Hauptauftrags: {selectedMainVatLabel}.
                   </div>
-                  <div className="mt-2 text-xs leading-5">
-                    {vatSummary}
-                  </div>
+                  <div className="mt-2 text-xs leading-5">{vatSummary}</div>
                   <div className="mt-2 text-xs font-semibold">
                     Beim Verbinden wird automatisch eine Prüfnotiz gespeichert.
                   </div>
@@ -1099,7 +1150,9 @@ const fieldMismatch = {
                     <div className="flex gap-3">
                       <span className="text-lg leading-none">⚠</span>
                       <div>
-                        <div className="font-bold text-sm">Kunden zusammengeführt</div>
+                        <div className="font-bold text-sm">
+                          Kunden zusammengeführt
+                        </div>
                         <div className="mt-1 text-sm text-red-950">
                           Die Kundendaten unterscheiden sich. Bitte prüfen.
                         </div>
@@ -1107,31 +1160,37 @@ const fieldMismatch = {
                     </div>
 
                     <span className="text-lg leading-none">
-                      {reviewDetailsOpen ? '⌃' : '⌄'}
+                      {reviewDetailsOpen ? "⌃" : "⌄"}
                     </span>
                   </button>
 
                   {reviewDetailsOpen && (
                     <div className="mx-4 mb-4 rounded-lg border border-red-100 bg-background/70 p-3">
                       <div className="grid grid-cols-[1fr_auto_1fr] gap-3 text-xs text-slate-600 mb-2">
-                        <div>Quelle (abweichend)</div>
+                        <div>Weiterer Arbeitsort</div>
                         <div>→</div>
                         <div>Hauptkunde (Ziel)</div>
                       </div>
 
                       <div className="grid grid-cols-[1fr_auto_1fr] gap-3">
                         <div className="rounded-md border border-red-100 bg-red-50/70 p-3 text-sm leading-6">
-                          {getReviewCustomerLines(reviewSourceOrder).map((line) => (
-                            <div key={`source-${line}`}>{line}</div>
-                          ))}
+                          {getReviewCustomerLines(reviewSourceOrder).map(
+                            (line) => (
+                              <div key={`source-${line}`}>{line}</div>
+                            ),
+                          )}
                         </div>
 
-                        <div className="flex items-center text-lg text-slate-500">→</div>
+                        <div className="flex items-center text-lg text-slate-500">
+                          →
+                        </div>
 
                         <div className="rounded-md border border-emerald-100 bg-emerald-50/70 p-3 text-sm leading-6">
-                          {getReviewCustomerLines(selectedMainOrder).map((line) => (
-                            <div key={`target-${line}`}>{line}</div>
-                          ))}
+                          {getReviewCustomerLines(selectedMainOrder).map(
+                            (line) => (
+                              <div key={`target-${line}`}>{line}</div>
+                            ),
+                          )}
                         </div>
                       </div>
 
@@ -1171,41 +1230,52 @@ const fieldMismatch = {
                     <div className="flex gap-3">
                       <span className="text-lg leading-none">⚠</span>
                       <div>
-                        <div className="font-bold text-sm">Arbeitsorte zusammengeführt</div>
+                        <div className="font-bold text-sm">
+                          Mehrere Ausführungsorte
+                        </div>
                         <div className="mt-1 text-sm text-red-950">
-                          Die Ausführungsadressen unterscheiden sich. Hauptauftrag bleibt die Zieladresse.
+                          Die Leistungen werden nach Arbeitsort getrennt
+                          übernommen. Der Hauptauftrag bestimmt nur die
+                          sichtbare Hauptadresse.
                         </div>
                       </div>
                     </div>
                     <span className="text-lg leading-none">
-                      {reviewDetailsOpen ? '⌃' : '⌄'}
+                      {reviewDetailsOpen ? "⌃" : "⌄"}
                     </span>
                   </button>
 
                   {reviewDetailsOpen && (
                     <div className="mx-4 mb-4 rounded-lg border border-red-100 bg-background/70 p-3">
                       <div className="grid grid-cols-[1fr_auto_1fr] gap-3 text-xs text-slate-600 mb-2">
-                        <div>Quelle (abweichend)</div>
+                        <div>Weiterer Arbeitsort</div>
                         <div>→</div>
-                        <div>Arbeitsort Hauptauftrag (Ziel)</div>
+                        <div>Haupt-Ausführungsort</div>
                       </div>
 
                       <div className="grid grid-cols-[1fr_auto_1fr] gap-3">
                         <div className="rounded-md border border-red-100 bg-red-50/70 p-3 text-sm leading-6">
-                          {getExecutionAddressLines(reviewSiteSourceOrder).map((line) => (
-                            <div key={`site-source-${line}`}>{line}</div>
-                          ))}
+                          {getExecutionAddressLines(reviewSiteSourceOrder).map(
+                            (line) => (
+                              <div key={`site-source-${line}`}>{line}</div>
+                            ),
+                          )}
                         </div>
-                        <div className="flex items-center text-lg text-slate-500">→</div>
+                        <div className="flex items-center text-lg text-slate-500">
+                          →
+                        </div>
                         <div className="rounded-md border border-emerald-100 bg-emerald-50/70 p-3 text-sm leading-6">
-                          {getExecutionAddressLines(selectedMainOrder).map((line) => (
-                            <div key={`site-target-${line}`}>{line}</div>
-                          ))}
+                          {getExecutionAddressLines(selectedMainOrder).map(
+                            (line) => (
+                              <div key={`site-target-${line}`}>{line}</div>
+                            ),
+                          )}
                         </div>
                       </div>
 
                       <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs font-semibold text-red-900">
-                        Für Angebot/Rechnung/PDF muss der Arbeitsort vor dem Erstellen geprüft werden.
+                        Die Arbeitsort-Gruppen werden in Angebot/Rechnung/PDF
+                        getrennt ausgegeben.
                       </div>
                     </div>
                   )}
@@ -1214,7 +1284,9 @@ const fieldMismatch = {
 
               {!hasCustomerConflict && hasMergedContactData && (
                 <div className="rounded-lg border bg-slate-50 px-4 py-3 text-sm">
-                  <div className="font-semibold">Kontaktdaten werden ergänzt</div>
+                  <div className="font-semibold">
+                    Kontaktdaten werden ergänzt
+                  </div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {contactMergeFields.phone && (
                       <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
@@ -1251,11 +1323,13 @@ const fieldMismatch = {
                 </div>
 
                 <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 border-b text-sm">
-                  <div className="text-muted-foreground">Hauptauftrag (Ziel)</div>
+                  <div className="text-muted-foreground">
+                    Hauptauftrag (Ziel)
+                  </div>
                   <div className="font-semibold">
                     {selectedMainOrder?.serviceName ||
                       selectedMainOrder?.description ||
-                      'Leistung prüfen'}
+                      "Leistung prüfen"}
                   </div>
                 </div>
 
@@ -1266,7 +1340,7 @@ const fieldMismatch = {
                 >
                   <div className="text-muted-foreground">Details anzeigen</div>
                   <div className="font-semibold">{reviewOrderCountLabel}</div>
-                  <div>{reviewDetailsOpen ? '⌃' : '⌄'}</div>
+                  <div>{reviewDetailsOpen ? "⌃" : "⌄"}</div>
                 </button>
               </div>
 
@@ -1294,9 +1368,13 @@ const fieldMismatch = {
                             </span>
                           )}
                         </div>
-                        <div className="min-w-0 truncate">{getReviewServiceExcerpt(order)}</div>
+                        <div className="min-w-0 truncate">
+                          {getReviewServiceExcerpt(order)}
+                        </div>
                         <div className="text-right">
-                          <div>{formatMoney(getOrderTotal(order), orderCurrency)}</div>
+                          <div>
+                            {formatMoney(getOrderTotal(order), orderCurrency)}
+                          </div>
                           <div className="text-[11px] font-normal text-muted-foreground">
                             {getVatRateLabel(order)}
                           </div>
@@ -1312,26 +1390,30 @@ const fieldMismatch = {
                         MwSt-Ziel: {selectedMainVatLabel}
                       </div>
                     </div>
-                    <div className="text-right">{formatMoney(reviewOrdersTotal, reviewCurrency)}</div>
+                    <div className="text-right">
+                      {formatMoney(reviewOrdersTotal, reviewCurrency)}
+                    </div>
                   </div>
                 </div>
               )}
 
               {(hasCustomerConflict || hasSiteConflict) && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
-                  ⚠ Bitte überprüfe Kunde, Arbeitsort und Hauptauftrag.
+                  ⚠ Bitte überprüfe Kunde, Arbeitsorte und Hauptauftrag.
                 </div>
               )}
 
               {hasCurrencyConflict && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
-                  ⚠ Aufträge mit unterschiedlichen Währungen können nicht verbunden werden.
+                  ⚠ Aufträge mit unterschiedlichen Währungen können nicht
+                  verbunden werden.
                 </div>
               )}
 
               {hasVatConflict && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-                  ⚠ MwSt abweichend. Verbinden ist erlaubt, aber die Prüfnotiz wird gespeichert.
+                  ⚠ MwSt abweichend. Verbinden ist erlaubt, aber die Prüfnotiz
+                  wird gespeichert.
                 </div>
               )}
             </div>

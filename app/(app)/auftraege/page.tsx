@@ -66,8 +66,21 @@ import { AutoReuseBanner } from "@/components/auto-reuse-banner";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
 import { MobileListShortcut } from "@/components/mobile-list-shortcut";
 
+interface OrderWorkSite {
+  id: string;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+  isPrimary?: boolean | null;
+  sortOrder?: number | null;
+}
+
 interface OrderItem {
   id?: string;
+  workSiteId?: string | null;
+  workSite?: OrderWorkSite | null;
   serviceName: string;
   description: string;
   quantity: number;
@@ -120,6 +133,8 @@ interface Order {
     city?: string | null;
     customerNumber?: string | null;
   };
+  workSites?: OrderWorkSite[];
+  originOrderIds?: string[];
   items?: OrderItem[];
 }
 interface Customer {
@@ -192,6 +207,8 @@ interface FormItem {
   unitPrice: string;
   quantity: string;
   aiWarning?: string;
+  workSiteId?: string | null;
+  workSite?: OrderWorkSite | null;
 }
 
 const createEmptyItem = (): FormItem => ({
@@ -200,6 +217,7 @@ const createEmptyItem = (): FormItem => ({
   unit: "Stunde",
   unitPrice: "",
   quantity: "",
+  workSiteId: null,
 });
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
@@ -308,15 +326,27 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
 
   // Keep service names user-facing and German. This is display/merge safety,
   // not the primary parser: the parser still decides the position itself.
-  if (/(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta)(\b|$)/i.test(key)) {
+  if (
+    /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
+      key,
+    )
+  ) {
     return "Anfahrt";
   }
 
-  if (/(^|\b)(clean floor|floor cleaning|bodenreinigung|boden reinigen|nettoyage du sol|nettoyage sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)(\b|$)/i.test(key)) {
+  if (
+    /(^|\b)(clean floor|floor cleaning|bodenreinigung|boden reinigen|nettoyage du sol|nettoyage sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)(\b|$)/i.test(
+      key,
+    )
+  ) {
     return "Boden reinigen";
   }
 
-  if (/(^|\b)(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)(\b|$)/i.test(key)) {
+  if (
+    /(^|\b)(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)(\b|$)/i.test(
+      key,
+    )
+  ) {
     return "Fenster reinigen";
   }
 
@@ -348,6 +378,7 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
       unitKey,
       unitPriceKey,
       warningKey,
+      normalizedItem.workSiteId || "",
     ].join("|");
 
     const existingIndex = indexByKey.get(mergeKey);
@@ -380,6 +411,8 @@ const mergeEquivalentOrderItems = (items: any[]) =>
       unitPrice: String(item.unitPrice ?? 0),
       quantity: String(item.quantity ?? 0),
       aiWarning: getAiWarningFromItemDescription(item.description),
+      workSiteId: item.workSiteId || null,
+      workSite: item.workSite || null,
     })),
   ).map((item) => ({
     serviceName: item.serviceName,
@@ -387,6 +420,8 @@ const mergeEquivalentOrderItems = (items: any[]) =>
     quantity: Number(item.quantity || 0),
     unit: item.unit,
     unitPrice: Number(item.unitPrice || 0),
+    workSiteId: item.workSiteId || null,
+    workSite: item.workSite || null,
   }));
 
 const hasMissingOrFallbackCustomerName = (value?: string | null) => {
@@ -427,9 +462,14 @@ const getSemanticBadgeKind = (value?: string | null) => {
   // Darum nicht mehr auf jedes "leiter" reagieren, sondern nur bei echtem
   // Ausrüstungs-/Mitbring-Signal.
   if (
-    /\b(?:kleine|grosse|große|hohe|eigene|tritt|steh|auszieh)?\s*leiter\b/.test(text) &&
-    /\b(?:benoetigt|benötigt|braucht|mitbringen|bringen|nehmen|erforderlich|noetig|nötig|vorhanden|aufstellen|kleine|grosse|große|tritt|steh|auszieh)\b/.test(text)
-  ) return "ladder";
+    /\b(?:kleine|grosse|große|hohe|eigene|tritt|steh|auszieh)?\s*leiter\b/.test(
+      text,
+    ) &&
+    /\b(?:benoetigt|benötigt|braucht|mitbringen|bringen|nehmen|erforderlich|noetig|nötig|vorhanden|aufstellen|kleine|grosse|große|tritt|steh|auszieh)\b/.test(
+      text,
+    )
+  )
+    return "ladder";
   if (/park|zufahrt|innenhof|reserviert/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
@@ -2198,6 +2238,7 @@ export default function AuftraegePage() {
                   ? ""
                   : String(item.quantity),
               aiWarning: getAiWarningFromItemDescription(item.description),
+              workSiteId: item.workSiteId || null,
             };
           }),
         ),
@@ -2213,6 +2254,7 @@ export default function AuftraegePage() {
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
             quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
             aiWarning: "",
+            workSiteId: null,
           },
         ]),
       );
@@ -2588,6 +2630,36 @@ export default function AuftraegePage() {
     ? orders.find((o: Order) => o.id === editId) || null
     : null;
 
+  const currentEditWorkSites = (currentEditOrder?.workSites ?? [])
+    .slice()
+    .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+
+  const hasMultipleEditWorkSites = currentEditWorkSites.length > 1;
+
+  const formatWorkSiteTitle = (site?: OrderWorkSite | null) => {
+    if (!site) return "Ausführungsort";
+    return (
+      [site.siteName, site.siteAddress].filter(Boolean).join(" · ") ||
+      "Ausführungsort"
+    );
+  };
+
+  const formatWorkSiteAddress = (site?: OrderWorkSite | null) => {
+    if (!site) return "";
+    return [
+      site.siteAddress,
+      [site.sitePlz, site.siteCity].filter(Boolean).join(" "),
+      site.siteNote,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
+
+  const getWorkSiteItems = (siteId?: string | null) =>
+    (currentEditOrder?.items ?? []).filter(
+      (item) => item.workSiteId && item.workSiteId === siteId,
+    );
+
   const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
   const hasEditCurrencyReview = currentEditReviewReasons.some(
     (reason: string) =>
@@ -2907,6 +2979,7 @@ export default function AuftraegePage() {
         quantity: Number(item.quantity || 0),
         unit: item.unit,
         unitPrice: Number(item.unitPrice || 0),
+        workSiteId: item.workSiteId || null,
       })),
     };
     const res = await fetch(url, {
@@ -2966,6 +3039,11 @@ export default function AuftraegePage() {
         quantity: String(i.quantity ?? 1),
         unit: i.unit ?? "Stunde",
         unitPrice: String(i.unitPrice ?? 0),
+        siteName: i.workSite?.siteName || null,
+        siteAddress: i.workSite?.siteAddress || null,
+        sitePlz: i.workSite?.sitePlz || null,
+        siteCity: i.workSite?.siteCity || null,
+        siteNote: i.workSite?.siteNote || null,
       }));
 
       // Create offer via API — forward VAT from saved order
@@ -3034,6 +3112,11 @@ export default function AuftraegePage() {
         quantity: String(i.quantity ?? 1),
         unit: i.unit ?? "Stunde",
         unitPrice: String(i.unitPrice ?? 0),
+        siteName: i.workSite?.siteName || null,
+        siteAddress: i.workSite?.siteAddress || null,
+        sitePlz: i.workSite?.sitePlz || null,
+        siteCity: i.workSite?.siteCity || null,
+        siteNote: i.workSite?.siteNote || null,
       }));
 
       // Forward VAT from saved order
@@ -4873,6 +4956,76 @@ export default function AuftraegePage() {
                 )}
               </div>
 
+              {hasMultipleEditWorkSites && (
+                <div className="rounded-lg border-2 border-cyan-200 bg-cyan-50/70 dark:bg-cyan-950/20 p-3 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-cyan-900 dark:text-cyan-100">
+                        Mehrere Ausführungsorte
+                      </div>
+                      <p className="text-xs text-cyan-800/80 dark:text-cyan-100/80">
+                        Dieser zusammengeführte Auftrag enthält mehrere
+                        Arbeitsorte. Die Leistungen bleiben je Arbeitsort
+                        getrennt und werden so in Angebot, Rechnung und PDF
+                        übernommen.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    {currentEditWorkSites.map((site, index) => {
+                      const siteItems = getWorkSiteItems(site.id);
+                      const siteTotal = siteItems.reduce(
+                        (sum, item) => sum + Number(item.totalPrice || 0),
+                        0,
+                      );
+
+                      return (
+                        <div
+                          key={site.id || index}
+                          className="rounded-md border bg-background p-2"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold">
+                                {index + 1}. {formatWorkSiteTitle(site)}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {formatWorkSiteAddress(site) ||
+                                  "Adresse prüfen"}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-xs font-semibold">
+                              {formatCurrency(siteTotal, currency)}
+                            </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {siteItems.length > 0 ? (
+                              siteItems.map((item) => (
+                                <span
+                                  key={
+                                    item.id || `${site.id}-${item.serviceName}`
+                                  }
+                                  className="rounded-full border bg-muted px-2 py-0.5 text-[11px]"
+                                >
+                                  {item.serviceName} · {item.quantity}{" "}
+                                  {item.unit}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground">
+                                Keine Leistung zugeordnet
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Service Items + rest of form — collapsed when dupCheck open */}
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
@@ -5028,9 +5181,9 @@ export default function AuftraegePage() {
                           Number(item.quantity || 0);
                         const isCompleteItemForCatalogAction = Boolean(
                           item.serviceName?.trim() &&
-                            item.unit?.trim() &&
-                            Number(item.unitPrice || 0) > 0 &&
-                            Number(item.quantity || 0) > 0,
+                          item.unit?.trim() &&
+                          Number(item.unitPrice || 0) > 0 &&
+                          Number(item.quantity || 0) > 0,
                         );
 
                         const isManualService =
@@ -5079,12 +5232,12 @@ export default function AuftraegePage() {
                           isCompleteItemForCatalogAction &&
                           Boolean(
                             hasCurrencyConflict ||
-                              unitMismatchReason ||
-                              item.aiWarning?.trim() ||
-                              priceUnclearReason ||
-                              curOrder?.reviewReasons?.includes(
-                                "unit_price_review",
-                              ),
+                            unitMismatchReason ||
+                            item.aiWarning?.trim() ||
+                            priceUnclearReason ||
+                            curOrder?.reviewReasons?.includes(
+                              "unit_price_review",
+                            ),
                           );
                         const hasCatalogActionMenu =
                           !hasCriticalItemReview &&

@@ -1,21 +1,24 @@
+export const dynamic = "force-dynamic";
 
-export const dynamic = 'force-dynamic';
-
-import { NextResponse } from 'next/server';
-import puppeteer from 'puppeteer';
-import { prisma } from '@/lib/prisma';
-import { generateOfferHtml } from '@/lib/pdf-templates';
-import { toImageDataUrl } from '@/lib/pdf-image-data-url';
-import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
-import { logAuditAsync, EVENTS, AREAS } from '@/lib/audit';
+import { NextResponse } from "next/server";
+import puppeteer from "puppeteer";
+import { prisma } from "@/lib/prisma";
+import { generateOfferHtml } from "@/lib/pdf-templates";
+import { toImageDataUrl } from "@/lib/pdf-image-data-url";
+import {
+  requireUserId,
+  unauthorizedResponse,
+  getSessionUser,
+} from "@/lib/get-session";
+import { logAuditAsync, EVENTS, AREAS } from "@/lib/audit";
 
 const SECURITY_HEADERS = {
-  'Cache-Control': 'no-store, no-cache, must-revalidate, private, max-age=0',
-  Pragma: 'no-cache',
-  Expires: '0',
-  Vary: 'Cookie',
-  'CDN-Cache-Control': 'no-store',
-  'Surrogate-Control': 'no-store',
+  "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+  Vary: "Cookie",
+  "CDN-Cache-Control": "no-store",
+  "Surrogate-Control": "no-store",
 };
 
 async function renderPdfFromHtml(html: string): Promise<Buffer> {
@@ -23,51 +26,57 @@ async function renderPdfFromHtml(html: string): Promise<Buffer> {
 
   try {
     // TEMP DEBUG: Before Puppeteer launch
-    console.log('[PDF DEBUG] renderPdfFromHtml called (offer), HTML length:', html.length);
-    console.log('[PDF DEBUG] Attempting puppeteer.launch()...');
+    console.log(
+      "[PDF DEBUG] renderPdfFromHtml called (offer), HTML length:",
+      html.length,
+    );
+    console.log("[PDF DEBUG] Attempting puppeteer.launch()...");
 
     browser = await puppeteer.launch({
       headless: true,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
       ],
     });
 
     // TEMP DEBUG: After Puppeteer launch
-    console.log('[PDF DEBUG] Puppeteer browser launched successfully');
+    console.log("[PDF DEBUG] Puppeteer browser launched successfully");
 
     const page = await browser.newPage();
-    console.log('[PDF DEBUG] New page created, setting content...');
+    console.log("[PDF DEBUG] New page created, setting content...");
 
     await page.setContent(html, {
-      waitUntil: ['load', 'networkidle0'],
+      waitUntil: ["load", "networkidle0"],
       timeout: 30000,
     });
 
-    console.log('[PDF DEBUG] Content set, generating PDF...');
+    console.log("[PDF DEBUG] Content set, generating PDF...");
 
     const pdfBuffer = await page.pdf({
-      format: 'A4',
+      format: "A4",
       printBackground: true,
       margin: {
-        top: '15mm',
-        right: '15mm',
-        bottom: '15mm',
-        left: '15mm',
+        top: "15mm",
+        right: "15mm",
+        bottom: "15mm",
+        left: "15mm",
       },
     });
 
-    console.log('[PDF DEBUG] PDF buffer generated, size:', pdfBuffer.length);
+    console.log("[PDF DEBUG] PDF buffer generated, size:", pdfBuffer.length);
 
     return Buffer.from(pdfBuffer);
   } catch (renderErr: any) {
     // TEMP DEBUG: Catch inside renderPdfFromHtml
-    console.error('[PDF DEBUG] renderPdfFromHtml FAILED (offer):', renderErr?.message);
-    console.error('[PDF DEBUG] renderPdfFromHtml error name:', renderErr?.name);
-    console.error('[PDF DEBUG] renderPdfFromHtml stack:', renderErr?.stack);
+    console.error(
+      "[PDF DEBUG] renderPdfFromHtml FAILED (offer):",
+      renderErr?.message,
+    );
+    console.error("[PDF DEBUG] renderPdfFromHtml error name:", renderErr?.name);
+    console.error("[PDF DEBUG] renderPdfFromHtml stack:", renderErr?.stack);
     throw renderErr;
   } finally {
     if (browser) {
@@ -76,9 +85,12 @@ async function renderPdfFromHtml(html: string): Promise<Buffer> {
   }
 }
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
   const ts = Date.now();
-  const route = '/api/offers/[id]/pdf';
+  const route = "/api/offers/[id]/pdf";
 
   try {
     let userId: string;
@@ -86,14 +98,16 @@ export async function GET(request: Request, { params }: { params: { id: string }
     try {
       userId = await requireUserId();
     } catch {
-      console.warn(`[PDF-SECURITY] ${route} | DENIED | reason=no_session | docId=${params?.id} | ts=${ts}`);
+      console.warn(
+        `[PDF-SECURITY] ${route} | DENIED | reason=no_session | docId=${params?.id} | ts=${ts}`,
+      );
       return unauthorizedResponse();
     }
 
     const su = await getSessionUser();
 
     console.log(
-      `[PDF-SECURITY] ${route} | AUTH_OK | userId=${userId} | email=${su?.email} | role=${su?.role} | docId=${params?.id} | ts=${ts}`
+      `[PDF-SECURITY] ${route} | AUTH_OK | userId=${userId} | email=${su?.email} | role=${su?.role} | docId=${params?.id} | ts=${ts}`,
     );
 
     const [offer, companySettings] = await Promise.all([
@@ -126,7 +140,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
           letterheadUrl: true,
           letterheadName: true,
           letterheadVisible: true,
-currency: true,
+          currency: true,
         },
       }),
     ]);
@@ -139,10 +153,10 @@ currency: true,
 
       const reason = existsForOther
         ? `belongs_to_other_user(owner=${existsForOther.userId})`
-        : 'document_does_not_exist';
+        : "document_does_not_exist";
 
       console.warn(
-        `[PDF-SECURITY] ${route} | DENIED | userId=${userId} | email=${su?.email} | role=${su?.role} | docId=${params?.id} | reason=${reason} | ts=${ts}`
+        `[PDF-SECURITY] ${route} | DENIED | userId=${userId} | email=${su?.email} | role=${su?.role} | docId=${params?.id} | reason=${reason} | ts=${ts}`,
       );
 
       logAuditAsync({
@@ -152,29 +166,34 @@ currency: true,
         action: EVENTS.FILE_ACCESS_DENIED,
         area: AREAS.SECURITY,
         success: false,
-        errorMessage: 'offer_pdf_not_found_for_user',
+        errorMessage: "offer_pdf_not_found_for_user",
         details: { route, documentId: params?.id, reason },
         request,
       });
 
       return NextResponse.json(
-        { error: 'Nicht gefunden' },
-        { status: 404, headers: SECURITY_HEADERS }
+        { error: "Nicht gefunden" },
+        { status: 404, headers: SECURITY_HEADERS },
       );
     }
 
     console.log(
-      `[PDF-SECURITY] ${route} | OWNERSHIP_OK | userId=${userId} | docOwner=${offer.userId} | docId=${offer.id} | offerNumber=${offer.offerNumber} | ts=${ts}`
+      `[PDF-SECURITY] ${route} | OWNERSHIP_OK | userId=${userId} | docOwner=${offer.userId} | docId=${offer.id} | offerNumber=${offer.offerNumber} | ts=${ts}`,
     );
 
- const offerCurrency = offer.currency === 'EUR' ? 'EUR' : 'CHF';
+    const offerCurrency = offer.currency === "EUR" ? "EUR" : "CHF";
 
-const offerCompanySettings: any = companySettings
-  ? { ...companySettings, currency: offerCurrency }
-  : null;
+    const offerCompanySettings: any = companySettings
+      ? { ...companySettings, currency: offerCurrency }
+      : null;
 
-    if (offerCompanySettings?.letterheadVisible === true && offerCompanySettings?.letterheadUrl) {
-      const letterheadDataUrl = await toImageDataUrl(offerCompanySettings.letterheadUrl);
+    if (
+      offerCompanySettings?.letterheadVisible === true &&
+      offerCompanySettings?.letterheadUrl
+    ) {
+      const letterheadDataUrl = await toImageDataUrl(
+        offerCompanySettings.letterheadUrl,
+      );
       offerCompanySettings.letterheadUrl = letterheadDataUrl;
     }
 
@@ -191,13 +210,13 @@ const offerCompanySettings: any = companySettings
           totalPrice: Number(i?.totalPrice ?? 0),
         })),
       },
-      offerCompanySettings
+      offerCompanySettings,
     );
 
     const pdfBuffer = await renderPdfFromHtml(htmlContent);
 
     console.log(
-      `[PDF-SECURITY] ${route} | SERVED | userId=${userId} | docId=${offer.id} | offerNumber=${offer.offerNumber} | bytes=${pdfBuffer.length} | ts=${ts}`
+      `[PDF-SECURITY] ${route} | SERVED | userId=${userId} | docId=${offer.id} | offerNumber=${offer.offerNumber} | bytes=${pdfBuffer.length} | ts=${ts}`,
     );
 
     logAuditAsync({
@@ -206,7 +225,7 @@ const offerCompanySettings: any = companySettings
       userRole: su?.role,
       action: EVENTS.OFFER_PDF_GENERATED,
       area: AREAS.PDF,
-      targetType: 'Offer',
+      targetType: "Offer",
       targetId: offer.id,
       details: { offerNumber: offer.offerNumber, customerId: offer.customerId },
       request,
@@ -214,30 +233,30 @@ const offerCompanySettings: any = companySettings
 
     return new NextResponse(pdfBuffer, {
       headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${offer.offerNumber}.pdf"`,
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${offer.offerNumber}.pdf"`,
         ...SECURITY_HEADERS,
       },
     });
   } catch (error: any) {
     // TEMP DEBUG: Detailed error logging for TEST environment
-    console.error('[PDF DEBUG] Offer PDF generation FAILED');
-    console.error('[PDF DEBUG] Error name:', error?.name);
-    console.error('[PDF DEBUG] Error message:', error?.message);
-    console.error('[PDF DEBUG] Error stack:', error?.stack);
-    console.error('[PDF DEBUG] Full error:', error);
+    console.error("[PDF DEBUG] Offer PDF generation FAILED");
+    console.error("[PDF DEBUG] Error name:", error?.name);
+    console.error("[PDF DEBUG] Error message:", error?.message);
+    console.error("[PDF DEBUG] Error stack:", error?.stack);
+    console.error("[PDF DEBUG] Full error:", error);
 
     return NextResponse.json(
       {
-        error: 'PDF fehlgeschlagen',
+        error: "PDF fehlgeschlagen",
         // TEMP DEBUG: Include details in response for TEST environment
         debug: {
-          name: error?.name || 'Unknown',
-          message: error?.message || 'No message',
-          stack: error?.stack?.split('\n').slice(0, 5).join('\n') || 'No stack',
+          name: error?.name || "Unknown",
+          message: error?.message || "No message",
+          stack: error?.stack?.split("\n").slice(0, 5).join("\n") || "No stack",
         },
       },
-      { status: 500, headers: SECURITY_HEADERS }
+      { status: 500, headers: SECURITY_HEADERS },
     );
   }
 }

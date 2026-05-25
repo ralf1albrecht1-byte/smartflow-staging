@@ -151,7 +151,9 @@ function stripNonNameLeadIn(value: string): string {
 
   return candidate;
 }
-function isForbiddenBillingNameSentence(value: string | null | undefined): boolean {
+function isForbiddenBillingNameSentence(
+  value: string | null | undefined,
+): boolean {
   const normalized = normalizeUnitText(value || "")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
@@ -196,17 +198,21 @@ function isForbiddenBillingNameSentence(value: string | null | undefined): boole
   ]);
   if (exact.has(normalized)) return true;
 
-  const forbiddenStarts = /^(?:mail\s+reicht|e\s*mail\s+reicht|email\s+reicht|per\s+mail|bitte\s+per\s+mail|bitte\s+mail|sms\s+reicht|whatsapp\s+reicht|telefon\s+reicht|kein\s+anruf|nicht\s+anrufen|adresse\s+wie|wie\s+letztes\s+mal|es\s+(?:geht|goht|handelt)\s+(?:um|sich)|kleine\s+bauarbeiten|neuer\s+auftrag|auftrag\b|auftraggeber\b|besteller\b|zahler\b|chef\b|zahlt\b|bezahlt\b|factura\s+(?:para|a)|fatura\s+(?:para|a)|fattura\s+(?:a|per)|(?:la\s+)?facture\s+(?:va\s+)?(?:a|à|pour)|pagador\b|payer\b|termin\b|morgen\b|heute\b)/i;
+  const forbiddenStarts =
+    /^(?:mail\s+reicht|e\s*mail\s+reicht|email\s+reicht|per\s+mail|bitte\s+per\s+mail|bitte\s+mail|sms\s+reicht|whatsapp\s+reicht|telefon\s+reicht|kein\s+anruf|nicht\s+anrufen|adresse\s+wie|wie\s+letztes\s+mal|es\s+(?:geht|goht|handelt)\s+(?:um|sich)|kleine\s+bauarbeiten|neuer\s+auftrag|auftrag\b|auftraggeber\b|besteller\b|zahler\b|chef\b|zahlt\b|bezahlt\b|factura\s+(?:para|a)|fatura\s+(?:para|a)|fattura\s+(?:a|per)|(?:la\s+)?facture\s+(?:va\s+)?(?:a|à|pour)|pagador\b|payer\b|termin\b|morgen\b|heute\b)/i;
   if (forbiddenStarts.test(normalized)) return true;
 
   return false;
 }
 
-function cleanBillingCustomerNameCandidate(value: string | null | undefined): string | null {
-  let candidate = String(value || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split(/\n+/)[0] || "";
+function cleanBillingCustomerNameCandidate(
+  value: string | null | undefined,
+): string | null {
+  let candidate =
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split(/\n+/)[0] || "";
 
   candidate = candidate
     .replace(/^["'“”‘’\s:,\-–—]+/g, "")
@@ -240,7 +246,9 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
 
   const normalized = normalizeUnitText(candidate);
   const hasStrongCompanySuffix =
-    /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|gmbh\s*&\s*co|verein|stiftung)\b/i.test(candidate);
+    /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|gmbh\s*&\s*co|verein|stiftung)\b/i.test(
+      candidate,
+    );
 
   if (candidate.length < 2 || candidate.length > 80) return null;
   if (!/[A-Za-zÄÖÜäöüß]/.test(candidate)) return null;
@@ -351,7 +359,11 @@ function cleanBillingCustomerNameCandidate(value: string | null | undefined): st
     "pagador",
     "payer",
   ];
-  if (!hasStrongCompanySuffix && blockedStarts.some((start) => normalized.startsWith(start))) return null;
+  if (
+    !hasStrongCompanySuffix &&
+    blockedStarts.some((start) => normalized.startsWith(start))
+  )
+    return null;
 
   const blockedContained =
     /\b(reinigen|reinigung|schneiden|entfernen|streichen|malen|montieren|prüfen|pruefen|ersetzen|entsorgen|auftrag|leistung|leistungen|preis|preise|währung|waehrung|fenster|treppenhaus|garage|tiefgarage|baustelle|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kundentext|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|mail|email|whatsapp|sms|zugang|zufahrt|seitentor|schlüssel|schluessel|parkplatz|termin|bauarbeiten)\b/i;
@@ -382,7 +394,10 @@ function extractBillingCustomerNameFallback(
     "(?:kunde\\s*/\\s*rechnungsadresse|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|bitte\\s+rechnung\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+bitte\\s+an|rechnung\\s+(?:schicken|senden|mailen)\\s+an|rechnung\\s+per\\s+(?:mail|email)\\s+an|rechnung\\s+geht\\s+an|rechnung\\s+an|rechnung\\s+bekommt|rechnung\\s+(?:für|fuer)|kunde\\s+ist|kunde|invoice\\s+customer\\s+is|invoice\\s+customer|billing\\s+customer\\s+is|billing\\s+customer|billing\\s+address|bill\\s+to)";
 
   // 1) Einzeiler: "Rechnung geht an Swiss Facility Service AG, Badenerstrasse 90 in 8004 Zürich."
-  const inlinePattern = new RegExp(`(?:^|[\\n.!?]\\s*)${marker}\\s*:?\\s+([^\\n]+)`, "gi");
+  const inlinePattern = new RegExp(
+    `(?:^|[\\n.!?]\\s*)${marker}\\s*:?\\s+([^\\n]+)`,
+    "gi",
+  );
   for (const match of source.matchAll(inlinePattern)) {
     const candidate = cleanBillingCustomerNameCandidate(match[1]);
     if (candidate) return candidate;
@@ -399,7 +414,10 @@ function extractBillingCustomerNameFallback(
     .filter(Boolean);
 
   const markerLinePattern = new RegExp(`^\\s*${marker}\\s*:?\\s*$`, "i");
-  const markerWithValuePattern = new RegExp(`^\\s*${marker}\\s*:?\\s+(.+)$`, "i");
+  const markerWithValuePattern = new RegExp(
+    `^\\s*${marker}\\s*:?\\s+(.+)$`,
+    "i",
+  );
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -432,14 +450,19 @@ function extractBillingCustomerNameFallback(
 
   const upperCandidateLines: string[] = [];
   for (const line of lines) {
-    if (sectionStopPattern.test(line) && !companySuffixPattern.test(line)) break;
+    if (sectionStopPattern.test(line) && !companySuffixPattern.test(line))
+      break;
     upperCandidateLines.push(line);
   }
 
   for (let index = 0; index < upperCandidateLines.length; index += 1) {
     const line = upperCandidateLines[index];
     if (!line || greetingOrIntroPattern.test(line)) continue;
-    if (/^(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail)\b/i.test(line) && !companySuffixPattern.test(line)) continue;
+    if (
+      /^(?:tel\.?|telefon|phone|mobile|handy|natel|e-?mail)\b/i.test(line) &&
+      !companySuffixPattern.test(line)
+    )
+      continue;
     if (addressPattern.test(line) || zipCityPattern.test(line)) continue;
 
     const candidate = cleanBillingCustomerNameCandidate(line);
@@ -447,8 +470,10 @@ function extractBillingCustomerNameFallback(
 
     const next1 = upperCandidateLines[index + 1] || "";
     const next2 = upperCandidateLines[index + 2] || "";
-    const hasAddressAfter = addressPattern.test(next1) || addressPattern.test(next2);
-    const hasZipAfter = zipCityPattern.test(next1) || zipCityPattern.test(next2);
+    const hasAddressAfter =
+      addressPattern.test(next1) || addressPattern.test(next2);
+    const hasZipAfter =
+      zipCityPattern.test(next1) || zipCityPattern.test(next2);
     const hasCompanySuffix = companySuffixPattern.test(candidate);
 
     if (hasCompanySuffix || (hasAddressAfter && hasZipAfter)) {
@@ -458,8 +483,6 @@ function extractBillingCustomerNameFallback(
 
   return null;
 }
-
-
 
 type SafeBillingCustomerEvidence = {
   source: "ai" | "labeled" | "inline" | "top" | "none";
@@ -520,19 +543,27 @@ function isBillingPhoneOrMailLine(line: string): boolean {
 
   // Firmennamen wie "Telefon Trennung AG" oder "Mobile Clean GmbH"
   // sind keine Telefon-/Mail-Zeilen.
-  if (hasBillingCompanySuffix(trimmed) && !extractPhoneFromText(trimmed) && !/@/.test(trimmed)) {
+  if (
+    hasBillingCompanySuffix(trimmed) &&
+    !extractPhoneFromText(trimmed) &&
+    !/@/.test(trimmed)
+  ) {
     return false;
   }
 
   return (
-    /^\s*(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?\s*(?:$|\+?\d|\()/i.test(trimmed) ||
-    /^\s*(?:e-?mail|email)\b\s*[:.]?\s*(?:$|[^\s]+@)/i.test(trimmed)
+    /^\s*(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?\s*(?:$|\+?\d|\()/i.test(
+      trimmed,
+    ) || /^\s*(?:e-?mail|email)\b\s*[:.]?\s*(?:$|[^\s]+@)/i.test(trimmed)
   );
 }
 
 function parseBillingStreetLine(line: string): string | null {
   const raw = String(line || "")
-    .replace(/^\s*(?:adresse|anschrift|strasse|straße|street\s+address|address)\s*:?\s*/i, "")
+    .replace(
+      /^\s*(?:adresse|anschrift|strasse|straße|street\s+address|address)\s*:?\s*/i,
+      "",
+    )
     .replace(/[,;]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -540,15 +571,25 @@ function parseBillingStreetLine(line: string): string | null {
 
   const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
   const word = "[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*";
-  const germanSuffix = "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
+  const germanSuffix =
+    "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
 
   const patterns = [
     // Bahnhofstrasse 44, Badenerstrasse 90, Zentralstrasse 5
-    new RegExp(`\\b((?:${word}\\s+){0,3}${word}${germanSuffix}\\s+${houseNumber})\\b`, "i"),
+    new RegExp(
+      `\\b((?:${word}\\s+){0,3}${word}${germanSuffix}\\s+${houseNumber})\\b`,
+      "i",
+    ),
     // Untere Gasse 4, Alte Gasse 7, Im Weg 2
-    new RegExp(`\\b((?:${word}\\s+){1,4}${germanSuffix}\\s+${houseNumber})\\b`, "i"),
+    new RegExp(
+      `\\b((?:${word}\\s+){1,4}${germanSuffix}\\s+${houseNumber})\\b`,
+      "i",
+    ),
     // Rütistrasse 9 / Rue de Lausanne 10 / Via Roma 3
-    new RegExp(`\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,6}\\s+${houseNumber})\\b`, "i"),
+    new RegExp(
+      `\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,6}\\s+${houseNumber})\\b`,
+      "i",
+    ),
   ];
 
   for (const pattern of patterns) {
@@ -556,7 +597,10 @@ function parseBillingStreetLine(line: string): string | null {
     if (!match?.[1]) continue;
 
     const street = match[1]
-      .replace(/^\s*(?:beim|bei|an|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
+      .replace(
+        /^\s*(?:beim|bei|an|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i,
+        "",
+      )
       .replace(/\s+/g, " ")
       .trim();
 
@@ -566,14 +610,21 @@ function parseBillingStreetLine(line: string): string | null {
   return null;
 }
 
-function parseBillingStreetFromBlock(value: string | null | undefined): string | null {
+function parseBillingStreetFromBlock(
+  value: string | null | undefined,
+): string | null {
   const lines = splitIntakeLines(value);
 
   // Strict first pass: street must be on its own line or in a real address line.
   // This prevents "Fixcheck AG Bahnhofstrasse 18" from becoming the street.
   for (const line of lines) {
     const cleaned = stripBillingLabelPrefix(line);
-    if (!cleaned || isBillingStopLine(cleaned) || isBillingPhoneOrMailLine(cleaned)) continue;
+    if (
+      !cleaned ||
+      isBillingStopLine(cleaned) ||
+      isBillingPhoneOrMailLine(cleaned)
+    )
+      continue;
     const street = parseBillingStreetLine(cleaned);
     if (street) return street;
   }
@@ -583,14 +634,23 @@ function parseBillingStreetFromBlock(value: string | null | undefined): string |
   const source = normalizeIntakeSourceText(value);
   const name = parseBillingNameFromBlock(source);
   const withoutName = name
-    ? source.replace(new RegExp(`^\\s*${escapeRegExpLocal(name)}\\s*[,;]?\\s*`, "i"), "")
+    ? source.replace(
+        new RegExp(`^\\s*${escapeRegExpLocal(name)}\\s*[,;]?\\s*`, "i"),
+        "",
+      )
     : source;
   return parseBillingStreetLine(withoutName);
 }
 
-function parseBillingPlzCityFromLine(line: string): { plz: string | null; city: string | null } {
+function parseBillingPlzCityFromLine(line: string): {
+  plz: string | null;
+  city: string | null;
+} {
   const cleaned = String(line || "")
-    .replace(/^\s*(?:plz\s*\/\s*ort|plz|ort|postleitzahl|zip|postal\s+code|ville|city)\s*:?\s*/i, "")
+    .replace(
+      /^\s*(?:plz\s*\/\s*ort|plz|ort|postleitzahl|zip|postal\s+code|ville|city)\s*:?\s*/i,
+      "",
+    )
     .replace(/[,;]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -601,7 +661,10 @@ function parseBillingPlzCityFromLine(line: string): { plz: string | null; city: 
   if (!match) return { plz: null, city: null };
 
   const city = String(match[2] || "")
-    .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
+    .replace(
+      /\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i,
+      "",
+    )
     .replace(/[,;:.]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -623,7 +686,9 @@ function parseBillingPlzCityFromBlock(value: string | null | undefined): {
   return parseBillingPlzCityFromLine(normalizeIntakeSourceText(value));
 }
 
-function parseBillingNameFromBlock(value: string | null | undefined): string | null {
+function parseBillingNameFromBlock(
+  value: string | null | undefined,
+): string | null {
   const lines = splitIntakeLines(value);
   for (const line of lines) {
     const stripped = stripBillingLabelPrefix(line)
@@ -636,7 +701,12 @@ function parseBillingNameFromBlock(value: string | null | undefined): string | n
     if (isBillingStopLine(cleaned)) continue;
     if (parseBillingStreetLine(cleaned)) continue;
     if (parseBillingPlzCityFromLine(cleaned).plz) continue;
-    if (/\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|street|road|lane)\b/i.test(cleaned)) continue;
+    if (
+      /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|street|road|lane)\b/i.test(
+        cleaned,
+      )
+    )
+      continue;
 
     const candidate = cleanBillingCustomerNameCandidate(cleaned);
     if (candidate) return candidate;
@@ -649,7 +719,9 @@ function getBillingBlockStopRegex(): RegExp {
   return /^(?:arbeitsort|objekt|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|einsatzort|ausführen\s+in\b.*|ausfuehren\s+in\b.*|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|contact\s+sur\s+place|concierge|hauswart|hausmeister|besonderheiten|bemerkungen|remarques|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|service|services|titel)\b/i;
 }
 
-function hasNamelessBillingAddressEvidence(block: string | null | undefined): boolean {
+function hasNamelessBillingAddressEvidence(
+  block: string | null | undefined,
+): boolean {
   const source = normalizeIntakeSourceText(block);
   if (!source) return false;
 
@@ -659,18 +731,27 @@ function hasNamelessBillingAddressEvidence(block: string | null | undefined): bo
   const email = extractEmailFromText(source);
 
   const hasFullAddress = Boolean(street && plz && city);
-  const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
-  const hasPartialAddressWithEmail = Boolean((street || (plz && city)) && email);
+  const hasPartialAddressWithPhone = Boolean(
+    (street || (plz && city)) && phone,
+  );
+  const hasPartialAddressWithEmail = Boolean(
+    (street || (plz && city)) && email,
+  );
 
   // Nur für explizit gelabelte Rechnungs-/Billing-Blöcke:
   // Wenn der Name fehlt, dürfen echte Adress-/Telefon-/E-Mail-Daten trotzdem nicht
   // verworfen werden. Der Auftrag bleibt prüfpflichtig, aber die Daten bleiben
   // in der Kundenkarte sichtbar.
-  return hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail;
+  return (
+    hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail
+  );
 }
 
 function extractLabeledBillingBlock(lines: string[]): string | null {
-  const billingMarker = new RegExp(`^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`, "i");
+  const billingMarker = new RegExp(
+    `^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`,
+    "i",
+  );
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(billingMarker);
     if (!match) continue;
@@ -686,7 +767,11 @@ function extractLabeledBillingBlock(lines: string[]): string | null {
     }
 
     const block = blockLines.join("\n").trim();
-    if (block && (parseBillingNameFromBlock(block) || hasNamelessBillingAddressEvidence(block))) {
+    if (
+      block &&
+      (parseBillingNameFromBlock(block) ||
+        hasNamelessBillingAddressEvidence(block))
+    ) {
       return block;
     }
   }
@@ -706,10 +791,17 @@ function extractInlineBillingBlock(source: string): string | null {
     if (!match?.[1]) continue;
     const block = match[1]
       .replace(/[,;]\s*/g, "\n")
-      .replace(/\b(?:adresse|anschrift|telefonnummer|telefon|tel\.?|phone|mobile|handy|natel)\s*:?/gi, "\n$& ")
+      .replace(
+        /\b(?:adresse|anschrift|telefonnummer|telefon|tel\.?|phone|mobile|handy|natel)\s*:?/gi,
+        "\n$& ",
+      )
       .replace(/\n{3,}/g, "\n\n")
       .trim();
-    if (block && (parseBillingNameFromBlock(block) || hasNamelessBillingAddressEvidence(block))) {
+    if (
+      block &&
+      (parseBillingNameFromBlock(block) ||
+        hasNamelessBillingAddressEvidence(block))
+    ) {
       return block;
     }
   }
@@ -722,8 +814,16 @@ function extractTopBillingBlock(lines: string[]): string | null {
 
   for (const line of lines) {
     if (isBillingStopLine(line)) break;
-    if (/^(?:hallo|guten\s+tag|grüezi|gruezi|salut|bonjour|bitte\b|neuer\s+auftrag|auftrag\s+erfassen|anbei|hier\s+ist|es\s+geht\s+um|es\s+handelt\s+sich|zugang\s+über|zugang\s+ueber|termin|schlüssel|schluessel)/i.test(line)) continue;
-    if (/^(?:whats\s*app|whatsapp|sms|mail|e-?mail|telegram)\s*:?\s*$/i.test(line)) continue;
+    if (
+      /^(?:hallo|guten\s+tag|grüezi|gruezi|salut|bonjour|bitte\b|neuer\s+auftrag|auftrag\s+erfassen|anbei|hier\s+ist|es\s+geht\s+um|es\s+handelt\s+sich|zugang\s+über|zugang\s+ueber|termin|schlüssel|schluessel)/i.test(
+        line,
+      )
+    )
+      continue;
+    if (
+      /^(?:whats\s*app|whatsapp|sms|mail|e-?mail|telegram)\s*:?\s*$/i.test(line)
+    )
+      continue;
     if (/^\[Titel\s*:/i.test(line)) continue;
     blockLines.push(line);
     if (blockLines.length >= 5) break;
@@ -736,7 +836,10 @@ function extractTopBillingBlock(lines: string[]): string | null {
   const street = parseBillingStreetFromBlock(block);
   const { plz, city } = parseBillingPlzCityFromBlock(block);
   const hasZipCity = !!plz && !!city;
-  const hasCompany = /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(name || "");
+  const hasCompany =
+    /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(
+      name || "",
+    );
 
   // Unlabelled customer data is accepted only when it is a real top customer
   // block. A later Arbeitsort/Kontakt block must never become customer data.
@@ -747,7 +850,6 @@ function extractTopBillingBlock(lines: string[]): string | null {
 function escapeRegExpLocal(value: string): string {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-
 
 // V16.36: Final hard guard for explicit nameless billing-address blocks.
 // This is intentionally stricter and simpler than the general customer parser:
@@ -760,8 +862,12 @@ function extractHardLabeledBillingAddressEvidenceV1634(
   const lines = splitIntakeLines(rawText);
   if (lines.length === 0) return null;
 
-  const markerRegex = new RegExp(`^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`, "i");
-  const stopRegex = /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|ausführen\s+in\b.*|ausfuehren\s+in\b.*|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
+  const markerRegex = new RegExp(
+    `^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`,
+    "i",
+  );
+  const stopRegex =
+    /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|ausführen\s+in\b.*|ausfuehren\s+in\b.*|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(markerRegex);
@@ -788,7 +894,9 @@ function extractHardLabeledBillingAddressEvidenceV1634(
     const email = extractEmailFromText(block);
 
     const hasFullAddress = Boolean(street && plz && city);
-    const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
+    const hasPartialAddressWithContact = Boolean(
+      (street || (plz && city)) && (phone || email),
+    );
 
     if (!name && !hasFullAddress && !hasPartialAddressWithContact) continue;
 
@@ -807,7 +915,6 @@ function extractHardLabeledBillingAddressEvidenceV1634(
   return null;
 }
 
-
 // V16.37: Ultra-direct fallback for explicit nameless billing blocks.
 // Grund: Der allgemeine Parser darf weiterhin streng bleiben, aber ein klarer
 // Block "Rechnung an:" mit Strasse + PLZ/Ort darf nicht verloren gehen, nur
@@ -825,7 +932,10 @@ function extractDirectNamelessBillingAddressV1637(
   const lines = splitIntakeLines(rawText);
   if (lines.length === 0) return null;
 
-  const markerRegex = new RegExp(`^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`, "i");
+  const markerRegex = new RegExp(
+    `^\\s*(?:${BILLING_MARKER_PATTERN})\\s*(?:ist|isch|is|lautet|heisst|heißt|=|:)?\\s*(.*)$`,
+    "i",
+  );
   const stopRegex =
     /^\s*(?:arbeitsort|objekt|einsatzort|einsatzadresse|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsadresse|baustelle|montageort|serviceadresse|ausführen\s+in\b.*|ausfuehren\s+in\b.*|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)\b.*|adresse\s+de\s+travail|lieu\s+d['’]?intervention|work\s+address|job\s+site|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
 
@@ -877,7 +987,9 @@ function extractDirectNamelessBillingAddressV1637(
     const email = extractEmailFromText(block);
 
     const hasSafeAddress = Boolean(street && plz && city);
-    const hasSafePartialWithContact = Boolean((street || (plz && city)) && (phone || email));
+    const hasSafePartialWithContact = Boolean(
+      (street || (plz && city)) && (phone || email),
+    );
 
     if (!hasSafeAddress && !hasSafePartialWithContact) continue;
 
@@ -893,7 +1005,6 @@ function extractDirectNamelessBillingAddressV1637(
   return null;
 }
 
-
 // V16.39: AI-first address intake.
 // The LLM must sort billing customer and execution site up front. The code below
 // only validates already structured fields and deliberately does NOT infer
@@ -908,7 +1019,12 @@ function normalizeStructuredTextField(value: any): string | null {
     .trim();
 
   if (!cleaned || /^[-–—]+$/.test(cleaned)) return null;
-  if (/^(?:null|undefined|none|keine|kein|fehlt|missing|unknown|unbekannt)$/i.test(cleaned)) return null;
+  if (
+    /^(?:null|undefined|none|keine|kein|fehlt|missing|unknown|unbekannt)$/i.test(
+      cleaned,
+    )
+  )
+    return null;
   return cleaned;
 }
 
@@ -924,11 +1040,18 @@ function normalizeStructuredTextBlock(value: any): string | null {
     .trim();
 
   if (!cleaned || /^[-–—]+$/.test(cleaned)) return null;
-  if (/^(?:null|undefined|none|keine|kein|fehlt|missing|unknown|unbekannt)$/i.test(cleaned)) return null;
+  if (
+    /^(?:null|undefined|none|keine|kein|fehlt|missing|unknown|unbekannt)$/i.test(
+      cleaned,
+    )
+  )
+    return null;
   return cleaned;
 }
 
-function normalizeStructuredConfidenceLevel(value: any): "hoch" | "mittel" | "niedrig" | null {
+function normalizeStructuredConfidenceLevel(
+  value: any,
+): "hoch" | "mittel" | "niedrig" | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     if (value >= 0.85) return "hoch";
     if (value >= 0.65) return "mittel";
@@ -937,9 +1060,22 @@ function normalizeStructuredConfidenceLevel(value: any): "hoch" | "mittel" | "ni
 
   const normalized = normalizeUnitText(value || "");
   if (!normalized) return null;
-  if (["hoch", "high", "sicher", "certain", "eindeutig", "clear"].includes(normalized)) return "hoch";
-  if (["mittel", "medium", "wahrscheinlich", "probably", "plausibel"].includes(normalized)) return "mittel";
-  if (["niedrig", "low", "unsicher", "uncertain", "unklar"].includes(normalized)) return "niedrig";
+  if (
+    ["hoch", "high", "sicher", "certain", "eindeutig", "clear"].includes(
+      normalized,
+    )
+  )
+    return "hoch";
+  if (
+    ["mittel", "medium", "wahrscheinlich", "probably", "plausibel"].includes(
+      normalized,
+    )
+  )
+    return "mittel";
+  if (
+    ["niedrig", "low", "unsicher", "uncertain", "unklar"].includes(normalized)
+  )
+    return "niedrig";
   return null;
 }
 
@@ -969,11 +1105,16 @@ function structuredEvidenceMatchesOriginalText(
   const evidenceTokens = evidenceKey
     .split(" ")
     .map((token) => token.trim())
-    .filter((token) => token.length >= 4 || /@/.test(token) || /^\d{4,5}$/.test(token));
+    .filter(
+      (token) =>
+        token.length >= 4 || /@/.test(token) || /^\d{4,5}$/.test(token),
+    );
 
   if (evidenceTokens.length === 0) return false;
 
-  const matchingTokens = evidenceTokens.filter((token) => originalKey.includes(token));
+  const matchingTokens = evidenceTokens.filter((token) =>
+    originalKey.includes(token),
+  );
   return matchingTokens.length >= Math.min(3, evidenceTokens.length);
 }
 
@@ -1003,7 +1144,8 @@ function hasUsableStructuredBillingEvidence(args: {
   // statt falsche Kundendaten in den Kundenstamm zu schreiben.
   if (!confidence || confidence === "niedrig") return false;
   if (!evidence) return false;
-  if (!structuredEvidenceMatchesOriginalText(evidence, args.originalText)) return false;
+  if (!structuredEvidenceMatchesOriginalText(evidence, args.originalText))
+    return false;
 
   return true;
 }
@@ -1030,10 +1172,14 @@ function cleanAiStructuredBillingName(value: any): string | null {
   // If the model returns a phrase with a company suffix plus trailing words,
   // keep only the company name up to the legal suffix. This is structural, not a
   // billing-marker lookup.
-  const company = candidate.match(/^(.+?\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b)/i)?.[1];
+  const company = candidate.match(
+    /^(.+?\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b)/i,
+  )?.[1];
   if (company) {
     const cleanedCompany = company.replace(/\s+/g, " ").trim();
-    return cleanedCompany.length >= 2 && cleanedCompany.length <= 80 ? cleanedCompany : null;
+    return cleanedCompany.length >= 2 && cleanedCompany.length <= 80
+      ? cleanedCompany
+      : null;
   }
 
   const tokens = candidate.split(/\s+/).filter(Boolean);
@@ -1058,29 +1204,46 @@ function extractAiStructuredBillingEvidence(
     .filter(Boolean)
     .join(" ");
 
-  const street = rawStreet ? parseBillingStreetLine(rawStreet) || cleanExecutionStreetCandidate(rawStreet) : null;
+  const street = rawStreet
+    ? parseBillingStreetLine(rawStreet) ||
+      cleanExecutionStreetCandidate(rawStreet)
+    : null;
   const plz = normalizeStructuredPlz(kundeData?.plz);
-  const city = cleanIntakeCityCandidate(normalizeStructuredTextField(kundeData?.ort));
+  const city = cleanIntakeCityCandidate(
+    normalizeStructuredTextField(kundeData?.ort),
+  );
   const evidence = normalizeStructuredTextBlock(
     kundeData?.evidence ??
       kundeData?.sourceText ??
       kundeData?.source_text ??
       kundeData?.quelle,
   );
-  const phone = extractPhoneFromText(normalizeStructuredTextField(kundeData?.telefon)) || extractPhoneFromText(evidence);
-  let email = extractEmailFromText(normalizeStructuredTextField(kundeData?.email)) || extractEmailFromText(evidence);
+  const phone =
+    extractPhoneFromText(normalizeStructuredTextField(kundeData?.telefon)) ||
+    extractPhoneFromText(evidence);
+  let email =
+    extractEmailFromText(normalizeStructuredTextField(kundeData?.email)) ||
+    extractEmailFromText(evidence);
   const name = cleanAiStructuredBillingName(kundeData?.name);
 
   const allOriginalEmails = Array.from(
-    String(originalText || "").matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi),
-  ).map((match) => match[0]?.trim()).filter(Boolean);
+    String(originalText || "").matchAll(
+      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
+    ),
+  )
+    .map((match) => match[0]?.trim())
+    .filter(Boolean);
 
   const hasFullAddress = Boolean(street && plz && city);
   if (!email && hasFullAddress && allOriginalEmails.length === 1) {
     email = allOriginalEmails[0];
   }
-  const hasPartialAddressWithContact = Boolean((street || (plz && city)) && (phone || email));
-  const hasAnyExtractedBillingData = Boolean(name || hasFullAddress || hasPartialAddressWithContact);
+  const hasPartialAddressWithContact = Boolean(
+    (street || (plz && city)) && (phone || email),
+  );
+  const hasAnyExtractedBillingData = Boolean(
+    name || hasFullAddress || hasPartialAddressWithContact,
+  );
 
   const hasReliableCustomerBlock = hasUsableStructuredBillingEvidence({
     kundeData,
@@ -1108,8 +1271,12 @@ function sameStructuredAddress(args: {
   bPlz?: string | null;
   bCity?: string | null;
 }): boolean {
-  const a = normalizeUnitText([args.aStreet, args.aPlz, args.aCity].filter(Boolean).join(" "));
-  const b = normalizeUnitText([args.bStreet, args.bPlz, args.bCity].filter(Boolean).join(" "));
+  const a = normalizeUnitText(
+    [args.aStreet, args.aPlz, args.aCity].filter(Boolean).join(" "),
+  );
+  const b = normalizeUnitText(
+    [args.bStreet, args.bPlz, args.bCity].filter(Boolean).join(" "),
+  );
   return Boolean(a && b && a === b);
 }
 
@@ -1128,7 +1295,8 @@ function extractAiStructuredExecutionAddress(
   siteCity: string | null;
   siteNote: string | null;
 } | null {
-  if (!aiExecutionAddress || aiExecutionAddress.ist_abweichend !== true) return null;
+  if (!aiExecutionAddress || aiExecutionAddress.ist_abweichend !== true)
+    return null;
 
   const confidence = normalizeStructuredConfidenceLevel(
     aiExecutionAddress.confidence ??
@@ -1141,13 +1309,19 @@ function extractAiStructuredExecutionAddress(
   const siteName = cleanExecutionSiteNameCandidate(
     normalizeStructuredTextField(aiExecutionAddress.name),
   );
-  const rawExecutionStreet = normalizeStructuredTextField(aiExecutionAddress.strasse);
-  const rawExecutionHouseNumber = normalizeStructuredTextField(aiExecutionAddress.hausnummer);
+  const rawExecutionStreet = normalizeStructuredTextField(
+    aiExecutionAddress.strasse,
+  );
+  const rawExecutionHouseNumber = normalizeStructuredTextField(
+    aiExecutionAddress.hausnummer,
+  );
   const rawExecutionAddress = rawExecutionStreet
     ? [
         rawExecutionStreet,
         rawExecutionHouseNumber &&
-        !new RegExp(`\b${escapeRegExpLocal(rawExecutionHouseNumber)}\b`).test(rawExecutionStreet)
+        !new RegExp(`\b${escapeRegExpLocal(rawExecutionHouseNumber)}\b`).test(
+          rawExecutionStreet,
+        )
           ? rawExecutionHouseNumber
           : null,
       ]
@@ -1172,7 +1346,9 @@ function extractAiStructuredExecutionAddress(
   );
   const originalKey = normalizedEvidenceKey(originalText || "");
   if (originalKey) {
-    const addressParts = [siteAddress, sitePlz, siteCity].filter(Boolean) as string[];
+    const addressParts = [siteAddress, sitePlz, siteCity].filter(
+      Boolean,
+    ) as string[];
     const everyAddressPartInOriginal = addressParts.every((part) => {
       const partKey = normalizedEvidenceKey(part);
       return partKey.length >= 2 && originalKey.includes(partKey);
@@ -1183,7 +1359,10 @@ function extractAiStructuredExecutionAddress(
     // keine Ausführungsadresse speichern als eine erfundene oder vermischte.
     if (!everyAddressPartInOriginal) return null;
 
-    if (evidence && !structuredEvidenceMatchesOriginalText(evidence, originalText)) {
+    if (
+      evidence &&
+      !structuredEvidenceMatchesOriginalText(evidence, originalText)
+    ) {
       return null;
     }
   }
@@ -1212,7 +1391,6 @@ function extractAiStructuredExecutionAddress(
     siteNote: null,
   };
 }
-
 
 function extractSafeBillingCustomerEvidence(
   rawText: string | null | undefined,
@@ -1243,20 +1421,35 @@ function extractSafeBillingCustomerEvidence(
   const { plz, city } = parseBillingPlzCityFromBlock(block);
   const phone = extractPhoneFromText(block);
   const email = extractEmailFromText(block);
-  const hasCompany = /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(name || "");
+  const hasCompany =
+    /\b(?:ag|gmbh|sarl|sa|s\.?a\.?|ltd\.?|limited|inc\.?|kg|kgaa|verein|stiftung)\b/i.test(
+      name || "",
+    );
   const hasAddress = Boolean(street || (plz && city));
   const hasFullAddress = Boolean(street && plz && city);
-  const hasPartialAddressWithPhone = Boolean((street || (plz && city)) && phone);
-  const hasPartialAddressWithEmail = Boolean((street || (plz && city)) && email);
+  const hasPartialAddressWithPhone = Boolean(
+    (street || (plz && city)) && phone,
+  );
+  const hasPartialAddressWithEmail = Boolean(
+    (street || (plz && city)) && email,
+  );
 
-  const sourceKind: SafeBillingCustomerEvidence["source"] = labeledBlock ? "labeled" : inlineBlock ? "inline" : "top";
+  const sourceKind: SafeBillingCustomerEvidence["source"] = labeledBlock
+    ? "labeled"
+    : inlineBlock
+      ? "inline"
+      : "top";
   const hasReliableCustomerBlock = Boolean(
     (name &&
       ((sourceKind === "top" && (hasCompany || hasAddress)) ||
         (sourceKind !== "top" && (hasCompany || hasAddress || phone)))) ||
-      // Explizit gelabelte Rechnungsadresse ohne Name:
-      // Adresse/Telefon übernehmen, aber weiterhin Kunde prüfen erzwingen.
-      (sourceKind !== "top" && !name && (hasFullAddress || hasPartialAddressWithPhone || hasPartialAddressWithEmail)),
+    // Explizit gelabelte Rechnungsadresse ohne Name:
+    // Adresse/Telefon übernehmen, aber weiterhin Kunde prüfen erzwingen.
+    (sourceKind !== "top" &&
+      !name &&
+      (hasFullAddress ||
+        hasPartialAddressWithPhone ||
+        hasPartialAddressWithEmail)),
   );
 
   return {
@@ -1270,7 +1463,6 @@ function extractSafeBillingCustomerEvidence(
     email: hasReliableCustomerBlock ? email : null,
   };
 }
-
 
 function directNamelessBillingAddressToEvidence(
   value: ReturnType<typeof extractDirectNamelessBillingAddressV1637>,
@@ -1334,7 +1526,8 @@ function supplementAiBillingEvidence(
 ): SafeBillingCustomerEvidence {
   if (!fallbackEvidence?.hasReliableCustomerBlock) return aiEvidence;
   if (!aiEvidence.hasReliableCustomerBlock) return fallbackEvidence;
-  if (!billingEvidenceAddressCompatible(aiEvidence, fallbackEvidence)) return aiEvidence;
+  if (!billingEvidenceAddressCompatible(aiEvidence, fallbackEvidence))
+    return aiEvidence;
 
   return {
     ...aiEvidence,
@@ -1348,10 +1541,14 @@ function supplementAiBillingEvidence(
   };
 }
 
-
-function cleanIntakeCityCandidate(value: string | null | undefined): string | null {
+function cleanIntakeCityCandidate(
+  value: string | null | undefined,
+): string | null {
   const city = String(value || "")
-    .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
+    .replace(
+      /\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i,
+      "",
+    )
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -1360,11 +1557,16 @@ function cleanIntakeCityCandidate(value: string | null | undefined): string | nu
   return city;
 }
 
-function cleanExecutionStreetCandidate(value: string | null | undefined): string | null {
+function cleanExecutionStreetCandidate(
+  value: string | null | undefined,
+): string | null {
   const raw = String(value || "")
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
     .replace(/^\s*(?:beim|bei|an|am|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
-    .replace(/\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i, "")
+    .replace(
+      /\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i,
+      "",
+    )
     .replace(/\s+/g, " ")
     .trim();
 
@@ -1374,12 +1576,20 @@ function cleanExecutionStreetCandidate(value: string | null | undefined): string
   return parsedStreet || raw;
 }
 
-function cleanExecutionSiteNameCandidate(value: string | null | undefined): string | null {
+function cleanExecutionSiteNameCandidate(
+  value: string | null | undefined,
+): string | null {
   let candidate = String(value || "")
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
-    .replace(/^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i, "")
+    .replace(
+      /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i,
+      "",
+    )
     .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
-    .replace(/^\s*um\s*\d{1,2}[:.]\d{2}\s+(?:uhr\s*)?(?:beim|bei|am|an|in)?\s*/i, "")
+    .replace(
+      /^\s*um\s*\d{1,2}[:.]\d{2}\s+(?:uhr\s*)?(?:beim|bei|am|an|in)?\s*/i,
+      "",
+    )
     .replace(/\s+/g, " ")
     .trim();
 
@@ -1387,16 +1597,21 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
 
   // Titel-Zeilen sind reine Auftrags-/Karten-Titel und niemals Objekt-/Ortsnamen.
   // Beispiel: "[Titel: Fenster Kontakt vor Ort]" darf nicht als Ausführungsadresse-Label gespeichert werden.
-  if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate)) return null;
+  if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate))
+    return null;
 
   candidate = candidate
-    .replace(/^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i, "")
+    .replace(
+      /^\s*(?:um\s*)?\d{1,2}[:.]\d{2}\s*(?:uhr)?\s*(?:beim|bei|am|an|im|in)?\s*$/i,
+      "",
+    )
     .replace(/^\s*(?:beim|bei|am|an|im|in|um|uhr|m)\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
-  if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate)) return null;
+  if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate))
+    return null;
   if (candidate.length < 3 || candidate.length > 80) return null;
 
   const normalized = normalizeUnitText(candidate);
@@ -1412,7 +1627,11 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
   ]);
   if (blockedExact.has(normalized)) return null;
 
-  if (/^(?:um\s*\d|am\s*\d|es\s+geht\s+um|es\s+handelt\s+sich|zugang\s+(?:über|ueber)|bitte\b)/i.test(candidate)) {
+  if (
+    /^(?:um\s*\d|am\s*\d|es\s+geht\s+um|es\s+handelt\s+sich|zugang\s+(?:über|ueber)|bitte\b)/i.test(
+      candidate,
+    )
+  ) {
     return null;
   }
 
@@ -1420,11 +1639,17 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
   if (parseBillingPlzCityFromLine(candidate).plz) return null;
 
   const looksLikeServiceOrPriceLine =
-    /\b\d+(?:[.,]\d+)?\s*(?:stueck|stück|stk|quadratmeter|qm|m2|m²|meter|laufmeter|lfm|stunde|stunden|std\.?|h|tag|tage)\b/i.test(normalized) ||
-    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|preis|pauschal|pro|per|je)\b/i.test(normalized);
+    /\b\d+(?:[.,]\d+)?\s*(?:stueck|stück|stk|quadratmeter|qm|m2|m²|meter|laufmeter|lfm|stunde|stunden|std\.?|h|tag|tage)\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|preis|pauschal|pro|per|je)\b/i.test(
+      normalized,
+    );
 
   const hasServiceVerb =
-    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken|anfahrt|fahrtkosten|fahrpauschale|wegpauschale)\b/i.test(normalized);
+    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken|anfahrt|fahrtkosten|fahrpauschale|wegpauschale)\b/i.test(
+      normalized,
+    );
 
   // Eine Leistungs-/Preiszeile oder reine Leistungszusammenfassung ist niemals
   // ein Objektname der Ausführungsadresse.
@@ -1436,12 +1661,16 @@ function cleanExecutionSiteNameCandidate(value: string | null | undefined): stri
   return candidate;
 }
 
-function extractExecutionBlockFromText(rawText: string | null | undefined): string | null {
+function extractExecutionBlockFromText(
+  rawText: string | null | undefined,
+): string | null {
   const lines = splitIntakeLines(rawText);
   if (lines.length === 0) return null;
 
-  const startRegex = /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
-  const stopRegex = /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
+  const startRegex =
+    /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+  const stopRegex =
+    /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(startRegex);
@@ -1474,7 +1703,9 @@ function repairExecutionStreetFromText(args: {
   if (args.currentStreet) return args.currentStreet;
 
   const executionBlock = extractExecutionBlockFromText(args.rawText);
-  const blockStreet = executionBlock ? parseBillingStreetFromBlock(executionBlock) : null;
+  const blockStreet = executionBlock
+    ? parseBillingStreetFromBlock(executionBlock)
+    : null;
   if (blockStreet) return blockStreet;
 
   const source = normalizeIntakeSourceText(args.rawText);
@@ -1500,7 +1731,6 @@ function repairExecutionStreetFromText(args: {
     if (street) return street;
   }
 
-
   return null;
 }
 
@@ -1525,20 +1755,23 @@ function repairExecutionSiteNameFromText(args: {
     if (parseBillingStreetLine(candidate)) continue;
     if (parseBillingPlzCityFromLine(candidate).plz) continue;
     if (sitePlz && candidate.includes(sitePlz)) continue;
-    if (siteAddressKey && normalizeUnitText(candidate) === siteAddressKey) continue;
+    if (siteAddressKey && normalizeUnitText(candidate) === siteAddressKey)
+      continue;
     return candidate;
   }
 
   return null;
 }
 
-function sanitizeExtractedExecutionAddress<T extends {
-  siteName?: string | null;
-  siteAddress?: string | null;
-  sitePlz?: string | null;
-  siteCity?: string | null;
-  siteNote?: string | null;
-}>(address: T | null | undefined, rawText: string | null | undefined): T | null {
+function sanitizeExtractedExecutionAddress<
+  T extends {
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+    siteNote?: string | null;
+  },
+>(address: T | null | undefined, rawText: string | null | undefined): T | null {
   if (!address) return null;
 
   let siteName = cleanExecutionSiteNameCandidate(address.siteName || null);
@@ -1568,13 +1801,17 @@ function sanitizeExtractedExecutionAddress<T extends {
     siteCity,
   };
 
-  if (!cleaned.siteName && !cleaned.siteAddress && !cleaned.sitePlz && !cleaned.siteCity) {
+  if (
+    !cleaned.siteName &&
+    !cleaned.siteAddress &&
+    !cleaned.sitePlz &&
+    !cleaned.siteCity
+  ) {
     return null;
   }
 
   return cleaned as T;
 }
-
 
 function applySafeBillingCustomerGuard(args: {
   kundeData: any;
@@ -1662,7 +1899,8 @@ function extractPhoneFromText(value: string | null | undefined): string | null {
   const explicit = source.match(
     /\b(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)\b/i,
   );
-  const loose = explicit?.[1] || source.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] || null;
+  const loose =
+    explicit?.[1] || source.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] || null;
   if (!loose) return null;
 
   const digits = normalizePhoneDigits(loose);
@@ -1702,15 +1940,22 @@ function extractOnsiteContactHint(
 
   const explicitMarkerRe =
     /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|person\s+vor\s+ort)\b/i;
-  const roleMarkerRe = /\b(hauswart|hausmeister|concierge|caretaker|gardien|facility\s+manager)\b/i;
-  const anyMarkerRe = new RegExp(`${explicitMarkerRe.source}|${roleMarkerRe.source}`, "i");
+  const roleMarkerRe =
+    /\b(hauswart|hausmeister|concierge|caretaker|gardien|facility\s+manager)\b/i;
+  const anyMarkerRe = new RegExp(
+    `${explicitMarkerRe.source}|${roleMarkerRe.source}`,
+    "i",
+  );
   const stopRe =
     /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt)\s*:?$/i;
 
   const cleanContactLine = (line: string, stripExplicitMarker: boolean) =>
     line
       .replace(stripExplicitMarker ? explicitMarkerRe : /^\b$/i, "")
-      .replace(/\b(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?.*$/i, "")
+      .replace(
+        /\b(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?.*$/i,
+        "",
+      )
       .replace(/^[\s:.-]+|[\s:.-]+$/g, "")
       .replace(/\s+/g, " ")
       .trim();
@@ -1738,7 +1983,9 @@ function extractOnsiteContactHint(
         phoneDigits === candidateDigits);
 
     const contactName = blockLines
-      .map((line, offset) => cleanContactLine(line, hasExplicitMarker && offset === 0))
+      .map((line, offset) =>
+        cleanContactLine(line, hasExplicitMarker && offset === 0),
+      )
       .find((line) => line && !/^\+?\d/.test(line));
 
     const parts = [
@@ -1766,7 +2013,6 @@ function normalizeUnitText(value: any): string {
     .replace(/\s+/g, " ")
     .trim();
 }
-
 
 function normalizeBlockText(value: any): string {
   return String(value || "")
@@ -1802,7 +2048,11 @@ function uniqueNormalizedLines(lines: string[]): string[] {
   const seen = new Set<string>();
 
   return lines
-    .map((line) => String(line || "").replace(/\s+/g, " ").trim())
+    .map((line) =>
+      String(line || "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
     .filter(Boolean)
     .filter((line) => {
       const key = normalizeSemanticText(line);
@@ -1835,7 +2085,9 @@ function isNegatedSpecialNoteLine(value: string): boolean {
   const line = normalizeSemanticText(value);
   if (!line) return false;
 
-  return /\b(kein|keine|keinen|keinem|nicht|nie|ohne|no|not|none|without|pas|sans|sin|ningun|ninguna|nessun|nessuna|sem)\b/i.test(line);
+  return /\b(kein|keine|keinen|keinem|nicht|nie|ohne|no|not|none|without|pas|sans|sin|ningun|ninguna|nessun|nessuna|sem)\b/i.test(
+    line,
+  );
 }
 
 function dedupeSpecialNoteLines(lines: string[]): string[] {
@@ -1865,11 +2117,17 @@ function isNonActionableSpecialNoteCandidate(line: string): boolean {
   if (!isNegatedSpecialNoteLine(normalized)) return false;
 
   // Negative parking/access facts are still useful operational hints.
-  if (/\b(kein\s+parkplatz|keine\s+parkplaetze|kein\s+parken|parkverbot|no\s+parking|sin\s+aparcamiento|sans\s+parking|senza\s+parcheggio|kein\s+lift|ohne\s+lift|no\s+elevator|no\s+lift)\b/i.test(normalized)) {
+  if (
+    /\b(kein\s+parkplatz|keine\s+parkplaetze|kein\s+parken|parkverbot|no\s+parking|sin\s+aparcamiento|sans\s+parking|senza\s+parcheggio|kein\s+lift|ohne\s+lift|no\s+elevator|no\s+lift)\b/i.test(
+      normalized,
+    )
+  ) {
     return false;
   }
 
-  return /\b(hund|dog|chien|perro|cane|cao|cão|oel|oil|huile|aceite|olio|scherben|glass|strom|kabel|wire|leiter|ladder|termin|appointment|schluessel|schlussel|key|parkplatz|parking|zugang|access)\b/i.test(normalized);
+  return /\b(hund|dog|chien|perro|cane|cao|cão|oel|oil|huile|aceite|olio|scherben|glass|strom|kabel|wire|leiter|ladder|termin|appointment|schluessel|schlussel|key|parkplatz|parking|zugang|access)\b/i.test(
+    normalized,
+  );
 }
 
 function isNonActionablePlanningHint(line: string): boolean {
@@ -1877,8 +2135,12 @@ function isNonActionablePlanningHint(line: string): boolean {
   if (!normalized) return true;
 
   return (
-    /\b(parkplatz\s+kein\s+thema|parkplatz\s+nicht\s+wichtig|direkt\s+halten|genug\s+platz|direkt\s+vor\s+dem\s+haus\s+(?:halten|moeglich|moglich))\b/i.test(normalized) ||
-    /\b(zugang\s+(?:frei|offen|unproblematisch)|tuer\s+offen|tur\s+offen|kunde\s+ist\s+vor\s+ort)\b/i.test(normalized)
+    /\b(parkplatz\s+kein\s+thema|parkplatz\s+nicht\s+wichtig|direkt\s+halten|genug\s+platz|direkt\s+vor\s+dem\s+haus\s+(?:halten|moeglich|moglich))\b/i.test(
+      normalized,
+    ) ||
+    /\b(zugang\s+(?:frei|offen|unproblematisch)|tuer\s+offen|tur\s+offen|kunde\s+ist\s+vor\s+ort)\b/i.test(
+      normalized,
+    )
   );
 }
 
@@ -1886,7 +2148,11 @@ function isFalseCallbackHint(line: string): boolean {
   const normalized = normalizeSemanticText(line);
   if (!normalized) return false;
 
-  if (!/\b(rueckruf|ruckruf|zurueckrufen|telefonisch|anruf|telefon)\b/i.test(normalized)) {
+  if (
+    !/\b(rueckruf|ruckruf|zurueckrufen|telefonisch|anruf|telefon)\b/i.test(
+      normalized,
+    )
+  ) {
     return false;
   }
 
@@ -1894,34 +2160,59 @@ function isFalseCallbackHint(line: string): boolean {
   // A callback chip is allowed only for a positive request. These phrases are
   // explicit negative/door instructions and must never become "Rückruf".
   return (
-    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|rueckruf\s+(?:nicht\s+)?(?:noetig|nötig|erwuenscht|erwünscht)|nicht\s+erwuenscht|nicht\s+erwünscht)\b/i.test(normalized) ||
-    /\b(klingeln|warten|haupteingang|kunde\s+ist\s+vor\s+ort|kundin\s+ist\s+vor\s+ort|oeffnet\s+die\s+tuer|offnet\s+die\s+tur|an\s+der\s+tuer|schluessel\s+wird\s+.*tuer)\b/i.test(normalized)
+    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|rueckruf\s+(?:nicht\s+)?(?:noetig|nötig|erwuenscht|erwünscht)|nicht\s+erwuenscht|nicht\s+erwünscht)\b/i.test(
+      normalized,
+    ) ||
+    /\b(klingeln|warten|haupteingang|kunde\s+ist\s+vor\s+ort|kundin\s+ist\s+vor\s+ort|oeffnet\s+die\s+tuer|offnet\s+die\s+tur|an\s+der\s+tuer|schluessel\s+wird\s+.*tuer)\b/i.test(
+      normalized,
+    )
   );
 }
 
-
 function canonicalizeSpecialNoteLine(line: string): string {
-  const original = String(line || "").replace(/\s+/g, " ").trim();
+  const original = String(line || "")
+    .replace(/\s+/g, " ")
+    .trim();
   const normalized = normalizeSemanticText(original);
   if (!original || !normalized) return original;
 
-  const mentionsNoPhone = /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|ne\s+pas\s+appeler|ne\s+pas\s+rappeler|pas\s+appeler|merci\s+de\s+ne\s+pas\s+appeler|do\s+not\s+call|dont\s+call|don't\s+call|no\s+phone\s+call)\b/i.test(normalized);
+  const mentionsNoPhone =
+    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|ne\s+pas\s+appeler|ne\s+pas\s+rappeler|pas\s+appeler|merci\s+de\s+ne\s+pas\s+appeler|do\s+not\s+call|dont\s+call|don't\s+call|no\s+phone\s+call)\b/i.test(
+      normalized,
+    );
   const mentionsWhatsApp = /\b(whatsapp|whats\s*app)\b/i.test(normalized);
-  const mentionsSms = /\b(sms|text\s+message|kurznachricht)\b/i.test(normalized);
+  const mentionsSms = /\b(sms|text\s+message|kurznachricht)\b/i.test(
+    normalized,
+  );
   const mentionsMail = /\b(mail|e-mail|email|courriel)\b/i.test(normalized);
 
-  if (mentionsNoPhone && mentionsWhatsApp) return "Nicht telefonisch zurückrufen, WhatsApp reicht";
-  if (mentionsNoPhone && mentionsSms) return "Nicht telefonisch zurückrufen, SMS reicht";
-  if (mentionsNoPhone && mentionsMail) return "Nicht telefonisch zurückrufen, Mail reicht";
+  if (mentionsNoPhone && mentionsWhatsApp)
+    return "Nicht telefonisch zurückrufen, WhatsApp reicht";
+  if (mentionsNoPhone && mentionsSms)
+    return "Nicht telefonisch zurückrufen, SMS reicht";
+  if (mentionsNoPhone && mentionsMail)
+    return "Nicht telefonisch zurückrufen, Mail reicht";
   if (mentionsNoPhone) return "Nicht telefonisch zurückrufen";
 
-  if (/\b(whatsapp\s+(?:suffit|reicht|genuegt|genügt)|par\s+whatsapp|via\s+whatsapp|whatsapp\s+only)\b/i.test(normalized)) {
+  if (
+    /\b(whatsapp\s+(?:suffit|reicht|genuegt|genügt)|par\s+whatsapp|via\s+whatsapp|whatsapp\s+only)\b/i.test(
+      normalized,
+    )
+  ) {
     return "WhatsApp reicht";
   }
-  if (/\b(sms\s+(?:reicht|genuegt|genügt|suffit)|per\s+sms|via\s+sms|sms\s+only)\b/i.test(normalized)) {
+  if (
+    /\b(sms\s+(?:reicht|genuegt|genügt|suffit)|per\s+sms|via\s+sms|sms\s+only)\b/i.test(
+      normalized,
+    )
+  ) {
     return "SMS reicht";
   }
-  if (/\b(mail\s+(?:reicht|genuegt|genügt|suffit)|email\s+(?:reicht|genuegt|genügt|suffit)|per\s+(?:mail|email)|via\s+(?:mail|email)|mail\s+only|email\s+only)\b/i.test(normalized)) {
+  if (
+    /\b(mail\s+(?:reicht|genuegt|genügt|suffit)|email\s+(?:reicht|genuegt|genügt|suffit)|per\s+(?:mail|email)|via\s+(?:mail|email)|mail\s+only|email\s+only)\b/i.test(
+      normalized,
+    )
+  ) {
     return "Mail reicht";
   }
 
@@ -1941,7 +2232,10 @@ function canonicalizeSpecialNoteLine(line: string): string {
     .replace(/\bsaturday\b/gi, "Samstag")
     .replace(/\bsunday\b/gi, "Sonntag");
 
-  if (/\b(place\s+de\s+parking|parking)\b/i.test(normalized) && /\b(devant|entree|entrée|eingang|vor)\b/i.test(normalized)) {
+  if (
+    /\b(place\s+de\s+parking|parking)\b/i.test(normalized) &&
+    /\b(devant|entree|entrée|eingang|vor)\b/i.test(normalized)
+  ) {
     return "Parkplatz vor dem Eingang vorhanden";
   }
 
@@ -1960,9 +2254,10 @@ function canonicalizeSpecialNoteLine(line: string): string {
  * It deliberately writes German notes into specialNotes, so the UI can stay
  * language-independent and display short German chips.
  */
-function extractSemanticSpecialNotesFallback(
-  text: string | null | undefined,
-): { safetyWarnings: string[]; jobHints: string[] } {
+function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
+  safetyWarnings: string[];
+  jobHints: string[];
+} {
   const rawText = String(text || "").trim();
   if (!rawText) return { safetyWarnings: [], jobHints: [] };
 
@@ -1985,10 +2280,14 @@ function extractSemanticSpecialNotesFallback(
   const jobHints: string[] = [];
 
   const oilSubject = /\b(oel|oil|huile|aceite|olio|oleo|ol|petroleo)\b/i;
-  const oilContext = /\b(ausgelaufen|leaking|spill(?:ed)?|verschuttet|derrame|fuoriuscit|renverse|boden|floor|sol|suelo|pavimento)\b/i;
-  const slipperySubject = /\b(rutschig|glatt|slippery|slick|glissant|resbaladiz|scivolos|escorregad|skluz)\b/i;
+  const oilContext =
+    /\b(ausgelaufen|leaking|spill(?:ed)?|verschuttet|derrame|fuoriuscit|renverse|boden|floor|sol|suelo|pavimento)\b/i;
+  const slipperySubject =
+    /\b(rutschig|glatt|slippery|slick|glissant|resbaladiz|scivolos|escorregad|skluz)\b/i;
 
-  const oil = actionableLineHas(oilSubject, oilContext) || actionableLineHas(oilContext, oilSubject);
+  const oil =
+    actionableLineHas(oilSubject, oilContext) ||
+    actionableLineHas(oilContext, oilSubject);
   const slippery = actionableLineHas(slipperySubject);
   if (oil && slippery) {
     safetyWarnings.push("Rutschiger Boden wegen Öl");
@@ -1999,8 +2298,10 @@ function extractSemanticSpecialNotesFallback(
   }
 
   const dogSubject = /\b(hund|dog|chien|perro|cane|cao|cão)\b/i;
-  const dangerousDogContext = /\b(frei|frei\s+lauf|laeuft|läuft|free|loose|unleashed|libre|suelto|sciolto|livre|aggressiv|aggressive|bissig|beisst|beißt|unbeaufsichtigt|unguarded)\b/i;
-  const friendlyDogContext = /\b(freundlich|friendly|gentil|amable|docile|brav|bravo|lieb|owner|besitzer|maitre|proprietaire|propietario|presente|vor\s+ort)\b/i;
+  const dangerousDogContext =
+    /\b(frei|frei\s+lauf|laeuft|läuft|free|loose|unleashed|libre|suelto|sciolto|livre|aggressiv|aggressive|bissig|beisst|beißt|unbeaufsichtigt|unguarded)\b/i;
+  const friendlyDogContext =
+    /\b(freundlich|friendly|gentil|amable|docile|brav|bravo|lieb|owner|besitzer|maitre|proprietaire|propietario|presente|vor\s+ort)\b/i;
   if (actionableLineHas(dogSubject, dangerousDogContext)) {
     safetyWarnings.push("Hund frei oder ungesichert vor Ort");
   } else if (actionableLineHas(dogSubject, friendlyDogContext)) {
@@ -2009,8 +2310,10 @@ function extractSemanticSpecialNotesFallback(
     jobHints.push("Hund vor Ort");
   }
 
-  const electricSubject = /\b(strom|elektr|electric|electrical|electricite|electricidad|corriente|elettric|kabel|cable|cables|draht|wire|wires|stromkabel)\b/i;
-  const electricDangerContext = /\b(offen|blank|frei|defekt|kaputt|danger|peligro|pericol|perigo|dangereux|exposed|open|loose|sichtbar)\b/i;
+  const electricSubject =
+    /\b(strom|elektr|electric|electrical|electricite|electricidad|corriente|elettric|kabel|cable|cables|draht|wire|wires|stromkabel)\b/i;
+  const electricDangerContext =
+    /\b(offen|blank|frei|defekt|kaputt|danger|peligro|pericol|perigo|dangereux|exposed|open|loose|sichtbar)\b/i;
   if (actionableLineHas(electricSubject, electricDangerContext)) {
     safetyWarnings.push("Offene Stromkabel / Stromgefahr");
   }
@@ -2019,24 +2322,40 @@ function extractSemanticSpecialNotesFallback(
     safetyWarnings.push("Asbestverdacht");
   }
 
-  if (actionableLineHas(/\b(schimmel|mold|mould|moisissure|moho|muffa|bolor)\b/i)) {
+  if (
+    actionableLineHas(/\b(schimmel|mold|mould|moisissure|moho|muffa|bolor)\b/i)
+  ) {
     safetyWarnings.push("Schimmel");
   }
 
-  if (actionableLineHas(/\b(chemie|chemisch|chemical|chemicals|chimique|quimic|chimic|produto\s+quimico)\b/i)) {
+  if (
+    actionableLineHas(
+      /\b(chemie|chemisch|chemical|chemicals|chimique|quimic|chimic|produto\s+quimico)\b/i,
+    )
+  ) {
     safetyWarnings.push("Chemische Stoffe");
   }
 
-  if (actionableLineHas(/\b(feuer|brand|fire|feu|fuego|fuoco|incendio|incendie)\b/i)) {
+  if (
+    actionableLineHas(
+      /\b(feuer|brand|fire|feu|fuego|fuoco|incendio|incendie)\b/i,
+    )
+  ) {
     safetyWarnings.push("Brand-/Feuergefahr");
   }
 
-  if (actionableLineHas(/\b(glasscherben|scherben|broken\s+glass|verre\s+casse|vidrio\s+roto|vetro\s+rotto)\b/i)) {
+  if (
+    actionableLineHas(
+      /\b(glasscherben|scherben|broken\s+glass|verre\s+casse|vidrio\s+roto|vetro\s+rotto)\b/i,
+    )
+  ) {
     safetyWarnings.push("Glasscherben");
   }
 
   if (
-    actionableLineHas(/\b(absturz|sturz|fall\s+risk|fallgefahr|chute|caida|caduta)\b/i) ||
+    actionableLineHas(
+      /\b(absturz|sturz|fall\s+risk|fallgefahr|chute|caida|caduta)\b/i,
+    ) ||
     normalizedLines.some(
       (line) =>
         !isNegatedSpecialNoteLine(line) &&
@@ -2048,13 +2367,20 @@ function extractSemanticSpecialNotesFallback(
   }
 
   const ladderSubject = /\b(leiter|ladder|echelle|escalera|scala|escada)\b/i;
-  const ladderRisk = /\b(absturz|sturz|instabil|gefahr|danger|warning|peligro|pericolo|perigo|hauteur|height|hoehe|höhe)\b/i;
-  const ladderMaybe = /\b(eventuell|evtl|vielleicht|moeglich|möglich|possibly|maybe|peut\s+etre|peut-être|quizas|forse)\b/i;
+  const ladderRisk =
+    /\b(absturz|sturz|instabil|gefahr|danger|warning|peligro|pericolo|perigo|hauteur|height|hoehe|höhe)\b/i;
+  const ladderMaybe =
+    /\b(eventuell|evtl|vielleicht|moeglich|möglich|possibly|maybe|peut\s+etre|peut-être|quizas|forse)\b/i;
   if (actionableLineHas(ladderSubject, ladderRisk)) {
     safetyWarnings.push("Leiterarbeit mit zusätzlichem Risiko");
   } else if (actionableLineHas(ladderSubject, ladderMaybe)) {
     jobHints.push("Leiter eventuell benötigt");
-  } else if (actionableLineHas(ladderSubject, /\b(benoetigt|benötigt|noetig|nötig|erforderlich|required|needed|necessaire|necesaria|necessaria)\b/i)) {
+  } else if (
+    actionableLineHas(
+      ladderSubject,
+      /\b(benoetigt|benötigt|noetig|nötig|erforderlich|required|needed|necessaire|necesaria|necessaria)\b/i,
+    )
+  ) {
     jobHints.push("Leiter benötigt");
   } else if (actionableLineHas(ladderSubject)) {
     jobHints.push("Leiter eventuell benötigt");
@@ -2062,21 +2388,34 @@ function extractSemanticSpecialNotesFallback(
 
   const hasExplicitCallback = normalizedLines.some((line) => {
     if (isNegatedSpecialNoteLine(line)) return false;
-    if (/\b(klingeln|warten|doorbell|ring\s+the\s+bell|sonner|timbre|campanello|campainha)\b/i.test(line)) return false;
-    return /\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|call\s+back|please\s+call\s+back|telefonisch\s+anrufen|phone\s+back|rappeler|richiamare|devolver\s+la\s+llamada|ligar\s+de\s+volta)\b/i.test(line);
+    if (
+      /\b(klingeln|warten|doorbell|ring\s+the\s+bell|sonner|timbre|campanello|campainha)\b/i.test(
+        line,
+      )
+    )
+      return false;
+    return /\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|call\s+back|please\s+call\s+back|telefonisch\s+anrufen|phone\s+back|rappeler|richiamare|devolver\s+la\s+llamada|ligar\s+de\s+volta)\b/i.test(
+      line,
+    );
   });
   if (hasExplicitCallback) {
     jobHints.push("Rückruf vor Arbeitsbeginn");
   }
 
   const hasDifficultAccess = normalizedLines.some((line) =>
-    /\b(schwer\s+zugaenglich|schwer\s+zugänglich|schwieriger\s+zugang|kein\s+lift|ohne\s+lift|no\s+elevator|no\s+lift|access\s+difficult|difficult\s+access|acces\s+difficile|sin\s+ascensor|senza\s+ascensore|acesso\s+dificil)\b/i.test(line),
+    /\b(schwer\s+zugaenglich|schwer\s+zugänglich|schwieriger\s+zugang|kein\s+lift|ohne\s+lift|no\s+elevator|no\s+lift|access\s+difficult|difficult\s+access|acces\s+difficile|sin\s+ascensor|senza\s+ascensore|acesso\s+dificil)\b/i.test(
+      line,
+    ),
   );
   if (hasDifficultAccess) {
     jobHints.push("Schwieriger Zugang");
   }
 
-  if (actionableLineHas(/\b(hanglage|hang|steigung|slope|pente|pendiente|pendenza|declive)\b/i)) {
+  if (
+    actionableLineHas(
+      /\b(hanglage|hang|steigung|slope|pente|pendiente|pendenza|declive)\b/i,
+    )
+  ) {
     jobHints.push("Hanglage");
   }
 
@@ -2084,13 +2423,17 @@ function extractSemanticSpecialNotesFallback(
     (line) =>
       !isNegatedSpecialNoteLine(line) &&
       /\b(parkplatz|parking|aparcamiento|parcheggio)\b/i.test(line) &&
-      /\b(vorhanden|reserviert|frei|innenhof|available|reserved|courtyard|disponible|riservato)\b/i.test(line),
+      /\b(vorhanden|reserviert|frei|innenhof|available|reserved|courtyard|disponible|riservato)\b/i.test(
+        line,
+      ),
   );
   const hasBadParking = normalizedLines.some(
     (line) =>
       !isNonActionablePlanningHint(line) &&
       /\b(parkplatz|parking|aparcamiento|parcheggio)\b/i.test(line) &&
-      /\b(schwierig|kein|keine|parkverbot|difficult|no\s+parking|sin|sans|senza)\b/i.test(line),
+      /\b(schwierig|kein|keine|parkverbot|difficult|no\s+parking|sin|sans|senza)\b/i.test(
+        line,
+      ),
   );
   if (hasGoodParking) {
     jobHints.push("Parkplatz vorhanden oder reserviert");
@@ -2238,7 +2581,25 @@ function getServiceUnitType(serviceUnit?: string | null): string {
     hour: ["stunde", "stunden", "std", "h", "stundensatz"],
     day: ["tag", "tage", "arbeitstag", "arbeitstage", "tagessatz"],
     meter: ["meter", "laufmeter", "lfm", "m"],
-    piece: ["stueck", "stück", "stuck", "stk", "piece", "pieces", "piece", "pieces", "vitre", "vitres", "fenetre", "fenetres", "window", "windows", "anzahl", "einheit", "einheiten"],
+    piece: [
+      "stueck",
+      "stück",
+      "stuck",
+      "stk",
+      "piece",
+      "pieces",
+      "piece",
+      "pieces",
+      "vitre",
+      "vitres",
+      "fenetre",
+      "fenetres",
+      "window",
+      "windows",
+      "anzahl",
+      "einheit",
+      "einheiten",
+    ],
   };
 
   for (const [type, aliases] of Object.entries(unitAliases)) {
@@ -2249,7 +2610,7 @@ function getServiceUnitType(serviceUnit?: string | null): string {
     if (aliases.some((alias) => unit.includes(alias))) return type;
   }
 
- return "unknown";
+  return "unknown";
 }
 
 function detectUnitPriceFromText(text: string): number | null {
@@ -2262,18 +2623,11 @@ function detectUnitPriceFromText(text: string): number | null {
   const currencyWords =
     "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|dollar|\\$|gbp|pfund|£)";
 
-  const joinWords =
-    "(?:pro|je|per|par|à|a|/)";
+  const joinWords = "(?:pro|je|per|par|à|a|/)";
 
-  const priceNumber =
-    "(\\d+(?:[.,]\\d{1,2})?)";
-
-
-
+  const priceNumber = "(\\d+(?:[.,]\\d{1,2})?)";
 
   const patterns = [
-
-
     // Stundenpreis 110 CHF / Stundensatz von 95 CHF / Satz pro Stunde 80 CHF
     new RegExp(
       `(?:stundenpreis|stundensatz|satz\\s+pro\\s+stunde)\\s*(?:von|=|:)?\\s*${priceNumber}\\s*${currencyWords}`,
@@ -2362,10 +2716,7 @@ function stripNegatedCurrencyMentionsForIntake(
       `\\b(?:nicht|kein|keine|keinen|ohne|not|no|dont|don't|do\\s+not|pas|ne\\s+pas)\\s+(?:in|als|auf|zu|nach|to|as|en)?\\s*${currencyWords}\\b`,
       "gi",
     ),
-    new RegExp(
-      `\\b(?:not|no|nicht)\\s+${currencyWords}\\b`,
-      "gi",
-    ),
+    new RegExp(`\\b(?:not|no|nicht)\\s+${currencyWords}\\b`, "gi"),
     new RegExp(
       `\\b(?:nicht|not|no)\\s+(?:umrechnen|convert|converted|conversion)\\s+(?:in|to)?\\s*${currencyWords}\\b`,
       "gi",
@@ -2387,10 +2738,19 @@ const INTAKE_PRICE_NUMBER_FOR_CURRENCY = "\\d+(?:[.,]\\d{1,2})?";
 const INTAKE_CHF_WORDS_FOR_CURRENCY = "(?:chf|franken|fr\\.?|sfr\\.?|stutz)";
 const INTAKE_EUR_WORDS_FOR_CURRENCY = "(?:eur|euro|€)";
 
-function hasExplicitCurrencyAmountForIntake(source: string, currencyWords: string): boolean {
+function hasExplicitCurrencyAmountForIntake(
+  source: string,
+  currencyWords: string,
+): boolean {
   return (
-    new RegExp(`\\b${currencyWords}\\s*${INTAKE_PRICE_NUMBER_FOR_CURRENCY}\\b`, "i").test(source) ||
-    new RegExp(`\\b${INTAKE_PRICE_NUMBER_FOR_CURRENCY}\\s*${currencyWords}\\b`, "i").test(source)
+    new RegExp(
+      `\\b${currencyWords}\\s*${INTAKE_PRICE_NUMBER_FOR_CURRENCY}\\b`,
+      "i",
+    ).test(source) ||
+    new RegExp(
+      `\\b${INTAKE_PRICE_NUMBER_FOR_CURRENCY}\\s*${currencyWords}\\b`,
+      "i",
+    ).test(source)
   );
 }
 
@@ -2401,8 +2761,14 @@ function detectCurrencyFromText(
 
   if (!source) return null;
 
-  const hasExplicitChf = hasExplicitCurrencyAmountForIntake(source, INTAKE_CHF_WORDS_FOR_CURRENCY);
-  const hasExplicitEur = hasExplicitCurrencyAmountForIntake(source, INTAKE_EUR_WORDS_FOR_CURRENCY);
+  const hasExplicitChf = hasExplicitCurrencyAmountForIntake(
+    source,
+    INTAKE_CHF_WORDS_FOR_CURRENCY,
+  );
+  const hasExplicitEur = hasExplicitCurrencyAmountForIntake(
+    source,
+    INTAKE_EUR_WORDS_FOR_CURRENCY,
+  );
 
   // Preisnahe Währungen sind stärker als Währungswörter in Kundennamen/Titeln.
   // So bleibt "CHF Trotz EUR AG" mit "Fenster ... CHF 5" ein CHF-Auftrag.
@@ -2440,11 +2806,11 @@ function findOriginalSegmentForWorkItem(
   if (itemWords.length === 0) return null;
 
   const segments = source
-  .split(
-        /\n{2,}|;|\bdanach\b|\bzusaetzlich\b|\bzusätzlich\b|\banschliessend\b|\banschließend\b|\bthen\b|\bafterwards\b|\badditional(?:ly)?\b|\balso\b|\bensuite\b|\bpuis\b|\bsupplémentaire\b|\badditionnel\b|\bpoi\b|\binoltre\b|\baggiuntivo\b/gi,
-  )
-  .map((p) => p.trim())
-  .filter((p) => p.length >= 8);
+    .split(
+      /\n{2,}|;|\bdanach\b|\bzusaetzlich\b|\bzusätzlich\b|\banschliessend\b|\banschließend\b|\bthen\b|\bafterwards\b|\badditional(?:ly)?\b|\balso\b|\bensuite\b|\bpuis\b|\bsupplémentaire\b|\badditionnel\b|\bpoi\b|\binoltre\b|\baggiuntivo\b/gi,
+    )
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 8);
 
   let best: { segment: string; score: number } | null = null;
 
@@ -2465,7 +2831,6 @@ function findOriginalSegmentForWorkItem(
 
   return best && best.score >= 10 ? best.segment : null;
 }
-
 
 function findColonBlockForWorkItem(
   item: { raw?: string | null; name?: string | null },
@@ -2515,7 +2880,6 @@ function findColonBlockForWorkItem(
   return best && best.score >= 30 ? best.block : null;
 }
 
-
 function countUnitPriceSignals(text: string | null | undefined): number {
   const source = normalizeUnitText(text || "");
   if (!source) return 0;
@@ -2527,15 +2891,28 @@ function countUnitPriceSignals(text: string | null | undefined): number {
     "(?:stueck|stück|stuck|stk|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|qm|m2|m²|meter|laufmeter|lfm|stunde|stunden|std|tag|tage|kg|kilogramm|tonne|tonnen|liter|ltr)";
 
   const patterns = [
-    new RegExp(`\\d+(?:[.,]\\d{1,2})?\\s*${currencyWords}\\s*${unitJoin}\\s*${unitWords}`, "gi"),
-    new RegExp(`${currencyWords}\\s*\\d+(?:[.,]\\d{1,2})?\\s*${unitJoin}\\s*${unitWords}`, "gi"),
+    new RegExp(
+      `\\d+(?:[.,]\\d{1,2})?\\s*${currencyWords}\\s*${unitJoin}\\s*${unitWords}`,
+      "gi",
+    ),
+    new RegExp(
+      `${currencyWords}\\s*\\d+(?:[.,]\\d{1,2})?\\s*${unitJoin}\\s*${unitWords}`,
+      "gi",
+    ),
   ];
 
-  return patterns.reduce((sum, pattern) => sum + Array.from(source.matchAll(pattern)).length, 0);
+  return patterns.reduce(
+    (sum, pattern) => sum + Array.from(source.matchAll(pattern)).length,
+    0,
+  );
 }
 
 function parseStructuredUnitPrice(value: unknown): number | null {
-  const parsed = Number(String(value ?? "").replace("'", "").replace(",", "."));
+  const parsed = Number(
+    String(value ?? "")
+      .replace("'", "")
+      .replace(",", "."),
+  );
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -2585,8 +2962,9 @@ function detectUnitPriceForWorkItem(
   return null;
 }
 
-
-function hasAmbiguousCompactLinePrice(text: string | null | undefined): boolean {
+function hasAmbiguousCompactLinePrice(
+  text: string | null | undefined,
+): boolean {
   const source = normalizeUnitText(text || "");
   if (!source) return false;
 
@@ -2617,7 +2995,6 @@ function hasAmbiguousCompactLinePrice(text: string | null | undefined): boolean 
     ).test(source)
   );
 }
-
 
 function detectAllQuantityUnitsFromText(
   text: string,
@@ -2753,9 +3130,18 @@ function cleanDetectedWorkName(segment: string): string {
       " ",
     )
     .replace(/\b(ca|circa|ungefähr|ungefaehr|etwa|rund)\b/gi, " ")
-    .replace(/\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\s*\d+(?:[.,]\d{1,2})?\b/gi, " ")
-    .replace(/\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\b/gi, " ")
-    .replace(/\b(?:pro|je|per|par|à|a|\/)\s*(?:stück|stueck|stk|m2|m²|qm|meter|stunde|stunden|pauschal)\b/gi, " ")
+    .replace(
+      /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\s*\d+(?:[.,]\d{1,2})?\b/gi,
+      " ",
+    )
+    .replace(
+      /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\b/gi,
+      " ",
+    )
+    .replace(
+      /\b(?:pro|je|per|par|à|a|\/)\s*(?:stück|stueck|stk|m2|m²|qm|meter|stunde|stunden|pauschal)\b/gi,
+      " ",
+    )
     .replace(/\b(?:pro|je|per|par|à|a)\s*[.,;:!?]*$/gi, " ")
     .replace(/[+]+/g, " ")
     .replace(/[.,;:!?]+$/g, "")
@@ -2767,17 +3153,39 @@ function composeWorkNameSource(item: any, raw: string): string {
   const action = String(item.action_name || "").trim();
   const context = String(item.context || "").trim();
   const name = String(item.name || "").trim();
-  const serviceName = String(item.service_name || item.matched_service_name || "").trim();
-  const actionKey = normalizeUnitText(action).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-  const contextKey = normalizeUnitText(context).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-  const nameKey = normalizeUnitText(name).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const serviceName = String(
+    item.service_name || item.matched_service_name || "",
+  ).trim();
+  const actionKey = normalizeUnitText(action)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const contextKey = normalizeUnitText(context)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const nameKey = normalizeUnitText(name)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  if (name && action && nameKey.includes(actionKey) && name.length > action.length + 3) {
+  if (
+    name &&
+    action &&
+    nameKey.includes(actionKey) &&
+    name.length > action.length + 3
+  ) {
     return name;
   }
 
-  const actionTooGeneric = /^(?:reinigen|reinigung|putzen|montieren|demontieren|streichen|malen|prüfen|pruefen|ersetzen|entsorgen|schneiden|stutzen|regiearbeit)$/i.test(actionKey);
-  const contextHasWorkObject = /\b(?:kabelkanal|kabel|lampe|leuchte|wand|waende|wände|decke|boden|fenster|teppich|abfluss|dichtung|hecke|gruen|grün|steckdose|steckdosen|material)\b/i.test(contextKey);
+  const actionTooGeneric =
+    /^(?:reinigen|reinigung|putzen|montieren|demontieren|streichen|malen|prüfen|pruefen|ersetzen|entsorgen|schneiden|stutzen|regiearbeit)$/i.test(
+      actionKey,
+    );
+  const contextHasWorkObject =
+    /\b(?:kabelkanal|kabel|lampe|leuchte|wand|waende|wände|decke|boden|fenster|teppich|abfluss|dichtung|hecke|gruen|grün|steckdose|steckdosen|material)\b/i.test(
+      contextKey,
+    );
   if (actionTooGeneric && contextKey && contextHasWorkObject) {
     return `${context} ${action}`.trim();
   }
@@ -2785,7 +3193,9 @@ function composeWorkNameSource(item: any, raw: string): string {
   return action || serviceName || name || raw || "";
 }
 
-function canonicalGermanServiceNameFromText(value?: string | null): string | null {
+function canonicalGermanServiceNameFromText(
+  value?: string | null,
+): string | null {
   const normalized = normalizeUnitText(value || "")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
@@ -2793,15 +3203,27 @@ function canonicalGermanServiceNameFromText(value?: string | null): string | nul
 
   if (!normalized) return null;
 
-  if (/(anfahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta)/i.test(normalized)) {
+  if (
+    /\b(anfahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+      normalized,
+    )
+  ) {
     return "Anfahrt";
   }
 
-  if (/(clean floor|floor cleaning|boden reinigen|bodenreinigung|nettoyage du sol|nettoyage sol|nettoyer sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)/i.test(normalized)) {
+  if (
+    /\b(clean floor|floor cleaning|boden reinigen|bodenreinigung|nettoyage du sol|nettoyage sol|nettoyer sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)\b/i.test(
+      normalized,
+    )
+  ) {
     return "Boden reinigen";
   }
 
-  if (/(clean windows|window cleaning|windows cleaning|fenster reinigen|fensterreinigung|nettoyage des vitres|nettoyage vitres|vitres|fenetres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)/i.test(normalized)) {
+  if (
+    /\b(clean windows|window cleaning|windows cleaning|fenster reinigen|fensterreinigung|nettoyage des vitres|nettoyage vitres|vitres|fenetres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)\b/i.test(
+      normalized,
+    )
+  ) {
     return "Fenster reinigen";
   }
 
@@ -2840,10 +3262,7 @@ function formatWorkNameForDisplay(value: string): string {
   return text
     .split(" ")
     .map((word, index) => {
-      if (
-        index === 0 ||
-        forceUppercaseWords.includes(word)
-      ) {
+      if (index === 0 || forceUppercaseWords.includes(word)) {
         return word.charAt(0).toUpperCase() + word.slice(1);
       }
 
@@ -2851,7 +3270,6 @@ function formatWorkNameForDisplay(value: string): string {
     })
     .join(" ");
 }
-
 
 function findBestQuantityForService(
   serviceName: string,
@@ -3707,9 +4125,8 @@ export async function processIncomingMessage(
   const branche = companySettings?.branche || "Gartenbau";
   const detectedCurrency = detectCurrencyFromText(messageText);
 
-const intakeCurrency =
-  detectedCurrency ||
-  (companySettings?.currency === "EUR" ? "EUR" : "CHF");
+  const intakeCurrency =
+    detectedCurrency || (companySettings?.currency === "EUR" ? "EUR" : "CHF");
   const hauptsprache = (companySettings as any)?.hauptsprache || "Deutsch";
 
   // Resolve default VAT rate from CompanySettings.
@@ -3947,7 +4364,6 @@ const intakeCurrency =
     kundeData.telefon = null;
   }
 
-
   // Block R — Safety-Net: Wenn die LLM keinen Namen extrahiert hat, aber der
   // Text eine eindeutige Selbstvorstellung enthält ("mein Name ist Aida",
   // "Ich heisse X", "Ich bin X" etc.), den Namen aus dem Text übernehmen.
@@ -4011,7 +4427,8 @@ const intakeCurrency =
   }
 
   const customerGuardReviewReasons: string[] = [];
-  const legacyBillingFallbackEnabled = process.env.INTAKE_LEGACY_BILLING_FALLBACK === "1";
+  const legacyBillingFallbackEnabled =
+    process.env.INTAKE_LEGACY_BILLING_FALLBACK === "1";
   const rawBillingEvidence = legacyBillingFallbackEnabled
     ? extractDeterministicBillingEvidence(messageText)
     : null;
@@ -4328,15 +4745,16 @@ const intakeCurrency =
 
     const hasNamelessBillingAddress = Boolean(
       namelessBillingEvidence &&
-        (namelessBillingEvidence.street ||
-          namelessBillingEvidence.plz ||
-          namelessBillingEvidence.city ||
-          namelessBillingEvidence.phone ||
-          namelessBillingEvidence.email),
+      (namelessBillingEvidence.street ||
+        namelessBillingEvidence.plz ||
+        namelessBillingEvidence.city ||
+        namelessBillingEvidence.phone ||
+        namelessBillingEvidence.email),
     );
 
     const hasReliableBillingForCreate =
-      billingEvidence.hasReliableCustomerBlock || Boolean(namelessBillingEvidence);
+      billingEvidence.hasReliableCustomerBlock ||
+      Boolean(namelessBillingEvidence);
 
     const keepNewCustomerMasterEmpty =
       !hasReliableBillingForCreate ||
@@ -4372,8 +4790,14 @@ const intakeCurrency =
       );
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
-      if (!customerGuardReviewReasons.includes("customer_data_uncertain_no_billing_block")) {
-        customerGuardReviewReasons.push("customer_data_uncertain_no_billing_block");
+      if (
+        !customerGuardReviewReasons.includes(
+          "customer_data_uncertain_no_billing_block",
+        )
+      ) {
+        customerGuardReviewReasons.push(
+          "customer_data_uncertain_no_billing_block",
+        );
       }
     } else if (hasNamelessBillingAddress) {
       console.log(
@@ -4381,8 +4805,14 @@ const intakeCurrency =
       );
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
-      if (!customerGuardReviewReasons.includes("customer_name_missing_billing_address_present")) {
-        customerGuardReviewReasons.push("customer_name_missing_billing_address_present");
+      if (
+        !customerGuardReviewReasons.includes(
+          "customer_name_missing_billing_address_present",
+        )
+      ) {
+        customerGuardReviewReasons.push(
+          "customer_name_missing_billing_address_present",
+        );
       }
     }
 
@@ -4400,7 +4830,9 @@ const intakeCurrency =
         address: safeNewCustomerFields.street,
         plz: safeNewCustomerFields.plz,
         city:
-          normalizeUnitText(safeNewCustomerFields.city) === "form" ? null : safeNewCustomerFields.city,
+          normalizeUnitText(safeNewCustomerFields.city) === "form"
+            ? null
+            : safeNewCustomerFields.city,
         notes: `${source}-Kunde`,
         ...(userId ? { userId } : {}),
       },
@@ -4408,7 +4840,6 @@ const intakeCurrency =
 
     // V16.39: No post-create raw-text rescue. Customer master fields were already
     // decided by the AI-structured billing evidence above.
-
 
     customerId = customer.id;
     customerWasNewlyCreated = true;
@@ -4433,9 +4864,7 @@ const intakeCurrency =
   // This avoids brittle language-specific keyword lists in the UI.
   const toNoteArray = (value: any): string[] => {
     if (Array.isArray(value)) {
-      return value
-        .map((item) => String(item || "").trim())
-        .filter(Boolean);
+      return value.map((item) => String(item || "").trim()).filter(Boolean);
     }
 
     if (typeof value === "string" && value.trim()) {
@@ -4467,11 +4896,13 @@ const intakeCurrency =
     .map(stripSpecialMarker)
     .filter(Boolean);
 
- const baseHinweisItems = rawBesonderheitenItems
-  .filter((line) => !safetyMarkerRe.test(line) && !isLikelySafetyWarning(line))
-  .map(stripSpecialMarker)
-  .map(canonicalizeSpecialNoteLine)
-  .filter(Boolean);
+  const baseHinweisItems = rawBesonderheitenItems
+    .filter(
+      (line) => !safetyMarkerRe.test(line) && !isLikelySafetyWarning(line),
+    )
+    .map(stripSpecialMarker)
+    .map(canonicalizeSpecialNoteLine)
+    .filter(Boolean);
 
   const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
     [
@@ -4480,7 +4911,9 @@ const intakeCurrency =
       parsed.auftrag?.titel,
       Array.isArray(parsed.auftrag?.arbeitspositionen)
         ? parsed.auftrag.arbeitspositionen
-            .map((item: any) => [item?.name, item?.raw].filter(Boolean).join(" "))
+            .map((item: any) =>
+              [item?.name, item?.raw].filter(Boolean).join(" "),
+            )
             .join("\n")
         : "",
     ]
@@ -4494,20 +4927,22 @@ const intakeCurrency =
     ...semanticFallbackNotes.safetyWarnings,
   ]).filter((line) => !isNonActionableSpecialNoteCandidate(line));
 
-const hinweisItems = dedupeSpecialNoteLines([
-  ...baseHinweisItems,
-  ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
-  onsiteContactHint.hint || "",
-].map(canonicalizeSpecialNoteLine))
-  .filter((line) => !isNonActionableSpecialNoteCandidate(line))
-  .filter((line) => !isNonActionablePlanningHint(line))
-  .filter(
-    (line) =>
-      !gefahrItems.some(
-        (danger) =>
-          normalizeSemanticText(danger) === normalizeSemanticText(line),
-      ),
-  );
+  const hinweisItems = dedupeSpecialNoteLines(
+    [
+      ...baseHinweisItems,
+      ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
+      onsiteContactHint.hint || "",
+    ].map(canonicalizeSpecialNoteLine),
+  )
+    .filter((line) => !isNonActionableSpecialNoteCandidate(line))
+    .filter((line) => !isNonActionablePlanningHint(line))
+    .filter(
+      (line) =>
+        !gefahrItems.some(
+          (danger) =>
+            normalizeSemanticText(danger) === normalizeSemanticText(line),
+        ),
+    );
 
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,
@@ -4599,46 +5034,46 @@ const hinweisItems = dedupeSpecialNoteLines([
     return q?.unit || "unknown";
   };
 
- const getWorkItemQuantity = (item: AiWorkItem): number => {
-  if (
-    typeof item.menge === "number" &&
-    isFinite(item.menge) &&
-    item.menge > 0
-  ) {
-    return item.menge;
-  }
+  const getWorkItemQuantity = (item: AiWorkItem): number => {
+    if (
+      typeof item.menge === "number" &&
+      isFinite(item.menge) &&
+      item.menge > 0
+    ) {
+      return item.menge;
+    }
 
-  const q = detectAllQuantityUnitsFromText(
-    [item.raw, item.name].filter(Boolean).join(" "),
-  )[0];
+    const q = detectAllQuantityUnitsFromText(
+      [item.raw, item.name].filter(Boolean).join(" "),
+    )[0];
 
-  return q?.value ?? 0;
-};
+    return q?.value ?? 0;
+  };
 
-const hasForbiddenServiceWorkConflict = (
-  serviceName: string,
-  workText: string,
-): boolean => {
-  const s = normalizeServiceText(serviceName);
-  const w = normalizeServiceText(workText);
+  const hasForbiddenServiceWorkConflict = (
+    serviceName: string,
+    workText: string,
+  ): boolean => {
+    const s = normalizeServiceText(serviceName);
+    const w = normalizeServiceText(workText);
 
-  const serviceIsHedge = /\b(hecke|hecken)\b/i.test(s);
-  const workIsTree = /\b(baum|baeume|baume|bäume)\b/i.test(w);
+    const serviceIsHedge = /\b(hecke|hecken)\b/i.test(s);
+    const workIsTree = /\b(baum|baeume|baume|bäume)\b/i.test(w);
 
-  if (serviceIsHedge && workIsTree) return true;
+    if (serviceIsHedge && workIsTree) return true;
 
-  const serviceIsGreenWaste =
-    /\b(gruenzeug|gruenabfall|gruengut|gartenabfall|grünzeug|grünabfall|grüngut)\b/i.test(
-      s,
-    );
+    const serviceIsGreenWaste =
+      /\b(gruenzeug|gruenabfall|gruengut|gartenabfall|grünzeug|grünabfall|grüngut)\b/i.test(
+        s,
+      );
 
-  const workIsConstructionWaste =
-    /\b(bauschutt|aushub|erde|beton|ziegel|steine|kies|schutt)\b/i.test(w);
+    const workIsConstructionWaste =
+      /\b(bauschutt|aushub|erde|beton|ziegel|steine|kies|schutt)\b/i.test(w);
 
-  if (serviceIsGreenWaste && workIsConstructionWaste) return true;
+    if (serviceIsGreenWaste && workIsConstructionWaste) return true;
 
-  return false;
-};
+    return false;
+  };
 
   const serviceDomainMatchesWork = (
     serviceName: string,
@@ -4674,15 +5109,69 @@ const hasForbiddenServiceWorkConflict = (
       },
       {
         service: ["fenster", "fensterreinigung"],
-        work: ["fenster", "fensterreinigung", "vitre", "vitres", "fenetre", "fenetres", "window", "windows", "finestre", "ventanas", "reinigen", "reinigung", "clean", "cleaning", "nettoyage", "pulizia", "limpieza"],
+        work: [
+          "fenster",
+          "fensterreinigung",
+          "vitre",
+          "vitres",
+          "fenetre",
+          "fenetres",
+          "window",
+          "windows",
+          "finestre",
+          "ventanas",
+          "reinigen",
+          "reinigung",
+          "clean",
+          "cleaning",
+          "nettoyage",
+          "pulizia",
+          "limpieza",
+        ],
       },
       {
         service: ["boden", "garage", "garagenboden", "lagerboden"],
-        work: ["boden", "floor", "sol", "pavimento", "suelo", "garage", "garagenboden", "lagerboden", "reinigen", "reinigung", "clean", "cleaning", "nettoyage", "pulizia", "limpieza"],
+        work: [
+          "boden",
+          "floor",
+          "sol",
+          "pavimento",
+          "suelo",
+          "garage",
+          "garagenboden",
+          "lagerboden",
+          "reinigen",
+          "reinigung",
+          "clean",
+          "cleaning",
+          "nettoyage",
+          "pulizia",
+          "limpieza",
+        ],
       },
       {
-        service: ["anfahrt", "fahrtkosten", "fahrkosten", "wegpauschale", "fahrpauschale"],
-        work: ["anfahrt", "fahrtkosten", "fahrkosten", "wegpauschale", "fahrpauschale", "deplacement", "déplacement", "travel", "travel fee", "trip", "transport", "trasferta", "transferta"],
+        service: [
+          "anfahrt",
+          "fahrtkosten",
+          "fahrkosten",
+          "wegpauschale",
+          "fahrpauschale",
+        ],
+        work: [
+          "anfahrt",
+          "fahrtkosten",
+          "fahrkosten",
+          "wegpauschale",
+          "fahrpauschale",
+          "deplacement",
+          "déplacement",
+          "travel",
+          "travel fee",
+          "trip",
+          "transport",
+          "trasferta",
+          "transferta",
+        ],
       },
     ];
 
@@ -4693,18 +5182,21 @@ const hasForbiddenServiceWorkConflict = (
     });
   };
 
-
-
-
   const normalizeAiConfidence = (value?: string | null) => {
     const normalized = normalizeServiceText(value || "");
-    if (["hoch", "high", "sicher", "certain"].includes(normalized)) return "hoch";
-    if (["mittel", "medium", "wahrscheinlich", "probably"].includes(normalized)) return "mittel";
-    if (["niedrig", "low", "unsicher", "uncertain"].includes(normalized)) return "niedrig";
+    if (["hoch", "high", "sicher", "certain"].includes(normalized))
+      return "hoch";
+    if (["mittel", "medium", "wahrscheinlich", "probably"].includes(normalized))
+      return "mittel";
+    if (["niedrig", "low", "unsicher", "uncertain"].includes(normalized))
+      return "niedrig";
     return "";
   };
 
-  const findSemanticServiceForWorkItem = (item: AiWorkItem, services: any[]) => {
+  const findSemanticServiceForWorkItem = (
+    item: AiWorkItem,
+    services: any[],
+  ) => {
     const confidence = normalizeAiConfidence(
       item.service_confidence || item.confidence || null,
     );
@@ -4713,9 +5205,13 @@ const hasForbiddenServiceWorkConflict = (
     // If the AI itself marks the service as uncertain, do not guess via token matching.
     if (confidence === "niedrig") return null;
 
-    const explicitId = String(item.service_id || item.matched_service_id || "").trim();
+    const explicitId = String(
+      item.service_id || item.matched_service_id || "",
+    ).trim();
     if (explicitId) {
-      const byId = services.find((service: any) => String(service.id) === explicitId);
+      const byId = services.find(
+        (service: any) => String(service.id) === explicitId,
+      );
       if (byId) return byId;
     }
 
@@ -4727,7 +5223,8 @@ const hasForbiddenServiceWorkConflict = (
       const normalizedExplicitName = normalizeServiceText(explicitName);
 
       const exact = services.find(
-        (service: any) => normalizeServiceText(service.name) === normalizedExplicitName,
+        (service: any) =>
+          normalizeServiceText(service.name) === normalizedExplicitName,
       );
       if (exact) return exact;
 
@@ -4749,8 +5246,16 @@ const hasForbiddenServiceWorkConflict = (
   };
 
   const strictMatchServiceForWorkItem = (item: AiWorkItem, services: any[]) => {
-    const workName = normalizeServiceText(item.action_name || item.name || item.service_name || item.matched_service_name || "");
-    const workRaw = normalizeServiceText([item.raw, item.evidence, item.context].filter(Boolean).join(" "));
+    const workName = normalizeServiceText(
+      item.action_name ||
+        item.name ||
+        item.service_name ||
+        item.matched_service_name ||
+        "",
+    );
+    const workRaw = normalizeServiceText(
+      [item.raw, item.evidence, item.context].filter(Boolean).join(" "),
+    );
     const workText = [workName, workRaw].filter(Boolean).join(" ");
     const workUnitType = getWorkItemUnitType(item);
 
@@ -4870,48 +5375,48 @@ const hasForbiddenServiceWorkConflict = (
 
       if (!detectedName || detectedName.length < 3) return null;
 
-       const semanticMatchedService = findSemanticServiceForWorkItem(item, services);
-       const semanticConfidence = normalizeAiConfidence(item.confidence || null);
-       const matchedService =
-         semanticMatchedService ||
-         (semanticConfidence === "niedrig"
-           ? null
-           : strictMatchServiceForWorkItem(item, services));
-const evidenceText = String(
-  item.source_text || item.evidence || item.raw || "",
-).trim();
+      const semanticMatchedService = findSemanticServiceForWorkItem(
+        item,
+        services,
+      );
+      const semanticConfidence = normalizeAiConfidence(item.confidence || null);
+      const matchedService =
+        semanticMatchedService ||
+        (semanticConfidence === "niedrig"
+          ? null
+          : strictMatchServiceForWorkItem(item, services));
+      const evidenceText = String(
+        item.source_text || item.evidence || item.raw || "",
+      ).trim();
 
-const originalSegment =
-  evidenceText ||
-  findOriginalSegmentForWorkItem(
-    item,
-    `${messageText}\n${fullWorkText}`,
-  ) ||
-  findColonBlockForWorkItem(
-    item,
-    `${messageText}\n${fullWorkText}`,
-  ) ||
-  "";
+      const originalSegment =
+        evidenceText ||
+        findOriginalSegmentForWorkItem(
+          item,
+          `${messageText}\n${fullWorkText}`,
+        ) ||
+        findColonBlockForWorkItem(item, `${messageText}\n${fullWorkText}`) ||
+        "";
 
-const detectedUnitTypeFromItem = getWorkItemUnitType(item);
-const detectedQuantityFromItem = getWorkItemQuantity(item);
-const originalQuantityMatch =
-  detectAllQuantityUnitsFromText(originalSegment)[0] || null;
+      const detectedUnitTypeFromItem = getWorkItemUnitType(item);
+      const detectedQuantityFromItem = getWorkItemQuantity(item);
+      const originalQuantityMatch =
+        detectAllQuantityUnitsFromText(originalSegment)[0] || null;
 
-const detectedUnitType =
-  detectedUnitTypeFromItem !== "unknown"
-    ? detectedUnitTypeFromItem
-    : originalQuantityMatch?.unit || "unknown";
+      const detectedUnitType =
+        detectedUnitTypeFromItem !== "unknown"
+          ? detectedUnitTypeFromItem
+          : originalQuantityMatch?.unit || "unknown";
 
-const detectedQuantity =
-  detectedQuantityFromItem > 0
-    ? detectedQuantityFromItem
-    : originalQuantityMatch?.value || 0;
+      const detectedQuantity =
+        detectedQuantityFromItem > 0
+          ? detectedQuantityFromItem
+          : originalQuantityMatch?.value || 0;
 
-const detectedUnitPrice = detectUnitPriceForWorkItem(
-  item,
-  `${messageText}\n${fullWorkText}`,
-);
+      const detectedUnitPrice = detectUnitPriceForWorkItem(
+        item,
+        `${messageText}\n${fullWorkText}`,
+      );
 
       if (matchedService) {
         const serviceUnit = String(matchedService.unit || "Stunde");
@@ -4923,47 +5428,44 @@ const detectedUnitPrice = detectUnitPriceForWorkItem(
           ? unitTypeToDisplayUnit(detectedUnitType)
           : serviceUnit;
 
+        const unitType = getServiceUnitType(unit);
+        const catalogUnitPrice = Number(matchedService.defaultPrice || 0);
+        const priceSearchText = `${raw} ${originalSegment}`;
 
-const unitType = getServiceUnitType(unit);
-const catalogUnitPrice = Number(matchedService.defaultPrice || 0);
-const priceSearchText = `${raw} ${originalSegment}`;
+        const hasLooseCurrencyAmount =
+          /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\b/i.test(
+            priceSearchText,
+          ) ||
+          /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\s*\d+(?:[.,]\d{1,2})?\b/i.test(
+            priceSearchText,
+          );
 
-const hasLooseCurrencyAmount =
-  /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\b/i.test(
-    priceSearchText,
-  ) ||
-  /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€|usd|dollar|\$|gbp|pfund|£)\s*\d+(?:[.,]\d{1,2})?\b/i.test(
-    priceSearchText,
-  );
+        const hasAmbiguousLinePrice =
+          hasAmbiguousCompactLinePrice(priceSearchText);
+        const hasExplicitUnitPrice = Boolean(
+          detectedUnitPrice && detectedUnitPrice > 0,
+        );
+        const hasNoPriceSignal =
+          /\b(ohne\s+preis|ohne\s+preisangabe|kein\s+preis|keine\s+preisangabe|preis\s+offen|preis\s+folgt|preis\s+laut\s+offerte|laut\s+offerte|nach\s+aufwand)\b/i.test(
+            priceSearchText,
+          );
 
-const hasAmbiguousLinePrice =
-  hasAmbiguousCompactLinePrice(priceSearchText);
-const hasExplicitUnitPrice = Boolean(
-  detectedUnitPrice && detectedUnitPrice > 0,
-);
-const hasNoPriceSignal =
-  /\b(ohne\s+preis|ohne\s+preisangabe|kein\s+preis|keine\s+preisangabe|preis\s+offen|preis\s+folgt|preis\s+laut\s+offerte|laut\s+offerte|nach\s+aufwand)\b/i.test(
-    priceSearchText,
-  );
+        const shouldBlockCatalogFallback =
+          (hasLooseCurrencyAmount ||
+            hasAmbiguousLinePrice ||
+            hasNoPriceSignal) &&
+          !hasExplicitUnitPrice;
 
-const shouldBlockCatalogFallback =
-  (
-    hasLooseCurrencyAmount ||
-    hasAmbiguousLinePrice ||
-    hasNoPriceSignal
-  ) && !hasExplicitUnitPrice;
+        const unitPrice = hasExplicitUnitPrice
+          ? Number(detectedUnitPrice)
+          : shouldBlockCatalogFallback
+            ? 0
+            : catalogUnitPrice;
 
-const unitPrice = hasExplicitUnitPrice
-  ? Number(detectedUnitPrice)
-  : shouldBlockCatalogFallback
-    ? 0
-    : catalogUnitPrice;
-
-const priceOverrideDetected =
-  hasExplicitUnitPrice &&
-  catalogUnitPrice > 0 &&
-  Math.abs(unitPrice - catalogUnitPrice) >= 0.01;
-
+        const priceOverrideDetected =
+          hasExplicitUnitPrice &&
+          catalogUnitPrice > 0 &&
+          Math.abs(unitPrice - catalogUnitPrice) >= 0.01;
 
         const quantityValidation = validateQuantityAgainstServiceUnit({
           serviceUnit: unit,
@@ -4972,24 +5474,23 @@ const priceOverrideDetected =
             detectedUnitType !== "unknown" ? detectedUnitType : null,
           serviceName: matchedService.name,
         });
-const mismatchDetected =
-  hasExplicitDetectedUnit &&
-  serviceUnitType !== detectedUnitType;
+        const mismatchDetected =
+          hasExplicitDetectedUnit && serviceUnitType !== detectedUnitType;
 
-const priceReviewReason = priceOverrideDetected
-  ? `price_override:${String(matchedService.name || "Unbekannte Leistung")}:${catalogUnitPrice}:${unitPrice}`
-  : shouldBlockCatalogFallback
-    ? `price_unclear:${String(matchedService.name || "Unbekannte Leistung")}`
-    : null;
+        const priceReviewReason = priceOverrideDetected
+          ? `price_override:${String(matchedService.name || "Unbekannte Leistung")}:${catalogUnitPrice}:${unitPrice}`
+          : shouldBlockCatalogFallback
+            ? `price_unclear:${String(matchedService.name || "Unbekannte Leistung")}`
+            : null;
 
-const reviewReason = mismatchDetected
-  ? `unit_mismatch:${String(matchedService.name || "Unbekannte Leistung")}:${serviceUnit}:${unit}:${detectedQuantity}`
-  : priceReviewReason || quantityValidation.reason || null;
+        const reviewReason = mismatchDetected
+          ? `unit_mismatch:${String(matchedService.name || "Unbekannte Leistung")}:${serviceUnit}:${unit}:${detectedQuantity}`
+          : priceReviewReason || quantityValidation.reason || null;
 
         return {
           serviceName: formatWorkNameForDisplay(
-  String(matchedService.name || "Unbekannte Leistung"),
-),
+            String(matchedService.name || "Unbekannte Leistung"),
+          ),
           description: String(
             raw || detectedName || fullWorkText || `${source}-Auftrag`,
           ),
@@ -4998,7 +5499,10 @@ const reviewReason = mismatchDetected
           unit,
           unitPrice,
           totalPrice: unitPrice * quantityValidation.quantity,
-          needsReview: mismatchDetected || quantityValidation.needsReview || !!priceReviewReason,
+          needsReview:
+            mismatchDetected ||
+            quantityValidation.needsReview ||
+            !!priceReviewReason,
           reviewReason,
           sourceText: originalSegment || raw || null,
           evidence: item.evidence || item.source_text || null,
@@ -5011,49 +5515,50 @@ const reviewReason = mismatchDetected
           ? unitTypeToDisplayUnit(detectedUnitType)
           : unitTypeToDisplayUnit(getServiceUnitType(item.einheit || null));
 
-const cleanedDetectedName = formatWorkNameForDisplay(
-  detectedName || "Unbekannte Leistung",
-);
+      const cleanedDetectedName = formatWorkNameForDisplay(
+        detectedName || "Unbekannte Leistung",
+      );
 
-const finalServiceName =
-  cleanedDetectedName.length < 4 ||
-  cleanedDetectedName.split(" ").length > 6
-    ? "Unbekannte Leistung"
-    : cleanedDetectedName;
+      const finalServiceName =
+        cleanedDetectedName.length < 4 ||
+        cleanedDetectedName.split(" ").length > 6
+          ? "Unbekannte Leistung"
+          : cleanedDetectedName;
 
-const confidence = normalizeAiConfidence(item.confidence || null);
-const safeUnitPrice = confidence === "niedrig" ? 0 : detectedUnitPrice || 0;
-const safeQuantity = confidence === "niedrig" ? 0 : detectedQuantity || 0;
+      const confidence = normalizeAiConfidence(item.confidence || null);
+      const safeUnitPrice =
+        confidence === "niedrig" ? 0 : detectedUnitPrice || 0;
+      const safeQuantity = confidence === "niedrig" ? 0 : detectedQuantity || 0;
 
-return {
-  serviceName: finalServiceName,
-  description: String(
-    raw || detectedName || fullWorkText || `${source}-Auftrag`,
-  ),
-  quantity: safeQuantity,
-  unit: unit || "Pauschal",
- unitPrice: safeUnitPrice,
-totalPrice: safeUnitPrice * safeQuantity,
-  needsReview: true,
-  reviewReason: "unbekannte_leistung_pruefen",
-  sourceText: originalSegment || raw || null,
-  evidence: item.evidence || item.source_text || null,
-  detectedCurrency: item.currency || null,
-};
+      return {
+        serviceName: finalServiceName,
+        description: String(
+          raw || detectedName || fullWorkText || `${source}-Auftrag`,
+        ),
+        quantity: safeQuantity,
+        unit: unit || "Pauschal",
+        unitPrice: safeUnitPrice,
+        totalPrice: safeUnitPrice * safeQuantity,
+        needsReview: true,
+        reviewReason: "unbekannte_leistung_pruefen",
+        sourceText: originalSegment || raw || null,
+        evidence: item.evidence || item.source_text || null,
+        detectedCurrency: item.currency || null,
+      };
     })
     .filter(Boolean) as Array<{
-      serviceName: string;
-      description: string;
-      quantity: number;
-      unit: string;
-      unitPrice: number;
-      totalPrice: number;
-      needsReview: boolean;
-      reviewReason: string | null;
-      sourceText?: string | null;
-      evidence?: string | null;
-      detectedCurrency?: string | null;
-    }>;
+    serviceName: string;
+    description: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    totalPrice: number;
+    needsReview: boolean;
+    reviewReason: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+    detectedCurrency?: string | null;
+  }>;
   const hasHourQuantityInText = detectAllQuantityUnitsFromText(
     messageText,
   ).some((q) => q.unit === "hour");
@@ -5159,14 +5664,20 @@ totalPrice: safeUnitPrice * safeQuantity,
     const unitType = getServiceUnitType(item.unit);
     const unitPriceValue = Number(item.unitPrice || 0);
 
-    if (unitType !== "flat" || !Number.isFinite(unitPriceValue) || unitPriceValue <= 0) {
+    if (
+      unitType !== "flat" ||
+      !Number.isFinite(unitPriceValue) ||
+      unitPriceValue <= 0
+    ) {
       return item;
     }
 
     const reviewReason = item.reviewReason || null;
     const onlyQuantityReview =
       reviewReason &&
-      /menge|quantity|leistung_ist_pauschal|pauschal|pruefen|prüfen/i.test(reviewReason);
+      /menge|quantity|leistung_ist_pauschal|pauschal|pruefen|prüfen/i.test(
+        reviewReason,
+      );
 
     return {
       ...item,
@@ -5184,7 +5695,8 @@ totalPrice: safeUnitPrice * safeQuantity,
     customerCity: addr.city,
   };
 
-  const legacyAddressFallbackEnabled = process.env.INTAKE_LEGACY_ADDRESS_FALLBACK === "1";
+  const legacyAddressFallbackEnabled =
+    process.env.INTAKE_LEGACY_ADDRESS_FALLBACK === "1";
   const aiStructuredExecutionAddress = extractAiStructuredExecutionAddress(
     aiExecutionAddress,
     executionAddressCustomerContext,
@@ -5195,8 +5707,14 @@ ${fullWorkText}`,
   const extractedExecutionAddress = sanitizeExtractedExecutionAddress(
     aiStructuredExecutionAddress ||
       (legacyAddressFallbackEnabled
-        ? extractExecutionAddressFromText(messageText, executionAddressCustomerContext) ||
-          extractExecutionAddressFromText(fullWorkText, executionAddressCustomerContext)
+        ? extractExecutionAddressFromText(
+            messageText,
+            executionAddressCustomerContext,
+          ) ||
+          extractExecutionAddressFromText(
+            fullWorkText,
+            executionAddressCustomerContext,
+          )
         : null),
     `${messageText}
 ${fullWorkText}`,
@@ -5258,11 +5776,6 @@ ${fullWorkText}`,
     parsed.system.needs_review = true;
   }
 
-
-
-
-
-
   // --- UNIT MISMATCH CHECK ---
   const unitMismatchReasons: string[] = [];
 
@@ -5274,11 +5787,13 @@ ${fullWorkText}`,
     if (["meter", "laufmeter", "lfm", "m"].includes(v)) return "Meter";
     if (["quadratmeter", "qm", "m2", "m²"].includes(v)) return "Quadratmeter";
     if (["kubikmeter", "cbm", "m3", "m³"].includes(v)) return "Kubikmeter";
-    if (["stueck", "stück", "stk", "anzahl", "einheiten"].includes(v)) return "Stück";
+    if (["stueck", "stück", "stk", "anzahl", "einheiten"].includes(v))
+      return "Stück";
     if (["kilogramm", "kg"].includes(v)) return "Kilogramm";
     if (["tonne", "tonnen", "to", "t"].includes(v)) return "Tonne";
     if (["liter", "ltr", "l"].includes(v)) return "Liter";
-    if (["pauschal", "pauschale", "fixpreis", "festpreis"].includes(v)) return "Pauschal";
+    if (["pauschal", "pauschale", "fixpreis", "festpreis"].includes(v))
+      return "Pauschal";
 
     return value || "";
   };
@@ -5543,7 +6058,6 @@ ${fullWorkText}`,
   // V16.39: Final order path deliberately does not re-parse raw text for
   // billing data. If the AI-structured billing evidence failed validation, the
   // customer remains review-required instead of being rescued by marker words.
-
 
   console.log(
     `[${source}] Order created: ${order.id} | Customer: ${order.customer?.name} (${order.customer?.customerNumber}) | Service: ${serviceName} | Abgleich: ${abgleichStatus} (confidence: ${abgleich.confidence || 0}) | Priorität: ${parsed.system?.prioritaet || "normal"}${duplicateWarning ? " | ⚠️ WARNING" : ""}`,
@@ -5840,7 +6354,6 @@ async function createFallbackOrderFromRawPayload(
     return null;
   }
 }
-
 
 // ────────────────────────────────────────────────────────────────────────
 // Stage H — Cost optimization: long voice messages (>60 s)
