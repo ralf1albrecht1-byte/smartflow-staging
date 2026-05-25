@@ -1363,6 +1363,18 @@ const getSystemBadges = (
     });
   }
 
+  const isMergedOrder =
+    order.reviewReasons?.includes("manual_order_merge") ||
+    order.reviewReasons?.includes("double_merge");
+
+  if (isMergedOrder) {
+    pushUniqueBadge(badges, {
+      key: "merged",
+      label: "Zusammengeführt",
+      className: "bg-blue-100 text-blue-700 border border-blue-300",
+    });
+  }
+
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
       ? order.items.some(
@@ -1451,17 +1463,7 @@ const getBottomBadges = (
   const badges: ReviewBadge[] = [];
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-300";
 
-  const isMergedOrder =
-    order.reviewReasons?.includes("manual_order_merge") ||
-    order.reviewReasons?.includes("double_merge");
-
-  if (isMergedOrder) {
-    pushUniqueBadge(badges, {
-      key: "merged",
-      label: "Zusammengeführt",
-      className: blueClass,
-    });
-  }
+  // Zusammengeführt wird oben bei den Systemchips neben der Ausführungsadresse angezeigt.
 
   const callbackSource = [
     order.specialNotes,
@@ -1826,7 +1828,10 @@ export default function AuftraegePage() {
   } | null>(null);
   const [formItems, setFormItems] = useState<FormItem[]>([createEmptyItem()]);
   const [formWorkSites, setFormWorkSites] = useState<OrderWorkSite[]>([]);
-  const [editingWorkSiteId, setEditingWorkSiteId] = useState<string | null>(null);
+  const [editingWorkSiteId, setEditingWorkSiteId] = useState<string | null>(
+    null,
+  );
+  const [activeWorkSiteId, setActiveWorkSiteId] = useState<string | null>(null);
   const [movingItemKey, setMovingItemKey] = useState<string | null>(null);
   // Persisted MwSt on Auftrag — saved on the Order itself (see app/api/orders)
   // and forwarded to the derived Offer/Invoice when converting.
@@ -2147,6 +2152,7 @@ export default function AuftraegePage() {
     setFormItems([createEmptyItem()]);
     setFormWorkSites([]);
     setEditingWorkSiteId(null);
+    setActiveWorkSiteId(null);
     setSiteAddressEditing(false);
     setShowNewCustomer(false);
     setEditingCustomer(false);
@@ -2211,6 +2217,7 @@ export default function AuftraegePage() {
       );
     setFormWorkSites(nextWorkSites);
     setEditingWorkSiteId(null);
+    setActiveWorkSiteId(nextWorkSites[0]?.id || null);
     setMovingItemKey(null);
     setSiteAddressEditing(
       nextWorkSites.length <= 1 &&
@@ -2607,12 +2614,29 @@ export default function AuftraegePage() {
   };
 
   const updateItem = (index: number, field: keyof FormItem, value: string) => {
+    if (field === "workSiteId") {
+      setActiveWorkSiteId(value || null);
+    }
+
     setFormItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     );
   };
 
-  const addItem = () => setFormItems((prev) => [createEmptyItem(), ...prev]);
+  const addItem = () => {
+    const targetWorkSiteId = hasMultipleEditWorkSites
+      ? activeWorkSiteId || currentEditWorkSites[0]?.id || null
+      : null;
+    const nextItem = {
+      ...createEmptyItem(),
+      workSiteId: targetWorkSiteId,
+    };
+
+    setFormItems((prev) => [nextItem, ...prev]);
+    setActiveWorkSiteId(targetWorkSiteId);
+    setMovingItemKey(targetWorkSiteId ? null : nextItem.key);
+    setServiceActionMenuKey(null);
+  };
 
   const removeItem = (index: number) => {
     setFormItems((prev) => {
@@ -2697,10 +2721,10 @@ export default function AuftraegePage() {
 
   const getWorkSiteTotal = (siteId?: string | null) =>
     getWorkSiteItems(siteId).reduce(
-      (sum, item) => sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+      (sum, item) =>
+        sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
       0,
     );
-
 
   const updateFormWorkSite = (
     siteId: string,
@@ -2730,12 +2754,17 @@ export default function AuftraegePage() {
       },
     ]);
     setEditingWorkSiteId(newId);
+    setActiveWorkSiteId(newId);
   };
 
   const removeFormWorkSite = (siteId: string) => {
-    const assignedItems = formItems.filter((item) => item.workSiteId === siteId);
+    const assignedItems = formItems.filter(
+      (item) => item.workSiteId === siteId,
+    );
     if (assignedItems.length > 0) {
-      toast.error("Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.");
+      toast.error(
+        "Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.",
+      );
       return;
     }
 
@@ -3038,7 +3067,10 @@ export default function AuftraegePage() {
       toast.error("Mindestens eine Leistung auswählen");
       return null;
     }
-    if (formWorkSites.length > 1 && validItems.some((item) => !item.workSiteId)) {
+    if (
+      formWorkSites.length > 1 &&
+      validItems.some((item) => !item.workSiteId)
+    ) {
       toast.error("Bitte jeder Leistung einen Arbeitsort zuordnen.");
       return null;
     }
@@ -4944,171 +4976,173 @@ export default function AuftraegePage() {
               {/* Ausführungsadresse / Baustellenadresse.
                   Bei mehreren Arbeitsorten ist der bearbeitbare Block darunter die einzige Wahrheit. */}
               {!hasMultipleEditWorkSites && (
-              <div className="rounded-lg border bg-slate-50/70 dark:bg-slate-900/30 p-3 space-y-3">
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.siteAddressDifferent)}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setSiteAddressEditing(checked);
-                      setForm((prev) => ({
-                        ...prev,
-                        siteAddressDifferent: checked,
-                        ...(checked
-                          ? {}
-                          : {
-                              siteName: "",
-                              siteAddress: "",
-                              sitePlz: "",
-                              siteCity: "",
-                              siteNote: "",
-                            }),
-                      }));
-                    }}
-                    className="mt-1"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">
-                      Ausführungsadresse abweichend von Rechnungsadresse
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Nur aktivieren, wenn die Arbeit an einem anderen Ort
-                      ausgeführt wird.
-                    </span>
-                  </span>
-                </label>
-
-                {form.siteAddressDifferent && !siteAddressEditing && (
-                  <button
-                    type="button"
-                    onClick={() => setSiteAddressEditing(true)}
-                    className="w-full rounded-lg border bg-background p-3 text-left hover:bg-muted/40 transition-colors"
-                    title="Ausführungsadresse bearbeiten"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold">
-                          📍 {form.siteName?.trim() || "Ausführungsadresse"}
-                        </div>
-                        <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-0.5 text-sm">
-                          <span className="text-muted-foreground">
-                            Strasse:
-                          </span>
-                          <span className="truncate">
-                            {form.siteAddress?.trim() || "–"}
-                          </span>
-                          <span className="text-muted-foreground">
-                            PLZ / Ort:
-                          </span>
-                          <span className="truncate">
-                            {[form.sitePlz, form.siteCity]
-                              .filter(Boolean)
-                              .join(" ") || "–"}
-                          </span>
-                          {form.siteNote?.trim() && (
-                            <>
-                              <span className="text-muted-foreground">
-                                Hinweis:
-                              </span>
-                              <span className="truncate">{form.siteNote}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-xs text-primary">
-                        Bearbeiten
+                <div className="rounded-lg border bg-slate-50/70 dark:bg-slate-900/30 p-3 space-y-3">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.siteAddressDifferent)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setSiteAddressEditing(checked);
+                        setForm((prev) => ({
+                          ...prev,
+                          siteAddressDifferent: checked,
+                          ...(checked
+                            ? {}
+                            : {
+                                siteName: "",
+                                siteAddress: "",
+                                sitePlz: "",
+                                siteCity: "",
+                                siteNote: "",
+                              }),
+                        }));
+                      }}
+                      className="mt-1"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">
+                        Ausführungsadresse abweichend von Rechnungsadresse
                       </span>
-                    </div>
-                  </button>
-                )}
+                      <span className="block text-xs text-muted-foreground">
+                        Nur aktivieren, wenn die Arbeit an einem anderen Ort
+                        ausgeführt wird.
+                      </span>
+                    </span>
+                  </label>
 
-                {form.siteAddressDifferent && siteAddressEditing && (
-                  <div className="rounded-lg border bg-background p-3 space-y-3">
-                    <div>
-                      <div className="text-sm font-semibold">
-                        Ausführungsadresse / Baustellenadresse
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Gilt nur für diesen Auftrag. Wird später in Angebot,
-                        Rechnung und PDF separat angezeigt.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <Label className="text-xs">Objekt / Name</Label>
-                        <Input
-                          placeholder="z. B. Baustelle Tiefgarage"
-                          value={form.siteName}
-                          onChange={(e) =>
-                            setForm({ ...form, siteName: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Strasse + Hausnr.</Label>
-                        <Input
-                          placeholder="Strasse + Hausnr."
-                          value={form.siteAddress}
-                          onChange={(e) =>
-                            setForm({ ...form, siteAddress: e.target.value })
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr] gap-2">
-                      <div>
-                        <Label className="text-xs">PLZ</Label>
-                        <Input
-                          placeholder="PLZ"
-                          value={form.sitePlz}
-                          onChange={(e) =>
-                            setForm({ ...form, sitePlz: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Ort</Label>
-                        <Input
-                          placeholder="Ort"
-                          value={form.siteCity}
-                          onChange={(e) =>
-                            setForm({ ...form, siteCity: e.target.value })
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="text-xs">Zusatz / Hinweis</Label>
-                      <Input
-                        placeholder="z. B. Eingang hinten, Tor 2, Hauswart vor Ort"
-                        value={form.siteNote}
-                        onChange={(e) =>
-                          setForm({ ...form, siteNote: e.target.value })
-                        }
-                      />
-                    </div>
-
-                    <div className="flex justify-end">
-                      <div className="flex items-center gap-2 sm:justify-end">
-                        <span className="hidden sm:inline text-xs text-muted-foreground">
-                          Wird mit dem Auftrag gespeichert.
+                  {form.siteAddressDifferent && !siteAddressEditing && (
+                    <button
+                      type="button"
+                      onClick={() => setSiteAddressEditing(true)}
+                      className="w-full rounded-lg border bg-background p-3 text-left hover:bg-muted/40 transition-colors"
+                      title="Ausführungsadresse bearbeiten"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold">
+                            📍 {form.siteName?.trim() || "Ausführungsadresse"}
+                          </div>
+                          <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-0.5 text-sm">
+                            <span className="text-muted-foreground">
+                              Strasse:
+                            </span>
+                            <span className="truncate">
+                              {form.siteAddress?.trim() || "–"}
+                            </span>
+                            <span className="text-muted-foreground">
+                              PLZ / Ort:
+                            </span>
+                            <span className="truncate">
+                              {[form.sitePlz, form.siteCity]
+                                .filter(Boolean)
+                                .join(" ") || "–"}
+                            </span>
+                            {form.siteNote?.trim() && (
+                              <>
+                                <span className="text-muted-foreground">
+                                  Hinweis:
+                                </span>
+                                <span className="truncate">
+                                  {form.siteNote}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <span className="shrink-0 text-xs text-primary">
+                          Bearbeiten
                         </span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => setSiteAddressEditing(false)}
-                        >
-                          Adresse übernehmen
-                        </Button>
+                      </div>
+                    </button>
+                  )}
+
+                  {form.siteAddressDifferent && siteAddressEditing && (
+                    <div className="rounded-lg border bg-background p-3 space-y-3">
+                      <div>
+                        <div className="text-sm font-semibold">
+                          Ausführungsadresse / Baustellenadresse
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Gilt nur für diesen Auftrag. Wird später in Angebot,
+                          Rechnung und PDF separat angezeigt.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">Objekt / Name</Label>
+                          <Input
+                            placeholder="z. B. Baustelle Tiefgarage"
+                            value={form.siteName}
+                            onChange={(e) =>
+                              setForm({ ...form, siteName: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Strasse + Hausnr.</Label>
+                          <Input
+                            placeholder="Strasse + Hausnr."
+                            value={form.siteAddress}
+                            onChange={(e) =>
+                              setForm({ ...form, siteAddress: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr] gap-2">
+                        <div>
+                          <Label className="text-xs">PLZ</Label>
+                          <Input
+                            placeholder="PLZ"
+                            value={form.sitePlz}
+                            onChange={(e) =>
+                              setForm({ ...form, sitePlz: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Ort</Label>
+                          <Input
+                            placeholder="Ort"
+                            value={form.siteCity}
+                            onChange={(e) =>
+                              setForm({ ...form, siteCity: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-xs">Zusatz / Hinweis</Label>
+                        <Input
+                          placeholder="z. B. Eingang hinten, Tor 2, Hauswart vor Ort"
+                          value={form.siteNote}
+                          onChange={(e) =>
+                            setForm({ ...form, siteNote: e.target.value })
+                          }
+                        />
+                      </div>
+
+                      <div className="flex justify-end">
+                        <div className="flex items-center gap-2 sm:justify-end">
+                          <span className="hidden sm:inline text-xs text-muted-foreground">
+                            Wird mit dem Auftrag gespeichert.
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => setSiteAddressEditing(false)}
+                          >
+                            Adresse übernehmen
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
               )}
 
               {hasMultipleEditWorkSites && (
@@ -5121,11 +5155,18 @@ export default function AuftraegePage() {
                           Mehrere Ausführungsorte
                         </div>
                         <p className="text-xs text-cyan-800/80 dark:text-cyan-100/80">
-                          Dieser zusammengeführte Auftrag enthält mehrere Arbeitsorte. Bearbeite hier die Orte und ordne unten jede Leistung dem richtigen Arbeitsort zu.
+                          Dieser zusammengeführte Auftrag enthält mehrere
+                          Arbeitsorte. Bearbeite hier die Orte und ordne unten
+                          jede Leistung dem richtigen Arbeitsort zu.
                         </p>
                       </div>
                     </div>
-                    <Button type="button" size="sm" variant="outline" onClick={addFormWorkSite}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={addFormWorkSite}
+                    >
                       + Arbeitsort
                     </Button>
                   </div>
@@ -5135,7 +5176,9 @@ export default function AuftraegePage() {
                       const siteItems = getWorkSiteItems(site.id);
                       const siteTotal = siteItems.reduce(
                         (sum, item) =>
-                          sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+                          sum +
+                          Number(item.unitPrice || 0) *
+                            Number(item.quantity || 0),
                         0,
                       );
                       const isEditingSite = editingWorkSiteId === site.id;
@@ -5145,20 +5188,26 @@ export default function AuftraegePage() {
                           key={site.id || index}
                           role="button"
                           tabIndex={0}
-                          onClick={() =>
+                          onClick={() => {
+                            setActiveWorkSiteId(site.id);
                             setEditingWorkSiteId((prev) =>
                               prev === site.id ? null : site.id,
-                            )
-                          }
+                            );
+                          }}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
+                              setActiveWorkSiteId(site.id);
                               setEditingWorkSiteId((prev) =>
                                 prev === site.id ? null : site.id,
                               );
                             }
                           }}
-                          className="cursor-pointer rounded-md border bg-background p-2 transition hover:border-cyan-300 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/20"
+                          className={`cursor-pointer rounded-md border p-2 transition ${
+                            activeWorkSiteId === site.id
+                              ? "border-cyan-400 bg-cyan-50/80 ring-1 ring-cyan-200 dark:bg-cyan-950/25"
+                              : "bg-background hover:border-cyan-300 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/20"
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -5166,7 +5215,8 @@ export default function AuftraegePage() {
                                 {index + 1}. {formatWorkSiteTitle(site)}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {formatWorkSiteAddress(site) || "Adresse prüfen"}
+                                {formatWorkSiteAddress(site) ||
+                                  "Adresse prüfen"}
                               </div>
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
@@ -5177,6 +5227,7 @@ export default function AuftraegePage() {
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
+                                  setActiveWorkSiteId(site.id);
                                   setEditingWorkSiteId((prev) =>
                                     prev === site.id ? null : site.id,
                                   );
@@ -5195,12 +5246,18 @@ export default function AuftraegePage() {
                             >
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div>
-                                  <Label className="text-[10px]">Bezeichnung</Label>
+                                  <Label className="text-[10px]">
+                                    Bezeichnung
+                                  </Label>
                                   <Input
                                     className="h-8 text-xs"
                                     value={site.siteName || ""}
                                     onChange={(e) =>
-                                      updateFormWorkSite(site.id, "siteName", e.target.value)
+                                      updateFormWorkSite(
+                                        site.id,
+                                        "siteName",
+                                        e.target.value,
+                                      )
                                     }
                                     placeholder="z. B. Haus A, EG rechts"
                                   />
@@ -5211,7 +5268,11 @@ export default function AuftraegePage() {
                                     className="h-8 text-xs"
                                     value={site.siteAddress || ""}
                                     onChange={(e) =>
-                                      updateFormWorkSite(site.id, "siteAddress", e.target.value)
+                                      updateFormWorkSite(
+                                        site.id,
+                                        "siteAddress",
+                                        e.target.value,
+                                      )
                                     }
                                     placeholder="Strasse + Hausnr."
                                   />
@@ -5224,7 +5285,11 @@ export default function AuftraegePage() {
                                     className="h-8 text-xs"
                                     value={site.sitePlz || ""}
                                     onChange={(e) =>
-                                      updateFormWorkSite(site.id, "sitePlz", e.target.value)
+                                      updateFormWorkSite(
+                                        site.id,
+                                        "sitePlz",
+                                        e.target.value,
+                                      )
                                     }
                                     placeholder="PLZ"
                                   />
@@ -5235,7 +5300,11 @@ export default function AuftraegePage() {
                                     className="h-8 text-xs"
                                     value={site.siteCity || ""}
                                     onChange={(e) =>
-                                      updateFormWorkSite(site.id, "siteCity", e.target.value)
+                                      updateFormWorkSite(
+                                        site.id,
+                                        "siteCity",
+                                        e.target.value,
+                                      )
                                     }
                                     placeholder="Ort"
                                   />
@@ -5247,7 +5316,11 @@ export default function AuftraegePage() {
                                   className="h-8 text-xs"
                                   value={site.siteNote || ""}
                                   onChange={(e) =>
-                                    updateFormWorkSite(site.id, "siteNote", e.target.value)
+                                    updateFormWorkSite(
+                                      site.id,
+                                      "siteNote",
+                                      e.target.value,
+                                    )
                                   }
                                   placeholder="z. B. Eingang hinten, Rampe 2"
                                 />
@@ -5273,10 +5346,13 @@ export default function AuftraegePage() {
                             {siteItems.length > 0 ? (
                               siteItems.map((item) => (
                                 <span
-                                  key={item.key || `${site.id}-${item.serviceName}`}
+                                  key={
+                                    item.key || `${site.id}-${item.serviceName}`
+                                  }
                                   className="rounded-full border bg-muted px-2 py-0.5 text-[11px]"
                                 >
-                                  {item.serviceName} · {item.quantity} {item.unit}
+                                  {item.serviceName} · {item.quantity}{" "}
+                                  {item.unit}
                                 </span>
                               ))
                             ) : (
@@ -5317,16 +5393,23 @@ export default function AuftraegePage() {
                           Position.
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={addItem}
-                        className="h-7 shrink-0 px-2 text-xs"
-                      >
-                        <Plus className="mr-1 h-3.5 w-3.5" />
-                        Leistung hinzufügen
-                      </Button>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={addItem}
+                          className="h-7 px-2 text-xs"
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                          Leistung hinzufügen
+                        </Button>
+                        {hasMultipleEditWorkSites && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Wird oben im aktiven Arbeitsort eingefügt.
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {hasEditCurrencyReview && (
@@ -5341,253 +5424,324 @@ export default function AuftraegePage() {
                     )}
 
                     <div className="space-y-2">
-                      {formItemDisplayRows.map(({ item, index, site, isFirstInSite }) => {
-                        const curOrder = editId
-                          ? orders.find((o: Order) => o.id === editId)
-                          : null;
+                      {formItemDisplayRows.map(
+                        ({ item, index, site, isFirstInSite }) => {
+                          const curOrder = editId
+                            ? orders.find((o: Order) => o.id === editId)
+                            : null;
 
-                        const unitMismatchReason = curOrder?.reviewReasons
-                          ?.filter((r: string) =>
-                            r.startsWith("unit_mismatch:"),
-                          )
-                          .find((r: string) => {
-                            const [, serviceName] = r.split(":");
-                            return (
-                              (serviceName || "").trim().toLowerCase() ===
-                              (item.serviceName || "").trim().toLowerCase()
-                            );
-                          });
+                          const unitMismatchReason = curOrder?.reviewReasons
+                            ?.filter((r: string) =>
+                              r.startsWith("unit_mismatch:"),
+                            )
+                            .find((r: string) => {
+                              const [, serviceName] = r.split(":");
+                              return (
+                                (serviceName || "").trim().toLowerCase() ===
+                                (item.serviceName || "").trim().toLowerCase()
+                              );
+                            });
 
-                        const priceOverrideReason = curOrder?.reviewReasons
-                          ?.filter((r: string) =>
-                            r.startsWith("price_override:"),
-                          )
-                          .find((r: string) => {
-                            const [, serviceName] = r.split(":");
-                            return (
-                              normalizeForMatch(serviceName) ===
-                              normalizeForMatch(item.serviceName)
-                            );
-                          });
-
-                        const priceUnclearReason = curOrder?.reviewReasons
-                          ?.filter((r: string) =>
-                            r.startsWith("price_unclear:"),
-                          )
-                          .find((r: string) => {
-                            const [, serviceName] = r.split(":");
-                            return (
-                              !serviceName ||
-                              normalizeForMatch(serviceName) ===
+                          const priceOverrideReason = curOrder?.reviewReasons
+                            ?.filter((r: string) =>
+                              r.startsWith("price_override:"),
+                            )
+                            .find((r: string) => {
+                              const [, serviceName] = r.split(":");
+                              return (
+                                normalizeForMatch(serviceName) ===
                                 normalizeForMatch(item.serviceName)
-                            );
-                          });
+                              );
+                            });
 
-                        const catalogService = findCatalogServiceForName(
-                          services,
-                          item.serviceName,
-                        );
-                        const catalogPrice = Number(
-                          catalogService?.defaultPrice || 0,
-                        );
-                        const itemPriceNumber = Number(item.unitPrice || 0);
-                        const hasFrontendCatalogPriceDeviation =
-                          Boolean(catalogService) &&
-                          !unitMismatchReason &&
-                          normalizePriceUnitForCompare(catalogService?.unit) ===
-                            normalizePriceUnitForCompare(item.unit) &&
-                          Number.isFinite(catalogPrice) &&
-                          Number.isFinite(itemPriceNumber) &&
-                          catalogPrice > 0 &&
-                          itemPriceNumber > 0 &&
-                          Math.abs(catalogPrice - itemPriceNumber) >= 0.01;
-                        const hasFrontendCatalogTextFlatOverride =
-                          Boolean(catalogService) &&
-                          !unitMismatchReason &&
-                          normalizePriceUnitForCompare(catalogService?.unit) !==
-                            normalizePriceUnitForCompare(item.unit) &&
-                          normalizePriceUnitForCompare(item.unit) === "flat" &&
-                          Number.isFinite(itemPriceNumber) &&
-                          itemPriceNumber > 0 &&
-                          Number(item.quantity || 0) === 1;
+                          const priceUnclearReason = curOrder?.reviewReasons
+                            ?.filter((r: string) =>
+                              r.startsWith("price_unclear:"),
+                            )
+                            .find((r: string) => {
+                              const [, serviceName] = r.split(":");
+                              return (
+                                !serviceName ||
+                                normalizeForMatch(serviceName) ===
+                                  normalizeForMatch(item.serviceName)
+                              );
+                            });
 
-                        const hasCurrencyConflict = hasEditCurrencyReview;
-                        const priceInputReview =
-                          Number(item.unitPrice || 0) === 0;
-                        const quantityInputReview =
-                          Number(item.quantity || 0) === 0;
-                        const showUnitConflict =
-                          !hasCurrencyConflict &&
-                          Boolean(item.aiWarning?.trim() || unitMismatchReason);
-                        const showPriceOverride =
-                          !hasCurrencyConflict &&
-                          !showUnitConflict &&
-                          Boolean(
-                            priceOverrideReason ||
-                            hasFrontendCatalogPriceDeviation ||
-                            hasFrontendCatalogTextFlatOverride,
-                          );
-                        const showPriceReferenceReview =
-                          !hasCurrencyConflict &&
-                          !priceInputReview &&
-                          Boolean(
-                            priceUnclearReason ||
-                            curOrder?.reviewReasons?.includes(
-                              "unit_price_review",
-                            ),
-                          );
-
-                        const itemTotal =
-                          Number(item.unitPrice || 0) *
-                          Number(item.quantity || 0);
-                        const isCompleteItemForCatalogAction = Boolean(
-                          item.serviceName?.trim() &&
-                          item.unit?.trim() &&
-                          Number(item.unitPrice || 0) > 0 &&
-                          Number(item.quantity || 0) > 0,
-                        );
-
-                        const isManualService =
-                          Boolean(item.serviceName?.trim()) &&
-                          !isServiceInCatalog(item.serviceName);
-                        const showManualServiceReview =
-                          !hasCurrencyConflict && isManualService;
-                        const sourceLineForItem =
-                          findCustomerTextLineForService(
-                            visibleCustomerMessageText || customerMessageText,
+                          const catalogService = findCatalogServiceForName(
+                            services,
                             item.serviceName,
                           );
-                        const catalogSummary = catalogService
-                          ? `${catalogService.unit}${
-                              catalogPrice > 0
-                                ? ` · ${formatCurrency(catalogPrice, currency)}`
-                                : ""
-                            }`
-                          : "";
-                        const orderSummaryParts = [
-                          Number(item.quantity || 0) > 0
-                            ? `${item.quantity} ${unitShortLabel(item.unit)}`
-                            : unitShortLabel(item.unit),
-                          itemPriceNumber > 0
-                            ? `à ${formatCurrency(itemPriceNumber, currency)}`
-                            : "Preis prüfen",
-                        ].filter(Boolean);
-                        const orderSummary = orderSummaryParts.join(" ");
-                        const showItemReviewBlock =
-                          !hasCurrencyConflict &&
-                          (showUnitConflict ||
-                            showPriceOverride ||
-                            showPriceReferenceReview ||
-                            priceInputReview ||
-                            quantityInputReview ||
-                            showManualServiceReview);
-                        const hasMissingItemInput =
-                          priceInputReview || quantityInputReview;
-                        const isBlockingItemReview =
-                          hasMissingItemInput ||
-                          showPriceReferenceReview ||
-                          (showUnitConflict && !isCompleteItemForCatalogAction);
-                        const isMenuOpen = serviceActionMenuKey === item.key;
-                        const hasCriticalItemReview = isBlockingItemReview;
-                        const hasResolvedReviewCatalogAction =
-                          isCompleteItemForCatalogAction &&
-                          Boolean(
-                            hasCurrencyConflict ||
-                            unitMismatchReason ||
-                            item.aiWarning?.trim() ||
-                            priceUnclearReason ||
-                            curOrder?.reviewReasons?.includes(
-                              "unit_price_review",
-                            ),
+                          const catalogPrice = Number(
+                            catalogService?.defaultPrice || 0,
                           );
-                        const hasCatalogActionMenu =
-                          !hasCriticalItemReview &&
-                          (showManualServiceReview ||
+                          const itemPriceNumber = Number(item.unitPrice || 0);
+                          const hasFrontendCatalogPriceDeviation =
+                            Boolean(catalogService) &&
+                            !unitMismatchReason &&
+                            normalizePriceUnitForCompare(
+                              catalogService?.unit,
+                            ) === normalizePriceUnitForCompare(item.unit) &&
+                            Number.isFinite(catalogPrice) &&
+                            Number.isFinite(itemPriceNumber) &&
+                            catalogPrice > 0 &&
+                            itemPriceNumber > 0 &&
+                            Math.abs(catalogPrice - itemPriceNumber) >= 0.01;
+                          const hasFrontendCatalogTextFlatOverride =
+                            Boolean(catalogService) &&
+                            !unitMismatchReason &&
+                            normalizePriceUnitForCompare(
+                              catalogService?.unit,
+                            ) !== normalizePriceUnitForCompare(item.unit) &&
+                            normalizePriceUnitForCompare(item.unit) ===
+                              "flat" &&
+                            Number.isFinite(itemPriceNumber) &&
+                            itemPriceNumber > 0 &&
+                            Number(item.quantity || 0) === 1;
+
+                          const hasCurrencyConflict = hasEditCurrencyReview;
+                          const priceInputReview =
+                            Number(item.unitPrice || 0) === 0;
+                          const quantityInputReview =
+                            Number(item.quantity || 0) === 0;
+                          const showUnitConflict =
+                            !hasCurrencyConflict &&
+                            Boolean(
+                              item.aiWarning?.trim() || unitMismatchReason,
+                            );
+                          const showPriceOverride =
+                            !hasCurrencyConflict &&
+                            !showUnitConflict &&
+                            Boolean(
+                              priceOverrideReason ||
+                              hasFrontendCatalogPriceDeviation ||
+                              hasFrontendCatalogTextFlatOverride,
+                            );
+                          const showPriceReferenceReview =
+                            !hasCurrencyConflict &&
+                            !priceInputReview &&
+                            Boolean(
+                              priceUnclearReason ||
+                              curOrder?.reviewReasons?.includes(
+                                "unit_price_review",
+                              ),
+                            );
+
+                          const itemTotal =
+                            Number(item.unitPrice || 0) *
+                            Number(item.quantity || 0);
+                          const isCompleteItemForCatalogAction = Boolean(
+                            item.serviceName?.trim() &&
+                            item.unit?.trim() &&
+                            Number(item.unitPrice || 0) > 0 &&
+                            Number(item.quantity || 0) > 0,
+                          );
+
+                          const isManualService =
+                            Boolean(item.serviceName?.trim()) &&
+                            !isServiceInCatalog(item.serviceName);
+                          const showManualServiceReview =
+                            !hasCurrencyConflict && isManualService;
+                          const sourceLineForItem =
+                            findCustomerTextLineForService(
+                              visibleCustomerMessageText || customerMessageText,
+                              item.serviceName,
+                            );
+                          const catalogSummary = catalogService
+                            ? `${catalogService.unit}${
+                                catalogPrice > 0
+                                  ? ` · ${formatCurrency(catalogPrice, currency)}`
+                                  : ""
+                              }`
+                            : "";
+                          const orderSummaryParts = [
+                            Number(item.quantity || 0) > 0
+                              ? `${item.quantity} ${unitShortLabel(item.unit)}`
+                              : unitShortLabel(item.unit),
+                            itemPriceNumber > 0
+                              ? `à ${formatCurrency(itemPriceNumber, currency)}`
+                              : "Preis prüfen",
+                          ].filter(Boolean);
+                          const orderSummary = orderSummaryParts.join(" ");
+                          const showItemReviewBlock =
+                            !hasCurrencyConflict &&
+                            (showUnitConflict ||
+                              showPriceOverride ||
+                              showPriceReferenceReview ||
+                              priceInputReview ||
+                              quantityInputReview ||
+                              showManualServiceReview);
+                          const hasMissingItemInput =
+                            priceInputReview || quantityInputReview;
+                          const isBlockingItemReview =
+                            hasMissingItemInput ||
+                            showPriceReferenceReview ||
+                            (showUnitConflict &&
+                              !isCompleteItemForCatalogAction);
+                          const isMenuOpen = serviceActionMenuKey === item.key;
+                          const hasCriticalItemReview = isBlockingItemReview;
+                          const hasResolvedReviewCatalogAction =
+                            isCompleteItemForCatalogAction &&
+                            Boolean(
+                              hasCurrencyConflict ||
+                              unitMismatchReason ||
+                              item.aiWarning?.trim() ||
+                              priceUnclearReason ||
+                              curOrder?.reviewReasons?.includes(
+                                "unit_price_review",
+                              ),
+                            );
+                          const hasCatalogActionMenu =
+                            !hasCriticalItemReview &&
+                            (showManualServiceReview ||
+                              showPriceOverride ||
+                              hasResolvedReviewCatalogAction);
+                          const hasAnyItemReview =
+                            hasCriticalItemReview ||
                             showPriceOverride ||
-                            hasResolvedReviewCatalogAction);
-                        const hasAnyItemReview =
-                          hasCriticalItemReview ||
-                          showPriceOverride ||
-                          showManualServiceReview ||
-                          hasResolvedReviewCatalogAction;
+                            showManualServiceReview ||
+                            hasResolvedReviewCatalogAction;
+                          const siteIndex = site
+                            ? currentEditWorkSites.findIndex(
+                                (option) => option.id === site.id,
+                              )
+                            : -1;
+                          const isActiveSite = Boolean(
+                            site && activeWorkSiteId === site.id,
+                          );
+                          const siteAccentClass =
+                            siteIndex % 2 === 0
+                              ? "border-purple-300 bg-purple-50/80 text-purple-950 dark:border-purple-800/70 dark:bg-purple-950/20 dark:text-purple-50"
+                              : "border-amber-300 bg-amber-50/80 text-amber-950 dark:border-amber-800/70 dark:bg-amber-950/20 dark:text-amber-50";
+                          const itemAccentClass =
+                            siteIndex % 2 === 0
+                              ? "border-l-purple-400"
+                              : "border-l-amber-400";
 
-                        return (
-                          <div key={item.key} className={hasMultipleEditWorkSites ? "space-y-1.5" : ""}>
-                            {hasMultipleEditWorkSites && isFirstInSite && (
-                              <div
-                                className={`rounded-xl border-2 px-3 py-2 shadow-sm ${
-                                  site
-                                    ? "border-cyan-200 bg-cyan-50/80 text-cyan-950 dark:border-cyan-800/70 dark:bg-cyan-950/25 dark:text-cyan-50"
-                                    : "border-red-200 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="text-sm font-semibold leading-tight">
-                                      📍 {site ? formatWorkSiteTitle(site) : "Ohne Arbeitsort"}
-                                    </div>
-                                    <div className="mt-0.5 text-xs text-muted-foreground">
-                                      {site ? formatWorkSiteAddress(site) || "Adresse prüfen" : "Leistungen bitte einem Arbeitsort zuordnen"}
-                                    </div>
-                                  </div>
-                                  <div className="shrink-0 text-right">
-                                    <div className="text-[10px] text-muted-foreground">Zwischensumme</div>
-                                    <div className="font-mono text-sm font-semibold">
-                                      {formatCurrency(site ? getWorkSiteTotal(site.id) : 0, currency)}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
+                          return (
                             <div
-                              className={`relative rounded-lg border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
-                                hasMultipleEditWorkSites ? "ml-2 border-l-4 border-l-cyan-300" : ""
-                              } ${
-                                hasCriticalItemReview
-                                  ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
-                                  : hasAnyItemReview
-                                    ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                    : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
-                              }`}
+                              key={item.key}
+                              className={
+                                hasMultipleEditWorkSites ? "space-y-1.5" : ""
+                              }
                             >
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
-                              <div className="min-w-0 space-y-1">
-                                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
-                                  <div className="group min-w-0">
-                                    <ServiceCombobox
-                                      value={item.serviceName}
-                                      services={services as ServiceOption[]}
-                                      onChange={(name, svc) =>
-                                        onItemServiceSelect(index, name, svc)
-                                      }
-                                      onServiceCreated={handleServiceCreated}
-                                      currentPrice={item.unitPrice}
-                                      currentUnit={item.unit}
-                                      showManualHint={false}
-                                      saveButtonPlacement="none"
-                                    />
-                                    {item.serviceName.trim().length > 28 && (
-                                      <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
-                                        {item.serviceName.trim()}
-                                      </p>
-                                    )}
+                              {hasMultipleEditWorkSites && isFirstInSite && (
+                                <div
+                                  role={site ? "button" : undefined}
+                                  tabIndex={site ? 0 : undefined}
+                                  onClick={() =>
+                                    site && setActiveWorkSiteId(site.id)
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (
+                                      site &&
+                                      (event.key === "Enter" ||
+                                        event.key === " ")
+                                    ) {
+                                      event.preventDefault();
+                                      setActiveWorkSiteId(site.id);
+                                    }
+                                  }}
+                                  className={`rounded-t-xl border-2 border-b-0 px-3 py-2 shadow-sm ${
+                                    site
+                                      ? siteAccentClass
+                                      : "border-red-200 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
+                                  } ${isActiveSite ? "ring-2 ring-offset-1 ring-cyan-300" : ""}`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+                                        <span>
+                                          📍{" "}
+                                          {site
+                                            ? `${siteIndex + 1}. ${formatWorkSiteTitle(site)}`
+                                            : "Ohne Arbeitsort"}
+                                        </span>
+                                        {isActiveSite && (
+                                          <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-cyan-700 ring-1 ring-cyan-200">
+                                            aktiv
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="mt-0.5 text-xs text-muted-foreground">
+                                        {site
+                                          ? formatWorkSiteAddress(site) ||
+                                            "Adresse prüfen"
+                                          : "Leistungen bitte einem Arbeitsort zuordnen"}
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 text-right">
+                                      <div className="text-[10px] text-muted-foreground">
+                                        Zwischensumme
+                                      </div>
+                                      <div className="font-mono text-sm font-semibold">
+                                        {formatCurrency(
+                                          site ? getWorkSiteTotal(site.id) : 0,
+                                          currency,
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div
+                                className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
+                                  hasMultipleEditWorkSites
+                                    ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
+                                    : "rounded-lg"
+                                } ${
+                                  hasCriticalItemReview
+                                    ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                    : hasAnyItemReview
+                                      ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                      : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                                }`}
+                                onClick={() =>
+                                  site && setActiveWorkSiteId(site.id)
+                                }
+                              >
+                                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
+                                  <div className="min-w-0 space-y-1">
+                                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
+                                      <div className="group min-w-0">
+                                        <ServiceCombobox
+                                          value={item.serviceName}
+                                          services={services as ServiceOption[]}
+                                          onChange={(name, svc) =>
+                                            onItemServiceSelect(
+                                              index,
+                                              name,
+                                              svc,
+                                            )
+                                          }
+                                          onServiceCreated={
+                                            handleServiceCreated
+                                          }
+                                          currentPrice={item.unitPrice}
+                                          currentUnit={item.unit}
+                                          showManualHint={false}
+                                          saveButtonPlacement="none"
+                                        />
+                                        {item.serviceName.trim().length >
+                                          28 && (
+                                          <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
+                                            {item.serviceName.trim()}
+                                          </p>
+                                        )}
+                                      </div>
+
+                                      <div className="h-1" aria-hidden="true" />
+                                    </div>
                                   </div>
 
-                                  <div className="h-1" aria-hidden="true" />
-                                </div>
-                              </div>
+                                  <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
+                                    <div>Total</div>
+                                    <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
+                                      {formatCurrency(itemTotal, currency)}
+                                    </div>
+                                  </div>
 
-                              <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
-                                <div>Total</div>
-                                <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
-                                  {formatCurrency(itemTotal, currency)}
-                                </div>
-                              </div>
-
-                              <div className="relative shrink-0">
-                                {hasCatalogActionMenu ? (
-                                  <>
+                                  <div className="relative shrink-0">
                                     <button
                                       type="button"
                                       onClick={(event) => {
@@ -5609,17 +5763,36 @@ export default function AuftraegePage() {
                                         }
                                         className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
                                       >
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            saveItemToServices(index);
-                                            setServiceActionMenuKey(null);
-                                          }}
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                        >
-                                          <Plus className="h-3.5 w-3.5" />
-                                          In Leistungskatalog übernehmen
-                                        </button>
+                                        {hasMultipleEditWorkSites && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setMovingItemKey(item.key);
+                                              setActiveWorkSiteId(
+                                                item.workSiteId ||
+                                                  activeWorkSiteId,
+                                              );
+                                              setServiceActionMenuKey(null);
+                                            }}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                          >
+                                            📍 Arbeitsort ändern
+                                          </button>
+                                        )}
+
+                                        {hasCatalogActionMenu && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              saveItemToServices(index);
+                                              setServiceActionMenuKey(null);
+                                            }}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                          >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            In Leistungskatalog übernehmen
+                                          </button>
+                                        )}
 
                                         <button
                                           type="button"
@@ -5634,264 +5807,257 @@ export default function AuftraegePage() {
                                         </button>
                                       </div>
                                     )}
-                                  </>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      removeItem(index);
-                                    }}
-                                    className="mt-0.5 rounded-md p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700"
-                                    title="Leistung löschen"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-1.5">
-                              <div>
-                                <Label className="text-[10px] leading-none">
-                                  Einheit
-                                </Label>
-                                <select
-                                  className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                  value={item.unit}
-                                  onChange={(e: any) =>
-                                    updateItem(
-                                      index,
-                                      "unit",
-                                      e?.target?.value ?? "Stunde",
-                                    )
-                                  }
-                                >
-                                  {priceTypes.map((pt) => (
-                                    <option key={pt} value={pt}>
-                                      {pt}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div>
-                                <Label className="text-[10px] leading-none">
-                                  Preis ({currency})
-                                </Label>
-                                <Input
-                                  type="number"
-                                  step="0.05"
-                                  className={`h-8 text-xs ${
-                                    priceInputReview
-                                      ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                      : ""
-                                  }`}
-                                  value={priceInputReview ? "" : item.unitPrice}
-                                  placeholder={
-                                    priceInputReview ? "prüfen" : "0"
-                                  }
-                                  onFocus={(e) => e.currentTarget.select()}
-                                  onChange={(e: any) =>
-                                    updateItem(
-                                      index,
-                                      "unitPrice",
-                                      e?.target?.value ?? "",
-                                    )
-                                  }
-                                />
-                              </div>
-
-                              <div>
-                                <Label className="text-[10px] leading-none">
-                                  Menge
-                                </Label>
-                                <Input
-                                  type="number"
-                                  step="0.25"
-                                  className={`h-8 text-xs ${
-                                    quantityInputReview
-                                      ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                      : ""
-                                  }`}
-                                  value={
-                                    quantityInputReview ? "" : item.quantity
-                                  }
-                                  placeholder={
-                                    quantityInputReview ? "prüfen" : "0"
-                                  }
-                                  onFocus={(e) => e.currentTarget.select()}
-                                  onChange={(e: any) =>
-                                    updateItem(
-                                      index,
-                                      "quantity",
-                                      e?.target?.value ?? "",
-                                    )
-                                  }
-                                />
-                              </div>
-                            </div>
-
-                            {hasMultipleEditWorkSites && (
-                              <div className="flex justify-end">
-                                {movingItemKey === item.key || !item.workSiteId ? (
-                                  <div className="flex w-full items-end gap-2 sm:w-auto">
-                                    <div className="min-w-0 flex-1 sm:w-72">
-                                      <Label className="text-[10px] leading-none">
-                                        Arbeitsort ändern
-                                      </Label>
-                                      <select
-                                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                        value={item.workSiteId || ""}
-                                        onChange={(e: any) => {
-                                          updateItem(
-                                            index,
-                                            "workSiteId",
-                                            e?.target?.value ?? "",
-                                          );
-                                          setMovingItemKey(null);
-                                        }}
-                                      >
-                                        <option value="">Arbeitsort wählen</option>
-                                        {currentEditWorkSites.map((siteOption) => (
-                                          <option key={siteOption.id} value={siteOption.id}>
-                                            {getWorkSiteSelectLabel(siteOption)}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    {item.workSiteId && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setMovingItemKey(null)}
-                                        className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
-                                      >
-                                        Fertig
-                                      </button>
-                                    )}
                                   </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setMovingItemKey(item.key)}
-                                    className="rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
-                                  >
-                                    Arbeitsort ändern
-                                  </button>
-                                )}
-                              </div>
-                            )}
-
-                            {showItemReviewBlock && (
-                              <div
-                                className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
-                                  isBlockingItemReview
-                                    ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
-                                    : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
-                                }`}
-                              >
-                                <div className="mb-0.5 flex items-center gap-1 font-semibold">
-                                  <AlertTriangle className="h-3 w-3 shrink-0" />
-                                  Manuell prüfen
                                 </div>
 
-                                <div className="space-y-0.5">
-                                  {showUnitConflict && catalogService && (
-                                    <div className="space-y-0.5">
-                                      <div>
-                                        Text:{" "}
-                                        <span className="font-medium">
-                                          {orderSummary}
-                                        </span>
-                                      </div>
-                                      {catalogSummary && (
-                                        <div>
-                                          Katalog:{" "}
-                                          <span className="font-medium">
-                                            {catalogSummary}
-                                          </span>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  <div>
+                                    <Label className="text-[10px] leading-none">
+                                      Einheit
+                                    </Label>
+                                    <select
+                                      className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                      value={item.unit}
+                                      onChange={(e: any) =>
+                                        updateItem(
+                                          index,
+                                          "unit",
+                                          e?.target?.value ?? "Stunde",
+                                        )
+                                      }
+                                    >
+                                      {priceTypes.map((pt) => (
+                                        <option key={pt} value={pt}>
+                                          {pt}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <div>
+                                    <Label className="text-[10px] leading-none">
+                                      Preis ({currency})
+                                    </Label>
+                                    <Input
+                                      type="number"
+                                      step="0.05"
+                                      className={`h-8 text-xs ${
+                                        priceInputReview
+                                          ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                          : ""
+                                      }`}
+                                      value={
+                                        priceInputReview ? "" : item.unitPrice
+                                      }
+                                      placeholder={
+                                        priceInputReview ? "prüfen" : "0"
+                                      }
+                                      onFocus={(e) => e.currentTarget.select()}
+                                      onChange={(e: any) =>
+                                        updateItem(
+                                          index,
+                                          "unitPrice",
+                                          e?.target?.value ?? "",
+                                        )
+                                      }
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <Label className="text-[10px] leading-none">
+                                      Menge
+                                    </Label>
+                                    <Input
+                                      type="number"
+                                      step="0.25"
+                                      className={`h-8 text-xs ${
+                                        quantityInputReview
+                                          ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                          : ""
+                                      }`}
+                                      value={
+                                        quantityInputReview ? "" : item.quantity
+                                      }
+                                      placeholder={
+                                        quantityInputReview ? "prüfen" : "0"
+                                      }
+                                      onFocus={(e) => e.currentTarget.select()}
+                                      onChange={(e: any) =>
+                                        updateItem(
+                                          index,
+                                          "quantity",
+                                          e?.target?.value ?? "",
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {hasMultipleEditWorkSites &&
+                                  (movingItemKey === item.key ||
+                                    !item.workSiteId) && (
+                                    <div className="flex justify-end">
+                                      <div className="flex w-full items-end gap-2 sm:w-auto">
+                                        <div className="min-w-0 flex-1 sm:w-72">
+                                          <Label className="text-[10px] leading-none">
+                                            Arbeitsort ändern
+                                          </Label>
+                                          <select
+                                            className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                            value={item.workSiteId || ""}
+                                            onChange={(e: any) => {
+                                              updateItem(
+                                                index,
+                                                "workSiteId",
+                                                e?.target?.value ?? "",
+                                              );
+                                              setMovingItemKey(null);
+                                            }}
+                                          >
+                                            <option value="">
+                                              Arbeitsort wählen
+                                            </option>
+                                            {currentEditWorkSites.map(
+                                              (siteOption) => (
+                                                <option
+                                                  key={siteOption.id}
+                                                  value={siteOption.id}
+                                                >
+                                                  {getWorkSiteSelectLabel(
+                                                    siteOption,
+                                                  )}
+                                                </option>
+                                              ),
+                                            )}
+                                          </select>
                                         </div>
-                                      )}
-                                      <div>
-                                        Einheit passt nicht. Menge, Einheit und
-                                        Preis prüfen.
+                                        {item.workSiteId && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setMovingItemKey(null)
+                                            }
+                                            className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
+                                          >
+                                            Fertig
+                                          </button>
+                                        )}
                                       </div>
                                     </div>
                                   )}
 
-                                  {!showUnitConflict &&
-                                    showPriceOverride &&
-                                    catalogService && (
-                                      <div className="space-y-0.5">
-                                        <div>
-                                          Text:{" "}
-                                          <span className="font-medium">
-                                            {sourceLineForItem || orderSummary}
-                                          </span>
-                                          <span className="font-semibold">
-                                            {" "}
-                                            — Textpreis übernommen.
-                                          </span>
-                                        </div>
-                                        <div className="text-amber-700/75 dark:text-amber-200/75">
-                                          Katalog: {catalogService.unit} ·{" "}
-                                          {formatCurrency(
-                                            catalogPrice,
-                                            currency,
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
+                                {showItemReviewBlock && (
+                                  <div
+                                    className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
+                                      isBlockingItemReview
+                                        ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
+                                        : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
+                                    }`}
+                                  >
+                                    <div className="mb-0.5 flex items-center gap-1 font-semibold">
+                                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                                      Manuell prüfen
+                                    </div>
 
-                                  {!showUnitConflict &&
-                                    showPriceReferenceReview && (
-                                      <div className="space-y-0.5">
-                                        <div>Preis im Text unklar.</div>
-                                        {sourceLineForItem && (
+                                    <div className="space-y-0.5">
+                                      {showUnitConflict && catalogService && (
+                                        <div className="space-y-0.5">
                                           <div>
                                             Text:{" "}
                                             <span className="font-medium">
-                                              {sourceLineForItem}
+                                              {orderSummary}
                                             </span>
                                           </div>
-                                        )}
-                                        <div>Bitte Preis bestätigen.</div>
-                                      </div>
-                                    )}
-
-                                  {!showUnitConflict &&
-                                    (priceInputReview ||
-                                      quantityInputReview) && (
-                                      <div className="space-y-0.5">
-                                        {priceInputReview && (
+                                          {catalogSummary && (
+                                            <div>
+                                              Katalog:{" "}
+                                              <span className="font-medium">
+                                                {catalogSummary}
+                                              </span>
+                                            </div>
+                                          )}
                                           <div>
-                                            Preis fehlt oder ist unsicher.
+                                            Einheit passt nicht. Menge, Einheit
+                                            und Preis prüfen.
                                           </div>
-                                        )}
-                                        {quantityInputReview && (
-                                          <div>
-                                            Menge fehlt oder ist unsicher.
-                                          </div>
-                                        )}
-                                        <div>
-                                          Vor Angebot/Rechnung ergänzen.
                                         </div>
-                                      </div>
-                                    )}
+                                      )}
 
-                                  {showManualServiceReview && (
-                                    <div>
-                                      Nicht im Leistungskatalog. Optional über
-                                      Menü übernehmen.
+                                      {!showUnitConflict &&
+                                        showPriceOverride &&
+                                        catalogService && (
+                                          <div className="space-y-0.5">
+                                            <div>
+                                              Text:{" "}
+                                              <span className="font-medium">
+                                                {sourceLineForItem ||
+                                                  orderSummary}
+                                              </span>
+                                              <span className="font-semibold">
+                                                {" "}
+                                                — Textpreis übernommen.
+                                              </span>
+                                            </div>
+                                            <div className="text-amber-700/75 dark:text-amber-200/75">
+                                              Katalog: {catalogService.unit} ·{" "}
+                                              {formatCurrency(
+                                                catalogPrice,
+                                                currency,
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                      {!showUnitConflict &&
+                                        showPriceReferenceReview && (
+                                          <div className="space-y-0.5">
+                                            <div>Preis im Text unklar.</div>
+                                            {sourceLineForItem && (
+                                              <div>
+                                                Text:{" "}
+                                                <span className="font-medium">
+                                                  {sourceLineForItem}
+                                                </span>
+                                              </div>
+                                            )}
+                                            <div>Bitte Preis bestätigen.</div>
+                                          </div>
+                                        )}
+
+                                      {!showUnitConflict &&
+                                        (priceInputReview ||
+                                          quantityInputReview) && (
+                                          <div className="space-y-0.5">
+                                            {priceInputReview && (
+                                              <div>
+                                                Preis fehlt oder ist unsicher.
+                                              </div>
+                                            )}
+                                            {quantityInputReview && (
+                                              <div>
+                                                Menge fehlt oder ist unsicher.
+                                              </div>
+                                            )}
+                                            <div>
+                                              Vor Angebot/Rechnung ergänzen.
+                                            </div>
+                                          </div>
+                                        )}
+
+                                      {showManualServiceReview && (
+                                        <div>
+                                          Nicht im Leistungskatalog. Optional
+                                          über Menü übernehmen.
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-                                </div>
+                                  </div>
+                                )}
                               </div>
-                            )}
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        },
+                      )}
                     </div>
                   </div>
 

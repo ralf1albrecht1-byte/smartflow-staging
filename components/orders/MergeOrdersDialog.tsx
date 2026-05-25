@@ -43,6 +43,16 @@ interface MergeOrder {
   sitePlz?: string | null;
   siteCity?: string | null;
   siteNote?: string | null;
+  workSites?: Array<{
+    id?: string;
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+    siteNote?: string | null;
+    isPrimary?: boolean | null;
+    sortOrder?: number | null;
+  }>;
   customer?: {
     name?: string;
     customerNumber?: string | null;
@@ -279,6 +289,41 @@ const getExecutionAddressLines = (order?: MergeOrder | null) => {
     .filter(Boolean);
 
   return fallback.length > 0 ? fallback : ["—"];
+};
+
+const getExecutionSiteEntries = (order?: MergeOrder | null) => {
+  if (!order) return [{ key: "empty", lines: ["—"] }];
+
+  const siteEntries = Array.isArray(order.workSites)
+    ? order.workSites
+        .slice()
+        .sort(
+          (a, b) =>
+            Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
+            Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
+        )
+        .map((site, index) => {
+          const lines = [
+            site.siteName,
+            site.siteAddress,
+            [site.sitePlz, site.siteCity].filter(Boolean).join(" "),
+            site.siteNote,
+          ]
+            .map((line) => (line || "").trim())
+            .filter(Boolean);
+
+          return {
+            key:
+              lines.join("|").toLowerCase() || `worksite-${site.id || index}`,
+            lines: lines.length > 0 ? lines : ["—"],
+          };
+        })
+    : [];
+
+  if (siteEntries.length > 0) return siteEntries;
+
+  const lines = getExecutionAddressLines(order);
+  return [{ key: lines.join("|").toLowerCase(), lines }];
 };
 
 const getExecutionAddressCompareValue = (order: MergeOrder) => {
@@ -576,11 +621,23 @@ export default function MergeOrdersDialog({
     (sum, order) => sum + getOrderItems(order).length,
     0,
   );
-  const reviewSiteCount = new Set(
-    reviewOrders
-      .map((order) => getExecutionAddressLines(order).join("|"))
-      .filter((value) => value && value !== "—"),
-  ).size;
+  const reviewSiteEntries = reviewOrders
+    .flatMap((order) => getExecutionSiteEntries(order))
+    .filter((entry) => entry.key && entry.key !== "—");
+  const uniqueReviewSiteEntries = reviewSiteEntries.filter(
+    (entry, index, entries) =>
+      entries.findIndex((candidate) => candidate.key === entry.key) === index,
+  );
+  const mainSiteKey = selectedMainOrder
+    ? getExecutionSiteEntries(selectedMainOrder)[0]?.key || ""
+    : "";
+  const mainSiteEntry = uniqueReviewSiteEntries.find(
+    (entry) => entry.key === mainSiteKey,
+  );
+  const additionalSiteEntries = uniqueReviewSiteEntries.filter(
+    (entry) => entry.key !== mainSiteKey,
+  );
+  const reviewSiteCount = uniqueReviewSiteEntries.length;
 
   const openReviewDialog = () => {
     setReviewAccepted(false);
@@ -1138,10 +1195,30 @@ export default function MergeOrdersDialog({
               <div className="rounded-lg border bg-slate-50 px-4 py-3 text-sm">
                 <div className="font-semibold">Zusammenfassung</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                  <div><span className="text-muted-foreground">Ursprungsaufträge:</span><br /><strong>{reviewOrders.length}</strong></div>
-                  <div><span className="text-muted-foreground">Arbeitsorte:</span><br /><strong>{reviewSiteCount || 1}</strong></div>
-                  <div><span className="text-muted-foreground">Leistungen:</span><br /><strong>{reviewItemCount}</strong></div>
-                  <div><span className="text-muted-foreground">Netto:</span><br /><strong>{formatMoney(reviewOrdersTotal, reviewCurrency)}</strong></div>
+                  <div>
+                    <span className="text-muted-foreground">
+                      Ursprungsaufträge:
+                    </span>
+                    <br />
+                    <strong>{reviewOrders.length}</strong>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Arbeitsorte:</span>
+                    <br />
+                    <strong>{reviewSiteCount || 1}</strong>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Leistungen:</span>
+                    <br />
+                    <strong>{reviewItemCount}</strong>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Netto:</span>
+                    <br />
+                    <strong>
+                      {formatMoney(reviewOrdersTotal, reviewCurrency)}
+                    </strong>
+                  </div>
                 </div>
               </div>
 
@@ -1266,29 +1343,54 @@ export default function MergeOrdersDialog({
 
                   {reviewDetailsOpen && (
                     <div className="mx-4 mb-4 rounded-lg border border-red-100 bg-background/70 p-3">
-                      <div className="grid grid-cols-[1fr_auto_1fr] gap-3 text-xs text-slate-600 mb-2">
-                        <div>Weiterer Arbeitsort</div>
-                        <div>→</div>
-                        <div>Haupt-Ausführungsort</div>
-                      </div>
-
-                      <div className="grid grid-cols-[1fr_auto_1fr] gap-3">
-                        <div className="rounded-md border border-red-100 bg-red-50/70 p-3 text-sm leading-6">
-                          {getExecutionAddressLines(reviewSiteSourceOrder).map(
-                            (line) => (
-                              <div key={`site-source-${line}`}>{line}</div>
-                            ),
-                          )}
-                        </div>
-                        <div className="flex items-center text-lg text-slate-500">
-                          →
-                        </div>
-                        <div className="rounded-md border border-emerald-100 bg-emerald-50/70 p-3 text-sm leading-6">
-                          {getExecutionAddressLines(selectedMainOrder).map(
-                            (line) => (
+                      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.2fr]">
+                        <div>
+                          <div className="mb-2 text-xs font-semibold text-slate-600">
+                            Haupt-Ausführungsort
+                          </div>
+                          <div className="rounded-md border border-emerald-100 bg-emerald-50/70 p-3 text-sm leading-6">
+                            {(
+                              mainSiteEntry?.lines ||
+                              getExecutionAddressLines(selectedMainOrder)
+                            ).map((line) => (
                               <div key={`site-target-${line}`}>{line}</div>
-                            ),
-                          )}
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="mb-2 text-xs font-semibold text-slate-600">
+                            Weitere Arbeitsorte ({additionalSiteEntries.length})
+                          </div>
+                          <div className="space-y-2">
+                            {additionalSiteEntries.length > 0 ? (
+                              additionalSiteEntries.map((entry, index) => (
+                                <div
+                                  key={`additional-site-${entry.key}`}
+                                  className="rounded-md border border-red-100 bg-red-50/70 p-3 text-sm leading-6"
+                                >
+                                  <div className="mb-1 text-xs font-semibold text-red-900">
+                                    {index + 1}. zusätzlicher Arbeitsort
+                                  </div>
+                                  {entry.lines.map((line) => (
+                                    <div
+                                      key={`site-source-${entry.key}-${line}`}
+                                    >
+                                      {line}
+                                    </div>
+                                  ))}
+                                </div>
+                              ))
+                            ) : (
+                              <div className="rounded-md border border-red-100 bg-red-50/70 p-3 text-sm leading-6">
+                                {getExecutionAddressLines(
+                                  reviewSiteSourceOrder,
+                                ).map((line) => (
+                                  <div key={`site-source-${line}`}>{line}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
 
