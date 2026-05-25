@@ -130,30 +130,32 @@ export async function POST(request: Request) {
     const canonicalName = canonicalServiceName(name);
     const existing = await findCanonicalService(userId, canonicalName);
 
-    const service = existing
-      ? await prisma.service.update({
-          where: { id: existing.id },
-          data: {
-            name: canonicalName,
-            defaultPrice: Number(defaultPrice),
-            unit,
-          },
-        })
-      : await prisma.service.create({
-          data: {
-            name: canonicalName,
-            defaultPrice: Number(defaultPrice),
-            unit,
-            userId,
-          },
-        });
+    if (existing) {
+      return NextResponse.json(
+        {
+          error: 'Leistung existiert bereits',
+          code: 'SERVICE_ALREADY_EXISTS',
+          service: normalizeServiceForResponse(existing),
+        },
+        { status: 409 },
+      );
+    }
+
+    const service = await prisma.service.create({
+      data: {
+        name: canonicalName,
+        defaultPrice: Number(defaultPrice),
+        unit,
+        userId,
+      },
+    });
 
     const su = await getSessionUser();
     logAuditAsync({
       userId: su?.id,
       userEmail: su?.email,
       userRole: su?.role,
-      action: existing ? 'SERVICE_UPDATE' : 'SERVICE_CREATE',
+      action: 'SERVICE_CREATE',
       area: 'SERVICES',
       targetType: 'Service',
       targetId: service.id,

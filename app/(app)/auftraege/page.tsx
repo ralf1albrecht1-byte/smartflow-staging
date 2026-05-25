@@ -207,6 +207,7 @@ interface FormItem {
   unitPrice: string;
   quantity: string;
   aiWarning?: string;
+  reviewAccepted?: boolean;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
 }
@@ -217,10 +218,20 @@ const createEmptyItem = (): FormItem => ({
   unit: "Stunde",
   unitPrice: "",
   quantity: "",
+  reviewAccepted: false,
   workSiteId: null,
 });
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
+const REVIEW_ACCEPTED_PREFIX = "[REVIEW_OK]";
+
+const stripReviewAcceptedPrefix = (description?: string | null) =>
+  String(description || "")
+    .replace(new RegExp(`^\\s*${REVIEW_ACCEPTED_PREFIX}\\s*`, "i"), "")
+    .trim();
+
+const hasReviewAcceptedMarker = (description?: string | null) =>
+  String(description || "").trim().startsWith(REVIEW_ACCEPTED_PREFIX);
 
 const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
   if (!order) return true;
@@ -242,9 +253,10 @@ const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
 };
 
 const getAiWarningFromItemDescription = (description?: string | null) => {
-  if (!description) return "";
-  return description.startsWith(AI_WARNING_PREFIX)
-    ? description.replace(AI_WARNING_PREFIX, "").trim()
+  const cleaned = stripReviewAcceptedPrefix(description);
+  if (!cleaned) return "";
+  return cleaned.startsWith(AI_WARNING_PREFIX)
+    ? cleaned.replace(AI_WARNING_PREFIX, "").trim()
     : "";
 };
 
@@ -268,9 +280,13 @@ const hasQuantityReviewForService = (
 };
 
 const buildItemDescription = (item: FormItem) => {
-  return item.aiWarning?.trim()
-    ? `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`
-    : item.serviceName;
+  const serviceName = canonicalServiceNameForOrderItem(item.serviceName);
+  if (item.aiWarning?.trim()) {
+    return `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`;
+  }
+  return item.reviewAccepted
+    ? `${REVIEW_ACCEPTED_PREFIX} ${serviceName}`
+    : serviceName;
 };
 
 const CUSTOMER_REVIEW_REASONS = new Set([
@@ -485,11 +501,13 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
       ? String(unitPriceNumber)
       : compactText(normalizedItem.unitPrice);
     const warningKey = normalizeForMatch(normalizedItem.aiWarning);
+    const reviewAcceptedKey = normalizedItem.reviewAccepted ? "review-ok" : "";
     const mergeKey = [
       normalizeForMatch(serviceName),
       unitKey,
       unitPriceKey,
       warningKey,
+      reviewAcceptedKey,
       normalizedItem.workSiteId || "",
     ].join("|");
 
@@ -523,6 +541,7 @@ const mergeEquivalentOrderItems = (items: any[]) =>
       unitPrice: String(item.unitPrice ?? 0),
       quantity: String(item.quantity ?? 0),
       aiWarning: getAiWarningFromItemDescription(item.description),
+      reviewAccepted: hasReviewAcceptedMarker(item.description),
       workSiteId: item.workSiteId || null,
       workSite: item.workSite || null,
     })),
@@ -1385,10 +1404,11 @@ const hasUnitMismatchReviewForService = (
 };
 
 const hasCatalogPriceDeviationForItem = (
-  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice">,
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "description">,
   services: ServiceDef[],
   reviewReasons?: string[] | null,
 ) => {
+  if (hasReviewAcceptedMarker(item?.description)) return false;
   if (!item?.serviceName?.trim()) return false;
   if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName))
     return false;
@@ -1410,10 +1430,11 @@ const hasCatalogPriceDeviationForItem = (
 };
 
 const hasCatalogTextFlatOverrideForItem = (
-  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "description">,
   services: ServiceDef[],
   reviewReasons?: string[] | null,
 ) => {
+  if (hasReviewAcceptedMarker(item?.description)) return false;
   if (!item?.serviceName?.trim()) return false;
   if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName))
     return false;
@@ -1946,6 +1967,13 @@ export default function AuftraegePage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [services, setServices] = useState<ServiceDef[]>([]);
   const [resolvedServiceReviewKeys, setResolvedServiceReviewKeys] = useState<Set<string>>(() => new Set());
+  const [catalogDecision, setCatalogDecision] = useState<{
+    index: number;
+    canonicalName: string;
+    price: number;
+    unit: string;
+    existing: ServiceDef;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string[] | null>(null);
   const [statusFilter, setStatusFilter] = useState("Alle");
@@ -2334,6 +2362,7 @@ export default function AuftraegePage() {
     setOrderVatRate(defaultVatRate);
     setUndoPreviousAddress(null);
     setServiceActionMenuKey(null);
+    setCatalogDecision(null);
     setDialogOpen(true);
   };
 
@@ -2348,6 +2377,7 @@ export default function AuftraegePage() {
   const openEdit = (o: Order, opts?: { openCustomerSection?: boolean }) => {
     setEditId(o.id);
     setServiceActionMenuKey(null);
+    setCatalogDecision(null);
     setDupCheckOpen(false);
     setUndoPreviousAddress(null);
     // ─── CRITICAL: Reset customer form to blank state BEFORE anything else.
@@ -2418,6 +2448,7 @@ export default function AuftraegePage() {
                 Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
               quantity: Number(item.quantity || 0) === 0 ? "" : String(item.quantity),
               aiWarning: getAiWarningFromItemDescription(item.description),
+              reviewAccepted: hasReviewAcceptedMarker(item.description),
               workSiteId: item.workSiteId || null,
             };
           }),
@@ -2434,6 +2465,7 @@ export default function AuftraegePage() {
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
             quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
             aiWarning: "",
+            reviewAccepted: hasReviewAcceptedMarker(o.description),
             workSiteId: null,
           },
         ]),
@@ -2701,6 +2733,7 @@ export default function AuftraegePage() {
             unitPrice: item.unitPrice || String(svc.defaultPrice ?? 0),
             unit: item.unit || svc.unit || "Stunde",
             aiWarning: "",
+            reviewAccepted: false,
           };
         }
 
@@ -2711,12 +2744,14 @@ export default function AuftraegePage() {
             unitPrice: "",
             quantity: "",
             unit: "Stunde",
+            reviewAccepted: false,
           };
         }
 
         return {
           ...item,
           serviceName: name,
+          reviewAccepted: false,
         };
       }),
     );
@@ -2734,6 +2769,81 @@ export default function AuftraegePage() {
     return services.some((service) => getCanonicalServiceKey(service.name) === key);
   };
 
+  const markItemAsReviewedForCurrentOrder = (index: number) => {
+    const item = formItems[index];
+    if (!item?.serviceName?.trim()) return;
+
+    const canonicalName = canonicalServiceNameForOrderItem(item.serviceName);
+    const serviceKey = getCanonicalServiceKey(canonicalName);
+
+    setFormItems((prev) =>
+      prev.map((current, i) =>
+        i === index
+          ? {
+              ...current,
+              serviceName: canonicalName,
+              aiWarning: "",
+              reviewAccepted: true,
+            }
+          : current,
+      ),
+    );
+    setResolvedServiceReviewKeys((prev) => new Set(prev).add(serviceKey));
+    setServiceActionMenuKey(null);
+    setCatalogDecision(null);
+  };
+
+  const updateCatalogForItem = async () => {
+    if (!catalogDecision) return;
+
+    const { index, canonicalName, price, unit, existing } = catalogDecision;
+
+    try {
+      const res = await fetch("/api/services", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: existing.id,
+          name: canonicalName,
+          defaultPrice: price,
+          unit,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Fehler beim Aktualisieren");
+
+      const savedService: ServiceOption = await res.json();
+      const savedCanonicalName = canonicalServiceNameForOrderItem(savedService.name);
+      const savedKey = getCanonicalServiceKey(savedCanonicalName);
+
+      handleServiceCreated({
+        ...savedService,
+        name: savedCanonicalName,
+      });
+
+      setFormItems((prev) =>
+        prev.map((current, i) =>
+          i === index
+            ? {
+                ...current,
+                serviceName: savedCanonicalName,
+                unit: savedService.unit || current.unit,
+                unitPrice: String(savedService.defaultPrice ?? price),
+                aiWarning: "",
+                reviewAccepted: false,
+              }
+            : current,
+        ),
+      );
+      setResolvedServiceReviewKeys((prev) => new Set(prev).add(savedKey));
+      setServiceActionMenuKey(null);
+      setCatalogDecision(null);
+      toast.success("Katalogpreis wurde global aktualisiert ✓");
+    } catch {
+      toast.error("Katalogpreis konnte nicht aktualisiert werden");
+    }
+  };
+
   const saveItemToServices = async (index: number) => {
     const item = formItems[index];
     if (!item?.serviceName?.trim()) return;
@@ -2745,8 +2855,9 @@ export default function AuftraegePage() {
     );
 
     const price = Number(item.unitPrice || 0);
-    if (!price || price <= 0) {
-      toast.error("Preis zuerst prüfen, dann in Leistungen übernehmen");
+    const quantity = Number(item.quantity || 0);
+    if (!price || price <= 0 || !quantity || quantity <= 0) {
+      toast.error("Preis und Menge zuerst prüfen");
       return;
     }
 
@@ -2758,32 +2869,33 @@ export default function AuftraegePage() {
       (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
     );
 
+    // Existing service with same price/unit: no catalog change needed.
+    // Mark only this order row as reviewed, so old AI/Textpreis hints disappear.
     if (existing && !existingNeedsUpdate) {
-      setFormItems((prev) =>
-        prev.map((current, i) =>
-          i === index
-            ? {
-                ...current,
-                serviceName: canonicalName,
-                unit: existing.unit || current.unit,
-                unitPrice: String(existing.defaultPrice ?? price),
-                aiWarning: "",
-              }
-            : current,
-        ),
-      );
-      setResolvedServiceReviewKeys((prev) => new Set(prev).add(canonicalKey));
+      markItemAsReviewedForCurrentOrder(index);
+      toast.success("Diese Position wurde als geprüft übernommen ✓");
+      return;
+    }
+
+    // Existing service with different price/unit: never overwrite silently.
+    // The user must choose between a one-off order approval and a global catalog update.
+    if (existing && existingNeedsUpdate) {
+      setCatalogDecision({
+        index,
+        canonicalName,
+        price,
+        unit: item.unit,
+        existing,
+      });
       setServiceActionMenuKey(null);
-      toast.info(`Leistung "${existing.name}" ist bereits im Katalog`);
       return;
     }
 
     try {
       const res = await fetch("/api/services", {
-        method: existing ? "PUT" : "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: existing?.id,
           name: canonicalName,
           defaultPrice: price,
           unit: item.unit,
@@ -2810,17 +2922,14 @@ export default function AuftraegePage() {
                 unit: savedService.unit || current.unit,
                 unitPrice: String(savedService.defaultPrice ?? price),
                 aiWarning: "",
+                reviewAccepted: false,
               }
             : current,
         ),
       );
       setResolvedServiceReviewKeys((prev) => new Set(prev).add(savedKey));
       setServiceActionMenuKey(null);
-      toast.success(
-        existingNeedsUpdate
-          ? "Leistungskatalog wurde aktualisiert ✓"
-          : "Leistung wurde in Leistungen übernommen ✓",
-      );
+      toast.success("Leistung wurde in den Katalog übernommen ✓");
     } catch {
       toast.error("Leistung konnte nicht übernommen werden");
     }
@@ -2831,8 +2940,22 @@ export default function AuftraegePage() {
       setActiveWorkSiteId(value || null);
     }
 
+    const shouldResetReviewAcceptance =
+      field === "serviceName" ||
+      field === "unit" ||
+      field === "unitPrice" ||
+      field === "quantity";
+
     setFormItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              [field]: value,
+              ...(shouldResetReviewAcceptance ? { reviewAccepted: false } : {}),
+            }
+          : item,
+      ),
     );
   };
 
@@ -3486,6 +3609,7 @@ export default function AuftraegePage() {
       if (resolvedServiceReviewKeys.has(serviceKey)) return true;
       const item = itemByServiceKey.get(serviceKey);
       if (!item) return false;
+      if (item.reviewAccepted) return true;
       const catalog = findCatalogServiceForName(services, item.serviceName);
       return serviceItemMatchesCatalog(item, catalog);
     };
@@ -3531,6 +3655,7 @@ export default function AuftraegePage() {
 
     const shouldClearItemWarningOnSave = (item: FormItem) => {
       const serviceKey = getCanonicalServiceKey(item.serviceName);
+      if (item.reviewAccepted) return true;
       if (resolvedServiceReviewKeys.has(serviceKey)) return true;
       const catalog = findCatalogServiceForName(services, item.serviceName);
       return serviceItemMatchesCatalog(item, catalog);
@@ -3563,9 +3688,11 @@ export default function AuftraegePage() {
         const serviceName = canonicalServiceNameForOrderItem(item.serviceName);
         return {
           serviceName,
-          description: cleanWarning
-            ? serviceName
-            : buildItemDescription({ ...item, serviceName }),
+          description: item.reviewAccepted
+            ? buildItemDescription({ ...item, serviceName })
+            : cleanWarning
+              ? serviceName
+              : buildItemDescription({ ...item, serviceName }),
           quantity: Number(item.quantity || 0),
           unit: item.unit,
           unitPrice: Number(item.unitPrice || 0),
@@ -5698,6 +5825,7 @@ export default function AuftraegePage() {
                               );
                             });
 
+                          const itemReviewAccepted = Boolean(item.reviewAccepted);
                           const catalogService = findCatalogServiceForName(
                             services,
                             item.serviceName,
@@ -5707,6 +5835,7 @@ export default function AuftraegePage() {
                           );
                           const itemPriceNumber = Number(item.unitPrice || 0);
                           const hasFrontendCatalogPriceDeviation =
+                            !itemReviewAccepted &&
                             Boolean(catalogService) &&
                             !unitMismatchReason &&
                             normalizePriceUnitForCompare(
@@ -5718,6 +5847,7 @@ export default function AuftraegePage() {
                             itemPriceNumber > 0 &&
                             Math.abs(catalogPrice - itemPriceNumber) >= 0.01;
                           const hasFrontendCatalogTextFlatOverride =
+                            !itemReviewAccepted &&
                             Boolean(catalogService) &&
                             !unitMismatchReason &&
                             normalizePriceUnitForCompare(
@@ -5736,11 +5866,13 @@ export default function AuftraegePage() {
                             Number(item.quantity || 0) === 0;
                           const showUnitConflict =
                             !hasCurrencyConflict &&
+                            !itemReviewAccepted &&
                             Boolean(
                               item.aiWarning?.trim() || unitMismatchReason,
                             );
                           const showPriceOverride =
                             !hasCurrencyConflict &&
+                            !itemReviewAccepted &&
                             !showUnitConflict &&
                             Boolean(
                               priceOverrideReason ||
@@ -5749,6 +5881,7 @@ export default function AuftraegePage() {
                             );
                           const showPriceReferenceReview =
                             !hasCurrencyConflict &&
+                            !itemReviewAccepted &&
                             !priceInputReview &&
                             Boolean(
                               priceUnclearReason ||
@@ -5771,7 +5904,7 @@ export default function AuftraegePage() {
                             Boolean(item.serviceName?.trim()) &&
                             !isServiceInCatalog(item.serviceName);
                           const showManualServiceReview =
-                            !hasCurrencyConflict && isManualService;
+                            !hasCurrencyConflict && !itemReviewAccepted && isManualService;
                           const sourceLineForItem =
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
@@ -5816,6 +5949,7 @@ export default function AuftraegePage() {
                           const isMenuOpen = serviceActionMenuKey === item.key;
                           const hasCriticalItemReview = isBlockingItemReview;
                           const hasResolvedReviewCatalogAction =
+                            !itemReviewAccepted &&
                             isCompleteItemForCatalogAction &&
                             Boolean(
                               hasCurrencyConflict ||
@@ -5827,12 +5961,14 @@ export default function AuftraegePage() {
                               ),
                             );
                           const existingCatalogUnitMismatch = Boolean(
+                            !itemReviewAccepted &&
                             catalogService &&
                             normalizePriceUnitForCompare(
                               catalogService.unit,
                             ) !== normalizePriceUnitForCompare(item.unit),
                           );
                           const existingCatalogPriceMismatch = Boolean(
+                            !itemReviewAccepted &&
                             catalogService &&
                             Number.isFinite(catalogPrice) &&
                             Number.isFinite(itemPriceNumber) &&
@@ -7234,6 +7370,74 @@ export default function AuftraegePage() {
               "Speichern", "Speichern & schließen"). Navigation between main lists now happens via
               the small mobile-only shortcut rendered at the END of the
               list page (see <MobileListShortcut /> below). */}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!catalogDecision}
+        onOpenChange={(open) => {
+          if (!open) setCatalogDecision(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Leistung im Katalog vorhanden</DialogTitle>
+          </DialogHeader>
+          {catalogDecision && (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                <div className="font-semibold">
+                  {catalogDecision.canonicalName} existiert bereits im Leistungskatalog.
+                </div>
+                <div className="mt-1 text-xs leading-relaxed">
+                  Wähle bewusst, ob nur dieser Auftrag geprüft werden soll oder ob der Standardpreis im Katalog global geändert wird.
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-xs font-semibold text-muted-foreground">Katalog aktuell</div>
+                  <div className="mt-1 font-medium">{catalogDecision.existing.unit}</div>
+                  <div className="font-mono text-base font-semibold">
+                    {formatCurrency(Number(catalogDecision.existing.defaultPrice || 0), currency)}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-xs font-semibold text-muted-foreground">Dieser Auftrag</div>
+                  <div className="mt-1 font-medium">{catalogDecision.unit}</div>
+                  <div className="font-mono text-base font-semibold">
+                    {formatCurrency(catalogDecision.price, currency)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    markItemAsReviewedForCurrentOrder(catalogDecision.index);
+                    toast.success("Nur dieser Auftrag wurde als geprüft übernommen ✓");
+                  }}
+                >
+                  Nur diesen Auftrag als geprüft übernehmen
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={updateCatalogForItem}
+                >
+                  Katalogpreis global aktualisieren
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setCatalogDecision(null)}
+                >
+                  Abbrechen
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
