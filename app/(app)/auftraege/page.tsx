@@ -3188,14 +3188,37 @@ export default function AuftraegePage() {
     return null;
   };
 
-  const save = async () => {
+  const save = async (options?: { closeAfter?: boolean }) => {
     setSaving(true);
     try {
       const saved = await saveOrder();
       if (saved) {
-        toast.success(editId ? "Auftrag aktualisiert" : "Auftrag erstellt");
-        setDialogOpen(false);
-        load();
+        const successText = editId ? "Auftrag gespeichert" : "Auftrag erstellt";
+        toast.success(
+          options?.closeAfter
+            ? `${successText} und geschlossen`
+            : `${successText} ✓`,
+        );
+
+        setOrders((prev) => {
+          const exists = prev.some((order) => order.id === saved.id);
+          if (exists) {
+            return prev.map((order) =>
+              order.id === saved.id ? { ...order, ...saved } : order,
+            );
+          }
+          return [saved, ...prev];
+        });
+
+        if (!editId && saved.id) {
+          setEditId(saved.id);
+        }
+
+        if (options?.closeAfter) {
+          setDialogOpen(false);
+        }
+
+        await load();
       }
     } catch {
       toast.error("Fehler");
@@ -3204,11 +3227,15 @@ export default function AuftraegePage() {
     }
   };
 
+  const saveAndClose = async () => {
+    await save({ closeAfter: true });
+  };
+
   // Save + Create Offer → navigate to /angebote with edit modal open
   const saveAndCreateOffer = async () => {
     setSaving(true);
     try {
-      const saved = await saveOrder({ status: "Erledigt" });
+      const saved = await saveOrder();
       if (!saved) return;
       if (blockConversionIfUnsafe(saved, "Angebot")) return;
       toast.success("Auftrag gespeichert");
@@ -3282,7 +3309,7 @@ export default function AuftraegePage() {
   const saveAndCreateInvoice = async () => {
     setSaving(true);
     try {
-      const saved = await saveOrder({ status: "Erledigt" });
+      const saved = await saveOrder();
       if (!saved) return;
       if (blockConversionIfUnsafe(saved, "Rechnung")) return;
       toast.success("Auftrag gespeichert");
@@ -3710,50 +3737,12 @@ export default function AuftraegePage() {
     };
   }, [dialogOpen, currentEditOrder?.id]);
 
-  const markOrderDoneForConversion = async (
-    order: Order,
-  ): Promise<Order | null> => {
-    if (order.status === "Erledigt") return order;
-
-    try {
-      const res = await fetch(`/api/orders/${order.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "Erledigt" }),
-      });
-
-      if (!res.ok) {
-        toast.error("Status konnte nicht automatisch aktualisiert werden");
-        return null;
-      }
-
-      const updated = await res.json().catch(() => null);
-      const doneOrder = {
-        ...order,
-        ...(updated || {}),
-        status: "Erledigt",
-      } as Order;
-
-      setOrders((prev) =>
-        prev.map((x) =>
-          x.id === order.id ? { ...x, ...doneOrder, status: "Erledigt" } : x,
-        ),
-      );
-
-      return doneOrder;
-    } catch {
-      toast.error("Status konnte nicht automatisch aktualisiert werden");
-      return null;
-    }
-  };
-
   const createOffer = async (o: Order) => {
     if (blockConversionIfUnsafe(o, "Angebot")) {
       openEdit(o);
       return;
     }
-    const sourceOrder = await markOrderDoneForConversion(o);
-    if (!sourceOrder) return;
+    const sourceOrder = o;
 
     // Direct API create — no extra dialog
     const orderItems = mergeEquivalentOrderItems(
@@ -3801,7 +3790,7 @@ export default function AuftraegePage() {
         setOrders((prev) =>
           prev.map((x) =>
             x.id === sourceOrder.id
-              ? { ...x, offerId: offer.id, status: "Erledigt" }
+              ? { ...x, offerId: offer.id }
               : x,
           ),
         );
@@ -3819,8 +3808,7 @@ export default function AuftraegePage() {
       openEdit(o);
       return;
     }
-    const sourceOrder = await markOrderDoneForConversion(o);
-    if (!sourceOrder) return;
+    const sourceOrder = o;
 
     // Direct API create — no extra dialog
     const orderItems = mergeEquivalentOrderItems(
@@ -3868,7 +3856,7 @@ export default function AuftraegePage() {
         setOrders((prev) =>
           prev.map((x) =>
             x.id === sourceOrder.id
-              ? { ...x, invoiceId: invoice.id, status: "Erledigt" }
+              ? { ...x, invoiceId: invoice.id }
               : x,
           ),
         );
@@ -4216,7 +4204,7 @@ export default function AuftraegePage() {
                               ·
                             </span>
                             <span
-                              className={`font-medium truncate min-w-0 max-w-[120px] sm:max-w-[170px] md:max-w-[220px] lg:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                              className={`font-medium truncate min-w-0 max-w-[120px] sm:max-w-[170px] md:max-w-[220px] lg:max-w-[280px] xl:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
                             >
                               {isFallbackCustomerName(o.customer?.name)
                                 ? "Kunde nicht zugeordnet"
@@ -4230,17 +4218,21 @@ export default function AuftraegePage() {
                                 </span>
                               )}
 
-                            {leftSystemBadges.map((badge) => (
-                              <span
-                                key={badge.key}
-                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
-                              >
-                                {badge.icon && (
-                                  <AlertTriangle className="w-3 h-3" />
-                                )}
-                                {badge.label}
+                            {leftSystemBadges.length > 0 && (
+                              <span className="inline-flex max-w-full flex-nowrap items-center gap-1 shrink-0">
+                                {leftSystemBadges.map((badge) => (
+                                  <span
+                                    key={badge.key}
+                                    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${getStrongerCardBadgeClassName(badge.className)}`}
+                                  >
+                                    {badge.icon && (
+                                      <AlertTriangle className="w-3 h-3" />
+                                    )}
+                                    {badge.label}
+                                  </span>
+                                ))}
                               </span>
-                            ))}
+                            )}
 
                             {showAudioTooLongBadge && (
                               <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
@@ -4342,7 +4334,7 @@ export default function AuftraegePage() {
                           </div>
                         </div>
 
-                        <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[280px]">
+                        <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[220px] xl:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
                             {rightSideBadges.map((badge) => (
                               <span
@@ -6181,40 +6173,60 @@ export default function AuftraegePage() {
 
                   {/* Order action buttons — high position directly below Total */}
                   {!showNewCustomer && (
-                    <div className="rounded-lg border bg-background p-2 sm:p-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <div className="rounded-xl border bg-background p-2 sm:p-3">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                         <Button
-                          onClick={save}
-                          disabled={saving}
-                          className="w-full"
-                        >
-                          {saving ? "Speichern..." : "Speichern"}
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          onClick={saveAndCreateOffer}
-                          disabled={saving}
-                          className="w-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-300 text-xs sm:text-sm"
-                        >
-                          <FileCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1" />
-                          Angebot
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          onClick={saveAndCreateInvoice}
-                          disabled={saving}
-                          className="w-full bg-green-50 text-green-700 hover:bg-green-100 border border-green-300 text-xs sm:text-sm"
-                        >
-                          <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1" />
-                          Rechnung
-                        </Button>
-                        <Button
+                          type="button"
                           variant="outline"
                           onClick={() => setDialogOpen(false)}
-                          className="w-full"
+                          disabled={saving}
+                          className="order-5 w-full lg:order-1 lg:w-auto"
                         >
                           Abbrechen
                         </Button>
+
+                        <div className="order-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-2 lg:min-w-[310px]">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={saveAndCreateOffer}
+                            disabled={saving}
+                            className="w-full border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                          >
+                            <FileCheck className="mr-1.5 h-4 w-4" />
+                            Angebot erstellen
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={saveAndCreateInvoice}
+                            disabled={saving}
+                            className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          >
+                            <FileText className="mr-1.5 h-4 w-4" />
+                            Rechnung erstellen
+                          </Button>
+                        </div>
+
+                        <div className="order-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-3 lg:min-w-[340px]">
+                          <Button
+                            type="button"
+                            onClick={() => save()}
+                            disabled={saving}
+                            className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                          >
+                            {saving ? "Speichere..." : "Speichern"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={saveAndClose}
+                            disabled={saving}
+                            className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                          >
+                            Speichern & schließen
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -6594,8 +6606,8 @@ export default function AuftraegePage() {
           </div>
           {/* Mobile hotfix: the old sticky "Weiter zu Angebot" bottom-bar
               inside this edit dialog was removed. The dialog already has
-              the regular desktop action buttons ("→ Angebot", "→ Rechnung",
-              "Speichern"). Navigation between main lists now happens via
+              the regular action buttons ("Angebot erstellen", "Rechnung erstellen",
+              "Speichern", "Speichern & schließen"). Navigation between main lists now happens via
               the small mobile-only shortcut rendered at the END of the
               list page (see <MobileListShortcut /> below). */}
         </DialogContent>
