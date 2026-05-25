@@ -5213,238 +5213,6 @@ export default function AuftraegePage() {
                 </div>
               )}
 
-              {hasMultipleEditWorkSites && (
-                <div className="rounded-lg border-2 border-cyan-200 bg-cyan-50/70 dark:bg-cyan-950/20 p-3 space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700" />
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-cyan-900 dark:text-cyan-100">
-                          Mehrere Ausführungsorte
-                        </div>
-                        <p className="text-xs text-cyan-800/80 dark:text-cyan-100/80">
-                          Dieser zusammengeführte Auftrag enthält mehrere
-                          Arbeitsorte. Bearbeite hier die Orte und ordne unten
-                          jede Leistung dem richtigen Arbeitsort zu.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={collapseAllWorkSiteGroups}
-                      >
-                        Übersicht
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={addFormWorkSite}
-                      >
-                        + Arbeitsort
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2">
-                    {currentEditWorkSites.map((site, index) => {
-                      const siteItems = getWorkSiteItems(site.id);
-                      const siteTotal = siteItems.reduce(
-                        (sum, item) =>
-                          sum +
-                          Number(item.unitPrice || 0) *
-                            Number(item.quantity || 0),
-                        0,
-                      );
-                      const isEditingSite = editingWorkSiteId === site.id;
-
-                      return (
-                        <div
-                          key={site.id || index}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => {
-                            setActiveWorkSiteId(site.id);
-                            setEditingWorkSiteId((prev) =>
-                              prev === site.id ? null : site.id,
-                            );
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              setActiveWorkSiteId(site.id);
-                              setEditingWorkSiteId((prev) =>
-                                prev === site.id ? null : site.id,
-                              );
-                            }
-                          }}
-                          className={`cursor-pointer rounded-md border p-2 transition ${
-                            activeWorkSiteId === site.id
-                              ? "border-cyan-400 bg-cyan-50/80 ring-1 ring-cyan-200 dark:bg-cyan-950/25"
-                              : "bg-background hover:border-cyan-300 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/20"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-sm font-semibold">
-                                {index + 1}. {formatWorkSiteTitle(site)}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {formatWorkSiteAddress(site) ||
-                                  "Adresse prüfen"}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                              <div className="text-xs font-semibold">
-                                {formatCurrency(siteTotal, currency)}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setActiveWorkSiteId(site.id);
-                                  setEditingWorkSiteId((prev) =>
-                                    prev === site.id ? null : site.id,
-                                  );
-                                }}
-                                className="text-xs text-primary hover:underline"
-                              >
-                                {isEditingSite ? "Schließen" : "Bearbeiten"}
-                              </button>
-                            </div>
-                          </div>
-
-                          {isEditingSite && (
-                            <div
-                              onClick={(event) => event.stopPropagation()}
-                              className="mt-2 rounded-md border bg-muted/20 p-2 space-y-2"
-                            >
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <div>
-                                  <Label className="text-[10px]">
-                                    Bezeichnung
-                                  </Label>
-                                  <Input
-                                    className="h-8 text-xs"
-                                    value={site.siteName || ""}
-                                    onChange={(e) =>
-                                      updateFormWorkSite(
-                                        site.id,
-                                        "siteName",
-                                        e.target.value,
-                                      )
-                                    }
-                                    placeholder="z. B. Haus A, EG rechts"
-                                  />
-                                </div>
-                                <div>
-                                  <Label className="text-[10px]">Strasse</Label>
-                                  <Input
-                                    className="h-8 text-xs"
-                                    value={site.siteAddress || ""}
-                                    onChange={(e) =>
-                                      updateFormWorkSite(
-                                        site.id,
-                                        "siteAddress",
-                                        e.target.value,
-                                      )
-                                    }
-                                    placeholder="Strasse + Hausnr."
-                                  />
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-[110px_1fr] gap-2">
-                                <div>
-                                  <Label className="text-[10px]">PLZ</Label>
-                                  <Input
-                                    className="h-8 text-xs"
-                                    value={site.sitePlz || ""}
-                                    onChange={(e) =>
-                                      updateFormWorkSite(
-                                        site.id,
-                                        "sitePlz",
-                                        e.target.value,
-                                      )
-                                    }
-                                    placeholder="PLZ"
-                                  />
-                                </div>
-                                <div>
-                                  <Label className="text-[10px]">Ort</Label>
-                                  <Input
-                                    className="h-8 text-xs"
-                                    value={site.siteCity || ""}
-                                    onChange={(e) =>
-                                      updateFormWorkSite(
-                                        site.id,
-                                        "siteCity",
-                                        e.target.value,
-                                      )
-                                    }
-                                    placeholder="Ort"
-                                  />
-                                </div>
-                              </div>
-                              <div>
-                                <Label className="text-[10px]">Hinweis</Label>
-                                <Input
-                                  className="h-8 text-xs"
-                                  value={site.siteNote || ""}
-                                  onChange={(e) =>
-                                    updateFormWorkSite(
-                                      site.id,
-                                      "siteNote",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="z. B. Eingang hinten, Rampe 2"
-                                />
-                              </div>
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="text-[11px] text-muted-foreground">
-                                  Zugeordnet: {siteItems.length} Leistung(en)
-                                </div>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-red-600 hover:text-red-700"
-                                  onClick={() => removeFormWorkSite(site.id)}
-                                >
-                                  Löschen
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {siteItems.length > 0 ? (
-                              siteItems.map((item) => (
-                                <span
-                                  key={
-                                    item.key || `${site.id}-${item.serviceName}`
-                                  }
-                                  className="rounded-full border bg-muted px-2 py-0.5 text-[11px]"
-                                >
-                                  {formatWorkSiteItemSummary(item)}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-[11px] text-muted-foreground">
-                                Keine Leistung zugeordnet
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               {/* Service Items + rest of form — collapsed when dupCheck open */}
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
@@ -5463,27 +5231,54 @@ export default function AuftraegePage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="text-base font-semibold">
-                          Leistungen *
+                          {hasMultipleEditWorkSites
+                            ? "Arbeitsorte & Leistungen *"
+                            : "Leistungen *"}
                         </Label>
                         <p className="text-xs text-muted-foreground">
-                          Klein, kompakt: Leistung, Prüfung, Preis und Menge pro
-                          Position.
+                          {hasMultipleEditWorkSites
+                            ? `${currentEditWorkSites.length} Arbeitsorte · ${formItems.filter((item) => item.serviceName.trim()).length} Leistungen · ${formatCurrency(itemsTotal, currency)}`
+                            : "Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position."}
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={addItem}
-                          className="h-7 px-2 text-xs"
-                        >
-                          <Plus className="mr-1 h-3.5 w-3.5" />
-                          Leistung hinzufügen
-                        </Button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {hasMultipleEditWorkSites && (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={collapseAllWorkSiteGroups}
+                                className="h-7 px-2 text-xs"
+                              >
+                                Übersicht
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={addFormWorkSite}
+                                className="h-7 px-2 text-xs"
+                              >
+                                + Arbeitsort
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={addItem}
+                            className="h-7 px-2 text-xs"
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Leistung hinzufügen
+                          </Button>
+                        </div>
                         {hasMultipleEditWorkSites && (
                           <span className="text-[10px] text-muted-foreground">
-                            Neue Leistung erscheint oben. Arbeitsort wählen.
+                            Ein Block: Arbeitsort aufklappen, dort Leistungen bearbeiten.
                           </span>
                         )}
                       </div>
@@ -5714,6 +5509,9 @@ export default function AuftraegePage() {
                           const groupExpanded = isWorkSiteGroupExpanded(site);
                           const groupItemCount =
                             getWorkSiteGroupItems(site).length;
+                          const isEditingSite = Boolean(
+                            site && editingWorkSiteId === site.id,
+                          );
 
                           if (
                             hasMultipleEditWorkSites &&
@@ -5793,8 +5591,137 @@ export default function AuftraegePage() {
                                           currency,
                                         )}
                                       </div>
+                                      {site && (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setActiveWorkSiteId(site.id);
+                                            setEditingWorkSiteId((prev) =>
+                                              prev === site.id ? null : site.id,
+                                            );
+                                            if (!groupExpanded) {
+                                              setExpandedWorkSiteIds((prev) =>
+                                                prev.includes(site.id)
+                                                  ? prev
+                                                  : [site.id, ...prev],
+                                              );
+                                            }
+                                          }}
+                                          className="mt-1 text-xs text-primary hover:underline"
+                                        >
+                                          {isEditingSite
+                                            ? "Arbeitsort schließen"
+                                            : "Arbeitsort bearbeiten"}
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
+
+                                  {site && isEditingSite && (
+                                    <div
+                                      onClick={(event) => event.stopPropagation()}
+                                      className="mt-2 rounded-md border bg-background/80 p-2 space-y-2"
+                                    >
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <div>
+                                          <Label className="text-[10px]">
+                                            Bezeichnung
+                                          </Label>
+                                          <Input
+                                            className="h-8 text-xs"
+                                            value={site.siteName || ""}
+                                            onChange={(e) =>
+                                              updateFormWorkSite(
+                                                site.id,
+                                                "siteName",
+                                                e.target.value,
+                                              )
+                                            }
+                                            placeholder="z. B. Haus A, EG rechts"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-[10px]">
+                                            Strasse
+                                          </Label>
+                                          <Input
+                                            className="h-8 text-xs"
+                                            value={site.siteAddress || ""}
+                                            onChange={(e) =>
+                                              updateFormWorkSite(
+                                                site.id,
+                                                "siteAddress",
+                                                e.target.value,
+                                              )
+                                            }
+                                            placeholder="Strasse + Hausnr."
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-1 sm:grid-cols-[110px_1fr] gap-2">
+                                        <div>
+                                          <Label className="text-[10px]">PLZ</Label>
+                                          <Input
+                                            className="h-8 text-xs"
+                                            value={site.sitePlz || ""}
+                                            onChange={(e) =>
+                                              updateFormWorkSite(
+                                                site.id,
+                                                "sitePlz",
+                                                e.target.value,
+                                              )
+                                            }
+                                            placeholder="PLZ"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-[10px]">Ort</Label>
+                                          <Input
+                                            className="h-8 text-xs"
+                                            value={site.siteCity || ""}
+                                            onChange={(e) =>
+                                              updateFormWorkSite(
+                                                site.id,
+                                                "siteCity",
+                                                e.target.value,
+                                              )
+                                            }
+                                            placeholder="Ort"
+                                          />
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <Label className="text-[10px]">Hinweis</Label>
+                                        <Input
+                                          className="h-8 text-xs"
+                                          value={site.siteNote || ""}
+                                          onChange={(e) =>
+                                            updateFormWorkSite(
+                                              site.id,
+                                              "siteNote",
+                                              e.target.value,
+                                            )
+                                          }
+                                          placeholder="z. B. Eingang hinten, Rampe 2"
+                                        />
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="text-[11px] text-muted-foreground">
+                                          Zugeordnet: {groupItemCount} Leistung(en)
+                                        </div>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-red-600 hover:text-red-700"
+                                          onClick={() => removeFormWorkSite(site.id)}
+                                        >
+                                          Löschen
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               )}
 
