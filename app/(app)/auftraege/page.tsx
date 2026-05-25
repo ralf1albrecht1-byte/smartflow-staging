@@ -2657,6 +2657,30 @@ export default function AuftraegePage() {
     setServiceActionMenuKey(null);
   };
 
+  const addItemToWorkSite = (siteId?: string | null) => {
+    const nextItem = {
+      ...createEmptyItem(),
+      workSiteId: siteId || null,
+    };
+
+    setFormItems((prev) => [nextItem, ...prev]);
+
+    if (siteId) {
+      setActiveWorkSiteId(siteId);
+      setExpandedWorkSiteIds((prev) =>
+        prev.includes(siteId) ? prev : [siteId, ...prev],
+      );
+      setMovingItemKey(null);
+    } else {
+      setExpandedWorkSiteIds((prev) =>
+        prev.includes("__unassigned__") ? prev : ["__unassigned__", ...prev],
+      );
+      setMovingItemKey(hasMultipleEditWorkSites ? nextItem.key : null);
+    }
+
+    setServiceActionMenuKey(null);
+  };
+
   const removeItem = (index: number) => {
     setFormItems((prev) => {
       if (prev.length <= 1) return [createEmptyItem()];
@@ -2676,7 +2700,26 @@ export default function AuftraegePage() {
     ? orders.find((o: Order) => o.id === editId) || null
     : null;
 
+  const hasWorkSiteContent = (site?: OrderWorkSite | null) =>
+    Boolean(
+      compactText(site?.siteName) ||
+        compactText(site?.siteAddress) ||
+        compactText(site?.sitePlz) ||
+        compactText(site?.siteCity) ||
+        compactText(site?.siteNote),
+    );
+
+  const hasItemsAssignedToWorkSite = (siteId?: string | null) =>
+    Boolean(siteId) && formItems.some((item) => item.workSiteId === siteId);
+
   const currentEditWorkSites = formWorkSites
+    .filter(
+      (site) =>
+        hasWorkSiteContent(site) ||
+        hasItemsAssignedToWorkSite(site.id) ||
+        site.id === editingWorkSiteId ||
+        site.id === activeWorkSiteId,
+    )
     .slice()
     .sort(
       (a, b) =>
@@ -2758,6 +2801,20 @@ export default function AuftraegePage() {
   };
 
   const addFormWorkSite = () => {
+    const openDraft = formWorkSites.find(
+      (site) => !hasWorkSiteContent(site) && !hasItemsAssignedToWorkSite(site.id),
+    );
+
+    if (openDraft) {
+      setEditingWorkSiteId(openDraft.id);
+      setActiveWorkSiteId(openDraft.id);
+      setExpandedWorkSiteIds((prev) =>
+        prev.includes(openDraft.id) ? prev : [openDraft.id, ...prev],
+      );
+      toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
+      return;
+    }
+
     const newId = `tmp-${Math.random().toString(36).slice(2)}`;
     setFormWorkSites((prev) => [
       ...prev,
@@ -2827,8 +2884,17 @@ export default function AuftraegePage() {
     );
   };
 
-  const collapseAllWorkSiteGroups = () => {
-    setExpandedWorkSiteIds([]);
+  const toggleWorkSiteOverview = () => {
+    const allGroupKeys = [
+      ...(formItems.some((item) => !item.workSiteId) ? ["__unassigned__"] : []),
+      ...currentEditWorkSites.map((site) => site.id),
+    ];
+
+    const allOpen =
+      allGroupKeys.length > 0 &&
+      allGroupKeys.every((key) => expandedWorkSiteIds.includes(key));
+
+    setExpandedWorkSiteIds(allOpen ? [] : allGroupKeys);
     setEditingWorkSiteId(null);
     setMovingItemKey(null);
   };
@@ -2855,24 +2921,44 @@ export default function AuftraegePage() {
             index,
             site: null as OrderWorkSite | null,
             isFirstInSite: siteItemIndex === 0,
+            isEmptySitePlaceholder: false,
           })),
-        ...currentEditWorkSites.flatMap((site) =>
-          formItems
+        ...currentEditWorkSites.flatMap((site) => {
+          const siteRows = formItems
             .map((item, index) => ({ item, index }))
-            .filter(({ item }) => item.workSiteId === site.id)
-            .map(({ item, index }, siteItemIndex) => ({
-              item,
-              index,
-              site,
-              isFirstInSite: siteItemIndex === 0,
-            })),
-        ),
+            .filter(({ item }) => item.workSiteId === site.id);
+
+          if (siteRows.length === 0) {
+            return [
+              {
+                item: {
+                  ...createEmptyItem(),
+                  key: `empty-site-${site.id}`,
+                  workSiteId: site.id,
+                },
+                index: -1,
+                site,
+                isFirstInSite: true,
+                isEmptySitePlaceholder: true,
+              },
+            ];
+          }
+
+          return siteRows.map(({ item, index }, siteItemIndex) => ({
+            item,
+            index,
+            site,
+            isFirstInSite: siteItemIndex === 0,
+            isEmptySitePlaceholder: false,
+          }));
+        }),
       ]
     : formItems.map((item, index) => ({
         item,
         index,
         site: null as OrderWorkSite | null,
         isFirstInSite: false,
+        isEmptySitePlaceholder: false,
       }));
 
   const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
@@ -3147,8 +3233,18 @@ export default function AuftraegePage() {
       toast.error("Mindestens eine Leistung auswählen");
       return null;
     }
+
+    const assignedWorkSiteIds = new Set(
+      validItems
+        .map((item) => item.workSiteId)
+        .filter((siteId): siteId is string => Boolean(siteId)),
+    );
+    const cleanWorkSites = formWorkSites.filter(
+      (site) => hasWorkSiteContent(site) || assignedWorkSiteIds.has(site.id),
+    );
+
     if (
-      formWorkSites.length > 1 &&
+      cleanWorkSites.length > 1 &&
       validItems.some((item) => !item.workSiteId)
     ) {
       toast.error("Bitte jeder Leistung einen Arbeitsort zuordnen.");
@@ -3224,8 +3320,8 @@ export default function AuftraegePage() {
       reviewReasons: cleanedReviewReasons,
       needsReview: cleanedReviewReasons.length > 0,
       workSites:
-        editId && formWorkSites.length > 0
-          ? formWorkSites.map((site, index) => ({
+        editId && cleanWorkSites.length > 0
+          ? cleanWorkSites.map((site, index) => ({
               id: site.id,
               siteName: site.siteName?.trim() || null,
               siteAddress: site.siteAddress?.trim() || null,
@@ -4612,31 +4708,11 @@ export default function AuftraegePage() {
                 })()}
               {/* Customer Info / Select / Edit */}
               <div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-y-0.5 mb-1">
-                  <div>
-                    <Label>Rechnungsadresse *</Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      Kunde, der die Rechnung bekommt und bezahlt.
-                    </p>
-                  </div>
-                  {!showNewCustomer && form.customerId && (
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
-                      <button
-                        type="button"
-                        className="text-xs text-blue-600 hover:underline flex items-center gap-1 whitespace-nowrap"
-                        onClick={() => openCustomerEditor()}
-                      >
-                        ✏️ Bearbeiten
-                      </button>
-                      <button
-                        type="button"
-                        className="text-xs text-amber-600 hover:underline flex items-center gap-1 whitespace-nowrap"
-                        onClick={() => setDupCheckOpen(true)}
-                      >
-                        🔍 Duplikate prüfen
-                      </button>
-                    </div>
-                  )}
+                <div className="mb-1">
+                  <Label>Rechnungsadresse *</Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Kunde, der die Rechnung bekommt und bezahlt.
+                  </p>
                 </div>
                 {!showNewCustomer ? (
                   <>
@@ -4673,31 +4749,57 @@ export default function AuftraegePage() {
                               }}
                               title="Kunde bearbeiten"
                               aria-label="Kunde bearbeiten"
-                              className="border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                              className="border border-sky-200 rounded-lg p-2 sm:p-3 bg-sky-50/70 dark:border-sky-900/60 dark:bg-sky-950/20 space-y-1.5 min-w-0 cursor-pointer hover:bg-sky-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
                             >
-                              {/* ISSUE 4 — Show neutral label for fallback customers */}
-                              {isFallbackCustomerName(cust.name) ? (
-                                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                  <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
-                                    ⚠️ Kunde noch nicht zugeordnet
-                                  </span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    (bitte echten Kunden zuweisen)
-                                  </span>
+                              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="min-w-0">
+                                  {/* ISSUE 4 — Show neutral label for fallback customers */}
+                                  {isFallbackCustomerName(cust.name) ? (
+                                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                      <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
+                                        ⚠️ Kunde noch nicht zugeordnet
+                                      </span>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        (bitte echten Kunden zuweisen)
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                      <span className="text-sm font-semibold truncate">
+                                        👤 {cust.customerNumber || ""}
+                                        {cust.customerNumber ? " · " : ""}
+                                      </span>
+                                      <span
+                                        className={`text-sm font-semibold truncate ${reqMiss(cust.name) ? "text-red-500 border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
+                                      >
+                                        {cust.name || "Name fehlt"}
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
-                              ) : (
-                                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                  <span className="text-sm font-semibold truncate">
-                                    👤 {cust.customerNumber || ""}
-                                    {cust.customerNumber ? " · " : ""}
-                                  </span>
-                                  <span
-                                    className={`text-sm font-semibold truncate ${reqMiss(cust.name) ? "text-red-500 border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
+                                <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 sm:justify-end">
+                                  <button
+                                    type="button"
+                                    className="text-xs text-blue-600 hover:underline flex items-center gap-1 whitespace-nowrap"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openCustomerEditor();
+                                    }}
                                   >
-                                    {cust.name || "Name fehlt"}
-                                  </span>
+                                    ✏️ Bearbeiten
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-xs text-amber-600 hover:underline flex items-center gap-1 whitespace-nowrap"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setDupCheckOpen(true);
+                                    }}
+                                  >
+                                    🔍 Duplikate prüfen
+                                  </button>
                                 </div>
-                              )}
+                              </div>
                               <div className="grid grid-cols-1 gap-1 text-xs min-w-0">
                                 <div
                                   className={`flex items-center gap-1 min-w-0 ${reqMiss(visibleCustomerAddress) ? "text-red-500" : "text-foreground/70"}`}
@@ -4813,30 +4915,50 @@ export default function AuftraegePage() {
                             const visibleCustomerPhone = cust.phone;
                             const visibleCustomerEmail = cust.email;
                             return (
-                              <div className="mt-2 border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0">
-                                {/* ISSUE 4 — Neutral display for fallback customers */}
-                                {isFallbackCustomerName(cust.name) ? (
-                                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                    <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
-                                      ⚠️ Kunde noch nicht zugeordnet
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground">
-                                      (bitte echten Kunden zuweisen)
-                                    </span>
+                              <div className="mt-2 border border-sky-200 rounded-lg p-2 sm:p-3 bg-sky-50/70 dark:border-sky-900/60 dark:bg-sky-950/20 space-y-1.5 min-w-0">
+                                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0">
+                                    {/* ISSUE 4 — Neutral display for fallback customers */}
+                                    {isFallbackCustomerName(cust.name) ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                        <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
+                                          ⚠️ Kunde noch nicht zugeordnet
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground">
+                                          (bitte echten Kunden zuweisen)
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                        <span className="text-sm font-semibold truncate">
+                                          👤 {cust.customerNumber || ""}
+                                          {cust.customerNumber ? " · " : ""}
+                                        </span>
+                                        <span
+                                          className={`text-sm font-semibold truncate ${reqMiss(cust.name) ? "text-red-500 border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
+                                        >
+                                          {cust.name || "Name fehlt"}
+                                        </span>
+                                      </div>
+                                    )}
                                   </div>
-                                ) : (
-                                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                    <span className="text-sm font-semibold truncate">
-                                      👤 {cust.customerNumber || ""}
-                                      {cust.customerNumber ? " · " : ""}
-                                    </span>
-                                    <span
-                                      className={`text-sm font-semibold truncate ${reqMiss(cust.name) ? "text-red-500 border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
+                                  <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 sm:justify-end">
+                                    <button
+                                      type="button"
+                                      className="text-xs text-blue-600 hover:underline flex items-center gap-1 whitespace-nowrap"
+                                      onClick={() => openCustomerEditor()}
                                     >
-                                      {cust.name || "Name fehlt"}
-                                    </span>
+                                      ✏️ Bearbeiten
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="text-xs text-amber-600 hover:underline flex items-center gap-1 whitespace-nowrap"
+                                      onClick={() => setDupCheckOpen(true)}
+                                    >
+                                      🔍 Duplikate prüfen
+                                    </button>
                                   </div>
-                                )}
+                                </div>
                                 <div className="grid grid-cols-1 gap-1 text-xs min-w-0">
                                   <div
                                     className={`flex items-center gap-1 min-w-0 ${reqMiss(visibleCustomerAddress) ? "text-red-500" : "text-foreground/70"}`}
@@ -5249,10 +5371,10 @@ export default function AuftraegePage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={collapseAllWorkSiteGroups}
+                                onClick={toggleWorkSiteOverview}
                                 className="h-7 px-2 text-xs"
                               >
-                                Übersicht
+                                {expandedWorkSiteIds.length > 0 ? "Übersicht" : "Alle öffnen"}
                               </Button>
                               <Button
                                 type="button"
@@ -5297,7 +5419,13 @@ export default function AuftraegePage() {
 
                     <div className="space-y-2">
                       {formItemDisplayRows.map(
-                        ({ item, index, site, isFirstInSite }) => {
+                        ({
+                          item,
+                          index,
+                          site,
+                          isFirstInSite,
+                          isEmptySitePlaceholder,
+                        }) => {
                           const curOrder = editId
                             ? orders.find((o: Order) => o.id === editId)
                             : null;
@@ -5498,17 +5626,28 @@ export default function AuftraegePage() {
                           const isActiveSite = Boolean(
                             site && activeWorkSiteId === site.id,
                           );
-                          const siteAccentClass =
-                            siteIndex % 2 === 0
-                              ? "border-purple-300 bg-purple-50/80 text-purple-950 dark:border-purple-800/70 dark:bg-purple-950/20 dark:text-purple-50"
-                              : "border-amber-300 bg-amber-50/80 text-amber-950 dark:border-amber-800/70 dark:bg-amber-950/20 dark:text-amber-50";
-                          const itemAccentClass =
-                            siteIndex % 2 === 0
-                              ? "border-l-purple-400"
-                              : "border-l-amber-400";
+                          const groupItems = getWorkSiteGroupItems(site);
+                          const groupItemCount = groupItems.length;
+                          const siteHasRequiredInfo = site
+                            ? hasWorkSiteContent(site)
+                            : false;
+                          const siteNeedsReview = Boolean(
+                            !site || (site && !siteHasRequiredInfo),
+                          );
+                          const siteHasNoItems = Boolean(
+                            site && groupItemCount === 0,
+                          );
+                          const siteAccentClass = siteNeedsReview
+                            ? "border-red-300 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
+                            : siteHasNoItems
+                              ? "border-amber-300 bg-amber-50/80 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/20 dark:text-amber-100"
+                              : "border-slate-300 bg-slate-50/80 text-slate-900 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-50";
+                          const itemAccentClass = siteNeedsReview
+                            ? "border-l-red-400"
+                            : siteHasNoItems
+                              ? "border-l-amber-400"
+                              : "border-l-slate-300";
                           const groupExpanded = isWorkSiteGroupExpanded(site);
-                          const groupItemCount =
-                            getWorkSiteGroupItems(site).length;
                           const isEditingSite = Boolean(
                             site && editingWorkSiteId === site.id,
                           );
@@ -5571,6 +5710,16 @@ export default function AuftraegePage() {
                                         {isActiveSite && (
                                           <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-cyan-700 ring-1 ring-cyan-200">
                                             aktiv
+                                          </span>
+                                        )}
+                                        {siteNeedsReview && (
+                                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-200">
+                                            Arbeitsort prüfen
+                                          </span>
+                                        )}
+                                        {siteHasNoItems && !siteNeedsReview && (
+                                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                                            Keine Leistungen
                                           </span>
                                         )}
                                       </div>
@@ -5725,7 +5874,51 @@ export default function AuftraegePage() {
                                 </div>
                               )}
 
-                              {groupExpanded && (
+                              {groupExpanded && isEmptySitePlaceholder ? (
+                                <div
+                                  className={`ml-2 rounded-lg border-2 border-dashed p-3 text-xs shadow-sm ${
+                                    siteNeedsReview
+                                      ? "border-red-300 bg-red-50/50 text-red-800 dark:border-red-800 dark:bg-red-950/10 dark:text-red-200"
+                                      : "border-amber-300 bg-amber-50/40 text-amber-800 dark:border-amber-800 dark:bg-amber-950/10 dark:text-amber-200"
+                                  }`}
+                                >
+                                  <div className="font-semibold">
+                                    {siteNeedsReview
+                                      ? "Arbeitsort bitte ausfüllen."
+                                      : "Noch keine Leistungen in diesem Arbeitsort."}
+                                  </div>
+                                  <div className="mt-0.5 text-muted-foreground">
+                                    Arbeitsort bearbeiten oder löschen. Leistung erst hinzufügen, wenn der Ort stimmt.
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {site && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 text-xs"
+                                        onClick={() => {
+                                          setActiveWorkSiteId(site.id);
+                                          setEditingWorkSiteId(site.id);
+                                        }}
+                                      >
+                                        Arbeitsort bearbeiten
+                                      </Button>
+                                    )}
+                                    {site && !siteNeedsReview && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 text-xs"
+                                        onClick={() => addItemToWorkSite(site.id)}
+                                      >
+                                        + Leistung hier hinzufügen
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : groupExpanded && (
                                 <div
                                   className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
                                     hasMultipleEditWorkSites
