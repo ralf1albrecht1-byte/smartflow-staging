@@ -582,7 +582,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
     )
   )
     return "ladder";
-  if (/park|zufahrt|innenhof|reserviert/.test(text)) return "parking";
+  if (/\b(?:park|parking|parkplatz|parken|parkieren|stellplatz)\b/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
     return "access";
@@ -666,7 +666,7 @@ const PARKING_DIFFICULT_PATTERN =
   /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
 
 const hasParkingReference = (value?: string | null) =>
-  /park|parking|parkplatz|parken|zufahrt|innenhof/.test(
+  /\b(?:park|parking|parkplatz|parken|parkieren|stellplatz)\b/.test(
     normalizeForMatch(value),
   );
 
@@ -1466,6 +1466,24 @@ const hasReviewReasonForService = (
   );
 };
 
+const hasUnresolvedPriceOverrideReviewForItem = (
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  services: ServiceDef[],
+  reviewReasons?: string[] | null,
+) => {
+  if (!hasReviewReasonForService(reviewReasons, "price_override:", item.serviceName)) {
+    return false;
+  }
+
+  const catalog = findCatalogServiceForName(services, item.serviceName);
+  if (!catalog) return true;
+
+  return (
+    hasCatalogPriceDeviationForItem(item, services, reviewReasons) ||
+    hasCatalogTextFlatOverrideForItem(item, services, reviewReasons)
+  );
+};
+
 const getWorkSiteHeaderReviewBadges = (
   items: FormItem[],
   services: ServiceDef[],
@@ -1517,7 +1535,11 @@ const getWorkSiteHeaderReviewBadges = (
     };
 
     return (
-      hasReviewReasonForService(reviewReasons, "price_override:", item.serviceName) ||
+      hasUnresolvedPriceOverrideReviewForItem(
+        comparableItem,
+        services,
+        reviewReasons,
+      ) ||
       hasCatalogPriceDeviationForItem(comparableItem, services, reviewReasons) ||
       hasCatalogTextFlatOverrideForItem(comparableItem, services, reviewReasons)
     );
@@ -1650,11 +1672,28 @@ const getSystemBadges = (
     });
   }
 
+  const orderItemsForPriceReview =
+    order.items && order.items.length > 0
+      ? order.items
+      : order.serviceName
+        ? [
+            {
+              serviceName: order.serviceName,
+              description: order.description || order.serviceName,
+              quantity: order.quantity,
+              unit: order.priceType,
+              unitPrice: order.unitPrice,
+              totalPrice: order.totalPrice,
+            },
+          ]
+        : [];
+
+  const hasStoredUnresolvedPriceOverride = orderItemsForPriceReview.some((item) =>
+    hasUnresolvedPriceOverrideReviewForItem(item, services, order.reviewReasons),
+  );
+
   const hasPriceDeviationReview =
-    (order.reviewReasons?.some((reason) =>
-      reason.startsWith("price_override:"),
-    ) ??
-      false) ||
+    hasStoredUnresolvedPriceOverride ||
     getCatalogPriceDeviationItems(order, services).length > 0 ||
     getCatalogTextFlatOverrideItems(order, services).length > 0;
 
@@ -2772,6 +2811,7 @@ export default function AuftraegePage() {
             serviceName: svc.name,
             unitPrice: item.unitPrice || String(svc.defaultPrice ?? 0),
             unit: item.unit || svc.unit || "Stunde",
+            aiWarning: "",
           };
         }
 
@@ -2782,6 +2822,7 @@ export default function AuftraegePage() {
             unitPrice: "",
             quantity: "",
             unit: "Stunde",
+            aiWarning: "",
           };
         }
 
@@ -2836,6 +2877,11 @@ export default function AuftraegePage() {
     if (existing && !existingNeedsUpdate) {
       toast.info(`Leistung "${existing.name}" ist bereits im Katalog`);
       onItemServiceSelect(index, existing.name, existing as ServiceOption);
+      setFormItems((prev) =>
+        prev.map((entry, i) =>
+          i === index ? { ...entry, aiWarning: "" } : entry,
+        ),
+      );
       setServiceActionMenuKey(null);
       return;
     }
@@ -2857,6 +2903,11 @@ export default function AuftraegePage() {
       const savedService: ServiceOption = await res.json();
       handleServiceCreated(savedService);
       onItemServiceSelect(index, savedService.name, savedService);
+      setFormItems((prev) =>
+        prev.map((entry, i) =>
+          i === index ? { ...entry, aiWarning: "" } : entry,
+        ),
+      );
       setServiceActionMenuKey(null);
       toast.success(
         existingNeedsUpdate
@@ -2874,7 +2925,21 @@ export default function AuftraegePage() {
     }
 
     setFormItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+      prev.map((item, i) => {
+        if (i !== index) return item;
+        const shouldClearItemWarning = [
+          "serviceName",
+          "unit",
+          "unitPrice",
+          "quantity",
+        ].includes(String(field));
+
+        return {
+          ...item,
+          [field]: value,
+          aiWarning: shouldClearItemWarning ? "" : item.aiWarning,
+        };
+      }),
     );
   };
 
@@ -3276,8 +3341,14 @@ export default function AuftraegePage() {
     const field = specialNotesTextareaRef.current;
     if (!field) return;
 
+    const minHeight =
+      normalSpecialNotesText.length > 180 ||
+      normalSpecialNotesText.split(/\n/).length > 2
+        ? 132
+        : 76;
+
     field.style.height = "auto";
-    field.style.height = `${Math.max(76, field.scrollHeight)}px`;
+    field.style.height = `${Math.max(minHeight, field.scrollHeight)}px`;
   }, [dialogOpen, normalSpecialNotesText]);
 
   const updateNormalSpecialNotes = (value: string) => {
@@ -3507,15 +3578,6 @@ export default function AuftraegePage() {
 
     const url = editId ? `/api/orders/${editId}` : "/api/orders";
     const method = editId ? "PUT" : "POST";
-    const validServiceNames = new Set(
-      validItems
-        .filter(
-          (item) =>
-            Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0,
-        )
-        .map((item) => item.serviceName.trim().toLowerCase()),
-    );
-
     const allItemsComplete = validItems.every(
       (item) =>
         item.serviceName.trim().length > 0 &&
@@ -3533,8 +3595,51 @@ export default function AuftraegePage() {
         ?.reviewReasons?.filter((reason) => {
           if (reason.startsWith("unit_mismatch:")) {
             const [, reasonService] = reason.split(":");
-            const reasonName = (reasonService || "").trim().toLowerCase();
-            return !validServiceNames.has(reasonName);
+            const reasonKey = normalizeForMatch(
+              canonicalServiceNameForOrderItem(reasonService),
+            );
+            const matchingItem = validItems.find(
+              (item) =>
+                normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
+                reasonKey,
+            );
+            const catalog = matchingItem
+              ? findCatalogServiceForName(services, matchingItem.serviceName)
+              : null;
+            const unitStillDiffers = Boolean(
+              matchingItem &&
+                catalog &&
+                normalizePriceUnitForCompare(catalog.unit) !==
+                  normalizePriceUnitForCompare(matchingItem.unit),
+            );
+
+            return unitStillDiffers;
+          }
+
+          if (reason.startsWith("price_override:")) {
+            const [, reasonService] = reason.split(":");
+            const reasonKey = normalizeForMatch(
+              canonicalServiceNameForOrderItem(reasonService),
+            );
+            const matchingItem = validItems.find(
+              (item) =>
+                normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
+                reasonKey,
+            );
+            if (!matchingItem) return true;
+
+            const comparableItem = {
+              serviceName: canonicalServiceNameForOrderItem(matchingItem.serviceName),
+              unit: matchingItem.unit,
+              unitPrice: Number(matchingItem.unitPrice || 0),
+              quantity: Number(matchingItem.quantity || 0),
+            };
+
+            return hasUnresolvedPriceOverrideReviewForItem(
+              comparableItem,
+              services,
+              [reason],
+            );
           }
 
           if (
@@ -3582,14 +3687,36 @@ export default function AuftraegePage() {
               sourceOrderId: (site as any).sourceOrderId || null,
             }))
           : undefined,
-      items: validItems.map((item) => ({
-        serviceName: item.serviceName,
-        description: buildItemDescription(item),
-        quantity: Number(item.quantity || 0),
-        unit: item.unit,
-        unitPrice: Number(item.unitPrice || 0),
-        workSiteId: item.workSiteId || null,
-      })),
+      items: validItems.map((item) => {
+        const comparableItem = {
+          serviceName: canonicalServiceNameForOrderItem(item.serviceName),
+          unit: item.unit,
+          unitPrice: Number(item.unitPrice || 0),
+          quantity: Number(item.quantity || 0),
+        };
+        const itemHasOpenStoredReview =
+          hasReviewReasonForService(cleanedReviewReasons, "unit_mismatch:", item.serviceName) ||
+          hasUnresolvedPriceOverrideReviewForItem(
+            comparableItem,
+            services,
+            cleanedReviewReasons,
+          ) ||
+          Number(item.quantity || 0) <= 0 ||
+          Number(item.unitPrice || 0) <= 0;
+
+        const safeItem = itemHasOpenStoredReview
+          ? item
+          : { ...item, aiWarning: "" };
+
+        return {
+          serviceName: canonicalServiceNameForOrderItem(safeItem.serviceName),
+          description: buildItemDescription(safeItem),
+          quantity: Number(safeItem.quantity || 0),
+          unit: safeItem.unit,
+          unitPrice: Number(safeItem.unitPrice || 0),
+          workSiteId: safeItem.workSiteId || null,
+        };
+      }),
     };
     const res = await fetch(url, {
       method,
@@ -5757,13 +5884,19 @@ export default function AuftraegePage() {
                             Boolean(
                               item.aiWarning?.trim() || unitMismatchReason,
                             );
+                          const hasUnresolvedStoredPriceOverride = Boolean(
+                            priceOverrideReason &&
+                              (!catalogService ||
+                                hasFrontendCatalogPriceDeviation ||
+                                hasFrontendCatalogTextFlatOverride),
+                          );
                           const showPriceOverride =
                             !hasCurrencyConflict &&
                             !showUnitConflict &&
                             Boolean(
-                              priceOverrideReason ||
-                              hasFrontendCatalogPriceDeviation ||
-                              hasFrontendCatalogTextFlatOverride,
+                              hasUnresolvedStoredPriceOverride ||
+                                hasFrontendCatalogPriceDeviation ||
+                                hasFrontendCatalogTextFlatOverride,
                             );
                           const showPriceReferenceReview =
                             !hasCurrencyConflict &&
@@ -5901,12 +6034,12 @@ export default function AuftraegePage() {
                             ? "border-red-300 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
                             : siteHasNoItems
                               ? "border-amber-300 bg-amber-50/80 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/20 dark:text-amber-100"
-                              : "border-slate-300 bg-slate-50/80 text-slate-900 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-50";
+                              : "border-slate-400 bg-slate-100/90 text-slate-900 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-50";
                           const itemAccentClass = siteNeedsReview
                             ? "border-l-red-400"
                             : siteHasNoItems
                               ? "border-l-amber-400"
-                              : "border-l-slate-300";
+                              : "border-l-slate-500";
                           const groupExpanded = isWorkSiteGroupExpanded(site);
                           const isEditingSite = Boolean(
                             site && editingWorkSiteId === site.id,
@@ -6190,14 +6323,14 @@ export default function AuftraegePage() {
                                 <div
                                   className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
                                     hasMultipleEditWorkSites
-                                      ? `ml-4 rounded-lg border-l-4 ${itemAccentClass}`
+                                      ? `ml-6 rounded-xl border-l-[6px] ${itemAccentClass} before:absolute before:-left-4 before:-top-2 before:-bottom-2 before:w-1 before:rounded-full before:bg-slate-300 dark:before:bg-slate-700`
                                       : "rounded-lg"
                                   } ${
                                     hasCriticalItemReview
                                       ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
                                       : hasAnyItemReview
                                         ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                        : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                                        : "border-slate-300 bg-slate-100/70 dark:border-slate-700 dark:bg-slate-900/30"
                                   }`}
                                   onClick={() =>
                                     site && setActiveWorkSiteId(site.id)
@@ -6764,11 +6897,11 @@ export default function AuftraegePage() {
                     <textarea
                       ref={specialNotesTextareaRef}
                       rows={Math.max(
-                        2,
+                        normalSpecialNotesText.length > 180 ? 5 : 2,
                         normalSpecialNotesText.split(/\n/).length,
                       )}
                       spellCheck={false}
-                      className="w-full resize-none overflow-hidden rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm leading-relaxed text-foreground focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 dark:border-amber-800/70 dark:bg-amber-950/15"
+                      className="min-h-[132px] w-full resize-none overflow-hidden rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm leading-relaxed text-foreground focus-visible:border-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 dark:border-amber-800/70 dark:bg-amber-950/15"
                       placeholder="z.B. Rückruf, Zugang, Parkplatz, Leiter nötig, Terminwunsch..."
                       value={normalSpecialNotesText}
                       onChange={(e) => updateNormalSpecialNotes(e.target.value)}
