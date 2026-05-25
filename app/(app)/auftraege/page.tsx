@@ -2577,24 +2577,33 @@ export default function AuftraegePage() {
         normalizeForMatch(service.name) === normalizeForMatch(normalizedName),
     );
 
-    if (existing) {
-      toast.info(`Leistung "${existing.name}" existiert bereits`);
-      onItemServiceSelect(index, existing.name, existing as ServiceOption);
-      setServiceActionMenuKey(null);
-      return;
-    }
-
     const price = Number(item.unitPrice || 0);
     if (!price || price <= 0) {
       toast.error("Preis zuerst prüfen, dann in Leistungen übernehmen");
       return;
     }
 
+    const existingUnit = normalizePriceUnitForCompare(existing?.unit);
+    const itemUnit = normalizePriceUnitForCompare(item.unit);
+    const existingPrice = Number(existing?.defaultPrice || 0);
+    const existingNeedsUpdate = Boolean(
+      existing &&
+        (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
+    );
+
+    if (existing && !existingNeedsUpdate) {
+      toast.info(`Leistung "${existing.name}" ist bereits im Katalog`);
+      onItemServiceSelect(index, existing.name, existing as ServiceOption);
+      setServiceActionMenuKey(null);
+      return;
+    }
+
     try {
       const res = await fetch("/api/services", {
-        method: "POST",
+        method: existing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: existing?.id,
           name: normalizedName,
           defaultPrice: price,
           unit: item.unit,
@@ -2603,11 +2612,15 @@ export default function AuftraegePage() {
 
       if (!res.ok) throw new Error("Fehler beim Speichern");
 
-      const newService: ServiceOption = await res.json();
-      handleServiceCreated(newService);
-      onItemServiceSelect(index, newService.name, newService);
+      const savedService: ServiceOption = await res.json();
+      handleServiceCreated(savedService);
+      onItemServiceSelect(index, savedService.name, savedService);
       setServiceActionMenuKey(null);
-      toast.success("Leistung wurde in Leistungen übernommen ✓");
+      toast.success(
+        existingNeedsUpdate
+          ? "Leistungskatalog wurde aktualisiert ✓"
+          : "Leistung wurde in Leistungen übernommen ✓",
+      );
     } catch {
       toast.error("Leistung konnte nicht übernommen werden");
     }
@@ -2624,17 +2637,13 @@ export default function AuftraegePage() {
   };
 
   const addItem = () => {
-    const targetWorkSiteId = hasMultipleEditWorkSites
-      ? activeWorkSiteId || currentEditWorkSites[0]?.id || null
-      : null;
     const nextItem = {
       ...createEmptyItem(),
-      workSiteId: targetWorkSiteId,
+      workSiteId: null,
     };
 
     setFormItems((prev) => [nextItem, ...prev]);
-    setActiveWorkSiteId(targetWorkSiteId);
-    setMovingItemKey(targetWorkSiteId ? null : nextItem.key);
+    setMovingItemKey(hasMultipleEditWorkSites ? nextItem.key : null);
     setServiceActionMenuKey(null);
   };
 
@@ -2785,6 +2794,15 @@ export default function AuftraegePage() {
 
   const formItemDisplayRows = hasMultipleEditWorkSites
     ? [
+        ...formItems
+          .map((item, index) => ({ item, index }))
+          .filter(({ item }) => !item.workSiteId)
+          .map(({ item, index }, siteItemIndex) => ({
+            item,
+            index,
+            site: null as OrderWorkSite | null,
+            isFirstInSite: siteItemIndex === 0,
+          })),
         ...currentEditWorkSites.flatMap((site) =>
           formItems
             .map((item, index) => ({ item, index }))
@@ -2796,15 +2814,6 @@ export default function AuftraegePage() {
               isFirstInSite: siteItemIndex === 0,
             })),
         ),
-        ...formItems
-          .map((item, index) => ({ item, index }))
-          .filter(({ item }) => !item.workSiteId)
-          .map(({ item, index }, siteItemIndex) => ({
-            item,
-            index,
-            site: null as OrderWorkSite | null,
-            isFirstInSite: siteItemIndex === 0,
-          })),
       ]
     : formItems.map((item, index) => ({
         item,
@@ -4189,7 +4198,7 @@ export default function AuftraegePage() {
                       <div className="flex min-w-0 flex-1 items-stretch gap-2 sm:gap-3">
                         <div className="flex-1 min-w-0 max-w-full overflow-hidden">
                           {/* Row 1: date + customer */}
-                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-visible">
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-hidden">
                             <span className="text-muted-foreground shrink-0">
                               {o.createdAt
                                 ? new Date(o.createdAt).toLocaleDateString(
@@ -4207,7 +4216,7 @@ export default function AuftraegePage() {
                               ·
                             </span>
                             <span
-                              className={`font-medium truncate min-w-0 max-w-[120px] sm:max-w-[180px] md:max-w-[220px] lg:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                              className={`font-medium truncate min-w-0 max-w-[120px] sm:max-w-[170px] md:max-w-[220px] lg:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
                             >
                               {isFallbackCustomerName(o.customer?.name)
                                 ? "Kunde nicht zugeordnet"
@@ -4333,7 +4342,7 @@ export default function AuftraegePage() {
                           </div>
                         </div>
 
-                        <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[220px] lg:w-[280px]">
+                        <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
                             {rightSideBadges.map((badge) => (
                               <span
@@ -5406,7 +5415,7 @@ export default function AuftraegePage() {
                         </Button>
                         {hasMultipleEditWorkSites && (
                           <span className="text-[10px] text-muted-foreground">
-                            Wird oben im aktiven Arbeitsort eingefügt.
+                            Neue Leistung erscheint oben. Arbeitsort wählen.
                           </span>
                         )}
                       </div>
@@ -5590,10 +5599,27 @@ export default function AuftraegePage() {
                                 "unit_price_review",
                               ),
                             );
+                          const existingCatalogUnitMismatch = Boolean(
+                            catalogService &&
+                              normalizePriceUnitForCompare(catalogService.unit) !==
+                                normalizePriceUnitForCompare(item.unit),
+                          );
+                          const existingCatalogPriceMismatch = Boolean(
+                            catalogService &&
+                              Number.isFinite(catalogPrice) &&
+                              Number.isFinite(itemPriceNumber) &&
+                              catalogPrice > 0 &&
+                              itemPriceNumber > 0 &&
+                              Math.abs(catalogPrice - itemPriceNumber) >= 0.01,
+                          );
                           const hasCatalogActionMenu =
-                            !hasCriticalItemReview &&
+                            isCompleteItemForCatalogAction &&
+                            !priceInputReview &&
+                            !quantityInputReview &&
                             (showManualServiceReview ||
                               showPriceOverride ||
+                              existingCatalogUnitMismatch ||
+                              existingCatalogPriceMismatch ||
                               hasResolvedReviewCatalogAction);
                           const hasAnyItemReview =
                             hasCriticalItemReview ||
@@ -5654,7 +5680,7 @@ export default function AuftraegePage() {
                                           📍{" "}
                                           {site
                                             ? `${siteIndex + 1}. ${formatWorkSiteTitle(site)}`
-                                            : "Ohne Arbeitsort"}
+                                            : "Neue Leistung: Arbeitsort wählen"}
                                         </span>
                                         {isActiveSite && (
                                           <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-cyan-700 ring-1 ring-cyan-200">
@@ -5666,7 +5692,7 @@ export default function AuftraegePage() {
                                         {site
                                           ? formatWorkSiteAddress(site) ||
                                             "Adresse prüfen"
-                                          : "Leistungen bitte einem Arbeitsort zuordnen"}
+                                          : "Bitte Arbeitsort auswählen, dann Leistung prüfen"}
                                       </div>
                                     </div>
                                     <div className="shrink-0 text-right">

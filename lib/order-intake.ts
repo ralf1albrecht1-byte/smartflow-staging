@@ -1161,6 +1161,14 @@ function cleanAiStructuredBillingName(value: any): string | null {
 
   if (/@/.test(candidate)) return null;
   if (/\d/.test(candidate)) return null;
+  if (
+    /\b(?:kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht|kommt)|öffnet\s+|oeffnet\s+|hausdienst|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(
+      candidate,
+    )
+  ) {
+    return null;
+  }
+
   if (parseBillingStreetLine(candidate)) return null;
   if (parseBillingPlzCityFromLine(candidate).plz) return null;
 
@@ -1582,7 +1590,7 @@ function cleanExecutionSiteNameCandidate(
   let candidate = String(value || "")
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
     .replace(
-      /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i,
+      /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i,
       "",
     )
     .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
@@ -1635,6 +1643,14 @@ function cleanExecutionSiteNameCandidate(
     return null;
   }
 
+  if (
+    /\b(?:kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht|kommt)|öffnet\s+|oeffnet\s+|hausdienst|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(
+      candidate,
+    )
+  ) {
+    return null;
+  }
+
   if (parseBillingStreetLine(candidate)) return null;
   if (parseBillingPlzCityFromLine(candidate).plz) return null;
 
@@ -1668,9 +1684,9 @@ function extractExecutionBlockFromText(
   if (lines.length === 0) return null;
 
   const startRegex =
-    /^\s*(?:arbeitsort|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+    /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
   const stopRegex =
-    /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
+    /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(startRegex);
@@ -1748,19 +1764,36 @@ function repairExecutionSiteNameFromText(args: {
 
   const siteAddressKey = normalizeUnitText(args.siteAddress || "");
   const sitePlz = String(args.sitePlz || "").trim();
+  const descriptors: string[] = [];
 
   for (const rawLine of splitIntakeLines(executionBlock)) {
-    const candidate = cleanExecutionSiteNameCandidate(rawLine);
+    const cleanedLine = rawLine.replace(/\s+/g, " ").trim();
+    if (!cleanedLine) continue;
+
+    const parsedStreet = parseBillingStreetLine(cleanedLine);
+    if (parsedStreet) {
+      const beforeStreet = cleanedLine
+        .replace(new RegExp(`${escapeRegExpLocal(parsedStreet)}.*$`, "i"), "")
+        .replace(/[,:;\-–—]+$/g, "")
+        .trim();
+      const safePrefix = cleanExecutionSiteNameCandidate(beforeStreet);
+      if (safePrefix) descriptors.push(safePrefix);
+      continue;
+    }
+
+    const candidate = cleanExecutionSiteNameCandidate(cleanedLine);
     if (!candidate) continue;
-    if (parseBillingStreetLine(candidate)) continue;
     if (parseBillingPlzCityFromLine(candidate).plz) continue;
     if (sitePlz && candidate.includes(sitePlz)) continue;
-    if (siteAddressKey && normalizeUnitText(candidate) === siteAddressKey)
-      continue;
-    return candidate;
+    if (siteAddressKey && normalizeUnitText(candidate) === siteAddressKey) continue;
+    descriptors.push(candidate);
   }
 
-  return null;
+  const uniqueDescriptors = Array.from(
+    new Map(descriptors.map((line) => [normalizeUnitText(line), line])).values(),
+  ).slice(0, 2);
+
+  return uniqueDescriptors.length > 0 ? uniqueDescriptors.join(", ") : null;
 }
 
 function sanitizeExtractedExecutionAddress<
@@ -1942,9 +1975,9 @@ function extractOnsiteContactHint(
     .filter(Boolean);
 
   const explicitMarkerRe =
-    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner\s+vor\s+ort|person\s+vor\s+ort)\b/i;
+    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht))\b/i;
   const roleMarkerRe =
-    /\b(hauswart|hausmeister|concierge|caretaker|gardien|facility\s+manager)\b/i;
+    /\b(hauswart|hausmeister|hausdienst|concierge|caretaker|gardien|facility\s+manager)\b/i;
   const anyMarkerRe = new RegExp(
     `${explicitMarkerRe.source}|${roleMarkerRe.source}`,
     "i",
@@ -2179,6 +2212,15 @@ function canonicalizeSpecialNoteLine(line: string): string {
   const normalized = normalizeSemanticText(original);
   if (!original || !normalized) return original;
 
+  if (/^kontakt\s+vor\s+ort:/i.test(normalized)) {
+    return original
+      .replace(/\bist\s+nur\s+und\b/gi, "ist nur Kontaktperson vor Ort und")
+      .replace(/\bist\s+nur\s*,\s*nicht\b/gi, "ist nur Ansprechpartner vor Ort, nicht")
+      .replace(/,\s*Tel\.\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   const mentionsNoPhone =
     /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|ne\s+pas\s+appeler|ne\s+pas\s+rappeler|pas\s+appeler|merci\s+de\s+ne\s+pas\s+appeler|do\s+not\s+call|dont\s+call|don't\s+call|no\s+phone\s+call)\b/i.test(
       normalized,
@@ -2197,14 +2239,14 @@ function canonicalizeSpecialNoteLine(line: string): string {
     return "Nicht telefonisch zurückrufen, Mail reicht";
   if (mentionsNoPhone) return "Nicht telefonisch zurückrufen";
 
-  if (/kontakt\s+vor\s+ort.*ist\s+nur\s*,\s*nicht/i.test(normalized)) {
-    return original.replace(/ist\s+nur\s*,\s*nicht/gi, "ist nur Ansprechpartner vor Ort, nicht");
+  if (/kontakt\s+vor\s+ort.*\bist\s+nur\s*,\s*nicht/i.test(normalized)) {
+    return original.replace(/\bist\s+nur\s*,\s*nicht/gi, "ist nur Ansprechpartner vor Ort, nicht");
   }
 
   if (/^kontakt\s+vor\s+ort:/i.test(normalized)) {
     return original
-      .replace(/,\s*Tel\.\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/gi, "")
-      .replace(/ist\s+nur\s*,\s*nicht/gi, "ist nur Ansprechpartner vor Ort, nicht")
+      .replace(/,\s*Tel\.\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/gi, "")
+      .replace(/\bist\s+nur\s*,\s*nicht/gi, "ist nur Ansprechpartner vor Ort, nicht")
       .replace(/\s+/g, " ")
       .trim();
   }

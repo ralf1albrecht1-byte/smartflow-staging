@@ -3690,10 +3690,10 @@ export function validateAndRepairParsedOrderItems(
 }
 
 const EXECUTION_ADDRESS_MARKER =
-  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
+  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|auftragsort|uftragsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
 
 const STOP_MARKER =
-  /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+ist|hauswart|hausmeister|concierge|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp|titel|title)\b/i;
+  /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet|macht|kommt)|zugang|hauswart|hausmeister|concierge|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp|titel|title)\b/i;
 
 const ADDRESS_WORD_PATTERN =
   /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)/i;
@@ -3922,7 +3922,7 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
     .trim();
 
   if (
-    /\b(kontakt\s+vor\s+ort|vor\s+ort\s+ist|kontaktperson|ansprechperson|person\s+vor\s+ort|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(
+    /\b(kontakt\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet|macht|kommt)|öffnet\s+|oeffnet\s+|kontaktperson|ansprechperson|person\s+vor\s+ort|hauswart|hausmeister|hausdienst|concierge|tel\.?|telefon|handy|natel)\b/i.test(
       candidate,
     )
   ) {
@@ -3960,7 +3960,7 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
   )
     return false;
   if (
-    /\b(kontakt\s+vor\s+ort|vor\s+ort\s+ist|kontaktperson|ansprechperson|person\s+vor\s+ort|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(
+    /\b(kontakt\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet|macht|kommt)|öffnet\s+|oeffnet\s+|kontaktperson|ansprechperson|person\s+vor\s+ort|hauswart|hausmeister|hausdienst|concierge|tel\.?|telefon|handy|natel)\b/i.test(
       key,
     )
   )
@@ -4186,24 +4186,40 @@ function pickSiteName(
   siteAddress: string | null,
   sitePlz: string | null,
 ) {
+  const safeDescriptorLines: string[] = [];
+  const siteAddressKey = normalizeCompare(siteAddress);
+
   for (const candidate of blockLines) {
     const cleaned = cleanSiteNameCandidate(stripMarker(candidate));
     if (!cleaned) continue;
-    if (
-      siteAddress &&
-      normalizeCompare(cleaned) === normalizeCompare(siteAddress)
-    )
-      continue;
-    if (parseStreet(cleaned)) continue;
+    if (siteAddress && normalizeCompare(cleaned) === siteAddressKey) continue;
     if (parsePlzCity(cleaned).plz) continue;
     if (sitePlz && cleaned.includes(sitePlz)) continue;
+
+    const parsedStreet = parseStreet(cleaned);
+    if (parsedStreet) {
+      const beforeStreet = cleaned
+        .replace(new RegExp(`${escapeRegExp(parsedStreet)}.*$`, "i"), "")
+        .replace(/[,:;\-–—]+$/g, "")
+        .trim();
+      const safePrefix = cleanSiteNameCandidate(beforeStreet);
+      if (safePrefix && isSafeSiteNameCandidate(safePrefix)) {
+        safeDescriptorLines.push(safePrefix);
+      }
+      continue;
+    }
+
     if (!isSafeSiteNameCandidate(cleaned)) continue;
-    return cleaned;
+    safeDescriptorLines.push(cleaned);
   }
 
-  // V11 fail-safe: lieber keinen Objektnamen speichern als einen Satzrest.
-  return null;
+  const uniqueDescriptors = Array.from(
+    new Map(safeDescriptorLines.map((line) => [normalizeCompare(line), line])).values(),
+  ).slice(0, 2);
+
+  return uniqueDescriptors.length > 0 ? uniqueDescriptors.join(", ") : null;
 }
+
 export function extractExecutionAddressFromText(
   text?: string | null,
   customer?: {

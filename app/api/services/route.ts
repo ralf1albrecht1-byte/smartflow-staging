@@ -61,3 +61,51 @@ const service = await prisma.service.create({
     return NextResponse.json({ error: 'Fehler beim Erstellen' }, { status: 500 });
   }
 }
+
+
+export async function PUT(request: Request) {
+  try {
+    let userId: string;
+    try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+
+    const data = await request.json();
+    const { id, name, defaultPrice, unit } = data;
+
+    if (!id || typeof id !== 'string') {
+      return NextResponse.json({ error: 'ID fehlt' }, { status: 400 });
+    }
+
+    if (!name || typeof name !== 'string') {
+      return NextResponse.json({ error: 'Name fehlt' }, { status: 400 });
+    }
+
+    if (defaultPrice === undefined || defaultPrice === null || isNaN(defaultPrice) || Number(defaultPrice) <= 0) {
+      return NextResponse.json({ error: 'Preis ungültig' }, { status: 400 });
+    }
+
+    if (!unit || typeof unit !== 'string') {
+      return NextResponse.json({ error: 'Einheit fehlt' }, { status: 400 });
+    }
+
+    const result = await prisma.service.updateMany({
+      where: { id, userId },
+      data: {
+        name: name.trim(),
+        defaultPrice: Number(defaultPrice),
+        unit,
+      },
+    });
+
+    if (result.count === 0) {
+      return NextResponse.json({ error: 'Leistung nicht gefunden' }, { status: 404 });
+    }
+
+    const service = await prisma.service.findFirst({ where: { id, userId } });
+    const su = await getSessionUser();
+    logAuditAsync({ userId: su?.id, userEmail: su?.email, userRole: su?.role, action: 'SERVICE_UPDATE', area: 'SERVICES', targetType: 'Service', targetId: id, request });
+    return NextResponse.json(service);
+  } catch (error: any) {
+    console.error(error);
+    return NextResponse.json({ error: 'Fehler beim Aktualisieren' }, { status: 500 });
+  }
+}
