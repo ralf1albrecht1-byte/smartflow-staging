@@ -4189,7 +4189,7 @@ export default function AuftraegePage() {
                       <div className="flex min-w-0 flex-1 items-stretch gap-2 sm:gap-3">
                         <div className="flex-1 min-w-0 max-w-full overflow-hidden">
                           {/* Row 1: date + customer */}
-                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-hidden">
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-visible">
                             <span className="text-muted-foreground shrink-0">
                               {o.createdAt
                                 ? new Date(o.createdAt).toLocaleDateString(
@@ -4207,7 +4207,7 @@ export default function AuftraegePage() {
                               ·
                             </span>
                             <span
-                              className={`font-medium truncate min-w-0 max-w-[150px] sm:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                              className={`font-medium truncate min-w-0 max-w-[120px] sm:max-w-[180px] md:max-w-[220px] lg:max-w-none ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
                             >
                               {isFallbackCustomerName(o.customer?.name)
                                 ? "Kunde nicht zugeordnet"
@@ -4333,7 +4333,7 @@ export default function AuftraegePage() {
                           </div>
                         </div>
 
-                        <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[280px]">
+                        <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[220px] lg:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
                             {rightSideBadges.map((badge) => (
                               <span
