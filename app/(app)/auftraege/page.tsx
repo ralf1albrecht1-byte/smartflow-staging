@@ -207,6 +207,7 @@ interface FormItem {
   unitPrice: string;
   quantity: string;
   aiWarning?: string;
+  priceConfirmed?: boolean;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
 }
@@ -217,10 +218,12 @@ const createEmptyItem = (): FormItem => ({
   unit: "Stunde",
   unitPrice: "",
   quantity: "",
+  priceConfirmed: false,
   workSiteId: null,
 });
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
+const PRICE_CONFIRMED_PREFIX = "[PRICE_CONFIRMED]";
 
 const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
   if (!order) return true;
@@ -241,10 +244,23 @@ const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
   );
 };
 
+const stripPriceConfirmedMarker = (description?: string | null) => {
+  const value = String(description || "").trim();
+  return value.startsWith(PRICE_CONFIRMED_PREFIX)
+    ? value.replace(PRICE_CONFIRMED_PREFIX, "").trim()
+    : value;
+};
+
+const getPriceConfirmedFromItemDescription = (description?: string | null) => {
+  if (!description) return false;
+  return String(description).trim().startsWith(PRICE_CONFIRMED_PREFIX);
+};
+
 const getAiWarningFromItemDescription = (description?: string | null) => {
-  if (!description) return "";
-  return description.startsWith(AI_WARNING_PREFIX)
-    ? description.replace(AI_WARNING_PREFIX, "").trim()
+  const cleaned = stripPriceConfirmedMarker(description);
+  if (!cleaned) return "";
+  return cleaned.startsWith(AI_WARNING_PREFIX)
+    ? cleaned.replace(AI_WARNING_PREFIX, "").trim()
     : "";
 };
 
@@ -268,8 +284,12 @@ const hasQuantityReviewForService = (
 };
 
 const buildItemDescription = (item: FormItem) => {
-  return item.aiWarning?.trim()
-    ? `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`
+  if (item.aiWarning?.trim()) {
+    return `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`;
+  }
+
+  return item.priceConfirmed
+    ? `${PRICE_CONFIRMED_PREFIX} ${item.serviceName}`
     : item.serviceName;
 };
 
@@ -439,7 +459,7 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   // Keep service names user-facing and German. This is display/merge safety,
   // not the primary parser: the parser still decides the position itself.
   if (
-    /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
+    /(^|\b)(anfahrt|anfahrt pauschal|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
       key,
     )
   ) {
@@ -485,11 +505,13 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
       ? String(unitPriceNumber)
       : compactText(normalizedItem.unitPrice);
     const warningKey = normalizeForMatch(normalizedItem.aiWarning);
+    const confirmedKey = normalizedItem.priceConfirmed ? "price_confirmed" : "";
     const mergeKey = [
       normalizeForMatch(serviceName),
       unitKey,
       unitPriceKey,
       warningKey,
+      confirmedKey,
       normalizedItem.workSiteId || "",
     ].join("|");
 
@@ -523,6 +545,7 @@ const mergeEquivalentOrderItems = (items: any[]) =>
       unitPrice: String(item.unitPrice ?? 0),
       quantity: String(item.quantity ?? 0),
       aiWarning: getAiWarningFromItemDescription(item.description),
+      priceConfirmed: getPriceConfirmedFromItemDescription(item.description),
       workSiteId: item.workSiteId || null,
       workSite: item.workSite || null,
     })),
@@ -654,7 +677,7 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|(?:innenhof).*(park(?:platz|ieren|en)?|zufahrt)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
+  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich|direkt)|(?:innenhof).*(park(?:platz|ieren|en)?|zufahrt)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parkieren kann man direkt|parking available|parking allowed/.test(
     text,
   );
 };
@@ -2083,6 +2106,13 @@ export default function AuftraegePage() {
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
+  const [catalogDecision, setCatalogDecision] = useState<{
+    index: number;
+    normalizedName: string;
+    price: number;
+    unit: string;
+    existing: ServiceDef;
+  } | null>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -2375,6 +2405,7 @@ export default function AuftraegePage() {
                   ? ""
                   : String(item.quantity),
               aiWarning: getAiWarningFromItemDescription(item.description),
+              priceConfirmed: getPriceConfirmedFromItemDescription(item.description),
               workSiteId: item.workSiteId || null,
             };
           }),
@@ -2391,6 +2422,7 @@ export default function AuftraegePage() {
               Number(o.unitPrice || 0) === 0 ? "" : String(o.unitPrice),
             quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
             aiWarning: "",
+            priceConfirmed: getPriceConfirmedFromItemDescription(o.description),
             workSiteId: null,
           },
         ]),
@@ -2679,19 +2711,87 @@ export default function AuftraegePage() {
   };
 
   const handleServiceCreated = (newSvc: ServiceOption) => {
-    setServices((prev) =>
-      [...prev, newSvc as any].sort((a, b) =>
+    setServices((prev) => {
+      const nextService = newSvc as any;
+      const next = prev.some(
+        (service) =>
+          service.id === nextService.id ||
+          normalizeForMatch(service.name) === normalizeForMatch(nextService.name),
+      )
+        ? prev.map((service) =>
+            service.id === nextService.id ||
+            normalizeForMatch(service.name) === normalizeForMatch(nextService.name)
+              ? { ...service, ...nextService }
+              : service,
+          )
+        : [...prev, nextService];
+
+      return next.sort((a, b) =>
         (a?.name ?? "").localeCompare(b?.name ?? "", "de", {
           sensitivity: "base",
         }),
-      ),
-    );
+      );
+    });
   };
 
   const isServiceInCatalog = (name?: string | null) => {
     const key = normalizeForMatch(name);
     if (!key) return false;
     return services.some((service) => normalizeForMatch(service.name) === key);
+  };
+
+  const markCatalogItemAsReviewed = (
+    index: number,
+    existing?: ServiceDef | ServiceOption | null,
+    confirmLocalPrice = false,
+  ) => {
+    setFormItems((prev) =>
+      prev.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              serviceName: existing?.name || item.serviceName,
+              aiWarning: "",
+              priceConfirmed: confirmLocalPrice,
+            }
+          : item,
+      ),
+    );
+    setServiceActionMenuKey(null);
+  };
+
+  const updateExistingCatalogService = async (
+    decision: NonNullable<typeof catalogDecision>,
+  ) => {
+    const res = await fetch("/api/services", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: decision.existing.id,
+        name: decision.existing.name || decision.normalizedName,
+        defaultPrice: decision.price,
+        unit: decision.unit,
+      }),
+    });
+
+    if (!res.ok) throw new Error("Fehler beim Speichern");
+
+    const savedService: ServiceOption = await res.json();
+    handleServiceCreated(savedService);
+    setFormItems((prev) =>
+      prev.map((item, itemIndex) =>
+        itemIndex === decision.index
+          ? {
+              ...item,
+              serviceName: savedService.name,
+              unit: savedService.unit || item.unit,
+              unitPrice: String(savedService.defaultPrice ?? decision.price),
+              aiWarning: "",
+              priceConfirmed: false,
+            }
+          : item,
+      ),
+    );
   };
 
   const saveItemToServices = async (index: number) => {
@@ -2713,24 +2813,34 @@ export default function AuftraegePage() {
     const existingUnit = normalizePriceUnitForCompare(existing?.unit);
     const itemUnit = normalizePriceUnitForCompare(item.unit);
     const existingPrice = Number(existing?.defaultPrice || 0);
-    const existingNeedsUpdate = Boolean(
+    const existingNeedsDecision = Boolean(
       existing &&
-      (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
+        (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
     );
 
-    if (existing && !existingNeedsUpdate) {
-      toast.info(`Leistung "${existing.name}" ist bereits im Katalog`);
-      onItemServiceSelect(index, existing.name, existing as ServiceOption);
+    if (existing && existingNeedsDecision) {
+      setCatalogDecision({
+        index,
+        normalizedName,
+        price,
+        unit: item.unit,
+        existing,
+      });
       setServiceActionMenuKey(null);
+      return;
+    }
+
+    if (existing) {
+      markCatalogItemAsReviewed(index, existing, false);
+      toast.success("Leistung im Auftrag als geprüft markiert ✓");
       return;
     }
 
     try {
       const res = await fetch("/api/services", {
-        method: existing ? "PUT" : "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: existing?.id,
           name: normalizedName,
           defaultPrice: price,
           unit: item.unit,
@@ -2741,13 +2851,22 @@ export default function AuftraegePage() {
 
       const savedService: ServiceOption = await res.json();
       handleServiceCreated(savedService);
-      onItemServiceSelect(index, savedService.name, savedService);
-      setServiceActionMenuKey(null);
-      toast.success(
-        existingNeedsUpdate
-          ? "Leistungskatalog wurde aktualisiert ✓"
-          : "Leistung wurde in Leistungen übernommen ✓",
+      setFormItems((prev) =>
+        prev.map((item, itemIndex) =>
+          itemIndex === index
+            ? {
+                ...item,
+                serviceName: savedService.name,
+                unit: savedService.unit || item.unit,
+                unitPrice: String(savedService.defaultPrice ?? price),
+                aiWarning: "",
+                priceConfirmed: false,
+              }
+            : item,
+        ),
       );
+      setServiceActionMenuKey(null);
+      toast.success("Leistung wurde in Leistungen übernommen ✓");
     } catch {
       toast.error("Leistung konnte nicht übernommen werden");
     }
@@ -3404,6 +3523,30 @@ export default function AuftraegePage() {
       isServiceInCatalog(item.serviceName),
     );
 
+    const locallyConfirmedServiceNames = new Set(
+      validItems
+        .filter((item) => item.priceConfirmed)
+        .map((item) => item.serviceName.trim().toLowerCase()),
+    );
+
+    const catalogMatchedServiceNames = new Set(
+      validItems
+        .filter(
+          (item) =>
+            !item.priceConfirmed &&
+            isServiceInCatalog(item.serviceName) &&
+            !hasCatalogPriceDeviationForItem(
+              {
+                serviceName: item.serviceName,
+                unit: item.unit,
+                unitPrice: Number(item.unitPrice || 0),
+              },
+              services,
+            ),
+        )
+        .map((item) => item.serviceName.trim().toLowerCase()),
+    );
+
     const cleanedReviewReasons =
       orders
         .find((o) => o.id === editId)
@@ -3412,6 +3555,15 @@ export default function AuftraegePage() {
             const [, reasonService] = reason.split(":");
             const reasonName = (reasonService || "").trim().toLowerCase();
             return !validServiceNames.has(reasonName);
+          }
+
+          if (reason.startsWith("price_override:")) {
+            const [, reasonService] = reason.split(":");
+            const reasonName = (reasonService || "").trim().toLowerCase();
+            return !(
+              locallyConfirmedServiceNames.has(reasonName) ||
+              catalogMatchedServiceNames.has(reasonName)
+            );
           }
 
           if (
@@ -5603,6 +5755,7 @@ export default function AuftraegePage() {
                           const itemPriceNumber = Number(item.unitPrice || 0);
                           const hasFrontendCatalogPriceDeviation =
                             Boolean(catalogService) &&
+                            !item.priceConfirmed &&
                             !unitMismatchReason &&
                             normalizePriceUnitForCompare(
                               catalogService?.unit,
@@ -5614,6 +5767,7 @@ export default function AuftraegePage() {
                             Math.abs(catalogPrice - itemPriceNumber) >= 0.01;
                           const hasFrontendCatalogTextFlatOverride =
                             Boolean(catalogService) &&
+                            !item.priceConfirmed &&
                             !unitMismatchReason &&
                             normalizePriceUnitForCompare(
                               catalogService?.unit,
@@ -5737,6 +5891,7 @@ export default function AuftraegePage() {
                           );
                           const hasCatalogActionMenu =
                             isCompleteItemForCatalogAction &&
+                            !item.priceConfirmed &&
                             !priceInputReview &&
                             !quantityInputReview &&
                             (showManualServiceReview ||
@@ -7270,6 +7425,88 @@ export default function AuftraegePage() {
               "Speichern", "Speichern & schließen"). Navigation between main lists now happens via
               the small mobile-only shortcut rendered at the END of the
               list page (see <MobileListShortcut /> below). */}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(catalogDecision)}
+        onOpenChange={(open) => {
+          if (!open) setCatalogDecision(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Leistung im Katalog vorhanden</DialogTitle>
+          </DialogHeader>
+          {catalogDecision && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900">
+                <div className="font-semibold">
+                  {catalogDecision.existing.name} existiert bereits im Leistungskatalog.
+                </div>
+                <div className="mt-1">
+                  Wähle bewusst, ob nur dieser Auftrag geprüft werden soll oder ob der Standardpreis im Katalog global geändert wird.
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="text-muted-foreground font-semibold">Katalog aktuell</div>
+                  <div className="mt-1 font-semibold">{catalogDecision.existing.unit}</div>
+                  <div className="font-mono text-lg font-bold">
+                    {formatCurrency(Number(catalogDecision.existing.defaultPrice || 0), currency)}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="text-muted-foreground font-semibold">Dieser Auftrag</div>
+                  <div className="mt-1 font-semibold">{catalogDecision.unit}</div>
+                  <div className="font-mono text-lg font-bold">
+                    {formatCurrency(catalogDecision.price, currency)}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={() => {
+                    markCatalogItemAsReviewed(
+                      catalogDecision.index,
+                      catalogDecision.existing,
+                      true,
+                    );
+                    setCatalogDecision(null);
+                    toast.success("Nur diesen Auftrag als geprüft übernommen ✓");
+                  }}
+                >
+                  Nur diesen Auftrag als geprüft übernehmen
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={async () => {
+                    try {
+                      await updateExistingCatalogService(catalogDecision);
+                      setCatalogDecision(null);
+                      toast.success("Katalogpreis global aktualisiert ✓");
+                    } catch {
+                      toast.error("Leistungskatalog konnte nicht aktualisiert werden");
+                    }
+                  }}
+                >
+                  Katalogpreis global aktualisieren
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => setCatalogDecision(null)}
+                >
+                  Abbrechen
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

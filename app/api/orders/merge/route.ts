@@ -55,7 +55,7 @@ const canonicalMergeServiceName = (value?: string | null) => {
   const key = normalizeServiceKey(name);
 
   if (
-    /\b(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+    /\b(anfahrt|anfahrt pauschal|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
       key,
     )
   ) {
@@ -639,7 +639,7 @@ export async function POST(request: NextRequest) {
       const mergedItems = mergeOrderItems(allOrders);
       const mergedSpecialNotes = mergeSpecialNotes(
         allOrders,
-        [vatMismatchNote, executionAddressMismatchNote].filter(Boolean),
+        [vatMismatchNote].filter(Boolean),
       );
 
       const totalPrice = mergedItems.reduce(
