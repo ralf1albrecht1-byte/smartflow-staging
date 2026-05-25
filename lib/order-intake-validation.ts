@@ -3749,6 +3749,249 @@ function removeUnknownItemsCoveredByNamedItems(
   });
 }
 
+
+function isPriceAnchorOnlyServiceName(value?: string | null): boolean {
+  const normalized = normalizeCompare(value);
+  if (!normalized) return true;
+
+  // Small structural blocklist only: these are price/linking words, not services.
+  // This is intentionally not a trade/service dictionary.
+  return /^(?:ansatz|stundenansatz|stundensatz|tagessatz|stundenpreis|preis|einzelpreis|ep|zu|a|à|pro|je|per|par|fuer|für)$/i.test(
+    normalized,
+  );
+}
+
+function serviceNameQualityScore(value?: string | null): number {
+  const normalized = normalizeCompare(value);
+  if (!normalized) return -100;
+  if (isPriceAnchorOnlyServiceName(value)) return -80;
+
+  let score = 0;
+  const tokens = meaningfulServiceTokens(value);
+  score += tokens.length * 20;
+  if (canonicalGermanServiceNameFromText(value)) score += 80;
+  if (/[,;:]\s*(?:zu|a|à|pro|je|per|par)\s*$/i.test(String(value || ""))) {
+    score -= 80;
+  }
+  if (/\b(?:preis|ansatz|stundenansatz|stundensatz)\b/i.test(normalized)) {
+    score -= 40;
+  }
+  return score;
+}
+
+function explicitLineMatchesItem(
+  item: ParsedOrderItemForValidation,
+  explicit: ExplicitServiceLineItem,
+): boolean {
+  const itemName = normalizeCompare(item.serviceName);
+  const explicitName = normalizeCompare(explicit.serviceName);
+  if (!explicitName || explicitName === "unbekannte leistung") return false;
+
+  if (itemName === explicitName) return true;
+
+  const itemSource = normalizeCompare(
+    [item.sourceText, item.evidence, item.description].filter(Boolean).join(" "),
+  );
+  const explicitSource = normalizeCompare(explicit.sourceText);
+  const sameSource = Boolean(
+    itemSource &&
+      explicitSource &&
+      (itemSource.includes(explicitSource) || explicitSource.includes(itemSource)),
+  );
+
+  if (!sameSource) return false;
+
+  if (isPriceAnchorOnlyServiceName(item.serviceName)) return true;
+  if (/[,;:]\s*(?:zu|a|à|pro|je|per|par)\s*$/i.test(item.serviceName || "")) {
+    return true;
+  }
+
+  const itemTokens = meaningfulServiceTokens(item.serviceName);
+  const explicitTokens = meaningfulServiceTokens(explicit.serviceName);
+  const overlap = explicitTokens.filter((token) => itemTokens.includes(token)).length;
+
+  return overlap > 0;
+}
+
+function preferExplicitSafeItem(
+  current: ParsedOrderItemForValidation,
+  explicit: ExplicitServiceLineItem,
+): ParsedOrderItemForValidation {
+  const explicitTotal = calculateSafeLineTotal(explicit);
+  return {
+    ...current,
+    serviceName: explicit.serviceName,
+    description: explicit.sourceText,
+    quantity: explicit.quantity,
+    unit: explicit.unit,
+    unitPrice: explicit.unitPrice,
+    totalPrice: explicitTotal,
+    needsReview: Boolean(explicit.needsReview),
+    reviewReason: explicit.reviewReason || null,
+    sourceText: explicit.sourceText,
+    evidence: explicit.sourceText,
+    detectedCurrency: explicit.detectedCurrency || current.detectedCurrency || null,
+  };
+}
+
+function removeUnsafeExplicitDuplicates(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  const withoutPriceAnchors = items.filter(
+    (item) => !isPriceAnchorOnlyServiceName(item.serviceName),
+  );
+
+  const bySourceAmount = new Map<string, ParsedOrderItemForValidation>();
+
+  for (const item of withoutPriceAnchors) {
+    const sourceKey = normalizeCompare(
+      item.sourceText || item.evidence || item.description || "",
+    );
+    const unitType = unitTypeFromDisplayUnit(item.unit) || normalizeCompare(item.unit);
+    const key = `${sourceKey}:${unitType}:${Number(item.quantity || 0)}:${Number(item.unitPrice || 0)}`;
+
+    if (!sourceKey) {
+      const fallbackKey = `fallback:${normalizeCompare(item.serviceName)}:${unitType}:${Number(item.quantity || 0)}:${Number(item.unitPrice || 0)}`;
+      if (!bySourceAmount.has(fallbackKey)) bySourceAmount.set(fallbackKey, item);
+      continue;
+    }
+
+    const existing = bySourceAmount.get(key);
+    if (!existing) {
+      bySourceAmount.set(key, item);
+      continue;
+    }
+
+    const existingScore = serviceNameQualityScore(existing.serviceName);
+    const itemScore = serviceNameQualityScore(item.serviceName);
+    if (itemScore > existingScore) bySourceAmount.set(key, item);
+  }
+
+  return Array.from(bySourceAmount.values());
+}
+
+
+function cleanFinalServiceNameArtifacts(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  return items.map((item) => {
+    let serviceName = String(item.serviceName || "")
+      .replace(/[,;:]?\s*(?:zu|a|à|pro|je|per|par)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!serviceName) serviceName = item.serviceName;
+
+    const canonical = canonicalGermanServiceNameFromText(serviceName);
+    if (canonical) serviceName = canonical;
+
+    return serviceName && serviceName !== item.serviceName
+      ? { ...item, serviceName }
+      : item;
+  });
+}
+
+function hasResolvedCompleteItemForReason(
+  items: ParsedOrderItemForValidation[],
+  reason: string,
+): boolean {
+  const parts = reason.split(":");
+  const serviceName = parts[1] || "";
+  if (!serviceName) return false;
+  const serviceKey = normalizeCompare(serviceName);
+  if (!serviceKey) return false;
+
+  return items.some((item) => {
+    if (normalizeCompare(item.serviceName) !== serviceKey) return false;
+    if (Number(item.quantity || 0) <= 0) return false;
+    if (Number(item.unitPrice || 0) <= 0) return false;
+    if (Number(item.totalPrice || 0) <= 0) return false;
+    if (item.needsReview && item.reviewReason?.startsWith("price_unclear:")) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function hasOpenAmountReview(items: ParsedOrderItemForValidation[]): boolean {
+  return items.some((item) => {
+    if (Number(item.unitPrice || 0) <= 0) return true;
+    if (!isFlatUnit(item.unit) && Number(item.quantity || 0) <= 0) return true;
+    const reason = item.reviewReason || "";
+    return (
+      item.needsReview &&
+      (reason.startsWith("price_unclear:") ||
+        reason === "unit_price_review" ||
+        reason === "quantity_review")
+    );
+  });
+}
+
+function applyHardExplicitItemConsistencyGuard(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const explicitItems = extractExplicitServiceLineItems(originalText, finalCurrency).filter(
+    (explicit) =>
+      explicit.detectedCurrency === finalCurrency &&
+      !isPriceAnchorOnlyServiceName(explicit.serviceName) &&
+      normalizeCompare(explicit.serviceName) !== "unbekannte leistung",
+  );
+
+  if (explicitItems.length === 0) {
+    return {
+      items: removeUnsafeExplicitDuplicates(items),
+      reviewReasons: [],
+    };
+  }
+
+  const reviewReasons: string[] = [];
+  let nextItems = items.filter(
+    (item) => !isPriceAnchorOnlyServiceName(item.serviceName),
+  );
+
+  for (const explicit of explicitItems) {
+    const existingIndex = nextItems.findIndex((item) =>
+      explicitLineMatchesItem(item, explicit),
+    );
+
+    if (existingIndex >= 0) {
+      const existing = nextItems[existingIndex];
+      const beforeQuantity = Number(existing.quantity || 0);
+      const beforePrice = Number(existing.unitPrice || 0);
+      const quantityChanged =
+        Math.abs(beforeQuantity - Number(explicit.quantity || 0)) >= 0.001;
+      const priceChanged =
+        Math.abs(beforePrice - Number(explicit.unitPrice || 0)) >= 0.01;
+
+      nextItems[existingIndex] = preferExplicitSafeItem(existing, explicit);
+
+      if (quantityChanged || priceChanged) {
+        reviewReasons.push(
+          `item_repaired_from_same_text_line:${explicit.serviceName}`,
+        );
+      }
+      continue;
+    }
+
+    nextItems.push({
+      ...explicit,
+      totalPrice: calculateSafeLineTotal(explicit),
+      needsReview: Boolean(explicit.needsReview),
+      reviewReason: explicit.reviewReason || null,
+    });
+    reviewReasons.push(`item_added_from_same_text_line:${explicit.serviceName}`);
+  }
+
+  nextItems = removeUnsafeExplicitDuplicates(nextItems);
+
+  return {
+    items: nextItems,
+    reviewReasons: unique(reviewReasons),
+  };
+}
+
 export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
@@ -3994,6 +4237,16 @@ export function validateAndRepairParsedOrderItems(
   items = dedupeUnsafeDuplicateItems(items);
   items = removeUnknownItemsCoveredByNamedItems(items);
 
+  const hardExplicitGuard = applyHardExplicitItemConsistencyGuard(
+    items,
+    input.originalText,
+    finalCurrency,
+  );
+  items = cleanFinalServiceNameArtifacts(
+    normalizeParsedServiceNames(hardExplicitGuard.items),
+  );
+  reviewReasons.push(...hardExplicitGuard.reviewReasons);
+
   const priceUnclearServiceNames = new Set(
     items
       .filter((item) => item.reviewReason?.startsWith("price_unclear:"))
@@ -4024,10 +4277,25 @@ export function validateAndRepairParsedOrderItems(
   }
 
   const finalReviewReasons = unique(reviewReasons)
+    .filter(
+      (reason) =>
+        !reason.startsWith("item_repaired_from_same_text_line:") &&
+        !reason.startsWith("item_added_from_same_text_line:"),
+    )
     .filter((reason) => {
       if (!reason.startsWith("unit_mismatch:")) return true;
       const [, serviceName] = reason.split(":");
       return !priceUnclearServiceNames.has(normalizeCompare(serviceName));
+    })
+    .filter((reason) => {
+      if (!reason.startsWith("price_unclear:")) return true;
+      return !hasResolvedCompleteItemForReason(items, reason);
+    })
+    .filter((reason) => {
+      if (reason !== "unit_price_review" && reason !== "quantity_review") {
+        return true;
+      }
+      return hasOpenAmountReview(items);
     })
     .filter((reason) => {
       if (
