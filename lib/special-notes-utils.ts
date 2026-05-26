@@ -87,7 +87,8 @@ const semanticNoteKey = (value: string) => {
   if (/termin.*(klaeren|klaren|abstimmen|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(text)) return "appointment_clarify";
   if (/whatsapp/.test(text)) return "communication_whatsapp";
   if (/\bsms\b/.test(text)) return "communication_sms";
-  if (/mail|email|e mail|e-mail|nicht anrufen|keine telefonische|kein telefon/.test(text)) return "communication_mail_phone";
+  if (/nicht anrufen|keine telefonische|kein telefon/.test(text)) return "communication_no_call";
+  if (/mail|email|e mail|e-mail/.test(text)) return "communication_email";
   if (/\brueckruf\b|\bruckruf\b|\banrufen\b|\btelefonisch\b|\btelefon\b/.test(text)) return "callback";
 
   return text;

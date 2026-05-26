@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage } from 'lucide-react';
+import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail, Phone, MessageCircle } from 'lucide-react';
 import { splitSpecialNotes, splitJobHints, detectCallbackRequest } from '@/lib/special-notes-utils';
 import { formatAudioDuration } from '@/lib/audio-format';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
@@ -329,7 +329,7 @@ function detectCommunicationPreferenceChips(
 // ─── Sub-components ───
 
 /** Chip component */
-function Chip({ icon: Icon, label, color = 'default', href, title }: { icon?: any; label: string; color?: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange'; href?: string; title?: string }) {
+function Chip({ icon: Icon, label, color = 'default', href, title, compact = false }: { icon?: any; label: string; color?: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange'; href?: string; title?: string; compact?: boolean }) {
   const colors: Record<string, string> = {
     default: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
     green: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
@@ -340,7 +340,11 @@ function Chip({ icon: Icon, label, color = 'default', href, title }: { icon?: an
     amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
     orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   };
-  const className = `group relative inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
+  const fallbackIcon = label === 'Mail' ? Mail : label === 'WhatsApp' ? MessageCircle : label === 'SMS' ? MessageCircle : undefined;
+  const DisplayIcon = Icon || fallbackIcon;
+  const className = compact
+    ? `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
+    : `group relative inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
   const tooltip = title ? (
     <span className="pointer-events-none absolute left-0 bottom-full z-[9999] mb-1 hidden w-[min(18rem,calc(100vw-2rem))] whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
       {title}
@@ -348,8 +352,9 @@ function Chip({ icon: Icon, label, color = 'default', href, title }: { icon?: an
   ) : null;
   const content = (
     <>
-      {Icon && <Icon className="w-3 h-3" />}
-      {label}
+      {DisplayIcon && <DisplayIcon className={compact ? "w-3.5 h-3.5" : "w-3 h-3"} />}
+      {!compact && label}
+      {compact && !DisplayIcon && label.slice(0, 1)}
       {tooltip}
     </>
   );
@@ -525,7 +530,9 @@ export function CommunicationBlock({
           )}
           {/* Communication preference chips */}
           {communicationPreferences.map((chip) => (
-            <Chip key={chip.key} label={chip.label} color={chip.color} href={chip.href} title={chip.title} />
+            <span key={chip.key} className="inline-flex">
+              <Chip label={chip.label} color={chip.color} href={chip.href} title={chip.title} />
+            </span>
           ))}
           {/* Callback request chip */}
           {callbackNote && (
@@ -702,10 +709,12 @@ export function CommunicationChips({
   data,
   onAudioClick,
   onImageClick,
+  compact = false,
 }: {
   data: CommunicationData;
   onAudioClick?: () => void;
   onImageClick?: () => void;
+  compact?: boolean;
 }) {
   const hasAudio = data.mediaUrl && data.mediaType === 'audio';
   const hasImages = (data.imageUrls && data.imageUrls.length > 0) || (data.mediaUrl && data.mediaType === 'image');
@@ -742,24 +751,26 @@ export function CommunicationChips({
         return (
           <button
             onClick={(e) => { e.stopPropagation(); onImageClick?.(); }}
-            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded hover:bg-blue-100 text-[11px]"
+            className={compact ? "inline-flex h-7 w-7 items-center justify-center text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100" : "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded hover:bg-blue-100 text-[11px]"}
             title="Bilder ansehen"
           >
-            <ImageIcon className="w-3.5 h-3.5" />{imgCount > 1 ? ` (${imgCount})` : ''}
+            <ImageIcon className="w-3.5 h-3.5" />{!compact && (imgCount > 1 ? ` (${imgCount})` : '')}
           </button>
         );
       })()}
       {communicationPreferences.map((chip) => (
-        <Chip key={chip.key} label={chip.label} color={chip.color} href={chip.href} title={chip.title} />
+        <span key={chip.key} className="inline-flex">
+          <Chip label={chip.label} color={chip.color} href={chip.href} title={chip.title} compact={compact} />
+        </span>
       ))}
       {hazards.map((h, i) => (
         <span key={`h-${i}`} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700">
-          {/hund/i.test(h) ? '🐕' : '⚠️'} {h}
+          {/hund/i.test(h) ? '🐕' : '⚠️'} {!compact && h}
         </span>
       ))}
       {equipment.map((h, i) => (
         <span key={`e-${i}`} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
-          🔧 {h}
+          🔧 {!compact && h}
         </span>
       ))}
       {callbackNote && callbackPhone ? (
@@ -767,13 +778,16 @@ export function CommunicationChips({
           href={`tel:${callbackPhone}`}
           onClick={(event) => event.stopPropagation()}
           title={`Anrufen: ${callbackPhone}`}
-          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 hover:underline"
+          className={compact ? "inline-flex h-7 w-7 items-center justify-center rounded-lg font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 hover:underline" : "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 hover:underline"}
         >
-          📞 Rückruf
+          📞 {!compact && 'Rückruf'}
         </a>
       ) : callbackNote ? (
-        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700">
-          📞 Rückruf
+        <span
+          title="Rückruf gewünscht · Nummer fehlt"
+          className={compact ? "inline-flex h-7 w-7 items-center justify-center rounded-lg font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700" : "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700"}
+        >
+          📞 {!compact && 'Rückruf'}
         </span>
       ) : null}
     </>

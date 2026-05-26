@@ -2055,8 +2055,119 @@ const renderOrderCardBadge = (
   );
 };
 
+const mobileIconForBadge = (badge: ReviewBadge) => {
+  const label = normalizeForMatch(badge.label);
+  if (badge.key === "site_address") return "⌖";
+  if (badge.key === "callback_request") return "☎";
+  if (badge.key === "appointment" || badge.key === "appointment_clarify") return "▣";
+  if (label.includes("leiter")) return "▥";
+  if (label.includes("schluessel") || label.includes("schlussel")) return "⌘";
+  if (label.includes("zugang")) return "▯";
+  if (label.includes("park")) return "Ⓟ";
+  if (label.includes("mail")) return "✉";
+  if (label.includes("whatsapp")) return "☏";
+  if (label.includes("sms")) return "✉";
+  if (badge.icon) return "!";
+  return badge.label.slice(0, 1);
+};
+
+const mobileIconBadgeClass = (badge: ReviewBadge) => {
+  const className = badge.className || "";
+  if (/red/.test(className)) return "bg-red-50 text-red-700 border-red-200";
+  if (/blue/.test(className)) return "bg-blue-50 text-blue-700 border-blue-200";
+  if (/cyan/.test(className)) return "bg-cyan-50 text-cyan-700 border-cyan-200";
+  if (/emerald|green/.test(className)) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (/violet|purple/.test(className)) return "bg-violet-50 text-violet-700 border-violet-200";
+  if (/yellow|amber|orange/.test(className)) return "bg-amber-50 text-amber-700 border-amber-200";
+  return "bg-slate-50 text-slate-700 border-slate-200";
+};
+
+const renderMobileIconBadge = (badge: ReviewBadge) => {
+  const title = compactText(badge.tooltip) || badge.label;
+  return (
+    <span
+      key={badge.key}
+      tabIndex={0}
+      title={title}
+      aria-label={title}
+      onClick={(event) => event.stopPropagation()}
+      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold ${mobileIconBadgeClass(badge)}`}
+    >
+      {mobileIconForBadge(badge)}
+    </span>
+  );
+};
+
+const renderMobileTextBadge = (badge: ReviewBadge, align: "left" | "right" = "right") =>
+  renderReviewBadge(
+    badge,
+    "max-w-full truncate text-[10px] px-1.5 py-0.5 font-semibold",
+    { strong: true, tooltipAlign: align },
+  );
+
+const mobileOverflowBadge = (count: number) =>
+  count > 0 ? (
+    <span
+      key="mobile_more_badges"
+      className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-semibold text-slate-600"
+    >
+      +{count}
+    </span>
+  ) : null;
+
+const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
+  const source = values.filter(Boolean).join("\n");
+  const explicitPhone =
+    source.match(/(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    source.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] ||
+    "";
+  const normalized = explicitPhone.replace(/[^+0-9]/g, "");
+  return normalized.length >= 6 ? normalized : "";
+};
+
+const getOrderPhoneForHref = (order: Order) =>
+  extractPhoneForHref(
+    order.customer?.phone,
+    order.notes,
+    order.specialNotes,
+    order.audioTranscript,
+  );
+
+const renderCallbackCardBadge = (
+  order: Order,
+  badge: ReviewBadge,
+  tooltipAlign: "left" | "right" = "left",
+) => {
+  const phone = getOrderPhoneForHref(order);
+  if (!phone) {
+    return renderOrderCardBadge(
+      {
+        ...badge,
+        tooltip: compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt",
+      },
+      tooltipAlign,
+    );
+  }
+
+  const clickableBadge = {
+    ...badge,
+    tooltip: `Anrufen: ${phone}`,
+  };
+
+  return (
+    <a
+      key={badge.key}
+      href={`tel:${phone}`}
+      onClick={(event) => event.stopPropagation()}
+      className="inline-flex"
+    >
+      {renderOrderCardBadge(clickableBadge, tooltipAlign)}
+    </a>
+  );
+};
+
 const cleanServiceLabel = (value?: string | null) => {
-  let text = compactText(value);
+  let text = compactText(canonicalServiceNameForOrderItem(value));
   if (!text) return "";
 
   text = text
@@ -2171,6 +2282,29 @@ const getOrderCardServiceSummary = (order: Order) => {
     extractFallbackServiceLabels(order),
   );
   return fallbackSummary || "Leistung prüfen";
+};
+
+const formatMobileServiceSummary = (labels: string[]) => {
+  const unique = uniqueServiceLabels(labels);
+  if (unique.length === 0) return "Leistung prüfen";
+  const visible = unique.slice(0, 3);
+  const hidden = unique.length - visible.length;
+  return `${visible.join(" · ")}${hidden > 0 ? ` · +${hidden}` : ""}`;
+};
+
+const getMobileOrderCardServiceSummary = (order: Order) => {
+  const itemLabels =
+    order.items && order.items.length > 0
+      ? order.items.map((item) => item.serviceName)
+      : [];
+  const structuredLabels =
+    itemLabels.length > 0 ? itemLabels : [order.serviceName || ""];
+  const usableStructuredLabels = structuredLabels.filter(
+    (label) => normalizeForMatch(label) !== "sonstiges",
+  );
+  const structuredSummary = formatMobileServiceSummary(usableStructuredLabels);
+  if (structuredSummary && structuredSummary !== "Leistung prüfen") return structuredSummary;
+  return formatMobileServiceSummary(extractFallbackServiceLabels(order));
 };
 
 const emptyForm = {
@@ -4930,6 +5064,7 @@ export default function AuftraegePage() {
                   (it) => (it.serviceName ?? "").toLowerCase() === "sonstiges",
                 ));
             const serviceLine = getOrderCardServiceSummary(o);
+            const mobileServiceLine = getMobileOrderCardServiceSummary(o);
             const parsedCardNotes = splitSpecialNotes(o.specialNotes);
             const systemBadges = getSystemBadges(o, services);
             const amountReviewBadges = buildAmountReviewBadges(
@@ -4956,6 +5091,18 @@ export default function AuftraegePage() {
                 ),
             );
             const rightSideBadges = amountReviewBadges;
+            const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
+            const mobileRightHiddenCount = Math.max(0, rightSideBadges.length - mobilePrimaryRightBadges.length);
+            const mobileSystemBadges = leftSystemBadges.filter((badge) => badge.key !== "site_address");
+            const mobileAddressBadge = leftSystemBadges.find((badge) => badge.key === "site_address") || null;
+            const mobileActionBadges = [
+              ...(mobileAddressBadge ? [mobileAddressBadge] : []),
+              ...operationalBadges,
+              ...messageBadges,
+              ...otherFooterBadges,
+            ];
+            const mobileVisibleActionBadges = mobileActionBadges.slice(0, 4);
+            const mobileHiddenActionCount = Math.max(0, mobileActionBadges.length - mobileVisibleActionBadges.length);
             const showAudioTooLongBadge =
               o.audioTranscriptionStatus?.startsWith("skipped");
             const showImageOnlyBadge = false;
@@ -5061,9 +5208,141 @@ export default function AuftraegePage() {
                         )}
                       </div>
 
-                      {/* Center: Main info */}
-                      <div className="flex min-w-0 flex-1 items-stretch gap-2 sm:gap-3">
-                        <div className="flex-1 min-w-0 max-w-full overflow-hidden">
+                      {/* Mobile: compact two-column card like selected mockup */}
+                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_112px] gap-2 md:hidden">
+                        <div className="min-w-0 overflow-visible">
+                          <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                            <span className="shrink-0">
+                              {o.createdAt
+                                ? new Date(o.createdAt).toLocaleDateString(
+                                    "de-CH",
+                                    { day: "2-digit", month: "2-digit" },
+                                  ) +
+                                  " · " +
+                                  new Date(o.createdAt).toLocaleTimeString(
+                                    "de-CH",
+                                    { hour: "2-digit", minute: "2-digit" },
+                                  )
+                                : ""}
+                            </span>
+                          </div>
+
+                          <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                            <span
+                              className={`min-w-0 truncate text-[13px] font-semibold ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                            >
+                              {isFallbackCustomerName(o.customer?.name)
+                                ? "Kunde nicht zugeordnet"
+                                : o.customer?.name || "–"}
+                            </span>
+                            {!isFallbackCustomerName(o.customer?.name) &&
+                              o.customer?.customerNumber && (
+                                <span className="shrink-0 text-[11px] text-muted-foreground">
+                                  ({o.customer.customerNumber})
+                                </span>
+                              )}
+                          </div>
+
+                          {mobileSystemBadges.length > 0 && (
+                            <div className="mt-1 flex max-w-full flex-wrap items-center gap-1">
+                              {mobileSystemBadges.slice(0, 1).map((badge) =>
+                                renderMobileTextBadge(badge, "left"),
+                              )}
+                            </div>
+                          )}
+
+                          <p
+                            className={`mt-1 line-clamp-2 text-[13px] font-medium leading-snug ${
+                              isSonstiges
+                                ? "text-red-600 dark:text-red-400"
+                                : "text-foreground"
+                            }`}
+                          >
+                            {isSonstiges && "⚠ "}
+                            {mobileServiceLine}
+                          </p>
+
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
+                            <select
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-7 shrink-0 rounded-lg border px-1.5 text-[11px] font-medium"
+                              style={getStatusStyle(
+                                ORDER_STATUS_STYLES,
+                                o?.status ?? "",
+                              )}
+                              value={o?.status ?? ""}
+                              onChange={(e: any) =>
+                                updateOrderStatus(
+                                  e,
+                                  o?.id,
+                                  e?.target?.value ?? "",
+                                )
+                              }
+                            >
+                              {orderStatuses.map((s) => (
+                                <option
+                                  key={s}
+                                  style={getStatusStyle(ORDER_STATUS_STYLES, s)}
+                                >
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+
+                            <CommunicationChips
+                              compact
+                              data={{
+                                ...o,
+                                specialNotes: o.specialNotes,
+                                notes: [o.notes, o.specialNotes, o.audioTranscript]
+                                  .filter(Boolean)
+                                  .join("\n"),
+                              }}
+                              onAudioClick={() => openMedia(o)}
+                              onImageClick={() => openMedia(o)}
+                            />
+
+                            {mobileVisibleActionBadges.map((badge) =>
+                              renderMobileIconBadge(badge),
+                            )}
+                            {mobileOverflowBadge(mobileHiddenActionCount)}
+                          </div>
+                        </div>
+
+                        <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
+                          <div className="flex w-full flex-col items-end gap-1">
+                            {appointmentBadges.slice(0, 1).map((badge) =>
+                              renderMobileTextBadge(badge, "right"),
+                            )}
+                            {mobilePrimaryRightBadges.map((badge) =>
+                              renderMobileTextBadge(badge, "right"),
+                            )}
+                            {mobileRightHiddenCount > 0 && (
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                                +{mobileRightHiddenCount}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="whitespace-nowrap text-right leading-tight">
+                            <div className="font-mono text-[15px] font-bold tabular-nums">
+                              {formatCurrency(
+                                getSafeOrderTotal(o),
+                                o.currency === "EUR" ? "EUR" : "CHF",
+                              )}
+                            </div>
+                            {hasOrderVat(o) && (
+                              <div className="text-[9px] leading-none text-muted-foreground">
+                                inkl. MwSt
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Desktop/tablet: existing dense list layout */}
+                      <div className="hidden min-w-0 flex-1 items-stretch gap-2 sm:gap-3 md:flex">
+                        <div className="flex-1 min-w-0 max-w-full overflow-visible">
                           {/* Row 1: date + customer */}
                           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-visible">
                             <span className="text-muted-foreground shrink-0">
@@ -5184,7 +5463,7 @@ export default function AuftraegePage() {
                             />
 
                             {callbackBadges.map((badge) =>
-                              renderOrderCardBadge(badge),
+                              renderCallbackCardBadge(o, badge),
                             )}
 
                             {messageBadges.map((badge) =>

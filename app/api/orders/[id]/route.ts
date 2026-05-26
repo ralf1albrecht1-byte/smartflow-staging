@@ -92,6 +92,159 @@ function cleanWorkSiteDisplayName(value?: string | null) {
   return text || String(value || "").replace(/\s+/g, " ").trim() || null;
 }
 
+function getOrderSourceTextForItems(data: any) {
+  return [
+    data?.notes,
+    data?.description,
+    data?.serviceName,
+    data?.specialNotes,
+    data?.audioTranscript,
+    ...(Array.isArray(data?.items)
+      ? data.items.flatMap((item: any) => [item?.serviceName, item?.description])
+      : []),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function serviceIntentTokens(serviceName?: string | null) {
+  const key = normalizeSearchText(normalizeServiceNameForDisplay(serviceName));
+  if (/boden/.test(key)) return ["boden", "bode", "floor", "sol", "suelo", "paviment"];
+  if (/fenster/.test(key)) return ["fenster", "fensterli", "fensterfront", "window", "vitrin", "vitre", "ventan", "fenetre"];
+  if (/anfahrt/.test(key)) return ["anfahrt", "fahrt", "fahrtkosten", "deplacement", "travel", "trip", "transport"];
+  return key.split(/\s+/g).filter((token) => token.length >= 4);
+}
+
+function sourceLineContainsNumber(line: string, value: unknown) {
+  const number = Number(String(value ?? "").replace("'", "").replace(",", "."));
+  if (!Number.isFinite(number) || number <= 0) return false;
+  const label = Number.isInteger(number) ? String(number) : String(Number(number.toFixed(2))).replace(".", "[.,]");
+  return new RegExp(`(^|[^0-9])${label}([^0-9]|$)`).test(line);
+}
+
+function findSourceLineForItem(source: string, item: any) {
+  const tokens = serviceIntentTokens(item?.serviceName);
+  if (!source || tokens.length === 0) return "";
+
+  let bestLine = "";
+  let bestScore = 0;
+  const lines = source
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const normalized = normalizeSearchText(line);
+    if (!normalized) continue;
+    const hits = tokens.filter((token) => normalized.includes(token)).length;
+    if (hits === 0) continue;
+
+    let score = hits * 6;
+    if (sourceLineContainsNumber(normalized, item?.quantity)) score += 4;
+    if (sourceLineContainsNumber(normalized, item?.unitPrice)) score += 2;
+    if (/\b(chf|eur|franken|stutz|sfr)\b|€|\.\-/.test(normalized) || /€/.test(line)) score += 2;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = line;
+    }
+  }
+
+  return bestScore >= 6 ? bestLine : "";
+}
+
+function parseNumberToken(value?: string | null) {
+  const number = Number(String(value || "").replace("'", "").replace(",", "."));
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function extractUnitPriceFromSourceLine(line: string) {
+  if (!line) return null;
+  const patterns = [
+    /(?:je|à|a|zu|pro|per)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/i,
+    /(?:chf|eur|fr\.?|sfr|€)\s*(\d+(?:[.,]\d+)?)/i,
+    /(\d+(?:[.,]\d+)?)\s*(?:chf|eur|franken|stutz|sfr|€)\b/i,
+    /(\d+(?:[.,]\d+)?)\s*\.\-/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = line.match(pattern);
+    const parsed = parseNumberToken(match?.[1]);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function shouldTrustSourcePriceForItem(item: any, data: any) {
+  const reviewText = [
+    item?.description,
+    ...(Array.isArray(data?.reviewReasons) ? data.reviewReasons : []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    Number(item?.unitPrice ?? 0) <= 0 ||
+    /preis\s+im\s+text\s+unklar|textpreis\s+übernommen|textpreis\s+uebernommen|price_unclear|unit_price_review/i.test(reviewText)
+  );
+}
+
+function normalizeItemsForPersist(items: any[] | undefined, data: any) {
+  if (!Array.isArray(items)) return undefined;
+  const source = getOrderSourceTextForItems(data);
+
+  return items.map((item: any) => {
+    const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
+    const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
+    const sourcePrice = extractUnitPriceFromSourceLine(sourceLine);
+    const unitPrice =
+      sourcePrice && shouldTrustSourcePriceForItem(item, data)
+        ? sourcePrice
+        : Number(item?.unitPrice ?? 0);
+    const quantity = Number(item?.quantity ?? 1);
+
+    return {
+      ...item,
+      serviceName,
+      unitPrice,
+      quantity,
+      totalPrice: unitPrice * quantity,
+    };
+  });
+}
+
+function extractExactOperationalHints(data: any) {
+  const source = [data?.notes, data?.audioTranscript, data?.specialNotes]
+    .filter(Boolean)
+    .join("\n");
+  if (!source) return [];
+
+  return Array.from(
+    new Set(
+      source
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+/g)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line) => !/^\[Titel\s*:/i.test(line) && !/^\[Priorität\s*:/i.test(line))
+        .filter((line) => {
+          const text = normalizeSearchText(line);
+          if (!text) return false;
+          return (
+            /nicht\s+anrufen|keine?\s+telefonische|kein\s+telefon|mail\s+reicht|e\s*mail\s+reicht|nur\s+(?:per\s+)?mail|whats\s*app|\bsms\b/.test(text) ||
+            /termin.*(?:klaeren|klaren|abstimmen|vereinbaren|abmachen|melden|ruecksprache|rucksprache)|(?:ruecksprache|rucksprache|melden).*termin/.test(text) ||
+            /\b\d{1,2}[.\-/]\d{1,2}(?:[.\-/]\d{2,4})?\b.*(?:bestaetigen|bestätigen|falls|waere|wäre|geht|passt)/i.test(line) ||
+            /leiter|schluessel|schlussel|zugang|hintereingang|seiteneingang|park/.test(text)
+          );
+        })
+        .map((line) => line.replace(/^\s*(?:whatsapp|telegram)\s*:\s*/i, "").trim()),
+    ),
+  );
+}
+
 function hasExplicitPriceCurrencySignal(data: any) {
   const source = [
     data?.notes,
@@ -481,6 +634,7 @@ function normalizeOrderSpecialNotes(data: any) {
     .join("\n");
 
   const detectedAll = detectSemanticNotes(sourceText);
+  const exactOperationalHints = extractExactOperationalHints(data);
 
   const existingSafety = parsed.safetyWarnings.flatMap((line) => {
     const detectedLine = detectSemanticNotes(line).safetyWarnings;
@@ -497,7 +651,7 @@ function normalizeOrderSpecialNotes(data: any) {
     new Set([...existingSafety, ...detectedAll.safetyWarnings]),
   );
   const nextJobHints = Array.from(
-    new Set([...existingJobHints, ...detectedAll.jobHints]),
+    new Set([...existingJobHints, ...detectedAll.jobHints, ...exactOperationalHints]),
   );
 
   if (
@@ -626,7 +780,8 @@ export async function PUT(
         : data?.currency === "CHF"
           ? "CHF"
           : undefined);
-    const items = data?.items as any[] | undefined;
+    const rawItems = data?.items as any[] | undefined;
+    const items = normalizeItemsForPersist(rawItems, data);
     let totalPrice = 0;
     let primaryServiceName = data?.serviceName;
     let primaryPriceType = data?.priceType;
@@ -792,7 +947,7 @@ export async function PUT(
             : undefined,
         siteName:
           data?.siteName !== undefined
-            ? data.siteName?.trim() || null
+            ? cleanWorkSiteDisplayName(data.siteName)
             : undefined,
         siteAddress:
           data?.siteAddress !== undefined
