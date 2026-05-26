@@ -15,6 +15,13 @@ import {
   Volume2,
   ImageIcon,
   Mail,
+  MapPin,
+  KeyRound,
+  Phone,
+  CalendarDays,
+  DoorOpen,
+  ParkingCircle,
+  MessageCircle,
   MoreVertical,
   ChevronLeft,
   ChevronRight,
@@ -65,6 +72,34 @@ import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { AutoReuseBanner } from "@/components/auto-reuse-banner";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
 import { MobileListShortcut } from "@/components/mobile-list-shortcut";
+
+function LadderIcon({
+  className = "h-4 w-4",
+  strokeWidth = 2.2,
+}: {
+  className?: string;
+  strokeWidth?: number | string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M6 22 12 2" />
+      <path d="m18 22-6-20" />
+      <path d="M8 14h8" />
+      <path d="M9.5 9h5" />
+      <path d="M10.8 5h2.4" />
+      <path d="M6.8 18h10.4" />
+    </svg>
+  );
+}
 
 interface OrderWorkSite {
   id: string;
@@ -2057,44 +2092,86 @@ const renderOrderCardBadge = (
 
 const mobileIconForBadge = (badge: ReviewBadge) => {
   const label = normalizeForMatch(badge.label);
-  if (badge.key === "site_address") return "⌖";
-  if (badge.key === "callback_request") return "☎";
-  if (badge.key === "appointment" || badge.key === "appointment_clarify") return "▣";
-  if (label.includes("leiter")) return "▥";
-  if (label.includes("schluessel") || label.includes("schlussel")) return "⌘";
-  if (label.includes("zugang")) return "▯";
-  if (label.includes("park")) return "Ⓟ";
-  if (label.includes("mail")) return "✉";
-  if (label.includes("whatsapp")) return "☏";
-  if (label.includes("sms")) return "✉";
-  if (badge.icon) return "!";
-  return badge.label.slice(0, 1);
+  if (badge.key === "site_address") return MapPin;
+  if (badge.key === "callback_request") return Phone;
+  if (badge.key === "appointment" || badge.key === "appointment_clarify") return CalendarDays;
+  if (label.includes("leiter")) return LadderIcon;
+  if (label.includes("schluessel") || label.includes("schlussel")) return KeyRound;
+  if (label.includes("zugang")) return DoorOpen;
+  if (label.includes("park")) return ParkingCircle;
+  if (label.includes("mail")) return Mail;
+  if (label.includes("whatsapp")) return MessageCircle;
+  if (label.includes("sms")) return MessageCircle;
+  if (badge.icon) return AlertTriangle;
+  return null;
 };
 
 const mobileIconBadgeClass = (badge: ReviewBadge) => {
   const className = badge.className || "";
-  if (/red/.test(className)) return "bg-red-50 text-red-700 border-red-200";
-  if (/blue/.test(className)) return "bg-blue-50 text-blue-700 border-blue-200";
-  if (/cyan/.test(className)) return "bg-cyan-50 text-cyan-700 border-cyan-200";
-  if (/emerald|green/.test(className)) return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (/violet|purple/.test(className)) return "bg-violet-50 text-violet-700 border-violet-200";
-  if (/yellow|amber|orange/.test(className)) return "bg-amber-50 text-amber-700 border-amber-200";
-  return "bg-slate-50 text-slate-700 border-slate-200";
+  if (/red/.test(className)) return "bg-red-50 text-red-700 border-red-300";
+  if (/blue/.test(className)) return "bg-blue-50 text-blue-700 border-blue-300";
+  if (/cyan/.test(className)) return "bg-cyan-50 text-cyan-700 border-cyan-300";
+  if (/emerald|green/.test(className)) return "bg-emerald-50 text-emerald-700 border-emerald-300";
+  if (/violet|purple/.test(className)) return "bg-violet-50 text-violet-700 border-violet-300";
+  if (/yellow|amber|orange/.test(className)) return "bg-amber-50 text-amber-700 border-amber-300";
+  return "bg-slate-50 text-slate-700 border-slate-300";
 };
 
 const renderMobileIconBadge = (badge: ReviewBadge) => {
   const title = compactText(badge.tooltip) || badge.label;
+  const Icon = mobileIconForBadge(badge);
   return (
-    <span
+    <button
       key={badge.key}
+      type="button"
       tabIndex={0}
       title={title}
       aria-label={title}
       onClick={(event) => event.stopPropagation()}
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold ${mobileIconBadgeClass(badge)}`}
+      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`}
     >
-      {mobileIconForBadge(badge)}
-    </span>
+      {Icon ? <Icon className="h-3.5 w-3.5" strokeWidth={2.2} /> : badge.label.slice(0, 1)}
+    </button>
+  );
+};
+
+const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
+  if (badge.key !== "callback_request") return renderMobileIconBadge(badge);
+
+  const phone = getOrderPhoneForHref(order);
+  const title = phone
+    ? `Anrufen: ${phone}`
+    : compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt";
+  const Icon = mobileIconForBadge(badge) || Phone;
+  const className = `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`;
+
+  if (!phone) {
+    return (
+      <button
+        key={badge.key}
+        type="button"
+        tabIndex={0}
+        title={title}
+        aria-label={title}
+        onClick={(event) => event.stopPropagation()}
+        className={className}
+      >
+        <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+      </button>
+    );
+  }
+
+  return (
+    <a
+      key={badge.key}
+      href={`tel:${phone}`}
+      onClick={(event) => event.stopPropagation()}
+      aria-label={title}
+      title={title}
+      className={className}
+    >
+      <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+    </a>
   );
 };
 
@@ -2118,11 +2195,12 @@ const mobileOverflowBadge = (count: number) =>
 const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
   const source = values.filter(Boolean).join("\n");
   const explicitPhone =
-    source.match(/(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
-    source.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] ||
+    source.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    source.match(/(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    source.match(/(\+\d[\d\s()./-]{7,}\d)/)?.[1] ||
     "";
   const normalized = explicitPhone.replace(/[^+0-9]/g, "");
-  return normalized.length >= 6 ? normalized : "";
+  return normalized.length >= 7 ? normalized : "";
 };
 
 const getOrderPhoneForHref = (order: Order) =>
@@ -5303,7 +5381,7 @@ export default function AuftraegePage() {
                             />
 
                             {mobileVisibleActionBadges.map((badge) =>
-                              renderMobileIconBadge(badge),
+                              renderMobileActionBadge(o, badge),
                             )}
                             {mobileOverflowBadge(mobileHiddenActionCount)}
                           </div>
