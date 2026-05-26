@@ -470,8 +470,9 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
 
-  // Keep service names user-facing and German. This is display/merge safety,
-  // not the primary parser: the parser still decides the position itself.
+  // Display safety: normalize obvious service intent to German catalog names.
+  // This is intentionally semantic/broad (cleaning intent), not tied to a
+  // specific room such as Veloraum/Keller/Terrasse.
   if (
     /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
       key,
@@ -480,19 +481,22 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
     return "Anfahrt";
   }
 
-  if (
-    /(^|\b)(clean floor|floor cleaning|bodenreinigung|boden reinigen|nettoyage du sol|nettoyage sol|pulizia pavimento|pulizia del pavimento|limpieza suelo|limpieza de suelo)(\b|$)/i.test(
-      key,
-    )
-  ) {
+  const hasFloorIntent =
+    /(?:^|\b|[a-z])boden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b/i.test(key) ||
+    /bodenreinigung|floor cleaning|nettoyage du sol|nettoyage sol|pulizia pavimento|limpieza suelo/.test(key);
+  const hasCleaningIntent =
+    /reinig|putz|putze|saeuber|säuber|clean|nettoyage|pulizia|limpieza|wisch/.test(key);
+
+  if (hasFloorIntent && hasCleaningIntent) {
     return "Boden reinigen";
   }
 
-  if (
-    /(^|\b)(clean windows|window cleaning|windows cleaning|fensterreinigung|fenster reinigen|nettoyage des vitres|nettoyage vitres|pulizia finestre|pulizia delle finestre|limpieza ventanas|limpieza de ventanas)(\b|$)/i.test(
-      key,
-    )
-  ) {
+  const hasWindowIntent =
+    /fenster|fensterli|vitrin|vitre|window|fenetre|fenêtre|finestr|ventan/.test(key);
+  const hasNonCleaningWindowIntent =
+    /streich|maler|lackier|reparier|ersetzen|montier|einbau|abdicht|dicht/.test(key);
+
+  if (hasWindowIntent && !hasNonCleaningWindowIntent) {
     return "Fenster reinigen";
   }
 
@@ -1577,6 +1581,53 @@ const formatCatalogReviewTooltip = (input: {
   return lines.filter(Boolean).join("\n");
 };
 
+const formatCatalogMissingTooltip = (
+  items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
+  currency?: "CHF" | "EUR" | null,
+) => {
+  const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
+  if (items.length === 0) return "Nicht im Katalog.";
+
+  const lines = [
+    items.length > 1
+      ? `${items.length} Leistungen nicht im Katalog:`
+      : "Nicht im Katalog:",
+    ...items.slice(0, 5).map((item) => {
+      const quantity = Number(item.quantity || 0);
+      const unitPrice = Number(item.unitPrice || 0);
+      const quantityLabel = quantity > 0
+        ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`
+        : formatReviewUnitLabel(item.unit || "");
+      const priceLabel = unitPrice > 0
+        ? formatCurrency(unitPrice, safeCurrency)
+        : "Preis prüfen";
+      return `${item.serviceName || "Leistung"} · ${quantityLabel} · ${priceLabel}`;
+    }),
+  ];
+
+  if (items.length > 5) {
+    lines.push(`+${items.length - 5} weitere`);
+  }
+
+  return lines.filter(Boolean).join("\n");
+};
+
+const cleanWorkSiteDisplayName = (value?: string | null) => {
+  let text = compactText(value);
+  if (!text) return "";
+
+  // Remove generic source markers from the title. Keep the actual object name.
+  text = text
+    .replace(/^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i, "")
+    .replace(/^(?:wo\s+gemacht\s+werden\s+muss|wo\s+arbeiten\s+sind|wo\s+es\s+gemacht\s+wird)\s*:?\s*/i, "")
+    .replace(/^(?:ist|isch|is)\s+(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
+    .replace(/^(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
+    .replace(/^[:\-–,\s]+/, "")
+    .trim();
+
+  return text || compactText(value);
+};
+
 const formatExecutionAddressTooltip = (order: Order) => {
   const workSiteLines = (order.workSites ?? [])
     .slice()
@@ -1587,7 +1638,7 @@ const formatExecutionAddressTooltip = (order: Order) => {
     )
     .map((site, index) => {
       const title =
-        compactText(site.siteName) ||
+        cleanWorkSiteDisplayName(site.siteName) ||
         compactText(site.siteAddress) ||
         `Arbeitsort ${index + 1}`;
       const address = [
@@ -1780,14 +1831,7 @@ const getSystemBadges = (
       label: "Nicht im Katalog",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatCatalogReviewTooltip({
-        title:
-          catalogMissingItems.length > 1
-            ? `${catalogMissingItems.length} Leistungen nicht im Katalog.`
-            : "Nicht im Katalog.",
-        item: firstCatalogMissingItem || null,
-        currency: order.currency,
-      }),
+      tooltip: formatCatalogMissingTooltip(catalogMissingItems, order.currency),
     });
   }
 
@@ -1908,7 +1952,7 @@ const getBottomBadges = (
         key: "appointment_clarify",
         label: "Termin klären",
         className: "bg-amber-100 text-amber-800 border border-amber-300",
-        tooltip: appointmentClarification,
+        tooltip: compactText(appointmentClarification).slice(0, 120),
       });
     }
   }
@@ -2160,6 +2204,8 @@ const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
 
 const getOrderConversionBlockers = (order: Order | any): string[] => {
   const blockers: string[] = [];
+  // Status is intentionally NOT a blocker. Open orders may be moved to
+  // Angebot/Rechnung when the actual data is safe enough.
   const items: any[] = Array.isArray(order?.items) ? order.items : [];
   const reviewReasons: string[] = Array.isArray(order?.reviewReasons)
     ? order.reviewReasons.filter(Boolean)
@@ -2702,7 +2748,7 @@ export default function AuftraegePage() {
 
             return {
               key: Math.random().toString(36).slice(2),
-              serviceName: item.serviceName ?? "",
+              serviceName: canonicalServiceNameForOrderItem(item.serviceName ?? ""),
               unit: item.unit ?? "Stunde",
               unitPrice:
                 Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
@@ -3993,7 +4039,7 @@ export default function AuftraegePage() {
         editId && cleanWorkSites.length > 0
           ? cleanWorkSites.map((site, index) => ({
               id: site.id,
-              siteName: site.siteName?.trim() || null,
+              siteName: cleanWorkSiteDisplayName(site.siteName) || null,
               siteAddress: site.siteAddress?.trim() || null,
               sitePlz: site.sitePlz?.trim() || null,
               siteCity: site.siteCity?.trim() || null,
@@ -4004,7 +4050,7 @@ export default function AuftraegePage() {
             }))
           : undefined,
       items: validItems.map((item) => ({
-        serviceName: item.serviceName,
+        serviceName: canonicalServiceNameForOrderItem(item.serviceName),
         description: buildItemDescription(item),
         quantity: Number(item.quantity || 0),
         unit: item.unit,
@@ -4912,8 +4958,7 @@ export default function AuftraegePage() {
             const rightSideBadges = amountReviewBadges;
             const showAudioTooLongBadge =
               o.audioTranscriptionStatus?.startsWith("skipped");
-            const showImageOnlyBadge =
-              o.reviewReasons?.includes("image_only_no_text");
+            const showImageOnlyBadge = false;
             const isSelected = selectedOrderIds.includes(o.id);
             return (
               <motion.div
@@ -5020,7 +5065,7 @@ export default function AuftraegePage() {
                       <div className="flex min-w-0 flex-1 items-stretch gap-2 sm:gap-3">
                         <div className="flex-1 min-w-0 max-w-full overflow-hidden">
                           {/* Row 1: date + customer */}
-                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-hidden">
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-visible">
                             <span className="text-muted-foreground shrink-0">
                               {o.createdAt
                                 ? new Date(o.createdAt).toLocaleDateString(

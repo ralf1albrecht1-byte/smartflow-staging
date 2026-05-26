@@ -55,6 +55,82 @@ function inferExplicitCurrencyFromPayload(data: any): "CHF" | "EUR" | undefined 
   return undefined;
 }
 
+function normalizeServiceNameForDisplay(value?: string | null) {
+  const name = String(value || "").replace(/\s+/g, " ").trim();
+  const key = normalizeSearchText(name);
+  if (!name) return "";
+
+  if (/\b(anfahrt|fahrt|fahrtkosten|fahrpauschale|deplacement|déplacement|travel|trip|transport|viaje)\b/.test(key)) {
+    return "Anfahrt";
+  }
+
+  const hasFloorIntent =
+    /(?:^|\b|[a-z])boden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b/.test(key) ||
+    /bodenreinigung|floor cleaning|nettoyage du sol|pulizia pavimento|limpieza suelo/.test(key);
+  const hasCleaningIntent = /reinig|putz|putze|saeuber|clean|nettoyage|pulizia|limpieza|wisch/.test(key);
+  if (hasFloorIntent && hasCleaningIntent) return "Boden reinigen";
+
+  const hasWindowIntent = /fenster|fensterli|vitrin|vitre|window|fenetre|finestr|ventan/.test(key);
+  const hasNonCleaningWindowIntent = /streich|maler|lackier|reparier|ersetzen|montier|einbau|abdicht|dicht/.test(key);
+  if (hasWindowIntent && !hasNonCleaningWindowIntent) return "Fenster reinigen";
+
+  return name;
+}
+
+function cleanWorkSiteDisplayName(value?: string | null) {
+  let text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+
+  text = text
+    .replace(/^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i, "")
+    .replace(/^(?:wo\s+gemacht\s+werden\s+muss|wo\s+arbeiten\s+sind|wo\s+es\s+gemacht\s+wird)\s*:?\s*/i, "")
+    .replace(/^(?:ist|isch|is)\s+(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
+    .replace(/^(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
+    .replace(/^[:\-–,\s]+/, "")
+    .trim();
+
+  return text || String(value || "").replace(/\s+/g, " ").trim() || null;
+}
+
+function hasExplicitPriceCurrencySignal(data: any) {
+  const source = [
+    data?.notes,
+    data?.description,
+    data?.serviceName,
+    data?.specialNotes,
+    data?.audioTranscript,
+    ...(Array.isArray(data?.items)
+      ? data.items.flatMap((item: any) => [item?.serviceName, item?.description, item?.unitPrice])
+      : []),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const normalized = normalizeSearchText(source);
+  return /\b(chf|franken|stutz|sfr|eur|euro)\b|€|\.\-/.test(normalized) || /€/.test(source);
+}
+
+function normalizeReviewReasonsForPersist(data: any) {
+  const reasons = Array.isArray(data?.reviewReasons)
+    ? data.reviewReasons.filter(Boolean)
+    : undefined;
+  if (!reasons) return undefined;
+
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const hasExplicitPriceSignal = hasExplicitPriceCurrencySignal(data);
+
+  return reasons.filter((reason: string) => {
+    if (!String(reason).startsWith("price_unclear:")) return true;
+    const [, serviceName = ""] = String(reason).split(":");
+    const item = items.find((candidate: any) =>
+      normalizeSearchText(candidate?.serviceName) === normalizeSearchText(serviceName),
+    );
+    if (!item) return true;
+    const hasPrice = Number(item?.unitPrice || 0) > 0 && Number(item?.quantity || 0) > 0;
+    return !(hasPrice && hasExplicitPriceSignal);
+  });
+}
+
 const semanticNoteMatches: SemanticNoteMatch[] = [
   {
     label: "Hund vor Ort",
@@ -330,6 +406,25 @@ const semanticNoteMatches: SemanticNoteMatch[] = [
     ],
   },
   {
+    label: "Nicht anrufen, E-Mail reicht",
+    type: "hint",
+    patterns: [
+      /nicht\s+anrufen.*(?:mail|e-?mail)|(?:mail|e-?mail).*nicht\s+anrufen/i,
+      /keine?\s+telefonische\s+rücksprache.*(?:mail|e-?mail)|(?:mail|e-?mail).*keine?\s+telefonische\s+rücksprache/i,
+      /nur\s+(?:per\s+)?(?:mail|e-?mail)|(?:mail|e-?mail)\s+reicht/i,
+    ],
+  },
+  {
+    label: "WhatsApp bevorzugt",
+    type: "hint",
+    patterns: [/whats\s*app/i],
+  },
+  {
+    label: "SMS bevorzugt",
+    type: "hint",
+    patterns: [/\bsms\b/i],
+  },
+  {
     label: "Hanglage",
     type: "hint",
     patterns: [
@@ -520,7 +615,7 @@ export async function PUT(
               : existing?.description,
           serviceName:
             data?.serviceName !== undefined
-              ? data.serviceName
+              ? normalizeServiceNameForDisplay(data.serviceName)
               : existing?.serviceName,
         })
       : undefined;
@@ -547,7 +642,7 @@ export async function PUT(
           sum + Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
         0,
       );
-      primaryServiceName = items[0].serviceName ?? primaryServiceName;
+      primaryServiceName = normalizeServiceNameForDisplay(items[0].serviceName ?? primaryServiceName);
       primaryPriceType = items[0].unit ?? primaryPriceType;
       primaryUnitPrice = Number(items[0].unitPrice ?? 0);
       primaryQuantity = Number(items[0].quantity ?? 1);
@@ -575,7 +670,7 @@ export async function PUT(
         const site = workSitePayload[index] || {};
         const originalId = String(site.id || "").trim();
         const siteData = {
-          siteName: String(site.siteName || "").trim() || null,
+          siteName: cleanWorkSiteDisplayName(site.siteName),
           siteAddress: String(site.siteAddress || "").trim() || null,
           sitePlz: String(site.sitePlz || "").trim() || null,
           siteCity: String(site.siteCity || "").trim() || null,
@@ -674,7 +769,7 @@ export async function PUT(
       data: {
         customerId: data?.customerId,
         description: data?.description,
-        serviceName: primaryServiceName,
+        serviceName: normalizeServiceNameForDisplay(primaryServiceName),
         status: data?.status,
         priceType: primaryPriceType,
         unitPrice: primaryUnitPrice,
@@ -721,7 +816,7 @@ export async function PUT(
         needsReview:
           data?.needsReview !== undefined ? data.needsReview : undefined,
         reviewReasons:
-          data?.reviewReasons !== undefined ? data.reviewReasons : undefined,
+          data?.reviewReasons !== undefined ? normalizeReviewReasonsForPersist(data) : undefined,
         hinweisLevel:
           data?.hinweisLevel !== undefined ? data.hinweisLevel : undefined,
         mediaUrl: data?.mediaUrl !== undefined ? data.mediaUrl : undefined,
@@ -735,7 +830,7 @@ export async function PUT(
           ? {
               items: {
                 create: items.map((item: any) => ({
-                  serviceName: item.serviceName ?? "",
+                  serviceName: normalizeServiceNameForDisplay(item.serviceName),
                   description: item.description ?? "",
                   quantity: Number(item.quantity ?? 1),
                   unit: item.unit ?? "Stunde",

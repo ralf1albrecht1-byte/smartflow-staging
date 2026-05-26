@@ -303,8 +303,9 @@ function detectCommunicationPreferenceChips(
 
   const whatsapp =
     /\bwhats\s*app\b/i.test(source) ||
-    /\bwhatsapp\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|schreiben)\b/i.test(source) ||
-    /\b(?:per|via|mit)\s+whatsapp\b/i.test(source);
+    /\bwhatsapp\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|schreiben|bevorzugt|am\s+besten)\b/i.test(source) ||
+    /\b(?:per|via|mit)\s+whatsapp\b/i.test(source) ||
+    /\bwhatsapp\s+(?:bitte|preferred|preferiert)\b/i.test(source);
 
   const sms =
     /\bsms\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|schreiben)\b/i.test(source) ||
@@ -315,7 +316,7 @@ function detectCommunicationPreferenceChips(
   }
 
   if (whatsapp) {
-    addChip({ key: 'whatsapp', label: 'WhatsApp', color: 'teal', href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined, title: phone ? `WhatsApp: ${phone}` : 'WhatsApp bevorzugt' });
+    addChip({ key: 'whatsapp', label: 'WhatsApp', color: 'teal', href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined, title: phone ? `WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden' });
   }
 
   if (sms) {
@@ -339,11 +340,17 @@ function Chip({ icon: Icon, label, color = 'default', href, title }: { icon?: an
     amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
     orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   };
-  const className = `inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
+  const className = `group relative inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
+  const tooltip = title ? (
+    <span className="pointer-events-none absolute left-0 bottom-full z-[9999] mb-1 hidden w-[min(18rem,calc(100vw-2rem))] whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      {title}
+    </span>
+  ) : null;
   const content = (
     <>
       {Icon && <Icon className="w-3 h-3" />}
       {label}
+      {tooltip}
     </>
   );
 
@@ -351,7 +358,6 @@ function Chip({ icon: Icon, label, color = 'default', href, title }: { icon?: an
     return (
       <a
         href={href}
-        title={title}
         className={className}
         onClick={(event) => event.stopPropagation()}
       >
@@ -361,9 +367,14 @@ function Chip({ icon: Icon, label, color = 'default', href, title }: { icon?: an
   }
 
   return (
-    <span className={className} title={title}>
+    <button
+      type="button"
+      className={`${className} border-0`}
+      onClick={(event) => event.stopPropagation()}
+      aria-label={title || label}
+    >
       {content}
-    </span>
+    </button>
   );
 }
 

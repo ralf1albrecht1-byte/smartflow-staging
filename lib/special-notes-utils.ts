@@ -36,18 +36,21 @@ export interface SplitJobHints {
 const normalizeLine = (value: string) => value.replace(/\s+/g, " ").trim();
 
 const NON_OPERATIONAL_JOB_HINT =
-  /^(Termin\b(?!\s*(?:klären|klaeren|abstimmen|vereinbaren))|Arbeit am\b|Ausführung am\b|Ausfuehrung am\b|Mehrere Ausführungsorte\b|Mehrere Ausfuehrungsorte\b)/i;
+  /^(Arbeit am\b|Ausführung am\b|Ausfuehrung am\b|Mehrere Ausführungsorte\b|Mehrere Ausfuehrungsorte\b)/i;
 
-const COMMUNICATION_ONLY_JOB_HINT =
-  /^(Kommunikation per E-?Mail|Mail als Kommunikationsweg|Mail reicht|E-?Mail bevorzugt|Bitte nur per Mail|Keine telefonische Rücksprache|Bitte nicht anrufen|Nicht anrufen|Nur per Mail|Per Mail antworten)\b/i;
+const APPOINTMENT_CLARIFY_HINT =
+  /\btermin\b.*\b(klären|klaeren|klaren|abstimmen|vereinbaren|abmachen|melden|rücksprache|ruecksprache|rucksprache)\b|\b(rücksprache|ruecksprache|rucksprache|melden|abmachen)\b.*\btermin\b|\bappointment\b.*\b(schedule|arrange)\b|\bschedule\b.*\bappointment\b|\brendez\s*vous\b.*\bfix|\bfixer\b.*\brendez\s*vous\b/i;
+
+const FIXED_APPOINTMENT_HINT =
+  /^Termin\b.*(?:\d{1,2}[.\-/]\d{1,2}|\d{1,2}:\d{2}|\b(?:vormittag|nachmittag|abend|uhr)\b)/i;
 
 const isOperationalJobHint = (value: string) => {
   const line = normalizeLine(value);
   if (!line) return false;
-  if (COMMUNICATION_ONLY_JOB_HINT.test(line)) return false;
+  if (APPOINTMENT_CLARIFY_HINT.test(line)) return true;
+  if (FIXED_APPOINTMENT_HINT.test(line)) return false;
   return !NON_OPERATIONAL_JOB_HINT.test(line);
 };
-
 const fixVisibleNoteGrammar = (value: string) =>
   value
     .replace(/\bKeine telefonische Rückruf notwendig\b/gi, "Kein telefonischer Rückruf notwendig")
@@ -81,8 +84,11 @@ const semanticNoteKey = (value: string) => {
   if (/\bschluessel\b|\bschluessel\b|\bkey\b|\bbriefkasten\b/.test(text)) return "key";
   if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
+  if (/termin.*(klaeren|klaren|abstimmen|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(text)) return "appointment_clarify";
+  if (/whatsapp/.test(text)) return "communication_whatsapp";
+  if (/\bsms\b/.test(text)) return "communication_sms";
+  if (/mail|email|e mail|e-mail|nicht anrufen|keine telefonische|kein telefon/.test(text)) return "communication_mail_phone";
   if (/\brueckruf\b|\bruckruf\b|\banrufen\b|\btelefonisch\b|\btelefon\b/.test(text)) return "callback";
-  if (/\btermin\b.*\b(klaeren|klaren|abstimmen|vereinbaren|melden)\b|\bmelden\b.*\btermin\b/.test(text)) return "appointment_clarify";
 
   return text;
 };
