@@ -241,6 +241,23 @@ const semanticNoteMatches: SemanticNoteMatch[] = [
     ],
   },
   {
+    label: "Zugang über Hintereingang",
+    type: "hint",
+    patterns: [
+      /\bhintereingang\b/,
+      /\bhinteren eingang\b/,
+      /\beingang hinten\b/,
+      /\bzugang hinten\b/,
+      /\brear entrance\b/,
+      /\bback entrance\b/,
+      /\bentree arriere\b/,
+      /\bentree par l arriere\b/,
+      /\bacces par l entree arriere\b/,
+      /\bentrada trasera\b/,
+      /\bingresso posteriore\b/,
+    ],
+  },
+  {
     label: "Zugang über Seiteneingang",
     type: "hint",
     patterns: [

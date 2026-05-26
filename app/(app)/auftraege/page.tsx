@@ -1323,6 +1323,7 @@ const AMOUNT_REVIEW_BADGE_KEYS = new Set([
   "currency_review",
   "price_deviation",
   "catalog_missing",
+  "catalog_review_combined",
 ]);
 
 const PRICE_AMOUNT_REVIEW_BADGE_KEYS = new Set([
@@ -1537,24 +1538,32 @@ const formatCatalogReviewTooltip = (input: {
   sourceLine?: string | null;
 }) => {
   const currency = input.currency === "EUR" ? "EUR" : "CHF";
-  const lines = [input.title];
+  const lines: string[] = [];
+
+  if (input.title) {
+    lines.push(input.title.replace(/\.$/, ""));
+  }
 
   if (input.item?.serviceName) {
-    lines.push(`Leistung: ${input.item.serviceName}`);
+    lines.push(input.item.serviceName);
   }
 
   if (input.item) {
     const itemUnit = input.item.unit || "Einheit prüfen";
     const itemPrice = Number(input.item.unitPrice || 0);
     const itemQuantity = Number(input.item.quantity || 0);
-    const itemPriceLabel = itemPrice > 0 ? formatCurrency(itemPrice, currency) : "Preis prüfen";
-    const itemQuantityLabel = itemQuantity > 0 ? String(input.item.quantity) : "Menge prüfen";
-    lines.push(`Auftrag: ${itemQuantityLabel} ${formatReviewUnitLabel(itemUnit)} · ${itemPriceLabel}`);
+    const itemPriceLabel =
+      itemPrice > 0 ? formatCurrency(itemPrice, currency) : "Preis prüfen";
+    const itemQuantityLabel =
+      itemQuantity > 0 ? String(input.item.quantity) : "Menge prüfen";
+    lines.push(
+      `Auftrag: ${itemQuantityLabel} ${formatReviewUnitLabel(itemUnit)} · ${itemPriceLabel}`,
+    );
   }
 
   if (input.catalog) {
     lines.push(
-      `Katalog: ${input.catalog.unit} · ${formatCurrency(
+      `Katalog: ${formatReviewUnitLabel(input.catalog.unit)} · ${formatCurrency(
         Number(input.catalog.defaultPrice || 0),
         currency,
       )}`,
@@ -1568,6 +1577,72 @@ const formatCatalogReviewTooltip = (input: {
   return lines.filter(Boolean).join("\n");
 };
 
+const formatExecutionAddressTooltip = (order: Order) => {
+  const workSiteLines = (order.workSites ?? [])
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
+        Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
+    )
+    .map((site, index) => {
+      const title =
+        compactText(site.siteName) ||
+        compactText(site.siteAddress) ||
+        `Arbeitsort ${index + 1}`;
+      const address = [
+        compactText(site.siteAddress),
+        [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      return [title, address].filter(Boolean).join(": ");
+    })
+    .filter(Boolean);
+
+  if (workSiteLines.length > 0) {
+    return ["Ausführungsadresse:", ...workSiteLines.slice(0, 3)].join("\n");
+  }
+
+  const fallback = [
+    compactText(order.siteName),
+    compactText(order.siteAddress),
+    [order.sitePlz, order.siteCity].map(compactText).filter(Boolean).join(" "),
+  ].filter(Boolean);
+
+  return fallback.length > 0
+    ? ["Ausführungsadresse:", ...fallback].join("\n")
+    : "Arbeit wird an einer anderen Adresse ausgeführt.";
+};
+
+const combineCatalogReviewBadges = (badges: ReviewBadge[]) => {
+  const catalogBadges = badges.filter((badge) =>
+    ["price_deviation", "catalog_missing"].includes(badge.key),
+  );
+
+  if (catalogBadges.length <= 1) return badges;
+
+  const otherBadges = badges.filter(
+    (badge) => !["price_deviation", "catalog_missing"].includes(badge.key),
+  );
+
+  const tooltip = catalogBadges
+    .map((badge) => `${badge.label}:\n${badge.tooltip || "Details prüfen"}`)
+    .join("\n\n");
+
+  return [
+    ...otherBadges,
+    {
+      key: "catalog_review_combined",
+      label: "Leistungen prüfen",
+      className:
+        "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
+      tooltip,
+    },
+  ];
+};
+
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const currencyBadges = badges.filter(
     (badge) => badge.key === "currency_review",
@@ -1575,8 +1650,10 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const blockingBadges = badges.filter((badge) =>
     ["price_quantity", "unit_conflict"].includes(badge.key),
   );
-  const catalogBadges = badges.filter((badge) =>
-    ["price_deviation", "catalog_missing"].includes(badge.key),
+  const catalogBadges = combineCatalogReviewBadges(
+    badges.filter((badge) =>
+      ["price_deviation", "catalog_missing"].includes(badge.key),
+    ),
   );
 
   // Wenn die Währung selbst unsicher/konfliktbehaftet ist, reicht außen
@@ -1613,7 +1690,7 @@ const getSystemBadges = (
       key: "site_address",
       label: "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
-      tooltip: "Die Arbeit wird an einer anderen Adresse ausgeführt als die Rechnung.",
+      tooltip: formatExecutionAddressTooltip(order),
     });
   }
 
@@ -1707,7 +1784,7 @@ const getSystemBadges = (
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
       tooltip: formatCatalogReviewTooltip({
-        title: "Auftragspreis weicht vom Leistungskatalog ab.",
+        title: "Preis weicht vom Katalog ab.",
         item: firstPriceDeviationItem || null,
         catalog: firstPriceCatalog,
         currency: order.currency,
@@ -1724,8 +1801,8 @@ const getSystemBadges = (
       tooltip: formatCatalogReviewTooltip({
         title:
           catalogMissingItems.length > 1
-            ? `${catalogMissingItems.length} Leistungen sind nicht im Leistungskatalog.`
-            : "Leistung ist nicht im Leistungskatalog.",
+            ? `${catalogMissingItems.length} Leistungen nicht im Katalog.`
+            : "Nicht im Katalog.",
         item: firstCatalogMissingItem || null,
         currency: order.currency,
       }),
@@ -1807,7 +1884,7 @@ const getBottomBadges = (
       label: appointmentBadge.label,
       className: appointmentBadge.className,
       icon: appointmentBadge.icon,
-      tooltip: "Erkannter Termin aus Kundentext oder Auftragshinweisen.",
+      tooltip: undefined,
     });
   }
 
@@ -1843,11 +1920,11 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
 const renderBadgeTooltip = (badge: ReviewBadge) => {
-  const tooltip = compactText(badge.tooltip);
+  const tooltip = String(badge.tooltip || "").trim();
   if (!tooltip) return null;
 
   return (
-    <span className="pointer-events-none absolute left-1/2 bottom-full z-[9999] mb-1 hidden w-max max-w-[280px] -translate-x-1/2 whitespace-pre-line rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+    <span className="pointer-events-none absolute right-0 bottom-full z-[9999] mb-1 hidden w-[min(18rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
       {tooltip}
     </span>
   );
@@ -1864,7 +1941,6 @@ const renderReviewBadge = (
     <span
       key={badge.key}
       tabIndex={hasTooltip ? 0 : undefined}
-      title={compactText(badge.tooltip) || badge.label}
       onClick={(event) => {
         if (hasTooltip) event.stopPropagation();
       }}
@@ -1885,9 +1961,11 @@ const renderReviewBadge = (
 };
 
 const renderOrderCardBadge = (badge: ReviewBadge) => {
-  const isLargeYellowBadge = ["price_deviation", "catalog_missing"].includes(
-    badge.key,
-  );
+  const isLargeYellowBadge = [
+    "price_deviation",
+    "catalog_missing",
+    "catalog_review_combined",
+  ].includes(badge.key);
 
   return renderReviewBadge(
     badge,
@@ -2599,6 +2677,8 @@ export default function AuftraegePage() {
                   ? ""
                   : String(item.quantity),
               aiWarning: getAiWarningFromItemDescription(item.description),
+              catalogReviewConfirmed:
+                getCatalogReviewConfirmedFromItemDescription(item.description),
               workSiteId: item.workSiteId || null,
             };
           }),
@@ -2925,21 +3005,26 @@ export default function AuftraegePage() {
     return services.some((service) => normalizeForMatch(service.name) === key);
   };
 
+  const getCatalogResolvedFormItems = (
+    sourceItems: FormItem[],
+    index: number,
+    overrides: Partial<FormItem> = {},
+  ) =>
+    sourceItems.map((item, itemIndex) =>
+      itemIndex === index
+        ? {
+            ...item,
+            ...overrides,
+            aiWarning: "",
+          }
+        : item,
+    );
+
   const markItemCatalogReviewResolved = (
     index: number,
     overrides: Partial<FormItem> = {},
   ) => {
-    setFormItems((prev) =>
-      prev.map((item, itemIndex) =>
-        itemIndex === index
-          ? {
-              ...item,
-              ...overrides,
-              aiWarning: "",
-            }
-          : item,
-      ),
-    );
+    setFormItems((prev) => getCatalogResolvedFormItems(prev, index, overrides));
   };
 
   const saveItemToServices = async (index: number) => {
@@ -2980,12 +3065,30 @@ export default function AuftraegePage() {
     }
 
     if (existing && !existingNeedsUpdate) {
-      markItemCatalogReviewResolved(index, {
+      const nextItems = getCatalogResolvedFormItems(formItems, index, {
         serviceName: existing.name,
         catalogReviewConfirmed: false,
       });
+      setFormItems(nextItems);
+
+      if (editId) {
+        const saved = await saveOrder(
+          undefined,
+          nextItems,
+          new Set([normalizeForMatch(existing.name)]),
+        );
+        if (saved) {
+          setOrders((prev) =>
+            prev.map((order) =>
+              order.id === saved.id ? { ...order, ...saved } : order,
+            ),
+          );
+          await load();
+        }
+      }
+
       setServiceActionMenuKey(null);
-      toast.success("Leistung ist im Katalog und wurde im Auftrag als geprüft markiert ✓");
+      toast.success("Leistung ist im Katalog und wurde im Auftrag gespeichert ✓");
       return;
     }
 
@@ -3005,18 +3108,36 @@ export default function AuftraegePage() {
       const savedService: ServiceOption = await res.json();
       handleServiceCreated(savedService);
       onItemServiceSelect(index, savedService.name, savedService);
-      markItemCatalogReviewResolved(index, {
+      const nextItems = getCatalogResolvedFormItems(formItems, index, {
         serviceName: savedService.name,
         catalogReviewConfirmed: false,
       });
+      setFormItems(nextItems);
+
+      if (editId) {
+        const saved = await saveOrder(
+          undefined,
+          nextItems,
+          new Set([normalizeForMatch(savedService.name)]),
+        );
+        if (saved) {
+          setOrders((prev) =>
+            prev.map((order) =>
+              order.id === saved.id ? { ...order, ...saved } : order,
+            ),
+          );
+          await load();
+        }
+      }
+
       setServiceActionMenuKey(null);
-      toast.success("Leistung wurde in Leistungen übernommen ✓");
+      toast.success("Leistung wurde in Leistungen übernommen und Auftrag gespeichert ✓");
     } catch {
       toast.error("Leistung konnte nicht übernommen werden");
     }
   };
 
-  const resolveCatalogDecisionForCurrentOrder = () => {
+  const resolveCatalogDecisionForCurrentOrder = async () => {
     if (!catalogDecision) return;
 
     const index = formItems.findIndex(
@@ -3027,13 +3148,35 @@ export default function AuftraegePage() {
       return;
     }
 
-    markItemCatalogReviewResolved(index, {
+    const nextItems = getCatalogResolvedFormItems(formItems, index, {
       serviceName: catalogDecision.existing.name || catalogDecision.normalizedName,
       catalogReviewConfirmed: true,
     });
-    setCatalogDecision(null);
-    setServiceActionMenuKey(null);
-    toast.success("Nur dieser Auftrag wurde als geprüft markiert ✓");
+
+    setCatalogDecisionSaving(true);
+    try {
+      setFormItems(nextItems);
+
+      if (editId) {
+        const saved = await saveOrder(undefined, nextItems);
+        if (!saved) return;
+
+        setOrders((prev) =>
+          prev.map((order) =>
+            order.id === saved.id ? { ...order, ...saved } : order,
+          ),
+        );
+        await load();
+      }
+
+      setCatalogDecision(null);
+      setServiceActionMenuKey(null);
+      toast.success("Nur dieser Auftrag wurde dauerhaft als geprüft gespeichert ✓");
+    } catch {
+      toast.error("Prüfung konnte nicht gespeichert werden");
+    } finally {
+      setCatalogDecisionSaving(false);
+    }
   };
 
   const updateCatalogPriceFromDecision = async () => {
@@ -3065,15 +3208,34 @@ export default function AuftraegePage() {
       const savedService: ServiceOption = await res.json();
       handleServiceCreated(savedService);
       onItemServiceSelect(index, savedService.name, savedService);
-      markItemCatalogReviewResolved(index, {
+      const nextItems = getCatalogResolvedFormItems(formItems, index, {
         serviceName: savedService.name,
         unit: catalogDecision.unit,
         unitPrice: String(catalogDecision.price),
         catalogReviewConfirmed: false,
       });
+
+      setFormItems(nextItems);
+
+      if (editId) {
+        const saved = await saveOrder(
+          undefined,
+          nextItems,
+          new Set([normalizeForMatch(savedService.name)]),
+        );
+        if (!saved) return;
+
+        setOrders((prev) =>
+          prev.map((order) =>
+            order.id === saved.id ? { ...order, ...saved } : order,
+          ),
+        );
+        await load();
+      }
+
       setCatalogDecision(null);
       setServiceActionMenuKey(null);
-      toast.success("Katalogpreis wurde global aktualisiert ✓");
+      toast.success("Katalogpreis wurde global aktualisiert und Auftrag gespeichert ✓");
     } catch {
       toast.error("Katalogpreis konnte nicht aktualisiert werden");
     } finally {
@@ -3675,13 +3837,16 @@ export default function AuftraegePage() {
   // Core save function — returns saved order or null
   const saveOrder = async (
     payloadOverrides?: Partial<typeof form>,
+    itemsOverride?: FormItem[],
+    resolvedCatalogServiceNamesOverride?: Set<string>,
   ): Promise<Order | null> => {
     if (!form.customerId) {
       toast.error("Bitte Kunde auswählen");
       return null;
     }
+    const sourceFormItems = itemsOverride ?? formItems;
     const validItems = mergeEquivalentFormItems(
-      formItems.filter((i) => i.serviceName.trim()),
+      sourceFormItems.filter((i) => i.serviceName.trim()),
     );
     if (validItems.length === 0) {
       toast.error("Mindestens eine Leistung auswählen");
@@ -3726,6 +3891,10 @@ export default function AuftraegePage() {
         .filter((item) => Boolean(item.catalogReviewConfirmed))
         .map((item) => normalizeForMatch(item.serviceName)),
     );
+
+    resolvedCatalogServiceNamesOverride?.forEach((serviceName) => {
+      if (serviceName) confirmedCatalogReviewServiceNames.add(serviceName);
+    });
 
     const allItemsComplete = validItems.every(
       (item) =>
@@ -6211,7 +6380,7 @@ export default function AuftraegePage() {
                                   "Preis abweichend",
                                   "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
                                   formatCatalogReviewTooltip({
-                                    title: "Auftragspreis weicht vom Leistungskatalog ab.",
+                                    title: "Preis weicht vom Katalog ab.",
                                     item: groupItem as any,
                                     catalog: groupCatalogService,
                                     currency,
@@ -6224,7 +6393,7 @@ export default function AuftraegePage() {
                                   "Nicht im Katalog",
                                   "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
                                   formatCatalogReviewTooltip({
-                                    title: "Leistung ist nicht im Leistungskatalog.",
+                                    title: "Nicht im Katalog.",
                                     item: groupItem as any,
                                     currency,
                                   }),
@@ -6232,7 +6401,7 @@ export default function AuftraegePage() {
                               }
                             }
 
-                            return badges;
+                            return combineCatalogReviewBadges(badges);
                           })();
                           const siteHasRequiredInfo = site
                             ? hasWorkSiteContent(site)
@@ -6318,12 +6487,6 @@ export default function AuftraegePage() {
                                             aktiv
                                           </span>
                                         )}
-                                        {groupReviewBadges.map((badge) =>
-                                          renderReviewBadge(
-                                            badge,
-                                            "px-2 py-0.5 text-[10px] font-semibold",
-                                          ),
-                                        )}
                                         {siteNeedsReview && (
                                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-200">
                                             Arbeitsort prüfen
@@ -6335,6 +6498,16 @@ export default function AuftraegePage() {
                                           </span>
                                         )}
                                       </div>
+                                      {groupReviewBadges.length > 0 && (
+                                        <div className="mt-1 flex flex-wrap justify-start gap-1">
+                                          {groupReviewBadges.map((badge) =>
+                                            renderReviewBadge(
+                                              badge,
+                                              "px-2 py-0.5 text-[10px] font-semibold",
+                                            ),
+                                          )}
+                                        </div>
+                                      )}
                                       <div className="mt-0.5 text-xs text-muted-foreground">
                                         {site
                                           ? formatWorkSiteAddress(site) ||
@@ -6806,15 +6979,6 @@ export default function AuftraegePage() {
 
                                   {showItemReviewBlock && (
                                     <div
-                                      title={
-                                        showManualServiceReview
-                                          ? "Diese Leistung ist nicht im Leistungskatalog. Sie kann im Auftrag bleiben oder bewusst in den Katalog übernommen werden."
-                                          : showPriceOverride
-                                            ? "Auftragspreis weicht vom Leistungskatalog ab."
-                                            : isBlockingItemReview
-                                              ? "Diese Position muss vor Angebot/Rechnung geprüft werden."
-                                              : "Diese Position bitte prüfen."
-                                      }
                                       className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
                                         isBlockingItemReview
                                           ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
