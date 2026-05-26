@@ -36,11 +36,15 @@ export interface SplitJobHints {
 const normalizeLine = (value: string) => value.replace(/\s+/g, " ").trim();
 
 const NON_OPERATIONAL_JOB_HINT =
-  /^(Termin\b|Arbeit am\b|Ausführung am\b|Ausfuehrung am\b|Mehrere Ausführungsorte\b|Mehrere Ausfuehrungsorte\b)/i;
+  /^(Termin\b(?!\s*(?:klären|klaeren|abstimmen|vereinbaren))|Arbeit am\b|Ausführung am\b|Ausfuehrung am\b|Mehrere Ausführungsorte\b|Mehrere Ausfuehrungsorte\b)/i;
+
+const COMMUNICATION_ONLY_JOB_HINT =
+  /^(Kommunikation per E-?Mail|Mail als Kommunikationsweg|Mail reicht|E-?Mail bevorzugt|Bitte nur per Mail|Keine telefonische Rücksprache|Bitte nicht anrufen|Nicht anrufen|Nur per Mail|Per Mail antworten)\b/i;
 
 const isOperationalJobHint = (value: string) => {
   const line = normalizeLine(value);
   if (!line) return false;
+  if (COMMUNICATION_ONLY_JOB_HINT.test(line)) return false;
   return !NON_OPERATIONAL_JOB_HINT.test(line);
 };
 
@@ -78,6 +82,7 @@ const semanticNoteKey = (value: string) => {
   if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
   if (/\brueckruf\b|\bruckruf\b|\banrufen\b|\btelefonisch\b|\btelefon\b/.test(text)) return "callback";
+  if (/\btermin\b.*\b(klaeren|klaren|abstimmen|vereinbaren|melden)\b|\bmelden\b.*\btermin\b/.test(text)) return "appointment_clarify";
 
   return text;
 };

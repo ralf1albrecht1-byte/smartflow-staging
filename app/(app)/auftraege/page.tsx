@@ -1545,7 +1545,7 @@ const formatCatalogReviewTooltip = (input: {
   }
 
   if (input.item?.serviceName) {
-    lines.push(input.item.serviceName);
+    lines.push(compactText(input.item.serviceName));
   }
 
   if (input.item) {
@@ -1616,32 +1616,7 @@ const formatExecutionAddressTooltip = (order: Order) => {
     : "Arbeit wird an einer anderen Adresse ausgeführt.";
 };
 
-const combineCatalogReviewBadges = (badges: ReviewBadge[]) => {
-  const catalogBadges = badges.filter((badge) =>
-    ["price_deviation", "catalog_missing"].includes(badge.key),
-  );
-
-  if (catalogBadges.length <= 1) return badges;
-
-  const otherBadges = badges.filter(
-    (badge) => !["price_deviation", "catalog_missing"].includes(badge.key),
-  );
-
-  const tooltip = catalogBadges
-    .map((badge) => `${badge.label}:\n${badge.tooltip || "Details prüfen"}`)
-    .join("\n\n");
-
-  return [
-    ...otherBadges,
-    {
-      key: "catalog_review_combined",
-      label: "Leistungen prüfen",
-      className:
-        "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip,
-    },
-  ];
-};
+const combineCatalogReviewBadges = (badges: ReviewBadge[]) => badges;
 
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const currencyBadges = badges.filter(
@@ -1699,11 +1674,18 @@ const getSystemBadges = (
     order.reviewReasons?.includes("double_merge");
 
   if (isMergedOrder) {
+    const originCount = Array.isArray(order.originOrderIds)
+      ? order.originOrderIds.filter(Boolean).length
+      : 0;
+    const mergedCount = originCount > 1 ? originCount : 0;
     pushUniqueBadge(badges, {
       key: "merged",
-      label: "Zusammengeführt",
+      label: mergedCount > 0 ? `Zusammengeführt · ${mergedCount}` : "Zusammengeführt",
       className: "bg-blue-100 text-blue-700 border border-blue-300",
-      tooltip: "Dieser Auftrag besteht aus mehreren verbundenen Ursprungsaufträgen.",
+      tooltip:
+        mergedCount > 0
+          ? `${mergedCount} Aufträge verbunden.`
+          : "Mehrere Aufträge verbunden.",
     });
   }
 
@@ -1825,6 +1807,33 @@ const getSystemBadges = (
   return badges;
 };
 
+const detectAppointmentClarificationHint = (...values: Array<string | null | undefined>) => {
+  const lines = values
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(/\n+/g))
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  return lines.find((line) => {
+    const text = normalizeForMatch(line);
+    if (!text) return false;
+
+    const wantsSchedulingContact =
+      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|melden|kontaktieren|vereinbaren|ausmachen|besprechen)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)/.test(text);
+    if (!wantsSchedulingContact) return false;
+
+    // Fixed appointments stay normal violet appointment chips.
+    const hasConcreteDateOrTime =
+      /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(line) ||
+      /\b(?:heute|morgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/.test(text) ||
+      /\b(?:vormittag|nachmittag|abend)\b/.test(text) ||
+      /\b\d{1,2}(?::|\.)\d{2}\b/.test(line) ||
+      /\b\d{1,2}\s*(?:uhr|h)\b/.test(text);
+
+    return !hasConcreteDateOrTime;
+  }) || null;
+};
+
 const getBottomBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -1886,6 +1895,22 @@ const getBottomBadges = (
       icon: appointmentBadge.icon,
       tooltip: undefined,
     });
+  } else {
+    const appointmentClarification = detectAppointmentClarificationHint(
+      ...parsedNotes.jobHints,
+      order.specialNotes,
+      order.notes,
+      order.audioTranscript,
+    );
+
+    if (appointmentClarification) {
+      pushUniqueBadge(badges, {
+        key: "appointment_clarify",
+        label: "Termin klären",
+        className: "bg-amber-100 text-amber-800 border border-amber-300",
+        tooltip: appointmentClarification,
+      });
+    }
   }
 
   return badges;
@@ -1919,12 +1944,19 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border-/g, "border-2 border-")
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
-const renderBadgeTooltip = (badge: ReviewBadge) => {
+const renderBadgeTooltip = (
+  badge: ReviewBadge,
+  align: "left" | "right" = "left",
+) => {
   const tooltip = String(badge.tooltip || "").trim();
   if (!tooltip) return null;
 
+  const alignClass = align === "right" ? "right-0" : "left-0";
+
   return (
-    <span className="pointer-events-none absolute right-0 bottom-full z-[9999] mb-1 hidden w-[min(18rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+    <span
+      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 hidden w-max max-w-[min(18rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+    >
       {tooltip}
     </span>
   );
@@ -1933,7 +1965,7 @@ const renderBadgeTooltip = (badge: ReviewBadge) => {
 const renderReviewBadge = (
   badge: ReviewBadge,
   className: string,
-  options: { strong?: boolean } = {},
+  options: { strong?: boolean; tooltipAlign?: "left" | "right" } = {},
 ) => {
   const hasTooltip = Boolean(compactText(badge.tooltip));
 
@@ -1955,12 +1987,15 @@ const renderReviewBadge = (
         <AlertTriangle className="w-3 h-3" />
       )}
       {badge.label}
-      {renderBadgeTooltip(badge)}
+      {renderBadgeTooltip(badge, options.tooltipAlign || "left")}
     </span>
   );
 };
 
-const renderOrderCardBadge = (badge: ReviewBadge) => {
+const renderOrderCardBadge = (
+  badge: ReviewBadge,
+  tooltipAlign: "left" | "right" = "left",
+) => {
   const isLargeYellowBadge = [
     "price_deviation",
     "catalog_missing",
@@ -1972,7 +2007,7 @@ const renderOrderCardBadge = (badge: ReviewBadge) => {
     isLargeYellowBadge
       ? "text-[11px] px-2 py-0.5 font-semibold"
       : "text-[10px] px-1.5 py-0.5 font-medium",
-    { strong: true },
+    { strong: true, tooltipAlign },
   );
 };
 
@@ -2368,8 +2403,8 @@ export default function AuftraegePage() {
   const [mediaType, setMediaType] = useState<string | null>(null);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIdx, setGalleryIdx] = useState(0);
-  const [customerMessageImagePreviewUrl, setCustomerMessageImagePreviewUrl] =
-    useState<string | null>(null);
+  const [customerMessageImagePreviewUrls, setCustomerMessageImagePreviewUrls] =
+    useState<string[]>([]);
 
   // Dropdown menu for create offer/invoice
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
@@ -4510,34 +4545,35 @@ export default function AuftraegePage() {
 
   useEffect(() => {
     if (!dialogOpen || !currentEditOrder) {
-      setCustomerMessageImagePreviewUrl(null);
+      setCustomerMessageImagePreviewUrls([]);
       return;
     }
 
-    const firstImagePath =
-      currentEditOrder.imageUrls?.[0] ||
-      (currentEditOrder.mediaType === "image"
-        ? currentEditOrder.mediaUrl
-        : null);
+    const imagePaths =
+      currentEditOrder.imageUrls && currentEditOrder.imageUrls.length > 0
+        ? currentEditOrder.imageUrls
+        : currentEditOrder.mediaType === "image" && currentEditOrder.mediaUrl
+          ? [currentEditOrder.mediaUrl]
+          : [];
 
-    if (!firstImagePath) {
-      setCustomerMessageImagePreviewUrl(null);
+    if (imagePaths.length === 0) {
+      setCustomerMessageImagePreviewUrls([]);
       return;
     }
 
     let cancelled = false;
 
     (async () => {
-      const resolved = await resolveS3Url(firstImagePath);
+      const resolved = await Promise.all(imagePaths.map((path) => resolveS3Url(path)));
       if (!cancelled) {
-        setCustomerMessageImagePreviewUrl(resolved);
+        setCustomerMessageImagePreviewUrls(resolved);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [dialogOpen, currentEditOrder?.id]);
+  }, [dialogOpen, currentEditOrder?.id, currentEditOrder?.imageUrls?.join("|"), currentEditOrder?.mediaUrl, currentEditOrder?.mediaType]);
 
   const createOffer = async (o: Order) => {
     if (blockConversionIfUnsafe(o, "Angebot")) {
@@ -5030,11 +5066,6 @@ export default function AuftraegePage() {
                               </span>
                             )}
 
-                            {showImageOnlyBadge && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 shrink-0">
-                                ⚠️ Bild prüfen
-                              </span>
-                            )}
                           </div>
 
                           {/* Row 2: compact service-only preview */}
@@ -5080,6 +5111,7 @@ export default function AuftraegePage() {
                             <CommunicationChips
                               data={{
                                 ...o,
+                                customer: o.customer,
                                 specialNotes:
                                   removeCallbackLinesForCommunicationChips(
                                     o.specialNotes,
@@ -5127,14 +5159,14 @@ export default function AuftraegePage() {
                         <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[220px] xl:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
                             {rightSideBadges.map((badge) =>
-                              renderOrderCardBadge(badge),
+                              renderOrderCardBadge(badge, "right"),
                             )}
                           </div>
 
                           <div className="flex w-full flex-wrap items-end justify-end gap-3">
                             <div className="flex flex-wrap justify-end gap-1">
                               {appointmentBadges.map((badge) =>
-                                renderOrderCardBadge(badge),
+                                renderOrderCardBadge(badge, "right"),
                               )}
                             </div>
 
@@ -7543,32 +7575,43 @@ export default function AuftraegePage() {
                               </Button>
                             )}
 
-                          {customerMessageImagePreviewUrl &&
+                          {customerMessageImagePreviewUrls.length > 0 &&
                             currentEditOrder && (
-                              <button
-                                type="button"
-                                className="group flex w-full items-center gap-3 rounded-lg border bg-background p-2 text-left hover:bg-muted/60"
-                                onClick={() => openMedia(currentEditOrder)}
-                              >
-                                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                                  <img
-                                    src={customerMessageImagePreviewUrl}
-                                    alt="Kundenbild"
-                                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                                  />
-                                </div>
-
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-sm font-medium">
-                                    Bildvorschau
+                              <div className="rounded-lg border bg-background p-2">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <div>
+                                    <div className="text-sm font-medium">
+                                      Bildvorschau
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {customerMessageImagePreviewUrls.length} Bild{customerMessageImagePreviewUrls.length === 1 ? "" : "er"} · Miniatur anklicken
+                                    </div>
                                   </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    Miniatur anklicken für Großansicht
-                                  </div>
+                                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
                                 </div>
-
-                                <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                              </button>
+                                <div className="flex flex-wrap gap-2">
+                                  {customerMessageImagePreviewUrls.map((url, index) => (
+                                    <button
+                                      key={`${url}-${index}`}
+                                      type="button"
+                                      className="group flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted hover:ring-2 hover:ring-primary"
+                                      onClick={() => {
+                                        setGalleryUrls(customerMessageImagePreviewUrls);
+                                        setGalleryIdx(index);
+                                        setMediaType("image");
+                                        setMediaUrl(null);
+                                        setMediaDialogOpen(true);
+                                      }}
+                                    >
+                                      <img
+                                        src={url}
+                                        alt={`Kundenbild ${index + 1}`}
+                                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                                      />
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                             )}
 
                           {currentEditOrder?.audioTranscript && (
@@ -7588,7 +7631,7 @@ export default function AuftraegePage() {
                             </div>
                           ) : !currentEditOrder?.audioTranscript &&
                             !currentEditOrder?.mediaUrl &&
-                            !customerMessageImagePreviewUrl ? (
+                            customerMessageImagePreviewUrls.length === 0 ? (
                             <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
                               Keine Kundennachricht gespeichert.
                             </div>

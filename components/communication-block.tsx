@@ -22,6 +22,12 @@ export interface CommunicationData {
   // Audio metadata (Stage I)
   audioDurationSec?: number | null;
   audioTranscriptionStatus?: string | null; // 'transcribed' | 'failed' | 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' | null
+  customer?: {
+    email?: string | null;
+    phone?: string | null;
+  } | null;
+  email?: string | null;
+  phone?: string | null;
   // Hint level
   hinweisLevel?: string | null;
   needsReview?: boolean;
@@ -219,6 +225,8 @@ type CommunicationPreferenceChip = {
   key: string;
   label: string;
   color: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange';
+  href?: string;
+  title?: string;
 };
 
 function normalizeCommunicationPreferenceText(value: string | null | undefined): string {
@@ -235,22 +243,51 @@ function normalizeCommunicationPreferenceText(value: string | null | undefined):
     .trim();
 }
 
+function firstEmailFromText(value: string): string | null {
+  return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || null;
+}
+
+function normalizePhoneForHref(value?: string | null): string {
+  const cleaned = String(value || '').replace(/[^+0-9]/g, '');
+  return cleaned.length >= 6 ? cleaned : '';
+}
+
+function getContactEmail(data: CommunicationData, sourceText: string): string {
+  return (
+    firstEmailFromText(sourceText) ||
+    data.customer?.email ||
+    data.email ||
+    ''
+  ).trim();
+}
+
+function getContactPhone(data: CommunicationData, sourceText: string): string {
+  const explicitPhone = sourceText.match(/(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] || '';
+  return normalizePhoneForHref(explicitPhone || data.customer?.phone || data.phone || '');
+}
+
 function detectCommunicationPreferenceChips(
   data: CommunicationData,
   parsed: ParsedNotes,
 ): CommunicationPreferenceChip[] {
-  const source = normalizeCommunicationPreferenceText(
-    [
-      parsed.originalMessage,
-      parsed.translation,
-      data.specialNotes,
-      data.audioTranscript,
-    ]
-      .filter(Boolean)
-      .join('\n'),
-  );
+  const rawSource = [
+    parsed.originalMessage,
+    parsed.translation,
+    data.specialNotes,
+    data.audioTranscript,
+    data.customer?.email,
+    data.customer?.phone,
+    data.email,
+    data.phone,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const source = normalizeCommunicationPreferenceText(rawSource);
 
   if (!source) return [];
+
+  const email = getContactEmail(data, rawSource);
+  const phone = getContactPhone(data, rawSource);
 
   const chips: CommunicationPreferenceChip[] = [];
 
@@ -274,15 +311,15 @@ function detectCommunicationPreferenceChips(
     /\b(?:per|via|mit)\s+sms\b/i.test(source);
 
   if (mail) {
-    addChip({ key: 'mail', label: 'Mail', color: 'teal' });
+    addChip({ key: 'mail', label: 'Mail', color: 'teal', href: email ? `mailto:${email}` : undefined, title: email ? `E-Mail: ${email}` : 'E-Mail bevorzugt' });
   }
 
   if (whatsapp) {
-    addChip({ key: 'whatsapp', label: 'WhatsApp', color: 'teal' });
+    addChip({ key: 'whatsapp', label: 'WhatsApp', color: 'teal', href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined, title: phone ? `WhatsApp: ${phone}` : 'WhatsApp bevorzugt' });
   }
 
   if (sms) {
-    addChip({ key: 'sms', label: 'SMS', color: 'teal' });
+    addChip({ key: 'sms', label: 'SMS', color: 'teal', href: phone ? `sms:${phone}` : undefined, title: phone ? `SMS: ${phone}` : 'SMS bevorzugt' });
   }
 
   return chips;
@@ -291,7 +328,7 @@ function detectCommunicationPreferenceChips(
 // ─── Sub-components ───
 
 /** Chip component */
-function Chip({ icon: Icon, label, color = 'default' }: { icon?: any; label: string; color?: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange' }) {
+function Chip({ icon: Icon, label, color = 'default', href, title }: { icon?: any; label: string; color?: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange'; href?: string; title?: string }) {
   const colors: Record<string, string> = {
     default: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
     green: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
@@ -302,10 +339,30 @@ function Chip({ icon: Icon, label, color = 'default' }: { icon?: any; label: str
     amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
     orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   };
-  return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default}`}>
+  const className = `inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
+  const content = (
+    <>
       {Icon && <Icon className="w-3 h-3" />}
       {label}
+    </>
+  );
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        title={title}
+        className={className}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return (
+    <span className={className} title={title}>
+      {content}
     </span>
   );
 }
@@ -426,7 +483,7 @@ export function CommunicationBlock({
 
   const communicationPreferences = useMemo(
     () => detectCommunicationPreferenceChips(data, parsed),
-    [data.specialNotes, data.notes, data.audioTranscript, parsed],
+    [data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.email, data.phone, parsed],
   );
 
   // Detect customer language from parsed notes
@@ -457,7 +514,7 @@ export function CommunicationBlock({
           )}
           {/* Communication preference chips */}
           {communicationPreferences.map((chip) => (
-            <Chip key={chip.key} label={chip.label} color={chip.color} />
+            <Chip key={chip.key} label={chip.label} color={chip.color} href={chip.href} title={chip.title} />
           ))}
           {/* Callback request chip */}
           {callbackNote && (
@@ -647,7 +704,13 @@ export function CommunicationChips({
   const callbackNote = detectCallbackRequest(data.specialNotes);
   const communicationPreferences = useMemo(
     () => detectCommunicationPreferenceChips(data, parsed),
-    [data.specialNotes, data.notes, data.audioTranscript, parsed],
+    [data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.email, data.phone, parsed],
+  );
+  const callbackPhone = getContactPhone(
+    data,
+    [parsed.originalMessage, parsed.translation, data.specialNotes, data.audioTranscript]
+      .filter(Boolean)
+      .join('\n'),
   );
 
   if (!hasAudio && !hasImages && hazards.length === 0 && equipment.length === 0 && !callbackNote && communicationPreferences.length === 0) return null;
@@ -676,7 +739,7 @@ export function CommunicationChips({
         );
       })()}
       {communicationPreferences.map((chip) => (
-        <Chip key={chip.key} label={chip.label} color={chip.color} />
+        <Chip key={chip.key} label={chip.label} color={chip.color} href={chip.href} title={chip.title} />
       ))}
       {hazards.map((h, i) => (
         <span key={`h-${i}`} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700">
@@ -688,11 +751,20 @@ export function CommunicationChips({
           🔧 {h}
         </span>
       ))}
-      {callbackNote && (
+      {callbackNote && callbackPhone ? (
+        <a
+          href={`tel:${callbackPhone}`}
+          onClick={(event) => event.stopPropagation()}
+          title={`Anrufen: ${callbackPhone}`}
+          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 hover:underline"
+        >
+          📞 Rückruf
+        </a>
+      ) : callbackNote ? (
         <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700">
           📞 Rückruf
         </span>
-      )}
+      ) : null}
     </>
   );
 }

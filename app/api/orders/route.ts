@@ -215,6 +215,29 @@ function extractNamelessBillingAddressFromOrderPayloadV1637(
   return null;
 }
 
+function inferExplicitCurrencyFromPayload(data: any): "CHF" | "EUR" | undefined {
+  const source = [
+    data?.notes,
+    data?.description,
+    data?.serviceName,
+    data?.specialNotes,
+    data?.audioTranscript,
+    ...(Array.isArray(data?.items)
+      ? data.items.flatMap((item: any) => [item?.serviceName, item?.description])
+      : []),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const normalized = normalizeSearchText(source);
+  const hasChf = /\bchf\b|\bfranken\b|\bstutz\b|\bsfr\b/.test(normalized);
+  const hasEur = /\beur\b|\beuro\b|€/.test(source);
+
+  if (hasChf && !hasEur) return "CHF";
+  if (hasEur && !hasChf) return "EUR";
+  return undefined;
+}
+
 const semanticNoteMatches: SemanticNoteMatch[] = [
   {
     label: "Hund vor Ort",
@@ -458,12 +481,14 @@ const semanticNoteMatches: SemanticNoteMatch[] = [
     ],
   },
   {
-    label: "Termin abstimmen",
+    label: "Termin klären",
     type: "hint",
     patterns: [
-      /\btermin abstimmen\b/,
-      /\bappointment\b/,
-      /\bschedule\b/,
+      /\btermin\s+(?:klaeren|klaren|abstimmen|vereinbaren)\b/,
+      /\b(?:melden|kontaktieren|anrufen|schreiben)\b.*\btermin\b/,
+      /\btermin\b.*\b(?:melden|kontaktieren|abstimmen|vereinbaren|klaeren|klaren)\b/,
+      /\bappointment\s+(?:to\s+schedule|to\s+arrange|arrange|schedule)\b/,
+      /\bschedule\b.*\bappointment\b/,
       /\bcita\b/,
       /\brendez vous\b/,
       /\bappuntamento\b/,
@@ -682,7 +707,9 @@ export async function POST(request: Request) {
     const normalizedSpecialNotes = normalizeOrderSpecialNotes(data);
     const hasNormalizedSafetyWarnings =
       splitSpecialNotes(normalizedSpecialNotes).safetyWarnings.length > 0;
-    const currency = data?.currency === "EUR" ? "EUR" : "CHF";
+    const currency =
+      inferExplicitCurrencyFromPayload(data) ||
+      (data?.currency === "EUR" ? "EUR" : "CHF");
     const items = data?.items as any[] | undefined;
     let totalPrice = 0;
     let primaryServiceName = data?.serviceName ?? null;
