@@ -1098,6 +1098,22 @@ const getAppointmentBadgeVisual = (
   };
 };
 
+const isCallbackContactTimeLine = (value?: string | null) => {
+  const raw = compactText(value);
+  const text = normalizeForMatch(raw);
+  if (!text) return false;
+
+  const timePattern =
+    /(?:\b(?:nach|ab|after|apres|après)\s*\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?\b|\b\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b)/;
+
+  const hasPhoneAction =
+    /anrufen|zurueckrufen|zuruckrufen|rueckrufen|ruckrufen|telefonieren|telefonisch|call|phone/.test(
+      text,
+    );
+
+  return hasPhoneAction && timePattern.test(text);
+};
+
 const extractAppointmentBadge = (
   value?: string | null,
   baseDateInput?: string | null,
@@ -1107,6 +1123,7 @@ const extractAppointmentBadge = (
   const text = normalizeForMatch(raw);
   if (
     !text ||
+    isCallbackContactTimeLine(raw) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw)
   ) {
@@ -2005,8 +2022,9 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
     );
 
   if (negative) return false;
+  if (isCallbackContactTimeLine(value)) return true;
 
-  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
+  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:(?:nach|ab)\s*\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?\s+)?(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
     text,
   );
 };
@@ -2206,6 +2224,8 @@ const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
 const getOrderPhoneForHref = (order: Order) =>
   extractPhoneForHref(
     order.customer?.phone,
+    order.description,
+    order.serviceName,
     order.notes,
     order.specialNotes,
     order.audioTranscript,
@@ -2403,15 +2423,8 @@ const emptyForm = {
 const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^currency_/,
   /^item_currency_mismatch/,
-  /^unit_mismatch:/,
-  /^unit_price_review$/,
-  /^quantity_review$/,
-  /^price_unclear:/,
-  /^unbekannte_leistung_pruefen$/,
-  /^stunden_arbeitsposition_pruefen$/,
-  /^total_unrealistic_check$/,
   /^currency_unsupported$/,
-  /^manual_flat_service_from_text$/,
+  /^total_unrealistic_check$/,
 ];
 
 const getOrderConversionBlockers = (order: Order | any): string[] => {
@@ -2451,10 +2464,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     blockers.push("Offene Prüfhinweise im Auftrag");
   }
 
-  if (order?.needsReview && reviewReasons.length > 0) {
-    blockers.push("Auftrag ist noch auf Prüfen gesetzt");
-  }
-
+  // needsReview alone must not block conversion. Yellow review chips such as
+  // "Preis abweichend" or "Nicht im Katalog" are allowed when all amounts are valid.
+  // True blockers are handled above: zero/missing price or quantity, currency issues,
+  // unrealistic totals, and incomplete customer data.
   if (isCustomerDataIncomplete(order?.customer)) {
     blockers.push("Kundendaten prüfen");
   }
@@ -5175,6 +5188,7 @@ export default function AuftraegePage() {
             const mobileAddressBadge = leftSystemBadges.find((badge) => badge.key === "site_address") || null;
             const mobileActionBadges = [
               ...(mobileAddressBadge ? [mobileAddressBadge] : []),
+              ...callbackBadges,
               ...operationalBadges,
               ...messageBadges,
               ...otherFooterBadges,
