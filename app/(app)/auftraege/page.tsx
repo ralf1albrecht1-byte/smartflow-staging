@@ -5234,6 +5234,7 @@ export default function AuftraegePage() {
             // The address remains visible on desktop and in the edit dialog; the
             // mobile icon row is reserved for real actions/hints.
             const mobileActionBadges = [
+              ...callbackBadges,
               ...operationalBadges,
               ...messageBadges,
               ...otherFooterBadges,

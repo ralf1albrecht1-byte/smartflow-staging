@@ -379,7 +379,7 @@ const unitTypeFromText = (value?: string | null): string | null => {
   if (!source) return null;
 
   if (
-    /\b(stueck|stuck|stück|stk|piece|pieces|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten)\b/i.test(
+    /\b(stueck|stuck|stück|stk|pcs|pc|piece|pieces|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten)\b/i.test(
       source,
     )
   )
@@ -545,7 +545,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     // Examples: "14 stk je CHF 8", "12 pcs CHF 9 each", "18 Stück je CHF 9".
     {
       re: new RegExp(
-        `(?:je|each)\s*(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\b`,
+        `(?:je|each)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "gi",
       ),
       currencyGroup: 1,
@@ -553,7 +553,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     },
     {
       re: new RegExp(
-        `(?:je|each)\s*${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\b`,
+        `(?:je|each)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "gi",
       ),
       currencyGroup: 2,
@@ -561,7 +561,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     },
     {
       re: new RegExp(
-        `(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\s*(?:each|je)\b`,
+        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:each|je)\\b`,
         "gi",
       ),
       currencyGroup: 1,
@@ -569,7 +569,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     },
     {
       re: new RegExp(
-        `${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\s*(?:each|je)\b`,
+        `${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:each|je)\\b`,
         "gi",
       ),
       currencyGroup: 2,
@@ -695,6 +695,55 @@ function chooseBestPriceFromSegment(segment: string): DetectedUnitPrice | null {
   return null;
 }
 
+
+function chooseBestPriceFromSegmentForItem(
+  segment: string,
+  item: ParsedOrderItemForValidation,
+): DetectedUnitPrice | null {
+  const prices = extractUnitPricesFromSegment(segment) as Array<DetectedUnitPrice & { index?: number }>;
+  if (prices.length === 0) return null;
+  if (prices.length === 1) return prices[0];
+
+  const normalizedSegment = normalizeCompare(segment);
+  const serviceKey = normalizeCompare(item.serviceName);
+  const tokens = serviceTokens(item.serviceName).filter(
+    (token) => !/^(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)$/.test(token),
+  );
+  const rawSegment = normalizeText(segment);
+
+  const anchorIndexes = [
+    serviceKey ? normalizedSegment.indexOf(serviceKey) : -1,
+    ...tokens.map((token) => normalizedSegment.indexOf(token)),
+  ].filter((index) => index >= 0);
+
+  const quantity = Number(item.quantity || 0);
+  const quantityIndex = quantity > 0
+    ? rawSegment.search(new RegExp(`(^|[^0-9])${String(quantity).replace('.', '[.,]')}([^0-9]|$)`))
+    : -1;
+
+  const anchorIndex = anchorIndexes.length > 0
+    ? Math.min(...anchorIndexes)
+    : quantityIndex >= 0
+      ? quantityIndex
+      : -1;
+
+  if (anchorIndex < 0) return chooseBestPriceFromSegment(segment);
+
+  const itemUnitType = unitTypeFromDisplayUnit(item.unit);
+  const compatible = prices.filter((price) => {
+    if (!itemUnitType || !price.unitType) return true;
+    return itemUnitType === price.unitType;
+  });
+  const pool = compatible.length > 0 ? compatible : prices;
+
+  return pool
+    .map((price) => ({
+      price,
+      distance: Math.abs((price.index ?? 0) - anchorIndex),
+    }))
+    .sort((a, b) => a.distance - b.distance)[0]?.price || null;
+}
+
 function detectCurrencylessFlatPriceFromSegment(
   segment: string,
   fallbackCurrency: IntakeCurrency,
@@ -739,7 +788,7 @@ function canonicalGermanServiceNameFromText(
     return "Garageboden reinigen";
   }
   if (
-    /\b(nettoyage\s+de\s+l\s*entree|nettoyage\s+de\s+lentree|nettoyage\s+de\s+l['’]?\s*entree|entrance\s+clean|limpieza\s+de\s+entrada|pulizia\s+ingresso|eingangsbereich)\b/.test(
+    /\b(nettoyage\s+de\s+l\s*entree|nettoyage\s+de\s+lentree|nettoyage\s+de\s+l['’]?\s*entree|entrance\s+clean|limpieza\s+de\s+entrada|pulizia\s+ingresso)\b/.test(
       normalized,
     )
   ) {
@@ -760,7 +809,7 @@ function canonicalGermanServiceNameFromText(
     return "Boden reinigen";
   }
   if (
-    /\b(deplacement|déplacement|trasferta|transferta|travel fee|travel cost|trip fee|viaje|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(
+    /\b(deplacement|déplacement|trasferta|transferta|travel fee|travel cost|trip fee|viaje|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(
       normalized,
     )
   ) {
@@ -806,7 +855,7 @@ function normalizeFlatServiceNameFromText(value: string): string {
 
   const normalized = normalizeCompare(value);
   if (
-    /\b(deplacement|déplacement|trasferta|transferta|travel fee|travel cost|trip fee|viaje|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(
+    /\b(deplacement|déplacement|trasferta|transferta|travel fee|travel cost|trip fee|viaje|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(
       normalized,
     )
   ) {
@@ -895,7 +944,7 @@ function detectExplicitUnitPriceForItem(
     const normalizedSegment = normalizeCompare(segment);
     if (!normalizedSegment) continue;
 
-    const detected = chooseBestPriceFromSegment(segment);
+    const detected = chooseBestPriceFromSegmentForItem(segment, item);
     if (!detected) continue;
 
     // V16.41: A measured m²/Meter/Stück line must never repair a flat service.
@@ -2564,7 +2613,7 @@ function findExplicitUnitPriceInLine(
     // Examples: "14 stk je CHF 8", "12 pcs CHF 9 each", "18 Stück je CHF 9".
     {
       re: new RegExp(
-        `(?:je|each)\s*(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\b`,
+        `(?:je|each)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "i",
       ),
       currencyGroup: 1,
@@ -2572,7 +2621,7 @@ function findExplicitUnitPriceInLine(
     },
     {
       re: new RegExp(
-        `(?:je|each)\s*${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\b`,
+        `(?:je|each)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "i",
       ),
       currencyGroup: 2,
@@ -2580,7 +2629,7 @@ function findExplicitUnitPriceInLine(
     },
     {
       re: new RegExp(
-        `(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\s*(?:each|je)\b`,
+        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:each|je)\\b`,
         "i",
       ),
       currencyGroup: 1,
@@ -2588,7 +2637,7 @@ function findExplicitUnitPriceInLine(
     },
     {
       re: new RegExp(
-        `${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\s*(?:each|je)\b`,
+        `${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:each|je)\\b`,
         "i",
       ),
       currencyGroup: 2,
@@ -3421,7 +3470,18 @@ function removeSubsumedReviewOnlyItems(
     const itemTokens = meaningfulServiceTokens(item.serviceName);
     const itemName = normalizeCompare(item.serviceName);
 
-    if (!itemUnit || itemQuantity <= 0 || itemTokens.length === 0) return true;
+    if (!itemUnit || itemQuantity <= 0) return true;
+
+    const sameCanonicalCompletedItemExists = items.some((other, otherIndex) => {
+      if (otherIndex === index) return false;
+      if (Number(other.unitPrice || 0) <= 0 || Number(other.totalPrice || 0) <= 0) return false;
+      if (unitTypeFromDisplayUnit(other.unit) !== itemUnit) return false;
+      if (Math.abs(Number(other.quantity || 0) - itemQuantity) >= 0.001) return false;
+      return normalizeCompare(other.serviceName) === itemName;
+    });
+
+    if (sameCanonicalCompletedItemExists) return false;
+    if (itemTokens.length === 0) return true;
 
     const isSubsumed = items.some((other, otherIndex) => {
       if (otherIndex === index) return false;

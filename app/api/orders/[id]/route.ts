@@ -161,23 +161,53 @@ function parseNumberToken(value?: string | null) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function extractUnitPriceFromSourceLine(line: string) {
+function extractUnitPriceFromSourceLine(line: string, item?: any) {
   if (!line) return null;
-  const patterns = [
-    /(?:je|each|à|a|zu|pro|per)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/i,
-    /(?:chf|eur|fr\.?|sfr|€)\s*(\d+(?:[.,]\d+)?)\s*(?:je|each)\b/i,
-    /(?:chf|eur|fr\.?|sfr|€)\s*(\d+(?:[.,]\d+)?)/i,
-    /(\d+(?:[.,]\d+)?)\s*(?:chf|eur|franken|stutz|sfr|€)\b/i,
-    /(\d+(?:[.,]\d+)?)\s*\.\-/i,
+
+  const patterns: Array<{ re: RegExp; priceGroup: number }> = [
+    { re: /(?:je|each|à|a|zu|pro|per)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/gi, priceGroup: 1 },
+    { re: /(?:chf|eur|fr\.?|sfr|€)\s*(\d+(?:[.,]\d+)?)\s*(?:je|each)\b/gi, priceGroup: 1 },
+    { re: /(?:chf|eur|fr\.?|sfr|€)\s*(\d+(?:[.,]\d+)?)/gi, priceGroup: 1 },
+    { re: /(\d+(?:[.,]\d+)?)\s*(?:chf|eur|franken|stutz|sfr|€)\b/gi, priceGroup: 1 },
+    { re: /(\d+(?:[.,]\d+)?)\s*\.-/gi, priceGroup: 1 },
   ];
 
+  const matches: Array<{ amount: number; index: number }> = [];
   for (const pattern of patterns) {
-    const match = line.match(pattern);
-    const parsed = parseNumberToken(match?.[1]);
-    if (parsed) return parsed;
+    for (const match of line.matchAll(pattern.re)) {
+      const amount = parseNumberToken(match?.[pattern.priceGroup]);
+      if (!amount) continue;
+      const index = match.index ?? 0;
+      if (!matches.some((entry) => entry.amount === amount && Math.abs(entry.index - index) < 3)) {
+        matches.push({ amount, index });
+      }
+    }
   }
 
-  return null;
+  if (matches.length === 0) return null;
+  if (matches.length === 1 || !item) return matches[0].amount;
+
+  const normalized = normalizeSearchText(line);
+  const tokens = serviceIntentTokens(item?.serviceName);
+  const serviceIndexes = tokens
+    .map((token) => normalized.indexOf(token))
+    .filter((index) => index >= 0);
+  const quantity = Number(String(item?.quantity ?? '').replace("'", '').replace(',', '.'));
+  const quantityIndex = Number.isFinite(quantity) && quantity > 0
+    ? normalized.search(new RegExp(`(^|[^0-9])${String(quantity).replace('.', '[.,]')}([^0-9]|$)`))
+    : -1;
+
+  const anchor = serviceIndexes.length > 0
+    ? Math.min(...serviceIndexes)
+    : quantityIndex >= 0
+      ? quantityIndex
+      : -1;
+
+  if (anchor < 0) return null;
+
+  return matches
+    .map((match) => ({ ...match, distance: Math.abs(match.index - anchor) }))
+    .sort((a, b) => a.distance - b.distance)[0]?.amount || null;
 }
 
 function shouldTrustSourcePriceForItem(item: any, data: any) {
@@ -200,7 +230,7 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   return items.map((item: any) => {
     const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
     const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
-    const sourcePrice = extractUnitPriceFromSourceLine(sourceLine);
+    const sourcePrice = extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
     const unitPrice =
       sourcePrice && shouldTrustSourcePriceForItem(item, data)
         ? sourcePrice

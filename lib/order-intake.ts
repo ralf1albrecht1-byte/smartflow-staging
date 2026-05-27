@@ -2476,6 +2476,47 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     jobHints.push("Hanglage");
   }
 
+
+  const rawOperationalLines = rawText
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const rawLine of rawOperationalLines) {
+    const line = normalizeSemanticText(rawLine);
+    if (!line) continue;
+    const phone = rawLine.match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]?.replace(/\s+/g, " ").trim();
+
+    if (/nur\s+whats\s*app|whats\s*app.*nicht\s+anrufen|nicht\s+anrufen.*whats\s*app/i.test(line)) {
+      jobHints.push(phone ? `Nur WhatsApp, nicht anrufen: ${phone}` : "Nur WhatsApp, nicht anrufen");
+      continue;
+    }
+
+    if (/whats\s*app/i.test(line) && phone) {
+      jobHints.push(`WhatsApp bevorzugt: ${phone}`);
+    }
+
+    if (/\bsms\b/i.test(line) && /am\s+besten|best|preferred|bevorzugt|reicht/i.test(line)) {
+      jobHints.push(phone ? `SMS ist am besten: ${phone}` : "SMS ist am besten");
+    }
+
+    if (/(mail|e\s*mail|email)/i.test(line) && /keine\s+telefonische|nicht\s+anrufen|no\s+calls?/i.test(line)) {
+      jobHints.push("Mail reicht, bitte keine telefonische Rückfrage");
+    } else if (/(mail|e\s*mail|email)/i.test(line) && /reicht|only|nur|preferred|bevorzugt/i.test(line)) {
+      jobHints.push("Mail reicht");
+    }
+
+    if (/bitte\s+nicht\s+anrufen|nicht\s+anrufen|keine\s+telefonische\s+rueckfrage|keine\s+telefonische\s+ruckfrage/i.test(line)) {
+      jobHints.push(/keine\s+telefonische/i.test(line) ? "Bitte keine telefonische Rückfrage" : "Bitte nicht anrufen");
+    }
+
+    if (/no\s+calls?\s+during\s+office\s+hours|keine\s+anrufe\s+waehrend\s+der\s+buerozeiten|keine\s+anrufe\s+waehrend\s+der\s+bürozeiten/i.test(line)) {
+      jobHints.push("Keine Anrufe während der Bürozeiten");
+    }
+  }
+
   const hasGoodParking = normalizedLines.some(
     (line) =>
       !isNegatedSpecialNoteLine(line) &&
@@ -3261,7 +3302,7 @@ function canonicalGermanServiceNameFromText(
   if (!normalized) return null;
 
   if (
-    /\b(anfahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+    /\b(anfahrt|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
       normalized,
     )
   ) {
