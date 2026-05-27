@@ -832,6 +832,41 @@ const stripRepeatedLocationPrefix = (hint: string, location: string) => {
   return text;
 };
 
+const SPECIAL_NOTES_GROUP_SEPARATOR = "────────────────────";
+
+const isSpecialNotesGroupSeparator = (value?: string | null) =>
+  /^[-─—–_]{6,}$/.test(compactText(value));
+
+const isSpecialNotesGroupHeader = (value?: string | null) => {
+  const text = compactText(value);
+  if (!/^[^:]{2,190}:$/.test(text)) return false;
+  return looksLikeWorkSitePrefix(text.replace(/:$/, ""));
+};
+
+const formatSpecialNotesForDisplay = (lines: string[]) => {
+  const result: string[] = [];
+  let hasCurrentGroupContent = false;
+
+  for (const rawLine of lines) {
+    const line = compactText(rawLine);
+    if (!line || isSpecialNotesGroupSeparator(line)) continue;
+
+    if (isSpecialNotesGroupHeader(line)) {
+      if (result.length > 0 && hasCurrentGroupContent) {
+        result.push(SPECIAL_NOTES_GROUP_SEPARATOR);
+      }
+      result.push(line);
+      hasCurrentGroupContent = false;
+      continue;
+    }
+
+    result.push(line);
+    hasCurrentGroupContent = true;
+  }
+
+  return result.join("\n");
+};
+
 const structuredSpecialNoteHints = (order: Order) => {
   const lines = String(order.specialNotes || "")
     .replace(/\r\n/g, "\n")
@@ -4254,13 +4289,15 @@ export default function AuftraegePage() {
 
   const parsedFormSpecialNotes = splitSpecialNotes(form.specialNotes);
   const dangerNoteLines = parsedFormSpecialNotes.safetyWarnings;
-  const normalSpecialNotesText = parsedFormSpecialNotes.jobHints.join("\n");
+  const normalSpecialNotesText = formatSpecialNotesForDisplay(
+    parsedFormSpecialNotes.jobHints,
+  );
 
   const updateNormalSpecialNotes = (value: string) => {
     const nextJobHints = value
       .split(/\n+/)
       .map((line) => line.trim())
-      .filter(Boolean);
+      .filter((line) => line && !isSpecialNotesGroupSeparator(line));
 
     setForm((prev) => {
       const previousNotes = splitSpecialNotes(prev.specialNotes);
