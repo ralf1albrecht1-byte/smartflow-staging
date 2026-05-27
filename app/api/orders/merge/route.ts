@@ -55,7 +55,7 @@ const canonicalMergeServiceName = (value?: string | null) => {
   const key = normalizeServiceKey(name);
 
   if (
-    /\b(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+    /\b(anfahrt|anfahrt pauschal|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
       key,
     )
   ) {
@@ -383,6 +383,12 @@ const buildExecutionAddressMismatchNote = (workSites: MergeWorkSiteInput[]) => {
     .join(" ");
 };
 
+const getSpecialNoteSiteLabel = (order: any) => {
+  const primarySite = getPrimarySiteForOrder(order);
+  const label = siteLines(primarySite).slice(0, 2).join(", ");
+  return label || order?.customer?.name || "Auftrag";
+};
+
 const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
   const safetyWarnings: string[] = [];
   const jobHints: string[] = [];
@@ -390,9 +396,10 @@ const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
 
   for (const order of orders) {
     const split = splitSpecialNotes(order.specialNotes || "");
+    const siteLabel = getSpecialNoteSiteLabel(order);
 
-    safetyWarnings.push(...split.safetyWarnings);
-    jobHints.push(...split.jobHints);
+    safetyWarnings.push(...split.safetyWarnings.map((line) => `${siteLabel}: ${line}`));
+    jobHints.push(...split.jobHints.map((line) => `${siteLabel}: ${line}`));
     systemHints.push(...split.systemHints);
   }
 

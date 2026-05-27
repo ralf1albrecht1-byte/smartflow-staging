@@ -16,7 +16,6 @@ import {
 const CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^currency_/,
   /^item_currency_mismatch/,
-  /^currency_unsupported$/,
   /^total_unrealistic_check$/,
 ];
 
@@ -53,9 +52,7 @@ function sourceOrderBlockers(order: any): string[] {
     blockers.push("Offene Prüfhinweise im Auftrag");
   }
 
-  // needsReview alone is not a conversion blocker. Yellow review chips such as
-  // "Preis abweichend" or "Nicht im Katalog" may remain on the source order
-  // while Angebot/Rechnung is created, as long as amounts and currency are safe.
+
   const customer = order?.customer;
   if (
     !String(customer?.name || "").trim() ||

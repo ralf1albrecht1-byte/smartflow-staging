@@ -986,9 +986,26 @@ const isAmbiguousElapsedSameDayAppointment = (
   return sameCalendarDay && appointmentMoment.getTime() <= reference.getTime();
 };
 
+const isContactTimeOnlyHint = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  const hasTime =
+    /\b(?:nach|ab|erst nach|after)\s*\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h|pm|am)?\b/.test(text) ||
+    /\b\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b/.test(text);
+  const hasContactVerb =
+    /\b(?:anrufen|telefonieren|zurueckrufen|zuruckrufen|rueckrufen|ruckrufen|melden|kontaktieren|call|phone)\b/.test(text);
+  const hasWorkAppointmentVerb =
+    /\b(?:termin|ausfuehrung|ausführung|arbeiten|kommen|vor ort|einsatz|appointment|rendez)\b/.test(text);
+
+  return hasTime && hasContactVerb && !hasWorkAppointmentVerb;
+};
+
 const isNonActionableAppointmentHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return true;
+
+  if (isContactTimeOnlyHint(value)) return true;
 
   return (
     /termin\s*(?:ist\s*)?flexibel/.test(text) ||
@@ -1098,22 +1115,6 @@ const getAppointmentBadgeVisual = (
   };
 };
 
-const isCallbackContactTimeLine = (value?: string | null) => {
-  const raw = compactText(value);
-  const text = normalizeForMatch(raw);
-  if (!text) return false;
-
-  const timePattern =
-    /(?:\b(?:nach|ab|after|apres|après)\s*\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?\b|\b\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b)/;
-
-  const hasPhoneAction =
-    /anrufen|zurueckrufen|zuruckrufen|rueckrufen|ruckrufen|telefonieren|telefonisch|call|phone/.test(
-      text,
-    );
-
-  return hasPhoneAction && timePattern.test(text);
-};
-
 const extractAppointmentBadge = (
   value?: string | null,
   baseDateInput?: string | null,
@@ -1123,7 +1124,6 @@ const extractAppointmentBadge = (
   const text = normalizeForMatch(raw);
   if (
     !text ||
-    isCallbackContactTimeLine(raw) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw)
   ) {
@@ -2022,9 +2022,8 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
     );
 
   if (negative) return false;
-  if (isCallbackContactTimeLine(value)) return true;
 
-  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:(?:nach|ab)\s*\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?\s+)?(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
+  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
     text,
   );
 };
@@ -2145,7 +2144,10 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       tabIndex={0}
       title={title}
       aria-label={title}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (title) toast.info(title);
+      }}
       className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`}
     >
       {Icon ? <Icon className="h-3.5 w-3.5" strokeWidth={2.2} /> : badge.label.slice(0, 1)}
@@ -2171,7 +2173,10 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         tabIndex={0}
         title={title}
         aria-label={title}
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          toast.info(title);
+        }}
         className={className}
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -2213,9 +2218,11 @@ const mobileOverflowBadge = (count: number) =>
 const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
   const source = values.filter(Boolean).join("\n");
   const explicitPhone =
-    source.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    source.match(/(?:whats\s*app(?:\s+nummer)?|whatsappnummer|use\s+whats\s*app|whats\s*app\s+if\s+possible|per\s+whats\s*app|via\s+whats\s*app|nur\s+whats\s*app|sms|tel\.?|telefon|phone|mobile|handy|natel|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*(?:nummer|nr\.?)?\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     source.match(/(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    source.match(/(?:nach|ab|erst\s+nach)\s*\d{1,2}(?::\d{2})?\s*(?:uhr|h)?\s*(?:anrufen|telefonieren|melden|kontaktieren).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     source.match(/(\+\d[\d\s()./-]{7,}\d)/)?.[1] ||
+    source.match(/(^|[^0-9])(0\d[\d\s()./-]{6,}\d)(?!\d)/)?.[2] ||
     "";
   const normalized = explicitPhone.replace(/[^+0-9]/g, "");
   return normalized.length >= 7 ? normalized : "";
@@ -2224,11 +2231,15 @@ const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
 const getOrderPhoneForHref = (order: Order) =>
   extractPhoneForHref(
     order.customer?.phone,
-    order.description,
-    order.serviceName,
     order.notes,
     order.specialNotes,
     order.audioTranscript,
+    order.description,
+    order.serviceName,
+    ...(order.items || []).flatMap((item) => [
+      item.serviceName,
+      item.description,
+    ]),
   );
 
 const renderCallbackCardBadge = (
@@ -2423,8 +2434,15 @@ const emptyForm = {
 const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^currency_/,
   /^item_currency_mismatch/,
-  /^currency_unsupported$/,
+  /^unit_mismatch:/,
+  /^unit_price_review$/,
+  /^quantity_review$/,
+  /^price_unclear:/,
+  /^unbekannte_leistung_pruefen$/,
+  /^stunden_arbeitsposition_pruefen$/,
   /^total_unrealistic_check$/,
+  /^currency_unsupported$/,
+  /^manual_flat_service_from_text$/,
 ];
 
 const getOrderConversionBlockers = (order: Order | any): string[] => {
@@ -2464,10 +2482,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     blockers.push("Offene Prüfhinweise im Auftrag");
   }
 
-  // needsReview alone must not block conversion. Yellow review chips such as
-  // "Preis abweichend" or "Nicht im Katalog" are allowed when all amounts are valid.
-  // True blockers are handled above: zero/missing price or quantity, currency issues,
-  // unrealistic totals, and incomplete customer data.
+  if (order?.needsReview && reviewReasons.length > 0) {
+    blockers.push("Auftrag ist noch auf Prüfen gesetzt");
+  }
+
   if (isCustomerDataIncomplete(order?.customer)) {
     blockers.push("Kundendaten prüfen");
   }
@@ -5187,8 +5205,8 @@ export default function AuftraegePage() {
             const mobileSystemBadges = leftSystemBadges.filter((badge) => badge.key !== "site_address");
             const mobileAddressBadge = leftSystemBadges.find((badge) => badge.key === "site_address") || null;
             const mobileActionBadges = [
-              ...(mobileAddressBadge ? [mobileAddressBadge] : []),
               ...callbackBadges,
+              ...(mobileAddressBadge ? [mobileAddressBadge] : []),
               ...operationalBadges,
               ...messageBadges,
               ...otherFooterBadges,
@@ -5301,7 +5319,7 @@ export default function AuftraegePage() {
                       </div>
 
                       {/* Mobile: compact two-column card like selected mockup */}
-                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_112px] gap-2 md:hidden">
+                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(88px,108px)] gap-2 overflow-hidden md:hidden">
                         <div className="min-w-0 overflow-visible">
                           <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
                             <span className="shrink-0">
@@ -5401,7 +5419,7 @@ export default function AuftraegePage() {
                           </div>
                         </div>
 
-                        <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
+                        <div className="flex min-w-0 max-w-[108px] flex-col items-end justify-between gap-1 overflow-hidden border-l border-slate-200 pl-2 dark:border-slate-700">
                           <div className="flex w-full flex-col items-end gap-1">
                             {appointmentBadges.slice(0, 1).map((badge) =>
                               renderMobileTextBadge(badge, "right"),
@@ -5417,7 +5435,7 @@ export default function AuftraegePage() {
                           </div>
 
                           <div className="whitespace-nowrap text-right leading-tight">
-                            <div className="font-mono text-[15px] font-bold tabular-nums">
+                            <div className="font-mono text-[14px] font-bold tabular-nums">
                               {formatCurrency(
                                 getSafeOrderTotal(o),
                                 o.currency === "EUR" ? "EUR" : "CHF",

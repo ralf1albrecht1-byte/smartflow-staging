@@ -39,7 +39,7 @@ const NON_OPERATIONAL_JOB_HINT =
   /^(Arbeit am\b|Ausführung am\b|Ausfuehrung am\b|Mehrere Ausführungsorte\b|Mehrere Ausfuehrungsorte\b)/i;
 
 const APPOINTMENT_CLARIFY_HINT =
-  /\btermin\b.*\b(klären|klaeren|klaren|abstimmen|vereinbaren|abmachen|melden|rücksprache|ruecksprache|rucksprache)\b|\b(rücksprache|ruecksprache|rucksprache|melden|abmachen)\b.*\btermin\b|\bappointment\b.*\b(schedule|arrange)\b|\bschedule\b.*\bappointment\b|\brendez\s*vous\b.*\bfix|\bfixer\b.*\brendez\s*vous\b/i;
+  /\btermin\b.*\b(klären|klaeren|klaren|abstimmen|vereinbaren|abmachen|melden|vorschlagen|offen|rücksprache|ruecksprache|rucksprache)\b|\b(rücksprache|ruecksprache|rucksprache|melden|abmachen|vorschlagen)\b.*\btermin\b|\bappointment\b.*\b(schedule|arrange)\b|\bschedule\b.*\bappointment\b|\brendez\s*vous\b.*\bfix|\bfixer\b.*\brendez\s*vous\b/i;
 
 const FIXED_APPOINTMENT_HINT =
   /^Termin\b.*(?:\d{1,2}[.\-/]\d{1,2}|\d{1,2}:\d{2}|\b(?:vormittag|nachmittag|abend|uhr)\b)/i;
@@ -100,6 +100,8 @@ const noteSpecificityScore = (value: string) => {
 
   if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
   if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
+  if (/bitte|nur|nicht anrufen|keine telefonische|mail reicht|whatsapp|sms|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
+  if (/\+\d|0\d{2,}/.test(text)) score += 80;
   if (/eventuell|vielleicht|moeglich|möglich/.test(text)) score -= 30;
   if (/vor ort/.test(text)) score -= 20;
 

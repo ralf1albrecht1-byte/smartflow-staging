@@ -262,7 +262,12 @@ function getContactEmail(data: CommunicationData, sourceText: string): string {
 }
 
 function getContactPhone(data: CommunicationData, sourceText: string): string {
-  const explicitPhone = sourceText.match(/(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] || '';
+  const explicitPhone =
+    sourceText.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    sourceText.match(/(?:use\s+whats\s*app|whats\s*app\s+if\s+possible|per\s+whats\s*app|via\s+whats\s*app).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    sourceText.match(/(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    sourceText.match(/(\+\d[\d\s()./-]{7,}\d)/)?.[1] ||
+    '';
   return normalizePhoneForHref(explicitPhone || data.customer?.phone || data.phone || '');
 }
 
