@@ -2502,14 +2502,14 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
       jobHints.push(phone ? `SMS ist am besten: ${phone}` : "SMS ist am besten");
     }
 
-    if (/(mail|e\s*mail|email)/i.test(line) && /keine\s+telefonische|nicht\s+anrufen|no\s+calls?/i.test(line)) {
+    if (/(mail|e\s*mail|email)/i.test(line) && /keine\s+telefonische|nicht\s+telefonisch|nicht\s+anrufen|no\s+calls?|do\s+not\s+call/i.test(line)) {
       jobHints.push("Mail reicht, bitte keine telefonische Rückfrage");
     } else if (/(mail|e\s*mail|email)/i.test(line) && /reicht|only|nur|preferred|bevorzugt/i.test(line)) {
       jobHints.push("Mail reicht");
     }
 
-    if (/bitte\s+nicht\s+anrufen|nicht\s+anrufen|keine\s+telefonische\s+rueckfrage|keine\s+telefonische\s+ruckfrage/i.test(line)) {
-      jobHints.push(/keine\s+telefonische/i.test(line) ? "Bitte keine telefonische Rückfrage" : "Bitte nicht anrufen");
+    if (/bitte\s+nicht\s+anrufen|nicht\s+anrufen|nicht\s+telefonisch|keine\s+telefonische\s+rueckfrage|keine\s+telefonische\s+ruckfrage/i.test(line)) {
+      jobHints.push(/keine\s+telefonische|nicht\s+telefonisch/i.test(line) ? "Bitte keine telefonische Rückfrage" : "Bitte nicht anrufen");
     }
 
     if (/no\s+calls?\s+during\s+office\s+hours|keine\s+anrufe\s+waehrend\s+der\s+buerozeiten|keine\s+anrufe\s+waehrend\s+der\s+bürozeiten/i.test(line)) {

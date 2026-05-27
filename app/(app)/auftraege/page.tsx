@@ -1436,6 +1436,236 @@ const extractAppointmentBadge = (
   return getAppointmentBadgeVisual(appointmentMoment, parts, orderStatus);
 };
 
+type AppointmentDetail = {
+  site: string;
+  address: string;
+  label: string;
+  reason?: string;
+};
+
+const looksLikeAddressLine = (value?: string | null) => {
+  const raw = compactText(value);
+  const text = normalizeForMatch(raw);
+  if (!raw || !text) return false;
+
+  return (
+    /\b\d{4,5}\b/.test(raw) ||
+    /\b(strasse|straße|weg|platz|gasse|allee|ring|chemin|route|rue|road|street|avenue|av\.|hauptstrasse|aarauerstrasse|limmatweg|technoparkstrasse)\b/.test(text)
+  );
+};
+
+const isAppointmentContactTimeLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return (
+    /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|rueckruf|ruckruf|call)\b/.test(text) &&
+    /\b(?:ab|nach|erst ab|erst nach)\s+\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?\b/.test(text)
+  );
+};
+
+const normalizeAppointmentDateLabel = (value: string) => {
+  const match = value.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+  if (!match) return "";
+
+  const day = match[1].padStart(2, "0");
+  const month = match[2].padStart(2, "0");
+  const year = match[3]
+    ? match[3].length === 2
+      ? `20${match[3]}`
+      : match[3]
+    : "";
+
+  return year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+};
+
+const normalizeAppointmentTimeLabel = (value: string) => {
+  const match =
+    value.match(/\b([01]?\d|2[0-3]):(\d{2})\b/) ||
+    value.match(/\b([01]?\d|2[0-3])\.(\d{2})\s*(?:uhr|h)?\b/i) ||
+    value.match(/\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+
+  if (!match) return "";
+  return formatAppointmentTime(match[1], match[2]);
+};
+
+const extractAppointmentDetailLabel = (value: string) => {
+  const raw = compactText(value);
+  if (!raw || isAppointmentContactTimeLine(raw)) return "";
+
+  const date = normalizeAppointmentDateLabel(raw);
+  const time = normalizeAppointmentTimeLabel(raw);
+  const text = normalizeForMatch(raw);
+  const dayPart = /vormittag|morning|matin/.test(text)
+    ? "vormittags"
+    : /nachmittag|afternoon|apres midi|après-midi/.test(text)
+      ? "nachmittags"
+      : /abend|evening|soir/.test(text)
+        ? "abends"
+        : "";
+
+  if (!date && !time && !dayPart) return "";
+  return [date, time || dayPart].filter(Boolean).join(" · ");
+};
+
+const cleanAppointmentReason = (value?: string | null) =>
+  compactText(value)
+    .replace(/^Grund\s*[:\-–—]\s*/i, "")
+    .replace(/^Hinweis\s*[:\-–—]\s*/i, "")
+    .replace(/^Kontakt\s+vor\s+Ort\s*[:\-–—]\s*Grund\s*[:\-–—]?\s*/i, "")
+    .replace(/^Kontakt\s+vor\s+Ort\s*[:\-–—]\s*/i, "")
+    .trim();
+
+const appointmentDetailKey = (detail: AppointmentDetail) =>
+  normalizeForMatch([detail.site, detail.address, detail.label].join(" "));
+
+const extractAppointmentDetailsFromRawText = (
+  ...values: Array<string | null | undefined>
+): AppointmentDetail[] => {
+  const rawLines = values
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  const details: AppointmentDetail[] = [];
+  let currentSite = "";
+  let currentAddressParts: string[] = [];
+  let lastDetailIndex = -1;
+
+  const pushDetail = (line: string) => {
+    const label = extractAppointmentDetailLabel(line);
+    if (!label) return;
+
+    const detail: AppointmentDetail = {
+      site: currentSite,
+      address: currentAddressParts.join(" · "),
+      label,
+    };
+    const key = appointmentDetailKey(detail);
+    if (!key || details.some((existing) => appointmentDetailKey(existing) === key)) return;
+
+    details.push(detail);
+    lastDetailIndex = details.length - 1;
+  };
+
+  for (const rawLine of rawLines) {
+    const line = compactText(rawLine);
+    const normalized = normalizeForMatch(line);
+    if (!line || !normalized) continue;
+
+    const worksiteMatch = line.match(/^(?:Arbeitsort|Ausführung|Ausfuehrung|Adresse\s+travaux|Arbeitsadresse)\s*\d*\s*[:\-–—]\s*(.*)$/i);
+    if (worksiteMatch) {
+      const site = compactText(worksiteMatch[1]);
+      currentSite = site || currentSite;
+      currentAddressParts = [];
+      lastDetailIndex = -1;
+      continue;
+    }
+
+    if (
+      currentSite &&
+      currentAddressParts.length < 2 &&
+      looksLikeAddressLine(line) &&
+      !/^Termin\b/i.test(line) &&
+      !/^Grund\b/i.test(line) &&
+      !/^Leistung\b/i.test(line)
+    ) {
+      currentAddressParts.push(line);
+      continue;
+    }
+
+    if (/^Termin\b/i.test(line) || extractAppointmentDetailLabel(line)) {
+      pushDetail(line);
+      continue;
+    }
+
+    if (/^Grund\s*[:\-–—]/i.test(line) && lastDetailIndex >= 0) {
+      const reason = cleanAppointmentReason(line);
+      if (reason) details[lastDetailIndex] = { ...details[lastDetailIndex], reason };
+      continue;
+    }
+  }
+
+  return details;
+};
+
+const extractAppointmentDetailsFromGroupedNotes = (
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+): AppointmentDetail[] => {
+  const details: AppointmentDetail[] = [];
+  let currentSite = "";
+
+  parsedNotes.jobHints.forEach((hint) => {
+    const line = compactText(hint);
+    if (!line) return;
+
+    const groupedMatch = line.match(/^([^:]{2,160})\s*:\s*(.+)$/);
+    const site = compactText(groupedMatch?.[1] || currentSite);
+    const value = compactText(groupedMatch?.[2] || line);
+    if (groupedMatch) currentSite = site;
+
+    const label = extractAppointmentDetailLabel(value);
+    if (!label) return;
+
+    const detail: AppointmentDetail = {
+      site,
+      address: "",
+      label,
+      reason: cleanAppointmentReason(value.replace(/^(?:Termin|Zeitfenster)\s*[:\-–—]?\s*/i, "")),
+    };
+    const key = appointmentDetailKey(detail);
+    if (key && !details.some((existing) => appointmentDetailKey(existing) === key)) {
+      details.push(detail);
+    }
+  });
+
+  return details;
+};
+
+const formatAppointmentDetailsTooltip = (details: AppointmentDetail[]) =>
+  details
+    .map((detail, index) => {
+      const header = [detail.site, detail.address].filter(Boolean).join(" · ");
+      return [
+        `${index + 1}. ${header || "Termin"}`,
+        `   ${detail.label}`,
+        detail.reason ? `   ${detail.reason}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n\n");
+
+const getMultipleAppointmentBadge = (
+  order: Order,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+): ReviewBadge | null => {
+  const details = [
+    ...extractAppointmentDetailsFromRawText(
+      order.notes,
+      order.audioTranscript,
+      order.specialNotes,
+    ),
+    ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
+  ].filter((detail, index, all) => {
+    const key = appointmentDetailKey(detail);
+    return Boolean(key) && all.findIndex((other) => appointmentDetailKey(other) === key) === index;
+  });
+
+  if (details.length < 2) return null;
+
+  return {
+    key: "appointments_multiple",
+    label: `Termine · ${details.length}`,
+    className: "bg-violet-100 text-violet-700 border border-violet-300",
+    tooltip: formatAppointmentDetailsTooltip(details),
+  };
+};
+
 const getOperationalBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -2283,19 +2513,22 @@ const getBottomBadges = (
     order.audioTranscript,
   ).filter((line) => !isCallbackTimeLine(line));
 
-  const appointmentBadge = appointmentSourceLines
-    .map((line) =>
-      extractAppointmentBadge(line, appointmentBaseDate, order.status),
-    )
-    .find(Boolean);
+  const multipleAppointmentBadge = getMultipleAppointmentBadge(order, parsedNotes);
+
+  const appointmentBadge = multipleAppointmentBadge ||
+    appointmentSourceLines
+      .map((line) =>
+        extractAppointmentBadge(line, appointmentBaseDate, order.status),
+      )
+      .find(Boolean);
 
   if (appointmentBadge) {
     pushUniqueBadge(badges, {
-      key: "appointment",
+      key: multipleAppointmentBadge ? "appointments_multiple" : "appointment",
       label: appointmentBadge.label,
       className: appointmentBadge.className,
       icon: appointmentBadge.icon,
-      tooltip: undefined,
+      tooltip: multipleAppointmentBadge ? multipleAppointmentBadge.tooltip : undefined,
     });
   } else {
     const appointmentClarification = detectAppointmentClarificationHint(
@@ -5514,13 +5747,16 @@ export default function AuftraegePage() {
             );
             const hiddenMergedDataBadgeKeys = [
               "appointment",
+              "appointments_multiple",
               "appointment_clarify",
               "callback_request",
               "sms_request",
             ];
-            const appointmentBadges = hasMultipleMergedData
-              ? []
-              : bottomBadges.filter((badge) => badge.key === "appointment");
+            const appointmentBadges = bottomBadges.filter((badge) =>
+              hasMultipleMergedData
+                ? badge.key === "appointments_multiple"
+                : badge.key === "appointment" || badge.key === "appointments_multiple",
+            );
             const callbackBadges = hasMultipleMergedData
               ? []
               : bottomBadges.filter((badge) => badge.key === "callback_request");
@@ -5530,7 +5766,7 @@ export default function AuftraegePage() {
             const otherFooterBadges = bottomBadges.filter((badge) =>
               hasMultipleMergedData
                 ? !hiddenMergedDataBadgeKeys.includes(badge.key)
-                : !["appointment", "callback_request", "sms_request"].includes(
+                : !["appointment", "appointments_multiple", "callback_request", "sms_request"].includes(
                     badge.key,
                   ),
             );
