@@ -771,6 +771,165 @@ const getParkingSignal = (value?: string | null) => {
   };
 };
 
+
+const isMergedOrderForCard = (order: Order) =>
+  Boolean(
+    order.reviewReasons?.includes("manual_order_merge") ||
+      order.reviewReasons?.includes("double_merge") ||
+      (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1),
+  );
+
+const formatWorkSiteLabelForHint = (site: {
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+}) => {
+  const title = cleanWorkSiteDisplayName(site.siteName) || compactText(site.siteAddress);
+  const address = [
+    compactText(site.siteAddress),
+    [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return [title, address].filter(Boolean).join(" · ");
+};
+
+const looksLikeWorkSitePrefix = (value?: string | null) => {
+  const text = compactText(value);
+  if (!text) return false;
+  if (/\b\d{4,5}\b/.test(text)) return true;
+  if (/\b(?:haus|gebäude|gebaeude|restaurant|küche|kueche|entrée|entree|technopark|limmatweg|chemin|strasse|straße|weg|gasse|platz|adresse|arbeitsort)\b/i.test(text)) return true;
+  return /\s·\s/.test(text);
+};
+
+const splitLocationPrefixedHint = (value?: string | null) => {
+  let text = compactText(value).replace(/^\[HINWEIS\]\s*/i, "").replace(/^[-•]\s*/, "");
+  let location = "";
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    const match = text.match(/^([^:]{2,190}):\s+(.+)$/);
+    if (!match || !looksLikeWorkSitePrefix(match[1])) break;
+    location = compactText(match[1]);
+    text = compactText(match[2]).replace(/^[-•]\s*/, "");
+  }
+
+  return { location, hint: text };
+};
+
+const stripRepeatedLocationPrefix = (hint: string, location: string) => {
+  let text = compactText(hint).replace(/^[-•]\s*/, "");
+  const normalizedLocation = normalizeForMatch(location);
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    const parsed = splitLocationPrefixedHint(text);
+    if (!parsed.location) break;
+    if (normalizeForMatch(parsed.location) !== normalizedLocation) break;
+    text = parsed.hint;
+  }
+
+  return text;
+};
+
+const structuredSpecialNoteHints = (order: Order) => {
+  const lines = String(order.specialNotes || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line).replace(/^\[HINWEIS\]\s*/i, ""))
+    .filter(Boolean);
+
+  const fallbackSites = (order.workSites ?? [])
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
+        Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
+    )
+    .map(formatWorkSiteLabelForHint)
+    .filter(Boolean);
+  const singleFallbackSite = fallbackSites.length === 1 ? fallbackSites[0] : "";
+
+  const result: Array<{ location: string; hint: string }> = [];
+  let currentLocation = "";
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/^[-•]\s*/, "");
+    const parsed = splitLocationPrefixedHint(line);
+
+    if (parsed.location) {
+      currentLocation = parsed.location;
+      if (parsed.hint) {
+        result.push({
+          location: currentLocation,
+          hint: stripRepeatedLocationPrefix(parsed.hint, currentLocation),
+        });
+      }
+      continue;
+    }
+
+    if (/^[^:]{2,190}:$/.test(line) && looksLikeWorkSitePrefix(line.replace(/:$/, ""))) {
+      currentLocation = compactText(line.replace(/:$/, ""));
+      continue;
+    }
+
+    result.push({
+      location: currentLocation || singleFallbackSite,
+      hint: line,
+    });
+  }
+
+  return result;
+};
+
+const operationalHintMatchesKind = (
+  kind: string,
+  line: string,
+  contextText: string,
+) => {
+  if (kind === "parking") {
+    return Boolean(getParkingBadge(line, contextText)) || getParkingSignal(line).hasParking;
+  }
+  return getSemanticBadgeKind(line) === kind;
+};
+
+const formatOperationalHintTooltip = (
+  order: Order,
+  kind: string,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+  fallbackLine: string,
+  contextText: string,
+) => {
+  const entries = [
+    ...structuredSpecialNoteHints(order),
+    ...parsedNotes.jobHints.map((line) => splitLocationPrefixedHint(line)),
+  ]
+    .map((entry) => ({
+      location: compactText(entry.location),
+      hint: compactText(stripRepeatedLocationPrefix(entry.hint, entry.location)),
+    }))
+    .filter((entry) => entry.hint && operationalHintMatchesKind(kind, entry.hint, contextText));
+
+  const seen = new Set<string>();
+  const formatted: string[] = [];
+
+  for (const entry of entries) {
+    const key = `${normalizeForMatch(entry.location)}|${normalizeForMatch(entry.hint)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    formatted.push(
+      entry.location
+        ? `${entry.location}:\n${entry.hint}`
+        : entry.hint,
+    );
+  }
+
+  if (formatted.length > 0) return formatted.join("\n\n");
+  return compactText(fallbackLine);
+};
+
 const getParkingConflictBadge = (
   values: Array<string | null | undefined>,
 ): { label: string; className: string } | null => {
@@ -1309,7 +1468,7 @@ const getOperationalBadges = (
         `hint_parking_${normalizeForMatch(parkingBadge.label)}`,
         parkingBadge.label,
         parkingBadge.className,
-        line,
+        formatOperationalHintTooltip(order, "parking", parsedNotes, line, orderBadgeContext),
       );
       return;
     }
@@ -1332,7 +1491,7 @@ const getOperationalBadges = (
       `hint_${kind}`,
       label,
       isPositiveSemanticHint(line) ? greenInfoClass : amberHintClass,
-      line,
+      formatOperationalHintTooltip(order, kind, parsedNotes, line, orderBadgeContext),
     );
   });
 
@@ -1341,7 +1500,13 @@ const getOperationalBadges = (
       "hint_parking_review",
       parkingConflictBadge.label,
       parkingConflictBadge.className,
-      "Es gibt unterschiedliche oder unklare Parkhinweise. Bitte Auftrag öffnen und prüfen.",
+      formatOperationalHintTooltip(
+        order,
+        "parking",
+        parsedNotes,
+        "Es gibt unterschiedliche oder unklare Parkhinweise. Bitte Auftrag öffnen und prüfen.",
+        orderBadgeContext,
+      ),
     );
   }
 
@@ -1684,9 +1849,14 @@ const formatExecutionAddressTooltip = (order: Order) => {
         [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
       ]
         .filter(Boolean)
-        .join(", ");
+        .join(" · ");
 
-      return [title, address].filter(Boolean).join(": ");
+      return [
+        `${index + 1}. ${title}`,
+        address ? `   ${address}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
     })
     .filter(Boolean);
 
@@ -1694,12 +1864,14 @@ const formatExecutionAddressTooltip = (order: Order) => {
     const visibleLines = workSiteLines.slice(0, 8);
     const hiddenCount = Math.max(0, workSiteLines.length - visibleLines.length);
     return [
-      "Ausführungsadresse:",
+      workSiteLines.length > 1
+        ? `Ausführungsorte (${workSiteLines.length}):`
+        : "Ausführungsadresse:",
       ...visibleLines,
       hiddenCount > 0 ? `+${hiddenCount} weitere Arbeitsorte` : "",
     ]
       .filter(Boolean)
-      .join("\n");
+      .join("\n\n");
   }
 
   const fallback = [
@@ -1799,9 +1971,10 @@ const getSystemBadges = (
   const badges: ReviewBadge[] = [];
 
   if (order.siteAddressDifferent) {
+    const workSiteCount = Array.isArray(order.workSites) ? order.workSites.length : 0;
     pushUniqueBadge(badges, {
       key: "site_address",
-      label: "Ausführungsadresse",
+      label: workSiteCount > 1 ? `Ausführungsorte · ${workSiteCount}` : "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
       tooltip: formatExecutionAddressTooltip(order),
     });
