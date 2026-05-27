@@ -3879,6 +3879,39 @@ function removeUnknownItemsCoveredByNamedItems(
   });
 }
 
+function removeZeroReviewItemsCoveredByPricedItems(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  if (items.length <= 1) return items;
+
+  return items.filter((item, index) => {
+    const itemPrice = roundMoney(Number(item.unitPrice || 0));
+    const itemTotal = roundMoney(Number(item.totalPrice || 0));
+    const itemQuantity = roundMoney(Number(item.quantity || 0));
+    const itemUnit = unitTypeFromDisplayUnit(item.unit) || normalizeCompare(item.unit);
+    const itemName = normalizeCompare(item.serviceName);
+
+    if (itemPrice > 0 && itemTotal > 0) return true;
+    if (itemQuantity <= 0 || !itemUnit || !itemName) return true;
+
+    const coveredByPricedItem = items.some((other, otherIndex) => {
+      if (otherIndex === index) return false;
+      if (roundMoney(Number(other.unitPrice || 0)) <= 0) return false;
+      if (roundMoney(Number(other.totalPrice || 0)) <= 0) return false;
+
+      const otherQuantity = roundMoney(Number(other.quantity || 0));
+      if (Math.abs(otherQuantity - itemQuantity) >= 0.001) return false;
+
+      const otherUnit = unitTypeFromDisplayUnit(other.unit) || normalizeCompare(other.unit);
+      if (otherUnit !== itemUnit) return false;
+
+      return normalizeCompare(other.serviceName) === itemName;
+    });
+
+    return !coveredByPricedItem;
+  });
+}
+
 
 function isPriceAnchorOnlyServiceName(value?: string | null): boolean {
   const normalized = normalizeCompare(value);
@@ -4414,6 +4447,7 @@ export function validateAndRepairParsedOrderItems(
   items = normalizeParsedServiceNames(items);
   items = dedupeUnsafeDuplicateItems(items);
   items = removeUnknownItemsCoveredByNamedItems(items);
+  items = removeZeroReviewItemsCoveredByPricedItems(items);
   items = removeWorksiteNameOnlyArtifacts(input.originalText, items);
 
   const hardExplicitGuard = applyHardExplicitItemConsistencyGuard(
@@ -4433,6 +4467,7 @@ export function validateAndRepairParsedOrderItems(
   // blockierende 0-Position im Auftrag bleiben.
   items = removeUnpricedDuplicateServiceArtifacts(items);
   items = dedupeUnsafeDuplicateItems(items);
+  items = removeZeroReviewItemsCoveredByPricedItems(items);
   reviewReasons.push(...hardExplicitGuard.reviewReasons);
 
   const priceUnclearServiceNames = new Set(

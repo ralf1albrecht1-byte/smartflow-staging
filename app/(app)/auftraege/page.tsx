@@ -2276,12 +2276,14 @@ const getBottomBadges = (
   // Do not add an extra SMS review badge here; otherwise SMS appears twice.
 
   const appointmentBaseDate = order.createdAt || order.date;
-  const appointmentBadge = splitAppointmentSources(
+  const appointmentSourceLines = splitAppointmentSources(
     ...parsedNotes.jobHints,
     order.specialNotes,
     order.notes,
     order.audioTranscript,
-  )
+  ).filter((line) => !isCallbackTimeLine(line));
+
+  const appointmentBadge = appointmentSourceLines
     .map((line) =>
       extractAppointmentBadge(line, appointmentBaseDate, order.status),
     )
@@ -5510,20 +5512,27 @@ export default function AuftraegePage() {
               o,
               parsedCardNotes,
             );
+            const hiddenMergedDataBadgeKeys = [
+              "appointment",
+              "appointment_clarify",
+              "callback_request",
+              "sms_request",
+            ];
             const appointmentBadges = hasMultipleMergedData
               ? []
               : bottomBadges.filter((badge) => badge.key === "appointment");
             const callbackBadges = hasMultipleMergedData
               ? []
               : bottomBadges.filter((badge) => badge.key === "callback_request");
-            const messageBadges = bottomBadges.filter(
-              (badge) => badge.key === "sms_request",
-            );
-            const otherFooterBadges = bottomBadges.filter(
-              (badge) =>
-                !["appointment", "callback_request", "sms_request"].includes(
-                  badge.key,
-                ),
+            const messageBadges = hasMultipleMergedData
+              ? []
+              : bottomBadges.filter((badge) => badge.key === "sms_request");
+            const otherFooterBadges = bottomBadges.filter((badge) =>
+              hasMultipleMergedData
+                ? !hiddenMergedDataBadgeKeys.includes(badge.key)
+                : !["appointment", "callback_request", "sms_request"].includes(
+                    badge.key,
+                  ),
             );
             const rightSideBadges = amountReviewBadges;
             const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
