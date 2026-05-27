@@ -76,8 +76,20 @@ const normalizeDedupeText = (value: string) =>
     .trim();
 
 const semanticNoteKey = (value: string) => {
+  const visibleLine = stripKnownMarker(value);
   const text = normalizeDedupeText(value);
   if (!text) return "";
+
+  // Grouped merge notes must not be collapsed across work sites.
+  // Example: "Haus B · Limmatweg 14: Nicht telefonisch zurückrufen"
+  // and "Haus A · Limmatweg 12: Keine telefonische Rückfrage" are
+  // two different operational instructions, even if both are "no call".
+  if (
+    /^[^:]{2,120}:\s+/.test(visibleLine) &&
+    /(?:whatsapp|sms|mail|email|e-mail|telefon|anruf|anrufen|rueckruf|ruckruf|rückruf|termin|uhr|schluessel|schlüssel|zugang|eingang|hauswart|rezeption)/i.test(visibleLine)
+  ) {
+    return text;
+  }
 
   if (/\bhund\b|\bgartenhund\b|\bdog\b/.test(text)) return "dog";
   if (/\bleiter\b|\bladder\b/.test(text)) return "ladder";

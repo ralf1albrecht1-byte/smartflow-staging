@@ -364,6 +364,7 @@ type ReviewBadge = {
   className: string;
   icon?: boolean;
   tooltip?: string;
+  focusTarget?: "specialNotes";
 };
 
 const compactText = (value?: string | null) =>
@@ -1690,7 +1691,15 @@ const formatExecutionAddressTooltip = (order: Order) => {
     .filter(Boolean);
 
   if (workSiteLines.length > 0) {
-    return ["Ausführungsadresse:", ...workSiteLines.slice(0, 3)].join("\n");
+    const visibleLines = workSiteLines.slice(0, 8);
+    const hiddenCount = Math.max(0, workSiteLines.length - visibleLines.length);
+    return [
+      "Ausführungsadresse:",
+      ...visibleLines,
+      hiddenCount > 0 ? `+${hiddenCount} weitere Arbeitsorte` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
   const fallback = [
@@ -1742,6 +1751,47 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   return [...blockingBadges, ...catalogBadges];
 };
 
+const MERGED_CONTACT_DATA_PATTERN =
+  /whatsapp|sms|mail|e-?mail|telefon|telefonisch|anruf|anrufen|rückruf|rueckruf|ruckruf|termin|uhr|appointment|call|no calls?|nicht anrufen|keine telefonische/i;
+
+const hasMergedMultipleContactData = (
+  order: Order,
+  parsedNotes?: ReturnType<typeof splitSpecialNotes>,
+) => {
+  if (order.reviewReasons?.includes("merged_multiple_contact_data")) return true;
+
+  const isMergedOrder =
+    order.reviewReasons?.includes("manual_order_merge") ||
+    order.reviewReasons?.includes("double_merge") ||
+    (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1);
+
+  if (!isMergedOrder) return false;
+
+  const notes = parsedNotes || splitSpecialNotes(order.specialNotes || "");
+  const groupedContactLines = notes.jobHints.filter((line) => {
+    const value = compactText(line);
+    return /^[^:]{2,120}:\s+/.test(value) && MERGED_CONTACT_DATA_PATTERN.test(value);
+  });
+
+  const phoneCandidates = [
+    order.customer?.phone,
+    order.notes,
+    order.specialNotes,
+    order.audioTranscript,
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
+
+  const uniquePhones = new Set(
+    phoneCandidates
+      .map((phone) => phone.replace(/\D/g, ""))
+      .filter((phone) => phone.length >= 7),
+  );
+
+  return groupedContactLines.length > 1 || uniquePhones.size > 1;
+};
+
 const getSystemBadges = (
   order: Order,
   services: ServiceDef[] = [],
@@ -1774,6 +1824,17 @@ const getSystemBadges = (
         mergedCount > 0
           ? `${mergedCount} Aufträge verbunden.`
           : "Mehrere Aufträge verbunden.",
+    });
+  }
+
+  if (hasMergedMultipleContactData(order)) {
+    pushUniqueBadge(badges, {
+      key: "merged_data_review",
+      label: "Mehrere Daten prüfen",
+      className: "bg-amber-100 text-amber-800 border border-amber-300",
+      tooltip:
+        "Mehrere Telefonnummern, Termine oder Kontaktwege erkannt. Bitte in den Besonderheiten manuell prüfen.",
+      focusTarget: "specialNotes",
     });
   }
 
@@ -2627,6 +2688,10 @@ export default function AuftraegePage() {
     string | null
   >(null);
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
+  const specialNotesRef = useRef<HTMLDivElement | null>(null);
+  const [pendingFocusSection, setPendingFocusSection] = useState<
+    "specialNotes" | null
+  >(null);
 
   // New duplicate check (Phase C — Sheet-based)
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
@@ -2947,7 +3012,10 @@ export default function AuftraegePage() {
    * list-card "Kundendaten unvollständig" chip so the user lands directly
    * inside the customer editor with one tap (no extra "Bearbeiten" click).
    */
-  const openEdit = (o: Order, opts?: { openCustomerSection?: boolean }) => {
+  const openEdit = (
+    o: Order,
+    opts?: { openCustomerSection?: boolean; focusSection?: "specialNotes" },
+  ) => {
     setEditId(o.id);
     setServiceActionMenuKey(null);
     setDupCheckOpen(false);
@@ -3072,6 +3140,7 @@ export default function AuftraegePage() {
     setOrderVatRate(o.vatRate != null ? Number(o.vatRate) : defaultVatRate);
     setCurrency(o.currency === "EUR" ? "EUR" : "CHF");
     setDialogOpen(true);
+    setPendingFocusSection(opts?.focusSection || null);
     // V16.22: Do not auto-fill customer master data from order notes on dialog open.
     // Notes may contain execution addresses / onsite contact details and must not
     // silently write into the billing customer record. Manual customer editing stays available.
@@ -3156,8 +3225,26 @@ export default function AuftraegePage() {
   // Clear the pending flag when the dialog closes — prevents a stale request
   // from triggering on a subsequent unrelated open.
   useEffect(() => {
-    if (!dialogOpen) setPendingOpenCustomerEditor(null);
+    if (!dialogOpen) {
+      setPendingOpenCustomerEditor(null);
+      setPendingFocusSection(null);
+    }
   }, [dialogOpen]);
+
+  useEffect(() => {
+    if (!dialogOpen || pendingFocusSection !== "specialNotes") return;
+
+    const frame = requestAnimationFrame(() => {
+      specialNotesRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      specialNotesRef.current?.focus?.();
+      setPendingFocusSection(null);
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [dialogOpen, pendingFocusSection]);
 
   // ISSUE 2 — Fetch inline PLZ/city suggestion when customer card is shown.
   // Only fires for existing customers (editId) with missing PLZ or city.
@@ -5229,11 +5316,17 @@ export default function AuftraegePage() {
             const rightSideBadges = amountReviewBadges;
             const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
             const mobileRightHiddenCount = Math.max(0, rightSideBadges.length - mobilePrimaryRightBadges.length);
-            const mobileSystemBadges = leftSystemBadges.filter((badge) => badge.key !== "site_address");
+            const mobileFocusBadges = leftSystemBadges.filter(
+              (badge) => badge.focusTarget === "specialNotes",
+            );
+            const mobileSystemBadges = leftSystemBadges.filter(
+              (badge) => badge.key !== "site_address" && !badge.focusTarget,
+            );
             // Mobile: do not repeat the address pin as a large action icon.
             // The address remains visible on desktop and in the edit dialog; the
             // mobile icon row is reserved for real actions/hints.
             const mobileActionBadges = [
+              ...mobileFocusBadges,
               ...callbackBadges,
               ...operationalBadges,
               ...messageBadges,
@@ -5241,6 +5334,66 @@ export default function AuftraegePage() {
             ];
             const mobileVisibleActionBadges = mobileActionBadges.slice(0, 4);
             const mobileHiddenActionCount = Math.max(0, mobileActionBadges.length - mobileVisibleActionBadges.length);
+
+            const openOrderAtSpecialNotes = (event: any) => {
+              event.stopPropagation();
+              openEdit(o, { focusSection: "specialNotes" });
+            };
+
+            const renderInteractiveOrderCardBadge = (
+              badge: ReviewBadge,
+              tooltipAlign: "left" | "right" = "left",
+            ) => {
+              if (badge.focusTarget !== "specialNotes") {
+                return renderOrderCardBadge(badge, tooltipAlign);
+              }
+
+              const isLargeYellowBadge = [
+                "price_deviation",
+                "catalog_missing",
+                "catalog_review_combined",
+                "merged_data_review",
+              ].includes(badge.key);
+
+              return (
+                <button
+                  key={badge.key}
+                  type="button"
+                  title={compactText(badge.tooltip) || badge.label}
+                  aria-label={compactText(badge.tooltip) || badge.label}
+                  onClick={openOrderAtSpecialNotes}
+                  className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                    isLargeYellowBadge
+                      ? "text-[11px] px-2 py-0.5 font-semibold"
+                      : "text-[10px] px-1.5 py-0.5 font-medium"
+                  } ${getStrongerCardBadgeClassName(badge.className)}`}
+                >
+                  {badge.label}
+                  {renderBadgeTooltip(badge, tooltipAlign)}
+                </button>
+              );
+            };
+
+            const renderInteractiveMobileActionBadge = (badge: ReviewBadge) => {
+              if (badge.focusTarget !== "specialNotes") {
+                return renderMobileActionBadge(o, badge);
+              }
+
+              const Icon = mobileIconForBadge(badge) || AlertTriangle;
+              const title = compactText(badge.tooltip) || badge.label;
+              return (
+                <button
+                  key={badge.key}
+                  type="button"
+                  title={title}
+                  aria-label={title}
+                  onClick={openOrderAtSpecialNotes}
+                  className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`}
+                >
+                  <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                </button>
+              );
+            };
             const showAudioTooLongBadge =
               o.audioTranscriptionStatus?.startsWith("skipped");
             const showImageOnlyBadge = false;
@@ -5458,7 +5611,7 @@ export default function AuftraegePage() {
                             />
 
                             {mobileVisibleActionBadges.map((badge) =>
-                              renderMobileActionBadge(o, badge),
+                              renderInteractiveMobileActionBadge(badge),
                             )}
                             {mobileOverflowBadge(mobileHiddenActionCount)}
                           </div>
@@ -5546,7 +5699,7 @@ export default function AuftraegePage() {
                             {leftSystemBadges.length > 0 && (
                               <span className="inline-flex max-w-full flex-nowrap items-center gap-1 shrink-0">
                                 {leftSystemBadges.map((badge) =>
-                                  renderOrderCardBadge(badge),
+                                  renderInteractiveOrderCardBadge(badge),
                                 )}
                               </span>
                             )}
@@ -5634,15 +5787,15 @@ export default function AuftraegePage() {
                             )}
 
                             {messageBadges.map((badge) =>
-                              renderOrderCardBadge(badge),
+                              renderInteractiveOrderCardBadge(badge),
                             )}
 
                             {operationalBadges.map((badge) =>
-                              renderOrderCardBadge(badge),
+                              renderInteractiveOrderCardBadge(badge),
                             )}
 
                             {otherFooterBadges.map((badge) =>
-                              renderOrderCardBadge(badge),
+                              renderInteractiveOrderCardBadge(badge),
                             )}
                           </div>
                         </div>
@@ -5650,14 +5803,14 @@ export default function AuftraegePage() {
                         <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[220px] xl:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
                             {rightSideBadges.map((badge) =>
-                              renderOrderCardBadge(badge, "right"),
+                              renderInteractiveOrderCardBadge(badge, "right"),
                             )}
                           </div>
 
                           <div className="flex w-full flex-wrap items-end justify-end gap-3">
                             <div className="flex flex-wrap justify-end gap-1">
                               {appointmentBadges.map((badge) =>
-                                renderOrderCardBadge(badge, "right"),
+                                renderInteractiveOrderCardBadge(badge, "right"),
                               )}
                             </div>
 
@@ -7777,7 +7930,11 @@ export default function AuftraegePage() {
                   )}
 
                   {/* Besonderheiten — always visible, important warnings highlighted */}
-                  <div className="space-y-2">
+                  <div
+                    ref={specialNotesRef}
+                    tabIndex={-1}
+                    className="scroll-mt-24 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60"
+                  >
                     <div className="flex items-center gap-2">
                       <Label className="font-semibold">Besonderheiten</Label>
                       {dangerNoteLines.length > 0 && (

@@ -414,17 +414,146 @@ const buildExecutionAddressMismatchNote = (workSites: MergeWorkSiteInput[]) => {
     .join(" ");
 };
 
+const MERGE_CONTACT_DATA_PATTERN =
+  /whatsapp|sms|mail|e-?mail|telefon|telefonisch|anruf|anrufen|rückruf|rueckruf|ruckruf|termin|uhr|appointment|call|no calls?|nicht anrufen|keine telefonische/i;
+
+const MERGE_PHONE_PATTERN = /\+?\d[\d\s()./-]{6,}\d/g;
+
+const mergeSiteLabelForOrder = (order: any) => {
+  const site = getPrimarySiteForOrder(order);
+  const lines = siteLines(site);
+  const title = lines[0] || cleanSiteValue(order?.customer?.name) || "Quellauftrag";
+  const address = lines.slice(1).join(", ");
+  return [title, address].filter(Boolean).join(" · ");
+};
+
+const mergeContactDataSummary = (orders: any[]) => {
+  const phoneSet = new Set<string>();
+  let contactLines = 0;
+  let appointmentLines = 0;
+  let communicationLines = 0;
+
+  for (const order of orders) {
+    const split = splitSpecialNotes(order.specialNotes || "");
+    const combinedText = [
+      order?.customer?.phone,
+      order?.notes,
+      order?.specialNotes,
+      order?.audioTranscript,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    for (const match of combinedText.matchAll(MERGE_PHONE_PATTERN)) {
+      const normalized = String(match[0] || "").replace(/\D/g, "");
+      if (normalized.length >= 7) phoneSet.add(normalized);
+    }
+
+    for (const line of split.jobHints) {
+      if (!MERGE_CONTACT_DATA_PATTERN.test(line)) continue;
+      contactLines += 1;
+      if (/termin|uhr|appointment/i.test(line)) appointmentLines += 1;
+      if (/whatsapp|sms|mail|e-?mail|telefon|anruf|anrufen|rückruf|rueckruf|ruckruf|call|no calls?|nicht anrufen|keine telefonische/i.test(line)) {
+        communicationLines += 1;
+      }
+    }
+  }
+
+  return {
+    phoneCount: phoneSet.size,
+    contactLines,
+    appointmentLines,
+    communicationLines,
+    hasMultipleData:
+      orders.length > 1 &&
+      (phoneSet.size > 1 ||
+        contactLines > 1 ||
+        appointmentLines > 1 ||
+        communicationLines > 1),
+  };
+};
+
+const extractMergeContactHintsFromRawText = (order: any) => {
+  const source = [order?.notes, order?.audioTranscript]
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+
+  if (!source.trim()) return [];
+
+  const rawParts = source
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const result: string[] = [];
+
+  for (const line of rawParts) {
+    if (/^\s*\[?\s*(?:titel|title)\s*:/i.test(line)) continue;
+    if (/^(?:rechnung|rechnung an|facturation|ausführung|ausfuehrung|adresse travaux|arbeitsort|leistung|leistungen)\s*:?$/i.test(line)) continue;
+
+    if (/bitte\s+nicht\s+anrufen|nicht\s+anrufen|keine\s+telefonische\s+rückfrage|keine\s+telefonische\s+rueckfrage|no\s+calls?\s+during|no\s+phone\s+calls?/i.test(line)) {
+      result.push(line);
+      continue;
+    }
+
+    if (/(?:whatsapp|sms)\s+(?:ist\s+)?(?:am\s+besten|bevorzugt|preferred)|(?:whatsapp|sms)\s*(?:nummer)?\s*[:.]?\s*\+?\d/i.test(line)) {
+      result.push(line);
+      continue;
+    }
+
+    if (/(?:mail|e-?mail)\s+reicht|nur\s+per\s+(?:mail|e-?mail)|per\s+(?:mail|e-?mail)\s+abstimmen/i.test(line)) {
+      result.push(line);
+      continue;
+    }
+
+    if (/termin\s+(?:noch\s+)?(?:offen|abstimmen|vereinbaren|klären|klaeren)|rücksprache\s+wegen\s+termin|ruecksprache\s+wegen\s+termin/i.test(line)) {
+      result.push(line);
+      continue;
+    }
+
+    if (/(?:vor\s+arbeitsbeginn|nach\s+\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?|erst\s+ab\s+\d{1,2})\s+.*(?:anrufen|zurückrufen|zurueckrufen)|(?:anrufen|zurückrufen|zurueckrufen).*?(?:nach|ab|erst\s+ab)\s+\d{1,2}/i.test(line)) {
+      result.push(line);
+    }
+  }
+
+  return uniqueTrimmedLines(result);
+};
+
 const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
   const safetyWarnings: string[] = [];
   const jobHints: string[] = [];
   const systemHints: string[] = [];
+  const hasMultipleOrders = orders.length > 1;
 
   for (const order of orders) {
     const split = splitSpecialNotes(order.specialNotes || "");
+    const siteLabel = mergeSiteLabelForOrder(order);
 
     safetyWarnings.push(...split.safetyWarnings);
-    jobHints.push(...split.jobHints);
     systemHints.push(...split.systemHints);
+
+    const sourceHints = uniqueTrimmedLines([
+      ...split.jobHints,
+      ...extractMergeContactHintsFromRawText(order),
+    ]);
+
+    if (hasMultipleOrders) {
+      sourceHints.forEach((hint) => {
+        const cleaned = String(hint || "").replace(/\s+/g, " ").trim();
+        if (!cleaned) return;
+        jobHints.push(`${siteLabel}: ${cleaned}`);
+      });
+    } else {
+      jobHints.push(...sourceHints);
+    }
+  }
+
+  if (hasMultipleOrders && mergeContactDataSummary(orders).hasMultipleData) {
+    jobHints.push(
+      "Mehrere Telefonnummern, Termine oder Kontaktwege erkannt. Bitte die gruppierten Besonderheiten manuell prüfen.",
+    );
   }
 
   jobHints.push(...extraJobHints);
@@ -690,6 +819,8 @@ export async function POST(request: NextRequest) {
       if (hasVatMismatch) newReviewReasons.push("vat_mismatch");
       if (hasExecutionAddressMismatch)
         newReviewReasons.push("merged_different_execution_addresses");
+      if (mergeContactDataSummary(allOrders).hasMultipleData)
+        newReviewReasons.push("merged_multiple_contact_data");
       if (hasDoubleMerge) newReviewReasons.push("double_merge");
       if (mergedItems.some((item) => Number(item.unitPrice || 0) <= 0)) {
         newReviewReasons.push("unit_price_review");
