@@ -319,6 +319,7 @@ function findSourceLineForItem(source: string, item: any) {
     .filter(Boolean);
 
   for (const line of lines) {
+    if (/^\s*\[?\s*(?:titel|title)\s*:/i.test(line)) continue;
     const normalized = normalizeSearchText(line);
     if (!normalized) continue;
     const hits = tokens.filter((token) => normalized.includes(token)).length;
@@ -346,14 +347,11 @@ function parseNumberToken(value?: string | null) {
 function extractUnitPriceFromSourceLine(line: string) {
   if (!line) return null;
   const patterns = [
-    // "6 Stück je CHF 8" / "14 stk je CHF 8"
-    /(?:je|pro|per|each|à|a|zu)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)\s*(\d+(?:[.,]\d+)?)/i,
-    /(?:je|pro|per|each|à|a|zu)\s*(\d+(?:[.,]\d+)?)\s*(?:chf|eur|franken|stutz|sfr|€)/i,
-    // "12 pcs CHF 9 each"
-    /(?:chf|eur|fr\.?|sfr|€)\s*(\d+(?:[.,]\d+)?)\s*(?:each|je\s*(?:stück|stueck|stuck|stk)|pro\s*(?:stück|stueck|stuck|stk)|per\s*(?:piece|pieces))?/i,
-    /(?:je|à|a|zu|pro|per)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/i,
+    /(?:je|each|à|a|zu|pro|per)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/i,
+    /(?:chf|eur|fr\.?|sfr|€)\s*(\d+(?:[.,]\d+)?)\s*(?:je|each)\b/i,
+    /(?:chf|eur|fr\.?|sfr|€)\s*(\d+(?:[.,]\d+)?)/i,
     /(\d+(?:[.,]\d+)?)\s*(?:chf|eur|franken|stutz|sfr|€)\b/i,
-    /(\d+(?:[.,]\d+)?)\s*\.-/i,
+    /(\d+(?:[.,]\d+)?)\s*\.\-/i,
   ];
 
   for (const pattern of patterns) {
@@ -363,27 +361,6 @@ function extractUnitPriceFromSourceLine(line: string) {
   }
 
   return null;
-}
-
-function extractQuantityUnitFromSourceLine(line: string): {
-  quantity: number | null;
-  unit: string | null;
-} {
-  const match = String(line || "").match(
-    /\b(\d+(?:[.,]\d+)?)\s*(stück|stueck|stuck|stk|pcs?|pieces?|piece|fenster|fensterli|window|windows|vitres?|vitrines?|quadratmeter|qm|m2|m²|sqm|meter|stunden?|std\.?|h)\b/i,
-  );
-  if (!match) return { quantity: null, unit: null };
-
-  const quantity = parseNumberToken(match[1]);
-  const token = normalizeSearchText(match[2]);
-  let unit: string | null = null;
-
-  if (/stück|stueck|stuck|stk|pc|piece|fenster|fensterli|window|vitr/.test(token)) unit = "Stück";
-  else if (/quadratmeter|qm|m2|m²|sqm/.test(token)) unit = "Quadratmeter";
-  else if (/meter/.test(token)) unit = "Meter";
-  else if (/stunde|std|h/.test(token)) unit = "Stunde";
-
-  return { quantity, unit };
 }
 
 function shouldTrustSourcePriceForItem(item: any, data: any) {
@@ -407,22 +384,15 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
     const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
     const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
     const sourcePrice = extractUnitPriceFromSourceLine(sourceLine);
-    const sourceQuantityUnit = extractQuantityUnitFromSourceLine(sourceLine);
-    const trustSource = shouldTrustSourcePriceForItem(item, data) || Boolean(sourceLine);
     const unitPrice =
-      sourcePrice && (trustSource || Math.abs(Number(item?.unitPrice ?? 0) - sourcePrice) > 0.01)
+      sourcePrice && shouldTrustSourcePriceForItem(item, data)
         ? sourcePrice
         : Number(item?.unitPrice ?? 0);
-    const quantity =
-      sourceQuantityUnit.quantity && trustSource
-        ? sourceQuantityUnit.quantity
-        : Number(item?.quantity ?? 1);
-    const unit = sourceQuantityUnit.unit && trustSource ? sourceQuantityUnit.unit : item?.unit;
+    const quantity = Number(item?.quantity ?? 1);
 
     return {
       ...item,
       serviceName,
-      unit,
       unitPrice,
       quantity,
       totalPrice: unitPrice * quantity,

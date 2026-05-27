@@ -4963,6 +4963,25 @@ export async function processIncomingMessage(
     .map(canonicalizeSpecialNoteLine)
     .filter(Boolean);
 
+
+  const detectMultipleWorksiteReviewHint = (value: string): string | null => {
+    const source = String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const explicitNumberedSites =
+      source.match(/^\s*(?:arbeitsort|ausführung|ausfuehrung|einsatzort|objekt)\s*\d+\s*:/gim)
+        ?.length || 0;
+    const genericSiteMarkers =
+      source.match(/^\s*(?:arbeitsort|ausführung|ausfuehrung|einsatzort|objekt)\s*:/gim)
+        ?.length || 0;
+
+    if (explicitNumberedSites >= 2 || genericSiteMarkers >= 2) {
+      return "Mehrere Arbeitsorte erkannt – bitte prüfen";
+    }
+
+    return null;
+  };
+
   const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
     [
       messageText,

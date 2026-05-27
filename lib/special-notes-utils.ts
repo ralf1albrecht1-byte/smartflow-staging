@@ -85,9 +85,13 @@ const semanticNoteKey = (value: string) => {
   if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
   if (/termin.*(klaeren|klaren|abstimmen|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(text)) return "appointment_clarify";
+  const hasNoCall = /nicht anrufen|keine telefonische|kein telefon|no calls?|do not call/.test(text);
+  if (/whatsapp/.test(text) && hasNoCall) return "communication_whatsapp_no_call";
+  if (/\bsms\b/.test(text) && hasNoCall) return "communication_sms_no_call";
+  if (/(?:mail|email|e mail|e-mail)/.test(text) && hasNoCall) return "communication_email_no_call";
   if (/whatsapp/.test(text)) return "communication_whatsapp";
   if (/\bsms\b/.test(text)) return "communication_sms";
-  if (/nicht anrufen|keine telefonische|kein telefon/.test(text)) return "communication_no_call";
+  if (hasNoCall) return "communication_no_call";
   if (/mail|email|e mail|e-mail/.test(text)) return "communication_email";
   if (/\brueckruf\b|\bruckruf\b|\banrufen\b|\btelefonisch\b|\btelefon\b/.test(text)) return "callback";
 
@@ -101,7 +105,7 @@ const noteSpecificityScore = (value: string) => {
   if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
   if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
   if (/bitte|nur|nicht anrufen|keine telefonische|mail reicht|whatsapp|sms|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
-  if (/\+\d|0\d{2,}/.test(text)) score += 80;
+  if (/\+\d|\b0\d{2,}\b/.test(text)) score += 80;
   if (/eventuell|vielleicht|moeglich|möglich/.test(text)) score -= 30;
   if (/vor ort/.test(text)) score -= 20;
 

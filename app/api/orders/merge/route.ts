@@ -55,7 +55,7 @@ const canonicalMergeServiceName = (value?: string | null) => {
   const key = normalizeServiceKey(name);
 
   if (
-    /\b(anfahrt|anfahrt pauschal|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+    /\b(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
       key,
     )
   ) {
@@ -277,6 +277,36 @@ const buildItemMergeKey = (item: MergeItemInput) => {
   ].join("|");
 };
 
+
+const orderItemLooksLikeWorksiteOnlyArtifact = (order: any, item: any) => {
+  const serviceName = normalizeServiceKey(item?.serviceName || item?.description || "");
+  if (serviceName !== "eingangsbereich reinigen") return false;
+
+  const source = [order?.notes, order?.description, order?.specialNotes, order?.audioTranscript]
+    .filter(Boolean)
+    .join("\n");
+  const lines = source
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  // Keep a real priced Eingangsbereich service only if it appears as its own
+  // service line. A line such as "Ausführung: Haus B, Keller und Eingangsbereich"
+  // is an address/site label and must not become a service.
+  return !lines.some((line) => {
+    const text = normalizeServiceKey(line);
+    if (!text || /^\s*\[?\s*(?:titel|title)\s*:/i.test(line)) return false;
+    if (/^(?:ausfuehrung|ausfuehrungsadresse|arbeitsort|einsatzort|objekt)\b/.test(text)) return false;
+    return (
+      /\beingangsbereich\b/.test(text) &&
+      /\b(reinigen|reinigung|putzen|clean|nettoyage|limpieza|pulizia)\b/.test(text) &&
+      (/\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|stk|stueck|stuck|stück|pcs|piece|pieces)\b/.test(text) || /\b(?:chf|eur|franken|stutz)\b|€/.test(text))
+    );
+  });
+};
+
 const toMergeItem = (order: any, item: any): MergeItemInput => {
   const quantity = Number(item.quantity || 0);
   const unitPrice = Number(item.unitPrice || 0);
@@ -304,6 +334,7 @@ const mergeOrderItems = (orders: any[]) => {
 
   for (const order of orders) {
     for (const rawItem of order.items || []) {
+      if (orderItemLooksLikeWorksiteOnlyArtifact(order, rawItem)) continue;
       const item = toMergeItem(order, rawItem);
       const hasUnsafeMerge =
         item.aiWarning?.trim() ||
@@ -383,12 +414,6 @@ const buildExecutionAddressMismatchNote = (workSites: MergeWorkSiteInput[]) => {
     .join(" ");
 };
 
-const getSpecialNoteSiteLabel = (order: any) => {
-  const primarySite = getPrimarySiteForOrder(order);
-  const label = siteLines(primarySite).slice(0, 2).join(", ");
-  return label || order?.customer?.name || "Auftrag";
-};
-
 const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
   const safetyWarnings: string[] = [];
   const jobHints: string[] = [];
@@ -396,10 +421,9 @@ const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
 
   for (const order of orders) {
     const split = splitSpecialNotes(order.specialNotes || "");
-    const siteLabel = getSpecialNoteSiteLabel(order);
 
-    safetyWarnings.push(...split.safetyWarnings.map((line) => `${siteLabel}: ${line}`));
-    jobHints.push(...split.jobHints.map((line) => `${siteLabel}: ${line}`));
+    safetyWarnings.push(...split.safetyWarnings);
+    jobHints.push(...split.jobHints);
     systemHints.push(...split.systemHints);
   }
 

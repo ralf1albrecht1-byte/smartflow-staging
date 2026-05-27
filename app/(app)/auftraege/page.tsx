@@ -469,6 +469,7 @@ const findCustomerTextLineForService = (
   let bestScore = 0;
 
   for (const line of lines) {
+    if (/^\s*\[?\s*(?:titel|title)\s*:/i.test(line)) continue;
     const lineKey = normalizeForMatch(line);
     if (!lineKey) continue;
 
@@ -986,26 +987,9 @@ const isAmbiguousElapsedSameDayAppointment = (
   return sameCalendarDay && appointmentMoment.getTime() <= reference.getTime();
 };
 
-const isContactTimeOnlyHint = (value?: string | null) => {
-  const text = normalizeForMatch(value);
-  if (!text) return false;
-
-  const hasTime =
-    /\b(?:nach|ab|erst nach|after)\s*\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h|pm|am)?\b/.test(text) ||
-    /\b\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b/.test(text);
-  const hasContactVerb =
-    /\b(?:anrufen|telefonieren|zurueckrufen|zuruckrufen|rueckrufen|ruckrufen|melden|kontaktieren|call|phone)\b/.test(text);
-  const hasWorkAppointmentVerb =
-    /\b(?:termin|ausfuehrung|ausführung|arbeiten|kommen|vor ort|einsatz|appointment|rendez)\b/.test(text);
-
-  return hasTime && hasContactVerb && !hasWorkAppointmentVerb;
-};
-
 const isNonActionableAppointmentHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return true;
-
-  if (isContactTimeOnlyHint(value)) return true;
 
   return (
     /termin\s*(?:ist\s*)?flexibel/.test(text) ||
@@ -1124,6 +1108,7 @@ const extractAppointmentBadge = (
   const text = normalizeForMatch(raw);
   if (
     !text ||
+    isCallbackTimeLine(raw) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw)
   ) {
@@ -1930,6 +1915,45 @@ const detectAppointmentClarificationHint = (...values: Array<string | null | und
   }) || null;
 };
 
+
+const extractCallbackTimeHint = (...values: Array<string | null | undefined>) => {
+  const source = values
+    .filter(Boolean)
+    .join("\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  for (const line of source) {
+    const normalized = normalizeForMatch(line);
+    if (!/(anrufen|zurueckrufen|zuruckrufen|telefonieren|rueckruf|ruckruf|call)/.test(normalized)) {
+      continue;
+    }
+
+    const match =
+      line.match(/(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?::|\.)(\d{2})\s*(?:uhr|h)?/i) ||
+      line.match(/(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})\s*(?:uhr|h)\b/i);
+
+    if (match?.[1]) {
+      const hour = match[1].padStart(2, "0");
+      const minute = match[2] || "00";
+      return `erst ab ${hour}:${minute}`;
+    }
+  }
+
+  return "";
+};
+
+const isCallbackTimeLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return (
+    /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|rueckruf|ruckruf|call)\b/.test(text) &&
+    /\b(?:ab|nach|erst ab|erst nach)\s+\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?\b/.test(text)
+  );
+};
+
 const getBottomBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -1960,11 +1984,24 @@ const getBottomBadges = (
     .find((line) => isPositiveCallbackChipLine(line));
 
   if (detectCallbackRequest(callbackSource) || directCallbackHint) {
+    const callbackTimeHint = extractCallbackTimeHint(
+      order.specialNotes,
+      order.notes,
+      order.audioTranscript,
+      ...parsedNotes.jobHints,
+    );
+    const callbackTooltip = [
+      directCallbackHint || "Kunde wünscht Rückruf oder telefonische Rücksprache.",
+      callbackTimeHint,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
     pushUniqueBadge(badges, {
       key: "callback_request",
-      label: "Rückruf",
+      label: callbackTimeHint ? `Rückruf ${callbackTimeHint}` : "Rückruf",
       className: "bg-blue-100 text-blue-700 border border-blue-400 shadow-sm",
-      tooltip: directCallbackHint || "Kunde wünscht Rückruf oder telefonische Rücksprache.",
+      tooltip: callbackTooltip,
     });
   }
 
@@ -2022,6 +2059,8 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
     );
 
   if (negative) return false;
+
+  if (/(?:nach|ab|erst\s+ab|erst\s+nach)\s+\d{1,2}(?::\d{2})?\s*(?:uhr|h)?\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(text)) return true;
 
   return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
     text,
@@ -2144,10 +2183,7 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       tabIndex={0}
       title={title}
       aria-label={title}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (title) toast.info(title);
-      }}
+      onClick={(event) => event.stopPropagation()}
       className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`}
     >
       {Icon ? <Icon className="h-3.5 w-3.5" strokeWidth={2.2} /> : badge.label.slice(0, 1)}
@@ -2159,9 +2195,10 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
   if (badge.key !== "callback_request") return renderMobileIconBadge(badge);
 
   const phone = getOrderPhoneForHref(order);
+  const callbackInfo = compactText(badge.tooltip);
   const title = phone
-    ? `Anrufen: ${phone}`
-    : compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt";
+    ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
+    : callbackInfo || "Rückruf gewünscht · Nummer fehlt";
   const Icon = mobileIconForBadge(badge) || Phone;
   const className = `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`;
 
@@ -2173,10 +2210,7 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         tabIndex={0}
         title={title}
         aria-label={title}
-        onClick={(event) => {
-          event.stopPropagation();
-          toast.info(title);
-        }}
+        onClick={(event) => event.stopPropagation()}
         className={className}
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -2218,11 +2252,9 @@ const mobileOverflowBadge = (count: number) =>
 const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
   const source = values.filter(Boolean).join("\n");
   const explicitPhone =
-    source.match(/(?:whats\s*app(?:\s+nummer)?|whatsappnummer|use\s+whats\s*app|whats\s*app\s+if\s+possible|per\s+whats\s*app|via\s+whats\s*app|nur\s+whats\s*app|sms|tel\.?|telefon|phone|mobile|handy|natel|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*(?:nummer|nr\.?)?\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    source.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     source.match(/(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
-    source.match(/(?:nach|ab|erst\s+nach)\s*\d{1,2}(?::\d{2})?\s*(?:uhr|h)?\s*(?:anrufen|telefonieren|melden|kontaktieren).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     source.match(/(\+\d[\d\s()./-]{7,}\d)/)?.[1] ||
-    source.match(/(^|[^0-9])(0\d[\d\s()./-]{6,}\d)(?!\d)/)?.[2] ||
     "";
   const normalized = explicitPhone.replace(/[^+0-9]/g, "");
   return normalized.length >= 7 ? normalized : "";
@@ -2234,12 +2266,6 @@ const getOrderPhoneForHref = (order: Order) =>
     order.notes,
     order.specialNotes,
     order.audioTranscript,
-    order.description,
-    order.serviceName,
-    ...(order.items || []).flatMap((item) => [
-      item.serviceName,
-      item.description,
-    ]),
   );
 
 const renderCallbackCardBadge = (
@@ -2258,9 +2284,10 @@ const renderCallbackCardBadge = (
     );
   }
 
+  const callbackInfo = compactText(badge.tooltip);
   const clickableBadge = {
     ...badge,
-    tooltip: `Anrufen: ${phone}`,
+    tooltip: [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · "),
   };
 
   return (
@@ -5203,10 +5230,10 @@ export default function AuftraegePage() {
             const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
             const mobileRightHiddenCount = Math.max(0, rightSideBadges.length - mobilePrimaryRightBadges.length);
             const mobileSystemBadges = leftSystemBadges.filter((badge) => badge.key !== "site_address");
-            const mobileAddressBadge = leftSystemBadges.find((badge) => badge.key === "site_address") || null;
+            // Mobile: do not repeat the address pin as a large action icon.
+            // The address remains visible on desktop and in the edit dialog; the
+            // mobile icon row is reserved for real actions/hints.
             const mobileActionBadges = [
-              ...callbackBadges,
-              ...(mobileAddressBadge ? [mobileAddressBadge] : []),
               ...operationalBadges,
               ...messageBadges,
               ...otherFooterBadges,
@@ -5319,7 +5346,7 @@ export default function AuftraegePage() {
                       </div>
 
                       {/* Mobile: compact two-column card like selected mockup */}
-                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(88px,108px)] gap-2 overflow-hidden md:hidden">
+                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_112px] gap-2 md:hidden">
                         <div className="min-w-0 overflow-visible">
                           <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
                             <span className="shrink-0">
@@ -5403,10 +5430,27 @@ export default function AuftraegePage() {
                               compact
                               data={{
                                 ...o,
-                                specialNotes: o.specialNotes,
-                                notes: [o.notes, o.specialNotes, o.audioTranscript]
+                                specialNotes:
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.specialNotes,
+                                  ),
+                                notes: [
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.notes,
+                                  ),
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.specialNotes,
+                                  ),
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.audioTranscript,
+                                  ),
+                                ]
                                   .filter(Boolean)
                                   .join("\n"),
+                                audioTranscript:
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.audioTranscript,
+                                  ),
                               }}
                               onAudioClick={() => openMedia(o)}
                               onImageClick={() => openMedia(o)}
@@ -5419,14 +5463,26 @@ export default function AuftraegePage() {
                           </div>
                         </div>
 
-                        <div className="flex min-w-0 max-w-[108px] flex-col items-end justify-between gap-1 overflow-hidden border-l border-slate-200 pl-2 dark:border-slate-700">
+                        <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
                           <div className="flex w-full flex-col items-end gap-1">
                             {appointmentBadges.slice(0, 1).map((badge) =>
                               renderMobileTextBadge(badge, "right"),
                             )}
-                            {mobilePrimaryRightBadges.map((badge) =>
-                              renderMobileTextBadge(badge, "right"),
-                            )}
+                            {mobilePrimaryRightBadges.map((badge) => (
+                              <button
+                                key={`mobile_review_${badge.key}`}
+                                type="button"
+                                title={compactText(badge.tooltip) || badge.label}
+                                aria-label={compactText(badge.tooltip) || badge.label}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openEdit(o);
+                                }}
+                                className="max-w-full text-right"
+                              >
+                                {renderMobileTextBadge(badge, "right")}
+                              </button>
+                            ))}
                             {mobileRightHiddenCount > 0 && (
                               <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                                 +{mobileRightHiddenCount}
@@ -5435,7 +5491,7 @@ export default function AuftraegePage() {
                           </div>
 
                           <div className="whitespace-nowrap text-right leading-tight">
-                            <div className="font-mono text-[14px] font-bold tabular-nums">
+                            <div className="font-mono text-[15px] font-bold tabular-nums">
                               {formatCurrency(
                                 getSafeOrderTotal(o),
                                 o.currency === "EUR" ? "EUR" : "CHF",

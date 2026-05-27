@@ -226,7 +226,7 @@ const CURRENCY_WORDS =
   "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|£)";
 
 const UNIT_WORDS =
-  "(?:stueck|stück|stuck|stk|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
+  "(?:stueck|stück|stuck|stk|pcs|pc|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
 
 const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 
@@ -539,6 +539,41 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
       currencyGroup: 2,
       priceGroup: 1,
       unitGroup: 3,
+    },
+
+    // V16.73: unit price markers without repeated unit word.
+    // Examples: "14 stk je CHF 8", "12 pcs CHF 9 each", "18 Stück je CHF 9".
+    {
+      re: new RegExp(
+        `(?:je|each)\s*(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\b`,
+        "gi",
+      ),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(
+        `(?:je|each)\s*${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\b`,
+        "gi",
+      ),
+      currencyGroup: 2,
+      priceGroup: 1,
+    },
+    {
+      re: new RegExp(
+        `(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\s*(?:each|je)\b`,
+        "gi",
+      ),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(
+        `${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\s*(?:each|je)\b`,
+        "gi",
+      ),
+      currencyGroup: 2,
+      priceGroup: 1,
     },
     // V16.40: "35 m2 Wände streichen à CHF 18" / "30 m2 Decke streichen zu CHF 22".
     // The quantity unit is anchored earlier in the same segment, not after the price.
@@ -2524,6 +2559,41 @@ function findExplicitUnitPriceInLine(
       priceGroup: 1,
       unitGroup: 3,
     },
+
+    // V16.73: price markers without repeated unit word.
+    // Examples: "14 stk je CHF 8", "12 pcs CHF 9 each", "18 Stück je CHF 9".
+    {
+      re: new RegExp(
+        `(?:je|each)\s*(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\b`,
+        "i",
+      ),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(
+        `(?:je|each)\s*${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\b`,
+        "i",
+      ),
+      currencyGroup: 2,
+      priceGroup: 1,
+    },
+    {
+      re: new RegExp(
+        `(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\s*(?:each|je)\b`,
+        "i",
+      ),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(
+        `${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\s*(?:each|je)\b`,
+        "i",
+      ),
+      currencyGroup: 2,
+      priceGroup: 1,
+    },
     // V16.40: Unit price after a measured quantity without repeated unit:
     // "35 m2 Wände streichen à CHF 18" / "30 m2 Decke streichen zu CHF 22".
     {
@@ -3927,6 +3997,54 @@ function hasOpenAmountReview(items: ParsedOrderItemForValidation[]): boolean {
   });
 }
 
+function hasExplicitServiceLineForName(
+  originalText: string,
+  serviceName: string,
+): boolean {
+  const service = normalizeCompare(serviceName);
+  const lines = splitRawIntakeLines(originalText);
+
+  return lines.some((line) => {
+    const text = normalizeCompare(line);
+    if (!text) return false;
+
+    if (/^\s*\[?\s*(?:titel|title)\s*:/i.test(line)) return false;
+    if (/^(?:ausfuehrung|ausfuehrungsadresse|arbeitsort|einsatzort|adresse travaux|adresse de travail)\b/.test(text)) return false;
+
+    const hasPriceOrQuantity =
+      extractUnitPricesFromSegment(line).length > 0 ||
+      findExplicitUnitPriceInLine(line, "CHF") ||
+      findExplicitFlatPriceInLine(line, "CHF") ||
+      new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(line);
+
+    if (!hasPriceOrQuantity) return false;
+
+    if (service === "eingangsbereich reinigen") {
+      return /\beingangsbereich\b/.test(text) && /\b(reinigen|reinigung|putzen|clean|nettoyage|limpieza|pulizia)\b/.test(text);
+    }
+
+    return text.includes(service);
+  });
+}
+
+function removeWorksiteNameOnlyArtifacts(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  return items.filter((item) => {
+    const service = normalizeCompare(item.serviceName);
+
+    // "Haus B, Keller und Eingangsbereich" is an execution-site description,
+    // not a billable service. Keep a real Eingangsbereich service only when the
+    // customer text has its own priced/quantified service line for it.
+    if (service === "eingangsbereich reinigen") {
+      return hasExplicitServiceLineForName(originalText, item.serviceName);
+    }
+
+    return true;
+  });
+}
+
 function applyHardExplicitItemConsistencyGuard(
   items: ParsedOrderItemForValidation[],
   originalText: string,
@@ -4236,14 +4354,18 @@ export function validateAndRepairParsedOrderItems(
   items = normalizeParsedServiceNames(items);
   items = dedupeUnsafeDuplicateItems(items);
   items = removeUnknownItemsCoveredByNamedItems(items);
+  items = removeWorksiteNameOnlyArtifacts(input.originalText, items);
 
   const hardExplicitGuard = applyHardExplicitItemConsistencyGuard(
     items,
     input.originalText,
     finalCurrency,
   );
-  items = cleanFinalServiceNameArtifacts(
-    normalizeParsedServiceNames(hardExplicitGuard.items),
+  items = removeWorksiteNameOnlyArtifacts(
+    input.originalText,
+    cleanFinalServiceNameArtifacts(
+      normalizeParsedServiceNames(hardExplicitGuard.items),
+    ),
   );
   reviewReasons.push(...hardExplicitGuard.reviewReasons);
 
