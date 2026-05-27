@@ -4427,6 +4427,12 @@ export function validateAndRepairParsedOrderItems(
       normalizeParsedServiceNames(hardExplicitGuard.items),
     ),
   );
+  // Finaler Sicherheitsdurchlauf: Der harte Explicit-Guard kann nachgelagert
+  // noch Review-/0-Preis-Artefakte erzeugen. Wenn dieselbe fachliche Leistung
+  // bereits mit Preis und Menge vorhanden ist, darf keine zusätzliche
+  // blockierende 0-Position im Auftrag bleiben.
+  items = removeUnpricedDuplicateServiceArtifacts(items);
+  items = dedupeUnsafeDuplicateItems(items);
   reviewReasons.push(...hardExplicitGuard.reviewReasons);
 
   const priceUnclearServiceNames = new Set(

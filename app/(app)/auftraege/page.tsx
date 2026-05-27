@@ -1827,17 +1827,6 @@ const getSystemBadges = (
     });
   }
 
-  if (hasMergedMultipleContactData(order)) {
-    pushUniqueBadge(badges, {
-      key: "merged_data_review",
-      label: "Mehrere Daten prüfen",
-      className: "bg-amber-100 text-amber-800 border border-amber-300",
-      tooltip:
-        "Mehrere Telefonnummern, Termine oder Kontaktwege erkannt. Bitte in den Besonderheiten manuell prüfen.",
-      focusTarget: "specialNotes",
-    });
-  }
-
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
       ? order.items.some(
@@ -1846,15 +1835,10 @@ const getSystemBadges = (
         )
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
 
-  const hasPriceReferenceReview =
-    order.reviewReasons?.some(
-      (reason) =>
-        reason === "unit_price_review" ||
-        reason === "quantity_review" ||
-        reason.startsWith("price_unclear:"),
-    ) ?? false;
-
-  if (hasPriceQuantityReview || hasPriceReferenceReview) {
+  // Rote Betragschips nur bei echten Blockern anzeigen.
+  // Textpreis/Katalogabweichung mit vorhandenen Werten bleibt gelb,
+  // sonst wirkt ein korrekt berechneter Auftrag unnötig gesperrt.
+  if (hasPriceQuantityReview) {
     pushUniqueBadge(badges, {
       key: "price_quantity",
       label: "Betrag prüfen",
@@ -2023,6 +2007,20 @@ const getBottomBadges = (
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-300";
 
   // Zusammengeführt wird oben bei den Systemchips neben der Ausführungsadresse angezeigt.
+  // Wenn ein Merge mehrere Telefonnummern, Kontaktwege oder Termine enthält,
+  // zeigen wir außen nicht Mail/WhatsApp/SMS/Rückruf/Termin einzeln.
+  // Stattdessen steht dieser Sammelchip in der Kontaktchip-Zeile und springt
+  // direkt zu den gruppierten Besonderheiten.
+  if (hasMergedMultipleContactData(order, parsedNotes)) {
+    pushUniqueBadge(badges, {
+      key: "merged_data_review",
+      label: "Mehrere Daten prüfen",
+      className: "bg-emerald-100 text-emerald-800 border border-emerald-300",
+      tooltip:
+        "Mehrere Telefonnummern, Termine oder Kontaktwege erkannt. Bitte in den Besonderheiten manuell prüfen.",
+      focusTarget: "specialNotes",
+    });
+  }
 
   const callbackSource = [
     order.specialNotes,
@@ -5298,12 +5296,16 @@ export default function AuftraegePage() {
             );
             const operationalBadges = getOperationalBadges(o, parsedCardNotes);
             const bottomBadges = getBottomBadges(o, parsedCardNotes);
-            const appointmentBadges = bottomBadges.filter(
-              (badge) => badge.key === "appointment",
+            const hasMultipleMergedData = hasMergedMultipleContactData(
+              o,
+              parsedCardNotes,
             );
-            const callbackBadges = bottomBadges.filter(
-              (badge) => badge.key === "callback_request",
-            );
+            const appointmentBadges = hasMultipleMergedData
+              ? []
+              : bottomBadges.filter((badge) => badge.key === "appointment");
+            const callbackBadges = hasMultipleMergedData
+              ? []
+              : bottomBadges.filter((badge) => badge.key === "callback_request");
             const messageBadges = bottomBadges.filter(
               (badge) => badge.key === "sms_request",
             );
@@ -5580,9 +5582,10 @@ export default function AuftraegePage() {
                               ))}
                             </select>
 
-                            <CommunicationChips
-                              compact
-                              data={{
+                            {!hasMultipleMergedData && (
+                              <CommunicationChips
+                                compact
+                                data={{
                                 ...o,
                                 specialNotes:
                                   removeCallbackLinesForCommunicationChips(
@@ -5606,9 +5609,10 @@ export default function AuftraegePage() {
                                     o.audioTranscript,
                                   ),
                               }}
-                              onAudioClick={() => openMedia(o)}
-                              onImageClick={() => openMedia(o)}
-                            />
+                                onAudioClick={() => openMedia(o)}
+                                onImageClick={() => openMedia(o)}
+                              />
+                            )}
 
                             {mobileVisibleActionBadges.map((badge) =>
                               renderInteractiveMobileActionBadge(badge),
@@ -5752,8 +5756,9 @@ export default function AuftraegePage() {
                               ))}
                             </select>
 
-                            <CommunicationChips
-                              data={{
+                            {!hasMultipleMergedData && (
+                              <CommunicationChips
+                                data={{
                                 ...o,
                                 customer: o.customer,
                                 specialNotes:
@@ -5778,9 +5783,10 @@ export default function AuftraegePage() {
                                     o.audioTranscript,
                                   ),
                               }}
-                              onAudioClick={() => openMedia(o)}
-                              onImageClick={() => openMedia(o)}
-                            />
+                                onAudioClick={() => openMedia(o)}
+                                onImageClick={() => openMedia(o)}
+                              />
+                            )}
 
                             {callbackBadges.map((badge) =>
                               renderCallbackCardBadge(o, badge),
@@ -6876,7 +6882,8 @@ export default function AuftraegePage() {
                             priceInputReview || quantityInputReview;
                           const isBlockingItemReview =
                             hasMissingItemInput ||
-                            showPriceReferenceReview ||
+                            (showPriceReferenceReview &&
+                              !isCompleteItemForCatalogAction) ||
                             (showUnitConflict &&
                               !isCompleteItemForCatalogAction);
                           const isMenuOpen = serviceActionMenuKey === item.key;

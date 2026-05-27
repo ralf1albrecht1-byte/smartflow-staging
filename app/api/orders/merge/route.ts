@@ -521,42 +521,184 @@ const extractMergeContactHintsFromRawText = (order: any) => {
   return uniqueTrimmedLines(result);
 };
 
-const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
-  const safetyWarnings: string[] = [];
-  const jobHints: string[] = [];
-  const systemHints: string[] = [];
-  const hasMultipleOrders = orders.length > 1;
+
+const looksLikeMergeSitePrefix = (value?: string | null) => {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  if (/\b\d{4}\b/.test(text)) return true;
+  if (/\b(?:haus|gebäude|gebaeude|restaurant|küche|kueche|entrée|entree|technopark|limmatweg|chemin|strasse|straße|weg|gasse|platz)\b/i.test(text)) return true;
+  return /\s·\s/.test(text);
+};
+
+const splitExistingMergeSitePrefix = (value?: string | null) => {
+  let siteLabel: string | null = null;
+  let text = String(value || "").replace(/\s+/g, " ").trim();
+
+  // Lines can already be prefixed from an earlier merge, sometimes even twice:
+  // "Haus A · ...: Haus B · ...: SMS ...". Keep the innermost real site label.
+  for (let pass = 0; pass < 4; pass += 1) {
+    const match = text.match(/^([^:]{2,180}):\s+(.+)$/);
+    if (!match || !looksLikeMergeSitePrefix(match[1])) break;
+    siteLabel = match[1].trim();
+    text = match[2].trim();
+  }
+
+  return { siteLabel, text };
+};
+
+const normalizeMergeHintGerman = (value?: string | null) => {
+  let text = String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/^[-•]\s*/, "")
+    .replace(/^Kontakt vor Ort:\s*Grund:\s*/i, "")
+    .replace(/^Grund:\s*/i, "")
+    .trim();
+
+  if (!text) return "";
+
+  text = text
+    .replace(/^No calls during office hours\.?$/i, "Keine Anrufe während der Bürozeiten.")
+    .replace(/^Use WhatsApp if possible:\s*/i, "WhatsApp bevorzugt: ")
+    .replace(/^Accès uniquement par l[’']entrée arrière\.?$/i, "Zugang nur über den Hintereingang.")
+    .replace(/^Clé à la réception\.?$/i, "Schlüssel an der Rezeption.")
+    .replace(/\bNutzung von WhatsApp gewünscht\b/i, "bitte WhatsApp verwenden")
+    .replace(/\bNicht telefonisch zurückrufen\b/i, "Bitte nicht anrufen.")
+    .replace(/\bKeine telefonischen Anrufe\b/i, "Keine Anrufe")
+    .replace(/\bMail reicht, bitte keine telefonische Rückfrage\.?$/i, "Mail reicht; bitte keine telefonische Rückfrage.")
+    .replace(/\bTermin noch offen, bitte per E-Mail abstimmen\.?$/i, "Termin noch offen; bitte per E-Mail abstimmen.")
+    .replace(/\s+([.,;:!?])$/g, "$1")
+    .trim();
+
+  return text;
+};
+
+const normalizeSearchText = (value?: string | null) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9+\s:./-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const mergeHintSemanticKey = (value?: string | null) => {
+  const text = normalizeSearchText(value);
+  if (!text) return "";
+  if (/whatsapp/.test(text)) return "communication_whatsapp";
+  if (/\bsms\b/.test(text)) return "communication_sms";
+  if (/nicht anrufen|keine telefonische|kein telefon|no calls/.test(text)) return "communication_no_call";
+  if (/mail|email|e mail|e-mail/.test(text) && /termin/.test(text)) return "appointment_email";
+  if (/mail|email|e mail|e-mail/.test(text)) return "communication_email";
+  if (/rueckruf|ruckruf|anruf|anrufen|telefon/.test(text) && /17\s*30|17:30|17\.30|erst ab|nach/.test(text)) return "callback_time";
+  if (/rueckruf|ruckruf|anruf|anrufen|telefon/.test(text)) return "callback";
+  if (/termin/.test(text)) return "appointment";
+  if (/schluessel|schlussel|key|rezeption|hauswart/.test(text)) return "key";
+  if (/zugang|hintereingang|eingang|access/.test(text)) return "access";
+  if (/park/.test(text)) return "parking";
+  if (/vormittag/.test(text)) return "time_morning";
+  if (/nachmittag|hauswart/.test(text)) return "time_afternoon";
+  return text;
+};
+
+const mergeHintSpecificityScore = (value?: string | null) => {
+  const text = normalizeSearchText(value);
+  let score = text.length;
+  if (/\+?\d[\d\s()./-]{6,}\d/.test(String(value || ""))) score += 80;
+  if (/nicht anrufen|keine telefonische|no calls/.test(text)) score += 60;
+  if (/whatsapp|sms/.test(text)) score += 40;
+  if (/termin noch offen|per e mail abstimmen/.test(text)) score += 30;
+  return score;
+};
+
+const buildGroupedMergeSpecialNoteHints = (orders: any[], extraJobHints: string[] = []) => {
+  const grouped = new Map<string, Map<string, string>>();
+  const add = (siteLabel: string, hint: string) => {
+    const cleanedSite = String(siteLabel || "Quellauftrag").replace(/\s+/g, " ").trim();
+    const cleanedHint = normalizeMergeHintGerman(hint);
+    if (!cleanedSite || !cleanedHint) return;
+    if (/^Mehrere Telefonnummern, Termine oder Kontaktwege erkannt/i.test(cleanedHint)) return;
+
+    const key = mergeHintSemanticKey(cleanedHint);
+    if (!key) return;
+
+    const bucket = grouped.get(cleanedSite) || new Map<string, string>();
+    const previous = bucket.get(key);
+    if (!previous || mergeHintSpecificityScore(cleanedHint) > mergeHintSpecificityScore(previous)) {
+      bucket.set(key, cleanedHint);
+    }
+    grouped.set(cleanedSite, bucket);
+  };
 
   for (const order of orders) {
     const split = splitSpecialNotes(order.specialNotes || "");
-    const siteLabel = mergeSiteLabelForOrder(order);
-
-    safetyWarnings.push(...split.safetyWarnings);
-    systemHints.push(...split.systemHints);
-
+    const fallbackSiteLabel = mergeSiteLabelForOrder(order);
     const sourceHints = uniqueTrimmedLines([
       ...split.jobHints,
       ...extractMergeContactHintsFromRawText(order),
     ]);
 
-    if (hasMultipleOrders) {
-      sourceHints.forEach((hint) => {
-        const cleaned = String(hint || "").replace(/\s+/g, " ").trim();
-        if (!cleaned) return;
-        jobHints.push(`${siteLabel}: ${cleaned}`);
-      });
-    } else {
-      jobHints.push(...sourceHints);
+    for (const hint of sourceHints) {
+      const parsed = splitExistingMergeSitePrefix(hint);
+      add(parsed.siteLabel || fallbackSiteLabel, parsed.text);
     }
   }
 
-  if (hasMultipleOrders && mergeContactDataSummary(orders).hasMultipleData) {
-    jobHints.push(
+  const lines: string[] = [];
+  for (const [siteLabel, hints] of grouped.entries()) {
+    const values = Array.from(hints.values());
+    if (values.length === 0) continue;
+    lines.push(`${siteLabel}:`);
+    values.forEach((hint) => lines.push(`- ${hint}`));
+  }
+
+  extraJobHints
+    .map((hint) => normalizeMergeHintGerman(hint))
+    .filter(Boolean)
+    .forEach((hint) => lines.push(hint));
+
+  if (mergeContactDataSummary(orders).hasMultipleData) {
+    lines.push(
       "Mehrere Telefonnummern, Termine oder Kontaktwege erkannt. Bitte die gruppierten Besonderheiten manuell prüfen.",
     );
   }
 
-  jobHints.push(...extraJobHints);
+  return uniqueTrimmedLines(lines);
+};
+
+const mergeSpecialNotes = (orders: any[], extraJobHints: string[] = []) => {
+  const safetyWarnings: string[] = [];
+  const systemHints: string[] = [];
+  const hasMultipleOrders = orders.length > 1;
+
+  for (const order of orders) {
+    const split = splitSpecialNotes(order.specialNotes || "");
+    safetyWarnings.push(...split.safetyWarnings);
+    systemHints.push(...split.systemHints);
+  }
+
+  if (hasMultipleOrders) {
+    return buildSpecialNotes({
+      safetyWarnings: uniqueTrimmedLines(safetyWarnings),
+      jobHints: buildGroupedMergeSpecialNoteHints(orders, extraJobHints),
+      systemHints: uniqueTrimmedLines(systemHints),
+    });
+  }
+
+  const jobHints: string[] = [];
+  for (const order of orders) {
+    const split = splitSpecialNotes(order.specialNotes || "");
+    jobHints.push(
+      ...uniqueTrimmedLines([
+        ...split.jobHints,
+        ...extractMergeContactHintsFromRawText(order),
+      ]).map((hint) => normalizeMergeHintGerman(hint)),
+    );
+  }
+  jobHints.push(...extraJobHints.map((hint) => normalizeMergeHintGerman(hint)));
 
   return buildSpecialNotes({
     safetyWarnings: uniqueTrimmedLines(safetyWarnings),
