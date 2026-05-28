@@ -2127,6 +2127,67 @@ function isNegatedSpecialNoteLine(value: string): boolean {
   );
 }
 
+const COMMUNICATION_NEGATION_TOKEN =
+  "(?:nicht|kein|keine|keinen|keinem|ohne|no|not|never|none|without|pas|ne\\s+pas|sans|sin|non|nod|noed|ned|nid|nit|nuet|nued)";
+
+const communicationChannelSource = (channel: "whatsapp" | "sms" | "mail") => {
+  if (channel === "whatsapp") return "(?:whats\\s*app|whatsapp)";
+  if (channel === "sms") return "sms";
+  return "(?:mail|e\\s*mail|e-mail|email|courriel)";
+};
+
+function isForbiddenChannelInstructionLine(
+  value: string | null | undefined,
+  channel: "whatsapp" | "sms" | "mail",
+): boolean {
+  const text = normalizeSemanticText(value);
+  if (!text) return false;
+
+  const channelSource = communicationChannelSource(channel);
+  if (!new RegExp(`\\b${channelSource}\\b`, "i").test(text)) return false;
+
+  const near = "(?:[-/\\s]+[a-z0-9]+){0,6}[-/\\s]+";
+  return (
+    new RegExp(`\\b${COMMUNICATION_NEGATION_TOKEN}\\b${near}(?:${channelSource})\\b`, "i").test(text) ||
+    new RegExp(`\\b(?:${channelSource})\\b${near}\\b${COMMUNICATION_NEGATION_TOKEN}\\b`, "i").test(text) ||
+    new RegExp(`\\b${COMMUNICATION_NEGATION_TOKEN}\\s+(?:per\\s+|via\\s+|ueber\\s+|uber\\s+|over\\s+)?(?:${channelSource})\\b`, "i").test(text)
+  );
+}
+
+function isPositiveChannelInstructionLine(
+  value: string | null | undefined,
+  channel: "whatsapp" | "sms" | "mail",
+): boolean {
+  const text = normalizeSemanticText(value);
+  if (!text || isForbiddenChannelInstructionLine(text, channel)) return false;
+
+  const channelSource = communicationChannelSource(channel);
+  if (!new RegExp(`\\b${channelSource}\\b`, "i").test(text)) return false;
+
+  const positiveIntent =
+    "(?:reicht|genuegt|genuget|bevorzugt|preferred|preferiert|am\\s+besten|best|only|nur|schreiben|senden|schicken|kontakt|kontaktieren|melden)";
+
+  return (
+    new RegExp(`\\b(?:${channelSource})\\b(?:[-/\\s]+[a-z0-9]+){0,8}[-/\\s]+${positiveIntent}\\b`, "i").test(text) ||
+    new RegExp(`\\b(?:per|via|mit|nur|only)\\s+(?:${channelSource})\\b`, "i").test(text) ||
+    new RegExp(`\\b${positiveIntent}\\s+(?:per|via|mit)?\\s*(?:${channelSource})\\b`, "i").test(text)
+  );
+}
+
+function reconcileCommunicationSpecialNoteLines(lines: string[]): string[] {
+  const hasForbiddenWhatsApp = lines.some((line) =>
+    isForbiddenChannelInstructionLine(line, "whatsapp"),
+  );
+
+  return lines.filter((line) => {
+    if (hasForbiddenWhatsApp && isPositiveChannelInstructionLine(line, "whatsapp")) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 function dedupeSpecialNoteLines(lines: string[]): string[] {
   const cleaned = uniqueNormalizedLines(lines);
   const result: string[] = [];
@@ -2479,9 +2540,7 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
 
 
   const isNegativeWhatsAppInstruction = (line: string) =>
-    /(?:keine?|kein|ohne|nicht|noed|nöd|ned|nid|nit|nued|nüt|nuet)\s+(?:per\s+|via\s+)?whats\s*app\b|\bwhats\s*app\s+(?:bitte\s+)?(?:nein|keine?|kein|noed|nöd|ned|nid|nit|nued|nüt|nuet|nicht(?!\s+(?:telefon|telefonisch|anrufen|zurueckrufen|zuruckrufen)))\b/i.test(
-      line,
-    );
+    isForbiddenChannelInstructionLine(line, "whatsapp");
 
   const rawOperationalLines = rawText
     .replace(/\r\n/g, "\n")
@@ -3778,6 +3837,8 @@ ZIELE
   (Rückruf NUR aufnehmen, wenn der Kunde ausdrücklich einen TELEFONISCHEN Rückruf/Anruf verlangt. Klingeln, warten, an der Tür melden, Kunde ist vor Ort, Schlüsselübergabe an der Tür oder "nicht anrufen" sind KEIN Rückruf. Dann höchstens als normaler Hinweis formulieren, z.B. "Vor Arbeitsbeginn klingeln und warten".)
   (Verneinte oder nicht relevante Aussagen NICHT aufnehmen: "kein Hund", "kein Öl", "keine Scherben", "Leiter nicht benötigt", "Termin flexibel", "Parkplatz kein Thema".)
   (Keine Leistungen, Preise oder Mengen in gefahren/besonderheiten schreiben.)
+  (Kommunikationshinweise semantisch vollständig ausgeben: Kanal erlaubt/verboten/bevorzugt und Kontaktzeit sauber trennen. Wenn ein Kanal verboten ist, darf er nicht positiv formuliert werden. Beispiel: nicht über WhatsApp schreiben => "Kein WhatsApp; lieber Telefonkontakt". Beispiel: WhatsApp erst ab 18:00 => "WhatsApp-Kontakt erst ab 18:00 Uhr möglich".)
+  (Kontaktzeiten wie SMS/WhatsApp/Mail/Telefon erst ab/nach Uhrzeit sind KEINE Ausführungstermine.)
   (KEINE Systemhinweise.)
   (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist.)
   (WICHTIG: Erkenne Gefahren, Rückruf, Zugang und Parken semantisch nach Bedeutung, NICHT nur über feste deutsche Wörter. Auch Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischte Nachrichten müssen in deutsche gefahren/besonderheiten übersetzt werden.)
@@ -4097,6 +4158,8 @@ sonst → ""
 - Auch wenn der Kunde in Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischt schreibt, müssen gefahren und besonderheiten auf ${hauptsprache} ausgegeben werden.
 - Beispiele für gefahren: freilaufender/ungesicherter/aggressiver Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
 - Beispiele für besonderheiten: telefonischer Rückruf, Zugang über Seiteneingang, Parkplatz reserviert/schwierig, Schlüssel, fester Terminwunsch, Leiter benötigt, Zufahrt, Kunde nur vormittags erreichbar, Hund freundlich vor Ort.
+- Kommunikationshinweise immer nach Absicht ausgeben, nicht nur zusammenfassen: Kanal verboten / bevorzugt / erlaubt plus Kontaktzeit. Ein verbotener Kanal darf nie als bevorzugter Kanal erscheinen.
+- Kontaktzeiten für Mail/SMS/WhatsApp/Telefon sind keine Ausführungstermine und dürfen keinen Terminchip erzeugen.
 - Rückruf nur bei echter telefonischer Kontaktaufnahme ausgeben. "Klingeln und warten", "an der Tür melden", "Kunde ist vor Ort", "Schlüssel wird an der Tür übergeben" oder "nicht anrufen" sind KEIN Rückruf.
 - Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie wirklich planungsrelevant sind: Parkplatz reserviert/vorhanden, Schlüssel liegt bereit. Rein neutrale Hinweise wie "Zugang frei", "Tür offen", "Parkplatz kein Thema" oder "direkt halten möglich" nicht als wichtigen Außen-Hinweis erzwingen.
 - Wichtig: "Leiter benötigt" allein ist besonderheit, NICHT gefahr. "Leiter eventuell benötigt" ist nur Innen-Hinweis und darf keinen festen Außen-Chip erzwingen.
@@ -5082,12 +5145,14 @@ export async function processIncomingMessage(
     ...semanticFallbackNotes.safetyWarnings,
   ]).filter((line) => !isNonActionableSpecialNoteCandidate(line));
 
-  const hinweisItems = dedupeSpecialNoteLines(
-    [
+  const hinweisItems = reconcileCommunicationSpecialNoteLines(
+    dedupeSpecialNoteLines(
+      [
       ...baseHinweisItems,
       ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
       onsiteContactHint.hint || "",
-    ].map(canonicalizeSpecialNoteLine),
+      ].map(canonicalizeSpecialNoteLine),
+    ),
   )
     .filter((line) => !isNonActionableSpecialNoteCandidate(line))
     .filter((line) => !isNonActionablePlanningHint(line))

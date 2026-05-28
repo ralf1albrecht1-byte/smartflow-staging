@@ -2898,8 +2898,7 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
     .filter(
       (line) =>
         line &&
-        !isPositiveCallbackChipLine(line) &&
-        !isNegativeWhatsAppInstructionLine(line),
+        !isPositiveCallbackChipLine(line),
     )
     .join("\n");
 

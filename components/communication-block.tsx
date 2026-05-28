@@ -271,6 +271,98 @@ function getContactPhone(data: CommunicationData, sourceText: string): string {
   return normalizePhoneForHref(explicitPhone || data.customer?.phone || data.phone || '');
 }
 
+function splitCommunicationSourceLines(value: string): string[] {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+type CommunicationChannel = 'mail' | 'whatsapp' | 'sms';
+
+const COMMUNICATION_CHANNEL_PATTERNS: Record<CommunicationChannel, RegExp> = {
+  mail: /\b(?:mail|e\s*mail|e-mail|email|courriel)\b/i,
+  whatsapp: /\b(?:whats\s*app|whatsapp)\b/i,
+  sms: /\bsms\b/i,
+};
+
+const channelPatternSource = (channel: CommunicationChannel) => {
+  if (channel === 'whatsapp') return '(?:whats\\s*app|whatsapp)';
+  if (channel === 'sms') return 'sms';
+  return '(?:mail|e\\s*mail|e-mail|email|courriel)';
+};
+
+const COMMUNICATION_NEGATION_TOKEN =
+  '(?:nicht|kein|keine|keinen|ohne|no|not|never|pas|ne\\s+pas|sans|non|nod|noed|ned|nid|nit|nuet|nued)';
+
+function lineMentionsChannel(line: string, channel: CommunicationChannel): boolean {
+  return COMMUNICATION_CHANNEL_PATTERNS[channel].test(line);
+}
+
+function lineForbidsChannel(line: string, channel: CommunicationChannel): boolean {
+  const text = normalizeCommunicationPreferenceText(line);
+  if (!text || !lineMentionsChannel(text, channel)) return false;
+
+  const channelSource = channelPatternSource(channel);
+  const near = '(?:[-/\\s]+[a-z0-9]+){0,6}[-/\\s]+';
+  const beforeChannel = new RegExp(`\\b${COMMUNICATION_NEGATION_TOKEN}\\b${near}(?:${channelSource})\\b`, 'i');
+  const afterChannel = new RegExp(`\\b(?:${channelSource})\\b${near}\\b${COMMUNICATION_NEGATION_TOKEN}\\b`, 'i');
+  const directNo = new RegExp(`\\b${COMMUNICATION_NEGATION_TOKEN}\\s+(?:per\\s+|via\\s+|ueber\\s+|uber\\s+|over\\s+)?(?:${channelSource})\\b`, 'i');
+
+  return beforeChannel.test(text) || afterChannel.test(text) || directNo.test(text);
+}
+
+function linePrefersChannel(line: string, channel: CommunicationChannel): boolean {
+  const text = normalizeCommunicationPreferenceText(line);
+  if (!text || !lineMentionsChannel(text, channel) || lineForbidsChannel(text, channel)) return false;
+
+  const channelSource = channelPatternSource(channel);
+  const positiveIntent = '(?:reicht|genuegt|genuget|bevorzugt|preferred|preferiert|am\\s+besten|best|only|nur|schreiben|senden|schicken|kontakt|kontaktieren|melden)';
+
+  return (
+    new RegExp(`\\b(?:${channelSource})\\b(?:[-/\\s]+[a-z0-9]+){0,8}[-/\\s]+${positiveIntent}\\b`, 'i').test(text) ||
+    new RegExp(`\\b(?:per|via|mit|nur|only)\\s+(?:${channelSource})\\b`, 'i').test(text) ||
+    new RegExp(`\\b${positiveIntent}\\s+(?:per|via|mit)?\\s*(?:${channelSource})\\b`, 'i').test(text)
+  );
+}
+
+function extractContactTimeHintFromLine(line: string): string {
+  const raw = String(line || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+
+  const range =
+    raw.match(/\b(?:zwischen|von)\s+(\d{1,2})(?:[:.]|\s+)(\d{2})\s*(?:uhr|h)?\s+(?:und|bis)\s+(\d{1,2})(?:[:.]|\s+)(\d{2})\s*(?:uhr|h)?\b/i);
+  if (range?.[1] && range?.[3]) {
+    return `${range[1].padStart(2, '0')}:${range[2]}–${range[3].padStart(2, '0')}:${range[4]} Uhr`;
+  }
+
+  const explicit = raw.match(/\b(erst\s+)?(ab|nach)\s*(\d{1,2})(?:[:.]|\s+)?(\d{2})?\s*(?:uhr|h)?\b/i);
+  if (explicit?.[3]) {
+    const prefix = explicit[1] ? `erst ${explicit[2].toLowerCase()}` : explicit[2].toLowerCase();
+    return `${prefix} ${explicit[3].padStart(2, '0')}:${explicit[4] || '00'} Uhr`;
+  }
+
+  return '';
+}
+
+function getChannelContactTimeHint(channel: CommunicationChannel, rawSource: string): string {
+  const lines = splitCommunicationSourceLines(rawSource);
+
+  for (const line of lines) {
+    if (!lineMentionsChannel(line, channel)) continue;
+    const hint = extractContactTimeHintFromLine(line);
+    if (hint) return hint;
+  }
+
+  return '';
+}
+
+function appendContactTime(title: string, contactTimeHint: string): string {
+  return [title, contactTimeHint].filter(Boolean).join(' · ');
+}
+
 function detectCommunicationPreferenceChips(
   data: CommunicationData,
   parsed: ParsedNotes,
@@ -294,6 +386,20 @@ function detectCommunicationPreferenceChips(
   const email = getContactEmail(data, rawSource);
   const phone = getContactPhone(data, rawSource);
 
+  const lines = splitCommunicationSourceLines(rawSource);
+  const channelIsForbidden = (channel: CommunicationChannel) =>
+    lines.some((line) => lineForbidsChannel(line, channel));
+  const channelIsPreferred = (channel: CommunicationChannel) =>
+    lines.some((line) => linePrefersChannel(line, channel));
+
+  const mailTime = getChannelContactTimeHint('mail', rawSource);
+  const whatsappTime = getChannelContactTimeHint('whatsapp', rawSource);
+  const smsTime = getChannelContactTimeHint('sms', rawSource);
+
+  const mail = !channelIsForbidden('mail') && (channelIsPreferred('mail') || Boolean(mailTime));
+  const whatsapp = !channelIsForbidden('whatsapp') && (channelIsPreferred('whatsapp') || Boolean(whatsappTime));
+  const sms = !channelIsForbidden('sms') && (channelIsPreferred('sms') || Boolean(smsTime));
+
   const chips: CommunicationPreferenceChip[] = [];
 
   const addChip = (chip: CommunicationPreferenceChip) => {
@@ -301,31 +407,34 @@ function detectCommunicationPreferenceChips(
     chips.push(chip);
   };
 
-  const mail =
-    /\b(?:mail|e mail|email|e-mail)\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|antworten|schreiben)\b/i.test(source) ||
-    /\b(?:per|via|mit)\s+(?:mail|e mail|email|e-mail)\b/i.test(source) ||
-    /\b(?:antwort|meldung|rueckmeldung)\s+(?:per|via|mit)\s+(?:mail|e mail|email|e-mail)\b/i.test(source);
-
-  const whatsapp =
-    /\bwhats\s*app\b/i.test(source) ||
-    /\bwhatsapp\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|schreiben|bevorzugt|am\s+besten)\b/i.test(source) ||
-    /\b(?:per|via|mit)\s+whatsapp\b/i.test(source) ||
-    /\bwhatsapp\s+(?:bitte|preferred|preferiert)\b/i.test(source);
-
-  const sms =
-    /\bsms\s+(?:reicht|genuegt|ist\s+ok|ist\s+okay|melden|schreiben)\b/i.test(source) ||
-    /\b(?:per|via|mit)\s+sms\b/i.test(source);
-
   if (mail) {
-    addChip({ key: 'mail', label: 'Mail', color: 'teal', href: email ? `mailto:${email}` : undefined, title: email ? `E-Mail: ${email}` : 'E-Mail bevorzugt' });
+    addChip({
+      key: 'mail',
+      label: 'Mail',
+      color: 'teal',
+      href: email ? `mailto:${email}` : undefined,
+      title: appendContactTime(email ? `E-Mail: ${email}` : 'E-Mail bevorzugt', mailTime),
+    });
   }
 
   if (whatsapp) {
-    addChip({ key: 'whatsapp', label: 'WhatsApp', color: 'teal', href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined, title: phone ? `WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden' });
+    addChip({
+      key: 'whatsapp',
+      label: 'WhatsApp',
+      color: 'teal',
+      href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined,
+      title: appendContactTime(phone ? `WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden', whatsappTime),
+    });
   }
 
   if (sms) {
-    addChip({ key: 'sms', label: 'SMS', color: 'teal', href: phone ? `sms:${phone}` : undefined, title: phone ? `SMS: ${phone}` : 'SMS bevorzugt' });
+    addChip({
+      key: 'sms',
+      label: 'SMS',
+      color: 'teal',
+      href: phone ? `sms:${phone}` : undefined,
+      title: appendContactTime(phone ? `SMS: ${phone}` : 'SMS bevorzugt', smsTime),
+    });
   }
 
   return chips;

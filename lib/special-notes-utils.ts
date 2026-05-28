@@ -87,6 +87,7 @@ const semanticNoteKey = (value: string) => {
   // two different operational instructions, even if both are "no call".
   if (
     /^[^:]{2,120}:\s+/.test(visibleLine) &&
+    !/^kontakt\s+vor\s+ort:\s*/i.test(visibleLine) &&
     /(?:whatsapp|sms|mail|email|e-mail|telefon|anruf|anrufen|rueckruf|ruckruf|rückruf|termin|uhr|schluessel|schlüssel|zugang|eingang|hauswart|rezeption)/i.test(visibleLine)
   ) {
     return text;
