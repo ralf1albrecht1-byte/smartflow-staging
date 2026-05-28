@@ -378,18 +378,34 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+const CALLBACK_CONTACT_WORD_PATTERN =
+  /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
+
+const CALLBACK_TIME_PATTERN =
+  /\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b/;
+
+const SWISS_NEGATION_PATTERN = "(?:noed|nöd|ned|nid|nit|nued|nüt|nuet)";
+
 const isPreArrivalInstructionLine = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /(?:nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen))/.test(text);
+  return new RegExp(
+    `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+einfach\\s+(?:kommen|vorbeikommen|cho|verbi\\s+cho)|` +
+      `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+ohne\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)|` +
+      `vor\\s+(?:start|arbeitsbeginn|ankunft)\\s+(?:kurz\\s+)?(?:telefonisch\\s+)?(?:melden|anrufen|kontaktieren)|` +
+      `erst\\s+nach\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)`
+  ).test(text);
 };
 
 const isNegativeWhatsAppInstructionLine = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /\b(?:keine?|kein|ohne)\s+whats\s*app\b|\bnicht\s+(?:per\s+|via\s+)?whats\s*app\b|\bwhats\s*app\s+(?:nicht|nein|keine?)\b/.test(text);
+  return new RegExp(
+    `\\b(?:keine?|kein|ohne|nicht|${SWISS_NEGATION_PATTERN})\\s+(?:per\\s+|via\\s+)?whats\\s*app\\b|` +
+      `\\bwhats\\s*app\\s+(?:bitte\\s+)?(?:nein|keine?|kein|${SWISS_NEGATION_PATTERN}|nicht(?!\\s+(?:telefon|telefonisch|anrufen|zurueckrufen|zuruckrufen)))\\b`
+  ).test(text);
 };
 
 const SOURCE_LINE_GENERIC_TOKENS = new Set([
@@ -1474,10 +1490,7 @@ const isAppointmentContactTimeLine = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return (
-    /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call)\b/.test(text) &&
-    /\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b/.test(text)
-  );
+  return CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text);
 };
 
 const normalizeAppointmentDateLabel = (value: string) => {
@@ -2371,13 +2384,58 @@ const hasMergedMultipleContactData = (
   return groupedContactLines.length > 1 || uniquePhones.size > 1;
 };
 
+
+const normalizeAddressPartForCompare = (value?: string | null) =>
+  normalizeForMatch(value)
+    .replace(/\bstrasse\b/g, "str")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const hasDifferentExecutionAddressForBadge = (order: Order) => {
+  if (!order.siteAddressDifferent) return false;
+
+  const workSites = Array.isArray(order.workSites) ? order.workSites : [];
+  if (workSites.length > 1) return true;
+
+  const firstSite = workSites[0] || null;
+  const siteStreet = normalizeAddressPartForCompare(firstSite?.siteAddress || order.siteAddress);
+  const sitePlz = normalizeAddressPartForCompare(firstSite?.sitePlz || order.sitePlz);
+  const siteCity = normalizeAddressPartForCompare(firstSite?.siteCity || order.siteCity);
+
+  if (!siteStreet && !sitePlz && !siteCity) return false;
+
+  const customerStreet = normalizeAddressPartForCompare(order.customer?.address);
+  const customerPlz = normalizeAddressPartForCompare(order.customer?.plz);
+  const customerCity = normalizeAddressPartForCompare(order.customer?.city);
+
+  const hasCompleteComparableAddress = Boolean(
+    siteStreet &&
+      sitePlz &&
+      siteCity &&
+      customerStreet &&
+      customerPlz &&
+      customerCity,
+  );
+
+  if (
+    hasCompleteComparableAddress &&
+    siteStreet === customerStreet &&
+    sitePlz === customerPlz &&
+    siteCity === customerCity
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
 const getSystemBadges = (
   order: Order,
   services: ServiceDef[] = [],
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
-  if (order.siteAddressDifferent) {
+  if (hasDifferentExecutionAddressForBadge(order)) {
     const workSiteCount = Array.isArray(order.workSites) ? order.workSites.length : 0;
     pushUniqueBadge(badges, {
       key: "site_address",
@@ -2549,7 +2607,7 @@ const extractCallbackTimeHint = (...values: Array<string | null | undefined>) =>
 
   for (const line of source) {
     const normalized = normalizeForMatch(line);
-    if (!/(anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call)/.test(normalized)) {
+    if (!CALLBACK_CONTACT_WORD_PATTERN.test(normalized)) {
       continue;
     }
 
@@ -2570,10 +2628,7 @@ const isCallbackTimeLine = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return (
-    /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call)\b/.test(text) &&
-    /\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b/.test(text)
-  );
+  return CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text);
 };
 
 
@@ -2591,14 +2646,14 @@ const detectPreArrivalInstructionHint = (
     const text = normalizeForMatch(line);
     if (!text) return false;
     return (
-      /(?:nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen))/.test(text)
+      isPreArrivalInstructionLine(line)
     );
   });
 
   if (!direct) return null;
 
   const callbackTime = extractCallbackTimeHint(...values);
-  const noWhatsApp = lines.some((line) => /\bkeine?\s+whats\s*app\b|\bnicht\s+(?:per\s+)?whats\s*app\b/i.test(line));
+  const noWhatsApp = lines.some((line) => isNegativeWhatsAppInstructionLine(line));
   return [direct, callbackTime, noWhatsApp ? "Keine WhatsApp." : ""]
     .filter(Boolean)
     .join("\n");
@@ -2611,13 +2666,43 @@ const getBottomBadges = (
   const badges: ReviewBadge[] = [];
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-300";
 
+  const callbackSource = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const directCallbackHint = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  ]
+    .filter(Boolean)
+    .flatMap((part) => String(part).split(/\n+/g))
+    .map((line) => line.trim())
+    .find((line) => isPositiveCallbackChipLine(line));
+
+  const hasCallbackBadge = Boolean(detectCallbackRequest(callbackSource) || directCallbackHint);
+  const callbackTimeHint = hasCallbackBadge
+    ? extractCallbackTimeHint(
+        order.specialNotes,
+        order.notes,
+        order.audioTranscript,
+        ...parsedNotes.jobHints,
+      )
+    : "";
+
   const preArrivalHint = detectPreArrivalInstructionHint(
     order.specialNotes,
     order.notes,
     order.audioTranscript,
     ...parsedNotes.jobHints,
   );
-  if (preArrivalHint) {
+  if (preArrivalHint && !hasCallbackBadge) {
     pushUniqueBadge(badges, {
       key: "pre_arrival_instruction",
       label: "Nicht einfach kommen",
@@ -2642,36 +2727,11 @@ const getBottomBadges = (
     });
   }
 
-  const callbackSource = [
-    order.specialNotes,
-    order.notes,
-    order.audioTranscript,
-    ...parsedNotes.jobHints,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const directCallbackHint = [
-    order.specialNotes,
-    order.notes,
-    order.audioTranscript,
-    ...parsedNotes.jobHints,
-  ]
-    .filter(Boolean)
-    .flatMap((part) => String(part).split(/\n+/g))
-    .map((line) => line.trim())
-    .find((line) => isPositiveCallbackChipLine(line));
-
-  if (detectCallbackRequest(callbackSource) || directCallbackHint) {
-    const callbackTimeHint = extractCallbackTimeHint(
-      order.specialNotes,
-      order.notes,
-      order.audioTranscript,
-      ...parsedNotes.jobHints,
-    );
+  if (hasCallbackBadge) {
     const callbackTooltip = [
       directCallbackHint || "Kunde wünscht Rückruf oder telefonische Rücksprache.",
       callbackTimeHint,
+      preArrivalHint && callbackTimeHint ? preArrivalHint : "",
     ]
       .filter(Boolean)
       .join(" · ");
@@ -2744,9 +2804,9 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
 
   if (negative) return false;
 
-  if (/(?:nach|ab|erst\s+ab|erst\s+nach)\s+\d{1,2}(?::\d{2})?\s*(?:uhr|h)?\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(text)) return true;
+  if (CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
 
-  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
+  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|aaluete|anluete|klingeln)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen|aaluete|anluete|klingeln)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren|aaluete|anluete|klingeln)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
     text,
   );
 };
@@ -2798,7 +2858,14 @@ const renderReviewBadge = (
       key={badge.key}
       tabIndex={hasTooltip ? 0 : undefined}
       onClick={(event) => {
-        if (hasTooltip) event.stopPropagation();
+        if (!hasTooltip) return;
+        event.stopPropagation();
+        const target = event.currentTarget as HTMLElement;
+        if (document.activeElement === target) {
+          target.blur();
+        } else {
+          target.focus();
+        }
       }}
       className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${className} ${
         options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
@@ -2872,7 +2939,15 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       tabIndex={0}
       title={title}
       aria-label={title}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        const target = event.currentTarget as HTMLElement;
+        if (document.activeElement === target) {
+          target.blur();
+        } else {
+          target.focus();
+        }
+      }}
       className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
     >
       {Icon ? <Icon className="h-3.5 w-3.5" strokeWidth={2.2} /> : badge.label.slice(0, 1)}
@@ -2939,7 +3014,15 @@ const renderMobileRightReviewBadge = (badge: ReviewBadge) => {
       type="button"
       title={title}
       aria-label={title}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        const target = event.currentTarget as HTMLElement;
+        if (document.activeElement === target) {
+          target.blur();
+        } else {
+          target.focus();
+        }
+      }}
       className={`group relative inline-flex max-w-full items-center justify-end rounded-full px-1.5 py-0.5 text-right text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
     >
       <span className="truncate">{badge.label}</span>
@@ -3174,11 +3257,9 @@ const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^unit_price_review$/,
   /^quantity_review$/,
   /^price_unclear:/,
-  /^unbekannte_leistung_pruefen$/,
   /^stunden_arbeitsposition_pruefen$/,
   /^total_unrealistic_check$/,
   /^currency_unsupported$/,
-  /^manual_flat_service_from_text$/,
 ];
 
 const getOrderConversionBlockers = (order: Order | any): string[] => {
@@ -3218,9 +3299,9 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     blockers.push("Offene Prüfhinweise im Auftrag");
   }
 
-  if (order?.needsReview && reviewReasons.length > 0) {
-    blockers.push("Auftrag ist noch auf Prüfen gesetzt");
-  }
+  // needsReview alleine blockiert nicht mehr. Gelbe Hinweise wie
+  // Preisabweichung oder Nicht-im-Katalog dürfen Angebot/Rechnung nicht
+  // verhindern, solange Preis, Menge, Kunde und Währung verwertbar sind.
 
   if (isCustomerDataIncomplete(order?.customer)) {
     blockers.push("Kundendaten prüfen");

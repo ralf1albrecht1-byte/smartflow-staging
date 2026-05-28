@@ -1385,10 +1385,11 @@ function extractAiStructuredExecutionAddress(
       bCity: customer?.customerCity,
     })
   ) {
-    // Wenn Rechnungs- und Ausführungsadresse identisch sind, aber der Kunde
-    // einen echten Arbeitsort-/Objektnamen nennt ("Einfamilienhaus Süd"),
-    // soll dieser Ort im Auftrag sichtbar bleiben.
-    if (!siteName) return null;
+    // Gleiche Strasse/PLZ/Ort ist keine abweichende Ausführungsadresse.
+    // Ein Objektbereich wie "Küche hinten" oder "Veloraum" bleibt im
+    // Kundentext/Besonderheiten, darf aber keinen separaten Ausführungsort
+    // und keinen Ausführungsadresse-Chip erzeugen.
+    return null;
   }
 
   return {
@@ -2477,6 +2478,11 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
   }
 
 
+  const isNegativeWhatsAppInstruction = (line: string) =>
+    /(?:keine?|kein|ohne|nicht|noed|nöd|ned|nid|nit|nued|nüt|nuet)\s+(?:per\s+|via\s+)?whats\s*app\b|\bwhats\s*app\s+(?:bitte\s+)?(?:nein|keine?|kein|noed|nöd|ned|nid|nit|nued|nüt|nuet|nicht(?!\s+(?:telefon|telefonisch|anrufen|zurueckrufen|zuruckrufen)))\b/i.test(
+      line,
+    );
+
   const rawOperationalLines = rawText
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
@@ -2489,6 +2495,12 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     if (!line) continue;
     const phone = rawLine.match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]?.replace(/\s+/g, " ").trim();
     const hasNoPhoneInstruction = /bitte\s+nicht\s+anrufen|nicht\s+anrufen|nicht\s+telefonisch|keine\s+telefonische\s+rueckfrage|keine\s+telefonische\s+ruckfrage|ne\s+pas\s+appeler|ne\s+pas\s+telephoner|pas\s+d\s+appel(?:s)?|pas\s+d\s+appel(?:s)?\s+telephonique(?:s)?|pas\s+appeler|pas\s+telephoner|sans\s+appel\s+telephonique|do\s+not\s+call|no\s+calls?/i.test(line);
+    const hasNegativeWhatsAppInstruction = isNegativeWhatsAppInstruction(line);
+
+    if (hasNegativeWhatsAppInstruction) {
+      jobHints.push(/telefon|aaluete|anluete|klingeln|anrufen/i.test(line) ? "Kein WhatsApp; lieber Telefonkontakt" : "Keine WhatsApp");
+      continue;
+    }
 
     if (hasNoPhoneInstruction && /whats\s*app/i.test(line)) {
       jobHints.push("Nicht telefonisch zurückrufen, WhatsApp bevorzugt");
@@ -2500,16 +2512,16 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
       jobHints.push("Bitte keine telefonische Rückfrage");
     }
 
-    if (/nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)/i.test(line)) {
+    if (/(?:nicht|noed|nöd|ned|nid|nit)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)|(?:nicht|noed|nöd|ned|nid|nit)\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen|cho)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen|cho)/i.test(line)) {
       const parts: string[] = [];
-      if (/nicht\s+einfach\s+(?:kommen|vorbeikommen)/i.test(line)) parts.push("Nicht einfach kommen");
-      if (/nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)/i.test(line)) parts.push("Nicht ohne Rücksprache kommen");
+      if (/(?:nicht|noed|nöd|ned|nid|nit)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)/i.test(line)) parts.push("Nicht einfach kommen");
+      if (/(?:nicht|noed|nöd|ned|nid|nit)\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen|cho)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen|cho)/i.test(line)) parts.push("Nicht ohne Rücksprache kommen");
       if (/vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)/i.test(line)) parts.push("Vor Arbeitsbeginn telefonisch melden");
       const timeMatch = rawLine.match(/(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i);
       if (timeMatch?.[1]) {
         parts.push(`erst ab ${timeMatch[1].padStart(2, "0")}:${timeMatch[2] || "00"}`);
       }
-      if (/keine?\s+whats\s*app|nicht\s+(?:per\s+)?whats\s*app/i.test(line)) parts.push("keine WhatsApp");
+      if (isNegativeWhatsAppInstruction(line)) parts.push("keine WhatsApp");
       jobHints.push(parts.length ? parts.join(", ") : "Vorher melden");
     }
 
@@ -5847,7 +5859,7 @@ export async function processIncomingMessage(
 ${fullWorkText}`,
   );
 
-  const extractedExecutionAddress = sanitizeExtractedExecutionAddress(
+  let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
     aiStructuredExecutionAddress ||
       (legacyAddressFallbackEnabled
         ? extractExecutionAddressFromText(
@@ -5862,6 +5874,20 @@ ${fullWorkText}`,
     `${messageText}
 ${fullWorkText}`,
   );
+
+  if (
+    extractedExecutionAddress &&
+    sameStructuredAddress({
+      aStreet: extractedExecutionAddress.siteAddress,
+      aPlz: extractedExecutionAddress.sitePlz,
+      aCity: extractedExecutionAddress.siteCity,
+      bStreet: executionAddressCustomerContext.customerAddress,
+      bPlz: executionAddressCustomerContext.customerPlz,
+      bCity: executionAddressCustomerContext.customerCity,
+    })
+  ) {
+    extractedExecutionAddress = null;
+  }
 
   // V16.23: Zweiter Prüfer als reine Read-only-Kontrolle.
   // Dieser Validator darf keine Daten ändern, keine Chips setzen und nichts
