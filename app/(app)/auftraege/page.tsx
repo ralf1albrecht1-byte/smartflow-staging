@@ -382,7 +382,7 @@ const CALLBACK_CONTACT_WORD_PATTERN =
   /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
 
 const CALLBACK_TIME_PATTERN =
-  /\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b/;
+  /(?:\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b|\bzwischen\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b|\bvon\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+bis\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b)/;
 
 const SWISS_NEGATION_PATTERN = "(?:noed|nöd|ned|nid|nit|nued|nüt|nuet)";
 
@@ -1487,10 +1487,18 @@ const looksLikeAddressLine = (value?: string | null) => {
 };
 
 const isAppointmentContactTimeLine = (value?: string | null) => {
-  const text = normalizeForMatch(value);
+  const raw = compactText(value);
+  const text = normalizeForMatch(raw);
   if (!text) return false;
 
-  return CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text);
+  if (CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
+
+  // Contact availability like "telefonisch nur zwischen 15:00 und 16:00"
+  // is a callback/contact window, not an execution appointment.
+  return (
+    CALLBACK_CONTACT_WORD_PATTERN.test(text) &&
+    /(?:zwischen|von)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?/.test(raw.toLowerCase())
+  );
 };
 
 const normalizeAppointmentDateLabel = (value: string) => {
@@ -1725,6 +1733,23 @@ const getMultipleAppointmentBadge = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge | null => {
+  const callbackSource = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const callbackTime = extractCallbackTimeHint(
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  );
+  const callbackTimeKey = normalizeForMatch(callbackTime);
+  const callbackTimeDigits = callbackTimeKey.replace(/[^0-9]/g, "");
+
   const details = dedupeAppointmentDetails([
     ...extractAppointmentDetailsFromRawText(
       order.notes,
@@ -1732,7 +1757,34 @@ const getMultipleAppointmentBadge = (
       order.specialNotes,
     ),
     ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
-  ]);
+  ]).filter((detail) => {
+    const source = [detail.site, detail.address, detail.label, detail.reason]
+      .filter(Boolean)
+      .join(" ");
+    if (isAppointmentContactTimeLine(source)) return false;
+
+    // Do not show a bare time as appointment if the same time is already used
+    // by the callback/contact chip.
+    const labelKey = normalizeForMatch(detail.label);
+    const labelDigits = labelKey.replace(/[^0-9]/g, "");
+    if (
+      callbackTimeDigits &&
+      !/\d{1,2}[./-]\d{1,2}/.test(detail.label) &&
+      labelDigits &&
+      callbackTimeDigits.includes(labelDigits)
+    ) {
+      return false;
+    }
+
+    // Parser/LLM sometimes writes "Termin 13:00" next to a callback note.
+    // If there is no date and the overall source contains a callback/contact
+    // instruction for that time, keep it out of the Termine chip.
+    if (!/\d{1,2}[./-]\d{1,2}/.test(detail.label) && isAppointmentContactTimeLine(callbackSource)) {
+      return false;
+    }
+
+    return true;
+  });
 
   if (details.length < 2) return null;
 
@@ -2581,7 +2633,7 @@ const detectAppointmentClarificationHint = (...values: Array<string | null | und
     if (!text) return false;
 
     const wantsSchedulingContact =
-      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|melden|kontaktieren|vereinbaren|ausmachen|besprechen)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)/.test(text);
+      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|melden|kontaktieren|vereinbaren|ausmachen|besprechen|offen|vorschlag|vorschlaege|vorschläge|senden|schicken)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)|(?:termin|datum|zeitfenster|zeitpunkt)\s+(?:ist\s+)?offen|(?:zwei|2)\s+(?:termin)?vorschlaege\s+senden|(?:zwei|2)\s+(?:termin)?vorschläge\s+senden/.test(text);
     if (!wantsSchedulingContact) return false;
 
     // Fixed appointments stay normal violet appointment chips.
@@ -2611,8 +2663,21 @@ const extractCallbackTimeHint = (...values: Array<string | null | undefined>) =>
       continue;
     }
 
-    const match =
-      line.match(/(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i);
+    const rangeMatch = line.match(
+      /(?:zwischen|von)\s*(\d{1,2})(?::|\.)(\d{2})\s*(?:uhr|h)?\s*(?:und|bis)\s*(\d{1,2})(?::|\.)(\d{2})\s*(?:uhr|h)?\b/i,
+    );
+
+    if (rangeMatch?.[1]) {
+      const fromHour = rangeMatch[1].padStart(2, "0");
+      const fromMinute = rangeMatch[2] || "00";
+      const toHour = rangeMatch[3].padStart(2, "0");
+      const toMinute = rangeMatch[4] || "00";
+      return `${fromHour}:${fromMinute}–${toHour}:${toMinute}`;
+    }
+
+    const match = line.match(
+      /(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i,
+    );
 
     if (match?.[1]) {
       const hour = match[1].padStart(2, "0");
@@ -2625,10 +2690,7 @@ const extractCallbackTimeHint = (...values: Array<string | null | undefined>) =>
 };
 
 const isCallbackTimeLine = (value?: string | null) => {
-  const text = normalizeForMatch(value);
-  if (!text) return false;
-
-  return CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text);
+  return isAppointmentContactTimeLine(value);
 };
 
 
