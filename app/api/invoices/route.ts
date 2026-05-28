@@ -12,6 +12,11 @@ import {
   assertCustomerNotArchived,
   CustomerArchivedError,
 } from "@/lib/customer-links";
+import {
+  calculateDocumentTotals,
+  calculateLineTotal,
+  roundMoney,
+} from "@/lib/currency";
 
 const CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^currency_/,
@@ -190,9 +195,9 @@ export async function GET(request: Request) {
     return NextResponse.json(
       invoices?.map((i: any) => ({
         ...i,
-        subtotal: Number(i?.subtotal ?? 0),
-        vatAmount: Number(i?.vatAmount ?? 0),
-        total: Number(i?.total ?? 0),
+        subtotal: roundMoney(Number(i?.subtotal ?? 0)),
+        vatAmount: roundMoney(Number(i?.vatAmount ?? 0)),
+        total: roundMoney(Number(i?.total ?? 0)),
         sourceOfferNumber: i.sourceOfferId
           ? offerMap[i.sourceOfferId] || null
           : null,
@@ -237,13 +242,13 @@ export async function POST(request: Request) {
       } catch {}
     }
     const items = data?.items ?? [];
-    const subtotal = items.reduce(
-      (sum: number, item: any) =>
-        sum + Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0),
-      0,
+    const { subtotal, vatAmount, total } = calculateDocumentTotals(
+      items.map((item: any) => ({
+        quantity: item?.quantity ?? 0,
+        unitPrice: item?.unitPrice ?? 0,
+      })),
+      vatRate,
     );
-    const vatAmount = subtotal * (vatRate / 100);
-    const total = subtotal + vatAmount;
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + Number(data?.paymentDays ?? 30));
     // Guard: reject creation linked to an archived customer
@@ -260,9 +265,9 @@ export async function POST(request: Request) {
       if (existing) {
         return NextResponse.json({
           ...existing,
-          subtotal: Number(existing.subtotal ?? 0),
-          vatAmount: Number(existing.vatAmount ?? 0),
-          total: Number(existing.total ?? 0),
+          subtotal: roundMoney(Number(existing.subtotal ?? 0)),
+          vatAmount: roundMoney(Number(existing.vatAmount ?? 0)),
+          total: roundMoney(Number(existing.total ?? 0)),
           existed: true,
         });
       }
@@ -296,9 +301,11 @@ export async function POST(request: Request) {
                 description: item?.description ?? "",
                 quantity: Number(item?.quantity ?? 1),
                 unit: item?.unit ?? "Stunde",
-                unitPrice: Number(item?.unitPrice ?? 0),
-                totalPrice:
-                  Number(item?.quantity ?? 1) * Number(item?.unitPrice ?? 0),
+                unitPrice: roundMoney(Number(item?.unitPrice ?? 0)),
+                totalPrice: calculateLineTotal(
+                  item?.quantity ?? 1,
+                  item?.unitPrice ?? 0,
+                ),
                 siteName: item?.siteName || null,
                 siteAddress: item?.siteAddress || null,
                 sitePlz: item?.sitePlz || null,
@@ -340,9 +347,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({
       ...invoice,
-      subtotal: Number(invoice?.subtotal ?? 0),
-      vatAmount: Number(invoice?.vatAmount ?? 0),
-      total: Number(invoice?.total ?? 0),
+      subtotal: roundMoney(Number(invoice?.subtotal ?? 0)),
+      vatAmount: roundMoney(Number(invoice?.vatAmount ?? 0)),
+      total: roundMoney(Number(invoice?.total ?? 0)),
     });
   } catch (error: any) {
     if (error instanceof CustomerArchivedError) {

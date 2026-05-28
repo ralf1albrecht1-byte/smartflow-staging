@@ -12,6 +12,11 @@ import {
   assertCustomerNotArchived,
   CustomerArchivedError,
 } from "@/lib/customer-links";
+import {
+  calculateDocumentTotals,
+  calculateLineTotal,
+  roundMoney,
+} from "@/lib/currency";
 
 const CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^currency_/,
@@ -175,9 +180,9 @@ export async function GET() {
     return NextResponse.json(
       offers?.map((o: any) => ({
         ...o,
-        subtotal: Number(o?.subtotal ?? 0),
-        vatAmount: Number(o?.vatAmount ?? 0),
-        total: Number(o?.total ?? 0),
+        subtotal: roundMoney(Number(o?.subtotal ?? 0)),
+        vatAmount: roundMoney(Number(o?.vatAmount ?? 0)),
+        total: roundMoney(Number(o?.total ?? 0)),
       })) ?? [],
     );
   } catch (error: any) {
@@ -219,13 +224,13 @@ export async function POST(request: Request) {
       } catch {}
     }
     const items = data?.items ?? [];
-    const subtotal = items.reduce(
-      (sum: number, item: any) =>
-        sum + Number(item?.quantity ?? 0) * Number(item?.unitPrice ?? 0),
-      0,
+    const { subtotal, vatAmount, total } = calculateDocumentTotals(
+      items.map((item: any) => ({
+        quantity: item?.quantity ?? 0,
+        unitPrice: item?.unitPrice ?? 0,
+      })),
+      vatRate,
     );
-    const vatAmount = subtotal * (vatRate / 100);
-    const total = subtotal + vatAmount;
     const validUntil = new Date();
     validUntil.setDate(validUntil.getDate() + Number(data?.validDays ?? 14));
 
@@ -259,9 +264,11 @@ export async function POST(request: Request) {
                 description: item?.description ?? "",
                 quantity: Number(item?.quantity ?? 1),
                 unit: item?.unit ?? "Stunde",
-                unitPrice: Number(item?.unitPrice ?? 0),
-                totalPrice:
-                  Number(item?.quantity ?? 1) * Number(item?.unitPrice ?? 0),
+                unitPrice: roundMoney(Number(item?.unitPrice ?? 0)),
+                totalPrice: calculateLineTotal(
+                  item?.quantity ?? 1,
+                  item?.unitPrice ?? 0,
+                ),
                 siteName: item?.siteName || null,
                 siteAddress: item?.siteAddress || null,
                 sitePlz: item?.sitePlz || null,
@@ -304,9 +311,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({
       ...offer,
-      subtotal: Number(offer?.subtotal ?? 0),
-      vatAmount: Number(offer?.vatAmount ?? 0),
-      total: Number(offer?.total ?? 0),
+      subtotal: roundMoney(Number(offer?.subtotal ?? 0)),
+      vatAmount: roundMoney(Number(offer?.vatAmount ?? 0)),
+      total: roundMoney(Number(offer?.total ?? 0)),
     });
   } catch (error: any) {
     if (error instanceof CustomerArchivedError) {
