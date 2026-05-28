@@ -385,7 +385,7 @@ const CONTACT_TIME_WORD_PATTERN =
   /\b(?:sms|whatsapp|wa|mail|e-mail|email|schreiben|senden|schicken|rueckfragen|ruckfragen|nachricht|nachrichten|kontakt|kontaktieren|melden|anruf|anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
 
 const CALLBACK_TIME_PATTERN =
-  /(?:\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b|\bzwischen\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b|\bvon\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+bis\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b)/;
+  /(?:\b(?:erst\s+ab|erst\s+nach|nicht\s+vor|nicht\s+vorher\s+als|fruehestens|frühestens|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b|\bzwischen\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b|\bvon\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+bis\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b)/;
 
 const SWISS_NEGATION_PATTERN = "(?:noed|nöd|ned|nid|nit|nued|nüt|nuet)";
 
@@ -2661,7 +2661,7 @@ const detectAppointmentClarificationHint = (...values: Array<string | null | und
     if (!text) return false;
 
     const wantsSchedulingContact =
-      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|melden|kontaktieren|vereinbaren|ausmachen|besprechen|offen|vorschlag|vorschlaege|vorschläge|senden|schicken)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)|(?:termin|datum|zeitfenster|zeitpunkt)\s+(?:ist\s+)?offen|(?:zwei|2)\s+(?:termin)?vorschlaege\s+senden|(?:zwei|2)\s+(?:termin)?vorschläge\s+senden/.test(text);
+      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|melden|kontaktieren|vereinbaren|ausmachen|besprechen|offen|vorschlag|vorschlaege|vorschläge|senden|schicken)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)|(?:termin|datum|zeitfenster|zeitpunkt)\s+(?:ist\s+)?offen|(?:zwei|2)\s+(?:termin)?vorschlaege\s+senden|(?:zwei|2)\s+(?:termin)?vorschläge\s+senden/.test(text);
     if (!wantsSchedulingContact) return false;
 
     // Fixed appointments stay normal violet appointment chips.
@@ -2710,6 +2710,16 @@ const extractCallbackTimeHint = (...values: Array<string | null | undefined>) =>
     if (match?.[1]) {
       const hour = match[1].padStart(2, "0");
       const minute = match[2] || "00";
+      return `erst ab ${hour}:${minute}`;
+    }
+
+    const notBeforeMatch = line.match(
+      /(?:nicht\s+vor|nicht\s+vorher\s+als|fr[uü]hestens)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i,
+    );
+
+    if (notBeforeMatch?.[1]) {
+      const hour = notBeforeMatch[1].padStart(2, "0");
+      const minute = notBeforeMatch[2] || "00";
       return `erst ab ${hour}:${minute}`;
     }
   }
