@@ -2451,7 +2451,7 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
       )
     )
       return false;
-    return /\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|call\s+back|please\s+call\s+back|telefonisch\s+anrufen|phone\s+back|rappeler|richiamare|devolver\s+la\s+llamada|ligar\s+de\s+volta)\b/i.test(
+    return /\b(rueckruf|ruckruf|zurueckrufen|zurückrufen|call\s+back|please\s+call\s+back|telefonisch\s+(?:anrufen|melden|kontaktieren)|phone\s+back|rappeler|richiamare|devolver\s+la\s+llamada|ligar\s+de\s+volta)\b/i.test(
       line,
     );
   });
@@ -2488,6 +2488,19 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     const line = normalizeSemanticText(rawLine);
     if (!line) continue;
     const phone = rawLine.match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]?.replace(/\s+/g, " ").trim();
+
+    if (/nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)/i.test(line)) {
+      const parts: string[] = [];
+      if (/nicht\s+einfach\s+(?:kommen|vorbeikommen)/i.test(line)) parts.push("Nicht einfach kommen");
+      if (/nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)/i.test(line)) parts.push("Nicht ohne Rücksprache kommen");
+      if (/vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)/i.test(line)) parts.push("Vor Arbeitsbeginn telefonisch melden");
+      const timeMatch = rawLine.match(/(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i);
+      if (timeMatch?.[1]) {
+        parts.push(`erst ab ${timeMatch[1].padStart(2, "0")}:${timeMatch[2] || "00"}`);
+      }
+      if (/keine?\s+whats\s*app|nicht\s+(?:per\s+)?whats\s*app/i.test(line)) parts.push("keine WhatsApp");
+      jobHints.push(parts.length ? parts.join(", ") : "Vorher melden");
+    }
 
     if (/nur\s+whats\s*app|whats\s*app.*nicht\s+anrufen|nicht\s+anrufen.*whats\s*app/i.test(line)) {
       jobHints.push(phone ? `Nur WhatsApp, nicht anrufen: ${phone}` : "Nur WhatsApp, nicht anrufen");
@@ -3291,26 +3304,6 @@ function composeWorkNameSource(item: any, raw: string): string {
   return action || serviceName || name || raw || "";
 }
 
-function hasFloorCleaningIntentText(value?: string | null): boolean {
-  const normalized = normalizeUnitText(value || "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!normalized) return false;
-
-  const hasFloorObject =
-    /\b(boden|bode|floor|sol|paviment|suelo|chao)\b/.test(normalized) ||
-    /bodenreinigung|floor\s+cleaning|nettoyage\s+(?:du\s+)?sol|nettoyer\s+(?:le\s+|du\s+)?sol|pulizia\s+(?:del\s+)?pavimento|limpieza\s+(?:de\s+)?suelo|limpeza\s+(?:do\s+)?chao/.test(
-      normalized,
-    );
-  const hasCleaningAction =
-    /reinig|putz|putze|saeuber|clean|nettoyage|nettoyer|pulizia|limpieza|limpeza|wisch/.test(
-      normalized,
-    );
-
-  return hasFloorObject && hasCleaningAction;
-}
-
 function canonicalGermanServiceNameFromText(
   value?: string | null,
 ): string | null {
@@ -3327,10 +3320,6 @@ function canonicalGermanServiceNameFromText(
     )
   ) {
     return "Anfahrt";
-  }
-
-  if (hasFloorCleaningIntentText(normalized)) {
-    return "Boden reinigen";
   }
 
   if (

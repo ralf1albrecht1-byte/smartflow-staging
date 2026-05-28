@@ -1304,7 +1304,6 @@ const extractAppointmentBadge = (
   if (
     !text ||
     isCallbackTimeLine(raw) ||
-    isDoNotComeAppointmentLine(raw) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw)
   ) {
@@ -1460,19 +1459,8 @@ const isAppointmentContactTimeLine = (value?: string | null) => {
   if (!text) return false;
 
   return (
-    /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|rueckruf|ruckruf|call)\b/.test(text) &&
-    /\b(?:ab|nach|erst ab|erst nach)\s+\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?\b/.test(text)
-  );
-};
-
-const isDoNotComeAppointmentLine = (value?: string | null) => {
-  const text = normalizeForMatch(value);
-  if (!text) return false;
-
-  return (
-    /\bmorgen\b.*\b(?:nicht|nicht\s+einfach|keinesfalls|erst\s+nach\s+ruecksprache)\b.*\b(?:kommen|erscheinen|vorbeikommen|starten)\b/.test(text) ||
-    /\b(?:nicht|nicht\s+einfach|keinesfalls)\b.*\bmorgen\b.*\b(?:kommen|erscheinen|vorbeikommen|starten)\b/.test(text) ||
-    /\bbitte\s+morgen\s+nicht\s+einfach\s+kommen\b/.test(text)
+    /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call)\b/.test(text) &&
+    /\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b/.test(text)
   );
 };
 
@@ -1620,10 +1608,6 @@ const extractAppointmentDetailsFromGroupedNotes = (
     const value = compactText(groupedMatch?.[2] || line);
     if (groupedMatch) currentSite = site;
 
-    // "Kontakt vor Ort: ... 13.08.2026 14:00" is contextual information for
-    // an already extracted appointment, not a third appointment by itself.
-    if (/^kontakt\s+vor\s+ort$/i.test(site)) return;
-
     const label = extractAppointmentDetailLabel(value);
     if (!label) return;
 
@@ -1669,22 +1653,7 @@ const getMultipleAppointmentBadge = (
     ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
   ].filter((detail, index, all) => {
     const key = appointmentDetailKey(detail);
-    if (!key) return false;
-
-    const labelKey = normalizeForMatch(detail.label);
-    const firstSameKeyIndex = all.findIndex((other) => appointmentDetailKey(other) === key);
-    if (firstSameKeyIndex !== index) return false;
-
-    // Same date/time from raw text + cleaned notes must count once.
-    // Otherwise a single Nachkontrolle can become "Termine · 3".
-    if (labelKey) {
-      const firstSameLabelIndex = all.findIndex(
-        (other) => normalizeForMatch(other.label) === labelKey,
-      );
-      if (firstSameLabelIndex !== index) return false;
-    }
-
-    return true;
+    return Boolean(key) && all.findIndex((other) => appointmentDetailKey(other) === key) === index;
   });
 
   if (details.length < 2) return null;
@@ -2440,13 +2409,12 @@ const extractCallbackTimeHint = (...values: Array<string | null | undefined>) =>
 
   for (const line of source) {
     const normalized = normalizeForMatch(line);
-    if (!/(anrufen|zurueckrufen|zuruckrufen|telefonieren|rueckruf|ruckruf|call)/.test(normalized)) {
+    if (!/(anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call)/.test(normalized)) {
       continue;
     }
 
     const match =
-      line.match(/(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?::|\.)(\d{2})\s*(?:uhr|h)?/i) ||
-      line.match(/(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})\s*(?:uhr|h)\b/i);
+      line.match(/(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i);
 
     if (match?.[1]) {
       const hour = match[1].padStart(2, "0");
@@ -2463,9 +2431,37 @@ const isCallbackTimeLine = (value?: string | null) => {
   if (!text) return false;
 
   return (
-    /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|rueckruf|ruckruf|call)\b/.test(text) &&
-    /\b(?:ab|nach|erst ab|erst nach)\s+\d{1,2}(?::|\.)?\d{0,2}\s*(?:uhr|h)?\b/.test(text)
+    /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call)\b/.test(text) &&
+    /\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b/.test(text)
   );
+};
+
+
+const detectPreArrivalInstructionHint = (
+  ...values: Array<string | null | undefined>
+) => {
+  const lines = values
+    .filter(Boolean)
+    .join("\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  const direct = lines.find((line) => {
+    const text = normalizeForMatch(line);
+    if (!text) return false;
+    return (
+      /(?:nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen))/.test(text)
+    );
+  });
+
+  if (!direct) return null;
+
+  const callbackTime = extractCallbackTimeHint(...values);
+  const noWhatsApp = lines.some((line) => /\bkeine?\s+whats\s*app\b|\bnicht\s+(?:per\s+)?whats\s*app\b/i.test(line));
+  return [direct, callbackTime, noWhatsApp ? "Keine WhatsApp." : ""]
+    .filter(Boolean)
+    .join("\n");
 };
 
 const getBottomBadges = (
@@ -2474,6 +2470,21 @@ const getBottomBadges = (
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-300";
+
+  const preArrivalHint = detectPreArrivalInstructionHint(
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  );
+  if (preArrivalHint) {
+    pushUniqueBadge(badges, {
+      key: "pre_arrival_instruction",
+      label: "Vorher melden",
+      className: "bg-blue-100 text-blue-700 border border-blue-300",
+      tooltip: preArrivalHint,
+    });
+  }
 
   // Zusammengeführt wird oben bei den Systemchips neben der Ausführungsadresse angezeigt.
   // Wenn ein Merge mehrere Telefonnummern, Kontaktwege oder Termine enthält,
@@ -2537,27 +2548,12 @@ const getBottomBadges = (
   // Do not add an extra SMS review badge here; otherwise SMS appears twice.
 
   const appointmentBaseDate = order.createdAt || order.date;
-  const rawAppointmentContext = [
-    ...parsedNotes.jobHints,
-    order.specialNotes,
-    order.notes,
-    order.audioTranscript,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  const suppressIsolatedTomorrowChip = /morgen.*nicht.*(?:kommen|erscheinen|starten)|nicht.*morgen.*(?:kommen|erscheinen|starten)|nicht\s+einfach\s+kommen/i.test(
-    normalizeForMatch(rawAppointmentContext),
-  );
   const appointmentSourceLines = splitAppointmentSources(
     ...parsedNotes.jobHints,
     order.specialNotes,
     order.notes,
     order.audioTranscript,
-  ).filter((line) => {
-    if (isCallbackTimeLine(line) || isDoNotComeAppointmentLine(line)) return false;
-    if (suppressIsolatedTomorrowChip && /^\s*(morgen|tomorrow|demain|domani)\s*$/i.test(line)) return false;
-    return true;
-  });
+  ).filter((line) => !isCallbackTimeLine(line));
 
   const multipleAppointmentBadge = getMultipleAppointmentBadge(order, parsedNotes);
 
@@ -2615,20 +2611,11 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
   );
 };
 
-const isNegativeWhatsAppLine = (value?: string | null) => {
-  const text = normalizeForMatch(value);
-  if (!text || !/whatsapp|whats\s*app/.test(text)) return false;
-
-  return /(?:keine?|kein|nicht|ohne|no|not)\s+(?:whatsapp|whats\s*app)|(?:whatsapp|whats\s*app)\s+(?:nicht|nein|no|not)/.test(
-    text,
-  );
-};
-
 const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
   String(value || "")
     .split(/\n+/g)
     .map((line) => line.trim())
-    .filter((line) => line && !isPositiveCallbackChipLine(line) && !isNegativeWhatsAppLine(line))
+    .filter((line) => line && !isPositiveCallbackChipLine(line))
     .join("\n");
 
 const getStrongerCardBadgeClassName = (className?: string | null) =>
@@ -2741,9 +2728,10 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       title={title}
       aria-label={title}
       onClick={(event) => event.stopPropagation()}
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`}
+      className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
     >
       {Icon ? <Icon className="h-3.5 w-3.5" strokeWidth={2.2} /> : badge.label.slice(0, 1)}
+      {renderBadgeTooltip(badge, "left")}
     </button>
   );
 };
@@ -2768,9 +2756,10 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         title={title}
         aria-label={title}
         onClick={(event) => event.stopPropagation()}
-        className={className}
+        className={`group relative ${className}`}
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+        {renderBadgeTooltip({ ...badge, tooltip: title }, "left")}
       </button>
     );
   }
@@ -5900,9 +5889,10 @@ export default function AuftraegePage() {
                   title={title}
                   aria-label={title}
                   onClick={openOrderAtSpecialNotes}
-                  className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`}
+                  className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
                 >
                   <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  {renderBadgeTooltip(badge, "left")}
                 </button>
               );
             };

@@ -48,6 +48,7 @@ const isOperationalJobHint = (value: string) => {
   const line = normalizeLine(value);
   if (!line) return false;
   if (APPOINTMENT_CLARIFY_HINT.test(line)) return true;
+  if (/(?:nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen))/i.test(line)) return true;
   if (FIXED_APPOINTMENT_HINT.test(line)) return false;
   return !NON_OPERATIONAL_JOB_HINT.test(line);
 };
@@ -96,6 +97,7 @@ const semanticNoteKey = (value: string) => {
   if (/\bschluessel\b|\bschluessel\b|\bkey\b|\bbriefkasten\b/.test(text)) return "key";
   if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
+  if (/(nicht einfach kommen|nicht einfach vorbeikommen|nicht ohne ruecksprache|nicht ohne rucksprache|vor arbeitsbeginn|vor start|vor ankunft).*(melden|anrufen|kontaktieren|kommen|whatsapp)|vorher melden/.test(text)) return "pre_arrival_instruction";
   if (/termin.*(klaeren|klaren|abstimmen|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(text)) return "appointment_clarify";
   const hasNoCall = /nicht anrufen|keine telefonische|kein telefon|no calls?|do not call/.test(text);
   if (/whatsapp/.test(text) && hasNoCall) return "communication_whatsapp_no_call";
@@ -116,7 +118,7 @@ const noteSpecificityScore = (value: string) => {
 
   if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
   if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
-  if (/bitte|nur|nicht anrufen|keine telefonische|mail reicht|whatsapp|sms|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
+  if (/bitte|nur|nicht anrufen|keine telefonische|mail reicht|whatsapp|sms|nicht einfach|vor arbeitsbeginn|vor start|vor ankunft|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
   if (/\+\d|\b0\d{2,}\b/.test(text)) score += 80;
   if (/eventuell|vielleicht|moeglich|möglich/.test(text)) score -= 30;
   if (/vor ort/.test(text)) score -= 20;
@@ -331,7 +333,7 @@ const normalizeCallbackText = (value: string) =>
     .trim();
 
 const CALLBACK_WORD = "(?:rueckruf|ruckruf)";
-const CALL_BACK_VERB = "(?:zurueckrufen|zuruckrufen|anrufen|telefonieren)";
+const CALL_BACK_VERB = "(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|melden|kontaktieren)";
 const CALLBACK_NEGATIVE_PATTERN = new RegExp(
   `\\b(?:nicht\\s+(?:telefonisch\\s+)?${CALL_BACK_VERB}|kein(?:e[nm]?)?\\s+(?:telefonischer\\s+)?(?:${CALLBACK_WORD}|anruf)|${CALLBACK_WORD}\\s+(?:nicht\\s+)?(?:noetig|notig|erwuenscht)|nicht\\s+erwuenscht)\\b`,
   "i",
@@ -343,9 +345,10 @@ const CALLBACK_POSITIVE_PATTERN = new RegExp(
     `bitte\\s+${CALL_BACK_VERB}`,
     `vorher\\s+${CALL_BACK_VERB}`,
     `vor\\s+ankunft\\s+(?:kurz\\s+)?${CALL_BACK_VERB}`,
-    `telefonisch\\s+abklaeren`,
+    `telefonisch\\s+(?:abklaeren|melden|kontaktieren)`,
     `kunde\\s+moechte\\s+(?:${CALLBACK_WORD}|anruf)`,
     `\\d+\\s*minuten\\s+(?:vorher|vor\\s+arbeitsbeginn|vor\\s+ankunft)\\s+${CALL_BACK_VERB}`,
+    `vor\\s+(?:start|arbeitsbeginn|ankunft)\\s+(?:kurz\\s+)?(?:telefonisch\\s+)?${CALL_BACK_VERB}`,
   ].join("|"),
   "i",
 );
