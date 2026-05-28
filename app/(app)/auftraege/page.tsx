@@ -378,6 +378,20 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+const isPreArrivalInstructionLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return /(?:nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen))/.test(text);
+};
+
+const isNegativeWhatsAppInstructionLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return /\b(?:keine?|kein|ohne)\s+whats\s*app\b|\bnicht\s+(?:per\s+|via\s+)?whats\s*app\b|\bwhats\s*app\s+(?:nicht|nein|keine?)\b/.test(text);
+};
+
 const SOURCE_LINE_GENERIC_TOKENS = new Set([
   "arbeiten",
   "arbeit",
@@ -668,6 +682,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
     return "access";
+  if (isPreArrivalInstructionLine(value)) return null;
   if (/termin|datum|uhr|morgen|vormittag|nachmittag/.test(text))
     return "appointment";
   if (/schubkarre/.test(text)) return "wheelbarrow";
@@ -1304,6 +1319,7 @@ const extractAppointmentBadge = (
   if (
     !text ||
     isCallbackTimeLine(raw) ||
+    isPreArrivalInstructionLine(raw) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw)
   ) {
@@ -1491,7 +1507,7 @@ const normalizeAppointmentTimeLabel = (value: string) => {
 
 const extractAppointmentDetailLabel = (value: string) => {
   const raw = compactText(value);
-  if (!raw || isAppointmentContactTimeLine(raw)) return "";
+  if (!raw || isAppointmentContactTimeLine(raw) || isPreArrivalInstructionLine(raw)) return "";
 
   const date = normalizeAppointmentDateLabel(raw);
   const time = normalizeAppointmentTimeLabel(raw);
@@ -1640,21 +1656,70 @@ const formatAppointmentDetailsTooltip = (details: AppointmentDetail[]) =>
     })
     .join("\n\n");
 
+const mergeAppointmentDetail = (
+  existing: AppointmentDetail,
+  incoming: AppointmentDetail,
+): AppointmentDetail => ({
+  site: existing.site || incoming.site,
+  address: existing.address || incoming.address,
+  label: existing.label || incoming.label,
+  reason:
+    (existing.reason || "").length >= (incoming.reason || "").length
+      ? existing.reason
+      : incoming.reason,
+});
+
+const dedupeAppointmentDetails = (details: AppointmentDetail[]) => {
+  const result: AppointmentDetail[] = [];
+
+  details.forEach((detail) => {
+    const labelKey = normalizeForMatch(detail.label);
+    if (!labelKey) return;
+
+    const exactKey = appointmentDetailKey(detail);
+    const exactIndex = result.findIndex(
+      (existing) => appointmentDetailKey(existing) === exactKey,
+    );
+    if (exactIndex >= 0) {
+      result[exactIndex] = mergeAppointmentDetail(result[exactIndex], detail);
+      return;
+    }
+
+    const looseIndex = result.findIndex((existing) => {
+      if (normalizeForMatch(existing.label) !== labelKey) return false;
+
+      const existingHasPlace = Boolean(existing.site || existing.address);
+      const incomingHasPlace = Boolean(detail.site || detail.address);
+
+      // Collapse duplicate mentions of the same date/time when one source is
+      // only a loose note without worksite/address context. Keep two entries
+      // if both have different real places.
+      return !existingHasPlace || !incomingHasPlace;
+    });
+
+    if (looseIndex >= 0) {
+      result[looseIndex] = mergeAppointmentDetail(result[looseIndex], detail);
+      return;
+    }
+
+    result.push(detail);
+  });
+
+  return result;
+};
+
 const getMultipleAppointmentBadge = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge | null => {
-  const details = [
+  const details = dedupeAppointmentDetails([
     ...extractAppointmentDetailsFromRawText(
       order.notes,
       order.audioTranscript,
       order.specialNotes,
     ),
     ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
-  ].filter((detail, index, all) => {
-    const key = appointmentDetailKey(detail);
-    return Boolean(key) && all.findIndex((other) => appointmentDetailKey(other) === key) === index;
-  });
+  ]);
 
   if (details.length < 2) return null;
 
@@ -2049,6 +2114,83 @@ const formatCatalogReviewTooltip = (input: {
   return lines.filter(Boolean).join("\n");
 };
 
+const uniqueCatalogReviewItems = <T extends Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>(
+  items: T[],
+) => {
+  const seen = new Set<string>();
+  const result: T[] = [];
+
+  items.forEach((item) => {
+    const key = [
+      normalizeForMatch(item.serviceName),
+      normalizePriceUnitForCompare(item.unit),
+      Number(item.unitPrice || 0),
+      Number(item.quantity || 0),
+    ].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(item);
+  });
+
+  return result;
+};
+
+const formatCatalogPriceDeviationTooltip = (
+  items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
+  services: ServiceDef[],
+  currency?: "CHF" | "EUR" | null,
+) => {
+  const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
+  const reviewItems = uniqueCatalogReviewItems(items).filter((item) =>
+    compactText(item.serviceName),
+  );
+
+  if (reviewItems.length === 0) {
+    return "Preis weicht vom Katalog ab.";
+  }
+
+  if (reviewItems.length === 1) {
+    const item = reviewItems[0];
+    return formatCatalogReviewTooltip({
+      title: "Preis weicht vom Katalog ab.",
+      item,
+      catalog: findCatalogServiceForName(services, item.serviceName),
+      currency,
+    });
+  }
+
+  const lines = [`${reviewItems.length} Preisabweichungen:`];
+
+  reviewItems.slice(0, 6).forEach((item, index) => {
+    const catalog = findCatalogServiceForName(services, item.serviceName);
+    const itemQuantity = Number(item.quantity || 0);
+    const itemPrice = Number(item.unitPrice || 0);
+    const itemQuantityLabel = itemQuantity > 0 ? String(item.quantity) : "Menge prüfen";
+    const itemPriceLabel = itemPrice > 0 ? formatCurrency(itemPrice, safeCurrency) : "Preis prüfen";
+
+    lines.push(`${index + 1}. ${compactText(item.serviceName) || "Leistung"}`);
+    lines.push(
+      `   Auftrag: ${itemQuantityLabel} ${formatReviewUnitLabel(item.unit || "")} · ${itemPriceLabel}`,
+    );
+    if (catalog) {
+      lines.push(
+        `   Katalog: ${formatReviewUnitLabel(catalog.unit)} · ${formatCurrency(
+          Number(catalog.defaultPrice || 0),
+          safeCurrency,
+        )}`,
+      );
+    } else {
+      lines.push("   Katalog: keine passende Leistung gefunden");
+    }
+  });
+
+  if (reviewItems.length > 6) {
+    lines.push(`+${reviewItems.length - 6} weitere Preisabweichungen`);
+  }
+
+  return lines.join("\n");
+};
+
 const formatCatalogMissingTooltip = (
   items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
   currency?: "CHF" | "EUR" | null,
@@ -2316,12 +2458,11 @@ const getSystemBadges = (
 
   const priceDeviationItems = getCatalogPriceDeviationItems(order, services);
   const flatOverrideItems = getCatalogTextFlatOverrideItems(order, services);
+  const priceReviewItems = uniqueCatalogReviewItems([
+    ...priceDeviationItems,
+    ...flatOverrideItems,
+  ]);
   const catalogMissingItems = getCatalogMissingItems(order, services);
-  const firstPriceDeviationItem = priceDeviationItems[0] || flatOverrideItems[0];
-  const firstCatalogMissingItem = catalogMissingItems[0];
-  const firstPriceCatalog = firstPriceDeviationItem
-    ? findCatalogServiceForName(services, firstPriceDeviationItem.serviceName)
-    : null;
   const hasPriceDeviationReview =
     (order.reviewReasons?.some((reason) =>
       reason.startsWith("price_override:"),
@@ -2336,12 +2477,11 @@ const getSystemBadges = (
       label: "Preis abweichend",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatCatalogReviewTooltip({
-        title: "Preis weicht vom Katalog ab.",
-        item: firstPriceDeviationItem || null,
-        catalog: firstPriceCatalog,
-        currency: order.currency,
-      }),
+      tooltip: formatCatalogPriceDeviationTooltip(
+        priceReviewItems,
+        services,
+        order.currency,
+      ),
     });
   }
 
@@ -2480,7 +2620,7 @@ const getBottomBadges = (
   if (preArrivalHint) {
     pushUniqueBadge(badges, {
       key: "pre_arrival_instruction",
-      label: "Vorher melden",
+      label: "Nicht einfach kommen",
       className: "bg-blue-100 text-blue-700 border border-blue-300",
       tooltip: preArrivalHint,
     });
@@ -2553,7 +2693,7 @@ const getBottomBadges = (
     order.specialNotes,
     order.notes,
     order.audioTranscript,
-  ).filter((line) => !isCallbackTimeLine(line));
+  ).filter((line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line));
 
   const multipleAppointmentBadge = getMultipleAppointmentBadge(order, parsedNotes);
 
@@ -2615,7 +2755,12 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
   String(value || "")
     .split(/\n+/g)
     .map((line) => line.trim())
-    .filter((line) => line && !isPositiveCallbackChipLine(line))
+    .filter(
+      (line) =>
+        line &&
+        !isPositiveCallbackChipLine(line) &&
+        !isNegativeWhatsAppInstructionLine(line),
+    )
     .join("\n");
 
 const getStrongerCardBadgeClassName = (className?: string | null) =>
@@ -2784,6 +2929,24 @@ const renderMobileTextBadge = (badge: ReviewBadge, align: "left" | "right" = "ri
     "max-w-full truncate text-[10px] px-1.5 py-0.5 font-semibold",
     { strong: true, tooltipAlign: align },
   );
+
+const renderMobileRightReviewBadge = (badge: ReviewBadge) => {
+  const title = compactText(badge.tooltip) || badge.label;
+
+  return (
+    <button
+      key={`mobile_review_${badge.key}`}
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={(event) => event.stopPropagation()}
+      className={`group relative inline-flex max-w-full items-center justify-end rounded-full px-1.5 py-0.5 text-right text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+    >
+      <span className="truncate">{badge.label}</span>
+      {renderBadgeTooltip(badge, "right")}
+    </button>
+  );
+};
 
 const mobileOverflowBadge = (count: number) =>
   count > 0 ? (
@@ -6126,21 +6289,9 @@ export default function AuftraegePage() {
                             {appointmentBadges.slice(0, 1).map((badge) =>
                               renderMobileTextBadge(badge, "right"),
                             )}
-                            {mobilePrimaryRightBadges.map((badge) => (
-                              <button
-                                key={`mobile_review_${badge.key}`}
-                                type="button"
-                                title={compactText(badge.tooltip) || badge.label}
-                                aria-label={compactText(badge.tooltip) || badge.label}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openEdit(o);
-                                }}
-                                className="max-w-full text-right"
-                              >
-                                {renderMobileTextBadge(badge, "right")}
-                              </button>
-                            ))}
+                            {mobilePrimaryRightBadges.map((badge) =>
+                              renderMobileRightReviewBadge(badge),
+                            )}
                             {mobileRightHiddenCount > 0 && (
                               <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                                 +{mobileRightHiddenCount}

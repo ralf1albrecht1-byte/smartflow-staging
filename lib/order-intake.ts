@@ -2222,7 +2222,7 @@ function canonicalizeSpecialNoteLine(line: string): string {
   }
 
   const mentionsNoPhone =
-    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|ne\s+pas\s+appeler|ne\s+pas\s+rappeler|pas\s+appeler|merci\s+de\s+ne\s+pas\s+appeler|do\s+not\s+call|dont\s+call|don't\s+call|no\s+phone\s+call)\b/i.test(
+    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|ne\s+pas\s+appeler|ne\s+pas\s+rappeler|ne\s+pas\s+telephoner|pas\s+d\s+appel(?:s)?|pas\s+d\s+appel(?:s)?\s+telephonique(?:s)?|pas\s+appeler|pas\s+telephoner|sans\s+appel\s+telephonique|merci\s+de\s+ne\s+pas\s+appeler|do\s+not\s+call|dont\s+call|don't\s+call|no\s+phone\s+call)\b/i.test(
       normalized,
     );
   const mentionsWhatsApp = /\b(whatsapp|whats\s*app)\b/i.test(normalized);
@@ -2488,6 +2488,17 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     const line = normalizeSemanticText(rawLine);
     if (!line) continue;
     const phone = rawLine.match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]?.replace(/\s+/g, " ").trim();
+    const hasNoPhoneInstruction = /bitte\s+nicht\s+anrufen|nicht\s+anrufen|nicht\s+telefonisch|keine\s+telefonische\s+rueckfrage|keine\s+telefonische\s+ruckfrage|ne\s+pas\s+appeler|ne\s+pas\s+telephoner|pas\s+d\s+appel(?:s)?|pas\s+d\s+appel(?:s)?\s+telephonique(?:s)?|pas\s+appeler|pas\s+telephoner|sans\s+appel\s+telephonique|do\s+not\s+call|no\s+calls?/i.test(line);
+
+    if (hasNoPhoneInstruction && /whats\s*app/i.test(line)) {
+      jobHints.push("Nicht telefonisch zurückrufen, WhatsApp bevorzugt");
+    } else if (hasNoPhoneInstruction && /(mail|e\s*mail|email|courriel)/i.test(line)) {
+      jobHints.push("Mail reicht, bitte keine telefonische Rückfrage");
+    } else if (hasNoPhoneInstruction && /\bsms\b/i.test(line)) {
+      jobHints.push("Nicht telefonisch zurückrufen, SMS reicht");
+    } else if (hasNoPhoneInstruction) {
+      jobHints.push("Bitte keine telefonische Rückfrage");
+    }
 
     if (/nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)/i.test(line)) {
       const parts: string[] = [];
@@ -2521,8 +2532,8 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
       jobHints.push("Mail reicht");
     }
 
-    if (/bitte\s+nicht\s+anrufen|nicht\s+anrufen|nicht\s+telefonisch|keine\s+telefonische\s+rueckfrage|keine\s+telefonische\s+ruckfrage/i.test(line)) {
-      jobHints.push(/keine\s+telefonische|nicht\s+telefonisch/i.test(line) ? "Bitte keine telefonische Rückfrage" : "Bitte nicht anrufen");
+    if (hasNoPhoneInstruction && !/(whats\s*app|sms|mail|e\s*mail|email|courriel)/i.test(line)) {
+      jobHints.push(/keine\s+telefonische|nicht\s+telefonisch|pas\s+d\s+appel|pas\s+appeler|ne\s+pas|no\s+calls?|do\s+not\s+call/i.test(line) ? "Bitte keine telefonische Rückfrage" : "Bitte nicht anrufen");
     }
 
     if (/no\s+calls?\s+during\s+office\s+hours|keine\s+anrufe\s+waehrend\s+der\s+buerozeiten|keine\s+anrufe\s+waehrend\s+der\s+bürozeiten/i.test(line)) {

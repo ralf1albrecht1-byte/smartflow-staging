@@ -99,7 +99,7 @@ const semanticNoteKey = (value: string) => {
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
   if (/(nicht einfach kommen|nicht einfach vorbeikommen|nicht ohne ruecksprache|nicht ohne rucksprache|vor arbeitsbeginn|vor start|vor ankunft).*(melden|anrufen|kontaktieren|kommen|whatsapp)|vorher melden/.test(text)) return "pre_arrival_instruction";
   if (/termin.*(klaeren|klaren|abstimmen|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(text)) return "appointment_clarify";
-  const hasNoCall = /nicht anrufen|keine telefonische|kein telefon|no calls?|do not call/.test(text);
+  const hasNoCall = /nicht anrufen|nicht telefonisch|keine telefonische|kein telefon|no calls?|do not call|pas d appel|pas d appels|pas appeler|pas telephoner|ne pas appeler|ne pas telephoner|sans appel telephonique/.test(text);
   if (/whatsapp/.test(text) && hasNoCall) return "communication_whatsapp_no_call";
   if (/\bsms\b/.test(text) && hasNoCall) return "communication_sms_no_call";
   if (/(?:mail|email|e mail|e-mail)/.test(text) && hasNoCall) return "communication_email_no_call";
@@ -118,7 +118,7 @@ const noteSpecificityScore = (value: string) => {
 
   if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
   if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
-  if (/bitte|nur|nicht anrufen|keine telefonische|mail reicht|whatsapp|sms|nicht einfach|vor arbeitsbeginn|vor start|vor ankunft|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
+  if (/bitte|nur|nicht anrufen|nicht telefonisch|keine telefonische|pas d appel|pas appeler|mail reicht|whatsapp|sms|nicht einfach|vor arbeitsbeginn|vor start|vor ankunft|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
   if (/\+\d|\b0\d{2,}\b/.test(text)) score += 80;
   if (/eventuell|vielleicht|moeglich|möglich/.test(text)) score -= 30;
   if (/vor ort/.test(text)) score -= 20;
