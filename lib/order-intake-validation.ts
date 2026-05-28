@@ -4648,6 +4648,198 @@ function enforceExplicitMeasuredHourLineItems(
   };
 }
 
+
+// V16.93: final hard guard for explicit measured service lines.
+// Purpose:
+// - protect customer lines like "Boden ... 3.5 Stunden à CHF 72" from catalog-unit overwrite
+// - prevent the hour price from leaking into the following piece/m2 line
+// This guard is deliberately line-anchored and runs at the end of validation.
+function extractHardMeasuredLineItemsFromRawText(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const result: ExplicitServiceLineItem[] = [];
+  const seen = new Set<string>();
+
+  const lines = normalizeText(originalText)
+    .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
+    .map((line) =>
+      normalizeText(line)
+        .replace(/^\s*(?:[-–—•]+|\d+[)])\s*/, "")
+        .trim(),
+    )
+    .filter(Boolean)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line));
+
+  for (const line of lines) {
+    const unitPrice = findExplicitUnitPriceInLine(line, finalCurrency);
+    if (!unitPrice || unitPrice.currency !== finalCurrency) continue;
+
+    const workerHourQuantity = detectWorkerHourQuantityInLine(line);
+    const explicitHourQuantity = detectExplicitHourQuantityInLine(line);
+    const quantityMatch = line.match(
+      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`, "i"),
+    );
+
+    const textUnitType = quantityMatch ? unitTypeFromText(quantityMatch[2]) : null;
+    const quantity =
+      workerHourQuantity?.quantity ||
+      (explicitHourQuantity && (textUnitType === "hour" || !quantityMatch)
+        ? explicitHourQuantity.quantity
+        : null) ||
+      parseQuantityNumber(quantityMatch?.[1]) ||
+      0;
+    const quantityUnitType = workerHourQuantity
+      ? "hour"
+      : explicitHourQuantity && (textUnitType === "hour" || !quantityMatch)
+        ? "hour"
+        : textUnitType;
+    const unitType = quantityUnitType || unitPrice.unitType;
+
+    if (!quantity || quantity <= 0 || !unitType) continue;
+    if (unitPrice.unitType && unitPrice.unitType !== unitType) continue;
+
+    const quantityRaw =
+      workerHourQuantity?.raw || explicitHourQuantity?.raw || quantityMatch?.[0] || "";
+    const serviceName = resolveExplicitServiceNameFromContext(
+      originalText,
+      line,
+      cleanExplicitServiceNameFromLine(line, {
+        quantityRaw,
+        priceRaw: unitPrice.raw,
+      }),
+    );
+
+    if (
+      !serviceName ||
+      isPriceAnchorOnlyServiceName(serviceName) ||
+      normalizeCompare(serviceName) === "unbekannte leistung"
+    ) {
+      continue;
+    }
+
+    const item: ExplicitServiceLineItem = {
+      serviceName,
+      description: line,
+      quantity: roundMoney(quantity),
+      unit: unitTypeToDisplayUnit(unitType) || "Pauschal",
+      unitPrice: unitPrice.amount,
+      totalPrice: roundMoney(quantity * unitPrice.amount),
+      needsReview: false,
+      reviewReason: null,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: unitPrice.currency,
+    };
+
+    const key = `${normalizeCompare(item.sourceText)}:${unitTypeFromDisplayUnit(item.unit)}:${item.quantity}:${item.unitPrice}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+
+  return result;
+}
+
+function hardMeasuredLineMatchesExistingItem(
+  item: ParsedOrderItemForValidation,
+  explicit: ExplicitServiceLineItem,
+): boolean {
+  const itemText = normalizeCompare(
+    [item.sourceText, item.evidence, item.description, item.serviceName]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const explicitText = normalizeCompare(
+    [explicit.sourceText, explicit.evidence, explicit.description, explicit.serviceName]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  const sourceMatches = Boolean(
+    itemText &&
+      explicitText &&
+      (itemText.includes(explicitText) || explicitText.includes(itemText)),
+  );
+  const sameUnit =
+    unitTypeFromDisplayUnit(item.unit) === unitTypeFromDisplayUnit(explicit.unit);
+  const sameQuantity =
+    Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) < 0.001;
+  const samePrice =
+    Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) < 0.01;
+  const itemTopic = weakServiceTopic(itemText);
+  const explicitTopic = weakServiceTopic(explicitText);
+  const sameTopic = Boolean(itemTopic && explicitTopic && itemTopic === explicitTopic);
+  const sameDomain = sameServiceDomain(item, explicit);
+
+  if (sourceMatches && (sameTopic || sameDomain)) return true;
+  if (!(sameTopic || sameDomain)) return false;
+
+  // Main repair cases:
+  // 1) bad catalog-mismatch row: same service/hour, price present, quantity 0
+  // 2) price leak row: same service/unit/quantity, but unit price copied from previous line
+  if (sameUnit && (sameQuantity || Number(item.quantity || 0) <= 0 || samePrice)) {
+    return true;
+  }
+
+  // If parser kept the same source/service but wrong unit, the explicit line wins.
+  if (sourceMatches && (Number(item.totalPrice || 0) <= 0 || item.needsReview)) {
+    return true;
+  }
+
+  return false;
+}
+
+function enforceHardMeasuredLineItemsFromRawText(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const explicitItems = extractHardMeasuredLineItemsFromRawText(
+    originalText,
+    finalCurrency,
+  );
+
+  if (explicitItems.length === 0) return { items, reviewReasons: [] };
+
+  const reviewReasons: string[] = [];
+  let nextItems = [...items];
+
+  for (const explicit of explicitItems) {
+    const existingIndex = nextItems.findIndex((item) =>
+      hardMeasuredLineMatchesExistingItem(item, explicit),
+    );
+
+    if (existingIndex >= 0) {
+      const before = nextItems[existingIndex];
+      const changed =
+        unitTypeFromDisplayUnit(before.unit) !== unitTypeFromDisplayUnit(explicit.unit) ||
+        Math.abs(Number(before.quantity || 0) - Number(explicit.quantity || 0)) >= 0.001 ||
+        Math.abs(Number(before.unitPrice || 0) - Number(explicit.unitPrice || 0)) >= 0.01;
+
+      nextItems[existingIndex] = preferExplicitSafeItem(before, explicit);
+      if (changed) {
+        reviewReasons.push(`hard_measured_line_repaired:${explicit.serviceName}`);
+      }
+      continue;
+    }
+
+    nextItems.push({
+      ...explicit,
+      totalPrice: calculateSafeLineTotal(explicit),
+      needsReview: false,
+      reviewReason: null,
+    });
+    reviewReasons.push(`hard_measured_line_added:${explicit.serviceName}`);
+  }
+
+  nextItems = removeUnsafeExplicitDuplicates(nextItems);
+  nextItems = dedupeUnsafeDuplicateItems(nextItems);
+  nextItems = removeZeroReviewItemsCoveredByPricedItems(nextItems);
+
+  return { items: nextItems, reviewReasons: unique(reviewReasons) };
+}
+
 export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
@@ -4920,8 +5112,17 @@ export function validateAndRepairParsedOrderItems(
     finalCurrency,
   );
   items = explicitHourGuard.items;
+
+  const hardMeasuredLineGuard = enforceHardMeasuredLineItemsFromRawText(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
+  items = hardMeasuredLineGuard.items;
+
   reviewReasons.push(...hardExplicitGuard.reviewReasons);
   reviewReasons.push(...explicitHourGuard.reviewReasons);
+  reviewReasons.push(...hardMeasuredLineGuard.reviewReasons);
 
   const priceUnclearServiceNames = new Set(
     items
@@ -4958,7 +5159,9 @@ export function validateAndRepairParsedOrderItems(
         !reason.startsWith("item_repaired_from_same_text_line:") &&
         !reason.startsWith("item_added_from_same_text_line:") &&
         !reason.startsWith("explicit_hour_item_repaired_from_text:") &&
-        !reason.startsWith("explicit_hour_item_added_from_text:"),
+        !reason.startsWith("explicit_hour_item_added_from_text:") &&
+        !reason.startsWith("hard_measured_line_repaired:") &&
+        !reason.startsWith("hard_measured_line_added:"),
     )
     .filter((reason) => {
       if (!reason.startsWith("price_repaired_from_text:")) return true;
