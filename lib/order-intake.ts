@@ -3521,38 +3521,105 @@ function repairExplicitHourQuantitiesFromOriginalText(
     .split(/\n+|;/g)
     .map((line) => line.trim())
     .filter((line) => line.length >= 8)
-    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line));
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line))
+    .map((line) => ({
+      raw: line,
+      quantity: detectExplicitIntakeHourQuantityInLine(line),
+      price: detectExplicitIntakeMeasuredPriceInLine(line),
+    }))
+    .filter((line) => line.quantity && line.quantity > 0 && line.price && line.price > 0);
 
   if (lines.length === 0) return items;
 
-  return items.map((item) => {
-    if (getServiceUnitType(item.unit) !== "hour") return item;
+  const lineScoreForItem = (
+    item: IntakeHourLineRepairItem,
+    line: { raw: string; quantity: number | null; price: number | null },
+  ) => {
+    let score = 0;
+    const serviceName = item.serviceName || "";
+    const lineText = line.raw;
+    const lineKey = normalizeUnitText(lineText);
 
+    if (lineMatchesIntakeServiceTopic(serviceName, lineText)) score += 80;
+    if (lineMatchesIntakeServiceTopic(item.description, lineText)) score += 40;
+    if (lineMatchesIntakeServiceTopic(item.sourceText, lineText)) score += 30;
+    if (lineMatchesIntakeServiceTopic(item.evidence, lineText)) score += 20;
+
+    const sourceKey = normalizeUnitText(item.sourceText || "");
+    const evidenceKey = normalizeUnitText(item.evidence || "");
+    const descriptionKey = normalizeUnitText(item.description || "");
+
+    if (sourceKey && (lineKey.includes(sourceKey) || sourceKey.includes(lineKey))) score += 30;
+    if (evidenceKey && (lineKey.includes(evidenceKey) || evidenceKey.includes(lineKey))) score += 20;
+    if (descriptionKey && lineKey.includes(descriptionKey)) score += 20;
+
+    // Safety: service-domain anchors are mandatory. A matching price alone is
+    // not enough, otherwise an hour price can leak into a neighbouring line.
+    const hasStrongTopic = score >= 60;
+    if (!hasStrongTopic) return 0;
+
+    const currentPrice = Number(item.unitPrice || 0);
+    if (Number.isFinite(currentPrice) && currentPrice > 0 && line.price) {
+      if (Math.abs(currentPrice - line.price) < 0.01) score += 60;
+      else score -= 90;
+    }
+
+    if (getServiceUnitType(item.unit) === "hour") score += 30;
+    if (Number(item.quantity || 0) <= 0) score += 20;
+    if (/\bstunde|stunden|std\.?|h\b/i.test(lineKey)) score += 10;
+
+    return score;
+  };
+
+  return items.map((item) => {
     const currentQuantity = Number(item.quantity || 0);
     const currentPrice = Number(item.unitPrice || 0);
-    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return item;
+    const currentUnitType = getServiceUnitType(item.unit);
 
-    const matchingLine = lines.find((line) => {
-      if (!lineMatchesIntakeServiceTopic(item.serviceName, line)) return false;
-      const quantity = detectExplicitIntakeHourQuantityInLine(line);
-      if (!quantity) return false;
-      const price = detectExplicitIntakeMeasuredPriceInLine(line);
-      if (!price) return false;
-      return Math.abs(price - currentPrice) < 0.01;
-    });
+    // Repair is allowed for hour rows and for zero-quantity rows when the
+    // original line has a strong service-topic match. This catches cases where
+    // the UI already shows "Stunde", but also cases where validation still
+    // kept the catalog unit while the customer text is explicitly hourly.
+    if (currentUnitType !== "hour" && currentQuantity > 0) return item;
 
-    if (!matchingLine) return item;
+    let best: {
+      raw: string;
+      quantity: number | null;
+      price: number | null;
+      score: number;
+    } | null = null;
 
-    const quantity = detectExplicitIntakeHourQuantityInLine(matchingLine);
-    const price = detectExplicitIntakeMeasuredPriceInLine(matchingLine) || currentPrice;
-    if (!quantity || quantity <= 0) return item;
+    for (const line of lines) {
+      const score = lineScoreForItem(item, line);
+      if (score <= 0) continue;
+      if (!best || score > best.score) {
+        best = { ...line, score };
+      }
+    }
+
+    if (!best || !best.quantity || !best.price || best.score < 100) return item;
+
+    // Do not override a valid, different current price. This protects adjacent
+    // Stück/m² services from a previous hourly price.
+    if (
+      Number.isFinite(currentPrice) &&
+      currentPrice > 0 &&
+      Math.abs(currentPrice - best.price) >= 0.01
+    ) {
+      return item;
+    }
+
+    const quantity = normalizeIntakeHourQuantity(best.quantity);
+    const price = best.price;
+    if (!quantity || quantity <= 0 || !price || price <= 0) return item;
 
     const shouldRepair =
       currentQuantity <= 0 ||
+      currentUnitType !== "hour" ||
       Math.abs(currentQuantity - quantity) >= 0.001 ||
       Math.abs(currentPrice - price) >= 0.01 ||
       !item.sourceText ||
-      !normalizeUnitText(item.sourceText).includes(normalizeUnitText(matchingLine));
+      !normalizeUnitText(item.sourceText).includes(normalizeUnitText(best.raw));
 
     if (!shouldRepair) return item;
 
@@ -3562,8 +3629,8 @@ function repairExplicitHourQuantitiesFromOriginalText(
       unit: "Stunde",
       unitPrice: price,
       totalPrice: roundIntakeMoney(quantity * price),
-      sourceText: matchingLine,
-      evidence: matchingLine,
+      sourceText: best.raw,
+      evidence: best.raw,
     };
   });
 }
@@ -6256,6 +6323,16 @@ ${fullWorkText}`,
       reviewReason: onlyQuantityReview ? null : item.reviewReason,
     };
   });
+
+
+  // V16.96: Run the explicit-hour repair once more as the final service-line
+  // guard before totals are calculated. This catches remaining zero-quantity
+  // hour rows after all validation and flat-item normalization steps.
+  finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
+    finalOrderItems,
+    `${messageText}
+${fullWorkText}`,
+  );
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {
