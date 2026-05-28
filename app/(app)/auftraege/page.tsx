@@ -1304,6 +1304,7 @@ const extractAppointmentBadge = (
   if (
     !text ||
     isCallbackTimeLine(raw) ||
+    isDoNotComeAppointmentLine(raw) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw)
   ) {
@@ -1464,6 +1465,17 @@ const isAppointmentContactTimeLine = (value?: string | null) => {
   );
 };
 
+const isDoNotComeAppointmentLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return (
+    /\bmorgen\b.*\b(?:nicht|nicht\s+einfach|keinesfalls|erst\s+nach\s+ruecksprache)\b.*\b(?:kommen|erscheinen|vorbeikommen|starten)\b/.test(text) ||
+    /\b(?:nicht|nicht\s+einfach|keinesfalls)\b.*\bmorgen\b.*\b(?:kommen|erscheinen|vorbeikommen|starten)\b/.test(text) ||
+    /\bbitte\s+morgen\s+nicht\s+einfach\s+kommen\b/.test(text)
+  );
+};
+
 const normalizeAppointmentDateLabel = (value: string) => {
   const match = value.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   if (!match) return "";
@@ -1608,6 +1620,10 @@ const extractAppointmentDetailsFromGroupedNotes = (
     const value = compactText(groupedMatch?.[2] || line);
     if (groupedMatch) currentSite = site;
 
+    // "Kontakt vor Ort: ... 13.08.2026 14:00" is contextual information for
+    // an already extracted appointment, not a third appointment by itself.
+    if (/^kontakt\s+vor\s+ort$/i.test(site)) return;
+
     const label = extractAppointmentDetailLabel(value);
     if (!label) return;
 
@@ -1653,7 +1669,22 @@ const getMultipleAppointmentBadge = (
     ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
   ].filter((detail, index, all) => {
     const key = appointmentDetailKey(detail);
-    return Boolean(key) && all.findIndex((other) => appointmentDetailKey(other) === key) === index;
+    if (!key) return false;
+
+    const labelKey = normalizeForMatch(detail.label);
+    const firstSameKeyIndex = all.findIndex((other) => appointmentDetailKey(other) === key);
+    if (firstSameKeyIndex !== index) return false;
+
+    // Same date/time from raw text + cleaned notes must count once.
+    // Otherwise a single Nachkontrolle can become "Termine · 3".
+    if (labelKey) {
+      const firstSameLabelIndex = all.findIndex(
+        (other) => normalizeForMatch(other.label) === labelKey,
+      );
+      if (firstSameLabelIndex !== index) return false;
+    }
+
+    return true;
   });
 
   if (details.length < 2) return null;
@@ -2506,12 +2537,27 @@ const getBottomBadges = (
   // Do not add an extra SMS review badge here; otherwise SMS appears twice.
 
   const appointmentBaseDate = order.createdAt || order.date;
+  const rawAppointmentContext = [
+    ...parsedNotes.jobHints,
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const suppressIsolatedTomorrowChip = /morgen.*nicht.*(?:kommen|erscheinen|starten)|nicht.*morgen.*(?:kommen|erscheinen|starten)|nicht\s+einfach\s+kommen/i.test(
+    normalizeForMatch(rawAppointmentContext),
+  );
   const appointmentSourceLines = splitAppointmentSources(
     ...parsedNotes.jobHints,
     order.specialNotes,
     order.notes,
     order.audioTranscript,
-  ).filter((line) => !isCallbackTimeLine(line));
+  ).filter((line) => {
+    if (isCallbackTimeLine(line) || isDoNotComeAppointmentLine(line)) return false;
+    if (suppressIsolatedTomorrowChip && /^\s*(morgen|tomorrow|demain|domani)\s*$/i.test(line)) return false;
+    return true;
+  });
 
   const multipleAppointmentBadge = getMultipleAppointmentBadge(order, parsedNotes);
 
@@ -2569,11 +2615,20 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
   );
 };
 
+const isNegativeWhatsAppLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text || !/whatsapp|whats\s*app/.test(text)) return false;
+
+  return /(?:keine?|kein|nicht|ohne|no|not)\s+(?:whatsapp|whats\s*app)|(?:whatsapp|whats\s*app)\s+(?:nicht|nein|no|not)/.test(
+    text,
+  );
+};
+
 const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
   String(value || "")
     .split(/\n+/g)
     .map((line) => line.trim())
-    .filter((line) => line && !isPositiveCallbackChipLine(line))
+    .filter((line) => line && !isPositiveCallbackChipLine(line) && !isNegativeWhatsAppLine(line))
     .join("\n");
 
 const getStrongerCardBadgeClassName = (className?: string | null) =>

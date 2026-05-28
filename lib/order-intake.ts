@@ -3291,6 +3291,26 @@ function composeWorkNameSource(item: any, raw: string): string {
   return action || serviceName || name || raw || "";
 }
 
+function hasFloorCleaningIntentText(value?: string | null): boolean {
+  const normalized = normalizeUnitText(value || "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+
+  const hasFloorObject =
+    /\b(boden|bode|floor|sol|paviment|suelo|chao)\b/.test(normalized) ||
+    /bodenreinigung|floor\s+cleaning|nettoyage\s+(?:du\s+)?sol|nettoyer\s+(?:le\s+|du\s+)?sol|pulizia\s+(?:del\s+)?pavimento|limpieza\s+(?:de\s+)?suelo|limpeza\s+(?:do\s+)?chao/.test(
+      normalized,
+    );
+  const hasCleaningAction =
+    /reinig|putz|putze|saeuber|clean|nettoyage|nettoyer|pulizia|limpieza|limpeza|wisch/.test(
+      normalized,
+    );
+
+  return hasFloorObject && hasCleaningAction;
+}
+
 function canonicalGermanServiceNameFromText(
   value?: string | null,
 ): string | null {
@@ -3307,6 +3327,10 @@ function canonicalGermanServiceNameFromText(
     )
   ) {
     return "Anfahrt";
+  }
+
+  if (hasFloorCleaningIntentText(normalized)) {
+    return "Boden reinigen";
   }
 
   if (

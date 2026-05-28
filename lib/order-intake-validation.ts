@@ -774,6 +774,32 @@ function detectCurrencylessFlatPriceFromSegment(
   return null;
 }
 
+function hasFloorCleaningIntentKey(value?: string | null): boolean {
+  const normalized = normalizeCompare(value);
+  if (!normalized) return false;
+
+  const hasFloorObject =
+    /\b(boden|bode|floor|sol|paviment|suelo|chao)\b/.test(normalized) ||
+    /bodenreinigung|floor\s+cleaning|nettoyage\s+(?:du\s+)?sol|nettoyer\s+(?:le\s+|du\s+)?sol|pulizia\s+(?:del\s+)?pavimento|limpieza\s+(?:de\s+)?suelo|limpeza\s+(?:do\s+)?chao/.test(
+      normalized,
+    );
+  const hasCleaningAction =
+    /reinig|putz|putze|saeuber|clean|nettoyage|nettoyer|pulizia|limpieza|limpeza|wisch/.test(
+      normalized,
+    );
+
+  return hasFloorObject && hasCleaningAction;
+}
+
+function hasWindowCleaningIntentKey(value?: string | null): boolean {
+  const normalized = normalizeCompare(value);
+  if (!normalized) return false;
+
+  return /fenster|fensterli|vitrin|vitre|window|fenetre|fenetres|finestr|ventan/.test(
+    normalized,
+  );
+}
+
 function canonicalGermanServiceNameFromText(
   value?: string | null,
 ): string | null {
@@ -786,6 +812,9 @@ function canonicalGermanServiceNameFromText(
     )
   ) {
     return "Garageboden reinigen";
+  }
+  if (hasFloorCleaningIntentKey(normalized)) {
+    return "Boden reinigen";
   }
   if (
     /\b(nettoyage\s+de\s+l\s*entree|nettoyage\s+de\s+lentree|nettoyage\s+de\s+l['’]?\s*entree|entrance\s+clean|limpieza\s+de\s+entrada|pulizia\s+ingresso)\b/.test(
@@ -1530,6 +1559,10 @@ function repairCommonMultilingualCleaningItems(
       next.serviceName = /\blagerboden\b/i.test(key)
         ? "Lagerboden reinigen"
         : "Garageboden reinigen";
+      next.unit = "Quadratmeter";
+      targetUnitType = "square_meter";
+    } else if (hasFloorCleaningIntentKey(key)) {
+      next.serviceName = "Boden reinigen";
       next.unit = "Quadratmeter";
       targetUnitType = "square_meter";
     } else if (
@@ -4113,6 +4146,12 @@ function hasExplicitServiceLineForName(
     if (!hasPriceOrQuantity) return false;
 
     if (service === "eingangsbereich reinigen") {
+      // "Eingangsbereich Boden reinigen 50 m2 à CHF 8" is a measured floor
+      // cleaning line with a location prefix, not a separate flat entrance job.
+      if (hasFloorCleaningIntentKey(text) || hasWindowCleaningIntentKey(text)) {
+        return false;
+      }
+
       return /\beingangsbereich\b/.test(text) && /\b(reinigen|reinigung|putzen|clean|nettoyage|limpieza|pulizia)\b/.test(text);
     }
 
