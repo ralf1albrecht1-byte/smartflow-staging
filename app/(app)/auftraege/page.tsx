@@ -379,10 +379,10 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ß/g, "ss");
 
 const CALLBACK_CONTACT_WORD_PATTERN =
-  /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
+  /\b(?:anruf|anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|anruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
 
 const CONTACT_TIME_WORD_PATTERN =
-  /\b(?:sms|whatsapp|wa|mail|e-mail|email|schreiben|senden|schicken|rueckfragen|ruckfragen|nachricht|nachrichten|kontakt|kontaktieren|melden|anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
+  /\b(?:sms|whatsapp|wa|mail|e-mail|email|schreiben|senden|schicken|rueckfragen|ruckfragen|nachricht|nachrichten|kontakt|kontaktieren|melden|anruf|anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
 
 const CALLBACK_TIME_PATTERN =
   /(?:\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b|\bzwischen\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b|\bvon\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+bis\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b)/;
@@ -697,7 +697,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
     )
   )
     return "ladder";
-  if (/park|zufahrt|innenhof|reserviert/.test(text)) return "parking";
+  if (/park|parking|parkplatz|parken|parkieren/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
     return "access";
@@ -770,7 +770,7 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|(?:innenhof).*(park(?:platz|ieren|en)?|zufahrt)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
+  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
     text,
   );
 };
@@ -782,7 +782,7 @@ const PARKING_DIFFICULT_PATTERN =
   /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
 
 const hasParkingReference = (value?: string | null) =>
-  /park|parking|parkplatz|parken|zufahrt|innenhof/.test(
+  /park|parking|parkplatz|parken|parkieren/.test(
     normalizeForMatch(value),
   );
 
@@ -1340,7 +1340,8 @@ const extractAppointmentBadge = (
     isCallbackTimeLine(raw) ||
     isPreArrivalInstructionLine(raw) ||
     isNonActionableSemanticHint(raw) ||
-    isNonActionableAppointmentHint(raw)
+    isNonActionableAppointmentHint(raw) ||
+    (hasExplicitPriceContextForAppointment(raw) && !hasAppointmentIntentWord(raw))
   ) {
     return null;
   }
@@ -1405,7 +1406,7 @@ const extractAppointmentBadge = (
 
   const dateMatch = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   const baseDate = parseAppointmentBaseDate(baseDateInput);
-  const explicitDateObject = dateMatch
+  const explicitDateObject = dateMatch && hasValidAppointmentDateParts(dateMatch[1], dateMatch[2])
     ? new Date(
         dateMatch[3]
           ? Number(
@@ -1505,9 +1506,31 @@ const isAppointmentContactTimeLine = (value?: string | null) => {
   );
 };
 
+const hasExplicitPriceContextForAppointment = (value?: string | null) => {
+  const raw = compactText(value);
+  if (!raw) return false;
+  return (
+    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\s*\d+(?:[.,]\d{1,2})?\b/i.test(raw) ||
+    /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\b/i.test(raw)
+  );
+};
+
+const hasAppointmentIntentWord = (value?: string | null) =>
+  /\b(?:termin|datum|ausfuehrung|ausführung|arbeitsbeginn|zeitfenster|appointment|rendez\s*vous|appuntamento)\b/i.test(
+    normalizeForMatch(value),
+  );
+
+const hasValidAppointmentDateParts = (day?: string, month?: string) => {
+  const d = Number(day);
+  const m = Number(month);
+  return Number.isInteger(d) && Number.isInteger(m) && d >= 1 && d <= 31 && m >= 1 && m <= 12;
+};
+
 const normalizeAppointmentDateLabel = (value: string) => {
   const match = value.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   if (!match) return "";
+
+  if (!hasValidAppointmentDateParts(match[1], match[2])) return "";
 
   const day = match[1].padStart(2, "0");
   const month = match[2].padStart(2, "0");
@@ -1533,6 +1556,7 @@ const normalizeAppointmentTimeLabel = (value: string) => {
 const extractAppointmentDetailLabel = (value: string) => {
   const raw = compactText(value);
   if (!raw || isAppointmentContactTimeLine(raw) || isPreArrivalInstructionLine(raw)) return "";
+  if (hasExplicitPriceContextForAppointment(raw) && !hasAppointmentIntentWord(raw)) return "";
 
   const date = normalizeAppointmentDateLabel(raw);
   const time = normalizeAppointmentTimeLabel(raw);

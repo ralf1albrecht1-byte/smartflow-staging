@@ -456,7 +456,7 @@ function isLikelyStandaloneFlatServiceLine(value?: string | null): boolean {
   // Targeted safety-net for auxiliary services that customers usually write as
   // flat lines without the word "pauschal": "Abdecken CHF 90", "Anfahrt CHF 45",
   // "Grüngut entsorgen CHF 75". Measured services like m²/Stück/Meter stay out.
-  return /\b(?:anfahrt|fahrtkosten|fahrpauschale|wegpauschale|abdeck\w*|spachtel\w*|grungut|gruengut|gruenabfall|gartenabfall|entsorg\w*|material|kleinmaterial|kleinzeug|verbrauchsmaterial|deplacement)\b/i.test(
+  return /\b(?:anfahrt|anfahrtspauschale|fahrtkosten|fahrpauschale|wegpauschale|abdeck\w*|spachtel\w*|grungut|gruengut|gruenabfall|gartenabfall|entsorg\w*|material|kleinmaterial|kleinzeug|verbrauchsmaterial|deplacement)\b/i.test(
     normalized,
   );
 }
@@ -838,7 +838,7 @@ function canonicalGermanServiceNameFromText(
     return "Boden reinigen";
   }
   if (
-    /\b(deplacement|déplacement|trasferta|transferta|travel fee|travel cost|trip fee|viaje|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(
+    /\b(deplacement|déplacement|trasferta|transferta|travel fee|travel cost|trip fee|viaje|fahrt|fahrtkosten|fahrkosten|anfahrtspauschale|fahrpauschale|wegpauschale|anfahrt)\b/.test(
       normalized,
     )
   ) {
@@ -884,7 +884,7 @@ function normalizeFlatServiceNameFromText(value: string): string {
 
   const normalized = normalizeCompare(value);
   if (
-    /\b(deplacement|déplacement|trasferta|transferta|travel fee|travel cost|trip fee|viaje|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|anfahrt)\b/.test(
+    /\b(deplacement|déplacement|trasferta|transferta|travel fee|travel cost|trip fee|viaje|fahrt|fahrtkosten|fahrkosten|anfahrtspauschale|fahrpauschale|wegpauschale|anfahrt)\b/.test(
       normalized,
     )
   ) {
@@ -1324,7 +1324,7 @@ function isLikelyTravelFlatCostLine(value?: string | null): boolean {
   // service detection. This guard catches explicit flat travel/visit-cost rows
   // that were otherwise dropped, but stores only the canonical German service.
   const hasFlatSignal = /\b(pauschal|pauschale|forfait|flat|fixpreis|festpreis)\b/i.test(normalized);
-  const hasTravelConcept = /\b(anfahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|einsatzpauschale|deplacement|trasferta|transferta|travel\s+(?:fee|costs?)|trip\s+fee|viaje)\b/i.test(normalized);
+  const hasTravelConcept = /\b(anfahrt|anfahrtspauschale|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|einsatzpauschale|deplacement|trasferta|transferta|travel\s+(?:fee|costs?)|trip\s+fee|viaje)\b/i.test(normalized);
   return hasFlatSignal && hasTravelConcept;
 }
 
@@ -3438,7 +3438,7 @@ function findUnclearTravelReferenceLine(originalText: string): string | null {
     if (!normalized) return false;
 
     return (
-      /\b(?:anfahrt|fahrt|fahrtkosten|fahrpauschale|wegpauschale|deplacement)\b/.test(
+      /\b(?:anfahrt|anfahrtspauschale|fahrt|fahrtkosten|fahrpauschale|wegpauschale|deplacement)\b/.test(
         normalized,
       ) &&
       /\b(?:normal|standard|wie\s+immer|wie\s+gehabt|wie\s+letztes\s+mal)\b/.test(

@@ -1161,6 +1161,23 @@ function cleanAiStructuredBillingName(value: any): string | null {
 
   if (/@/.test(candidate)) return null;
   if (/\d/.test(candidate)) return null;
+
+  candidate = candidate
+    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Company names may contain role words, e.g. "Hauswart Plus GmbH".
+  // Accept a legal suffix before applying onsite-contact role guards.
+  const company = candidate.match(
+    /^(.+?\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b)/i,
+  )?.[1];
+  if (company) {
+    const cleanedCompany = company.replace(/\s+/g, " ").trim();
+    return cleanedCompany.length >= 2 && cleanedCompany.length <= 80
+      ? cleanedCompany
+      : null;
+  }
   if (
     /\b(?:kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht|kommt)|öffnet\s+|oeffnet\s+|hausdienst|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(
       candidate,
@@ -1171,24 +1188,6 @@ function cleanAiStructuredBillingName(value: any): string | null {
 
   if (parseBillingStreetLine(candidate)) return null;
   if (parseBillingPlzCityFromLine(candidate).plz) return null;
-
-  candidate = candidate
-    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  // If the model returns a phrase with a company suffix plus trailing words,
-  // keep only the company name up to the legal suffix. This is structural, not a
-  // billing-marker lookup.
-  const company = candidate.match(
-    /^(.+?\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b)/i,
-  )?.[1];
-  if (company) {
-    const cleanedCompany = company.replace(/\s+/g, " ").trim();
-    return cleanedCompany.length >= 2 && cleanedCompany.length <= 80
-      ? cleanedCompany
-      : null;
-  }
 
   const tokens = candidate.split(/\s+/).filter(Boolean);
   if (tokens.length < 2 || tokens.length > 4) return null;
@@ -1664,7 +1663,7 @@ function cleanExecutionSiteNameCandidate(
     );
 
   const hasServiceVerb =
-    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken|anfahrt|fahrtkosten|fahrpauschale|wegpauschale)\b/i.test(
+    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken|anfahrt|anfahrtspauschale|fahrtkosten|fahrpauschale|wegpauschale)\b/i.test(
       normalized,
     );
 
@@ -1984,7 +1983,7 @@ function extractOnsiteContactHint(
     "i",
   );
   const stopRe =
-    /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
+    /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|ort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
 
   const cleanContactLine = (line: string, stripExplicitMarker: boolean) =>
     line
@@ -2001,6 +2000,10 @@ function extractOnsiteContactHint(
     if (!anyMarkerRe.test(lines[index])) continue;
 
     const hasExplicitMarker = explicitMarkerRe.test(lines[index]);
+    const currentLine = lines[index];
+    if (!hasExplicitMarker && hasBillingCompanySuffix(currentLine)) continue;
+    if (!hasExplicitMarker && /\b(schluessel|schlüssel|key)\b/i.test(currentLine)) continue;
+
     const blockLines: string[] = [];
     for (let offset = 0; offset <= 4; offset += 1) {
       const line = lines[index + offset];
@@ -2564,7 +2567,7 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     if (hasNoPhoneInstruction && /whats\s*app/i.test(line)) {
       jobHints.push("Nicht telefonisch zurückrufen, WhatsApp bevorzugt");
     } else if (hasNoPhoneInstruction && /(mail|e\s*mail|email|courriel)/i.test(line)) {
-      jobHints.push("Mail reicht, bitte keine telefonische Rückfrage");
+      jobHints.push("Bitte nur per Mail, keine telefonische Rückfrage");
     } else if (hasNoPhoneInstruction && /\bsms\b/i.test(line)) {
       jobHints.push("Nicht telefonisch zurückrufen, SMS reicht");
     } else if (hasNoPhoneInstruction) {
@@ -2598,13 +2601,21 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     }
 
     if (/(mail|e\s*mail|email)/i.test(line) && /keine\s+telefonische|nicht\s+telefonisch|nicht\s+anrufen|no\s+calls?|do\s+not\s+call/i.test(line)) {
-      jobHints.push("Mail reicht, bitte keine telefonische Rückfrage");
+      jobHints.push("Bitte nur per Mail, keine telefonische Rückfrage");
     } else if (/(mail|e\s*mail|email)/i.test(line) && /reicht|only|nur|preferred|bevorzugt/i.test(line)) {
       jobHints.push("Mail reicht");
     }
 
-    if (hasNoPhoneInstruction && !/(whats\s*app|sms|mail|e\s*mail|email|courriel)/i.test(line)) {
+    if (hasNoPhoneInstruction && !/(whats\s*app|\bsms\b|mail|e\s*mail|email|courriel)/i.test(line)) {
       jobHints.push(/keine\s+telefonische|nicht\s+telefonisch|pas\s+d\s+appel|pas\s+appeler|ne\s+pas|no\s+calls?|do\s+not\s+call/i.test(line) ? "Bitte keine telefonische Rückfrage" : "Bitte nicht anrufen");
+    }
+
+    if (
+      /\b(zugang|zufahrt|eingang|tor|seitentor|gartentor|hintereingang|code|pin|schluessel|schlüssel|key|access)\b/i.test(line) &&
+      !/\b(chf|franken|stutz|eur|euro)\b/i.test(line) &&
+      !/\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|meter|laufmeter|stück|stueck|stk|stunden|stunde)\b/i.test(line)
+    ) {
+      jobHints.push(rawLine.replace(/\s+/g, " ").trim());
     }
 
     if (/no\s+calls?\s+during\s+office\s+hours|keine\s+anrufe\s+waehrend\s+der\s+buerozeiten|keine\s+anrufe\s+waehrend\s+der\s+bürozeiten/i.test(line)) {
@@ -3280,7 +3291,7 @@ function splitWorkSegments(text: string): string[] {
     const hasQuantityUnit = detectAllQuantityUnitsFromText(segment).length > 0;
 
     const hasWorkVerb =
-      /\b(reinigen|reinigung|putzen|clean|cleaning|nettoyage|nettoyer|pulizia|pulire|limpieza|limpiar|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen|anfahrt|fahrtkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel|transport|trasferta|transferta)\b/i.test(
+      /\b(reinigen|reinigung|putzen|clean|cleaning|nettoyage|nettoyer|pulizia|pulire|limpieza|limpiar|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen|anfahrt|anfahrtspauschale|fahrtkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel|transport|trasferta|transferta)\b/i.test(
         normalized,
       );
 
@@ -3397,7 +3408,7 @@ function canonicalGermanServiceNameFromText(
   if (!normalized) return null;
 
   if (
-    /\b(anfahrt|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+    /\b(anfahrt|anfahrtspauschale|fahrt|fahrtkosten|fahrkosten|anfahrtspauschale|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
       normalized,
     )
   ) {
@@ -4626,11 +4637,10 @@ export async function processIncomingMessage(
   }
 
   const customerGuardReviewReasons: string[] = [];
-  const legacyBillingFallbackEnabled =
-    process.env.INTAKE_LEGACY_BILLING_FALLBACK === "1";
-  const rawBillingEvidence = legacyBillingFallbackEnabled
-    ? extractDeterministicBillingEvidence(messageText)
-    : null;
+  // Safe deterministic fallback for explicit billing blocks.
+  // This is not a loose keyword rescue: it only accepts structured/labeled
+  // Rechnung/Billing evidence that passes the same customer guard.
+  const rawBillingEvidence = extractDeterministicBillingEvidence(messageText);
   const billingEvidence = supplementAiBillingEvidence(
     extractAiStructuredBillingEvidence(kundeData, messageText),
     rawBillingEvidence,
@@ -5372,6 +5382,7 @@ export async function processIncomingMessage(
       {
         service: [
           "anfahrt",
+          "anfahrtspauschale",
           "fahrtkosten",
           "fahrkosten",
           "wegpauschale",
@@ -5379,6 +5390,7 @@ export async function processIncomingMessage(
         ],
         work: [
           "anfahrt",
+          "anfahrtspauschale",
           "fahrtkosten",
           "fahrkosten",
           "wegpauschale",
