@@ -3635,6 +3635,74 @@ function repairExplicitHourQuantitiesFromOriginalText(
   });
 }
 
+function findExplicitHourLineRepairForMappedItem(
+  item: IntakeHourLineRepairItem,
+  originalText: string,
+): { quantity: number; price: number; raw: string; score: number } | null {
+  const currentPrice = Number(item.unitPrice || 0);
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0) return null;
+
+  const lines = String(originalText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line))
+    .map((line) => ({
+      raw: line,
+      quantity: detectExplicitIntakeHourQuantityInLine(line),
+      price: detectExplicitIntakeMeasuredPriceInLine(line),
+    }))
+    .filter((line) => line.quantity && line.quantity > 0 && line.price && line.price > 0);
+
+  let best: { quantity: number; price: number; raw: string; score: number } | null = null;
+
+  for (const line of lines) {
+    if (!line.quantity || !line.price) continue;
+
+    // Hard safety: the hourly line must carry the same explicit price as the
+    // current mapped item. This prevents the old cross-line leak into window /
+    // piece services while still rescuing the lost hour quantity.
+    if (Math.abs(currentPrice - line.price) >= 0.01) continue;
+
+    let score = 0;
+    if (lineMatchesIntakeServiceTopic(item.serviceName, line.raw)) score += 120;
+    if (lineMatchesIntakeServiceTopic(item.description, line.raw)) score += 60;
+    if (lineMatchesIntakeServiceTopic(item.sourceText, line.raw)) score += 40;
+    if (lineMatchesIntakeServiceTopic(item.evidence, line.raw)) score += 30;
+
+    const lineKey = normalizeUnitText(line.raw);
+    const serviceKey = normalizeUnitText(item.serviceName || "");
+    const descriptionKey = normalizeUnitText(item.description || "");
+    const sourceKey = normalizeUnitText(item.sourceText || "");
+
+    if (serviceKey && lineKey.includes(serviceKey)) score += 60;
+    if (descriptionKey && lineKey.includes(descriptionKey)) score += 30;
+    if (sourceKey && sourceKey.length >= 8 && (lineKey.includes(sourceKey) || sourceKey.includes(lineKey))) score += 20;
+    if (getServiceUnitType(item.unit) === "hour") score += 40;
+    if (Number(item.quantity || 0) <= 0) score += 30;
+
+    // The service topic is mandatory. Price + hour alone is not enough.
+    if (score < 120) continue;
+
+    const quantity = normalizeIntakeHourQuantity(line.quantity);
+    if (!quantity || quantity <= 0) continue;
+
+    const candidate = {
+      quantity,
+      price: line.price as number,
+      raw: line.raw,
+      score,
+    };
+
+    if (!best || candidate.score > best.score) best = candidate;
+  }
+
+  return best;
+}
+
+
 function splitWorkSegments(text: string): string[] {
   const source = normalizeUnitText(text);
   if (!source) return [];
@@ -6119,6 +6187,35 @@ export async function processIncomingMessage(
           ? `unit_mismatch:${String(matchedService.name || "Unbekannte Leistung")}:${serviceUnit}:${unit}:${detectedQuantity}`
           : priceReviewReason || quantityValidation.reason || null;
 
+        const explicitHourLineRepair = findExplicitHourLineRepairForMappedItem(
+          {
+            serviceName: String(matchedService.name || "Unbekannte Leistung"),
+            description: String(raw || detectedName || fullWorkText || `${source}-Auftrag`),
+            quantity: quantityValidation.quantity,
+            unit,
+            unitPrice,
+            totalPrice: unitPrice * quantityValidation.quantity,
+            needsReview:
+              mismatchDetected ||
+              quantityValidation.needsReview ||
+              !!priceReviewReason,
+            reviewReason,
+            sourceText: originalSegment || raw || null,
+            evidence: item.evidence || item.source_text || evidenceText || null,
+            detectedCurrency: item.currency || null,
+          },
+          originalLookupText,
+        );
+
+        const finalMappedQuantity =
+          explicitHourLineRepair?.quantity || quantityValidation.quantity;
+        const finalMappedUnit = explicitHourLineRepair ? "Stunde" : unit;
+        const finalMappedUnitPrice = explicitHourLineRepair?.price || unitPrice;
+        const finalMappedSourceText =
+          explicitHourLineRepair?.raw || originalSegment || raw || null;
+        const finalMappedEvidence =
+          explicitHourLineRepair?.raw || item.evidence || item.source_text || null;
+
         return {
           serviceName: formatWorkNameForDisplay(
             String(matchedService.name || "Unbekannte Leistung"),
@@ -6127,17 +6224,17 @@ export async function processIncomingMessage(
             raw || detectedName || fullWorkText || `${source}-Auftrag`,
           ),
 
-          quantity: quantityValidation.quantity,
-          unit,
-          unitPrice,
-          totalPrice: unitPrice * quantityValidation.quantity,
+          quantity: finalMappedQuantity,
+          unit: finalMappedUnit,
+          unitPrice: finalMappedUnitPrice,
+          totalPrice: roundIntakeMoney(finalMappedUnitPrice * finalMappedQuantity),
           needsReview:
             mismatchDetected ||
             quantityValidation.needsReview ||
             !!priceReviewReason,
           reviewReason,
-          sourceText: originalSegment || raw || null,
-          evidence: item.evidence || item.source_text || null,
+          sourceText: finalMappedSourceText,
+          evidence: finalMappedEvidence,
           detectedCurrency: item.currency || null,
         };
       }
