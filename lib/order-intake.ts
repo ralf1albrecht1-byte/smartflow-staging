@@ -1161,23 +1161,6 @@ function cleanAiStructuredBillingName(value: any): string | null {
 
   if (/@/.test(candidate)) return null;
   if (/\d/.test(candidate)) return null;
-
-  candidate = candidate
-    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  // Company names may contain role words, e.g. "Hauswart Plus GmbH".
-  // Accept a legal suffix before applying onsite-contact role guards.
-  const company = candidate.match(
-    /^(.+?\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b)/i,
-  )?.[1];
-  if (company) {
-    const cleanedCompany = company.replace(/\s+/g, " ").trim();
-    return cleanedCompany.length >= 2 && cleanedCompany.length <= 80
-      ? cleanedCompany
-      : null;
-  }
   if (
     /\b(?:kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht|kommt)|öffnet\s+|oeffnet\s+|hausdienst|hauswart|hausmeister|concierge|tel\.?|telefon|handy|natel)\b/i.test(
       candidate,
@@ -1188,6 +1171,24 @@ function cleanAiStructuredBillingName(value: any): string | null {
 
   if (parseBillingStreetLine(candidate)) return null;
   if (parseBillingPlzCityFromLine(candidate).plz) return null;
+
+  candidate = candidate
+    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // If the model returns a phrase with a company suffix plus trailing words,
+  // keep only the company name up to the legal suffix. This is structural, not a
+  // billing-marker lookup.
+  const company = candidate.match(
+    /^(.+?\b(?:AG|GmbH|Sàrl|SARL|SA|S\.?A\.?|Ltd\.?|Limited|Inc\.?|KG|KGaA|Verein|Stiftung)\b)/i,
+  )?.[1];
+  if (company) {
+    const cleanedCompany = company.replace(/\s+/g, " ").trim();
+    return cleanedCompany.length >= 2 && cleanedCompany.length <= 80
+      ? cleanedCompany
+      : null;
+  }
 
   const tokens = candidate.split(/\s+/).filter(Boolean);
   if (tokens.length < 2 || tokens.length > 4) return null;
@@ -1663,7 +1664,7 @@ function cleanExecutionSiteNameCandidate(
     );
 
   const hasServiceVerb =
-    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken|anfahrt|anfahrtspauschale|fahrtkosten|fahrpauschale|wegpauschale)\b/i.test(
+    /\b(reinigen|reinigung|putzen|schneiden|entfernen|streichen|malen|montieren|demontieren|reparieren|liefern|entsorgen|spachteln|abdecken|anfahrt|fahrtkosten|fahrpauschale|wegpauschale)\b/i.test(
       normalized,
     );
 
@@ -1983,7 +1984,7 @@ function extractOnsiteContactHint(
     "i",
   );
   const stopRe =
-    /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|ort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
+    /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
 
   const cleanContactLine = (line: string, stripExplicitMarker: boolean) =>
     line
@@ -2000,10 +2001,6 @@ function extractOnsiteContactHint(
     if (!anyMarkerRe.test(lines[index])) continue;
 
     const hasExplicitMarker = explicitMarkerRe.test(lines[index]);
-    const currentLine = lines[index];
-    if (!hasExplicitMarker && hasBillingCompanySuffix(currentLine)) continue;
-    if (!hasExplicitMarker && /\b(schluessel|schlüssel|key)\b/i.test(currentLine)) continue;
-
     const blockLines: string[] = [];
     for (let offset = 0; offset <= 4; offset += 1) {
       const line = lines[index + offset];
@@ -2567,7 +2564,7 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     if (hasNoPhoneInstruction && /whats\s*app/i.test(line)) {
       jobHints.push("Nicht telefonisch zurückrufen, WhatsApp bevorzugt");
     } else if (hasNoPhoneInstruction && /(mail|e\s*mail|email|courriel)/i.test(line)) {
-      jobHints.push("Bitte nur per Mail, keine telefonische Rückfrage");
+      jobHints.push("Mail reicht, bitte keine telefonische Rückfrage");
     } else if (hasNoPhoneInstruction && /\bsms\b/i.test(line)) {
       jobHints.push("Nicht telefonisch zurückrufen, SMS reicht");
     } else if (hasNoPhoneInstruction) {
@@ -2601,21 +2598,13 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     }
 
     if (/(mail|e\s*mail|email)/i.test(line) && /keine\s+telefonische|nicht\s+telefonisch|nicht\s+anrufen|no\s+calls?|do\s+not\s+call/i.test(line)) {
-      jobHints.push("Bitte nur per Mail, keine telefonische Rückfrage");
+      jobHints.push("Mail reicht, bitte keine telefonische Rückfrage");
     } else if (/(mail|e\s*mail|email)/i.test(line) && /reicht|only|nur|preferred|bevorzugt/i.test(line)) {
       jobHints.push("Mail reicht");
     }
 
-    if (hasNoPhoneInstruction && !/(whats\s*app|\bsms\b|mail|e\s*mail|email|courriel)/i.test(line)) {
+    if (hasNoPhoneInstruction && !/(whats\s*app|sms|mail|e\s*mail|email|courriel)/i.test(line)) {
       jobHints.push(/keine\s+telefonische|nicht\s+telefonisch|pas\s+d\s+appel|pas\s+appeler|ne\s+pas|no\s+calls?|do\s+not\s+call/i.test(line) ? "Bitte keine telefonische Rückfrage" : "Bitte nicht anrufen");
-    }
-
-    if (
-      /\b(zugang|zufahrt|eingang|tor|seitentor|gartentor|hintereingang|code|pin|schluessel|schlüssel|key|access)\b/i.test(line) &&
-      !/\b(chf|franken|stutz|eur|euro)\b/i.test(line) &&
-      !/\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|meter|laufmeter|stück|stueck|stk|stunden|stunde)\b/i.test(line)
-    ) {
-      jobHints.push(rawLine.replace(/\s+/g, " ").trim());
     }
 
     if (/no\s+calls?\s+during\s+office\s+hours|keine\s+anrufe\s+waehrend\s+der\s+buerozeiten|keine\s+anrufe\s+waehrend\s+der\s+bürozeiten/i.test(line)) {
@@ -2643,6 +2632,23 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     jobHints.push("Parkplatz vorhanden oder reserviert");
   } else if (hasBadParking) {
     jobHints.push("Parkplatz schwierig");
+  }
+
+  for (const rawLine of rawOperationalLines) {
+    const line = normalizeSemanticText(rawLine);
+    if (!line) continue;
+    const isAccessOrCodeHint =
+      /(?:zugang|zufahrt|eingang|seitentor|gartentor|torcode|codebox|code|schluessel|schlüssel|briefkasten|garage)/i.test(
+        line,
+      );
+    const isPricingOrServiceLine =
+      /\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|meter|laufmeter|stunden?|std\.?|stueck|stück|stk)/i.test(
+        rawLine,
+      ) || /(?:chf|eur|euro|franken|stutz)\s*\d|\d\s*(?:chf|eur|euro|franken|stutz)/i.test(rawLine);
+
+    if (isAccessOrCodeHint && !isPricingOrServiceLine) {
+      jobHints.push(rawLine.replace(/\s+/g, " ").trim());
+    }
   }
 
   return {
@@ -2992,29 +2998,54 @@ function detectCurrencyFromText(
 }
 
 function findOriginalSegmentForWorkItem(
-  item: { raw?: string | null; name?: string | null },
+  item: { raw?: string | null; name?: string | null; evidence?: string | null; source_text?: string | null; context?: string | null },
   fullText: string,
 ): string | null {
-  const source = normalizeUnitText(fullText);
-  if (!source) return null;
+  const sourceBlock = normalizeBlockText(fullText);
+  if (!sourceBlock) return null;
 
   const itemName = normalizeUnitText(item.name || "");
   const raw = normalizeUnitText(item.raw || "");
+  const evidence = normalizeUnitText(item.evidence || item.source_text || "");
+  const context = normalizeUnitText(item.context || "");
 
-  const itemWords = [itemName, raw]
+  const itemWords = [itemName, raw, evidence, context]
     .join(" ")
     .split(/\s+/)
     .map((w) => w.trim())
-    .filter((w) => w.length >= 4);
+    .filter((w) => w.length >= 4)
+    .filter(
+      (w) =>
+        ![
+          "chf",
+          "euro",
+          "eur",
+          "stunde",
+          "stunden",
+          "std",
+          "preis",
+          "reinigen",
+          "reinigung",
+          "bitte",
+          "auftrag",
+        ].includes(w),
+    );
 
   if (itemWords.length === 0) return null;
 
-  const segments = source
+  const lineSegments = sourceBlock
+    .split(/\n+|;/g)
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 8);
+
+  const broadSegments = sourceBlock
     .split(
       /\n{2,}|;|\bdanach\b|\bzusaetzlich\b|\bzusätzlich\b|\banschliessend\b|\banschließend\b|\bthen\b|\bafterwards\b|\badditional(?:ly)?\b|\balso\b|\bensuite\b|\bpuis\b|\bsupplémentaire\b|\badditionnel\b|\bpoi\b|\binoltre\b|\baggiuntivo\b/gi,
     )
     .map((p) => p.trim())
     .filter((p) => p.length >= 8);
+
+  const segments = Array.from(new Set([...lineSegments, ...broadSegments]));
 
   let best: { segment: string; score: number } | null = null;
 
@@ -3027,6 +3058,17 @@ function findOriginalSegmentForWorkItem(
 
     if (itemName && segment.includes(itemName)) score += 40;
     if (raw && segment.includes(raw)) score += 30;
+    if (evidence && segment.includes(evidence)) score += 20;
+    if (context && segment.includes(context)) score += 10;
+
+    if (detectAllQuantityUnitsFromText(segment).length > 0) score += 12;
+    if (detectUnitPriceFromText(segment)) score += 12;
+
+    // Prefer a real service line over a whole-message block. Whole-message
+    // matches can contain several quantities and caused explicit hour values
+    // such as "3.5 Stunden" to be lost or mixed with neighbouring lines.
+    if (segment.length > 280) score -= 30;
+    if (countUnitPriceSignals(segment) > 1) score -= 25;
 
     if (!best || score > best.score) {
       best = { segment, score };
@@ -3291,7 +3333,7 @@ function splitWorkSegments(text: string): string[] {
     const hasQuantityUnit = detectAllQuantityUnitsFromText(segment).length > 0;
 
     const hasWorkVerb =
-      /\b(reinigen|reinigung|putzen|clean|cleaning|nettoyage|nettoyer|pulizia|pulire|limpieza|limpiar|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen|anfahrt|anfahrtspauschale|fahrtkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel|transport|trasferta|transferta)\b/i.test(
+      /\b(reinigen|reinigung|putzen|clean|cleaning|nettoyage|nettoyer|pulizia|pulire|limpieza|limpiar|schneiden|stutzen|pflegen|pflege|mähen|maehen|mähen|streichen|malen|entsorgen|entsorgung|abtransportieren|transportieren|fällen|faellen|montieren|demontieren|reparieren|ersetzen|liefern|räumen|raeumen|ausräumen|ausraeumen|anfahrt|fahrtkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel|transport|trasferta|transferta)\b/i.test(
         normalized,
       );
 
@@ -3408,7 +3450,7 @@ function canonicalGermanServiceNameFromText(
   if (!normalized) return null;
 
   if (
-    /\b(anfahrt|anfahrtspauschale|fahrt|fahrtkosten|fahrkosten|anfahrtspauschale|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
+    /\b(anfahrt|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(
       normalized,
     )
   ) {
@@ -4637,10 +4679,11 @@ export async function processIncomingMessage(
   }
 
   const customerGuardReviewReasons: string[] = [];
-  // Safe deterministic fallback for explicit billing blocks.
-  // This is not a loose keyword rescue: it only accepts structured/labeled
-  // Rechnung/Billing evidence that passes the same customer guard.
-  const rawBillingEvidence = extractDeterministicBillingEvidence(messageText);
+  const legacyBillingFallbackEnabled =
+    process.env.INTAKE_LEGACY_BILLING_FALLBACK === "1";
+  const rawBillingEvidence = legacyBillingFallbackEnabled
+    ? extractDeterministicBillingEvidence(messageText)
+    : null;
   const billingEvidence = supplementAiBillingEvidence(
     extractAiStructuredBillingEvidence(kundeData, messageText),
     rawBillingEvidence,
@@ -5243,7 +5286,9 @@ export async function processIncomingMessage(
 
   const getWorkItemUnitType = (item: AiWorkItem): string => {
     const text = normalizeUnitText(
-      [item.raw, item.name, item.einheit].filter(Boolean).join(" "),
+      [item.source_text, item.evidence, item.raw, item.name, item.context, item.einheit]
+        .filter(Boolean)
+        .join(" "),
     );
 
     if (
@@ -5258,7 +5303,9 @@ export async function processIncomingMessage(
     if (fromUnit !== "unknown") return fromUnit;
 
     const q = detectAllQuantityUnitsFromText(
-      [item.raw, item.name].filter(Boolean).join(" "),
+      [item.source_text, item.evidence, item.raw, item.name, item.context]
+        .filter(Boolean)
+        .join(" "),
     )[0];
 
     return q?.unit || "unknown";
@@ -5274,7 +5321,9 @@ export async function processIncomingMessage(
     }
 
     const q = detectAllQuantityUnitsFromText(
-      [item.raw, item.name].filter(Boolean).join(" "),
+      [item.source_text, item.evidence, item.raw, item.name, item.context]
+        .filter(Boolean)
+        .join(" "),
     )[0];
 
     return q?.value ?? 0;
@@ -5382,7 +5431,6 @@ export async function processIncomingMessage(
       {
         service: [
           "anfahrt",
-          "anfahrtspauschale",
           "fahrtkosten",
           "fahrkosten",
           "wegpauschale",
@@ -5390,7 +5438,6 @@ export async function processIncomingMessage(
         ],
         work: [
           "anfahrt",
-          "anfahrtspauschale",
           "fahrtkosten",
           "fahrkosten",
           "wegpauschale",
@@ -5620,15 +5667,22 @@ export async function processIncomingMessage(
       const evidenceText = String(
         item.source_text || item.evidence || item.raw || "",
       ).trim();
+      const originalLookupText = `${messageText}\n${fullWorkText}`;
+      const matchedOriginalSegment =
+        findOriginalSegmentForWorkItem(item, originalLookupText) ||
+        findColonBlockForWorkItem(item, originalLookupText) ||
+        "";
+      const evidenceHasQuantityUnit =
+        detectAllQuantityUnitsFromText(evidenceText).length > 0;
+      const matchedSegmentHasQuantityUnit =
+        detectAllQuantityUnitsFromText(matchedOriginalSegment).length > 0;
 
       const originalSegment =
-        evidenceText ||
-        findOriginalSegmentForWorkItem(
-          item,
-          `${messageText}\n${fullWorkText}`,
-        ) ||
-        findColonBlockForWorkItem(item, `${messageText}\n${fullWorkText}`) ||
-        "";
+        evidenceText && evidenceHasQuantityUnit
+          ? evidenceText
+          : matchedSegmentHasQuantityUnit
+            ? matchedOriginalSegment
+            : evidenceText || matchedOriginalSegment || "";
 
       const detectedUnitTypeFromItem = getWorkItemUnitType(item);
       const detectedQuantityFromItem = getWorkItemQuantity(item);
