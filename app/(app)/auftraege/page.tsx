@@ -2266,7 +2266,7 @@ const formatCatalogMissingTooltip = (
   const lines = [
     items.length > 1
       ? `${items.length} Leistungen nicht im Katalog:`
-      : "Nicht im Katalog:",
+      : "1 Leistung nicht im Katalog:",
     ...items.slice(0, 5).map((item) => {
       const quantity = Number(item.quantity || 0);
       const unitPrice = Number(item.unitPrice || 0);
@@ -2790,10 +2790,24 @@ const getBottomBadges = (
   }
 
   if (hasCallbackBadge) {
+    const callbackLines = [
+      order.specialNotes,
+      order.notes,
+      order.audioTranscript,
+      ...parsedNotes.jobHints,
+    ]
+      .filter(Boolean)
+      .flatMap((part) => String(part).split(/\n+/g))
+      .map((line) => compactText(line))
+      .filter(Boolean);
+    const hasNegativeWhatsApp = callbackLines.some((line) =>
+      isNegativeWhatsAppInstructionLine(line),
+    );
+    const hasPreArrivalInstruction = Boolean(preArrivalHint);
     const callbackTooltip = [
-      directCallbackHint || "Kunde wünscht Rückruf oder telefonische Rücksprache.",
-      callbackTimeHint,
-      preArrivalHint && callbackTimeHint ? preArrivalHint : "",
+      callbackTimeHint ? `Rückruf ${callbackTimeHint}` : "Rückruf gewünscht",
+      hasPreArrivalInstruction ? "Vorher telefonisch melden" : "",
+      hasNegativeWhatsApp ? "Keine WhatsApp" : "",
     ]
       .filter(Boolean)
       .join(" · ");
@@ -2893,6 +2907,7 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
 const renderBadgeTooltip = (
   badge: ReviewBadge,
   align: "left" | "right" = "left",
+  forceVisible = false,
 ) => {
   const tooltip = String(badge.tooltip || "").trim();
   if (!tooltip) return null;
@@ -2901,7 +2916,7 @@ const renderBadgeTooltip = (
 
   return (
     <span
-      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 hidden w-max max-w-[min(18rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 w-max max-w-[min(18rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-hover:block group-focus:block"}`}
     >
       {tooltip}
     </span>
@@ -3580,6 +3595,7 @@ export default function AuftraegePage() {
 
   // Dropdown menu for create offer/invoice
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
+  const [activeMobileTooltipKey, setActiveMobileTooltipKey] = useState<string | null>(null);
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
@@ -6144,8 +6160,38 @@ export default function AuftraegePage() {
 
             const openOrderAtSpecialNotes = (event: any) => {
               event.stopPropagation();
+              setActiveMobileTooltipKey(null);
               openEdit(o, { focusSection: "specialNotes" });
             };
+
+            const mobileTooltipKey = (badge: ReviewBadge, slot: string) =>
+              `${o.id}:${slot}:${badge.key}:${badge.label}`;
+
+            const toggleMobileTooltip = (
+              badge: ReviewBadge,
+              slot: string,
+              event: any,
+            ) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const title = compactText(badge.tooltip) || badge.label;
+              if (!title) return;
+              const key = mobileTooltipKey(badge, slot);
+              setActiveMobileTooltipKey((current) =>
+                current === key ? null : key,
+              );
+            };
+
+            const renderMobileChipTooltip = (
+              badge: ReviewBadge,
+              slot: string,
+              align: "left" | "right" = "left",
+            ) =>
+              renderBadgeTooltip(
+                badge,
+                align,
+                activeMobileTooltipKey === mobileTooltipKey(badge, slot),
+              );
 
             const renderInteractiveOrderCardBadge = (
               badge: ReviewBadge,
@@ -6182,26 +6228,69 @@ export default function AuftraegePage() {
             };
 
             const renderInteractiveMobileActionBadge = (badge: ReviewBadge) => {
-              if (badge.focusTarget !== "specialNotes") {
+              if (badge.key === "callback_request") {
                 return renderMobileActionBadge(o, badge);
               }
 
               const Icon = mobileIconForBadge(badge) || AlertTriangle;
               const title = compactText(badge.tooltip) || badge.label;
+              const tooltipSlot = "mobile_action";
+
+              if (badge.focusTarget === "specialNotes") {
+                return (
+                  <button
+                    key={badge.key}
+                    type="button"
+                    title={title}
+                    aria-label={title}
+                    onClick={openOrderAtSpecialNotes}
+                    className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
+                  >
+                    <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    {renderMobileChipTooltip(badge, tooltipSlot, "left")}
+                  </button>
+                );
+              }
+
               return (
                 <button
                   key={badge.key}
                   type="button"
                   title={title}
                   aria-label={title}
-                  onClick={openOrderAtSpecialNotes}
+                  onClick={(event) => toggleMobileTooltip(badge, tooltipSlot, event)}
                   className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
                 >
                   <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-                  {renderBadgeTooltip(badge, "left")}
+                  {renderMobileChipTooltip(badge, tooltipSlot, "left")}
                 </button>
               );
             };
+
+            const renderInteractiveMobileTextBadge = (
+              badge: ReviewBadge,
+              slot: string,
+              align: "left" | "right" = "right",
+            ) => {
+              const title = compactText(badge.tooltip) || badge.label;
+              return (
+                <button
+                  key={`${slot}_${badge.key}`}
+                  type="button"
+                  title={title}
+                  aria-label={title}
+                  onClick={(event) => toggleMobileTooltip(badge, slot, event)}
+                  className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                >
+                  <span className="truncate">{badge.label}</span>
+                  {renderMobileChipTooltip(badge, slot, align)}
+                </button>
+              );
+            };
+
+            const renderInteractiveMobileRightReviewBadge = (badge: ReviewBadge) =>
+              renderInteractiveMobileTextBadge(badge, "mobile_right", "right");
+
             const showAudioTooLongBadge =
               o.audioTranscriptionStatus?.startsWith("skipped");
             const showImageOnlyBadge = false;
@@ -6216,6 +6305,7 @@ export default function AuftraegePage() {
                 <Card
                   className={`border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   onClick={() => {
+                    setActiveMobileTooltipKey(null);
                     if (isMergeMode) {
                       handleToggleSelect(o.id);
                       return;
@@ -6345,7 +6435,7 @@ export default function AuftraegePage() {
                           {mobileSystemBadges.length > 0 && (
                             <div className="mt-1 flex max-w-full flex-wrap items-center gap-1">
                               {mobileSystemBadges.slice(0, 1).map((badge) =>
-                                renderMobileTextBadge(badge, "left"),
+                                renderInteractiveMobileTextBadge(badge, "mobile_system", "left"),
                               )}
                             </div>
                           )}
@@ -6430,10 +6520,10 @@ export default function AuftraegePage() {
                         <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
                           <div className="flex w-full flex-col items-end gap-1">
                             {appointmentBadges.slice(0, 1).map((badge) =>
-                              renderMobileTextBadge(badge, "right"),
+                              renderInteractiveMobileTextBadge(badge, "mobile_appointment", "right"),
                             )}
                             {mobilePrimaryRightBadges.map((badge) =>
-                              renderMobileRightReviewBadge(badge),
+                              renderInteractiveMobileRightReviewBadge(badge),
                             )}
                             {mobileRightHiddenCount > 0 && (
                               <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
