@@ -381,6 +381,9 @@ const normalizeForMatch = (value?: string | null) =>
 const CALLBACK_CONTACT_WORD_PATTERN =
   /\b(?:anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
 
+const CONTACT_TIME_WORD_PATTERN =
+  /\b(?:sms|whatsapp|wa|mail|e-mail|email|schreiben|senden|schicken|rueckfragen|ruckfragen|nachricht|nachrichten|kontakt|kontaktieren|melden|anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
+
 const CALLBACK_TIME_PATTERN =
   /(?:\b(?:erst\s+ab|erst\s+nach|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b|\bzwischen\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b|\bvon\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+bis\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b)/;
 
@@ -698,7 +701,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
     return "access";
-  if (isPreArrivalInstructionLine(value)) return null;
+  if (isPreArrivalInstructionLine(value) || isAppointmentContactTimeLine(value)) return null;
   if (/termin|datum|uhr|morgen|vormittag|nachmittag/.test(text))
     return "appointment";
   if (/schubkarre/.test(text)) return "wheelbarrow";
@@ -1491,12 +1494,13 @@ const isAppointmentContactTimeLine = (value?: string | null) => {
   const text = normalizeForMatch(raw);
   if (!text) return false;
 
-  if (CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
+  if (CONTACT_TIME_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
 
-  // Contact availability like "telefonisch nur zwischen 15:00 und 16:00"
-  // is a callback/contact window, not an execution appointment.
+  // Contact availability like "SMS erst ab 14:00 Uhr", "Mail erst nach 11:30"
+  // or "telefonisch nur zwischen 15:00 und 16:00" is a contact window,
+  // not an execution appointment.
   return (
-    CALLBACK_CONTACT_WORD_PATTERN.test(text) &&
+    CONTACT_TIME_WORD_PATTERN.test(text) &&
     /(?:zwischen|von)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?/.test(raw.toLowerCase())
   );
 };
@@ -6186,12 +6190,13 @@ export default function AuftraegePage() {
               badge: ReviewBadge,
               slot: string,
               align: "left" | "right" = "left",
-            ) =>
-              renderBadgeTooltip(
-                badge,
-                align,
-                activeMobileTooltipKey === mobileTooltipKey(badge, slot),
-              );
+            ) => {
+              // Mobile tooltips must be controlled only by tap state.
+              // Do not render the hidden group-focus/group-hover tooltip when inactive,
+              // because a touched button can keep focus and make the tooltip look stuck.
+              if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot)) return null;
+              return renderBadgeTooltip(badge, align, true);
+            };
 
             const renderInteractiveOrderCardBadge = (
               badge: ReviewBadge,
