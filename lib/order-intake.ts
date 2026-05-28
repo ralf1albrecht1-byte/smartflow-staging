@@ -3289,6 +3289,275 @@ function detectAllQuantityUnitsFromText(
   return matches.filter((m) => Number.isFinite(m.value) && m.value > 0);
 }
 
+
+
+type IntakeHourLineRepairItem = {
+  serviceName: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalPrice: number;
+  needsReview: boolean;
+  reviewReason: string | null;
+  sourceText?: string | null;
+  evidence?: string | null;
+  detectedCurrency?: string | null;
+};
+
+function roundIntakeMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function parseIntakeDecimalNumber(value?: string | null): number | null {
+  const parsed = Number(
+    String(value || "")
+      .replace("'", "")
+      .replace(",", "."),
+  );
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+const INTAKE_HOUR_WORD_QUANTITIES: Record<string, number> = {
+  ein: 1,
+  eine: 1,
+  einen: 1,
+  einem: 1,
+  einer: 1,
+  eins: 1,
+  viertel: 0.25,
+  halb: 0.5,
+  halbe: 0.5,
+  dreiviertel: 0.75,
+  anderthalb: 1.5,
+  eineinhalb: 1.5,
+  zwei: 2,
+  zweieinhalb: 2.5,
+  drei: 3,
+  dreieinhalb: 3.5,
+  vier: 4,
+  viereinhalb: 4.5,
+  fuenf: 5,
+  funf: 5,
+  fuenfeinhalb: 5.5,
+  funfeinhalb: 5.5,
+  sechs: 6,
+  sechseinhalb: 6.5,
+  sieben: 7,
+  siebeneinhalb: 7.5,
+  acht: 8,
+  achteinhalb: 8.5,
+  neun: 9,
+  neuneinhalb: 9.5,
+  zehn: 10,
+};
+
+function parseIntakeHourQuantityToken(value?: string | null): number | null {
+  const numeric = parseIntakeDecimalNumber(value);
+  if (numeric) return numeric;
+
+  const key = normalizeUnitText(value || "").replace(/\s+/g, "");
+  return INTAKE_HOUR_WORD_QUANTITIES[key] || null;
+}
+
+function normalizeIntakeHourQuantity(value: number | null | undefined): number | null {
+  const quantity = Number(value || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  return roundIntakeMoney(Math.round(quantity * 4) / 4);
+}
+
+function detectExplicitIntakeHourQuantityInLine(line?: string | null): number | null {
+  const source = normalizeUnitText(line || "");
+  if (!source) return null;
+
+  const numberOrWord =
+    "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|viertel|halbe|halb|dreiviertel|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)";
+  const hourUnit = "(?:stunden?|std\\.?|h|hours?)";
+  const minuteUnit = "(?:min\\.?|minuten?|minutes?)";
+
+  const hourMatch = source.match(new RegExp(`\\b(${numberOrWord})\\s*${hourUnit}\\b`, "i"));
+  if (hourMatch?.[1]) {
+    const base = parseIntakeHourQuantityToken(hourMatch[1]);
+    if (base) {
+      let total = base;
+      const after = source.slice((hourMatch.index || 0) + hourMatch[0].length);
+      const minuteAfter = after.match(new RegExp(`^\\s*(?:und|\\+)?\\s*(15|30|45)\\s*${minuteUnit}\\b`, "i"));
+      if (minuteAfter?.[1]) total += Number(minuteAfter[1]) / 60;
+      const normalized = normalizeIntakeHourQuantity(total);
+      if (normalized) return normalized;
+    }
+  }
+
+  const hourPlusWordFraction = source.match(
+    new RegExp(
+      `\\b(${numberOrWord})\\s*${hourUnit}\\s*(?:und|\\+)?\\s*(?:eine?n?\\s+)?(viertel|halb|halbe|dreiviertel)\\s*(?:stunde|stunden|std\\.?|h)?\\b`,
+      "i",
+    ),
+  );
+  if (hourPlusWordFraction?.[1] && hourPlusWordFraction?.[2]) {
+    const base = parseIntakeHourQuantityToken(hourPlusWordFraction[1]);
+    const fraction = parseIntakeHourQuantityToken(hourPlusWordFraction[2]);
+    const normalized = normalizeIntakeHourQuantity((base || 0) + (fraction || 0));
+    if (normalized) return normalized;
+  }
+
+  const compactHourMinute = source.match(
+    new RegExp(`\\b(\\d{1,2})\\s*(?:h|std\\.?|stunden?)\\s*(15|30|45)\\s*(?:${minuteUnit})?\\b`, "i"),
+  );
+  if (compactHourMinute?.[1] && compactHourMinute?.[2]) {
+    const normalized = normalizeIntakeHourQuantity(
+      Number(compactHourMinute[1]) + Number(compactHourMinute[2]) / 60,
+    );
+    if (normalized) return normalized;
+  }
+
+  const minuteOnly = source.match(new RegExp(`\\b(15|30|45)\\s*${minuteUnit}\\b`, "i"));
+  if (
+    minuteOnly?.[1] &&
+    /(?:pro|je|per|par|à|a|\/)\s*(?:stunde|stunden|std\.?|h|hour|hours)\b/i.test(source)
+  ) {
+    const normalized = normalizeIntakeHourQuantity(Number(minuteOnly[1]) / 60);
+    if (normalized) return normalized;
+  }
+
+  const wordOnlyFraction = source.match(
+    /\b(?:eine?n?\s+)?(viertel|halb|halbe|dreiviertel)\s*(?:stunde|stunden|std\.?|h)\b/i,
+  );
+  if (wordOnlyFraction?.[1]) {
+    const normalized = normalizeIntakeHourQuantity(parseIntakeHourQuantityToken(wordOnlyFraction[1]));
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+function detectExplicitIntakeMeasuredPriceInLine(line?: string | null): number | null {
+  const source = normalizeUnitText(line || "");
+  if (!source) return null;
+
+  const currencyWords = "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€)";
+  const number = "(\\d+(?:[.,]\\d{1,2})?)";
+  const anchor = "(?:à|a|pro|je|per|zu|fuer|für|/)";
+
+  const anchoredPatterns = [
+    new RegExp(`${anchor}\\s*${currencyWords}\\s*${number}\\b`, "i"),
+    new RegExp(`${anchor}\\s*${number}\\s*${currencyWords}\\b`, "i"),
+    new RegExp(`${currencyWords}\\s*${number}\\s*(?:${anchor})\\s*(?:stunde|stunden|std\\.?|h|hour|hours)\\b`, "i"),
+    new RegExp(`${number}\\s*${currencyWords}\\s*(?:${anchor})\\s*(?:stunde|stunden|std\\.?|h|hour|hours)\\b`, "i"),
+  ];
+
+  for (const pattern of anchoredPatterns) {
+    const match = source.match(pattern);
+    const value = match?.[1] || match?.[2];
+    const parsed = parseIntakeDecimalNumber(value);
+    if (parsed) return parsed;
+  }
+
+  const currencyMatches = Array.from(
+    source.matchAll(new RegExp(`(?:${currencyWords}\\s*${number}|${number}\\s*${currencyWords})`, "gi")),
+  );
+
+  for (const match of currencyMatches) {
+    const parsed = parseIntakeDecimalNumber(match[1] || match[2]);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function lineMatchesIntakeServiceTopic(
+  serviceName?: string | null,
+  line?: string | null,
+): boolean {
+  const service = normalizeUnitText(serviceName || "");
+  const source = normalizeUnitText(line || "");
+  if (!service || !source) return false;
+
+  const generic = new Set([
+    "reinigen",
+    "reinigung",
+    "putzen",
+    "clean",
+    "cleaning",
+    "machen",
+    "arbeit",
+    "arbeiten",
+    "service",
+    "leistung",
+    "leistungen",
+  ]);
+
+  const tokens = service
+    .split(/\s+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4)
+    .filter((token) => !generic.has(token));
+
+  if (tokens.some((token) => source.includes(token))) return true;
+  if (/\bboden\b/.test(service) && /\bboden\b/.test(source)) return true;
+  if (/\bfenster|fensterli|window|vitrine|vitre/.test(service) && /\bfenster|fensterli|window|vitrine|vitre/.test(source)) return true;
+  if (/\bwasserablauf|ablauf|pumpe|pumpenraum/.test(service) && /\bwasserablauf|ablauf|pumpe|pumpenraum/.test(source)) return true;
+
+  return false;
+}
+
+function repairExplicitHourQuantitiesFromOriginalText(
+  items: IntakeHourLineRepairItem[],
+  originalText: string,
+): IntakeHourLineRepairItem[] {
+  const lines = String(originalText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line));
+
+  if (lines.length === 0) return items;
+
+  return items.map((item) => {
+    if (getServiceUnitType(item.unit) !== "hour") return item;
+
+    const currentQuantity = Number(item.quantity || 0);
+    const currentPrice = Number(item.unitPrice || 0);
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return item;
+
+    const matchingLine = lines.find((line) => {
+      if (!lineMatchesIntakeServiceTopic(item.serviceName, line)) return false;
+      const quantity = detectExplicitIntakeHourQuantityInLine(line);
+      if (!quantity) return false;
+      const price = detectExplicitIntakeMeasuredPriceInLine(line);
+      if (!price) return false;
+      return Math.abs(price - currentPrice) < 0.01;
+    });
+
+    if (!matchingLine) return item;
+
+    const quantity = detectExplicitIntakeHourQuantityInLine(matchingLine);
+    const price = detectExplicitIntakeMeasuredPriceInLine(matchingLine) || currentPrice;
+    if (!quantity || quantity <= 0) return item;
+
+    const shouldRepair =
+      currentQuantity <= 0 ||
+      Math.abs(currentQuantity - quantity) >= 0.001 ||
+      Math.abs(currentPrice - price) >= 0.01 ||
+      !item.sourceText ||
+      !normalizeUnitText(item.sourceText).includes(normalizeUnitText(matchingLine));
+
+    if (!shouldRepair) return item;
+
+    return {
+      ...item,
+      quantity,
+      unit: "Stunde",
+      unitPrice: price,
+      totalPrice: roundIntakeMoney(quantity * price),
+      sourceText: matchingLine,
+      evidence: matchingLine,
+    };
+  });
+}
+
 function splitWorkSegments(text: string): string[] {
   const source = normalizeUnitText(text);
   if (!source) return [];
@@ -5940,7 +6209,11 @@ export async function processIncomingMessage(
     fallbackCurrency: intakeCurrency,
   });
 
-  finalOrderItems = intakeValidation.items;
+  finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
+    intakeValidation.items,
+    `${messageText}
+${fullWorkText}`,
+  );
 
   // INTAKE_FLAT_TOTAL_LAST_GUARD_V8
   // Letzte Schutzschicht direkt vor Speichern: Pauschalpositionen haben
