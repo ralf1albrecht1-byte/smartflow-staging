@@ -2283,8 +2283,12 @@ function canonicalizeSpecialNoteLine(line: string): string {
       .trim();
   }
 
+  // V16.95: Communication instructions are preserved as a structured
+  // channel rule: allowed channel + forbidden phone contact. This prevents
+  // "Bitte nur per Mail, nicht telefonisch" from being collapsed to the
+  // weaker visible note "Mail reicht".
   const mentionsNoPhone =
-    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|ne\s+pas\s+appeler|ne\s+pas\s+rappeler|ne\s+pas\s+telephoner|pas\s+d\s+appel(?:s)?|pas\s+d\s+appel(?:s)?\s+telephonique(?:s)?|pas\s+appeler|pas\s+telephoner|sans\s+appel\s+telephonique|merci\s+de\s+ne\s+pas\s+appeler|do\s+not\s+call|dont\s+call|don't\s+call|no\s+phone\s+call)\b/i.test(
+    /\b(nicht\s+(?:telefonisch\s+)?(?:zurueckrufen|anrufen)|nicht\s+telefonisch|keine?\s+telefonische\s+(?:rueckfrage|ruckfrage|rueckruf|ruckruf|anfrage|kontaktaufnahme)|kein(?:e[nm]?)?\s+(?:telefonischer\s+)?(?:rueckruf|ruckruf|anruf)|ne\s+pas\s+appeler|ne\s+pas\s+rappeler|ne\s+pas\s+telephoner|pas\s+d\s+appel(?:s)?|pas\s+d\s+appel(?:s)?\s+telephonique(?:s)?|pas\s+appeler|pas\s+telephoner|sans\s+appel\s+telephonique|merci\s+de\s+ne\s+pas\s+appeler|do\s+not\s+call|dont\s+call|don't\s+call|no\s+phone\s+call|no\s+calls?)\b/i.test(
       normalized,
     );
   const mentionsWhatsApp = /\b(whatsapp|whats\s*app)\b/i.test(normalized);
@@ -2294,12 +2298,12 @@ function canonicalizeSpecialNoteLine(line: string): string {
   const mentionsMail = /\b(mail|e-mail|email|courriel)\b/i.test(normalized);
 
   if (mentionsNoPhone && mentionsWhatsApp)
-    return "Nicht telefonisch zurückrufen, WhatsApp reicht";
+    return "WhatsApp bevorzugt, bitte nicht telefonisch";
   if (mentionsNoPhone && mentionsSms)
-    return "Nicht telefonisch zurückrufen, SMS reicht";
+    return "SMS reicht, bitte keine telefonische Rückfrage";
   if (mentionsNoPhone && mentionsMail)
-    return "Nicht telefonisch zurückrufen, Mail reicht";
-  if (mentionsNoPhone) return "Nicht telefonisch zurückrufen";
+    return "Mail reicht, bitte keine telefonische Rückfrage";
+  if (mentionsNoPhone) return "Bitte keine telefonische Rückfrage";
 
   if (/kontakt\s+vor\s+ort.*\bist\s+nur\s*,\s*nicht/i.test(normalized)) {
     return original.replace(/\bist\s+nur\s*,\s*nicht/gi, "ist nur Ansprechpartner vor Ort, nicht");
@@ -3290,7 +3294,11 @@ function detectAllQuantityUnitsFromText(
 }
 
 
-
+// V16.95: Final semantic repair for explicit hour lines from the original customer text.
+// This is intentionally line-anchored: a service row is repaired only when the
+// same original line contains service topic + explicit hour quantity + explicit
+// unit price. It prevents catalog-unit overwrite without leaking the hour price
+// into neighbouring Stück/m² rows.
 type IntakeHourLineRepairItem = {
   serviceName: string;
   description: string;
@@ -3363,6 +3371,8 @@ function parseIntakeHourQuantityToken(value?: string | null): number | null {
 function normalizeIntakeHourQuantity(value: number | null | undefined): number | null {
   const quantity = Number(value || 0);
   if (!Number.isFinite(quantity) || quantity <= 0) return null;
+
+  // Billing precision: always keep time quantities on a 15-minute grid.
   return roundIntakeMoney(Math.round(quantity * 4) / 4);
 }
 

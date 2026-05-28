@@ -1569,8 +1569,12 @@ const extractAppointmentDetailLabel = (value: string) => {
         ? "abends"
         : "";
 
-  if (!date && !time && !dayPart) return "";
-  return [date, time || dayPart].filter(Boolean).join(" · ");
+  // V16.95: A pure day-part without its own date/time is a reason/context
+  // for an appointment, not a separate appointment. Example: after
+  // "Termin: 08.07.2026 um 09:00", the line "Raum ist nur vormittags frei"
+  // must stay a reason and must not create an extra "Termin vormittags".
+  if (!date && !time) return "";
+  return [date, time || (date ? dayPart : "")].filter(Boolean).join(" · ");
 };
 
 const cleanAppointmentReason = (value?: string | null) =>
