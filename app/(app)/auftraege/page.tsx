@@ -2567,16 +2567,24 @@ const getSystemBadges = (
     });
   }
 
-  const hasUnitConflict =
-    order.reviewReasons?.some((r) => r.startsWith("unit_mismatch:")) ?? false;
+  const unitConflictServices = Array.from(
+    new Set(
+      (order.reviewReasons ?? [])
+        .filter((reason) => reason.startsWith("unit_mismatch:"))
+        .map((reason) => compactText(reason.split(":").slice(1).join(":")))
+        .filter(Boolean),
+    ),
+  );
+  const hasUnitConflict = unitConflictServices.length > 0;
 
   if (hasUnitConflict) {
     pushUniqueBadge(badges, {
       key: "unit_conflict",
       label: "Einheit prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
-      tooltip:
-        "Einheit aus Kundentext und Leistungskatalog passen nicht sicher zusammen. Bitte Menge, Einheit und Preis prüfen.",
+      tooltip: unitConflictServices.length
+        ? `Einheit prüfen: ${unitConflictServices.join(", ")}`
+        : "Einheit prüfen.",
     });
   }
 
@@ -8613,8 +8621,7 @@ export default function AuftraegePage() {
                                               </div>
                                             )}
                                             <div>
-                                              Einheit passt nicht. Menge,
-                                              Einheit und Preis prüfen.
+                                              Einheit prüfen: {item.serviceName || "Leistung"}
                                             </div>
                                           </div>
                                         )}

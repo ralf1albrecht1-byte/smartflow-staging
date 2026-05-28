@@ -231,7 +231,7 @@ const UNIT_WORDS =
 const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 
 const QUANTITY_NUMBER_OR_WORD =
-  "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)";
+  "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|viertel|halbe|halb|dreiviertel|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)";
 
 const QUANTITY_WORD_VALUES: Record<string, number> = {
   ein: 1,
@@ -240,6 +240,10 @@ const QUANTITY_WORD_VALUES: Record<string, number> = {
   einem: 1,
   einer: 1,
   eins: 1,
+  viertel: 0.25,
+  halb: 0.5,
+  halbe: 0.5,
+  dreiviertel: 0.75,
   anderthalb: 1.5,
   eineinhalb: 1.5,
   zwei: 2,
@@ -414,6 +418,109 @@ const parseQuantityNumber = (value?: string | null): number | null => {
   const key = normalizeCompare(value).replace(/\s+/g, "");
   return QUANTITY_WORD_VALUES[key] || null;
 };
+
+
+type ExplicitHourQuantity = {
+  quantity: number;
+  raw: string;
+};
+
+const normalizeHourQuantity = (value: number | null | undefined) => {
+  const quantity = Number(value || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+
+  // Arbeitszeit wird praxisnah auf Viertelstunden normalisiert.
+  // Damit funktionieren 0.25 / 0.5 / 0.75, 3.25 / 3.5 / 3.75 usw.
+  return roundMoney(Math.round(quantity * 4) / 4);
+};
+
+const hourFractionFromWord = (value?: string | null): number | null => {
+  const key = normalizeCompare(value).replace(/\s+/g, "");
+  if (!key) return null;
+  if (["viertel", "eineviertel", "einviertel", "viertelstunde"].includes(key)) return 0.25;
+  if (["halb", "halbe", "einehalbe", "einhalb", "halbestunde"].includes(key)) return 0.5;
+  if (["dreiviertel", "dreiviertelstunde"].includes(key)) return 0.75;
+  return null;
+};
+
+function detectExplicitHourQuantityInLine(line?: string | null): ExplicitHourQuantity | null {
+  const source = normalizeText(line);
+  if (!source) return null;
+
+  const hourUnit = "(?:stunden?|std\\.?|h|hours?)";
+  const minuteUnit = "(?:min\\.?|minuten?|minutes?)";
+
+  // 3.25 Stunden / 3,5 Std. / dreieinhalb Stunden
+  const decimalOrWordHour = source.match(
+    new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*${hourUnit}\\b`, "i"),
+  );
+  if (decimalOrWordHour?.[1]) {
+    const base = parseQuantityNumber(decimalOrWordHour[1]);
+    if (base) {
+      let total = base;
+      const after = source.slice(
+        (decimalOrWordHour.index || 0) + decimalOrWordHour[0].length,
+      );
+      const minuteAfter = after.match(
+        new RegExp(`^\\s*(?:und|\\+)?\\s*(15|30|45)\\s*${minuteUnit}\\b`, "i"),
+      );
+      if (minuteAfter?.[1]) total += Number(minuteAfter[1]) / 60;
+      const normalized = normalizeHourQuantity(total);
+      if (normalized) {
+        return {
+          quantity: normalized,
+          raw: `${decimalOrWordHour[0]}${minuteAfter?.[0] || ""}`.trim(),
+        };
+      }
+    }
+  }
+
+  // 3 Stunden und Viertel / 3 Stunden und eine halbe / 3 Stunden und dreiviertel
+  const hourPlusWordFraction = source.match(
+    new RegExp(
+      `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*${hourUnit}\\s*(?:und|\\+)?\\s*(?:eine?n?\\s+)?(viertel|halb|halbe|dreiviertel)\\s*(?:stunde|stunden|std\\.?|h)?\\b`,
+      "i",
+    ),
+  );
+  if (hourPlusWordFraction?.[1] && hourPlusWordFraction?.[2]) {
+    const base = parseQuantityNumber(hourPlusWordFraction[1]);
+    const fraction = hourFractionFromWord(hourPlusWordFraction[2]);
+    const normalized = normalizeHourQuantity((base || 0) + (fraction || 0));
+    if (normalized) return { quantity: normalized, raw: hourPlusWordFraction[0] };
+  }
+
+  // 3h15 / 3 h 15 min / 3 Std. 45 Minuten
+  const compactHourMinute = source.match(
+    new RegExp(`\\b(\\d{1,2})\\s*(?:h|std\\.?|stunden?)\\s*(15|30|45)\\s*(?:${minuteUnit})?\\b`, "i"),
+  );
+  if (compactHourMinute?.[1] && compactHourMinute?.[2]) {
+    const normalized = normalizeHourQuantity(
+      Number(compactHourMinute[1]) + Number(compactHourMinute[2]) / 60,
+    );
+    if (normalized) return { quantity: normalized, raw: compactHourMinute[0] };
+  }
+
+  // 15 Minuten / 30 Minuten / 45 Minuten als Stundenposition, wenn der Preis pro Stunde steht.
+  const minuteOnly = source.match(new RegExp(`\\b(15|30|45)\\s*${minuteUnit}\\b`, "i"));
+  if (
+    minuteOnly?.[1] &&
+    /(?:pro|je|per|par|à|a|\/)\s*(?:stunde|stunden|std\.?|h|hour|hours)\b/i.test(source)
+  ) {
+    const normalized = normalizeHourQuantity(Number(minuteOnly[1]) / 60);
+    if (normalized) return { quantity: normalized, raw: minuteOnly[0] };
+  }
+
+  // Viertelstunde / halbe Stunde / dreiviertel Stunde.
+  const wordOnlyFraction = source.match(
+    /\b(?:eine?n?\s+)?(viertel|halb|halbe|dreiviertel)\s*(?:stunde|stunden|std\.?|h)\b/i,
+  );
+  if (wordOnlyFraction?.[1]) {
+    const normalized = normalizeHourQuantity(hourFractionFromWord(wordOnlyFraction[1]) || 0);
+    if (normalized) return { quantity: normalized, raw: wordOnlyFraction[0] };
+  }
+
+  return null;
+}
 
 const unitTypeFromText = (value?: string | null): string | null => {
   const source = normalizeCompare(value);
@@ -1534,6 +1641,11 @@ function detectQuantityForUnitTypeFromText(
   text: string,
   unitType: string | null,
 ): number | null {
+  if (unitType === "hour") {
+    const explicitHourQuantity = detectExplicitHourQuantityInLine(text);
+    if (explicitHourQuantity?.quantity) return explicitHourQuantity.quantity;
+  }
+
   const source = normalizeCompare(text);
   if (!source || !unitType) return null;
 
@@ -3183,6 +3295,7 @@ function extractExplicitServiceLineItems(
     const measuredUnitType = quantityMatch
       ? unitTypeFromText(quantityMatch[2])
       : null;
+    const explicitHourQuantity = detectExplicitHourQuantityInLine(line);
     const hasMeasuredQuantityWithFlatPrice = Boolean(
       quantityMatch &&
       flatPrice &&
@@ -3219,10 +3332,21 @@ function extractExplicitServiceLineItems(
       continue;
     }
 
-    if (quantityMatch && unitPrice) {
+    if ((quantityMatch || explicitHourQuantity) && unitPrice) {
       const workerHourQuantity = detectWorkerHourQuantityInLine(line);
-      const quantity = workerHourQuantity?.quantity || parseQuantityNumber(quantityMatch[1]) || 0;
-      const quantityUnitType = workerHourQuantity ? "hour" : unitTypeFromText(quantityMatch[2]);
+      const textUnitType = quantityMatch ? unitTypeFromText(quantityMatch[2]) : null;
+      const quantity =
+        workerHourQuantity?.quantity ||
+        (explicitHourQuantity && (textUnitType === "hour" || !quantityMatch)
+          ? explicitHourQuantity.quantity
+          : null) ||
+        parseQuantityNumber(quantityMatch?.[1]) ||
+        0;
+      const quantityUnitType = workerHourQuantity
+        ? "hour"
+        : explicitHourQuantity && (textUnitType === "hour" || !quantityMatch)
+          ? "hour"
+          : textUnitType;
       const unitType = quantityUnitType || unitPrice.unitType;
       if (!quantity || !unitType) continue;
 
@@ -3230,7 +3354,7 @@ function extractExplicitServiceLineItems(
         originalText,
         line,
         cleanExplicitServiceNameFromLine(line, {
-          quantityRaw: workerHourQuantity?.raw || quantityMatch[0],
+          quantityRaw: workerHourQuantity?.raw || explicitHourQuantity?.raw || quantityMatch?.[0],
           priceRaw: unitPrice.raw,
         }),
       );
@@ -3726,6 +3850,7 @@ function extractLooseExplicitServiceLineItems(
     if (/^(?:rechnung|rechnungsadresse|kunde|arbeitsort|ausfuehrung|ausführung|termin|tel|email|e mail)\b/.test(lineKey)) continue;
 
     const workerHour = detectWorkerHourQuantityInLine(line);
+    const explicitHourQuantity = detectExplicitHourQuantityInLine(line);
     const quantityMatch = line.match(
       new RegExp(
         `\\b(?:ca\\.?|circa|ungefähr|ungefaehr|ungefahr|etwa|approximately|approx\\.?|about)?\\s*(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`,
@@ -3734,15 +3859,26 @@ function extractLooseExplicitServiceLineItems(
     );
     const unitPrice = findExplicitUnitPriceInLine(line, fallbackCurrency);
 
-    if ((workerHour || quantityMatch) && unitPrice && unitPrice.currency === fallbackCurrency) {
-      const quantity = workerHour?.quantity || parseQuantityNumber(quantityMatch?.[1]) || 0;
-      const unitType = workerHour ? "hour" : unitTypeFromText(quantityMatch?.[2]);
+    if ((workerHour || explicitHourQuantity || quantityMatch) && unitPrice && unitPrice.currency === fallbackCurrency) {
+      const textUnitType = quantityMatch ? unitTypeFromText(quantityMatch?.[2]) : null;
+      const quantity =
+        workerHour?.quantity ||
+        (explicitHourQuantity && (textUnitType === "hour" || !quantityMatch)
+          ? explicitHourQuantity.quantity
+          : null) ||
+        parseQuantityNumber(quantityMatch?.[1]) ||
+        0;
+      const unitType = workerHour
+        ? "hour"
+        : explicitHourQuantity && (textUnitType === "hour" || !quantityMatch)
+          ? "hour"
+          : textUnitType;
       if (quantity > 0 && unitType) {
         const serviceName = resolveExplicitServiceNameFromContext(
           originalText,
           line,
           cleanExplicitServiceNameFromLine(line, {
-            quantityRaw: workerHour?.raw || quantityMatch?.[0],
+            quantityRaw: workerHour?.raw || explicitHourQuantity?.raw || quantityMatch?.[0],
             priceRaw: unitPrice.raw,
           }),
         );
@@ -3821,7 +3957,33 @@ function extractLooseExplicitServiceLineItems(
     if (preferItem) bySignature.set(signature, item);
   }
 
-  return Array.from(bySignature.values());
+  const deduped = Array.from(bySignature.values());
+  return deduped.filter((item, index) => {
+    const sourceKey = normalizeCompare(item.sourceText || item.evidence || item.description || "");
+    if (!sourceKey) return true;
+
+    const serviceKey = normalizeCompare(item.serviceName);
+    const looksLikeQuantityOnlySuffix =
+      /^\s*(?:\d|viertel|halbe|halb|dreiviertel|ein|eine|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)\b/i.test(
+        String(item.sourceText || item.serviceName || ""),
+      ) || /^(?:minuten?|stunden?|std|h|viertel|halbe|halb|dreiviertel|\d+\s*(?:min|stunden?|std|h))\b/i.test(serviceKey);
+
+    if (!looksLikeQuantityOnlySuffix) return true;
+
+    return !deduped.some((other, otherIndex) => {
+      if (otherIndex === index) return false;
+      const otherSourceKey = normalizeCompare(
+        other.sourceText || other.evidence || other.description || "",
+      );
+      if (!otherSourceKey || otherSourceKey.length <= sourceKey.length + 4) {
+        return false;
+      }
+      const sameUnit = unitTypeFromDisplayUnit(other.unit) === unitTypeFromDisplayUnit(item.unit);
+      const sameQuantity = Math.abs(Number(other.quantity || 0) - Number(item.quantity || 0)) < 0.001;
+      const samePrice = Math.abs(Number(other.unitPrice || 0) - Number(item.unitPrice || 0)) < 0.01;
+      return sameUnit && sameQuantity && samePrice && otherSourceKey.endsWith(sourceKey);
+    });
+  });
 }
 
 function mergeExplicitLineItemList(
