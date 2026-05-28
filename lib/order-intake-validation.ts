@@ -230,6 +230,39 @@ const UNIT_WORDS =
 
 const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 
+const QUANTITY_NUMBER_OR_WORD =
+  "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)";
+
+const QUANTITY_WORD_VALUES: Record<string, number> = {
+  ein: 1,
+  eine: 1,
+  einen: 1,
+  einem: 1,
+  einer: 1,
+  eins: 1,
+  anderthalb: 1.5,
+  eineinhalb: 1.5,
+  zwei: 2,
+  zweieinhalb: 2.5,
+  drei: 3,
+  dreieinhalb: 3.5,
+  vier: 4,
+  viereinhalb: 4.5,
+  fuenf: 5,
+  funf: 5,
+  fuenfeinhalb: 5.5,
+  funfeinhalb: 5.5,
+  sechs: 6,
+  sechseinhalb: 6.5,
+  sieben: 7,
+  siebeneinhalb: 7.5,
+  acht: 8,
+  achteinhalb: 8.5,
+  neun: 9,
+  neuneinhalb: 9.5,
+  zehn: 10,
+};
+
 const GENERIC_SERVICE_WORDS = new Set([
   "reinigen",
   "reinigung",
@@ -374,6 +407,14 @@ const parsePriceNumber = (value?: string | null) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+const parseQuantityNumber = (value?: string | null): number | null => {
+  const numeric = parsePriceNumber(value);
+  if (numeric) return numeric;
+
+  const key = normalizeCompare(value).replace(/\s+/g, "");
+  return QUANTITY_WORD_VALUES[key] || null;
+};
+
 const unitTypeFromText = (value?: string | null): string | null => {
   const source = normalizeCompare(value);
   if (!source) return null;
@@ -441,7 +482,7 @@ function hasExplicitCurrencyAmount(value?: string | null): boolean {
 }
 
 function hasQuantityWithExplicitUnit(value?: string | null): boolean {
-  return new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(
+  return new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`, "i").test(
     String(value || ""),
   );
 }
@@ -456,7 +497,7 @@ function isLikelyStandaloneFlatServiceLine(value?: string | null): boolean {
   // Targeted safety-net for auxiliary services that customers usually write as
   // flat lines without the word "pauschal": "Abdecken CHF 90", "Anfahrt CHF 45",
   // "Grüngut entsorgen CHF 75". Measured services like m²/Stück/Meter stay out.
-  return /\b(?:anfahrt|anfahrtspauschale|fahrtkosten|fahrpauschale|wegpauschale|abdeck\w*|spachtel\w*|grungut|gruengut|gruenabfall|gartenabfall|entsorg\w*|material|kleinmaterial|kleinzeug|verbrauchsmaterial|deplacement)\b/i.test(
+  return /\b(?:anfahrt|anfahrtspauschale|fahrtkosten|fahrpauschale|wegpauschale|abdeck\w*|spachtel\w*|grungut|gruengut|gruenabfall|gartenabfall|entsorg\w*|materialpauschale|material|kleinmaterial|kleinzeug|verbrauchsmaterial|deplacement)\b/i.test(
     normalized,
   );
 }
@@ -868,7 +909,7 @@ function canonicalGermanServiceNameFromText(
   if (/\b(grungut|gruengut|gruenabfall|gartenabfall|green\s+waste)\b/.test(normalized)) {
     return "Grüngut entsorgen";
   }
-  if (/\b(material|kleinmaterial|kleinzeug|verbrauchsmaterial)\b/.test(normalized)) {
+  if (/\b(materialpauschale|material|kleinmaterial|kleinzeug|verbrauchsmaterial)\b/.test(normalized)) {
     return "Material Kleinzeug";
   }
   if (/\b(moebel|mobel|möbel|furniture)\b/.test(normalized) && /\b(umstellen|transport|tragen|verschieben|move|moving)\b/.test(normalized)) {
@@ -890,6 +931,10 @@ function normalizeFlatServiceNameFromText(value: string): string {
   ) {
     return "Anfahrt";
   }
+  if (/\bmaterialpauschale\b/.test(normalized)) {
+    return "Materialpauschale";
+  }
+
   if (
     /\btiefgarage\b/.test(normalized) &&
     /\b(reinigen|reinigung|putzen)\b/.test(normalized)
@@ -1494,18 +1539,46 @@ function detectQuantityForUnitTypeFromText(
 
   const patterns: Record<string, RegExp[]> = {
     piece: [
-      /\b(\d+(?:[.,]\d+)?)\s*(?:stueck|stuck|stk|piece|pieces|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows)\b/i,
+      new RegExp(
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:stueck|stuck|stk|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows)\\b`,
+        "i",
+      ),
     ],
-    square_meter: [/\b(\d+(?:[.,]\d+)?)\s*(?:quadratmeter|qm|m2|m²|sqm)\b/i],
-    cubic_meter: [/\b(\d+(?:[.,]\d+)?)\s*(?:kubikmeter|cbm|m3|m³)\b/i],
-    meter: [/\b(\d+(?:[.,]\d+)?)\s*(?:laufmeter|lfm|meter|m)\b/i],
-    hour: [/\b(\d+(?:[.,]\d+)?)\s*(?:stunde|stunden|std|hour|hours|h)\b/i],
-    day: [/\b(\d+(?:[.,]\d+)?)\s*(?:tag|tage|day|days)\b/i],
+    square_meter: [
+      new RegExp(
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:quadratmeter|qm|m2|m²|sqm)\\b`,
+        "i",
+      ),
+    ],
+    cubic_meter: [
+      new RegExp(
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:kubikmeter|cbm|m3|m³)\\b`,
+        "i",
+      ),
+    ],
+    meter: [
+      new RegExp(
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:laufmeter|lfm|meter|m)\\b`,
+        "i",
+      ),
+    ],
+    hour: [
+      new RegExp(
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:stunde|stunden|std|hour|hours|h)\\b`,
+        "i",
+      ),
+    ],
+    day: [
+      new RegExp(
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:tag|tage|day|days)\\b`,
+        "i",
+      ),
+    ],
   };
 
   for (const pattern of patterns[unitType] || []) {
     const match = source.match(pattern);
-    const parsed = parsePriceNumber(match?.[1]);
+    const parsed = parseQuantityNumber(match?.[1]);
     if (parsed) return parsed;
   }
 
@@ -1838,12 +1911,12 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
       /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\b/gi,
       " ",
     )
-    .replace(new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`, "gi"), " ")
     .replace(
       new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"),
       " ",
     )
-    .replace(/\b(?:pro|je|per|par|à|a)\b\s*[.,;:!?]*$/i, " ")
+    .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?]*$/i, " ")
     .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
     .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
     .replace(/\s+/g, " ")
@@ -2226,9 +2299,9 @@ function findQuantityOnlyUnclearLine(line: string): {
 } | null {
   if (!hasUnclearPriceSignal(line)) return null;
   const quantityMatch = line.match(
-    new RegExp(`\\b(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_WORDS})\\b`, "i"),
+    new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`, "i"),
   );
-  const quantity = parsePriceNumber(quantityMatch?.[1]);
+  const quantity = parseQuantityNumber(quantityMatch?.[1]);
   const unitType = unitTypeFromText(quantityMatch?.[2]);
   if (!quantityMatch || !quantity || !unitType) return null;
   return { quantity, unitType, quantityRaw: quantityMatch[0] };
@@ -2264,7 +2337,10 @@ function splitRawIntakeLines(text?: string | null): string[] {
 
   const splitQuantityLines = source
     .replace(
-      /\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi,
+      new RegExp(
+        `\\s+(?=${QUANTITY_NUMBER_OR_WORD}\\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\\b)`,
+        "gi",
+      ),
       "\n",
     )
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
@@ -2542,7 +2618,10 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
 
   const quantitySplitLines = source
     .replace(
-      /\s+(?=\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\b)/gi,
+      new RegExp(
+        `\\s+(?=${QUANTITY_NUMBER_OR_WORD}\\s*(?:m2|m²|qm|quadratmeter|m3|m³|cbm|stunden?|std\\.?|h|tage?|meter|laufmeter|lfm|stück|stueck|stk|kg|kilogramm|tonnen?|liter|ltr\\.?|piece|pieces|pi[eè]ces?|vitres?|fenetres?|windows?)\\b)`,
+        "gi",
+      ),
       "\n",
     )
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
@@ -2559,7 +2638,7 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
       return false;
 
     const hasQuantityWithUnit = new RegExp(
-      `\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`,
+      `\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`,
       "i",
     ).test(line);
     const hasFlatSignal =
@@ -2872,7 +2951,7 @@ function cleanExplicitServiceNameFromLine(
       /\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/gi,
       " ",
     )
-    .replace(new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "gi"), " ")
+    .replace(new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`, "gi"), " ")
     .replace(
       new RegExp(`\\b(?:${CURRENCY_WORDS})\\s*\\d+(?:[.,]\\d{1,2})?\\b`, "gi"),
       " ",
@@ -2886,7 +2965,7 @@ function cleanExplicitServiceNameFromLine(
       " ",
     )
     .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
-    .replace(/\b(?:pro|je|per|par|à|a)\b\s*[.,;:!?]*$/i, " ")
+    .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?]*$/i, " ")
     .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
     .replace(/[.,;:!?]+$/g, " ")
     // Remove unit prefixes that may remain in the visible service name.
@@ -3094,12 +3173,12 @@ function extractExplicitServiceLineItems(
 
   for (const line of lines) {
     const quantityMatch = line.match(
-      new RegExp(`\\b(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_WORDS})\\b`, "i"),
+      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`, "i"),
     );
     const unitPrice = findExplicitUnitPriceInLine(line, fallbackCurrency);
     const flatPrice = findExplicitFlatPriceInLine(line, fallbackCurrency);
     const measuredQuantity = quantityMatch
-      ? parsePriceNumber(quantityMatch[1]) || 0
+      ? parseQuantityNumber(quantityMatch[1]) || 0
       : 0;
     const measuredUnitType = quantityMatch
       ? unitTypeFromText(quantityMatch[2])
@@ -3142,7 +3221,7 @@ function extractExplicitServiceLineItems(
 
     if (quantityMatch && unitPrice) {
       const workerHourQuantity = detectWorkerHourQuantityInLine(line);
-      const quantity = workerHourQuantity?.quantity || parsePriceNumber(quantityMatch[1]) || 0;
+      const quantity = workerHourQuantity?.quantity || parseQuantityNumber(quantityMatch[1]) || 0;
       const quantityUnitType = workerHourQuantity ? "hour" : unitTypeFromText(quantityMatch[2]);
       const unitType = quantityUnitType || unitPrice.unitType;
       if (!quantity || !unitType) continue;
@@ -3586,7 +3665,7 @@ function addMissingStandaloneFlatLineItems(
     if (!flatPrice || flatPrice.currency !== fallbackCurrency) continue;
 
     // A measured unit-price row is not a flat cost row.
-    if (new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*(${UNIT_WORDS})\\b`, "i").test(line)) {
+    if (new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*(${UNIT_WORDS})\\b`, "i").test(line)) {
       continue;
     }
 
@@ -3649,14 +3728,14 @@ function extractLooseExplicitServiceLineItems(
     const workerHour = detectWorkerHourQuantityInLine(line);
     const quantityMatch = line.match(
       new RegExp(
-        `\\b(?:ca\\.?|circa|ungefähr|ungefaehr|ungefahr|etwa|approximately|approx\\.?|about)?\\s*(\\d+(?:[.,]\\d+)?)\\s*(${UNIT_WORDS})\\b`,
+        `\\b(?:ca\\.?|circa|ungefähr|ungefaehr|ungefahr|etwa|approximately|approx\\.?|about)?\\s*(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`,
         "i",
       ),
     );
     const unitPrice = findExplicitUnitPriceInLine(line, fallbackCurrency);
 
     if ((workerHour || quantityMatch) && unitPrice && unitPrice.currency === fallbackCurrency) {
-      const quantity = workerHour?.quantity || parsePriceNumber(quantityMatch?.[1]) || 0;
+      const quantity = workerHour?.quantity || parseQuantityNumber(quantityMatch?.[1]) || 0;
       const unitType = workerHour ? "hour" : unitTypeFromText(quantityMatch?.[2]);
       if (quantity > 0 && unitType) {
         const serviceName = resolveExplicitServiceNameFromContext(
@@ -3690,7 +3769,7 @@ function extractLooseExplicitServiceLineItems(
     const flatPrice = findExplicitFlatPriceInLine(line, fallbackCurrency);
     const hasFlatSignal = /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(lineKey);
     if (flatPrice && flatPrice.currency === fallbackCurrency && (hasFlatSignal || isLikelyStandaloneFlatServiceLine(line))) {
-      if (new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*(${UNIT_WORDS})\\b`, "i").test(line) && !hasFlatSignal) {
+      if (new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*(${UNIT_WORDS})\\b`, "i").test(line) && !hasFlatSignal) {
         continue;
       }
 
@@ -4141,7 +4220,7 @@ function hasExplicitServiceLineForName(
       extractUnitPricesFromSegment(line).length > 0 ||
       findExplicitUnitPriceInLine(line, "CHF") ||
       findExplicitFlatPriceInLine(line, "CHF") ||
-      new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(line);
+      new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`, "i").test(line);
 
     if (!hasPriceOrQuantity) return false;
 
@@ -4242,6 +4321,171 @@ function applyHardExplicitItemConsistencyGuard(
   };
 }
 
+
+function extractExplicitMeasuredHourLineItems(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  return extractExplicitServiceLineItems(originalText, finalCurrency).filter(
+    (item) =>
+      item.detectedCurrency === finalCurrency &&
+      unitTypeFromDisplayUnit(item.unit) === "hour" &&
+      Number(item.quantity || 0) > 0 &&
+      Number(item.unitPrice || 0) > 0 &&
+      !isPriceAnchorOnlyServiceName(item.serviceName) &&
+      normalizeCompare(item.serviceName) !== "unbekannte leistung",
+  );
+}
+
+function explicitHourLineMatchesItem(
+  item: ParsedOrderItemForValidation,
+  explicit: ExplicitServiceLineItem,
+): boolean {
+  const itemText = normalizeCompare(
+    [item.sourceText, item.evidence, item.description, item.serviceName]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const explicitText = normalizeCompare(
+    [explicit.sourceText, explicit.evidence, explicit.description, explicit.serviceName]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  const itemSourceOnly = normalizeCompare(
+    [item.sourceText, item.evidence, item.description].filter(Boolean).join(" "),
+  );
+  const explicitSourceOnly = normalizeCompare(
+    [explicit.sourceText, explicit.evidence, explicit.description]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  const sourceMatches = Boolean(
+    itemSourceOnly &&
+      explicitSourceOnly &&
+      (itemSourceOnly.includes(explicitSourceOnly) ||
+        explicitSourceOnly.includes(itemSourceOnly)),
+  );
+
+  const sameUnit =
+    unitTypeFromDisplayUnit(item.unit) === unitTypeFromDisplayUnit(explicit.unit);
+  const sameQuantity =
+    Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) < 0.001;
+  const samePrice =
+    Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) < 0.01;
+
+  const itemTopic = weakServiceTopic(itemText);
+  const explicitTopic = weakServiceTopic(explicitText);
+  const sameTopic = Boolean(itemTopic && explicitTopic && itemTopic === explicitTopic);
+  const sameDomain = sameServiceDomain(item, explicit);
+
+  if (sameUnit && sameQuantity && samePrice && (sourceMatches || sameTopic || sameDomain)) {
+    return true;
+  }
+
+  // Wichtig für den Live-Fehler: Die KI kann aus derselben Textzeile eine
+  // Katalogleistung mit falscher Einheit (z. B. m2) erzeugen. Wenn die originale
+  // Kundentext-Zeile ausdrücklich Stunden + Stundenpreis enthält, muss diese
+  // Zeile die Katalogeinheit übersteuern, statt als zweite Position daneben zu
+  // bleiben oder auf 0 gesetzt zu werden.
+  if (sourceMatches && (sameTopic || sameDomain)) {
+    return true;
+  }
+
+  return false;
+}
+
+
+function removeCatalogUnitItemsCoveredByExplicitHours(
+  items: ParsedOrderItemForValidation[],
+  explicitHours: ExplicitServiceLineItem[],
+): ParsedOrderItemForValidation[] {
+  if (items.length <= 1 || explicitHours.length === 0) return items;
+
+  return items.filter((item) => {
+    if (unitTypeFromDisplayUnit(item.unit) === "hour") return true;
+
+    return !explicitHours.some((explicit) =>
+      explicitHourLineMatchesItem(item, explicit),
+    );
+  });
+}
+
+function enforceExplicitMeasuredHourLineItems(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const explicitHours = extractExplicitMeasuredHourLineItems(
+    originalText,
+    finalCurrency,
+  );
+
+  if (explicitHours.length === 0) {
+    return { items, reviewReasons: [] };
+  }
+
+  const reviewReasons: string[] = [];
+  let nextItems = [...items];
+
+  for (const explicit of explicitHours) {
+    const explicitItem: ExplicitServiceLineItem = {
+      ...explicit,
+      sourceText: explicit.sourceText,
+      unit: "Stunde",
+      quantity: Number(explicit.quantity || 0),
+      unitPrice: Number(explicit.unitPrice || 0),
+      totalPrice: calculateSafeLineTotal({
+        ...explicit,
+        unit: "Stunde",
+      }),
+      needsReview: Boolean(explicit.needsReview),
+      reviewReason: explicit.reviewReason || null,
+    };
+
+    const existingIndex = nextItems.findIndex((item) =>
+      explicitHourLineMatchesItem(item, explicitItem),
+    );
+
+    if (existingIndex >= 0) {
+      const before = nextItems[existingIndex];
+      const wasDifferent =
+        unitTypeFromDisplayUnit(before.unit) !== "hour" ||
+        Math.abs(Number(before.quantity || 0) - explicitItem.quantity) >= 0.001 ||
+        Math.abs(Number(before.unitPrice || 0) - explicitItem.unitPrice) >= 0.01;
+
+      nextItems[existingIndex] = preferExplicitSafeItem(before, explicitItem);
+
+      if (wasDifferent) {
+        reviewReasons.push(
+          `explicit_hour_item_repaired_from_text:${explicitItem.serviceName}`,
+        );
+      }
+      continue;
+    }
+
+    nextItems.push(explicitItem);
+    reviewReasons.push(
+      `explicit_hour_item_added_from_text:${explicitItem.serviceName}`,
+    );
+  }
+
+  nextItems = removeCatalogUnitItemsCoveredByExplicitHours(
+    nextItems,
+    explicitHours,
+  );
+  nextItems = removeUnsafeExplicitDuplicates(nextItems);
+  nextItems = removeUnpricedDuplicateServiceArtifacts(nextItems);
+  nextItems = dedupeUnsafeDuplicateItems(nextItems);
+  nextItems = removeZeroReviewItemsCoveredByPricedItems(nextItems);
+
+  return {
+    items: nextItems,
+    reviewReasons: unique(reviewReasons),
+  };
+}
+
 export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
@@ -4313,7 +4557,7 @@ export function validateAndRepairParsedOrderItems(
       explicitFlatPrice.currency === finalCurrency &&
       !(
         !isFlatUnit(next.unit) &&
-        new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT_WORDS}\\b`, "i").test(
+        new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`, "i").test(
           [next.sourceText, next.evidence, next.description]
             .filter(Boolean)
             .join(" "),
@@ -4507,7 +4751,15 @@ export function validateAndRepairParsedOrderItems(
   items = removeUnpricedDuplicateServiceArtifacts(items);
   items = dedupeUnsafeDuplicateItems(items);
   items = removeZeroReviewItemsCoveredByPricedItems(items);
+
+  const explicitHourGuard = enforceExplicitMeasuredHourLineItems(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
+  items = explicitHourGuard.items;
   reviewReasons.push(...hardExplicitGuard.reviewReasons);
+  reviewReasons.push(...explicitHourGuard.reviewReasons);
 
   const priceUnclearServiceNames = new Set(
     items
@@ -4542,8 +4794,18 @@ export function validateAndRepairParsedOrderItems(
     .filter(
       (reason) =>
         !reason.startsWith("item_repaired_from_same_text_line:") &&
-        !reason.startsWith("item_added_from_same_text_line:"),
+        !reason.startsWith("item_added_from_same_text_line:") &&
+        !reason.startsWith("explicit_hour_item_repaired_from_text:") &&
+        !reason.startsWith("explicit_hour_item_added_from_text:"),
     )
+    .filter((reason) => {
+      if (!reason.startsWith("price_repaired_from_text:")) return true;
+      return !hasResolvedCompleteItemForReason(items, reason);
+    })
+    .filter((reason) => {
+      if (!reason.startsWith("unit_mismatch:")) return true;
+      return !hasResolvedCompleteItemForReason(items, reason);
+    })
     .filter((reason) => {
       if (!reason.startsWith("unit_mismatch:")) return true;
       const [, serviceName] = reason.split(":");
