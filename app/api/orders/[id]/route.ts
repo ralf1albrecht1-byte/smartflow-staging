@@ -254,15 +254,25 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
     const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
     const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
     const sourcePrice = extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
-    const unitPrice =
+    let unitPrice =
       sourcePrice && shouldTrustSourcePriceForItem(item, data)
         ? sourcePrice
         : Number(item?.unitPrice ?? 0);
-    const quantity = Number(item?.quantity ?? 1);
+    let quantity = Number(item?.quantity ?? 1);
+    let unit = item?.unit;
+
+    if (serviceName === "Anfahrt") {
+      unit = "Pauschal";
+      quantity = 1;
+      if (sourcePrice && sourcePrice > 0) {
+        unitPrice = sourcePrice;
+      }
+    }
 
     return {
       ...item,
       serviceName,
+      unit,
       unitPrice,
       quantity,
       totalPrice: unitPrice * quantity,

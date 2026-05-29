@@ -2354,7 +2354,7 @@ const formatServiceReviewItemLine = (
     ? formatCurrency(unitPrice, safeCurrency)
     : "Preis prüfen";
 
-  return `• ${compactText(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
+  return `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
 };
 
 const formatServiceReviewSummaryTooltip = (input: {
@@ -2371,11 +2371,20 @@ const formatServiceReviewSummaryTooltip = (input: {
     new Set((input.unitConflictServices || []).map(compactText).filter(Boolean)),
   );
   if (unitServices.length > 0) {
-    sections.push([
-      "Einheit abweichend",
-      ...unitServices.slice(0, 6).map((service) => `• ${service}`),
-      unitServices.length > 6 ? `+${unitServices.length - 6} weitere` : "",
-    ].filter(Boolean).join("\n"));
+    const lines = ["Einheit abweichend"];
+    unitServices.slice(0, 6).forEach((service) => {
+      const parts = service.split(":").map(compactText).filter(Boolean);
+      const serviceName = canonicalServiceNameForOrderItem(parts[0] || service);
+      const textUnit = parts[1] ? formatReviewUnitLabel(parts[1]) : "";
+      const catalogUnit = parts[2] ? formatReviewUnitLabel(parts[2]) : "";
+      lines.push(`• ${serviceName || "Leistung"}`);
+      if (textUnit || catalogUnit) {
+        lines.push(`  Kundentext: ${textUnit || "prüfen"}`);
+        lines.push(`  Katalog: ${catalogUnit || "prüfen"}`);
+      }
+    });
+    if (unitServices.length > 6) lines.push(`+${unitServices.length - 6} weitere`);
+    sections.push(lines.join("\n"));
   }
 
   const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter((item) =>
@@ -2392,7 +2401,7 @@ const formatServiceReviewSummaryTooltip = (input: {
       const catalogLabel = catalog
         ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
         : "kein Katalogpreis";
-      lines.push(`• ${compactText(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`);
+      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`);
     });
     if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
@@ -2669,7 +2678,29 @@ const getSystemBadges = (
     new Set(
       (order.reviewReasons ?? [])
         .filter((reason) => reason.startsWith("unit_mismatch:"))
-        .map((reason) => compactText(reason.split(":").slice(1).join(":")))
+        .map((reason) => {
+          const parts = reason.split(":").slice(1).map(compactText).filter(Boolean);
+          const rawService = parts[0] || "";
+          const serviceName = canonicalServiceNameForOrderItem(rawService);
+          if (!serviceName) return "";
+
+          const matchingItem = (order.items || []).find(
+            (item) =>
+              normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
+              normalizeForMatch(serviceName),
+          );
+          const catalog = findCatalogServiceForName(services, serviceName);
+          const itemUnit = matchingItem?.unit || parts[1] || "";
+          const catalogUnit = catalog?.unit || parts[2] || "";
+
+          const itemUnitKey = normalizePriceUnitForCompare(itemUnit);
+          const catalogUnitKey = normalizePriceUnitForCompare(catalogUnit);
+          if (itemUnitKey && catalogUnitKey && itemUnitKey === catalogUnitKey) {
+            return "";
+          }
+
+          return [serviceName, itemUnit || "Einheit prüfen", catalogUnit || "Katalog prüfen"].join(":");
+        })
         .filter(Boolean),
     ),
   );

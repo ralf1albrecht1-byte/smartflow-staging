@@ -13,6 +13,15 @@ type FlatFeeRepairCandidate = {
   key: string;
 };
 
+type MissingPriceRepairCandidate = {
+  raw: string;
+  serviceName: string;
+  quantity: number;
+  unit: string;
+  topic: string | null;
+  key: string;
+};
+
 export type HourLineRepairItem = {
   id?: string | null;
   serviceName?: string | null;
@@ -557,6 +566,73 @@ function buildFlatFeeRepairCandidates(originalText: string): FlatFeeRepairCandid
     .filter((candidate) => Boolean(candidate.price && candidate.price > 0)) as FlatFeeRepairCandidate[];
 }
 
+function buildMissingPriceRepairCandidates(originalText: string): MissingPriceRepairCandidate[] {
+  const missingPricePattern =
+    /\b(?:preis\s+(?:fehlt|offen|noch\s+offen|unbekannt|nachtragen|klaeren|klären)|betrag\s+(?:fehlt|offen|unbekannt)|ohne\s+preis|noch\s+kein\s+preis|price\s+(?:missing|open|unknown|tbd)|no\s+price|prix\s+(?:manquant|ouvert|inconnu)|sans\s+prix)\b/i;
+
+  return stripAutomaticTranslationBlock(originalText)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line))
+    .filter((line) => missingPricePattern.test(line))
+    .map((line) => {
+      const topic = hourRepairServiceTopic(line);
+      const quantity = detectHourRepairQuantityInLine(line) || 1;
+      const unit = detectHourRepairQuantityInLine(line) ? "Stunde" : "Pauschal";
+      return {
+        raw: line,
+        serviceName: cleanServiceNameFromMissingPriceLine(line),
+        quantity,
+        unit,
+        topic,
+        key: normalizeHourRepairText(line),
+      };
+    })
+    // Known catalog-like lines may legitimately use the catalog price.
+    // Non-catalog explicit missing-price lines must stay red.
+    .filter((candidate) => !candidate.topic)
+    .filter((candidate) => compactMissingPriceServiceName(candidate.serviceName).length >= 3);
+}
+
+function compactMissingPriceServiceName(value?: string | null): string {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function cleanServiceNameFromMissingPriceLine(line: string): string {
+  let raw = String(line || "")
+    .replace(/\b(?:preis\s+(?:fehlt|offen|noch\s+offen|unbekannt|nachtragen|klaeren|klären)|betrag\s+(?:fehlt|offen|unbekannt)|ohne\s+preis|noch\s+kein\s+preis|price\s+(?:missing|open|unknown|tbd)|no\s+price|prix\s+(?:manquant|ouvert|inconnu)|sans\s+prix)\b.*$/i, " ")
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:stunden?|std\.?|h|hours?|heures?|heure|horas?|ora|ore)\b/gi, " ")
+    .replace(/\b(?:eine?n?\s+halbe|halbe|dreiviertel|drei\s+viertel|three\s+quarters?|trois\s+quarts?|quarter|viertel)\s*(?:stunde|stunden|std\.?|h|hour|hours|heure|heures)?\b/gi, " ")
+    .replace(/[:;,.-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const key = normalizeHourRepairText(raw);
+  if (/archive\s+room|archivraum|\barchiv\b/.test(key)) return "Archivraum reinigen";
+  if (/glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)) return "Glastür reinigen";
+  if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) return "Technikraum reinigen";
+  if (/meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) return "Besprechungsbereich reinigen";
+  if (/kontrollgang/.test(key)) return "Kontrollgang reinigen";
+  if (/gangbereich|corridor|couloir|flur/.test(key)) return "Gangbereich reinigen";
+
+  return raw || "Leistung prüfen";
+}
+
+function hasExistingMissingPriceRepresentation(
+  candidate: MissingPriceRepairCandidate,
+  items: HourLineRepairItem[],
+): boolean {
+  const candidateService = normalizeHourRepairText(candidate.serviceName);
+  return items.some((item) => {
+    const itemService = normalizeHourRepairText(item.serviceName || item.description || "");
+    if (!itemService || !candidateService) return false;
+    return itemService.includes(candidateService) || candidateService.includes(itemService);
+  });
+}
+
 function hasExistingFlatFeeRepresentation(
   candidate: FlatFeeRepairCandidate,
   items: HourLineRepairItem[],
@@ -575,6 +651,46 @@ function hasExistingFlatFeeRepresentation(
       (Math.abs(itemTotal - candidate.price) < 0.01 || itemQuantity === 1)
     );
   });
+}
+
+function chooseFlatFeeRepairCandidateForItem(
+  item: HourLineRepairItem,
+  candidates: FlatFeeRepairCandidate[],
+): FlatFeeRepairCandidate | null {
+  if (!candidates.length) return null;
+
+  const itemText = [item.serviceName, item.description, item.sourceText, item.evidence]
+    .filter(Boolean)
+    .join(" ");
+  if (hourRepairServiceTopic(itemText) !== "anfahrt") return null;
+
+  const itemPrice = normalizeHourRepairNumber(item.unitPrice);
+  const samePrice = candidates.find((candidate) => Math.abs(candidate.price - itemPrice) < 0.01);
+  if (samePrice) return samePrice;
+
+  const itemKey = normalizeHourRepairText(itemText);
+  const direct = candidates.find((candidate) =>
+    itemKey.includes(candidate.key) || candidate.key.includes(itemKey),
+  );
+  if (direct) return direct;
+
+  return candidates[0] || null;
+}
+
+function needsFlatFeeRepair(item: HourLineRepairItem, candidate: FlatFeeRepairCandidate): boolean {
+  const serviceName = normalizeHourRepairText(item.serviceName || "");
+  const unit = normalizeHourRepairText(item.unit || "").replace(/[^a-z0-9]/g, "");
+  const quantity = normalizeHourRepairNumber(item.quantity);
+  const unitPrice = normalizeHourRepairNumber(item.unitPrice);
+  const totalPrice = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
+
+  return (
+    serviceName !== "anfahrt" ||
+    unit !== "pauschal" ||
+    Math.abs(quantity - 1) >= 0.001 ||
+    Math.abs(unitPrice - candidate.price) >= 0.01 ||
+    Math.abs(totalPrice - candidate.price) >= 0.01
+  );
 }
 
 function buildMissingFlatFeeItems<T extends HourLineRepairItem>(
@@ -597,6 +713,26 @@ function buildMissingFlatFeeItems<T extends HourLineRepairItem>(
     }) as unknown as T);
 }
 
+function buildMissingPriceReviewItems<T extends HourLineRepairItem>(
+  sourceItems: T[],
+  candidates: MissingPriceRepairCandidate[],
+): T[] {
+  return candidates
+    .filter((candidate) => !hasExistingMissingPriceRepresentation(candidate, sourceItems))
+    .map((candidate) => ({
+      serviceName: candidate.serviceName,
+      description: candidate.raw,
+      quantity: candidate.quantity,
+      unit: candidate.unit,
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: "unit_price_review",
+      sourceText: candidate.raw,
+      evidence: candidate.raw,
+    }) as unknown as T);
+}
+
 export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem>(
   items: T[] | undefined | null,
   originalText: string,
@@ -605,12 +741,14 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
   const sourceItems = Array.isArray(items) ? items : [];
   const candidates = buildHourLineRepairCandidates(originalText);
   const flatFeeCandidates = buildFlatFeeRepairCandidates(originalText);
+  const missingPriceCandidates = buildMissingPriceRepairCandidates(originalText);
   const repairableRowsBefore = sourceItems.filter((item) =>
     isRepairableHourRepairRow(item, candidates),
   );
   const missingItems = [
     ...buildMissingHourLineItems(sourceItems, candidates),
     ...buildMissingFlatFeeItems(sourceItems, flatFeeCandidates),
+    ...buildMissingPriceReviewItems(sourceItems, missingPriceCandidates),
   ];
 
   if (options?.logPrefix) {
@@ -627,7 +765,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
       .map((item) => hourRepairItemDebugSummary(item))
       .join(" | ");
     console.info(
-      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${repairableRowsBefore.length} missingRows=${missingItems.length} hourCandidates=${candidates.length} flatFeeCandidates=${flatFeeCandidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
+      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${repairableRowsBefore.length} missingRows=${missingItems.length} hourCandidates=${candidates.length} flatFeeCandidates=${flatFeeCandidates.length} missingPriceCandidates=${missingPriceCandidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
     );
   }
 
@@ -643,7 +781,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     };
   }
 
-  if (candidates.length === 0 && missingItems.length === 0) {
+  if (candidates.length === 0 && flatFeeCandidates.length === 0 && missingPriceCandidates.length === 0 && missingItems.length === 0) {
     if (options?.logPrefix) {
       console.info(
         `${options.logPrefix} done repaired=0 created=0 remainingZeroHourRows=${repairableRowsBefore.length}`,
@@ -659,6 +797,25 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
 
   let repairedCount = 0;
   const repairedItems = sourceItems.map((item) => {
+    const flatFeeCandidate = chooseFlatFeeRepairCandidateForItem(item, flatFeeCandidates);
+    if (flatFeeCandidate && needsFlatFeeRepair(item, flatFeeCandidate)) {
+      repairedCount += 1;
+      if (options?.logPrefix) {
+        console.info(`${options.logPrefix} repaired flat fee service=${item.serviceName || "?"} price=${flatFeeCandidate.price} line=${flatFeeCandidate.raw}`);
+      }
+      return {
+        ...item,
+        serviceName: "Anfahrt",
+        quantity: 1,
+        unit: "Pauschal",
+        unitPrice: flatFeeCandidate.price,
+        totalPrice: roundHourRepairMoney(flatFeeCandidate.price),
+        description: flatFeeCandidate.raw,
+        sourceText: flatFeeCandidate.raw,
+        evidence: flatFeeCandidate.raw,
+      } as T;
+    }
+
     if (!isRepairableHourRepairRow(item, candidates)) return item;
     const currentPrice = Number(item.unitPrice || 0);
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) return item;
@@ -694,6 +851,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
   const createdItems = [
     ...buildMissingHourLineItems(repairedItems, candidates),
     ...buildMissingFlatFeeItems(repairedItems, flatFeeCandidates),
+    ...buildMissingPriceReviewItems(repairedItems, missingPriceCandidates),
   ];
   const finalItems = [...repairedItems, ...createdItems];
 
@@ -767,7 +925,10 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
         if (!before?.id) return false;
         return (
           Number(before.quantity || 0) !== Number(after.quantity || 0) ||
+          Number(before.unitPrice || 0) !== Number(after.unitPrice || 0) ||
           Number(before.totalPrice || 0) !== Number(after.totalPrice || 0) ||
+          String(before.unit || "") !== String(after.unit || "") ||
+          String(before.serviceName || "") !== String(after.serviceName || "") ||
           String(before.description || "") !== String(after.description || "")
         );
       });
@@ -798,6 +959,7 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
           update: updates.map(({ before, after }: any) => ({
             where: { id: before.id },
             data: {
+              serviceName: String(after.serviceName || before.serviceName || "Leistung"),
               quantity: Number(after.quantity || 0),
               unit: String(after.unit || before.unit || "Stunde"),
               unitPrice: Number(after.unitPrice ?? before.unitPrice ?? 0),
