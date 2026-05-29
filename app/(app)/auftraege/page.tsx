@@ -1977,6 +1977,7 @@ const AMOUNT_REVIEW_BADGE_KEYS = new Set([
   "price_deviation",
   "catalog_missing",
   "catalog_review_combined",
+  "service_review_summary",
 ]);
 
 const PRICE_AMOUNT_REVIEW_BADGE_KEYS = new Set([
@@ -2377,10 +2378,10 @@ const formatServiceReviewSummaryTooltip = (input: {
       const serviceName = canonicalServiceNameForOrderItem(parts[0] || service);
       const textUnit = parts[1] ? formatReviewUnitLabel(parts[1]) : "";
       const catalogUnit = parts[2] ? formatReviewUnitLabel(parts[2]) : "";
-      lines.push(`• ${serviceName || "Leistung"}`);
       if (textUnit || catalogUnit) {
-        lines.push(`  Kundentext: ${textUnit || "prüfen"}`);
-        lines.push(`  Katalog: ${catalogUnit || "prüfen"}`);
+        lines.push(`• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}`);
+      } else {
+        lines.push(`• ${serviceName || "Leistung"}`);
       }
     });
     if (unitServices.length > 6) lines.push(`+${unitServices.length - 6} weitere`);
@@ -2391,7 +2392,7 @@ const formatServiceReviewSummaryTooltip = (input: {
     compactText(item.serviceName),
   );
   if (priceItems.length > 0) {
-    const lines = ["Preis abweichend"];
+    const lines = ["Preis abweichend · Preis aus Text übernommen"];
     priceItems.slice(0, 6).forEach((item) => {
       const catalog = findCatalogServiceForName(input.services, item.serviceName);
       const itemPrice = Number(item.unitPrice || 0);

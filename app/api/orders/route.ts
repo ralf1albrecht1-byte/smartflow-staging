@@ -328,6 +328,28 @@ function sourceLineContainsNumber(line: string, value: unknown) {
   return new RegExp(`(^|[^0-9])${label}([^0-9]|$)`).test(line);
 }
 
+function hasSourceLineSpecificIntentConflict(line: string, serviceName?: string | null) {
+  const lineKey = normalizeSearchText(line);
+  const serviceKey = normalizeSearchText(normalizeServiceNameForDisplay(serviceName));
+  if (!lineKey || !serviceKey) return false;
+
+  const itemIsWindow = /fenster|window|vitrin|vitre|fenetre|ventan|glastuer|glastur|glass door/.test(serviceKey);
+  const lineIsWindow = /fenster|window|vitrin|vitre|fenetre|ventan|glastuer|glastur|glass door/.test(lineKey);
+  if (lineIsWindow && !itemIsWindow) return true;
+
+  const itemIsTravel = /anfahrt|fahrt|travel|trip|transport|deplacement|reisepauschale/.test(serviceKey);
+  const lineIsTravel = /anfahrt|fahrt|travel|trip|transport|deplacement|reisepauschale/.test(lineKey);
+  if (lineIsTravel && !itemIsTravel) return true;
+
+  return false;
+}
+
+function hasExplicitMissingPriceHint(value?: string | null) {
+  return /preis\s*(?:fehlt|offen|unklar|nachtragen)|betrag\s*(?:fehlt|offen|unklar|nachtragen)|ohne\s+preis|kein\s+preis|noch\s+kein\s+preis|price\s*(?:missing|open|unknown|tbd)/i.test(
+    String(value || ""),
+  );
+}
+
 function findSourceLineForItem(source: string, item: any) {
   const tokens = serviceIntentTokens(item?.serviceName);
   if (!source || tokens.length === 0) return "";
@@ -345,6 +367,7 @@ function findSourceLineForItem(source: string, item: any) {
     if (/^\s*\[?\s*(?:titel|title)\s*:/i.test(line)) continue;
     const normalized = normalizeSearchText(line);
     if (!normalized) continue;
+    if (hasSourceLineSpecificIntentConflict(line, item?.serviceName)) continue;
     const hits = tokens.filter((token) => normalized.includes(token)).length;
     if (hits === 0) continue;
 
@@ -437,8 +460,18 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
     const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
     const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
     const sourcePrice = extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
-    let unitPrice =
-      sourcePrice && shouldTrustSourcePriceForItem(item, data)
+    const reviewText = [
+      item?.description,
+      ...(Array.isArray(data?.reviewReasons) ? data.reviewReasons : []),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const forceMissingPriceReview =
+      !sourcePrice &&
+      /preis\s+im\s+text\s+unklar|price_unclear|unit_price_review/i.test(reviewText);
+    let unitPrice = forceMissingPriceReview
+      ? 0
+      : sourcePrice && shouldTrustSourcePriceForItem(item, data)
         ? sourcePrice
         : Number(item?.unitPrice ?? 0);
     let quantity = Number(item?.quantity ?? 1);
