@@ -3475,6 +3475,47 @@ function detectExplicitIntakeMeasuredPriceInLine(line?: string | null): number |
   return null;
 }
 
+function intakeSemanticServiceTopicFromText(value?: string | null): string | null {
+  const source = normalizeUnitText(value || "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!source) return null;
+
+  const canonical = canonicalGermanServiceNameFromText(source);
+  const canonicalKey = normalizeUnitText(canonical || "");
+
+  if (/\bboden\b/.test(canonicalKey)) return "boden_reinigen";
+  if (/\bfenster\b/.test(canonicalKey)) return "fenster_reinigen";
+  if (/\banfahrt\b/.test(canonicalKey)) return "anfahrt";
+
+  const hasCleaningIntent =
+    /reinig|putz|putze|saeuber|clean|nettoyage|nettoyer|pulizia|limpieza|limpeza|wisch|aufnehmen/.test(source);
+
+  if (
+    (/\bboden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b|\bchao\b|\bhallenboden\b|\bkellerboden\b|\blagerboden\b/.test(source) ||
+      /bodenreinigung|floor cleaning|nettoyage du sol|nettoyage sol|limpieza suelo|pulizia pavimento/.test(source)) &&
+    hasCleaningIntent
+  ) {
+    return "boden_reinigen";
+  }
+
+  if (/fenster|fensterli|vitrin|vitre|window|fenetre|finestr|ventan/.test(source)) {
+    return "fenster_reinigen";
+  }
+
+  if (/\bteppich\b|carpet|moquette/.test(source) && hasCleaningIntent) {
+    return "teppich_reinigen";
+  }
+
+  if (/\banfahrt\b|\bfahrtkosten\b|\bfahrkosten\b|\bfahrpauschale\b|\bwegpauschale\b|\bdeplacement\b|\btravel\b|\btrip\b/.test(source)) {
+    return "anfahrt";
+  }
+
+  return null;
+}
+
 function lineMatchesIntakeServiceTopic(
   serviceName?: string | null,
   line?: string | null,
@@ -3482,6 +3523,10 @@ function lineMatchesIntakeServiceTopic(
   const service = normalizeUnitText(serviceName || "");
   const source = normalizeUnitText(line || "");
   if (!service || !source) return false;
+
+  const serviceTopic = intakeSemanticServiceTopicFromText(service);
+  const sourceTopic = intakeSemanticServiceTopicFromText(source);
+  if (serviceTopic && sourceTopic && serviceTopic === sourceTopic) return true;
 
   const generic = new Set([
     "reinigen",
@@ -3544,6 +3589,14 @@ function repairExplicitHourQuantitiesFromOriginalText(
     const serviceKey = normalizeUnitText(serviceName);
     const canonicalLineKey = normalizeUnitText(canonicalLineService || "");
 
+    const itemTopic = intakeSemanticServiceTopicFromText(
+      [serviceName, item.description, item.sourceText, item.evidence]
+        .filter(Boolean)
+        .join(" "),
+    );
+    const lineTopic = intakeSemanticServiceTopicFromText(lineText);
+
+    if (itemTopic && lineTopic && itemTopic === lineTopic) score += 220;
     if (canonicalLineKey && serviceKey && canonicalLineKey === serviceKey) score += 140;
     if (lineMatchesIntakeServiceTopic(serviceName, lineText)) score += 80;
     if (lineMatchesIntakeServiceTopic(item.description, lineText)) score += 40;
@@ -3676,6 +3729,14 @@ function findExplicitHourLineRepairForMappedItem(
     const canonicalLineKey = normalizeUnitText(canonicalLineService || "");
     const serviceKey = normalizeUnitText(item.serviceName || "");
 
+    const itemTopic = intakeSemanticServiceTopicFromText(
+      [item.serviceName, item.description, item.sourceText, item.evidence]
+        .filter(Boolean)
+        .join(" "),
+    );
+    const lineTopic = intakeSemanticServiceTopicFromText(line.raw);
+
+    if (itemTopic && lineTopic && itemTopic === lineTopic) score += 240;
     if (canonicalLineKey && serviceKey && canonicalLineKey === serviceKey) score += 160;
     if (lineMatchesIntakeServiceTopic(item.serviceName, line.raw)) score += 120;
     if (lineMatchesIntakeServiceTopic(item.description, line.raw)) score += 60;
@@ -3871,6 +3932,28 @@ function canonicalGermanServiceNameFromText(
     .trim();
 
   if (!normalized) return null;
+
+  const hasFloorIntent =
+    /\b(boden|bode|floor|sol|paviment|suelo|chao)\b|bodenreinigung|floor cleaning|nettoyage du sol|nettoyage sol|limpieza suelo|pulizia pavimento/i.test(
+      normalized,
+    );
+  const hasCleaningIntent =
+    /reinig|putz|putze|saeuber|clean|nettoyage|nettoyer|pulizia|limpieza|limpeza|wisch|aufnehmen/i.test(
+      normalized,
+    );
+
+  if (hasFloorIntent && hasCleaningIntent) {
+    return "Boden reinigen";
+  }
+
+  const hasWindowIntent =
+    /fenster|fensterli|vitrin|vitre|window|fenetre|fenêtre|finestr|ventan/i.test(
+      normalized,
+    );
+
+  if (hasWindowIntent) {
+    return "Fenster reinigen";
+  }
 
   if (
     /\b(anfahrt|fahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)\b/i.test(

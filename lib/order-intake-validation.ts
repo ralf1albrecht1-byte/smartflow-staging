@@ -4840,156 +4840,6 @@ function enforceHardMeasuredLineItemsFromRawText(
   return { items: nextItems, reviewReasons: unique(reviewReasons) };
 }
 
-
-// V16.98: Last-resort explicit hour quantity repair.
-// Purpose: catch live cases where the UI item already has unit+price
-// (for example "Stunde" + CHF 74) but the quantity was reduced to 0 because
-// the item evidence was shortened to "Std. à CHF 74.00". The raw customer line
-// is the source of truth when the same original line contains:
-// - matching service topic/domain,
-// - explicit hour quantity,
-// - same explicit unit price.
-function extractFinalExplicitHourLinesFromRawText(
-  originalText: string,
-  finalCurrency: IntakeCurrency,
-): ExplicitServiceLineItem[] {
-  const lines = normalizeText(originalText)
-    .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
-    .map((line) =>
-      normalizeText(line)
-        .replace(/^\s*(?:[-–—•]+|\d+[)])\s*/, "")
-        .trim(),
-    )
-    .filter(Boolean)
-    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line));
-
-  const result: ExplicitServiceLineItem[] = [];
-  const seen = new Set<string>();
-
-  for (const line of lines) {
-    const explicitHour = detectExplicitHourQuantityInLine(line);
-    if (!explicitHour || Number(explicitHour.quantity || 0) <= 0) continue;
-
-    const unitPrice = findExplicitUnitPriceInLine(line, finalCurrency);
-    if (!unitPrice || unitPrice.currency !== finalCurrency) continue;
-    if (!unitPrice.amount || unitPrice.amount <= 0) continue;
-
-    const serviceName = resolveExplicitServiceNameFromContext(
-      originalText,
-      line,
-      cleanExplicitServiceNameFromLine(line, {
-        quantityRaw: explicitHour.raw,
-        priceRaw: unitPrice.raw,
-      }),
-    );
-
-    if (
-      !serviceName ||
-      isPriceAnchorOnlyServiceName(serviceName) ||
-      normalizeCompare(serviceName) === "unbekannte leistung"
-    ) {
-      continue;
-    }
-
-    const item: ExplicitServiceLineItem = {
-      serviceName,
-      description: line,
-      quantity: roundMoney(Number(explicitHour.quantity || 0)),
-      unit: "Stunde",
-      unitPrice: unitPrice.amount,
-      totalPrice: roundMoney(Number(explicitHour.quantity || 0) * unitPrice.amount),
-      needsReview: false,
-      reviewReason: null,
-      sourceText: line,
-      evidence: line,
-      detectedCurrency: unitPrice.currency,
-    };
-
-    const key = `${normalizeCompare(item.sourceText)}:${item.quantity}:${item.unitPrice}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(item);
-  }
-
-  return result;
-}
-
-function explicitFinalHourLineMatchesBrokenItem(
-  item: ParsedOrderItemForValidation,
-  explicit: ExplicitServiceLineItem,
-): boolean {
-  const itemPrice = Number(item.unitPrice || 0);
-  const itemQuantity = Number(item.quantity || 0);
-
-  if (unitTypeFromDisplayUnit(item.unit) !== "hour") return false;
-  if (!Number.isFinite(itemPrice) || itemPrice <= 0) return false;
-  if (itemQuantity > 0) return false;
-  if (Math.abs(itemPrice - Number(explicit.unitPrice || 0)) >= 0.01) return false;
-
-  const itemText = normalizeCompare(
-    [item.serviceName, item.description, item.sourceText, item.evidence]
-      .filter(Boolean)
-      .join(" "),
-  );
-  const explicitText = normalizeCompare(
-    [explicit.serviceName, explicit.description, explicit.sourceText, explicit.evidence]
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  const itemTopic = weakServiceTopic(itemText);
-  const explicitTopic = weakServiceTopic(explicitText);
-  if (itemTopic && explicitTopic && itemTopic === explicitTopic) return true;
-  if (sameServiceDomain(item, explicit)) return true;
-
-  const itemTokens = meaningfulServiceTokens(item.serviceName);
-  const explicitTokens = meaningfulServiceTokens(explicit.serviceName);
-  return (
-    itemTokens.length > 0 &&
-    explicitTokens.length > 0 &&
-    itemTokens.some((token) => explicitTokens.includes(token) || explicitText.includes(token))
-  );
-}
-
-function repairZeroExplicitHourQuantitiesFinal(
-  originalText: string,
-  items: ParsedOrderItemForValidation[],
-  finalCurrency: IntakeCurrency,
-): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
-  const explicitHours = extractFinalExplicitHourLinesFromRawText(
-    originalText,
-    finalCurrency,
-  );
-
-  if (explicitHours.length === 0) return { items, reviewReasons: [] };
-
-  const reviewReasons: string[] = [];
-  const nextItems = items.map((item) => {
-    const explicit = explicitHours.find((candidate) =>
-      explicitFinalHourLineMatchesBrokenItem(item, candidate),
-    );
-
-    if (!explicit) return item;
-
-    reviewReasons.push(
-      `final_explicit_hour_quantity_repaired:${explicit.serviceName}`,
-    );
-
-    return preferExplicitSafeItem(item, {
-      ...explicit,
-      unit: "Stunde",
-      totalPrice: calculateSafeLineTotal({ ...explicit, unit: "Stunde" }),
-      needsReview: false,
-      reviewReason: null,
-    });
-  });
-
-  return {
-    items: nextItems,
-    reviewReasons: unique(reviewReasons),
-  };
-}
-
 export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
@@ -5270,17 +5120,9 @@ export function validateAndRepairParsedOrderItems(
   );
   items = hardMeasuredLineGuard.items;
 
-  const finalExplicitHourQuantityGuard = repairZeroExplicitHourQuantitiesFinal(
-    input.originalText,
-    items,
-    finalCurrency,
-  );
-  items = finalExplicitHourQuantityGuard.items;
-
   reviewReasons.push(...hardExplicitGuard.reviewReasons);
   reviewReasons.push(...explicitHourGuard.reviewReasons);
   reviewReasons.push(...hardMeasuredLineGuard.reviewReasons);
-  reviewReasons.push(...finalExplicitHourQuantityGuard.reviewReasons);
 
   const priceUnclearServiceNames = new Set(
     items
@@ -5319,8 +5161,7 @@ export function validateAndRepairParsedOrderItems(
         !reason.startsWith("explicit_hour_item_repaired_from_text:") &&
         !reason.startsWith("explicit_hour_item_added_from_text:") &&
         !reason.startsWith("hard_measured_line_repaired:") &&
-        !reason.startsWith("hard_measured_line_added:") &&
-        !reason.startsWith("final_explicit_hour_quantity_repaired:"),
+        !reason.startsWith("hard_measured_line_added:"),
     )
     .filter((reason) => {
       if (!reason.startsWith("price_repaired_from_text:")) return true;
