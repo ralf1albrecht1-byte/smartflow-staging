@@ -52,7 +52,7 @@ function inferExplicitCurrencyFromPayload(data: any): "CHF" | "EUR" | undefined 
 
   const normalized = normalizeSearchText(source);
   const hasChf = /\bchf\b|\bfranken\b|\bstutz\b|\bsfr\b/.test(normalized);
-  const hasEur = /\beur\b|\beuro\b|€/.test(source);
+  const hasEur = /\beur\b|\beuro\b/.test(normalized) || /€/.test(source);
 
   if (hasChf && !hasEur) return "CHF";
   if (hasEur && !hasChf) return "EUR";
@@ -335,14 +335,46 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
   );
 }
 
+function hasCompleteManualItemsForPersist(data: any): boolean {
+  const items = Array.isArray(data?.items) ? data.items : [];
+  if (items.length === 0) return false;
+
+  return items.every((item: any) => {
+    const unit = normalizeSearchText(item?.unit);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const quantity = Number(item?.quantity ?? 0);
+    return (
+      String(item?.serviceName || "").trim().length > 0 &&
+      unit.length > 0 &&
+      !unit.includes("pruefen") &&
+      !unit.includes("prufen") &&
+      unitPrice > 0 &&
+      quantity > 0
+    );
+  });
+}
+
+function shouldTrustClientItemValuesForPersist(data: any): boolean {
+  return (
+    data?.manualReviewResolved === true ||
+    data?.manualItemValuesConfirmed === true ||
+    hasCompleteManualItemsForPersist(data)
+  );
+}
+
 function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   if (!Array.isArray(items)) return undefined;
   const source = getOrderSourceTextForItems(data);
+  const trustClientItemValues = shouldTrustClientItemValuesForPersist(data);
 
   const normalized = items.map((item: any) => {
     const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
-    const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
-    const sourcePrice = extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
+    const sourceLine = trustClientItemValues
+      ? ""
+      : findSourceLineForItem(source, { ...item, serviceName });
+    const sourcePrice = trustClientItemValues
+      ? null
+      : extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
     const reviewText = [
       item?.description,
       ...(Array.isArray(data?.reviewReasons) ? data.reviewReasons : []),
@@ -350,32 +382,41 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       .filter(Boolean)
       .join(" ");
     const forceMissingPriceReview =
+      !trustClientItemValues &&
       !sourcePrice &&
       /preis\s+im\s+text\s+unklar|price_unclear|unit_price_review/i.test(reviewText);
-    let unitPrice = forceMissingPriceReview
-      ? 0
-      : sourcePrice && shouldTrustSourcePriceForItem(item, data)
-        ? sourcePrice
-        : Number(item?.unitPrice ?? 0);
+    let unitPrice = trustClientItemValues
+      ? Number(item?.unitPrice ?? 0)
+      : forceMissingPriceReview
+        ? 0
+        : sourcePrice && Number(item?.unitPrice ?? 0) <= 0
+          ? sourcePrice
+          : Number(item?.unitPrice ?? 0);
     let quantity = Number(item?.quantity ?? 1);
     let unit = item?.unit;
 
     if (serviceName === "Anfahrt") {
       unit = "Pauschal";
       quantity = 1;
-      // V17.13: Quelle darf eine manuelle Korrektur nicht mehr überschreiben.
-      // Bei Mischwährung trägt der Benutzer den Zielpreis bewusst ein; die
-      // alte Textzeile (z. B. "Anfahrt CHF 50") ist dann nur noch Evidenz,
-      // nicht mehr der zu persistierende EUR-Preis.
-      if (sourcePrice && sourcePrice > 0 && shouldTrustSourcePriceForItem(item, data)) {
+      // V17.14: Bei manueller Bereinigung bleibt der Editorwert maßgeblich.
+      // Alte Textzeilen wie "Anfahrt CHF 50" dürfen einen bewusst gesetzten
+      // Zielpreis in EUR/CHF nicht mehr überschreiben.
+      if (
+        !trustClientItemValues &&
+        sourcePrice &&
+        sourcePrice > 0 &&
+        Number(item?.unitPrice ?? 0) <= 0
+      ) {
         unitPrice = sourcePrice;
       }
     }
 
-    const amountBlocked = isBlockedAmountReviewItemForPersist(
-      { ...item, serviceName, unit, unitPrice, quantity },
-      data,
-    );
+    const amountBlocked = trustClientItemValues
+      ? false
+      : isBlockedAmountReviewItemForPersist(
+          { ...item, serviceName, unit, unitPrice, quantity },
+          data,
+        );
 
     return {
       ...item,
@@ -450,10 +491,27 @@ function normalizeReviewReasonsForPersist(data: any) {
 
   const items = Array.isArray(data?.items) ? data.items : [];
   const hasExplicitPriceSignal = hasExplicitPriceCurrencySignal(data);
+  const allItemsComplete = hasCompleteManualItemsForPersist(data);
 
   return reasons.filter((reason: string) => {
-    if (!String(reason).startsWith("price_unclear:")) return true;
-    const [, serviceName = ""] = String(reason).split(":");
+    const key = String(reason || "");
+
+    if (
+      allItemsComplete &&
+      (key.startsWith("currency_") ||
+        key.startsWith("item_currency_mismatch") ||
+        key.startsWith("currency_conflict_item:") ||
+        key.startsWith("price_unclear:") ||
+        key === "unit_price_review" ||
+        key === "quantity_review" ||
+        key === "manual_flat_service_from_text" ||
+        key === "stunden_arbeitsposition_pruefen")
+    ) {
+      return false;
+    }
+
+    if (!key.startsWith("price_unclear:")) return true;
+    const [, serviceName = ""] = key.split(":");
     const item = items.find((candidate: any) =>
       normalizeSearchText(candidate?.serviceName) === normalizeSearchText(serviceName),
     );
@@ -988,6 +1046,7 @@ export async function PUT(
   try {
     const existing = await prisma.order.findFirst({
       where: { id: params?.id, userId },
+      include: { workSites: true },
     });
     if (!existing)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
@@ -1022,15 +1081,17 @@ export async function PUT(
               : existing?.serviceName,
         })
       : undefined;
-    const currency =
-      inferExplicitCurrencyFromPayload(data) ||
-      (data?.currency === "EUR"
-        ? "EUR"
-        : data?.currency === "CHF"
-          ? "CHF"
-          : undefined);
+    const requestedCurrency =
+      data?.currency === "EUR" ? "EUR" : data?.currency === "CHF" ? "CHF" : undefined;
+    const currency = requestedCurrency || inferExplicitCurrencyFromPayload(data);
+    const normalizedReviewReasonsForRequest =
+      data?.reviewReasons !== undefined ? normalizeReviewReasonsForPersist(data) : undefined;
+    const dataForPersist =
+      data?.reviewReasons !== undefined
+        ? { ...data, reviewReasons: normalizedReviewReasonsForRequest ?? [] }
+        : data;
     const rawItems = data?.items as any[] | undefined;
-    const items = normalizeItemsForPersist(rawItems, data);
+    const items = normalizeItemsForPersist(rawItems, dataForPersist);
     let totalPrice = 0;
     let primaryServiceName = data?.serviceName;
     let primaryPriceType = data?.priceType;
@@ -1060,6 +1121,49 @@ export async function PUT(
     }
     const workSiteIdMap = new Map<string, string>();
     const workSitePayload = Array.isArray(data?.workSites) ? data.workSites : null;
+    const existingTopSiteHasContent = Boolean(
+      existing?.siteAddressDifferent ||
+        String(existing?.siteName || "").trim() ||
+        String(existing?.siteAddress || "").trim() ||
+        String(existing?.sitePlz || "").trim() ||
+        String(existing?.siteCity || "").trim() ||
+        String(existing?.siteNote || "").trim(),
+    );
+    const existingWorkSiteHasContent = Array.isArray((existing as any)?.workSites)
+      ? (existing as any).workSites.some((site: any) =>
+          Boolean(
+            String(site?.siteName || "").trim() ||
+              String(site?.siteAddress || "").trim() ||
+              String(site?.sitePlz || "").trim() ||
+              String(site?.siteCity || "").trim() ||
+              String(site?.siteNote || "").trim(),
+          ),
+        )
+      : false;
+    const incomingTopSiteHasContent = Boolean(
+      String(data?.siteName || "").trim() ||
+        String(data?.siteAddress || "").trim() ||
+        String(data?.sitePlz || "").trim() ||
+        String(data?.siteCity || "").trim() ||
+        String(data?.siteNote || "").trim(),
+    );
+    const incomingWorkSiteHasContent = Array.isArray(workSitePayload)
+      ? workSitePayload.some((site: any) =>
+          Boolean(
+            String(site?.siteName || "").trim() ||
+              String(site?.siteAddress || "").trim() ||
+              String(site?.sitePlz || "").trim() ||
+              String(site?.siteCity || "").trim() ||
+              String(site?.siteNote || "").trim(),
+          ),
+        )
+      : false;
+    const preserveExistingSiteOnBlankItemSave = Boolean(
+      data?.items !== undefined &&
+        !incomingTopSiteHasContent &&
+        !incomingWorkSiteHasContent &&
+        (existingTopSiteHasContent || existingWorkSiteHasContent),
+    );
 
     if (workSitePayload) {
       const existingWorkSites = await prisma.orderWorkSite.findMany({
@@ -1191,27 +1295,39 @@ export async function PUT(
         currency,
         siteAddressDifferent:
           data?.siteAddressDifferent !== undefined
-            ? Boolean(data.siteAddressDifferent)
+            ? preserveExistingSiteOnBlankItemSave
+              ? Boolean(existing?.siteAddressDifferent)
+              : Boolean(data.siteAddressDifferent)
             : undefined,
         siteName:
           data?.siteName !== undefined
-            ? cleanWorkSiteDisplayName(data.siteName)
+            ? preserveExistingSiteOnBlankItemSave
+              ? existing?.siteName
+              : cleanWorkSiteDisplayName(data.siteName)
             : undefined,
         siteAddress:
           data?.siteAddress !== undefined
-            ? data.siteAddress?.trim() || null
+            ? preserveExistingSiteOnBlankItemSave
+              ? existing?.siteAddress
+              : data.siteAddress?.trim() || null
             : undefined,
         sitePlz:
           data?.sitePlz !== undefined
-            ? data.sitePlz?.trim() || null
+            ? preserveExistingSiteOnBlankItemSave
+              ? existing?.sitePlz
+              : data.sitePlz?.trim() || null
             : undefined,
         siteCity:
           data?.siteCity !== undefined
-            ? data.siteCity?.trim() || null
+            ? preserveExistingSiteOnBlankItemSave
+              ? existing?.siteCity
+              : data.siteCity?.trim() || null
             : undefined,
         siteNote:
           data?.siteNote !== undefined
-            ? data.siteNote?.trim() || null
+            ? preserveExistingSiteOnBlankItemSave
+              ? existing?.siteNote
+              : data.siteNote?.trim() || null
             : undefined,
         date: data?.date ? new Date(data.date) : undefined,
         notes: data?.notes,
@@ -1219,7 +1335,7 @@ export async function PUT(
         needsReview:
           data?.needsReview !== undefined ? data.needsReview : undefined,
         reviewReasons:
-          data?.reviewReasons !== undefined ? normalizeReviewReasonsForPersist(data) : undefined,
+          data?.reviewReasons !== undefined ? normalizedReviewReasonsForRequest : undefined,
         hinweisLevel:
           data?.hinweisLevel !== undefined ? data.hinweisLevel : undefined,
         mediaUrl: data?.mediaUrl !== undefined ? data.mediaUrl : undefined,

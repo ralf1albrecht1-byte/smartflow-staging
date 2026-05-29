@@ -5629,6 +5629,20 @@ export default function AuftraegePage() {
     const cleanWorkSites = formWorkSites.filter(
       (site) => hasWorkSiteContent(site) || assignedWorkSiteIds.has(site.id),
     );
+    const primaryWorkSiteForPayload =
+      cleanWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      cleanWorkSites[0] ||
+      null;
+    const siteFieldsForPayload = primaryWorkSiteForPayload
+      ? {
+          siteAddressDifferent: true,
+          siteName: cleanWorkSiteDisplayName(primaryWorkSiteForPayload.siteName) || "",
+          siteAddress: primaryWorkSiteForPayload.siteAddress?.trim() || "",
+          sitePlz: primaryWorkSiteForPayload.sitePlz?.trim() || "",
+          siteCity: primaryWorkSiteForPayload.siteCity?.trim() || "",
+          siteNote: primaryWorkSiteForPayload.siteNote?.trim() || "",
+        }
+      : {};
 
     if (
       cleanWorkSites.length > 1 &&
@@ -5719,10 +5733,17 @@ export default function AuftraegePage() {
 
     const payload = {
       ...form,
+      ...siteFieldsForPayload,
       ...payloadOverrides,
       description: desc,
       vatRate: orderVatRate,
       currency,
+      // V17.14: Beim manuellen Bereinigen einer Mischwährung müssen die
+      // sichtbaren Editorwerte als bestätigt gespeichert werden. Sonst ziehen
+      // API-Sicherheitsnetze beim erneuten Öffnen wieder Preise/Währung aus dem
+      // ursprünglichen Kundentext und überschreiben die manuelle Korrektur.
+      manualReviewResolved: formHasResolvedCurrencyReview || allItemsComplete,
+      manualItemValuesConfirmed: formHasResolvedCurrencyReview || allItemsComplete,
       reviewReasons: cleanedReviewReasons,
       needsReview: cleanedReviewReasons.length > 0,
       workSites:
