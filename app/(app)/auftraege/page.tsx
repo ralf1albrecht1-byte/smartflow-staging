@@ -5027,6 +5027,26 @@ export default function AuftraegePage() {
         reason.startsWith("currency_conflict_item:"),
     ) ?? false;
 
+  const isBlockingCurrencyReviewText = (value?: string | null) => {
+    const text = normalizeForMatch(value);
+    if (!text) return false;
+
+    return (
+      text.includes("waehrung preis noch nicht bestaetigt") ||
+      text.includes("wahrung preis noch nicht bestatigt") ||
+      text.includes("waehrung") ||
+      text.includes("wahrung") ||
+      text.includes("currency") ||
+      text.includes("preis fehlt") ||
+      text.includes("preis im text unklar") ||
+      text.includes("price unclear") ||
+      text.includes("price missing") ||
+      text.includes("nicht in netto") ||
+      text.includes("nicht in mwst") ||
+      text.includes("nicht in total")
+    );
+  };
+
   // V17.13: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
   // sperren, bis der Benutzer alle Positionen im Editor manuell vollständig
   // bestätigt hat. Sonst zeigen die Einzelpositionen nach manueller Eingabe
@@ -5043,7 +5063,8 @@ export default function AuftraegePage() {
         !unitText.includes("pruefen") &&
         !unitText.includes("prufen") &&
         Number(item.unitPrice || 0) > 0 &&
-        Number(item.quantity || 0) > 0
+        Number(item.quantity || 0) > 0 &&
+        !isBlockingCurrencyReviewText(item.aiWarning)
       );
     });
 
@@ -5767,7 +5788,8 @@ export default function AuftraegePage() {
           Number(item.unitPrice || 0) > 0 &&
           Number(item.quantity || 0) > 0 &&
           !normalizeForMatch(item.unit).includes("pruefen") &&
-          !normalizeForMatch(item.unit).includes("prufen");
+          !normalizeForMatch(item.unit).includes("prufen") &&
+          !isBlockingCurrencyReviewText(item.aiWarning);
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
@@ -8300,8 +8322,12 @@ export default function AuftraegePage() {
                             Number(item.quantity || 0) === 1;
 
                           const hasCurrencyConflict = hasEditCurrencyReview;
+                          const unresolvedCurrencyItem =
+                            hasCurrencyConflict &&
+                            isBlockingCurrencyReviewText(item.aiWarning);
                           const showCurrencyConflictItemReview = hasCurrencyConflict;
                           const priceInputReview =
+                            unresolvedCurrencyItem ||
                             Number(item.unitPrice || 0) === 0;
                           const quantityInputReview =
                             Number(item.quantity || 0) === 0;
