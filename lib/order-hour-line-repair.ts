@@ -743,42 +743,55 @@ function buildMissingQuantityReviewItems<T extends HourLineRepairItem>(
 }
 
 
-function hasMissingUnitSignal(value?: string | null): boolean {
-  const text = String(value || "");
-  return /\b(?:einheit|mengeneinheit)\s+(?:muss\s+noch\s+)?(?:geklaert|geklärt|offen|fehlt|unbekannt|unklar|nachtragen|klären|klaeren)|\b(?:einheit|mengeneinheit)\s+(?:fehlt|offen|unbekannt|unklar)|\bunit\s+(?:missing|open|unknown|unclear|tbd)|\bmeasurement\s+unit\s+(?:missing|open|unknown|unclear|tbd)|\bunité\s+(?:manquante|ouverte|inconnue|a\s+clarifier)|\bunite\s+(?:manquante|ouverte|inconnue|a\s+clarifier)/i.test(text);
-}
-
-function detectMissingUnitQuantityInLine(line?: string | null): number | null {
+function unitRepairNumberPriceAnchor(line?: string | null): { quantity: number; unitPrice: number; index: number } | null {
   const source = normalizeHourRepairText(line || "");
   if (!source) return null;
 
-  const priceAnchor = /\b(\d+(?:[.,]\d+)?)\s*(?:à|a|zu|je|pro|per|at|/)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*\d+(?:[.,]\d+)?\b/i.exec(source);
-  if (priceAnchor?.[1]) {
-    const parsed = parseHourRepairDecimal(priceAnchor[1]);
-    if (parsed) return parsed;
-  }
+  // Structural rule, not language-phrase based:
+  // match a billable line shaped like "<service> 18 à CHF 7" where a quantity
+  // and price exist, but no concrete unit is attached to the quantity.
+  const priceAnchor = /\b(\d+(?:[.,]\d+)?)\s*(?:à|a|zu|je|pro|per|at|\/)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)\b/i.exec(source);
+  if (!priceAnchor?.[1] || !priceAnchor?.[2]) return null;
 
-  const beforeSignal = source.split(/\b(?:einheit|mengeneinheit|unit|measurement\s+unit|unité|unite)\b/i)[0] || source;
-  const numbers = Array.from(beforeSignal.matchAll(/\b(\d+(?:[.,]\d+)?)\b/g))
-    .map((match) => parseHourRepairDecimal(match[1]))
-    .filter((value): value is number => Boolean(value && value > 0));
+  const quantity = parseHourRepairDecimal(priceAnchor[1]);
+  const unitPrice = parseHourRepairDecimal(priceAnchor[2]);
+  if (!quantity || !unitPrice) return null;
 
-  // Prefer the last number before the explicit unit-missing signal. In lines like
-  // "Lagerraum reinigen 18 à CHF 7, Einheit muss..." that is the quantity.
-  return numbers.length > 0 ? numbers[0] : null;
+  return { quantity, unitPrice, index: priceAnchor.index ?? 0 };
+}
+
+function hasKnownQuantityUnitNearQuantity(line: string, quantity: number): boolean {
+  const source = normalizeHourRepairText(line || "");
+  if (!source || !quantity) return false;
+  const quantityLabel = Number.isInteger(quantity)
+    ? String(quantity)
+    : String(Number(quantity.toFixed(2))).replace(".", "[.,]");
+  const knownUnit =
+    "(?:std\\.?|stunden?|h|hours?|heures?|heure|m2|m²|qm|quadratmeter|square\\s*meters?|sqm|stück|stueck|stk|pieces?|piece|pauschal|pauschale|flat|fee|meter|m|kg|kilogramm|liter|litre|tonnen?|t)";
+  return new RegExp(`\\b${quantityLabel}\\s*${knownUnit}\\b`, "i").test(source);
+}
+
+function hasMissingUnitSignal(value?: string | null): boolean {
+  const parsed = unitRepairNumberPriceAnchor(value);
+  return Boolean(parsed && !hasKnownQuantityUnitNearQuantity(String(value || ""), parsed.quantity));
+}
+
+function detectMissingUnitQuantityInLine(line?: string | null): number | null {
+  return unitRepairNumberPriceAnchor(line)?.quantity || null;
+}
+
+function detectMissingUnitPriceInLine(line?: string | null): number | null {
+  return unitRepairNumberPriceAnchor(line)?.unitPrice || null;
 }
 
 function cleanServiceNameFromMissingUnitLine(line: string): string {
-  let raw = String(line || "")
-    .replace(/\b(?:einheit|mengeneinheit)\s+(?:muss\s+noch\s+)?(?:geklaert|geklärt|offen|fehlt|unbekannt|unklar|nachtragen|klären|klaeren).*$/i, " ")
-    .replace(/\b(?:einheit|mengeneinheit)\s+(?:fehlt|offen|unbekannt|unklar).*$/i, " ")
-    .replace(/\bunit\s+(?:missing|open|unknown|unclear|tbd).*$/i, " ")
-    .replace(/\bmeasurement\s+unit\s+(?:missing|open|unknown|unclear|tbd).*$/i, " ")
-    .replace(/\bunité\s+(?:manquante|ouverte|inconnue|a\s+clarifier).*$/i, " ")
-    .replace(/\bunite\s+(?:manquante|ouverte|inconnue|a\s+clarifier).*$/i, " ")
-    .replace(/\b\d+(?:[.,]\d+)?\s*(?:à|a|zu|je|pro|per|at|/)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*\d+(?:[.,]\d+)?\b/gi, " ")
-    .replace(/\b(?:chf|eur|fr\.?|sfr|franken|stutz|€)\s*\d+(?:[.,]\d+)?\b/gi, " ")
-    .replace(/\b\d+(?:[.,]\d+)?\s*(?:chf|eur|franken|stutz|sfr|€)\b/gi, " ")
+  const anchor = unitRepairNumberPriceAnchor(line);
+  let raw = String(line || "");
+  if (anchor && anchor.index > 0) {
+    raw = raw.slice(0, anchor.index);
+  }
+
+  raw = raw
     .replace(/[:;,.-]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -807,7 +820,7 @@ function buildMissingUnitRepairCandidates(originalText: string): MissingUnitRepa
       raw: line,
       serviceName: cleanServiceNameFromMissingUnitLine(line),
       quantity: detectMissingUnitQuantityInLine(line) || 0,
-      unitPrice: detectHourRepairUnitPriceInLine(line) || 0,
+      unitPrice: detectMissingUnitPriceInLine(line) || detectHourRepairUnitPriceInLine(line) || 0,
       topic: hourRepairServiceTopic(line),
       key: normalizeHourRepairText(line),
     }))
