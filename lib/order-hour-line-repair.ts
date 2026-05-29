@@ -284,11 +284,26 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
       Number(item.quantity || 0) <= 0,
   );
 
-  if (options?.logPrefix && zeroHourRowsBefore.length > 0) {
-    console.info(`${options.logPrefix} start zeroHourRows=${zeroHourRowsBefore.length} candidates=${candidates.length}`);
+  if (options?.logPrefix) {
+    const candidateSummary = candidates
+      .slice(0, 5)
+      .map((candidate) => `${candidate.quantity}h@${candidate.price}:${candidate.topic || "no-topic"}`)
+      .join(" | ");
+    const zeroSummary = zeroHourRowsBefore
+      .slice(0, 5)
+      .map((item) => `${item.serviceName || "?"}@${Number(item.unitPrice || 0)}`)
+      .join(" | ");
+    console.info(
+      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${zeroHourRowsBefore.length} candidates=${candidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"}`,
+    );
   }
 
   if (sourceItems.length === 0 || candidates.length === 0 || zeroHourRowsBefore.length === 0) {
+    if (options?.logPrefix) {
+      console.info(
+        `${options.logPrefix} done repaired=0 remainingZeroHourRows=${zeroHourRowsBefore.length}`,
+      );
+    }
     return {
       items: sourceItems,
       repairedCount: 0,
@@ -366,10 +381,25 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
           });
 
     if (!order || !Array.isArray(order.items) || order.items.length === 0) {
+      if (params.logPrefix) {
+        console.info(`${params.logPrefix} skipped orderId=${orderId} reason=no_order_or_items`);
+      }
       return { order: order || params.order, repairedCount: 0, remainingZeroHourRows: 0 };
     }
 
-    const result = repairZeroQuantityHourItemsFromText(order.items, params.originalText, {
+    const combinedSourceText = [
+      params.originalText,
+      order.notes,
+      order.description,
+      order.audioTranscript,
+      ...(Array.isArray(order.items)
+        ? order.items.flatMap((item: any) => [item?.serviceName, item?.description, item?.sourceText, item?.evidence])
+        : []),
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const result = repairZeroQuantityHourItemsFromText(order.items, combinedSourceText, {
       logPrefix: params.logPrefix,
     });
 
