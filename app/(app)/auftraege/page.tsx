@@ -4929,7 +4929,43 @@ export default function AuftraegePage() {
     }
 
     setFormItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+      prev.map((item, i) => {
+        if (i !== index) return item;
+
+        const nextItem: FormItem = { ...item, [field]: value };
+
+        // V17.13: Sobald der Benutzer eine blockierte KI-Position manuell
+        // korrigiert, darf der alte AI_WARNING-Text nicht weiter wie ein
+        // harter Preis-/Währungsblocker wirken. Sonst werden sichtbare
+        // manuelle Preise gespeichert, aber Gesamt-Netto bleibt 0 oder die
+        // Werte werden nach dem Speichern wieder durch die KI-Prüfwerte ersetzt.
+        if (
+          field === "unitPrice" ||
+          field === "quantity" ||
+          field === "unit" ||
+          field === "serviceName"
+        ) {
+          const warningText = normalizeForMatch(nextItem.aiWarning);
+          const isResolvedInput =
+            nextItem.serviceName.trim().length > 0 &&
+            normalizeForMatch(nextItem.unit).length > 0 &&
+            !normalizeForMatch(nextItem.unit).includes("pruefen") &&
+            !normalizeForMatch(nextItem.unit).includes("prufen") &&
+            Number(nextItem.unitPrice || 0) > 0 &&
+            Number(nextItem.quantity || 0) > 0;
+
+          if (
+            isResolvedInput &&
+            /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig)/.test(
+              warningText,
+            )
+          ) {
+            nextItem.aiWarning = "";
+          }
+        }
+
+        return nextItem;
+      }),
     );
   };
 
@@ -4982,19 +5018,43 @@ export default function AuftraegePage() {
     ? orders.find((o: Order) => o.id === editId) || null
     : null;
 
+  const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
   const hasCurrentEditCurrencyReview =
-    currentEditOrder?.reviewReasons?.some(
+    currentEditReviewReasons.some(
       (reason: string) =>
         reason.startsWith("currency_") ||
         reason.startsWith("item_currency_mismatch") ||
         reason.startsWith("currency_conflict_item:"),
     ) ?? false;
 
+  // V17.13: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
+  // sperren, bis der Benutzer alle Positionen im Editor manuell vollständig
+  // bestätigt hat. Sonst zeigen die Einzelpositionen nach manueller Eingabe
+  // korrekte Totale, während Netto/MwSt./Total unten fälschlich 0 bleiben.
+  const formHasResolvedCurrencyReview =
+    hasCurrentEditCurrencyReview &&
+    (currency === "CHF" || currency === "EUR") &&
+    formItems.length > 0 &&
+    formItems.every((item) => {
+      const unitText = normalizeForMatch(item.unit);
+      return (
+        item.serviceName.trim().length > 0 &&
+        unitText.length > 0 &&
+        !unitText.includes("pruefen") &&
+        !unitText.includes("prufen") &&
+        Number(item.unitPrice || 0) > 0 &&
+        Number(item.quantity || 0) > 0
+      );
+    });
+
+  const hasEditCurrencyReview =
+    hasCurrentEditCurrencyReview && !formHasResolvedCurrencyReview;
+
   const isBlockedFormItemForTotal = (
     item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning"> & {
       serviceName?: string | null;
     },
-    forceCurrencyConflict = hasCurrentEditCurrencyReview,
+    forceCurrencyConflict = hasEditCurrencyReview,
   ) => {
     if (forceCurrencyConflict) return true;
 
@@ -5018,7 +5078,7 @@ export default function AuftraegePage() {
 
   const getSafeFormItemTotal = (
     item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning">,
-    forceCurrencyConflict = hasCurrentEditCurrencyReview,
+    forceCurrencyConflict = hasEditCurrencyReview,
   ) => {
     if (isBlockedFormItemForTotal(item, forceCurrencyConflict)) return 0;
     const quantity = Number(item.quantity || 0);
@@ -5292,23 +5352,6 @@ export default function AuftraegePage() {
         isFirstInSite: false,
         isEmptySitePlaceholder: false,
       }));
-
-  const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
-  const formHasResolvedCurrencyReview =
-    (currency === "CHF" || currency === "EUR") &&
-    formItems.length > 0 &&
-    formItems.every(
-      (item) =>
-        item.serviceName.trim().length > 0 &&
-        Number(item.unitPrice || 0) > 0 &&
-        Number(item.quantity || 0) > 0,
-    );
-  const hasEditCurrencyReview =
-    currentEditReviewReasons.some(
-      (reason: string) =>
-        reason.startsWith("currency_") ||
-        reason.startsWith("item_currency_mismatch"),
-    ) && !formHasResolvedCurrencyReview;
 
   const unitShortLabel = (unit: string) => {
     const normalized = (unit || "").toLowerCase();
@@ -5696,15 +5739,27 @@ export default function AuftraegePage() {
               sourceOrderId: (site as any).sourceOrderId || null,
             }))
           : undefined,
-      items: validItems.map((item) => ({
-        serviceName: canonicalServiceNameForOrderItem(item.serviceName),
-        description: buildItemDescription(item),
-        quantity: Number(item.quantity || 0),
-        unit: item.unit,
-        unitPrice: hasEditCurrencyReview ? 0 : Number(item.unitPrice || 0),
-        totalPrice: getSafeFormItemTotal(item, hasEditCurrencyReview),
-        workSiteId: item.workSiteId || null,
-      })),
+      items: validItems.map((item) => {
+        const resolvedCurrencyItem =
+          formHasResolvedCurrencyReview &&
+          item.serviceName.trim().length > 0 &&
+          Number(item.unitPrice || 0) > 0 &&
+          Number(item.quantity || 0) > 0 &&
+          !normalizeForMatch(item.unit).includes("pruefen") &&
+          !normalizeForMatch(item.unit).includes("prufen");
+
+        return {
+          serviceName: canonicalServiceNameForOrderItem(item.serviceName),
+          description: resolvedCurrencyItem
+            ? item.serviceName
+            : buildItemDescription(item),
+          quantity: Number(item.quantity || 0),
+          unit: item.unit,
+          unitPrice: hasEditCurrencyReview ? 0 : Number(item.unitPrice || 0),
+          totalPrice: getSafeFormItemTotal(item, hasEditCurrencyReview),
+          workSiteId: item.workSiteId || null,
+        };
+      }),
     };
     const res = await fetch(url, {
       method,

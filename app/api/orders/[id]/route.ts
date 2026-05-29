@@ -363,7 +363,11 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
     if (serviceName === "Anfahrt") {
       unit = "Pauschal";
       quantity = 1;
-      if (sourcePrice && sourcePrice > 0) {
+      // V17.13: Quelle darf eine manuelle Korrektur nicht mehr überschreiben.
+      // Bei Mischwährung trägt der Benutzer den Zielpreis bewusst ein; die
+      // alte Textzeile (z. B. "Anfahrt CHF 50") ist dann nur noch Evidenz,
+      // nicht mehr der zu persistierende EUR-Preis.
+      if (sourcePrice && sourcePrice > 0 && shouldTrustSourcePriceForItem(item, data)) {
         unitPrice = sourcePrice;
       }
     }
