@@ -4,10 +4,14 @@ import { logAuditAsync } from '@/lib/audit';
 import { maskPhoneForLog } from '@/lib/phone';
 import { repairPersistedOrderZeroHourItemsFromText } from '@/lib/order-hour-line-repair';
 
+const DEFAULT_WHATSAPP_TEXT_DELAY_MS = 4_000;
+const MIN_WHATSAPP_TEXT_DELAY_MS = 2_500;
+const MAX_WHATSAPP_TEXT_DELAY_MS = 20_000;
+
 const WHATSAPP_TEXT_DELAY_MS = Number.parseInt(
   process.env.WHATSAPP_TEXT_DELAY_MS ||
     process.env.WHATSAPP_TEXT_DEBOUNCE_MS ||
-    '12000',
+    String(DEFAULT_WHATSAPP_TEXT_DELAY_MS),
   10,
 );
 
@@ -23,8 +27,14 @@ const scheduledWorkers = new Map<string, ReturnType<typeof setTimeout>>();
 // across intake, orders GET/POST/PUT and the WhatsApp queue.
 
 function queueDelayMs(): number {
-  if (!Number.isFinite(WHATSAPP_TEXT_DELAY_MS)) return 12_000;
-  return Math.min(Math.max(WHATSAPP_TEXT_DELAY_MS, 3_000), 60_000);
+  if (!Number.isFinite(WHATSAPP_TEXT_DELAY_MS)) {
+    return DEFAULT_WHATSAPP_TEXT_DELAY_MS;
+  }
+
+  return Math.min(
+    Math.max(WHATSAPP_TEXT_DELAY_MS, MIN_WHATSAPP_TEXT_DELAY_MS),
+    MAX_WHATSAPP_TEXT_DELAY_MS,
+  );
 }
 
 // Important:
@@ -44,7 +54,7 @@ function buildMessageKey(messageSid: string, queueKey: string): string {
 }
 
 function scheduleWorker(queueKey: string, delayMs: number): void {
-  const safeDelay = Math.min(Math.max(delayMs, 500), 60_000);
+  const safeDelay = Math.min(Math.max(delayMs, 500), MAX_WHATSAPP_TEXT_DELAY_MS + 1_000);
 
   const existing = scheduledWorkers.get(queueKey);
   if (existing) clearTimeout(existing);
@@ -153,6 +163,10 @@ export async function enqueueWhatsAppTextIntakeMessage(params: {
       chars: messageText.length,
     },
   });
+
+  console.log(
+    `[WhatsAppQueue] Queued 1 text message for ${maskPhoneForLog(params.phoneNumber)}: ${messageText.length} chars delayMs=${delay}`,
+  );
 
   // Always schedule the earliest pending item. If a new item arrives while an
   // earlier item is already waiting, this may reschedule the same worker, but
