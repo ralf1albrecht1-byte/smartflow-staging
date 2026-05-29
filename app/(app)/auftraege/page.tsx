@@ -540,16 +540,22 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
 
+  if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
+    return "Archivraum reinigen";
+  }
+  if (/glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)) {
+    return "Glastür reinigen";
+  }
   if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
     return "Technikraum reinigen";
   }
-  if (/meeting\s+room|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
-    return "Besprechungsraum reinigen";
+  if (/meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
+    return "Besprechungsbereich reinigen";
   }
   if (/kontrollgang/.test(key)) {
     return "Kontrollgang reinigen";
   }
-  if (/gangbereich|corridor|couloir/.test(key)) {
+  if (/gangbereich|corridor|couloir|flur/.test(key)) {
     return "Gangbereich reinigen";
   }
 
@@ -557,7 +563,7 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   // This is intentionally semantic/broad (cleaning intent), not tied to a
   // specific room such as Veloraum/Keller/Terrasse.
   if (
-    /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
+    /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|reisepauschale|deplacement|déplacement|frais de deplacement|travel|travel flat fee|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
       key,
     )
   ) {
@@ -2332,6 +2338,81 @@ const formatCatalogMissingTooltip = (
   return lines.filter(Boolean).join("\n");
 };
 
+const SERVICE_REVIEW_TOOLTIP_SEPARATOR = "────────────";
+
+const formatServiceReviewItemLine = (
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  currency?: "CHF" | "EUR" | null,
+) => {
+  const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  const quantityLabel = quantity > 0
+    ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim()
+    : "Menge prüfen";
+  const priceLabel = unitPrice > 0
+    ? formatCurrency(unitPrice, safeCurrency)
+    : "Preis prüfen";
+
+  return `• ${compactText(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
+};
+
+const formatServiceReviewSummaryTooltip = (input: {
+  unitConflictServices?: string[];
+  priceItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>;
+  missingItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>;
+  services: ServiceDef[];
+  currency?: "CHF" | "EUR" | null;
+}) => {
+  const safeCurrency = input.currency === "EUR" ? "EUR" : "CHF";
+  const sections: string[] = [];
+
+  const unitServices = Array.from(
+    new Set((input.unitConflictServices || []).map(compactText).filter(Boolean)),
+  );
+  if (unitServices.length > 0) {
+    sections.push([
+      "Einheit abweichend",
+      ...unitServices.slice(0, 6).map((service) => `• ${service}`),
+      unitServices.length > 6 ? `+${unitServices.length - 6} weitere` : "",
+    ].filter(Boolean).join("\n"));
+  }
+
+  const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter((item) =>
+    compactText(item.serviceName),
+  );
+  if (priceItems.length > 0) {
+    const lines = ["Preis abweichend"];
+    priceItems.slice(0, 6).forEach((item) => {
+      const catalog = findCatalogServiceForName(input.services, item.serviceName);
+      const itemPrice = Number(item.unitPrice || 0);
+      const itemPriceLabel = itemPrice > 0
+        ? formatCurrency(itemPrice, safeCurrency)
+        : "Preis prüfen";
+      const catalogLabel = catalog
+        ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
+        : "kein Katalogpreis";
+      lines.push(`• ${compactText(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`);
+    });
+    if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
+    sections.push(lines.join("\n"));
+  }
+
+  const missingItems = uniqueCatalogReviewItems(input.missingItems || []).filter((item) =>
+    compactText(item.serviceName),
+  );
+  if (missingItems.length > 0) {
+    const lines = ["Nicht im Katalog"];
+    missingItems.slice(0, 6).forEach((item) => {
+      lines.push(formatServiceReviewItemLine(item, input.currency));
+    });
+    if (missingItems.length > 6) lines.push(`+${missingItems.length - 6} weitere`);
+    sections.push(lines.join("\n"));
+  }
+
+  return sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
+};
+
 const cleanWorkSiteDisplayName = (value?: string | null) => {
   let text = compactText(value);
   if (!text) return "";
@@ -2602,9 +2683,11 @@ const getSystemBadges = (
       className: unitConflictIsBlocking
         ? "bg-red-100 text-red-700 border border-red-300"
         : "bg-amber-100 text-amber-800 border border-amber-300",
-      tooltip: unitConflictServices.length
-        ? `Einheit prüfen: ${unitConflictServices.join(", ")}`
-        : "Einheit prüfen.",
+      tooltip: formatServiceReviewSummaryTooltip({
+        unitConflictServices,
+        services,
+        currency: order.currency,
+      }) || "Einheit abweichend.",
     });
   }
 
@@ -2643,7 +2726,11 @@ const getSystemBadges = (
       label: "Preis abweichend",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatCatalogPriceDeviationTooltip(
+      tooltip: formatServiceReviewSummaryTooltip({
+        priceItems: priceReviewItems,
+        services,
+        currency: order.currency,
+      }) || formatCatalogPriceDeviationTooltip(
         priceReviewItems,
         services,
         order.currency,
@@ -2657,7 +2744,11 @@ const getSystemBadges = (
       label: "Nicht im Katalog",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatCatalogMissingTooltip(catalogMissingItems, order.currency),
+      tooltip: formatServiceReviewSummaryTooltip({
+        missingItems: catalogMissingItems,
+        services,
+        currency: order.currency,
+      }) || formatCatalogMissingTooltip(catalogMissingItems, order.currency),
     });
   }
 
@@ -2684,12 +2775,13 @@ const getSystemBadges = (
   );
 
   if (compactServiceReviewBadges.length >= 2) {
-    const serviceReviewTooltip = compactServiceReviewBadges
-      .map((badge) => {
-        const tooltip = compactText(badge.tooltip);
-        return tooltip ? `${badge.label}: ${tooltip}` : badge.label;
-      })
-      .join("\n");
+    const serviceReviewTooltip = formatServiceReviewSummaryTooltip({
+      unitConflictServices,
+      priceItems: priceReviewItems,
+      missingItems: catalogMissingItems,
+      services,
+      currency: order.currency,
+    });
 
     return [
       ...badges.filter((badge) => !compactServiceReviewKeys.has(badge.key)),
@@ -3008,11 +3100,33 @@ const renderBadgeTooltip = (
 
   const alignClass = align === "right" ? "right-0" : "left-0";
 
+  const tooltipLines = tooltip.split("\n");
+  const headingPattern = /^(?:Einheit abweichend|Einheit prüfen|Preis abweichend|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
+
   return (
     <span
-      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 w-max max-w-[min(18rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-hover:block group-focus:block"}`}
+      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 w-max max-w-[min(22rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-hover:block group-focus:block"}`}
     >
-      {tooltip}
+      {tooltipLines.map((line, index) => {
+        const trimmed = line.trim();
+        if (/^[-─—–_]{6,}$/.test(trimmed)) {
+          return (
+            <span
+              key={`sep_${index}`}
+              className="my-1 block border-t border-slate-200 dark:border-slate-700"
+            />
+          );
+        }
+
+        return (
+          <span
+            key={`line_${index}`}
+            className={`block ${headingPattern.test(trimmed) ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+          >
+            {line}
+          </span>
+        );
+      })}
     </span>
   );
 };

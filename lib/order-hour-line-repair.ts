@@ -6,6 +6,13 @@ export type HourLineRepairCandidate = {
   key: string;
 };
 
+type FlatFeeRepairCandidate = {
+  raw: string;
+  price: number;
+  topic: "anfahrt";
+  key: string;
+};
+
 export type HourLineRepairItem = {
   id?: string | null;
   serviceName?: string | null;
@@ -377,7 +384,7 @@ function hourRepairServiceTopic(value?: string | null): string | null {
   if (/\bboden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b|hallenboden|lagerboden|kellerboden/.test(text) && hasCleaningIntent) return "boden_reinigen";
   if (/fenster|fensterli|fensterfront|vitrin|vitre|window|fenetre|finestr|ventan/.test(text)) return "fenster_reinigen";
   if (/\bteppich\b|carpet|moquette/.test(text) && hasCleaningIntent) return "teppich_reinigen";
-  if (/\banfahrt\b|\bfahrtkosten\b|\bfahrkosten\b|\bfahrpauschale\b|\bwegpauschale\b|\bdeplacement\b|\btravel\b|\btrip\b/.test(text)) return "anfahrt";
+  if (/\banfahrt\b|\bfahrtkosten\b|\bfahrkosten\b|\bfahrpauschale\b|\bwegpauschale\b|\breisepauschale\b|\bdeplacement\b|\bdeplacement\b|\bfrais\s+de\s+deplacement\b|\btravel\b|\btravel\s+flat\s+fee\b|\btrip\b/.test(text)) return "anfahrt";
   return null;
 }
 
@@ -495,10 +502,12 @@ function cleanServiceNameFromHourLine(candidate: HourLineRepairCandidate): strin
     .trim();
 
   const key = normalizeHourRepairText(raw);
+  if (/archive\s+room|archivraum|archiv\b/.test(key)) return "Archivraum reinigen";
+  if (/glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)) return "Glastür reinigen";
   if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) return "Technikraum reinigen";
-  if (/meeting\s+room|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) return "Besprechungsraum reinigen";
+  if (/meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) return "Besprechungsbereich reinigen";
   if (/kontrollgang/.test(key)) return "Kontrollgang reinigen";
-  if (/gangbereich|corridor|couloir/.test(key)) return "Gangbereich reinigen";
+  if (/gangbereich|corridor|couloir|flur/.test(key)) return "Gangbereich reinigen";
 
   if (candidate.topic === "boden_reinigen") return "Boden reinigen";
   if (candidate.topic === "fenster_reinigen") return "Fenster reinigen";
@@ -530,6 +539,64 @@ function buildMissingHourLineItems<T extends HourLineRepairItem>(
   }) as unknown as T);
 }
 
+function buildFlatFeeRepairCandidates(originalText: string): FlatFeeRepairCandidate[] {
+  return stripAutomaticTranslationBlock(originalText)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 6)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line))
+    .filter((line) => hourRepairServiceTopic(line) === "anfahrt")
+    .map((line) => ({
+      raw: line,
+      price: detectHourRepairUnitPriceInLine(line),
+      topic: "anfahrt" as const,
+      key: normalizeHourRepairText(line),
+    }))
+    .filter((candidate) => Boolean(candidate.price && candidate.price > 0)) as FlatFeeRepairCandidate[];
+}
+
+function hasExistingFlatFeeRepresentation(
+  candidate: FlatFeeRepairCandidate,
+  items: HourLineRepairItem[],
+): boolean {
+  return items.some((item) => {
+    const itemText = [item.serviceName, item.description, item.sourceText, item.evidence]
+      .filter(Boolean)
+      .join(" ");
+    const itemTopic = hourRepairServiceTopic(itemText);
+    const itemPrice = normalizeHourRepairNumber(item.unitPrice);
+    const itemTotal = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
+    const itemQuantity = normalizeHourRepairNumber(item.quantity);
+    return (
+      itemTopic === "anfahrt" &&
+      Math.abs(itemPrice - candidate.price) < 0.01 &&
+      (Math.abs(itemTotal - candidate.price) < 0.01 || itemQuantity === 1)
+    );
+  });
+}
+
+function buildMissingFlatFeeItems<T extends HourLineRepairItem>(
+  sourceItems: T[],
+  candidates: FlatFeeRepairCandidate[],
+): T[] {
+  return candidates
+    .filter((candidate) => !hasExistingFlatFeeRepresentation(candidate, sourceItems))
+    .map((candidate) => ({
+      serviceName: "Anfahrt",
+      description: candidate.raw,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: candidate.price,
+      totalPrice: roundHourRepairMoney(candidate.price),
+      needsReview: true,
+      reviewReason: "Textpreis übernommen: Anfahrt/Reisepauschale aus Kundentext übernommen.",
+      sourceText: candidate.raw,
+      evidence: candidate.raw,
+    }) as unknown as T);
+}
+
 export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem>(
   items: T[] | undefined | null,
   originalText: string,
@@ -537,10 +604,14 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
 ): HourLineRepairResult<T> {
   const sourceItems = Array.isArray(items) ? items : [];
   const candidates = buildHourLineRepairCandidates(originalText);
+  const flatFeeCandidates = buildFlatFeeRepairCandidates(originalText);
   const repairableRowsBefore = sourceItems.filter((item) =>
     isRepairableHourRepairRow(item, candidates),
   );
-  const missingItems = buildMissingHourLineItems(sourceItems, candidates);
+  const missingItems = [
+    ...buildMissingHourLineItems(sourceItems, candidates),
+    ...buildMissingFlatFeeItems(sourceItems, flatFeeCandidates),
+  ];
 
   if (options?.logPrefix) {
     const candidateSummary = candidates
@@ -556,7 +627,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
       .map((item) => hourRepairItemDebugSummary(item))
       .join(" | ");
     console.info(
-      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${repairableRowsBefore.length} missingHourRows=${missingItems.length} candidates=${candidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
+      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${repairableRowsBefore.length} missingRows=${missingItems.length} hourCandidates=${candidates.length} flatFeeCandidates=${flatFeeCandidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
     );
   }
 
@@ -572,7 +643,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     };
   }
 
-  if (candidates.length === 0) {
+  if (candidates.length === 0 && missingItems.length === 0) {
     if (options?.logPrefix) {
       console.info(
         `${options.logPrefix} done repaired=0 created=0 remainingZeroHourRows=${repairableRowsBefore.length}`,
@@ -620,7 +691,10 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     } as T;
   });
 
-  const createdItems = buildMissingHourLineItems(repairedItems, candidates);
+  const createdItems = [
+    ...buildMissingHourLineItems(repairedItems, candidates),
+    ...buildMissingFlatFeeItems(repairedItems, flatFeeCandidates),
+  ];
   const finalItems = [...repairedItems, ...createdItems];
 
   const remainingZeroHourRows = finalItems.filter((item) =>

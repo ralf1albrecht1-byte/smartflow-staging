@@ -64,20 +64,26 @@ function normalizeServiceNameForDisplay(value?: string | null) {
   const key = normalizeSearchText(name);
   if (!name) return "";
 
+  if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
+    return "Archivraum reinigen";
+  }
+  if (/glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)) {
+    return "Glastür reinigen";
+  }
   if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
     return "Technikraum reinigen";
   }
-  if (/meeting\s+room|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
-    return "Besprechungsraum reinigen";
+  if (/meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
+    return "Besprechungsbereich reinigen";
   }
   if (/kontrollgang/.test(key)) {
     return "Kontrollgang reinigen";
   }
-  if (/gangbereich|corridor|couloir/.test(key)) {
+  if (/gangbereich|corridor|couloir|flur/.test(key)) {
     return "Gangbereich reinigen";
   }
 
-  if (/\b(anfahrt|fahrt|fahrtkosten|fahrpauschale|deplacement|déplacement|travel|trip|transport|viaje)\b/.test(key)) {
+  if (/\b(anfahrt|fahrt|fahrtkosten|fahrpauschale|wegpauschale|reisepauschale|deplacement|déplacement|frais\s+de\s+deplacement|travel|travel\s+flat\s+fee|trip|transport|viaje)\b/.test(key)) {
     return "Anfahrt";
   }
 
