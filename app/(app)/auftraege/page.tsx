@@ -8224,10 +8224,14 @@ export default function AuftraegePage() {
                             Number(item.quantity || 0) === 1;
 
                           const hasCurrencyConflict = hasEditCurrencyReview;
+                          const showCurrencyConflictItemReview = hasCurrencyConflict;
                           const priceInputReview =
                             Number(item.unitPrice || 0) === 0;
                           const quantityInputReview =
                             Number(item.quantity || 0) === 0;
+                          const priceInputCritical =
+                            priceInputReview || hasCurrencyConflict;
+                          const quantityInputCritical = quantityInputReview;
                           const showUnitConflict =
                             !hasCurrencyConflict &&
                             Boolean(
@@ -8296,16 +8300,18 @@ export default function AuftraegePage() {
                           ].filter(Boolean);
                           const orderSummary = orderSummaryParts.join(" ");
                           const showItemReviewBlock =
-                            !hasCurrencyConflict &&
-                            (showUnitConflict ||
-                              showPriceOverride ||
-                              showPriceReferenceReview ||
-                              priceInputReview ||
-                              quantityInputReview ||
-                              showManualServiceReview);
+                            showCurrencyConflictItemReview ||
+                            (!hasCurrencyConflict &&
+                              (showUnitConflict ||
+                                showPriceOverride ||
+                                showPriceReferenceReview ||
+                                priceInputReview ||
+                                quantityInputReview ||
+                                showManualServiceReview));
                           const hasMissingItemInput =
                             priceInputReview || quantityInputReview;
                           const isBlockingItemReview =
+                            hasCurrencyConflict ||
                             hasMissingItemInput ||
                             Boolean(unitMissingInTextReason) ||
                             (showPriceReferenceReview &&
@@ -8977,7 +8983,7 @@ export default function AuftraegePage() {
                                         type="number"
                                         step="0.05"
                                         className={`h-8 text-xs ${
-                                          priceInputReview
+                                          priceInputCritical
                                             ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                             : ""
                                         }`}
@@ -9008,7 +9014,7 @@ export default function AuftraegePage() {
                                         type="number"
                                         step="0.25"
                                         className={`h-8 text-xs ${
-                                          quantityInputReview
+                                          quantityInputCritical
                                             ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                             : ""
                                         }`}
@@ -9101,6 +9107,25 @@ export default function AuftraegePage() {
                                       </div>
 
                                       <div className="space-y-0.5">
+                                        {showCurrencyConflictItemReview && (
+                                          <div className="space-y-0.5">
+                                            <div>
+                                              Währung/Preis noch nicht bestätigt.
+                                            </div>
+                                            {sourceLineForItem && (
+                                              <div>
+                                                Text: {" "}
+                                                <span className="font-medium">
+                                                  {sourceLineForItem}
+                                                </span>
+                                              </div>
+                                            )}
+                                            <div>
+                                              Diese Position wird nicht in Netto/MwSt./Total gerechnet, bis die Währung und der Preis eindeutig bestätigt sind.
+                                            </div>
+                                          </div>
+                                        )}
+
                                         {showUnitConflict && (
                                           <div className="space-y-0.5">
                                             {unitMissingInTextReason ? (
