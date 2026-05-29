@@ -2504,7 +2504,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
   const catalogBadges = combineCatalogReviewBadges(
     badges.filter((badge) =>
-      ["price_deviation", "catalog_missing"].includes(badge.key),
+      ["price_deviation", "catalog_missing", "service_review_summary"].includes(badge.key),
     ),
   );
 
@@ -2940,6 +2940,33 @@ const detectPreArrivalInstructionHint = (
     .join("\n");
 };
 
+
+const isEmailOnlyContactInstructionLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return (
+    /(?:nur|only|uniquement|solo|solamente)\s+(?:per\s+|via\s+)?(?:e\s*mail|email|mail)/.test(text) ||
+    /(?:e\s*mail|email|mail)\s+(?:reicht|only|uniquement)/.test(text) ||
+    /kontakt\s+nur\s+(?:per\s+)?(?:e\s*mail|email|mail)/.test(text) ||
+    /contact\s+us\s+by\s+email\s+only/.test(text)
+  );
+};
+
+const shouldSuppressCallbackBecauseEmailOnly = (lines: string[]) => {
+  const hasEmailOnly = lines.some((line) => isEmailOnlyContactInstructionLine(line));
+  if (!hasEmailOnly) return false;
+
+  const hasRealPhoneCallback = lines.some((line) => {
+    const text = normalizeForMatch(line);
+    if (!text) return false;
+    if (isEmailOnlyContactInstructionLine(line)) return false;
+    return /(?:rueckruf|ruckruf|zurueckrufen|zuruckrufen|anrufen|telefonisch\s+melden|telefonisch\s+kontaktieren|call\s+back|phone\s+call|please\s+call|call\s+us)/.test(text);
+  });
+
+  return !hasRealPhoneCallback;
+};
+
 const getBottomBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -2956,7 +2983,7 @@ const getBottomBadges = (
     .filter(Boolean)
     .join("\n");
 
-  const directCallbackHint = [
+  const callbackLinesForDetection = [
     order.specialNotes,
     order.notes,
     order.audioTranscript,
@@ -2965,9 +2992,19 @@ const getBottomBadges = (
     .filter(Boolean)
     .flatMap((part) => String(part).split(/\n+/g))
     .map((line) => line.trim())
-    .find((line) => isPositiveCallbackChipLine(line));
+    .filter(Boolean);
 
-  const hasCallbackBadge = Boolean(detectCallbackRequest(callbackSource) || directCallbackHint);
+  const directCallbackHint = callbackLinesForDetection.find((line) =>
+    isPositiveCallbackChipLine(line),
+  );
+
+  const suppressCallbackBecauseEmailOnly =
+    shouldSuppressCallbackBecauseEmailOnly(callbackLinesForDetection);
+
+  const hasCallbackBadge = Boolean(
+    !suppressCallbackBecauseEmailOnly &&
+      (detectCallbackRequest(callbackSource) || directCallbackHint),
+  );
   const callbackTimeHint = hasCallbackBadge
     ? extractCallbackTimeHint(
         order.specialNotes,
@@ -3133,7 +3170,7 @@ const renderBadgeTooltip = (
   const alignClass = align === "right" ? "right-0" : "left-0";
 
   const tooltipLines = tooltip.split("\n");
-  const headingPattern = /^(?:Einheit abweichend|Einheit prüfen|Preis abweichend|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
+  const headingPattern = /^(?:Einheit abweichend|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
 
   return (
     <span
@@ -3208,6 +3245,7 @@ const renderOrderCardBadge = (
     "price_deviation",
     "catalog_missing",
     "catalog_review_combined",
+    "service_review_summary",
   ].includes(badge.key);
 
   return renderReviewBadge(

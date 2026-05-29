@@ -633,6 +633,43 @@ function hasExistingMissingPriceRepresentation(
   });
 }
 
+function chooseMissingPriceCandidateForItem(
+  item: HourLineRepairItem,
+  candidates: MissingPriceRepairCandidate[],
+): MissingPriceRepairCandidate | null {
+  if (!candidates.length) return null;
+
+  const itemService = normalizeHourRepairText(item.serviceName || item.description || "");
+  if (!itemService) return null;
+
+  const direct = candidates.find((candidate) => {
+    const candidateService = normalizeHourRepairText(candidate.serviceName);
+    return Boolean(
+      candidateService &&
+        (itemService.includes(candidateService) || candidateService.includes(itemService)),
+    );
+  });
+
+  return direct || null;
+}
+
+function needsMissingPriceReviewRepair(
+  item: HourLineRepairItem,
+  candidate: MissingPriceRepairCandidate,
+): boolean {
+  const unitPrice = normalizeHourRepairNumber(item.unitPrice);
+  const totalPrice = normalizeHourRepairNumber(item.totalPrice);
+  const quantity = normalizeHourRepairNumber(item.quantity);
+
+  return (
+    unitPrice > 0 ||
+    totalPrice > 0 ||
+    Math.abs(quantity - candidate.quantity) >= 0.001 ||
+    !isHourRepairHourUnit(item.unit)
+  );
+}
+
+
 function hasExistingFlatFeeRepresentation(
   candidate: FlatFeeRepairCandidate,
   items: HourLineRepairItem[],
@@ -797,6 +834,27 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
 
   let repairedCount = 0;
   const repairedItems = sourceItems.map((item) => {
+    const missingPriceCandidate = chooseMissingPriceCandidateForItem(item, missingPriceCandidates);
+    if (missingPriceCandidate && needsMissingPriceReviewRepair(item, missingPriceCandidate)) {
+      repairedCount += 1;
+      if (options?.logPrefix) {
+        console.info(`${options.logPrefix} repaired missing price service=${item.serviceName || "?"} line=${missingPriceCandidate.raw}`);
+      }
+      return {
+        ...item,
+        serviceName: missingPriceCandidate.serviceName,
+        quantity: missingPriceCandidate.quantity,
+        unit: missingPriceCandidate.unit,
+        unitPrice: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: "unit_price_review",
+        description: missingPriceCandidate.raw,
+        sourceText: missingPriceCandidate.raw,
+        evidence: missingPriceCandidate.raw,
+      } as T;
+    }
+
     const flatFeeCandidate = chooseFlatFeeRepairCandidateForItem(item, flatFeeCandidates);
     if (flatFeeCandidate && needsFlatFeeRepair(item, flatFeeCandidate)) {
       repairedCount += 1;
