@@ -4314,21 +4314,45 @@ export default function AuftraegePage() {
             );
             const quantityNumber = Number(item.quantity || 0);
             const hasValidQuantity = Number.isFinite(quantityNumber) && quantityNumber > 0;
+            const rawAiWarning = getAiWarningFromItemDescription(item.description);
+            const isCatalogConfirmed = getCatalogReviewConfirmedFromItemDescription(
+              item.description,
+            );
+            const hasOrderCurrencyReview =
+              o.reviewReasons?.some(
+                (reason: string) =>
+                  reason.startsWith("currency_") ||
+                  reason.startsWith("item_currency_mismatch") ||
+                  reason.startsWith("currency_conflict_item:"),
+              ) ?? false;
+            const warningText = normalizeForMatch(rawAiWarning);
+            const shouldRequireFreshManualPrice =
+              hasOrderCurrencyReview &&
+              !isCatalogConfirmed &&
+              /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
+                warningText,
+              );
 
             return {
               key: Math.random().toString(36).slice(2),
               serviceName: canonicalServiceNameForOrderItem(item.serviceName ?? ""),
               unit: item.unit ?? "Stunde",
-              unitPrice:
-                Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
+              // V17.16: Bei ungelöster Mischwährung auch Anfahrt nicht mit dem
+              // alten Textpreis vorbefüllen. Der Benutzer soll einen frischen
+              // Zielpreis eingeben; sonst springt Anfahrt nach Reload wieder auf
+              // den Originaltextwert wie CHF 50 zurück.
+              unitPrice: shouldRequireFreshManualPrice
+                ? ""
+                : Number(item.unitPrice || 0) === 0
+                  ? ""
+                  : String(item.unitPrice),
               // Keep trusted persisted quantities even when a unit_mismatch review chip
               // remains. The review chip may still be valid because catalog unit and
               // customer-text unit differ, but blanking a valid quantity turns a repaired
               // hour row back into Menge prüfen / Total CHF 0.00 in the editor.
               quantity: !hasValidQuantity ? "" : String(item.quantity),
-              aiWarning: getAiWarningFromItemDescription(item.description),
-              catalogReviewConfirmed:
-                getCatalogReviewConfirmedFromItemDescription(item.description),
+              aiWarning: rawAiWarning,
+              catalogReviewConfirmed: isCatalogConfirmed,
               workSiteId: item.workSiteId || null,
             };
           }),
@@ -4934,11 +4958,10 @@ export default function AuftraegePage() {
 
         const nextItem: FormItem = { ...item, [field]: value };
 
-        // V17.13: Sobald der Benutzer eine blockierte KI-Position manuell
-        // korrigiert, darf der alte AI_WARNING-Text nicht weiter wie ein
-        // harter Preis-/Währungsblocker wirken. Sonst werden sichtbare
-        // manuelle Preise gespeichert, aber Gesamt-Netto bleibt 0 oder die
-        // Werte werden nach dem Speichern wieder durch die KI-Prüfwerte ersetzt.
+        // V17.16: Sobald der Benutzer eine blockierte KI-/Währungsposition
+        // manuell korrigiert, muss diese Position eindeutig als vom Benutzer
+        // bestätigt gespeichert werden. Besonders Anfahrt kam sonst beim
+        // erneuten Öffnen wieder aus der Originalzeile "Anfahrt CHF 50" zurück.
         if (
           field === "unitPrice" ||
           field === "quantity" ||
@@ -4946,21 +4969,23 @@ export default function AuftraegePage() {
           field === "serviceName"
         ) {
           const warningText = normalizeForMatch(nextItem.aiWarning);
+          const unitText = normalizeForMatch(nextItem.unit);
           const isResolvedInput =
             nextItem.serviceName.trim().length > 0 &&
-            normalizeForMatch(nextItem.unit).length > 0 &&
-            !normalizeForMatch(nextItem.unit).includes("pruefen") &&
-            !normalizeForMatch(nextItem.unit).includes("prufen") &&
+            unitText.length > 0 &&
+            !unitText.includes("pruefen") &&
+            !unitText.includes("prufen") &&
             Number(nextItem.unitPrice || 0) > 0 &&
             Number(nextItem.quantity || 0) > 0;
 
           if (
             isResolvedInput &&
-            /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig)/.test(
+            /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
               warningText,
             )
           ) {
             nextItem.aiWarning = "";
+            nextItem.catalogReviewConfirmed = true;
           }
         }
 
@@ -5047,37 +5072,44 @@ export default function AuftraegePage() {
     );
   };
 
-  // V17.13: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
-  // sperren, bis der Benutzer alle Positionen im Editor manuell vollständig
-  // bestätigt hat. Sonst zeigen die Einzelpositionen nach manueller Eingabe
-  // korrekte Totale, während Netto/MwSt./Total unten fälschlich 0 bleiben.
+  const isCompleteResolvedFormItem = (
+    item: Pick<FormItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  ) => {
+    const unitText = normalizeForMatch(item.unit);
+    return (
+      String(item.serviceName || "").trim().length > 0 &&
+      unitText.length > 0 &&
+      !unitText.includes("pruefen") &&
+      !unitText.includes("prufen") &&
+      Number(item.unitPrice || 0) > 0 &&
+      Number(item.quantity || 0) > 0
+    );
+  };
+
+  const isManuallyConfirmedCurrencyItem = (item: FormItem) =>
+    isCompleteResolvedFormItem(item) &&
+    (Boolean(item.catalogReviewConfirmed) || !isBlockingCurrencyReviewText(item.aiWarning));
+
+  // V17.16: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
+  // sperren, bis jede Position im Editor manuell vollständig bestätigt ist.
+  // Die Bestätigung wird pro Position persistiert, damit insbesondere Anfahrt
+  // nach Reload nicht wieder aus "Anfahrt CHF 50" zurückgesetzt wird.
   const formHasResolvedCurrencyReview =
     hasCurrentEditCurrencyReview &&
     (currency === "CHF" || currency === "EUR") &&
     formItems.length > 0 &&
-    formItems.every((item) => {
-      const unitText = normalizeForMatch(item.unit);
-      return (
-        item.serviceName.trim().length > 0 &&
-        unitText.length > 0 &&
-        !unitText.includes("pruefen") &&
-        !unitText.includes("prufen") &&
-        Number(item.unitPrice || 0) > 0 &&
-        Number(item.quantity || 0) > 0 &&
-        !isBlockingCurrencyReviewText(item.aiWarning)
-      );
-    });
+    formItems.every((item) => isManuallyConfirmedCurrencyItem(item));
 
   const hasEditCurrencyReview =
     hasCurrentEditCurrencyReview && !formHasResolvedCurrencyReview;
 
   const isBlockedFormItemForTotal = (
-    item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning"> & {
+    item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed"> & {
       serviceName?: string | null;
     },
     forceCurrencyConflict = hasEditCurrencyReview,
   ) => {
-    if (forceCurrencyConflict) return true;
+    if (forceCurrencyConflict && !isManuallyConfirmedCurrencyItem(item as FormItem)) return true;
 
     const reviewText = normalizeForMatch(
       [item.unit, item.aiWarning].filter(Boolean).join(" "),
@@ -5098,7 +5130,7 @@ export default function AuftraegePage() {
   };
 
   const getSafeFormItemTotal = (
-    item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning">,
+    item: Pick<FormItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed">,
     forceCurrencyConflict = hasEditCurrencyReview,
   ) => {
     if (isBlockedFormItemForTotal(item, forceCurrencyConflict)) return 0;
@@ -5783,22 +5815,18 @@ export default function AuftraegePage() {
           : undefined,
       items: validItems.map((item) => {
         const resolvedCurrencyItem =
-          formHasResolvedCurrencyReview &&
-          item.serviceName.trim().length > 0 &&
-          Number(item.unitPrice || 0) > 0 &&
-          Number(item.quantity || 0) > 0 &&
-          !normalizeForMatch(item.unit).includes("pruefen") &&
-          !normalizeForMatch(item.unit).includes("prufen") &&
-          !isBlockingCurrencyReviewText(item.aiWarning);
+          formHasResolvedCurrencyReview || isManuallyConfirmedCurrencyItem(item);
+        const itemIsStillBlockedByCurrency =
+          hasEditCurrencyReview && !isManuallyConfirmedCurrencyItem(item);
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
           description: resolvedCurrencyItem
-            ? item.serviceName
+            ? `${PRICE_REVIEW_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
             : buildItemDescription(item),
           quantity: Number(item.quantity || 0),
           unit: item.unit,
-          unitPrice: hasEditCurrencyReview ? 0 : Number(item.unitPrice || 0),
+          unitPrice: itemIsStillBlockedByCurrency ? 0 : Number(item.unitPrice || 0),
           totalPrice: getSafeFormItemTotal(item, hasEditCurrencyReview),
           workSiteId: item.workSiteId || null,
         };
