@@ -3540,6 +3540,11 @@ function repairExplicitHourQuantitiesFromOriginalText(
     const lineText = line.raw;
     const lineKey = normalizeUnitText(lineText);
 
+    const canonicalLineService = canonicalGermanServiceNameFromText(lineText);
+    const serviceKey = normalizeUnitText(serviceName);
+    const canonicalLineKey = normalizeUnitText(canonicalLineService || "");
+
+    if (canonicalLineKey && serviceKey && canonicalLineKey === serviceKey) score += 140;
     if (lineMatchesIntakeServiceTopic(serviceName, lineText)) score += 80;
     if (lineMatchesIntakeServiceTopic(item.description, lineText)) score += 40;
     if (lineMatchesIntakeServiceTopic(item.sourceText, lineText)) score += 30;
@@ -3667,13 +3672,17 @@ function findExplicitHourLineRepairForMappedItem(
     if (Math.abs(currentPrice - line.price) >= 0.01) continue;
 
     let score = 0;
+    const canonicalLineService = canonicalGermanServiceNameFromText(line.raw);
+    const canonicalLineKey = normalizeUnitText(canonicalLineService || "");
+    const serviceKey = normalizeUnitText(item.serviceName || "");
+
+    if (canonicalLineKey && serviceKey && canonicalLineKey === serviceKey) score += 160;
     if (lineMatchesIntakeServiceTopic(item.serviceName, line.raw)) score += 120;
     if (lineMatchesIntakeServiceTopic(item.description, line.raw)) score += 60;
     if (lineMatchesIntakeServiceTopic(item.sourceText, line.raw)) score += 40;
     if (lineMatchesIntakeServiceTopic(item.evidence, line.raw)) score += 30;
 
     const lineKey = normalizeUnitText(line.raw);
-    const serviceKey = normalizeUnitText(item.serviceName || "");
     const descriptionKey = normalizeUnitText(item.description || "");
     const sourceKey = normalizeUnitText(item.sourceText || "");
 
