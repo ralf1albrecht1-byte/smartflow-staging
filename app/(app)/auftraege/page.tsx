@@ -2474,6 +2474,61 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
   return text || compactText(value);
 };
 
+const looksLikeExecutionAddressLine = (value?: string | null) => {
+  const text = compactText(value);
+  if (!text) return false;
+
+  return (
+    /\b\d{4,5}\b/.test(text) ||
+    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|route|rue|chemin|avenue|av\.?|parkstrasse|badenerstrasse|rue\s+du|industrieweg|werkstrasse)\b/i.test(text) ||
+    /@/.test(text) ||
+    /\b(?:tel\.?|telefon|phone|mobile|handy|email|e-mail)\b/i.test(text)
+  );
+};
+
+const inferExecutionSiteNameFromText = (...values: Array<string | null | undefined>) => {
+  const source = values
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return "";
+
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  const markerPattern = /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
+  const stopPattern = /^(?:rechnung|facture|invoice|leistungen|leistung|besonderheiten|bemerkungen|hinweise|termin|datum|bitte|merci|please|kontakt|rückfragen|rueckfragen)\b/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(markerPattern);
+    if (!match) continue;
+
+    const inline = cleanWorkSiteDisplayName(match[1]);
+    if (inline && !looksLikeExecutionAddressLine(inline)) return inline;
+
+    for (let offset = 1; offset <= 3; offset += 1) {
+      const candidate = lines[index + offset];
+      if (!candidate || stopPattern.test(candidate)) break;
+      if (looksLikeExecutionAddressLine(candidate)) continue;
+
+      const cleaned = cleanWorkSiteDisplayName(candidate);
+      if (cleaned && !looksLikeExecutionAddressLine(cleaned)) return cleaned;
+    }
+  }
+
+  return "";
+};
+
+const inferOrderExecutionSiteName = (order?: Order | null) =>
+  inferExecutionSiteNameFromText(
+    order?.notes,
+    order?.description,
+    order?.audioTranscript,
+  );
+
 const formatExecutionAddressTooltip = (order: Order) => {
   const workSiteLines = (order.workSites ?? [])
     .slice()
@@ -2485,6 +2540,7 @@ const formatExecutionAddressTooltip = (order: Order) => {
     .map((site, index) => {
       const title =
         cleanWorkSiteDisplayName(site.siteName) ||
+        (index === 0 ? inferOrderExecutionSiteName(order) : "") ||
         compactText(site.siteAddress) ||
         `Arbeitsort ${index + 1}`;
       const address = [
@@ -2518,7 +2574,7 @@ const formatExecutionAddressTooltip = (order: Order) => {
   }
 
   const fallback = [
-    compactText(order.siteName),
+    compactText(order.siteName) || inferOrderExecutionSiteName(order),
     compactText(order.siteAddress),
     [order.sitePlz, order.siteCity].map(compactText).filter(Boolean).join(" "),
   ].filter(Boolean);
@@ -2660,9 +2716,16 @@ const getSystemBadges = (
 
   if (hasDifferentExecutionAddressForBadge(order)) {
     const workSiteCount = Array.isArray(order.workSites) ? order.workSites.length : 0;
+    const primaryWorkSite = (order.workSites ?? [])[0] || null;
+    const executionSiteTitle =
+      cleanWorkSiteDisplayName(primaryWorkSite?.siteName) ||
+      cleanWorkSiteDisplayName(order.siteName) ||
+      inferOrderExecutionSiteName(order);
     pushUniqueBadge(badges, {
       key: "site_address",
-      label: workSiteCount > 1 ? `Ausführungsorte · ${workSiteCount}` : "Ausführungsadresse",
+      label: workSiteCount > 1
+        ? `Ausführungsorte · ${workSiteCount}`
+        : executionSiteTitle || "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
       tooltip: formatExecutionAddressTooltip(order),
     });
@@ -3331,7 +3394,6 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       key={badge.key}
       type="button"
       tabIndex={0}
-      title={title}
       aria-label={title}
       onClick={(event) => {
         event.stopPropagation();
@@ -3406,7 +3468,6 @@ const renderMobileRightReviewBadge = (badge: ReviewBadge) => {
     <button
       key={`mobile_review_${badge.key}`}
       type="button"
-      title={title}
       aria-label={title}
       onClick={(event) => {
         event.stopPropagation();
@@ -4158,6 +4219,8 @@ export default function AuftraegePage() {
       city: "",
       country: "CH",
     });
+    const inferredSiteName = inferOrderExecutionSiteName(o);
+
     setForm({
       customerId: o.customerId ?? "",
       description: o.description ?? "",
@@ -4172,13 +4235,18 @@ export default function AuftraegePage() {
         });
       })(),
       siteAddressDifferent: Boolean(o.siteAddressDifferent),
-      siteName: o.siteName ?? "",
+      siteName: cleanWorkSiteDisplayName(o.siteName) || inferredSiteName || "",
       siteAddress: o.siteAddress ?? "",
       sitePlz: o.sitePlz ?? "",
       siteCity: o.siteCity ?? "",
       siteNote: o.siteNote ?? "",
     });
     const nextWorkSites = (o.workSites ?? [])
+      .map((site, index) =>
+        index === 0 && !cleanWorkSiteDisplayName(site.siteName) && inferredSiteName
+          ? { ...site, siteName: inferredSiteName }
+          : site,
+      )
       .slice()
       .sort(
         (a, b) =>
@@ -6548,7 +6616,6 @@ export default function AuftraegePage() {
                 <button
                   key={badge.key}
                   type="button"
-                  title={compactText(badge.tooltip) || badge.label}
                   aria-label={compactText(badge.tooltip) || badge.label}
                   onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
                   className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
@@ -6580,7 +6647,6 @@ export default function AuftraegePage() {
                   <button
                     key={badge.key}
                     type="button"
-                    title={title}
                     aria-label={title}
                     onClick={openOrderAtSpecialNotes}
                     className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
@@ -6595,7 +6661,6 @@ export default function AuftraegePage() {
                 <button
                   key={badge.key}
                   type="button"
-                  title={title}
                   aria-label={title}
                   onClick={(event) => toggleMobileTooltip(badge, tooltipSlot, event)}
                   className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
@@ -6616,7 +6681,6 @@ export default function AuftraegePage() {
                 <button
                   key={`${slot}_${badge.key}`}
                   type="button"
-                  title={title}
                   aria-label={title}
                   onClick={(event) => toggleMobileTooltip(badge, slot, event)}
                   className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
@@ -6633,7 +6697,6 @@ export default function AuftraegePage() {
                 <button
                   key={`mobile_right_${badge.key}`}
                   type="button"
-                  title={title}
                   aria-label={title}
                   onClick={openOrderAtItems}
                   className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
