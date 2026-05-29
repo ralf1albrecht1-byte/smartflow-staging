@@ -5197,6 +5197,117 @@ function applyStructuredFailClosedValidation(params: {
   return { items, reviewReasons: unique(reviewReasons) };
 }
 
+
+function applyFinalBlockedLineTotalGuard(params: {
+  items: ParsedOrderItemForValidation[];
+  detectedCurrencies: string[];
+  unsupportedDetectedCurrencies: string[];
+  finalCurrency: IntakeCurrency;
+}): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const globalCurrencyConflict =
+    params.detectedCurrencies.length > 1 ||
+    params.unsupportedDetectedCurrencies.length > 0;
+
+  const reviewReasons: string[] = [];
+
+  const items = params.items.map((item) => {
+    const next: ParsedOrderItemForValidation = { ...item };
+    const serviceName = String(next.serviceName || "Unbekannte Leistung").trim() || "Unbekannte Leistung";
+    const unitKey = normalizeCompare(next.unit || "");
+    const reviewText = [
+      next.unit,
+      next.description,
+      next.sourceText,
+      next.evidence,
+      next.reviewReason,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const reviewKey = normalizeCompare(reviewText);
+    const itemDetectedCurrency = normalizeCurrency(next.detectedCurrency || null);
+
+    const unitMissingOrUnclear =
+      unitKey.includes("pruefen") ||
+      unitKey.includes("prüfen") ||
+      unitKey === "unklar" ||
+      unitKey === "unknown" ||
+      unitKey === "unbekannt" ||
+      reviewKey.includes("einheit fehlt") ||
+      reviewKey.includes("unit missing") ||
+      String(next.reviewReason || "").startsWith("unit_missing_in_text:") ||
+      String(next.reviewReason || "").startsWith("unit_mismatch:");
+
+    const priceMissingOrUnclear =
+      String(next.reviewReason || "").startsWith("price_unclear:") ||
+      reviewKey.includes("preis fehlt") ||
+      reviewKey.includes("preis unklar") ||
+      reviewKey.includes("price missing") ||
+      reviewKey.includes("price unclear");
+
+    const currencyBlocked =
+      globalCurrencyConflict ||
+      Boolean(itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency) ||
+      String(next.reviewReason || "").startsWith("item_currency_mismatch:") ||
+      String(next.reviewReason || "") === "currency_review";
+
+    const amountBlocked =
+      unitMissingOrUnclear ||
+      priceMissingOrUnclear ||
+      currencyBlocked ||
+      (!isFlatUnit(next.unit) && Number(next.quantity || 0) <= 0) ||
+      Number(next.unitPrice || 0) <= 0;
+
+    if (!amountBlocked) return next;
+
+    next.needsReview = true;
+    next.totalPrice = 0;
+
+    if (currencyBlocked) {
+      // Hart blockieren: Bei Mischwährung darf keine Position als sichere
+      // EUR/CHF-Summe weiterlaufen. Menge und Einheit bleiben als Hinweis
+      // sichtbar, aber der Preis zählt nicht in Netto/MwSt/Total.
+      next.unitPrice = 0;
+      if (!next.reviewReason) {
+        next.reviewReason = itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency
+          ? `item_currency_mismatch:${serviceName}:${itemDetectedCurrency}:${params.finalCurrency}`
+          : `currency_conflict_item:${serviceName}:${itemDetectedCurrency || "UNKNOWN"}`;
+      }
+      reviewReasons.push("currency_review", next.reviewReason || `currency_conflict_item:${serviceName}:UNKNOWN`);
+      return next;
+    }
+
+    if (unitMissingOrUnclear) {
+      if (!unitKey.includes("pruefen") && !unitKey.includes("prüfen")) {
+        next.unit = "Einheit prüfen";
+      }
+      if (!next.reviewReason) next.reviewReason = `unit_missing_in_text:${serviceName}`;
+      reviewReasons.push(
+        `unit_missing_in_text:${serviceName}`,
+        `unit_mismatch:${serviceName}:Unklar:${next.unit || "Einheit prüfen"}:0`,
+        "amount_review",
+      );
+      return next;
+    }
+
+    if (priceMissingOrUnclear || Number(next.unitPrice || 0) <= 0) {
+      next.unitPrice = 0;
+      if (!next.reviewReason) next.reviewReason = `price_unclear:${serviceName}`;
+      reviewReasons.push(`price_unclear:${serviceName}`, "unit_price_review");
+      return next;
+    }
+
+    if (!isFlatUnit(next.unit) && Number(next.quantity || 0) <= 0) {
+      next.quantity = 0;
+      if (!next.reviewReason) next.reviewReason = "quantity_review";
+      reviewReasons.push("quantity_review");
+    }
+
+    return next;
+  });
+
+  return { items, reviewReasons: unique(reviewReasons) };
+}
+
 export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
@@ -5496,6 +5607,15 @@ export function validateAndRepairParsedOrderItems(
   });
   items = structuredFailClosedGuard.items;
   reviewReasons.push(...structuredFailClosedGuard.reviewReasons);
+
+  const finalBlockedLineTotalGuard = applyFinalBlockedLineTotalGuard({
+    items,
+    finalCurrency,
+    detectedCurrencies,
+    unsupportedDetectedCurrencies,
+  });
+  items = finalBlockedLineTotalGuard.items;
+  reviewReasons.push(...finalBlockedLineTotalGuard.reviewReasons);
 
   const priceUnclearServiceNames = new Set(
     items

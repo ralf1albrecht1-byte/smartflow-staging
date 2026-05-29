@@ -480,6 +480,44 @@ function shouldTrustSourcePriceForItem(item: any, data: any) {
   );
 }
 
+
+function hasCurrencyConflictReviewOnOrderLike(value: any): boolean {
+  const reasons = Array.isArray(value?.reviewReasons) ? value.reviewReasons : [];
+  return reasons.some((reason: any) =>
+    String(reason || "").startsWith("currency_") ||
+    String(reason || "").startsWith("item_currency_mismatch:") ||
+    String(reason || "").startsWith("currency_conflict_item:"),
+  );
+}
+
+function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
+  const reviewText = [
+    item?.unit,
+    item?.description,
+    item?.sourceText,
+    item?.evidence,
+    item?.reviewReason,
+    ...(Array.isArray(data?.reviewReasons) ? data.reviewReasons : []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    hasCurrencyConflictReviewOnOrderLike(data || {}) ||
+    /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(reviewText) ||
+    /unit\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
+    /unit_missing_in_text|unit_mismatch:/i.test(reviewText) ||
+    /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
+    /price\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
+    /price_unclear:|unit_price_review/i.test(reviewText) ||
+    /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
+    /quantity\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
+    /quantity_review/i.test(reviewText) ||
+    /currency_review|currency_conflict|currency_unsupported|item_currency_mismatch|currency_conflict_item/i.test(reviewText)
+  );
+}
+
 function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   if (!Array.isArray(items)) return undefined;
   const source = getOrderSourceTextForItems(data);
@@ -513,13 +551,18 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       }
     }
 
+    const amountBlocked = isBlockedAmountReviewItemForPersist(
+      { ...item, serviceName, unit, unitPrice, quantity },
+      data,
+    );
+
     return {
       ...item,
       serviceName,
       unit,
-      unitPrice,
+      unitPrice: amountBlocked && hasCurrencyConflictReviewOnOrderLike(data) ? 0 : unitPrice,
       quantity,
-      totalPrice: Number(item?.totalPrice ?? unitPrice * quantity),
+      totalPrice: amountBlocked ? 0 : Number(item?.totalPrice ?? unitPrice * quantity),
     };
   });
 
@@ -1011,26 +1054,7 @@ function calculateVatTotals(netValue: number, vatRateValue: number) {
 function isExplicitZeroTotalReviewItem(item: any): boolean {
   const storedTotal = Number(item?.totalPrice ?? 0);
   if (storedTotal > 0) return false;
-
-  const reviewText = [
-    item?.unit,
-    item?.description,
-    item?.sourceText,
-    item?.evidence,
-    item?.reviewReason,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return (
-    /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(reviewText) ||
-    /unit\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
-    /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
-    /price\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
-    /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
-    /quantity\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText)
-  );
+  return isBlockedAmountReviewItemForPersist(item, {});
 }
 
 function getItemNetTotalForOrder(item: any): number {
@@ -1049,9 +1073,16 @@ function calculateItemsNetTotal(o: any): number | null {
   const items = Array.isArray(o?.items) ? o.items : [];
   if (items.length === 0) return null;
 
+  if (hasCurrencyConflictReviewOnOrderLike(o)) {
+    return 0;
+  }
+
   const net = items.reduce((sum: number, item: any) => sum + getItemNetTotalForOrder(item), 0);
 
-  return net > 0 ? roundMoney(net) : null;
+  // Wenn Positionen vorhanden sind, sind sie Source of Truth. Auch 0 ist dann
+  // ein gültiges Ergebnis, damit rote Prüfpositionen nicht über stale
+  // Order.totalPrice oder quantity × price wieder in die Summe laufen.
+  return roundMoney(net);
 }
 
 function getOrderNetTotalForResponse(o: any): number {

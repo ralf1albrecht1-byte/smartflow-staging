@@ -3298,6 +3298,115 @@ function detectAllQuantityUnitsFromText(
 
 // V16.95: Final semantic repair for explicit hour lines from the original customer text.
 // This is intentionally line-anchored: a service row is repaired only when the
+
+
+type IntakeFinalOrderItemForBlocker = {
+  serviceName: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalPrice: number;
+  needsReview: boolean;
+  reviewReason: string | null;
+  sourceText?: string | null;
+  evidence?: string | null;
+  detectedCurrency?: string | null;
+  [key: string]: any;
+};
+
+function applyFinalAmountBlockersBeforePersist(
+  items: IntakeFinalOrderItemForBlocker[],
+  options: {
+    detectedCurrencies?: string[] | null;
+    finalCurrency?: string | null;
+  } = {},
+): IntakeFinalOrderItemForBlocker[] {
+  const detectedCurrencies = Array.isArray(options.detectedCurrencies)
+    ? options.detectedCurrencies.filter(Boolean)
+    : [];
+  const finalCurrency = String(options.finalCurrency || "").toUpperCase();
+  const hasGlobalCurrencyConflict = detectedCurrencies.length > 1;
+
+  return items.map((item) => {
+    const next: IntakeFinalOrderItemForBlocker = { ...item };
+    const serviceName = String(next.serviceName || "Unbekannte Leistung").trim() || "Unbekannte Leistung";
+    const unitKey = normalizeUnitText(next.unit || "");
+    const reviewKey = normalizeUnitText(
+      [next.unit, next.description, next.sourceText, next.evidence, next.reviewReason]
+        .filter(Boolean)
+        .join(" "),
+    );
+    const detectedCurrency = String(next.detectedCurrency || "").toUpperCase();
+
+    const unitBlocked =
+      unitKey.includes("pruefen") ||
+      unitKey.includes("prüfen") ||
+      unitKey === "unklar" ||
+      unitKey === "unknown" ||
+      unitKey === "unbekannt" ||
+      reviewKey.includes("einheit fehlt") ||
+      reviewKey.includes("unit missing") ||
+      String(next.reviewReason || "").startsWith("unit_missing_in_text:") ||
+      String(next.reviewReason || "").startsWith("unit_mismatch:");
+
+    const priceBlocked =
+      String(next.reviewReason || "").startsWith("price_unclear:") ||
+      reviewKey.includes("preis fehlt") ||
+      reviewKey.includes("preis unklar") ||
+      reviewKey.includes("price missing") ||
+      reviewKey.includes("price unclear") ||
+      Number(next.unitPrice || 0) <= 0;
+
+    const quantityBlocked =
+      getServiceUnitType(next.unit) !== "flat" && Number(next.quantity || 0) <= 0;
+
+    const currencyBlocked =
+      hasGlobalCurrencyConflict ||
+      Boolean(detectedCurrency && finalCurrency && detectedCurrency !== finalCurrency) ||
+      String(next.reviewReason || "").startsWith("item_currency_mismatch:") ||
+      String(next.reviewReason || "") === "currency_review";
+
+    if (!(unitBlocked || priceBlocked || quantityBlocked || currencyBlocked)) {
+      return next;
+    }
+
+    next.needsReview = true;
+    next.totalPrice = 0;
+
+    if (currencyBlocked) {
+      next.unitPrice = 0;
+      if (!next.reviewReason) {
+        next.reviewReason = detectedCurrency && finalCurrency && detectedCurrency !== finalCurrency
+          ? `item_currency_mismatch:${serviceName}:${detectedCurrency}:${finalCurrency}`
+          : `currency_conflict_item:${serviceName}:${detectedCurrency || "UNKNOWN"}`;
+      }
+      return next;
+    }
+
+    if (unitBlocked) {
+      if (!unitKey.includes("pruefen") && !unitKey.includes("prüfen")) {
+        next.unit = "Einheit prüfen";
+      }
+      if (!next.reviewReason) next.reviewReason = `unit_missing_in_text:${serviceName}`;
+      return next;
+    }
+
+    if (priceBlocked) {
+      next.unitPrice = 0;
+      if (!next.reviewReason) next.reviewReason = `price_unclear:${serviceName}`;
+      return next;
+    }
+
+    if (quantityBlocked) {
+      next.quantity = 0;
+      if (!next.reviewReason) next.reviewReason = "quantity_review";
+    }
+
+    return next;
+  });
+}
+
 // same original line contains service topic + explicit hour quantity + explicit
 // unit price. It prevents catalog-unit overwrite without leaking the hour price
 // into neighbouring Stück/m² rows.
@@ -6729,6 +6838,14 @@ ${fullWorkText}`,
 ${fullWorkText}`,
   );
   finalOrderItems = unitlessQuantityGuardBeforePersist.items;
+
+  // V17.11: Allerletzter Summen-Blocker vor Order.create.
+  // Rote Prüfpositionen dürfen zwar Menge/Preis als Hinweis behalten, aber
+  // niemals in Order.totalPrice/OrderItem.totalPrice eingerechnet werden.
+  finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
+    detectedCurrencies: intakeValidation.detectedCurrencies,
+    finalCurrency: intakeValidation.finalCurrency,
+  });
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {

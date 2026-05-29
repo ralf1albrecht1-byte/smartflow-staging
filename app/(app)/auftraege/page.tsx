@@ -4978,17 +4978,60 @@ export default function AuftraegePage() {
     });
   };
 
+  const currentEditOrder = editId
+    ? orders.find((o: Order) => o.id === editId) || null
+    : null;
+
+  const hasCurrentEditCurrencyReview =
+    currentEditOrder?.reviewReasons?.some(
+      (reason: string) =>
+        reason.startsWith("currency_") ||
+        reason.startsWith("item_currency_mismatch") ||
+        reason.startsWith("currency_conflict_item:"),
+    ) ?? false;
+
+  const isBlockedFormItemForTotal = (
+    item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning"> & {
+      serviceName?: string | null;
+    },
+    forceCurrencyConflict = hasCurrentEditCurrencyReview,
+  ) => {
+    if (forceCurrencyConflict) return true;
+
+    const reviewText = normalizeForMatch(
+      [item.unit, item.aiWarning].filter(Boolean).join(" "),
+    );
+
+    return (
+      reviewText.includes("einheit pruefen") ||
+      reviewText.includes("einheit prufen") ||
+      reviewText.includes("einheit fehlt") ||
+      reviewText.includes("unit missing") ||
+      reviewText.includes("preis pruefen") ||
+      reviewText.includes("preis prufen") ||
+      reviewText.includes("preis fehlt") ||
+      reviewText.includes("menge pruefen") ||
+      reviewText.includes("menge prufen") ||
+      reviewText.includes("menge fehlt")
+    );
+  };
+
+  const getSafeFormItemTotal = (
+    item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning">,
+    forceCurrencyConflict = hasCurrentEditCurrencyReview,
+  ) => {
+    if (isBlockedFormItemForTotal(item, forceCurrencyConflict)) return 0;
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    return quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
+  };
+
   const itemsTotal = formItems.reduce(
-    (sum, item) =>
-      sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+    (sum, item) => sum + getSafeFormItemTotal(item),
     0,
   );
 
   const totalWithVat = itemsTotal + (itemsTotal * orderVatRate) / 100;
-
-  const currentEditOrder = editId
-    ? orders.find((o: Order) => o.id === editId) || null
-    : null;
 
   const hasWorkSiteContent = (site?: OrderWorkSite | null) =>
     Boolean(
@@ -5073,8 +5116,7 @@ export default function AuftraegePage() {
 
   const getWorkSiteTotal = (siteId?: string | null) =>
     getWorkSiteItems(siteId).reduce(
-      (sum, item) =>
-        sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+      (sum, item) => sum + getSafeFormItemTotal(item),
       0,
     );
 
@@ -5192,7 +5234,7 @@ export default function AuftraegePage() {
   const formatWorkSiteItemSummary = (item: FormItem) => {
     const quantity = Number(item.quantity || 0);
     const unitPrice = Number(item.unitPrice || 0);
-    const total = quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
+    const total = getSafeFormItemTotal(item);
     const quantityLabel =
       quantity > 0
         ? `${item.quantity} ${unitShortLabel(item.unit)}`
@@ -5291,7 +5333,7 @@ export default function AuftraegePage() {
       const unitPrice = Number(item.unitPrice || 0);
       const hasQuantity = quantity > 0;
       const hasPrice = unitPrice > 0;
-      const sum = hasQuantity && hasPrice ? quantity * unitPrice : 0;
+      const sum = getSafeFormItemTotal(item);
 
       return {
         index: index + 1,
@@ -5564,7 +5606,9 @@ export default function AuftraegePage() {
       validItems
         .filter(
           (item) =>
-            Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0,
+            Number(item.quantity || 0) > 0 &&
+            Number(item.unitPrice || 0) > 0 &&
+            !isBlockedFormItemForTotal(item),
         )
         .map((item) => normalizeForMatch(item.serviceName)),
     );
@@ -5583,7 +5627,8 @@ export default function AuftraegePage() {
       (item) =>
         item.serviceName.trim().length > 0 &&
         Number(item.quantity || 0) > 0 &&
-        Number(item.unitPrice || 0) > 0,
+        Number(item.unitPrice || 0) > 0 &&
+        !isBlockedFormItemForTotal(item),
     );
 
     const allServicesInCatalog = validItems.every((item) =>
@@ -5656,7 +5701,8 @@ export default function AuftraegePage() {
         description: buildItemDescription(item),
         quantity: Number(item.quantity || 0),
         unit: item.unit,
-        unitPrice: Number(item.unitPrice || 0),
+        unitPrice: hasEditCurrencyReview ? 0 : Number(item.unitPrice || 0),
+        totalPrice: getSafeFormItemTotal(item, hasEditCurrencyReview),
         workSiteId: item.workSiteId || null,
       })),
     };
@@ -6353,9 +6399,42 @@ export default function AuftraegePage() {
 
   // Display items summary for list
 
+  const isBlockedOrderItemForTotal = (item: OrderItem) => {
+    const reviewText = normalizeForMatch(
+      [item.unit, item.description, (item as any).reviewReason]
+        .filter(Boolean)
+        .join(" "),
+    );
+
+    return (
+      reviewText.includes("einheit pruefen") ||
+      reviewText.includes("einheit prufen") ||
+      reviewText.includes("einheit fehlt") ||
+      reviewText.includes("unit missing") ||
+      reviewText.includes("preis pruefen") ||
+      reviewText.includes("preis prufen") ||
+      reviewText.includes("preis fehlt") ||
+      reviewText.includes("menge pruefen") ||
+      reviewText.includes("menge prufen") ||
+      reviewText.includes("menge fehlt")
+    );
+  };
+
   const getSafeOrderNetTotal = (o: Order) => {
+    const hasCurrencyReview =
+      o.reviewReasons?.some(
+        (reason) =>
+          reason.startsWith("currency_") ||
+          reason.startsWith("item_currency_mismatch") ||
+          reason.startsWith("currency_conflict_item:"),
+      ) ?? false;
+
+    if (hasCurrencyReview) return 0;
+
     if (o.items && o.items.length > 0) {
       return o.items.reduce((sum, item) => {
+        if (isBlockedOrderItemForTotal(item)) return sum;
+
         const qty = Number(item.quantity || 0);
         const price = Number(item.unitPrice || 0);
         const storedLineTotal = Number(item.totalPrice || 0);
@@ -8174,9 +8253,10 @@ export default function AuftraegePage() {
                               ),
                             );
 
-                          const itemTotal =
-                            Number(item.unitPrice || 0) *
-                            Number(item.quantity || 0);
+                          const itemTotal = getSafeFormItemTotal(
+                            item,
+                            hasCurrencyConflict,
+                          );
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
                             item.unit?.trim() &&
