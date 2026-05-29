@@ -244,6 +244,7 @@ interface FormItem {
   quantity: string;
   aiWarning?: string;
   catalogReviewConfirmed?: boolean;
+  manualCurrencyConfirmed?: boolean;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
 }
@@ -255,11 +256,13 @@ const createEmptyItem = (): FormItem => ({
   unitPrice: "",
   quantity: "",
   catalogReviewConfirmed: false,
+  manualCurrencyConfirmed: false,
   workSiteId: null,
 });
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
+const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
 
 const isCatalogReviewConfirmedDescription = (
   description?: string | null,
@@ -268,6 +271,14 @@ const isCatalogReviewConfirmedDescription = (
 const getCatalogReviewConfirmedFromItemDescription = (
   description?: string | null,
 ) => isCatalogReviewConfirmedDescription(description);
+
+const isManualCurrencyConfirmedDescription = (
+  description?: string | null,
+) => compactText(description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX);
+
+const getManualCurrencyConfirmedFromItemDescription = (
+  description?: string | null,
+) => isManualCurrencyConfirmedDescription(description);
 
 const stripInternalItemDescriptionMarkers = (description?: string | null) => {
   const value = compactText(description);
@@ -3753,6 +3764,28 @@ const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^currency_unsupported$/,
 ];
 
+const isPersistedManualCurrencyConfirmedItem = (item: any) =>
+  compactText(item?.description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX) ||
+  compactText(item?.description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
+
+const hasOrderAllItemsManuallyResolvedForConversion = (order: Order | any) => {
+  const items: any[] = Array.isArray(order?.items) ? order.items : [];
+  if (items.length === 0) return false;
+  return items.every((item) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const total = Number(item?.totalPrice ?? unitPrice * quantity);
+    return quantity > 0 && unitPrice > 0 && total > 0;
+  });
+};
+
+const isResolvableConversionReviewReason = (reason: string) =>
+  reason.startsWith("currency_") ||
+  reason.startsWith("item_currency_mismatch") ||
+  reason.startsWith("currency_conflict_item:") ||
+  reason.startsWith("price_unclear:") ||
+  reason === "unit_price_review";
+
 const getOrderConversionBlockers = (order: Order | any): string[] => {
   const blockers: string[] = [];
   // Status is intentionally NOT a blocker. Open orders may be moved to
@@ -3780,12 +3813,20 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     blockers.push("Preis/Menge prüfen");
   }
 
+  const allItemsResolvedForConversion =
+    hasOrderAllItemsManuallyResolvedForConversion(order);
+
   if (
-    reviewReasons.some((reason) =>
-      CRITICAL_CONVERSION_REVIEW_PATTERNS.some((pattern) =>
+    reviewReasons.some((reason) => {
+      const isCritical = CRITICAL_CONVERSION_REVIEW_PATTERNS.some((pattern) =>
         pattern.test(reason),
-      ),
-    )
+      );
+      if (!isCritical) return false;
+      // V17.19: Alte KI-/Währungs-ReviewReasons dürfen Angebot/Rechnung nicht
+      // mehr blockieren, wenn alle Positionen inzwischen manuell verwertbare
+      // Preise/Mengen/Totale haben. Harte Mengen-/Einheitsfehler bleiben Blocker.
+      return !(allItemsResolvedForConversion && isResolvableConversionReviewReason(reason));
+    })
   ) {
     blockers.push("Offene Prüfhinweise im Auftrag");
   }
@@ -4318,6 +4359,8 @@ export default function AuftraegePage() {
             const isCatalogConfirmed = getCatalogReviewConfirmedFromItemDescription(
               item.description,
             );
+            const isManualCurrencyConfirmed =
+              getManualCurrencyConfirmedFromItemDescription(item.description);
             const hasOrderCurrencyReview =
               o.reviewReasons?.some(
                 (reason: string) =>
@@ -4332,7 +4375,7 @@ export default function AuftraegePage() {
             // erscheinen. Menge und Einheit bleiben sichtbar, Preis muss der
             // Benutzer pro Position frisch bestätigen.
             const shouldRequireFreshManualPrice =
-              hasOrderCurrencyReview && !isCatalogConfirmed;
+              hasOrderCurrencyReview && !isCatalogConfirmed && !isManualCurrencyConfirmed;
 
             return {
               key: Math.random().toString(36).slice(2),
@@ -4352,8 +4395,9 @@ export default function AuftraegePage() {
               // customer-text unit differ, but blanking a valid quantity turns a repaired
               // hour row back into Menge prüfen / Total CHF 0.00 in the editor.
               quantity: !hasValidQuantity ? "" : String(item.quantity),
-              aiWarning: rawAiWarning,
+              aiWarning: isManualCurrencyConfirmed ? "" : rawAiWarning,
               catalogReviewConfirmed: isCatalogConfirmed,
+              manualCurrencyConfirmed: isManualCurrencyConfirmed,
               workSiteId: item.workSiteId || null,
             };
           }),
@@ -4371,6 +4415,7 @@ export default function AuftraegePage() {
             quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
             aiWarning: "",
             catalogReviewConfirmed: false,
+            manualCurrencyConfirmed: false,
             workSiteId: null,
           },
         ]),
@@ -4979,11 +5024,10 @@ export default function AuftraegePage() {
             Number(nextItem.unitPrice || 0) > 0 &&
             Number(nextItem.quantity || 0) > 0;
 
-          // V17.18: Eine Position wird einzeln bestätigt, sobald der Benutzer
-          // dort einen vollständigen Zielpreis/eine gültige Menge/eine gültige
-          // Einheit eingibt. Nicht warten, bis ALLE Mischwährungspositionen
-          // ausgefüllt sind. Sonst bleiben bereits korrigierte Zeilen rot und
-          // wirken weiterhin blockiert.
+          // V17.19: Währungs-/Preisblocker pro Position bestätigen,
+          // ohne die Position künstlich als Katalogprüfung-erledigt zu markieren.
+          // So wird eine korrigierte einzelne Zeile sofort gelb/normal berechnet
+          // und bleibt nach Speichern/Reload erhalten; andere Zeilen bleiben rot.
           if (
             isResolvedInput &&
             (hasCurrentEditCurrencyReview ||
@@ -4992,7 +5036,7 @@ export default function AuftraegePage() {
               ))
           ) {
             nextItem.aiWarning = "";
-            nextItem.catalogReviewConfirmed = true;
+            nextItem.manualCurrencyConfirmed = true;
           }
         }
 
@@ -5095,7 +5139,9 @@ export default function AuftraegePage() {
 
   const isManuallyConfirmedCurrencyItem = (item: FormItem) =>
     isCompleteResolvedFormItem(item) &&
-    (Boolean(item.catalogReviewConfirmed) || !isBlockingCurrencyReviewText(item.aiWarning));
+    (Boolean(item.manualCurrencyConfirmed) ||
+      Boolean(item.catalogReviewConfirmed) ||
+      !isBlockingCurrencyReviewText(item.aiWarning));
 
   // V17.16: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
   // sperren, bis jede Position im Editor manuell vollständig bestätigt ist.
@@ -5821,16 +5867,20 @@ export default function AuftraegePage() {
             }))
           : undefined,
       items: validItems.map((item) => {
+        const itemCurrencyConfirmed = isManuallyConfirmedCurrencyItem(item);
         const resolvedCurrencyItem =
-          formHasResolvedCurrencyReview || isManuallyConfirmedCurrencyItem(item);
+          formHasResolvedCurrencyReview || itemCurrencyConfirmed;
         const itemIsStillBlockedByCurrency =
-          hasEditCurrencyReview && !isManuallyConfirmedCurrencyItem(item);
+          hasEditCurrencyReview && !itemCurrencyConfirmed;
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
-          description: resolvedCurrencyItem
-            ? `${PRICE_REVIEW_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
-            : buildItemDescription(item),
+          description:
+            hasCurrentEditCurrencyReview && itemCurrencyConfirmed
+              ? `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
+              : resolvedCurrencyItem
+                ? buildItemDescription({ ...item, aiWarning: "" })
+                : buildItemDescription(item),
           quantity: Number(item.quantity || 0),
           unit: item.unit,
           unitPrice: itemIsStillBlockedByCurrency ? 0 : Number(item.unitPrice || 0),
@@ -8397,6 +8447,9 @@ export default function AuftraegePage() {
                                 "unit_price_review",
                               ),
                             );
+                          const showManualCurrencyConfirmedReview =
+                            !unresolvedCurrencyItem &&
+                            Boolean(item.manualCurrencyConfirmed);
 
                           const itemTotal = getSafeFormItemTotal(
                             item,
@@ -8446,6 +8499,7 @@ export default function AuftraegePage() {
                               (showUnitConflict ||
                                 showPriceOverride ||
                                 showPriceReferenceReview ||
+                                showManualCurrencyConfirmedReview ||
                                 priceInputReview ||
                                 quantityInputReview ||
                                 showManualServiceReview));
@@ -8499,6 +8553,7 @@ export default function AuftraegePage() {
                           const hasAnyItemReview =
                             hasCriticalItemReview ||
                             showPriceOverride ||
+                            showManualCurrencyConfirmedReview ||
                             showManualServiceReview ||
                             hasResolvedReviewCatalogAction;
                           const siteIndex = site
@@ -9341,6 +9396,22 @@ export default function AuftraegePage() {
                                                   currency,
                                                 )}
                                               </div>
+                                            </div>
+                                          )}
+
+                                        {!showUnitConflict &&
+                                          !showPriceOverride &&
+                                          showManualCurrencyConfirmedReview && (
+                                            <div className="space-y-0.5">
+                                              <div>Preis/Währung manuell bestätigt.</div>
+                                              {sourceLineForItem && (
+                                                <div>
+                                                  Ausgangstext:{" "}
+                                                  <span className="font-medium">
+                                                    {sourceLineForItem}
+                                                  </span>
+                                                </div>
+                                              )}
                                             </div>
                                           )}
 

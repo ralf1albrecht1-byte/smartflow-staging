@@ -298,6 +298,30 @@ function shouldTrustSourcePriceForItem(item: any, data: any) {
 }
 
 
+const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
+const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
+
+function isItemManuallyConfirmedForPersist(item: any): boolean {
+  const description = String(item?.description || "").trim();
+  const unit = normalizeSearchText(item?.unit);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const quantity = Number(item?.quantity ?? 0);
+  return (
+    String(item?.serviceName || "").trim().length > 0 &&
+    unit.length > 0 &&
+    !unit.includes("pruefen") &&
+    !unit.includes("prufen") &&
+    unitPrice > 0 &&
+    quantity > 0 &&
+    (description.startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX) ||
+      description.startsWith(PRICE_REVIEW_CONFIRMED_PREFIX))
+  );
+}
+
+function hasClientItemsPayload(data: any): boolean {
+  return Array.isArray(data?.items);
+}
+
 function hasCurrencyConflictReviewOnOrderLike(value: any): boolean {
   const reasons = Array.isArray(value?.reviewReasons) ? value.reviewReasons : [];
   return reasons.some((reason: any) =>
@@ -308,20 +332,24 @@ function hasCurrencyConflictReviewOnOrderLike(value: any): boolean {
 }
 
 function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
+  const itemIsManuallyConfirmed = isItemManuallyConfirmedForPersist(item);
+  const globalReviewReasons = Array.isArray(data?.reviewReasons)
+    ? data.reviewReasons
+    : [];
   const reviewText = [
     item?.unit,
     item?.description,
     item?.sourceText,
     item?.evidence,
     item?.reviewReason,
-    ...(Array.isArray(data?.reviewReasons) ? data.reviewReasons : []),
+    ...(itemIsManuallyConfirmed ? [] : globalReviewReasons),
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
 
   return (
-    hasCurrencyConflictReviewOnOrderLike(data || {}) ||
+    (!itemIsManuallyConfirmed && hasCurrencyConflictReviewOnOrderLike(data || {})) ||
     /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(reviewText) ||
     /unit\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
     /unit_missing_in_text|unit_mismatch:/i.test(reviewText) ||
@@ -331,10 +359,10 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
     /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
     /quantity\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
     /quantity_review/i.test(reviewText) ||
-    /currency_review|currency_conflict|currency_unsupported|item_currency_mismatch|currency_conflict_item/i.test(reviewText)
+    (!itemIsManuallyConfirmed &&
+      /currency_review|currency_conflict|currency_unsupported|item_currency_mismatch|currency_conflict_item/i.test(reviewText))
   );
 }
-
 function hasCompleteManualItemsForPersist(data: any): boolean {
   const items = Array.isArray(data?.items) ? data.items : [];
   if (items.length === 0) return false;
@@ -381,8 +409,10 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
     ]
       .filter(Boolean)
       .join(" ");
+    const itemManuallyConfirmed = isItemManuallyConfirmedForPersist(item);
     const forceMissingPriceReview =
       !trustClientItemValues &&
+      !itemManuallyConfirmed &&
       !sourcePrice &&
       /preis\s+im\s+text\s+unklar|price_unclear|unit_price_review/i.test(reviewText);
     let unitPrice = trustClientItemValues
@@ -430,7 +460,9 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
 
   return repairZeroQuantityHourItemsFromText(normalized, source, {
     logPrefix: "[OrdersIdNormalizeHourFixV17_06]",
-    skipFlatFeeRepair: trustClientItemValues,
+    // V17.19: Sobald der Editor eine items-Liste sendet, dürfen Pauschal-/
+    // Anfahrt-Sicherheitsnetze keine alten Textpreise mehr zurückschreiben.
+    skipFlatFeeRepair: trustClientItemValues || hasClientItemsPayload(data),
   }).items;
 }
 
@@ -1427,7 +1459,7 @@ export async function PUT(
       order: finalOrder,
       originalText: getOrderSourceTextForItems({ ...existing, ...data, items: finalOrder.items }),
       logPrefix: "[OrdersIdPutHourFixV17_06]",
-      skipFlatFeeRepair: shouldTrustClientItemValuesForPersist(data),
+      skipFlatFeeRepair: shouldTrustClientItemValuesForPersist(data) || hasClientItemsPayload(data),
     });
     if (persistedHourRepairAfterUpdate.repairedCount > 0 && persistedHourRepairAfterUpdate.order) {
       finalOrder = persistedHourRepairAfterUpdate.order;
