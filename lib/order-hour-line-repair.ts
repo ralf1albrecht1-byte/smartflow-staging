@@ -995,6 +995,22 @@ function hasExistingFlatFeeRepresentation(
     const itemPrice = normalizeHourRepairNumber(item.unitPrice);
     const itemTotal = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
     const itemQuantity = normalizeHourRepairNumber(item.quantity);
+    const itemUnit = normalizeHourRepairText(item.unit || "").replace(/[^a-z0-9]/g, "");
+
+    // V17.17: Once a real Anfahrt/Pauschal row exists, never recreate it from
+    // the old customer text just because the stored/manual price differs from
+    // the original line. This protects manual currency corrections such as
+    // changing "Anfahrt CHF 50" to EUR 44.
+    if (
+      itemTopic === "anfahrt" &&
+      itemUnit === "pauschal" &&
+      itemPrice > 0 &&
+      itemQuantity > 0 &&
+      (itemTotal <= 0 || Math.abs(itemTotal - itemPrice * itemQuantity) < 0.01)
+    ) {
+      return true;
+    }
+
     return (
       itemTopic === "anfahrt" &&
       Math.abs(itemPrice - candidate.price) < 0.01 &&
@@ -1034,12 +1050,25 @@ function needsFlatFeeRepair(item: HourLineRepairItem, candidate: FlatFeeRepairCa
   const unitPrice = normalizeHourRepairNumber(item.unitPrice);
   const totalPrice = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
 
+  // V17.17: Do not overwrite a complete Anfahrt/Pauschal row with the old
+  // customer-text amount. The repair is only allowed to fill missing/broken
+  // flat fees, not to revert manual corrections after save/reload.
+  if (
+    serviceName === "anfahrt" &&
+    unit === "pauschal" &&
+    Math.abs(quantity - 1) < 0.001 &&
+    unitPrice > 0 &&
+    Math.abs(totalPrice - unitPrice) < 0.01
+  ) {
+    return false;
+  }
+
   return (
     serviceName !== "anfahrt" ||
     unit !== "pauschal" ||
     Math.abs(quantity - 1) >= 0.001 ||
-    Math.abs(unitPrice - candidate.price) >= 0.01 ||
-    Math.abs(totalPrice - candidate.price) >= 0.01
+    unitPrice <= 0 ||
+    totalPrice <= 0
   );
 }
 
@@ -1224,11 +1253,13 @@ function removeSpuriousRepairDuplicates<T extends HourLineRepairItem>(
 export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem>(
   items: T[] | undefined | null,
   originalText: string,
-  options?: { logPrefix?: string },
+  options?: { logPrefix?: string; skipFlatFeeRepair?: boolean },
 ): HourLineRepairResult<T> {
   const sourceItems = Array.isArray(items) ? items : [];
   const candidates = buildHourLineRepairCandidates(originalText);
-  const flatFeeCandidates = buildFlatFeeRepairCandidates(originalText);
+  const flatFeeCandidates = options?.skipFlatFeeRepair
+    ? []
+    : buildFlatFeeRepairCandidates(originalText);
   const missingPriceCandidates = buildMissingPriceRepairCandidates(originalText);
   const missingQuantityCandidates = buildMissingQuantityRepairCandidates(originalText);
   const missingUnitCandidates = buildMissingUnitRepairCandidates(originalText);
@@ -1447,6 +1478,7 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
   orderId?: string | null;
   originalText: string;
   logPrefix?: string;
+  skipFlatFeeRepair?: boolean;
 }): Promise<{ order: any; repairedCount: number; remainingZeroHourRows: number }> {
   const orderId = String(params.orderId || params.order?.id || "").trim();
   if (!orderId) return { order: params.order, repairedCount: 0, remainingZeroHourRows: 0 };
@@ -1481,6 +1513,7 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
 
     const result = repairZeroQuantityHourItemsFromText(order.items, combinedSourceText, {
       logPrefix: params.logPrefix,
+      skipFlatFeeRepair: params.skipFlatFeeRepair,
     });
 
     const beforeById = new Map(

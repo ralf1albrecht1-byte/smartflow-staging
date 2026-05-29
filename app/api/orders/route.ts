@@ -613,6 +613,7 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
 
   return repairZeroQuantityHourItemsFromText(normalized, source, {
     logPrefix: "[OrdersRouteNormalizeHourFixV17_06]",
+    skipFlatFeeRepair: trustClientItemValues,
   }).items;
 }
 

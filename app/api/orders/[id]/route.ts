@@ -430,6 +430,7 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
 
   return repairZeroQuantityHourItemsFromText(normalized, source, {
     logPrefix: "[OrdersIdNormalizeHourFixV17_06]",
+    skipFlatFeeRepair: trustClientItemValues,
   }).items;
 }
 
@@ -1426,6 +1427,7 @@ export async function PUT(
       order: finalOrder,
       originalText: getOrderSourceTextForItems({ ...existing, ...data, items: finalOrder.items }),
       logPrefix: "[OrdersIdPutHourFixV17_06]",
+      skipFlatFeeRepair: shouldTrustClientItemValuesForPersist(data),
     });
     if (persistedHourRepairAfterUpdate.repairedCount > 0 && persistedHourRepairAfterUpdate.order) {
       finalOrder = persistedHourRepairAfterUpdate.order;
