@@ -142,7 +142,12 @@ function parseHourRepairQuantityToken(value?: string | null): number | null {
   const numeric = parseHourRepairDecimal(value);
   if (numeric) return numeric;
 
-  const key = normalizeHourRepairText(value || "").replace(/\s+/g, "");
+  const normalized = normalizeHourRepairText(value || "");
+  if (/^(?:drei\s+viertel|three\s+quarters?|trois\s+quarts?|tres\s+cuartos?|tre\s+quarti)$/.test(normalized)) {
+    return 0.75;
+  }
+
+  const key = normalized.replace(/\s+/g, "");
   return HOUR_REPAIR_WORD_VALUES[key] || null;
 }
 
@@ -247,7 +252,7 @@ function detectHourRepairQuantityInLine(line?: string | null): number | null {
   // drei Viertelstunde, three quarters of an hour, trois quarts d'heure,
   // tres cuartos de hora, tre quarti d'ora.
   const threeQuarterPhrase = source.match(
-    /\b(?:dreiviertel|three\s+quarters?|trois\s+quarts?|tres\s+cuartos?|tre\s+quarti)\s*(?:d['’]?|de\s+|of\s+(?:an?\s+)?)?(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)?\b/i,
+    /\b(?:dreiviertel|drei\s+viertel|three\s+quarters?|trois\s+quarts?|tres\s+cuartos?|tre\s+quarti)\s*(?:d['’]?|de\s+|of\s+(?:an?\s+)?)?(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)?\b/i,
   );
   if (threeQuarterPhrase) {
     const normalized = normalizeHourRepairQuantity(0.75);
@@ -317,7 +322,7 @@ function detectHourRepairQuantityInLine(line?: string | null): number | null {
   }
 
   const wordOnlyFraction = source.match(
-    /\b(?:eine?n?\s+)?(viertel|halb|halbe|dreiviertel|quarter|half|three\s+quarters?|quart|demi(?:e)?|trois\s+quarts?|cuarto|media|medio|tres\s+cuartos?|quarto|mezza|mezzo|tre\s+quarti)\s*(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/i,
+    /\b(?:eine?n?\s+)?(viertel|halb|halbe|dreiviertel|drei\s+viertel|quarter|half|three\s+quarters?|quart|demi(?:e)?|trois\s+quarts?|cuarto|media|medio|tres\s+cuartos?|quarto|mezza|mezzo|tre\s+quarti)\s*(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/i,
   );
   if (wordOnlyFraction?.[1]) {
     const normalized = normalizeHourRepairQuantity(parseHourRepairQuantityToken(wordOnlyFraction[1]));
@@ -376,8 +381,16 @@ function hourRepairServiceTopic(value?: string | null): string | null {
   return null;
 }
 
+function stripAutomaticTranslationBlock(value?: string | null): string {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n\s*---\s*(?:uebersetzung|übersetzung)\s*\(\s*automatisch\s*\)\s*---\s*/i)[0]
+    .trim();
+}
+
 export function buildHourLineRepairCandidates(originalText: string): HourLineRepairCandidate[] {
-  return String(originalText || "")
+  return stripAutomaticTranslationBlock(originalText)
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .split(/\n+|;/g)
@@ -480,6 +493,12 @@ function cleanServiceNameFromHourLine(candidate: HourLineRepairCandidate): strin
     .replace(/[:;,.\-–—]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
+
+  const key = normalizeHourRepairText(raw);
+  if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) return "Technikraum reinigen";
+  if (/meeting\s+room|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) return "Besprechungsraum reinigen";
+  if (/kontrollgang/.test(key)) return "Kontrollgang reinigen";
+  if (/gangbereich|corridor|couloir/.test(key)) return "Gangbereich reinigen";
 
   if (candidate.topic === "boden_reinigen") return "Boden reinigen";
   if (candidate.topic === "fenster_reinigen") return "Fenster reinigen";

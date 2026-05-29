@@ -540,6 +540,19 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
 
+  if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
+    return "Technikraum reinigen";
+  }
+  if (/meeting\s+room|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
+    return "Besprechungsraum reinigen";
+  }
+  if (/kontrollgang/.test(key)) {
+    return "Kontrollgang reinigen";
+  }
+  if (/gangbereich|corridor|couloir/.test(key)) {
+    return "Gangbereich reinigen";
+  }
+
   // Display safety: normalize obvious service intent to German catalog names.
   // This is intentionally semantic/broad (cleaning intent), not tied to a
   // specific room such as Veloraum/Keller/Terrasse.
@@ -2659,6 +2672,35 @@ const getSystemBadges = (
       className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
       tooltip: "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
     });
+  }
+
+  const compactServiceReviewKeys = new Set([
+    "unit_conflict",
+    "price_deviation",
+    "catalog_missing",
+  ]);
+  const compactServiceReviewBadges = badges.filter((badge) =>
+    compactServiceReviewKeys.has(badge.key),
+  );
+
+  if (compactServiceReviewBadges.length >= 2) {
+    const serviceReviewTooltip = compactServiceReviewBadges
+      .map((badge) => {
+        const tooltip = compactText(badge.tooltip);
+        return tooltip ? `${badge.label}: ${tooltip}` : badge.label;
+      })
+      .join("\n");
+
+    return [
+      ...badges.filter((badge) => !compactServiceReviewKeys.has(badge.key)),
+      {
+        key: "service_review_summary",
+        label: `Leistungen prüfen · ${compactServiceReviewBadges.length}`,
+        className:
+          "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
+        tooltip: serviceReviewTooltip || "Leistungen prüfen.",
+      },
+    ];
   }
 
   return badges;

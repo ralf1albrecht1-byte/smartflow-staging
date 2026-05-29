@@ -64,6 +64,19 @@ function normalizeServiceNameForDisplay(value?: string | null) {
   const key = normalizeSearchText(name);
   if (!name) return "";
 
+  if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
+    return "Technikraum reinigen";
+  }
+  if (/meeting\s+room|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
+    return "Besprechungsraum reinigen";
+  }
+  if (/kontrollgang/.test(key)) {
+    return "Kontrollgang reinigen";
+  }
+  if (/gangbereich|corridor|couloir/.test(key)) {
+    return "Gangbereich reinigen";
+  }
+
   if (/\b(anfahrt|fahrt|fahrtkosten|fahrpauschale|deplacement|déplacement|travel|trip|transport|viaje)\b/.test(key)) {
     return "Anfahrt";
   }
