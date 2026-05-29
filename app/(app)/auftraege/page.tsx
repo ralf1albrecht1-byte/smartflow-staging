@@ -364,7 +364,7 @@ type ReviewBadge = {
   className: string;
   icon?: boolean;
   tooltip?: string;
-  focusTarget?: "specialNotes";
+  focusTarget?: "specialNotes" | "items";
 };
 
 const compactText = (value?: string | null) =>
@@ -2341,8 +2341,28 @@ const formatCatalogMissingTooltip = (
 
 const SERVICE_REVIEW_TOOLTIP_SEPARATOR = "────────────";
 
+const formatServiceReviewCalculation = (
+  item: Pick<OrderItem, "unit" | "unitPrice" | "quantity" | "totalPrice">,
+  currency?: "CHF" | "EUR" | null,
+) => {
+  const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  const totalPrice = Number(
+    (item as any).totalPrice ??
+      (quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0),
+  );
+
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) {
+    return "";
+  }
+
+  const quantityLabel = `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim();
+  return `${quantityLabel} × ${formatCurrency(unitPrice, safeCurrency)} = ${formatCurrency(totalPrice, safeCurrency)}`;
+};
+
 const formatServiceReviewItemLine = (
-  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">,
   currency?: "CHF" | "EUR" | null,
 ) => {
   const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
@@ -2354,14 +2374,16 @@ const formatServiceReviewItemLine = (
   const priceLabel = unitPrice > 0
     ? formatCurrency(unitPrice, safeCurrency)
     : "Preis prüfen";
+  const calculation = formatServiceReviewCalculation(item, currency);
 
-  return `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
+  return `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}${calculation ? ` · ${calculation}` : ""}`;
 };
 
 const formatServiceReviewSummaryTooltip = (input: {
   unitConflictServices?: string[];
-  priceItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>;
-  missingItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>;
+  priceItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
+  missingItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
+  items?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
   services: ServiceDef[];
   currency?: "CHF" | "EUR" | null;
 }) => {
@@ -2378,10 +2400,18 @@ const formatServiceReviewSummaryTooltip = (input: {
       const serviceName = canonicalServiceNameForOrderItem(parts[0] || service);
       const textUnit = parts[1] ? formatReviewUnitLabel(parts[1]) : "";
       const catalogUnit = parts[2] ? formatReviewUnitLabel(parts[2]) : "";
+      const matchingItem = (input.items || []).find(
+        (item) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
+          normalizeForMatch(serviceName),
+      );
+      const calculation = matchingItem
+        ? formatServiceReviewCalculation(matchingItem, input.currency)
+        : "";
       if (textUnit || catalogUnit) {
-        lines.push(`• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}`);
+        lines.push(`• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}${calculation ? ` · ${calculation}` : ""}`);
       } else {
-        lines.push(`• ${serviceName || "Leistung"}`);
+        lines.push(`• ${serviceName || "Leistung"}${calculation ? ` — ${calculation}` : ""}`);
       }
     });
     if (unitServices.length > 6) lines.push(`+${unitServices.length - 6} weitere`);
@@ -2402,7 +2432,8 @@ const formatServiceReviewSummaryTooltip = (input: {
       const catalogLabel = catalog
         ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
         : "kein Katalogpreis";
-      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`);
+      const calculation = formatServiceReviewCalculation(item, input.currency);
+      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}${calculation ? ` · ${calculation}` : ""}`);
     });
     if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
@@ -2717,6 +2748,7 @@ const getSystemBadges = (
         : "bg-amber-100 text-amber-800 border border-amber-300",
       tooltip: formatServiceReviewSummaryTooltip({
         unitConflictServices,
+        items: order.items || [],
         services,
         currency: order.currency,
       }) || "Einheit abweichend.",
@@ -2760,6 +2792,7 @@ const getSystemBadges = (
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
       tooltip: formatServiceReviewSummaryTooltip({
         priceItems: priceReviewItems,
+        items: order.items || [],
         services,
         currency: order.currency,
       }) || formatCatalogPriceDeviationTooltip(
@@ -2778,6 +2811,7 @@ const getSystemBadges = (
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
       tooltip: formatServiceReviewSummaryTooltip({
         missingItems: catalogMissingItems,
+        items: order.items || [],
         services,
         currency: order.currency,
       }) || formatCatalogMissingTooltip(catalogMissingItems, order.currency),
@@ -2811,6 +2845,7 @@ const getSystemBadges = (
       unitConflictServices,
       priceItems: priceReviewItems,
       missingItems: catalogMissingItems,
+      items: order.items || [],
       services,
       currency: order.currency,
     });
@@ -3773,8 +3808,9 @@ export default function AuftraegePage() {
   >(null);
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
   const specialNotesRef = useRef<HTMLDivElement | null>(null);
+  const serviceItemsRef = useRef<HTMLDivElement | null>(null);
   const [pendingFocusSection, setPendingFocusSection] = useState<
-    "specialNotes" | null
+    "specialNotes" | "items" | null
   >(null);
 
   // New duplicate check (Phase C — Sheet-based)
@@ -4099,7 +4135,7 @@ export default function AuftraegePage() {
    */
   const openEdit = (
     o: Order,
-    opts?: { openCustomerSection?: boolean; focusSection?: "specialNotes" },
+    opts?: { openCustomerSection?: boolean; focusSection?: "specialNotes" | "items" },
   ) => {
     setEditId(o.id);
     setServiceActionMenuKey(null);
@@ -4319,14 +4355,25 @@ export default function AuftraegePage() {
   }, [dialogOpen]);
 
   useEffect(() => {
-    if (!dialogOpen || pendingFocusSection !== "specialNotes") return;
+    if (!dialogOpen || !pendingFocusSection) return;
 
     const frame = requestAnimationFrame(() => {
-      specialNotesRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-      specialNotesRef.current?.focus?.();
+      if (pendingFocusSection === "specialNotes") {
+        specialNotesRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        specialNotesRef.current?.focus?.();
+      }
+
+      if (pendingFocusSection === "items") {
+        serviceItemsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        serviceItemsRef.current?.focus?.();
+      }
+
       setPendingFocusSection(null);
     });
 
@@ -6468,11 +6515,20 @@ export default function AuftraegePage() {
               return renderBadgeTooltip(badge, align, true);
             };
 
+            const openOrderAtItems = (event: any) => {
+              event.stopPropagation();
+              setActiveMobileTooltipKey(null);
+              openEdit(o, { focusSection: "items" });
+            };
+
             const renderInteractiveOrderCardBadge = (
               badge: ReviewBadge,
               tooltipAlign: "left" | "right" = "left",
             ) => {
-              if (badge.focusTarget !== "specialNotes") {
+              const shouldOpenItems = isAmountReviewBadge(badge);
+              const shouldOpenSpecialNotes = badge.focusTarget === "specialNotes";
+
+              if (!shouldOpenItems && !shouldOpenSpecialNotes) {
                 return renderOrderCardBadge(badge, tooltipAlign);
               }
 
@@ -6480,6 +6536,7 @@ export default function AuftraegePage() {
                 "price_deviation",
                 "catalog_missing",
                 "catalog_review_combined",
+                "service_review_summary",
                 "merged_data_review",
               ].includes(badge.key);
 
@@ -6489,13 +6546,16 @@ export default function AuftraegePage() {
                   type="button"
                   title={compactText(badge.tooltip) || badge.label}
                   aria-label={compactText(badge.tooltip) || badge.label}
-                  onClick={openOrderAtSpecialNotes}
+                  onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
                   className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                     isLargeYellowBadge
                       ? "text-[11px] px-2 py-0.5 font-semibold"
                       : "text-[10px] px-1.5 py-0.5 font-medium"
                   } ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
+                  {badge.icon && badge.key !== "callback_request" && (
+                    <AlertTriangle className="w-3 h-3" />
+                  )}
                   {badge.label}
                   {renderBadgeTooltip(badge, tooltipAlign)}
                 </button>
@@ -6563,8 +6623,22 @@ export default function AuftraegePage() {
               );
             };
 
-            const renderInteractiveMobileRightReviewBadge = (badge: ReviewBadge) =>
-              renderInteractiveMobileTextBadge(badge, "mobile_right", "right");
+            const renderInteractiveMobileRightReviewBadge = (badge: ReviewBadge) => {
+              const title = compactText(badge.tooltip) || badge.label;
+              return (
+                <button
+                  key={`mobile_right_${badge.key}`}
+                  type="button"
+                  title={title}
+                  aria-label={title}
+                  onClick={openOrderAtItems}
+                  className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                >
+                  <span className="truncate">{badge.label}</span>
+                  {renderMobileChipTooltip(badge, "mobile_right", "right")}
+                </button>
+              );
+            };
 
             const showAudioTooLongBadge =
               o.audioTranscriptionStatus?.startsWith("skipped");
@@ -7809,7 +7883,7 @@ export default function AuftraegePage() {
                 </div>
               ) : (
                 <>
-                  <div className="rounded-xl border bg-background p-2.5 sm:p-3 space-y-2">
+                  <div ref={serviceItemsRef} tabIndex={-1} className="scroll-mt-24 rounded-xl border bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="text-base font-semibold">

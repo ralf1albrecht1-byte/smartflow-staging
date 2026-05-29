@@ -836,14 +836,29 @@ function isSpuriousFlatFeeDuplicateItem(
 
   const looksLikeSyntheticOneUnit =
     Math.abs(itemQuantity - 1) < 0.001 &&
-    Math.abs(itemTotal - candidate.price) < 0.01 &&
-    isCatalogFloorLikeItem(item);
+    Math.abs(itemTotal - candidate.price) < 0.01;
 
   const hasOwnStrongSource =
     isAnfahrtText(itemText) ||
     normalizeHourRepairText(itemText).includes(normalizeHourRepairText(candidate.raw));
 
+  // If the same flat fee already exists as a real Anfahrt row, any other
+  // one-unit item with the exact same price/total is a repair artefact. This
+  // catches cases where the LLM first maps "Travel flat fee CHF 55" as
+  // "Boden reinigen · 1 × 55" and the repair then correctly adds Anfahrt.
   return looksLikeSyntheticOneUnit && !hasOwnStrongSource;
+}
+
+function tokenOverlapScore(a: string, b: string): number {
+  const stop = new Set([
+    "reinigen", "reinigung", "clean", "cleaning", "spezial", "service",
+    "leistung", "arbeiten", "arbeit", "im", "in", "der", "die", "das",
+  ]);
+  const aTokens = normalizeHourRepairText(a)
+    .split(/\s+/g)
+    .filter((token) => token.length >= 4 && !stop.has(token));
+  const bKey = normalizeHourRepairText(b);
+  return aTokens.filter((token) => bKey.includes(token)).length;
 }
 
 function isSpuriousPricedMissingPriceDuplicateItem(
@@ -868,18 +883,23 @@ function isSpuriousPricedMissingPriceDuplicateItem(
     const sameService = Boolean(
       candidateService && itemService && (itemService.includes(candidateService) || candidateService.includes(itemService)),
     );
+    const sameTopicOverlap = tokenOverlapScore(candidate.raw, itemText) > 0;
     const sameQuantity = Math.abs(normalizeHourRepairNumber(item.quantity) - candidate.quantity) < 0.001;
     const sameUnit =
       isHourRepairHourUnit(item.unit) === isHourRepairHourUnit(candidate.unit) ||
       normalizeHourRepairText(item.unit || "") === normalizeHourRepairText(candidate.unit || "");
     const hasSeparateZeroBlocker = allItems.some((other) => {
       if (other === item) return false;
-      const otherService = normalizeHourRepairText(other.serviceName || other.description || "");
+      const otherServiceText = [other.serviceName, other.description, other.sourceText, other.evidence]
+        .filter(Boolean)
+        .join(" ");
       return (
-        otherService &&
-        candidateService &&
-        (otherService.includes(candidateService) || candidateService.includes(otherService)) &&
-        normalizeHourRepairNumber(other.unitPrice) <= 0
+        normalizeHourRepairNumber(other.unitPrice) <= 0 &&
+        Math.abs(normalizeHourRepairNumber(other.quantity) - candidate.quantity) < 0.001 &&
+        (
+          tokenOverlapScore(candidate.raw, otherServiceText) > 0 ||
+          (candidateService && normalizeHourRepairText(otherServiceText).includes(candidateService))
+        )
       );
     });
 
@@ -887,7 +907,7 @@ function isSpuriousPricedMissingPriceDuplicateItem(
       /fenster|window|vitre|glastuer|glastur|glass\s+door/.test(itemKey) &&
       !/fenster|window|vitre|glastuer|glastur|glass\s+door/.test(candidateService);
 
-    return sameService && sameQuantity && sameUnit && (hasSeparateZeroBlocker || sourceIsClearlyOtherPricedLine);
+    return sameQuantity && sameUnit && (sameService || sameTopicOverlap || hasSeparateZeroBlocker || sourceIsClearlyOtherPricedLine);
   });
 }
 
