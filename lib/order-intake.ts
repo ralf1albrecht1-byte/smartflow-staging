@@ -3884,6 +3884,156 @@ function repairExplicitHourQuantitiesBeforePersist(
 }
 
 
+
+// V17.01: direct raw-text rescue for the exact live failure path.
+// This does not rely on AI evidence like "Std. à CHF ...". It scans the raw
+// incoming customer message for explicit hourly lines and repairs zero-quantity
+// hour rows by same unit price + safe service topic. It also emits a compact log
+// marker so Railway proves whether this code path is actually deployed.
+function repairZeroHourRowsFromRawCustomerTextV17_01(
+  items: IntakeHourLineRepairItem[],
+  originalText: string,
+): IntakeHourLineRepairItem[] {
+  const sourceText = String(originalText || "");
+  const candidates = sourceText
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line))
+    .map((line) => ({
+      raw: line,
+      quantity: detectExplicitIntakeHourQuantityInLine(line),
+      price: detectExplicitIntakeMeasuredPriceInLine(line),
+      topic: intakeSemanticServiceTopicFromText(line),
+      key: normalizeUnitText(line),
+    }))
+    .filter(
+      (candidate) =>
+        candidate.quantity &&
+        candidate.quantity > 0 &&
+        candidate.price &&
+        candidate.price > 0,
+    ) as Array<{
+    raw: string;
+    quantity: number;
+    price: number;
+    topic: string | null;
+    key: string;
+  }>;
+
+  const zeroHourRowsBefore = items.filter(
+    (item) =>
+      getServiceUnitType(item.unit) === "hour" &&
+      Number(item.unitPrice || 0) > 0 &&
+      Number(item.quantity || 0) <= 0,
+  );
+
+  if (zeroHourRowsBefore.length > 0) {
+    console.info(
+      `[INTAKE_HOUR_PERSIST_FIX_V17_01] start zeroHourRows=${zeroHourRowsBefore.length} candidates=${candidates.length}`,
+    );
+  }
+
+  if (candidates.length === 0 || zeroHourRowsBefore.length === 0) return items;
+
+  let repairedCount = 0;
+
+  const repaired = items.map((item) => {
+    const currentUnitType = getServiceUnitType(item.unit);
+    const currentQuantity = Number(item.quantity || 0);
+    const currentPrice = Number(item.unitPrice || 0);
+
+    if (currentUnitType !== "hour") return item;
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return item;
+    if (currentQuantity > 0) return item;
+
+    const itemText = [item.serviceName, item.description, item.sourceText, item.evidence]
+      .filter(Boolean)
+      .join(" ");
+    const itemKey = normalizeUnitText(itemText);
+    const itemTopic = intakeSemanticServiceTopicFromText(itemText);
+
+    const samePrice = candidates.filter(
+      (candidate) => Math.abs(candidate.price - currentPrice) < 0.01,
+    );
+    if (samePrice.length === 0) return item;
+
+    const sameTopic = itemTopic
+      ? samePrice.filter((candidate) => candidate.topic === itemTopic)
+      : [];
+
+    const sameDomain = samePrice.filter((candidate) => {
+      if (sameTopic.includes(candidate)) return false;
+      if (lineMatchesIntakeServiceTopic(item.serviceName, candidate.raw)) return true;
+      if (lineMatchesIntakeServiceTopic(item.description, candidate.raw)) return true;
+      if (itemKey.includes("boden") && candidate.key.includes("boden")) return true;
+      if (itemKey.includes("fenster") && candidate.key.includes("fenster")) return true;
+      return false;
+    });
+
+    let chosen: (typeof candidates)[number] | null = null;
+
+    if (sameTopic.length === 1) {
+      chosen = sameTopic[0];
+    } else if (sameTopic.length > 1) {
+      chosen = sameTopic.sort((a, b) => b.raw.length - a.raw.length)[0];
+    } else if (sameDomain.length === 1) {
+      chosen = sameDomain[0];
+    } else if (sameDomain.length > 1) {
+      chosen = sameDomain.sort((a, b) => b.raw.length - a.raw.length)[0];
+    } else if (samePrice.length === 1) {
+      // Safe live-failure fallback: the item is already an hour row with the
+      // exact same unit price and quantity 0. If the raw message has only one
+      // such priced hour line, that line is the quantity source.
+      chosen = samePrice[0];
+    }
+
+    if (!chosen) {
+      console.warn(
+        `[INTAKE_HOUR_PERSIST_FIX_V17_01] no-match service=${item.serviceName || "?"} unit=${item.unit || "?"} price=${currentPrice} samePrice=${samePrice.length} topic=${itemTopic || "none"}`,
+      );
+      return item;
+    }
+
+    const quantity = normalizeIntakeHourQuantity(chosen.quantity);
+    if (!quantity || quantity <= 0) return item;
+
+    repairedCount += 1;
+    console.info(
+      `[INTAKE_HOUR_PERSIST_FIX_V17_01] repaired service=${item.serviceName || "?"} quantity=${quantity} price=${chosen.price} line=${chosen.raw}`,
+    );
+
+    return {
+      ...item,
+      quantity,
+      unit: "Stunde",
+      unitPrice: chosen.price,
+      totalPrice: roundIntakeMoney(quantity * chosen.price),
+      description: chosen.raw,
+      sourceText: chosen.raw,
+      evidence: chosen.raw,
+      needsReview: item.needsReview,
+      reviewReason: item.reviewReason,
+    };
+  });
+
+  if (zeroHourRowsBefore.length > 0) {
+    const remaining = repaired.filter(
+      (item) =>
+        getServiceUnitType(item.unit) === "hour" &&
+        Number(item.unitPrice || 0) > 0 &&
+        Number(item.quantity || 0) <= 0,
+    );
+    console.info(
+      `[INTAKE_HOUR_PERSIST_FIX_V17_01] done repaired=${repairedCount} remainingZeroHourRows=${remaining.length}`,
+    );
+  }
+
+  return repaired;
+}
+
 function splitWorkSegments(text: string): string[] {
   const source = normalizeUnitText(text);
   if (!source) return [];
@@ -6638,6 +6788,14 @@ ${fullWorkText}`,
   // This fixes rows that still arrive as Stunde + price + quantity 0 directly
   // before OrderItem.create, after every parser/validation step has finished.
   finalOrderItems = repairExplicitHourQuantitiesBeforePersist(
+    finalOrderItems,
+    `${messageText}
+${fullWorkText}`,
+  );
+
+  // V17.01: hard raw-message rescue plus Railway log marker. This is deliberately
+  // placed after every previous repair and before totals are calculated.
+  finalOrderItems = repairZeroHourRowsFromRawCustomerTextV17_01(
     finalOrderItems,
     `${messageText}
 ${fullWorkText}`,
