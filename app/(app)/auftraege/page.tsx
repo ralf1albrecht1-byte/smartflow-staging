@@ -2375,8 +2375,9 @@ const formatServiceReviewItemLine = (
     ? formatCurrency(unitPrice, safeCurrency)
     : "Preis prüfen";
   const calculation = formatServiceReviewCalculation(item, currency);
+  const baseLine = `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
 
-  return `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}${calculation ? ` · ${calculation}` : ""}`;
+  return calculation ? `${baseLine}\n  Berechnung: ${calculation}` : baseLine;
 };
 
 const formatServiceReviewSummaryTooltip = (input: {
@@ -2409,9 +2410,11 @@ const formatServiceReviewSummaryTooltip = (input: {
         ? formatServiceReviewCalculation(matchingItem, input.currency)
         : "";
       if (textUnit || catalogUnit) {
-        lines.push(`• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}${calculation ? ` · ${calculation}` : ""}`);
+        lines.push(`• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}`);
+        if (calculation) lines.push(`  Berechnung: ${calculation}`);
       } else {
-        lines.push(`• ${serviceName || "Leistung"}${calculation ? ` — ${calculation}` : ""}`);
+        lines.push(`• ${serviceName || "Leistung"}`);
+        if (calculation) lines.push(`  Berechnung: ${calculation}`);
       }
     });
     if (unitServices.length > 6) lines.push(`+${unitServices.length - 6} weitere`);
@@ -2433,7 +2436,8 @@ const formatServiceReviewSummaryTooltip = (input: {
         ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
         : "kein Katalogpreis";
       const calculation = formatServiceReviewCalculation(item, input.currency);
-      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}${calculation ? ` · ${calculation}` : ""}`);
+      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`);
+      if (calculation) lines.push(`  Berechnung: ${calculation}`);
     });
     if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
     sections.push(lines.join("\n"));

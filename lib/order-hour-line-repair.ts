@@ -838,15 +838,19 @@ function isSpuriousFlatFeeDuplicateItem(
     Math.abs(itemQuantity - 1) < 0.001 &&
     Math.abs(itemTotal - candidate.price) < 0.01;
 
-  const hasOwnStrongSource =
-    isAnfahrtText(itemText) ||
-    normalizeHourRepairText(itemText).includes(normalizeHourRepairText(candidate.raw));
+  const itemServiceName = normalizeHourRepairText(item.serviceName || "");
+  const isExplicitAnfahrtItem =
+    hourRepairServiceTopic(itemText) === "anfahrt" ||
+    isAnfahrtText(item.serviceName) ||
+    isAnfahrtText(item.description);
 
   // If the same flat fee already exists as a real Anfahrt row, any other
-  // one-unit item with the exact same price/total is a repair artefact. This
-  // catches cases where the LLM first maps "Travel flat fee CHF 55" as
+  // one-unit item with the exact same price/total is a repair artefact.
+  // Important: even if the duplicate row carries the original flat-fee source
+  // text, it must be removed unless the service itself is Anfahrt.
+  // This catches cases where the LLM first maps "Travel flat fee CHF 55" as
   // "Boden reinigen · 1 × 55" and the repair then correctly adds Anfahrt.
-  return looksLikeSyntheticOneUnit && !hasOwnStrongSource;
+  return looksLikeSyntheticOneUnit && !isExplicitAnfahrtItem && !/anfahrt|fahrt|travel|reisepauschale/.test(itemServiceName);
 }
 
 function tokenOverlapScore(a: string, b: string): number {
