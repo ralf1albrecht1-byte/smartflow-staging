@@ -723,19 +723,48 @@ function normalizeOrderSpecialNotes(data: any) {
   });
 }
 
+function roundMoney(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Number((Math.round((value + Number.EPSILON) * 100) / 100).toFixed(2));
+}
+
+function calculateItemsNetTotal(o: any): number | null {
+  const items = Array.isArray(o?.items) ? o.items : [];
+  if (items.length === 0) return null;
+
+  const net = items.reduce((sum: number, item: any) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const storedTotal = Number(item?.totalPrice ?? 0);
+    const calculated = quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
+    const lineTotal = storedTotal > 0 ? storedTotal : calculated;
+    return sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0);
+  }, 0);
+
+  return net > 0 ? roundMoney(net) : null;
+}
+
+function calculateVatTotals(netValue: number, vatRateValue: number) {
+  const totalPrice = roundMoney(Number(netValue ?? 0));
+  const vatRate = Number.isFinite(vatRateValue) && vatRateValue > 0 ? vatRateValue : 0;
+  const vatAmount = roundMoney((totalPrice * vatRate) / 100);
+  const total = roundMoney(totalPrice + vatAmount);
+  return { totalPrice, vatRate, vatAmount, total };
+}
+
+function getOrderNetTotalForResponse(o: any): number {
+  return calculateItemsNetTotal(o) ?? roundMoney(Number(o?.totalPrice ?? 0));
+}
+
 /** Legacy-safe VAT normalizer: see app/api/orders/route.ts for the reasoning. */
 function normalizeOrderVat(o: any) {
-  const totalPrice = Number(o?.totalPrice ?? 0);
+  const totalPrice = getOrderNetTotalForResponse(o);
   const vatRate = o?.vatRate == null ? 8.1 : Number(o.vatRate);
-  const storedVatAmount = Number(o?.vatAmount ?? 0);
-  const storedTotal = Number(o?.total ?? 0);
-  const computedVatAmount = (totalPrice * vatRate) / 100;
-  const computedTotal = totalPrice + computedVatAmount;
-  const useComputed = storedTotal === 0 && totalPrice > 0;
+  const computed = calculateVatTotals(totalPrice, vatRate);
   return {
-    vatRate,
-    vatAmount: useComputed ? computedVatAmount : storedVatAmount,
-    total: useComputed ? computedTotal : storedTotal,
+    vatRate: computed.vatRate,
+    vatAmount: computed.vatAmount,
+    total: computed.total,
   };
 }
 
@@ -771,7 +800,7 @@ export async function GET(
 
     return NextResponse.json({
       ...safeOrder,
-      totalPrice: Number(safeOrder?.totalPrice ?? 0),
+      totalPrice: getOrderNetTotalForResponse(safeOrder),
       unitPrice: Number(safeOrder?.unitPrice ?? 0),
       quantity: Number(safeOrder?.quantity ?? 0),
       currency: safeOrder?.currency === "EUR" ? "EUR" : "CHF",

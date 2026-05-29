@@ -918,30 +918,37 @@ function calculateVatTotals(netValue: number, vatRateValue: number) {
   };
 }
 
+function calculateItemsNetTotal(o: any): number | null {
+  const items = Array.isArray(o?.items) ? o.items : [];
+  if (items.length === 0) return null;
+
+  const net = items.reduce((sum: number, item: any) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const storedTotal = Number(item?.totalPrice ?? 0);
+    const calculated = quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
+    const lineTotal = storedTotal > 0 ? storedTotal : calculated;
+    return sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0);
+  }, 0);
+
+  return net > 0 ? roundMoney(net) : null;
+}
+
+function getOrderNetTotalForResponse(o: any): number {
+  return calculateItemsNetTotal(o) ?? roundMoney(Number(o?.totalPrice ?? 0));
+}
+
 function normalizeOrderVat(o: any) {
-  const totalPrice = Number(o?.totalPrice ?? 0);
+  const totalPrice = getOrderNetTotalForResponse(o);
   const vatRate = o?.vatRate == null ? 8.1 : Number(o.vatRate);
-  // If vatAmount/total were never written (legacy rows default to 0), recompute.
-  const storedVatAmount = Number(o?.vatAmount ?? 0);
-  const storedTotal = Number(o?.total ?? 0);
+  // If item rows exist, they are the source of truth for card/detail totals.
+  // This prevents stale Order.totalPrice values from hiding repaired hour lines.
   const computed = calculateVatTotals(totalPrice, vatRate);
-
-  // Heuristic:
-  // - alte Datensätze mit total = 0 neu berechnen
-  // - falsch gerundete gespeicherte Werte ebenfalls beim Lesen korrigiert anzeigen
-  const storedVatRounded = roundMoney(storedVatAmount);
-  const storedTotalRounded = roundMoney(storedTotal);
-
-  const storedLooksWrong =
-    Math.abs(storedVatRounded - computed.vatAmount) >= 0.005 ||
-    Math.abs(storedTotalRounded - computed.total) >= 0.005;
-
-  const useComputed = (storedTotal === 0 && totalPrice > 0) || storedLooksWrong;
 
   return {
     vatRate: computed.vatRate,
-    vatAmount: useComputed ? computed.vatAmount : storedVatRounded,
-    total: useComputed ? computed.total : storedTotalRounded,
+    vatAmount: computed.vatAmount,
+    total: computed.total,
   };
 }
 
@@ -993,7 +1000,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       safeOrders?.map((o: any) => ({
         ...o,
-        totalPrice: Number(o?.totalPrice ?? 0),
+        totalPrice: getOrderNetTotalForResponse(o),
         unitPrice: Number(o?.unitPrice ?? 0),
         quantity: Number(o?.quantity ?? 0),
         ...normalizeOrderVat(o),

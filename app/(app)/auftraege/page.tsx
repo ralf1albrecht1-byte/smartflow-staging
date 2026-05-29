@@ -2582,10 +2582,13 @@ const getSystemBadges = (
   const hasUnitConflict = unitConflictServices.length > 0;
 
   if (hasUnitConflict) {
+    const unitConflictIsBlocking = hasPriceQuantityReview;
     pushUniqueBadge(badges, {
       key: "unit_conflict",
-      label: "Einheit prüfen",
-      className: "bg-red-100 text-red-700 border border-red-300",
+      label: unitConflictIsBlocking ? "Einheit prüfen" : "Einheit abweichend",
+      className: unitConflictIsBlocking
+        ? "bg-red-100 text-red-700 border border-red-300"
+        : "bg-amber-100 text-amber-800 border border-amber-300",
       tooltip: unitConflictServices.length
         ? `Einheit prüfen: ${unitConflictServices.join(", ")}`
         : "Einheit prüfen.",
@@ -5971,19 +5974,13 @@ export default function AuftraegePage() {
   const getSafeOrderNetTotal = (o: Order) => {
     if (o.items && o.items.length > 0) {
       return o.items.reduce((sum, item) => {
-        const hasUnitReview = hasQuantityReviewForService(
-          o.reviewReasons,
-          item.serviceName,
-        );
-
         const qty = Number(item.quantity || 0);
         const price = Number(item.unitPrice || 0);
+        const storedLineTotal = Number(item.totalPrice || 0);
+        const calculatedLineTotal = qty > 0 && price > 0 ? qty * price : 0;
+        const lineTotal = storedLineTotal > 0 ? storedLineTotal : calculatedLineTotal;
 
-        if (hasUnitReview || qty <= 0 || price <= 0) {
-          return sum;
-        }
-
-        return sum + qty * price;
+        return sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0);
       }, 0);
     }
 

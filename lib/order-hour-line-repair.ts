@@ -44,6 +44,7 @@ function parseHourRepairDecimal(value?: string | null): number | null {
 }
 
 const HOUR_REPAIR_WORD_VALUES: Record<string, number> = {
+  // German
   ein: 1,
   eine: 1,
   einen: 1,
@@ -75,6 +76,66 @@ const HOUR_REPAIR_WORD_VALUES: Record<string, number> = {
   neun: 9,
   neuneinhalb: 9.5,
   zehn: 10,
+  // English / French / Italian / Spanish / Portuguese basics
+  one: 1,
+  un: 1,
+  une: 1,
+  una: 1,
+  uno: 1,
+  deux: 2,
+  due: 2,
+  dos: 2,
+  duas: 2,
+  dois: 2,
+  three: 3,
+  trois: 3,
+  tre: 3,
+  tres: 3,
+  four: 4,
+  quatre: 4,
+  quattro: 4,
+  cuatro: 4,
+  five: 5,
+  cinq: 5,
+  cinque: 5,
+  cinco: 5,
+  six: 6,
+  sei: 6,
+  seis: 6,
+  seven: 7,
+  sept: 7,
+  sette: 7,
+  siete: 7,
+  sete: 7,
+  eight: 8,
+  huit: 8,
+  otto: 8,
+  ocho: 8,
+  oito: 8,
+  nine: 9,
+  neuf: 9,
+  nove: 9,
+  nueve: 9,
+  ten: 10,
+  dix: 10,
+  dieci: 10,
+  diez: 10,
+  dez: 10,
+  half: 0.5,
+  demi: 0.5,
+  demie: 0.5,
+  mezzo: 0.5,
+  mezza: 0.5,
+  media: 0.5,
+  medio: 0.5,
+  quarter: 0.25,
+  quart: 0.25,
+  quarto: 0.25,
+  cuarto: 0.25,
+  troisquarts: 0.75,
+  threequarters: 0.75,
+  trescuartos: 0.75,
+  trequarti: 0.75,
 };
 
 function parseHourRepairQuantityToken(value?: string | null): number | null {
@@ -98,7 +159,7 @@ function normalizeHourRepairQuantity(value: number | null | undefined): number |
 
 function isHourRepairHourUnit(value?: string | null): boolean {
   const unit = normalizeHourRepairText(value || "").replace(/[^a-z0-9]/g, "");
-  return ["stunde", "stunden", "std", "h", "hour", "hours", "stundensatz"].includes(unit);
+  return ["stunde", "stunden", "std", "h", "hour", "hours", "heure", "heures", "hora", "horas", "ora", "ore", "stundensatz"].includes(unit);
 }
 
 function hasBrokenHourRepairMath(item: HourLineRepairItem): boolean {
@@ -143,7 +204,6 @@ function isRepairableHourRepairRow(
 ): boolean {
   const unitPrice = Number(item.unitPrice || 0);
   if (!Number.isFinite(unitPrice) || unitPrice <= 0) return false;
-  if (!hasBrokenHourRepairMath(item)) return false;
 
   const chosen = chooseHourLineRepairCandidate(item, candidates);
   if (!chosen) return false;
@@ -152,13 +212,26 @@ function isRepairableHourRepairRow(
   const itemTopic = hourRepairServiceTopic(itemText);
   const hasHourSignal =
     isHourRepairHourUnit(item.unit) ||
-    /\b(?:stunde|stunden|std\.?|h|hour|hours)\b/i.test(String(item.description || ""));
+    /\b(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/i.test(String(item.description || ""));
 
   // Safe broadened condition:
   // - same price is already enforced by chooseHourLineRepairCandidate
   // - same semantic topic prevents leaking the hour line into Stück/m² rows
   // - an explicit hour signal is allowed as additional safety.
-  return Boolean((itemTopic && chosen.topic === itemTopic) || hasHourSignal);
+  const sameSafeContext = Boolean((itemTopic && chosen.topic === itemTopic) || hasHourSignal);
+  if (!sameSafeContext) return false;
+
+  const quantity = Number(item.quantity ?? 0);
+  const totalPrice = Number(item.totalPrice ?? 0);
+  const expectedTotal = roundHourRepairMoney(Number(chosen.quantity || 0) * unitPrice);
+
+  return (
+    hasBrokenHourRepairMath(item) ||
+    !Number.isFinite(quantity) ||
+    Math.abs(quantity - Number(chosen.quantity || 0)) >= 0.001 ||
+    !Number.isFinite(totalPrice) ||
+    Math.abs(roundHourRepairMoney(totalPrice) - expectedTotal) >= 0.01
+  );
 }
 
 function detectHourRepairQuantityInLine(line?: string | null): number | null {
@@ -166,9 +239,36 @@ function detectHourRepairQuantityInLine(line?: string | null): number | null {
   if (!source) return null;
 
   const numberOrWord =
-    "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|viertel|halbe|halb|dreiviertel|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)";
-  const hourUnit = "(?:stunden?|std\\.?|h|hours?)";
-  const minuteUnit = "(?:min\\.?|minuten?|minutes?)";
+    "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|viertel|halbe|halb|dreiviertel|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn|one|two|three|four|five|six|seven|eight|nine|ten|un|une|deux|trois|quatre|cinq|sept|huit|neuf|dix|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|dois|duas|sete|oito|dez)";
+  const hourUnit = "(?:stunden?|std\\.?|h|hours?|heures?|d['’]?heures?|d['’]?heure|heure|ore|ora|horas?|horas?)";
+  const minuteUnit = "(?:min\\.?|minuten?|minutes?|minuti?|minutos?)";
+
+  // Explicit fraction phrases across DE/EN/FR/IT/ES/PT:
+  // drei Viertelstunde, three quarters of an hour, trois quarts d'heure,
+  // tres cuartos de hora, tre quarti d'ora.
+  const threeQuarterPhrase = source.match(
+    /\b(?:dreiviertel|three\s+quarters?|trois\s+quarts?|tres\s+cuartos?|tre\s+quarti)\s*(?:d['’]?|de\s+|of\s+(?:an?\s+)?)?(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)?\b/i,
+  );
+  if (threeQuarterPhrase) {
+    const normalized = normalizeHourRepairQuantity(0.75);
+    if (normalized) return normalized;
+  }
+
+  const halfPhrase = source.match(
+    /\b(?:eine?n?\s+halbe|halbe|half(?:\s+an?)?|demi(?:e)?|media|medio|mezza|mezzo)\s*(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/i,
+  );
+  if (halfPhrase) {
+    const normalized = normalizeHourRepairQuantity(0.5);
+    if (normalized) return normalized;
+  }
+
+  const quarterPhrase = source.match(
+    /\b(?:eine?n?\s+viertel|viertel|quarter|quart|cuarto|quarto)\s*(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)?\b/i,
+  );
+  if (quarterPhrase) {
+    const normalized = normalizeHourRepairQuantity(0.25);
+    if (normalized) return normalized;
+  }
 
   const hourMatch = source.match(new RegExp(`\\b(${numberOrWord})\\s*${hourUnit}\\b`, "i"));
   if (hourMatch?.[1]) {
@@ -176,7 +276,8 @@ function detectHourRepairQuantityInLine(line?: string | null): number | null {
     if (base) {
       let total = base;
       const after = source.slice((hourMatch.index || 0) + hourMatch[0].length);
-      const minuteAfter = after.match(new RegExp(`^\\s*(?:und|\\+)?\\s*(15|30|45)\\s*${minuteUnit}\\b`, "i"));
+      // Important: allow the dot from "Std." before "15 Minuten".
+      const minuteAfter = after.match(new RegExp(`^[\\s.,;:–—-]*(?:und|\\+)?\\s*(15|30|45)\\s*${minuteUnit}\\b`, "i"));
       if (minuteAfter?.[1]) total += Number(minuteAfter[1]) / 60;
       const normalized = normalizeHourRepairQuantity(total);
       if (normalized) return normalized;
@@ -185,7 +286,7 @@ function detectHourRepairQuantityInLine(line?: string | null): number | null {
 
   const hourPlusWordFraction = source.match(
     new RegExp(
-      `\\b(${numberOrWord})\\s*${hourUnit}\\s*(?:und|\\+)?\\s*(?:eine?n?\\s+)?(viertel|halb|halbe|dreiviertel)\\s*(?:stunde|stunden|std\\.?|h)?\\b`,
+      `\\b(${numberOrWord})\\s*${hourUnit}\\s*(?:und|\\+)?\\s*(?:eine?n?\\s+)?(viertel|halb|halbe|dreiviertel|quarter|half|three\\s+quarters?|quart|demi(?:e)?|trois\\s+quarts?|cuarto|media|medio|tres\\s+cuartos?|quarto|mezza|mezzo|tre\\s+quarti)\\s*(?:stunde|stunden|std\\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)?\\b`,
       "i",
     ),
   );
@@ -197,7 +298,7 @@ function detectHourRepairQuantityInLine(line?: string | null): number | null {
   }
 
   const compactHourMinute = source.match(
-    new RegExp(`\\b(\\d{1,2})\\s*(?:h|std\\.?|stunden?)\\s*(15|30|45)\\s*(?:${minuteUnit})?\\b`, "i"),
+    new RegExp(`\\b(\\d{1,2})\\s*(?:h|std\\.?|stunden?|hours?|heures?|heure|horas?|ora|ore)\\s*[.,;:–—-]*\\s*(15|30|45)\\s*(?:${minuteUnit})?\\b`, "i"),
   );
   if (compactHourMinute?.[1] && compactHourMinute?.[2]) {
     const normalized = normalizeHourRepairQuantity(
@@ -209,14 +310,14 @@ function detectHourRepairQuantityInLine(line?: string | null): number | null {
   const minuteOnly = source.match(new RegExp(`\\b(15|30|45)\\s*${minuteUnit}\\b`, "i"));
   if (
     minuteOnly?.[1] &&
-    /(?:pro|je|per|par|a|\/|à)\s*(?:stunde|stunden|std\.?|h|hour|hours)\b/i.test(source)
+    /(?:pro|je|per|par|a|\/|à)\s*(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/i.test(source)
   ) {
     const normalized = normalizeHourRepairQuantity(Number(minuteOnly[1]) / 60);
     if (normalized) return normalized;
   }
 
   const wordOnlyFraction = source.match(
-    /\b(?:eine?n?\s+)?(viertel|halb|halbe|dreiviertel)\s*(?:stunde|stunden|std\.?|h)\b/i,
+    /\b(?:eine?n?\s+)?(viertel|halb|halbe|dreiviertel|quarter|half|three\s+quarters?|quart|demi(?:e)?|trois\s+quarts?|cuarto|media|medio|tres\s+cuartos?|quarto|mezza|mezzo|tre\s+quarti)\s*(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/i,
   );
   if (wordOnlyFraction?.[1]) {
     const normalized = normalizeHourRepairQuantity(parseHourRepairQuantityToken(wordOnlyFraction[1]));
@@ -330,6 +431,86 @@ function chooseHourLineRepairCandidate(
   return null;
 }
 
+function normalizeHourRepairNumber(value: any): number {
+  const number = Number(String(value ?? "").replace("'", "").replace(",", "."));
+  return Number.isFinite(number) ? number : 0;
+}
+
+function hasExistingHourLineRepresentation(
+  candidate: HourLineRepairCandidate,
+  items: HourLineRepairItem[],
+): boolean {
+  const candidateTotal = roundHourRepairMoney(candidate.quantity * candidate.price);
+  return items.some((item) => {
+    const itemPrice = normalizeHourRepairNumber(item.unitPrice);
+    const itemQuantity = normalizeHourRepairNumber(item.quantity);
+    const itemTotal = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
+    const itemText = normalizeHourRepairText(
+      [item.serviceName, item.description, item.sourceText, item.evidence]
+        .filter(Boolean)
+        .join(" "),
+    );
+    const samePrice = Math.abs(itemPrice - candidate.price) < 0.01;
+    const sameQuantity = Math.abs(itemQuantity - candidate.quantity) < 0.001;
+    const sameTotal = Math.abs(itemTotal - candidateTotal) < 0.01;
+    const sameTopic = candidate.topic
+      ? hourRepairServiceTopic([item.serviceName, item.description].filter(Boolean).join(" ")) === candidate.topic
+      : false;
+    const sameRaw = Boolean(candidate.key && itemText.includes(candidate.key.slice(0, 60)));
+
+    return samePrice && (sameQuantity || sameTotal || sameTopic || sameRaw);
+  });
+}
+
+function cleanServiceNameFromHourLine(candidate: HourLineRepairCandidate): string {
+  let raw = String(candidate.raw || "")
+    .replace(/\r\n/g, " ")
+    .replace(/\r|\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  raw = raw
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:stunden?|std\.?|h|hours?|heures?|heure|horas?|ora|ore)\b/gi, " ")
+    .replace(/\b(?:ein(?:e[nmr]?)?|eine?n?\s+halbe|halbe|halb|dreiviertel|zweieinhalb|dreieinhalb|three\s+quarters?|trois\s+quarts?|tres\s+cuartos?|tre\s+quarti|demi(?:e)?|media|medio|mezza|mezzo)\s*(?:d[\'’]?\s*)?(?:stunden?|std\.?|h|hours?|heures?|heure|horas?|ora|ore)?\b/gi, " ")
+    .replace(/\b\d{1,2}\s*(?:h|std\.?|stunden?|hours?|heures?|heure|horas?|ora|ore)\s*[.,;:–—-]*\s*(?:15|30|45)\s*(?:min\.?|minuten?|minutes?|minuti?|minutos?)?\b/gi, " ")
+    .replace(/(?:à|a|pro|je|per|zu|fuer|für|\/)?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€)?\s*\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€)?\b/gi, " ")
+    .replace(/\b(?:zu|at|for)\s*\d+(?:[.,]\d{1,2})?\s*(?:chf|eur|€)?\b/gi, " ")
+    .replace(/[:;,.\-–—]+$/g, "")
+    .replace(/\b(?:at|zu|a|à|per|pro|je)\s*$/i, "")
+    .replace(/[:;,.\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (candidate.topic === "boden_reinigen") return "Boden reinigen";
+  if (candidate.topic === "fenster_reinigen") return "Fenster reinigen";
+  if (candidate.topic === "teppich_reinigen") return "Teppich reinigen";
+  if (candidate.topic === "anfahrt") return "Anfahrt";
+
+  return raw || "Stundenleistung";
+}
+
+function buildMissingHourLineItems<T extends HourLineRepairItem>(
+  sourceItems: T[],
+  candidates: HourLineRepairCandidate[],
+): T[] {
+  const missing = candidates.filter((candidate) =>
+    !hasExistingHourLineRepresentation(candidate, sourceItems),
+  );
+
+  return missing.map((candidate) => ({
+    serviceName: cleanServiceNameFromHourLine(candidate),
+    description: candidate.raw,
+    quantity: candidate.quantity,
+    unit: "Stunde",
+    unitPrice: candidate.price,
+    totalPrice: roundHourRepairMoney(candidate.quantity * candidate.price),
+    needsReview: true,
+    reviewReason: "Nicht im Leistungskatalog. Explizite Stundenleistung aus Kundentext übernommen.",
+    sourceText: candidate.raw,
+    evidence: candidate.raw,
+  }) as unknown as T);
+}
+
 export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem>(
   items: T[] | undefined | null,
   originalText: string,
@@ -337,38 +518,51 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
 ): HourLineRepairResult<T> {
   const sourceItems = Array.isArray(items) ? items : [];
   const candidates = buildHourLineRepairCandidates(originalText);
-  const zeroHourRowsBefore = sourceItems.filter((item) =>
+  const repairableRowsBefore = sourceItems.filter((item) =>
     isRepairableHourRepairRow(item, candidates),
   );
+  const missingItems = buildMissingHourLineItems(sourceItems, candidates);
 
   if (options?.logPrefix) {
     const candidateSummary = candidates
-      .slice(0, 5)
+      .slice(0, 8)
       .map((candidate) => `${candidate.quantity}h@${candidate.price}:${candidate.topic || "no-topic"}`)
       .join(" | ");
-    const zeroSummary = zeroHourRowsBefore
+    const zeroSummary = repairableRowsBefore
       .slice(0, 5)
       .map((item) => hourRepairItemDebugSummary(item))
       .join(" | ");
     const itemSummary = sourceItems
-      .slice(0, 6)
+      .slice(0, 8)
       .map((item) => hourRepairItemDebugSummary(item))
       .join(" | ");
     console.info(
-      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${zeroHourRowsBefore.length} candidates=${candidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
+      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${repairableRowsBefore.length} missingHourRows=${missingItems.length} candidates=${candidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
     );
   }
 
-  if (sourceItems.length === 0 || candidates.length === 0 || zeroHourRowsBefore.length === 0) {
+  if (sourceItems.length === 0 && missingItems.length === 0) {
+    if (options?.logPrefix) {
+      console.info(`${options.logPrefix} done repaired=0 created=0 remainingZeroHourRows=0`);
+    }
+    return {
+      items: sourceItems,
+      repairedCount: 0,
+      remainingZeroHourRows: 0,
+      candidates,
+    };
+  }
+
+  if (candidates.length === 0) {
     if (options?.logPrefix) {
       console.info(
-        `${options.logPrefix} done repaired=0 remainingZeroHourRows=${zeroHourRowsBefore.length}`,
+        `${options.logPrefix} done repaired=0 created=0 remainingZeroHourRows=${repairableRowsBefore.length}`,
       );
     }
     return {
       items: sourceItems,
       repairedCount: 0,
-      remainingZeroHourRows: zeroHourRowsBefore.length,
+      remainingZeroHourRows: repairableRowsBefore.length,
       candidates,
     };
   }
@@ -407,15 +601,25 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     } as T;
   });
 
-  const remainingZeroHourRows = repairedItems.filter((item) =>
+  const createdItems = buildMissingHourLineItems(repairedItems, candidates);
+  const finalItems = [...repairedItems, ...createdItems];
+
+  const remainingZeroHourRows = finalItems.filter((item) =>
     isRepairableHourRepairRow(item, candidates),
   ).length;
 
-  if (options?.logPrefix && zeroHourRowsBefore.length > 0) {
-    console.info(`${options.logPrefix} done repaired=${repairedCount} remainingZeroHourRows=${remainingZeroHourRows}`);
+  if (options?.logPrefix) {
+    console.info(
+      `${options.logPrefix} done repaired=${repairedCount} created=${createdItems.length} remainingZeroHourRows=${remainingZeroHourRows}`,
+    );
   }
 
-  return { items: repairedItems, repairedCount, remainingZeroHourRows, candidates };
+  return {
+    items: finalItems,
+    repairedCount: repairedCount + createdItems.length,
+    remainingZeroHourRows,
+    candidates,
+  };
 }
 
 export async function repairPersistedOrderZeroHourItemsFromText(params: {
@@ -475,7 +679,11 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
         );
       });
 
-    if (updates.length === 0) {
+    const creates = result.items
+      .slice(order.items.length)
+      .filter((item: any) => String(item?.serviceName || "").trim());
+
+    if (updates.length === 0 && creates.length === 0) {
       return { order, repairedCount: 0, remainingZeroHourRows: result.remainingZeroHourRows };
     }
 
@@ -498,9 +706,19 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
             where: { id: before.id },
             data: {
               quantity: Number(after.quantity || 0),
+              unit: String(after.unit || before.unit || "Stunde"),
+              unitPrice: Number(after.unitPrice ?? before.unitPrice ?? 0),
               totalPrice: Number(after.totalPrice || 0),
               description: String(after.description || before.description || ""),
             },
+          })),
+          create: creates.map((item: any) => ({
+            serviceName: String(item.serviceName || "Stundenleistung"),
+            description: String(item.description || item.serviceName || "Stundenleistung"),
+            quantity: Number(item.quantity || 0),
+            unit: String(item.unit || "Stunde"),
+            unitPrice: Number(item.unitPrice || 0),
+            totalPrice: Number(item.totalPrice || 0),
           })),
         },
       },
@@ -509,7 +727,7 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
 
     return {
       order: updatedOrder,
-      repairedCount: updates.length,
+      repairedCount: updates.length + creates.length,
       remainingZeroHourRows: result.remainingZeroHourRows,
     };
   } catch (err) {
