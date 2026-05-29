@@ -152,7 +152,7 @@ function isRepairableHourRepairRow(
   const itemTopic = hourRepairServiceTopic(itemText);
   const hasHourSignal =
     isHourRepairHourUnit(item.unit) ||
-    /(?:stunde|stunden|std\.?|h|hour|hours)/i.test(String(item.description || ""));
+    /\b(?:stunde|stunden|std\.?|h|hour|hours)\b/i.test(String(item.description || ""));
 
   // Safe broadened condition:
   // - same price is already enforced by chooseHourLineRepairCandidate
