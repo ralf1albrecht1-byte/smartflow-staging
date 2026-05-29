@@ -3773,6 +3773,117 @@ function findExplicitHourLineRepairForMappedItem(
 }
 
 
+// V17.00: Persistence-boundary hard repair for explicit hourly customer lines.
+// This runs immediately before totals / prisma.order.create and repairs the
+// exact failure mode where the mapper kept only "Std. à CHF ..." as item text.
+// Safety rules:
+// - same explicit unit price is mandatory
+// - explicit hour quantity in the same original line is mandatory
+// - semantic service topic match is preferred
+// - fallback by unique same-price hour line is allowed only for zero-quantity
+//   hour rows, so the amount is not leaked to Stück/m² rows
+function repairExplicitHourQuantitiesBeforePersist(
+  items: IntakeHourLineRepairItem[],
+  originalText: string,
+): IntakeHourLineRepairItem[] {
+  const lines = String(originalText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line))
+    .map((line) => ({
+      raw: line,
+      quantity: detectExplicitIntakeHourQuantityInLine(line),
+      price: detectExplicitIntakeMeasuredPriceInLine(line),
+      topic: intakeSemanticServiceTopicFromText(line),
+    }))
+    .filter(
+      (line) =>
+        line.quantity &&
+        line.quantity > 0 &&
+        line.price &&
+        line.price > 0,
+    ) as Array<{
+    raw: string;
+    quantity: number;
+    price: number;
+    topic: string | null;
+  }>;
+
+  if (lines.length === 0) return items;
+
+  const repaired = items.map((item) => {
+    const currentQuantity = Number(item.quantity || 0);
+    const currentPrice = Number(item.unitPrice || 0);
+    const currentUnitType = getServiceUnitType(item.unit);
+
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return item;
+
+    // Never touch valid non-hour rows. This protects following Stück/m² rows.
+    if (currentUnitType !== "hour" && currentQuantity > 0) return item;
+
+    const itemText = [
+      item.serviceName,
+      item.description,
+      item.sourceText,
+      item.evidence,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const itemTopic = intakeSemanticServiceTopicFromText(itemText);
+
+    const samePriceLines = lines.filter(
+      (line) => Math.abs(line.price - currentPrice) < 0.01,
+    );
+    if (samePriceLines.length === 0) return item;
+
+    const topicMatches = itemTopic
+      ? samePriceLines.filter((line) => line.topic && line.topic === itemTopic)
+      : [];
+
+    let chosen: (typeof samePriceLines)[number] | null = null;
+
+    if (topicMatches.length === 1) {
+      chosen = topicMatches[0];
+    } else if (topicMatches.length > 1) {
+      chosen = topicMatches.sort((a, b) => b.raw.length - a.raw.length)[0];
+    } else if (
+      currentUnitType === "hour" &&
+      currentQuantity <= 0 &&
+      samePriceLines.length === 1
+    ) {
+      // Last safe fallback for the real failure case:
+      // item already says Stunde + price, but quantity is 0 and source/evidence
+      // was shortened to "Std. à CHF ...". A unique same-price hour line in the
+      // original message is then the only reliable quantity source.
+      chosen = samePriceLines[0];
+    }
+
+    if (!chosen) return item;
+
+    const quantity = normalizeIntakeHourQuantity(chosen.quantity);
+    if (!quantity || quantity <= 0) return item;
+
+    return {
+      ...item,
+      quantity,
+      unit: "Stunde",
+      unitPrice: chosen.price,
+      totalPrice: roundIntakeMoney(quantity * chosen.price),
+      // DB only persists description on OrderItem. Keep the full customer line
+      // there so the UI no longer shows the misleading "Std. à CHF ..." hint.
+      description: chosen.raw,
+      sourceText: chosen.raw,
+      evidence: chosen.raw,
+    };
+  });
+
+  return repaired;
+}
+
+
 function splitWorkSegments(text: string): string[] {
   const source = normalizeUnitText(text);
   if (!source) return [];
@@ -6518,6 +6629,15 @@ ${fullWorkText}`,
   // guard before totals are calculated. This catches remaining zero-quantity
   // hour rows after all validation and flat-item normalization steps.
   finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
+    finalOrderItems,
+    `${messageText}
+${fullWorkText}`,
+  );
+
+  // V17.00: absolutely last explicit-hour repair before totals and persistence.
+  // This fixes rows that still arrive as Stunde + price + quantity 0 directly
+  // before OrderItem.create, after every parser/validation step has finished.
+  finalOrderItems = repairExplicitHourQuantitiesBeforePersist(
     finalOrderItems,
     `${messageText}
 ${fullWorkText}`,
