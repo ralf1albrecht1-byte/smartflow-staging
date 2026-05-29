@@ -266,10 +266,10 @@ export async function processWhatsAppTextQueueForSender(queueKey: string): Promi
         prisma,
         orderId: orderCreated.orderId,
         originalText: text,
-        logPrefix: '[WhatsAppQueueHourFixV17_05]',
+        logPrefix: '[WhatsAppQueueHourFixV17_06]',
       });
       console.info(
-        `[WhatsAppQueueHourFixV17_05] result orderId=${orderCreated.orderId} repaired=${hourRepairResult.repairedCount} remainingZeroHourRows=${hourRepairResult.remainingZeroHourRows}`,
+        `[WhatsAppQueueHourFixV17_06] result orderId=${orderCreated.orderId} repaired=${hourRepairResult.repairedCount} remainingZeroHourRows=${hourRepairResult.remainingZeroHourRows}`,
       );
     }
 

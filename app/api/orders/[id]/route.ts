@@ -251,7 +251,7 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   });
 
   return repairZeroQuantityHourItemsFromText(normalized, source, {
-    logPrefix: "[OrdersIdNormalizeHourFixV17_05]",
+    logPrefix: "[OrdersIdNormalizeHourFixV17_06]",
   }).items;
 }
 
@@ -765,7 +765,7 @@ export async function GET(
       prisma,
       order,
       originalText: getOrderSourceTextForItems(order),
-      logPrefix: "[OrdersIdGetHourFixV17_05]",
+      logPrefix: "[OrdersIdGetHourFixV17_06]",
     });
     const safeOrder = persistedHourRepair.order || order;
 
@@ -1122,7 +1122,7 @@ export async function PUT(
       prisma,
       order: finalOrder,
       originalText: getOrderSourceTextForItems({ ...existing, ...data, items: finalOrder.items }),
-      logPrefix: "[OrdersIdPutHourFixV17_05]",
+      logPrefix: "[OrdersIdPutHourFixV17_06]",
     });
     if (persistedHourRepairAfterUpdate.repairedCount > 0 && persistedHourRepairAfterUpdate.order) {
       finalOrder = persistedHourRepairAfterUpdate.order;

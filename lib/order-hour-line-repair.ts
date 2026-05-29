@@ -101,22 +101,64 @@ function isHourRepairHourUnit(value?: string | null): boolean {
   return ["stunde", "stunden", "std", "h", "hour", "hours", "stundensatz"].includes(unit);
 }
 
-function isBrokenHourRepairRow(item: HourLineRepairItem): boolean {
-  if (!isHourRepairHourUnit(item.unit)) return false;
-
+function hasBrokenHourRepairMath(item: HourLineRepairItem): boolean {
   const unitPrice = Number(item.unitPrice || 0);
   if (!Number.isFinite(unitPrice) || unitPrice <= 0) return false;
 
-  const quantity = Number(item.quantity || 0);
-  const totalPrice = Number(item.totalPrice || 0);
+  const quantity = Number(item.quantity ?? 0);
+  const totalPrice = Number(item.totalPrice ?? 0);
 
-  // Real bug observed in Railway:
-  // - DB/UI row is an hourly item with price > 0
-  // - the original text contains a valid hourly candidate
-  // - quantity is sometimes not <= 0 in the object passed to the repair helper
-  //   even though the UI shows "prüfen" and totalPrice is 0.
-  // Therefore a zero/invalid line total is treated as repairable too.
-  return !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(totalPrice) || totalPrice <= 0;
+  // Observed in Railway V17.04/V17.05:
+  // candidates were detected correctly (5.5h@74:boden_reinigen), but
+  // zeroHourRows stayed 0 while the UI showed Total CHF 0 / Menge prüfen.
+  // Therefore the repairable condition must be based on broken math, not only
+  // on a strict stored hour unit/quantity shape.
+  return (
+    !Number.isFinite(quantity) ||
+    quantity <= 0 ||
+    !Number.isFinite(totalPrice) ||
+    totalPrice <= 0
+  );
+}
+
+function isBrokenHourRepairRow(item: HourLineRepairItem): boolean {
+  return isHourRepairHourUnit(item.unit) && hasBrokenHourRepairMath(item);
+}
+
+function hourRepairItemDebugSummary(item: HourLineRepairItem): string {
+  return [
+    String(item.serviceName || "?"),
+    `unit=${String(item.unit || "?")}`,
+    `q=${String(item.quantity ?? "?")}`,
+    `p=${String(item.unitPrice ?? "?")}`,
+    `t=${String(item.totalPrice ?? "?")}`,
+    `topic=${hourRepairServiceTopic([item.serviceName, item.description].filter(Boolean).join(" ")) || "none"}`,
+    `broken=${hasBrokenHourRepairMath(item) ? "yes" : "no"}`,
+  ].join("/");
+}
+
+function isRepairableHourRepairRow(
+  item: HourLineRepairItem,
+  candidates: HourLineRepairCandidate[],
+): boolean {
+  const unitPrice = Number(item.unitPrice || 0);
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return false;
+  if (!hasBrokenHourRepairMath(item)) return false;
+
+  const chosen = chooseHourLineRepairCandidate(item, candidates);
+  if (!chosen) return false;
+
+  const itemText = [item.serviceName, item.description].filter(Boolean).join(" ");
+  const itemTopic = hourRepairServiceTopic(itemText);
+  const hasHourSignal =
+    isHourRepairHourUnit(item.unit) ||
+    /(?:stunde|stunden|std\.?|h|hour|hours)/i.test(String(item.description || ""));
+
+  // Safe broadened condition:
+  // - same price is already enforced by chooseHourLineRepairCandidate
+  // - same semantic topic prevents leaking the hour line into Stück/m² rows
+  // - an explicit hour signal is allowed as additional safety.
+  return Boolean((itemTopic && chosen.topic === itemTopic) || hasHourSignal);
 }
 
 function detectHourRepairQuantityInLine(line?: string | null): number | null {
@@ -295,7 +337,9 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
 ): HourLineRepairResult<T> {
   const sourceItems = Array.isArray(items) ? items : [];
   const candidates = buildHourLineRepairCandidates(originalText);
-  const zeroHourRowsBefore = sourceItems.filter((item) => isBrokenHourRepairRow(item));
+  const zeroHourRowsBefore = sourceItems.filter((item) =>
+    isRepairableHourRepairRow(item, candidates),
+  );
 
   if (options?.logPrefix) {
     const candidateSummary = candidates
@@ -304,10 +348,14 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
       .join(" | ");
     const zeroSummary = zeroHourRowsBefore
       .slice(0, 5)
-      .map((item) => `${item.serviceName || "?"}@${Number(item.unitPrice || 0)}`)
+      .map((item) => hourRepairItemDebugSummary(item))
+      .join(" | ");
+    const itemSummary = sourceItems
+      .slice(0, 6)
+      .map((item) => hourRepairItemDebugSummary(item))
       .join(" | ");
     console.info(
-      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${zeroHourRowsBefore.length} candidates=${candidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"}`,
+      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${zeroHourRowsBefore.length} candidates=${candidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
     );
   }
 
@@ -327,7 +375,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
 
   let repairedCount = 0;
   const repairedItems = sourceItems.map((item) => {
-    if (!isBrokenHourRepairRow(item)) return item;
+    if (!isRepairableHourRepairRow(item, candidates)) return item;
     const currentPrice = Number(item.unitPrice || 0);
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) return item;
 
@@ -359,7 +407,9 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     } as T;
   });
 
-  const remainingZeroHourRows = repairedItems.filter((item) => isBrokenHourRepairRow(item)).length;
+  const remainingZeroHourRows = repairedItems.filter((item) =>
+    isRepairableHourRepairRow(item, candidates),
+  ).length;
 
   if (options?.logPrefix && zeroHourRowsBefore.length > 0) {
     console.info(`${options.logPrefix} done repaired=${repairedCount} remainingZeroHourRows=${remainingZeroHourRows}`);
