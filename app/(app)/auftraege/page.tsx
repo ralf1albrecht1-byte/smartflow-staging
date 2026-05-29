@@ -3939,6 +3939,8 @@ export default function AuftraegePage() {
               o.reviewReasons,
               item.serviceName,
             );
+            const quantityNumber = Number(item.quantity || 0);
+            const hasValidQuantity = Number.isFinite(quantityNumber) && quantityNumber > 0;
 
             return {
               key: Math.random().toString(36).slice(2),
@@ -3946,11 +3948,11 @@ export default function AuftraegePage() {
               unit: item.unit ?? "Stunde",
               unitPrice:
                 Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
-              quantity: hasQuantityReview
-                ? ""
-                : Number(item.quantity || 0) === 0
-                  ? ""
-                  : String(item.quantity),
+              // Keep trusted persisted quantities even when a unit_mismatch review chip
+              // remains. The review chip may still be valid because catalog unit and
+              // customer-text unit differ, but blanking a valid quantity turns a repaired
+              // hour row back into Menge prüfen / Total CHF 0.00 in the editor.
+              quantity: !hasValidQuantity ? "" : String(item.quantity),
               aiWarning: getAiWarningFromItemDescription(item.description),
               catalogReviewConfirmed:
                 getCatalogReviewConfirmedFromItemDescription(item.description),
