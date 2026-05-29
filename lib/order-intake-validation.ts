@@ -4840,6 +4840,105 @@ function enforceHardMeasuredLineItemsFromRawText(
   return { items: nextItems, reviewReasons: unique(reviewReasons) };
 }
 
+
+function applyStructuredFailClosedValidation(params: {
+  items: ParsedOrderItemForValidation[];
+  finalCurrency: IntakeCurrency;
+  detectedCurrencies: string[];
+  unsupportedDetectedCurrencies: string[];
+}): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const reviewReasons: string[] = [];
+  const globalCurrencyConflict =
+    params.detectedCurrencies.length > 1 ||
+    params.unsupportedDetectedCurrencies.length > 0;
+
+  const items = params.items.map((item) => {
+    const next: ParsedOrderItemForValidation = { ...item };
+    const serviceName = String(next.serviceName || "Unbekannte Leistung").trim() || "Unbekannte Leistung";
+    const quantity = Number(next.quantity || 0);
+    const unitPrice = Number(next.unitPrice || 0);
+    const normalizedUnit = normalizeCompare(next.unit || "");
+    const isFlat = isFlatUnit(next.unit);
+    const itemDetectedCurrency = normalizeCurrency(next.detectedCurrency || null);
+    const itemReasons: string[] = [];
+
+    if (next.reviewReason) itemReasons.push(next.reviewReason);
+
+    const unitMissing =
+      !isFlat &&
+      (!normalizedUnit ||
+        normalizedUnit === "unbekannt" ||
+        normalizedUnit === "unknown" ||
+        normalizedUnit === "unklar" ||
+        normalizedUnit === "pruefen" ||
+        normalizedUnit === "prüfen");
+
+    if (unitMissing) {
+      itemReasons.push(`unit_mismatch:${serviceName}:Unklar:${next.unit || "Unklar"}:0`);
+    }
+
+    if (!isFlat && (!Number.isFinite(quantity) || quantity <= 0)) {
+      next.quantity = 0;
+      itemReasons.push("quantity_review");
+    }
+
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+      next.unitPrice = 0;
+      itemReasons.push(`price_unclear:${serviceName}`, "unit_price_review");
+    }
+
+    if (itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency) {
+      next.unitPrice = 0;
+      itemReasons.push(
+        `item_currency_mismatch:${serviceName}:${itemDetectedCurrency}:${params.finalCurrency}`,
+        "currency_review",
+      );
+    }
+
+    if (globalCurrencyConflict && !itemDetectedCurrency) {
+      next.unitPrice = 0;
+      itemReasons.push("currency_review");
+    }
+
+    if (isFlat && Number(next.unitPrice || 0) > 0) {
+      next.quantity = 1;
+    }
+
+    if (
+      itemReasons.some((reason) =>
+        reason === "quantity_review" ||
+        reason === "unit_price_review" ||
+        reason === "currency_review" ||
+        reason.startsWith("price_unclear:") ||
+        reason.startsWith("unit_mismatch:") ||
+        reason.startsWith("item_currency_mismatch:"),
+      )
+    ) {
+      next.needsReview = true;
+      if (!next.reviewReason) {
+        next.reviewReason = itemReasons.find((reason) =>
+          reason.startsWith("unit_mismatch:") ||
+          reason.startsWith("price_unclear:") ||
+          reason.startsWith("item_currency_mismatch:") ||
+          reason === "quantity_review" ||
+          reason === "unit_price_review" ||
+          reason === "currency_review",
+        ) || itemReasons[0] || null;
+      }
+    }
+
+    next.totalPrice = calculateSafeLineTotal(next);
+    if (next.needsReview && (Number(next.quantity || 0) <= 0 || Number(next.unitPrice || 0) <= 0)) {
+      next.totalPrice = 0;
+    }
+
+    reviewReasons.push(...itemReasons);
+    return next;
+  });
+
+  return { items, reviewReasons: unique(reviewReasons) };
+}
+
 export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
@@ -5123,6 +5222,15 @@ export function validateAndRepairParsedOrderItems(
   reviewReasons.push(...hardExplicitGuard.reviewReasons);
   reviewReasons.push(...explicitHourGuard.reviewReasons);
   reviewReasons.push(...hardMeasuredLineGuard.reviewReasons);
+
+  const structuredFailClosedGuard = applyStructuredFailClosedValidation({
+    items,
+    finalCurrency,
+    detectedCurrencies,
+    unsupportedDetectedCurrencies,
+  });
+  items = structuredFailClosedGuard.items;
+  reviewReasons.push(...structuredFailClosedGuard.reviewReasons);
 
   const priceUnclearServiceNames = new Set(
     items

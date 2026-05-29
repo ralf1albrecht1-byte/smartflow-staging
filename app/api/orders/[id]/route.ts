@@ -130,6 +130,34 @@ function getOrderSourceTextForItems(data: any) {
     .join("\n");
 }
 
+function isHourUnitForPersistedRepair(value?: string | null) {
+  const unit = normalizeSearchText(value || "").replace(/[^a-z0-9]/g, "");
+  return ["stunde", "stunden", "std", "h", "hour", "hours", "heure", "heures", "hora", "horas", "ora", "ore"].includes(unit);
+}
+
+function shouldRunPersistedHourRepairForOrder(order: any) {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  if (items.length === 0) return false;
+
+  const hasBrokenHourItem = items.some((item: any) => {
+    const unitPrice = Number(item?.unitPrice || 0);
+    const quantity = Number(item?.quantity || 0);
+    const totalPrice = Number(item?.totalPrice || 0);
+
+    return (
+      isHourUnitForPersistedRepair(item?.unit) &&
+      Number.isFinite(unitPrice) &&
+      unitPrice > 0 &&
+      (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(totalPrice) || totalPrice <= 0)
+    );
+  });
+
+  if (!hasBrokenHourItem) return false;
+
+  const source = getOrderSourceTextForItems(order);
+  return /\b(?:stunde|stunden|std\.?|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/i.test(source);
+}
+
 function serviceIntentTokens(serviceName?: string | null) {
   const key = normalizeSearchText(normalizeServiceNameForDisplay(serviceName));
   if (/boden/.test(key)) return ["boden", "bode", "floor", "sol", "suelo", "paviment"];
@@ -882,12 +910,14 @@ export async function GET(
     if (!order)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
 
-    const persistedHourRepair = await repairPersistedOrderZeroHourItemsFromText({
-      prisma,
-      order,
-      originalText: getOrderSourceTextForItems(order),
-      logPrefix: "[OrdersIdGetHourFixV17_06]",
-    });
+    const persistedHourRepair = shouldRunPersistedHourRepairForOrder(order)
+      ? await repairPersistedOrderZeroHourItemsFromText({
+          prisma,
+          order,
+          originalText: getOrderSourceTextForItems(order),
+          logPrefix: "[OrdersIdGetHourFixV17_09_GET_ON_DEMAND]",
+        })
+      : { order, repairedCount: 0, remainingZeroHourRows: 0 };
     const safeOrder = persistedHourRepair.order || order;
 
     return NextResponse.json({

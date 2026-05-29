@@ -4632,6 +4632,21 @@ KI-VORSORTIERUNG – SEHR WICHTIG
 Du bist die erste und wichtigste Sortierschicht. Der nachgelagerte Code verlässt
 sich auf deine strukturierten Felder und validiert nur noch Plausibilität.
 
+V17.09 STRUKTURVERTRAG:
+- Du musst pro Arbeitsposition selbst entscheiden, welche Menge, Einheit, Einzelpreis
+  und Währung wirklich zu genau dieser Position gehören.
+- Der Code nach dir darf fehlende Werte nicht mehr still aus dem Katalog auffüllen.
+- Wenn Menge fehlt oder unsicher ist: menge = null.
+- Wenn Einheit fehlt oder unsicher ist: einheit = null.
+- Wenn Einzelpreis fehlt oder unsicher ist: unit_price = null.
+- Wenn Währung fehlt oder unsicher ist: currency = null.
+- Wenn CHF und EUR oder andere Währungen gemischt vorkommen, ordne jede Währung
+  nur der exakt belegten Position zu und setze unsichere Positionswährungen auf null.
+- Wenn eine Position dadurch nicht vollständig abrechenbar ist, setze confidence = "niedrig"
+  und schreibe in raw/evidence trotzdem die Originalzeile, damit der Validator rot prüfen kann.
+- Kein Preis, keine Menge und keine Einheit dürfen von einer anderen Zeile oder
+  einer anderen Leistung übernommen werden.
+
 Sortiere nach Bedeutung, nicht nach einzelnen Signalwörtern:
 - Wer/was bezahlt oder bekommt die Rechnung? → kunde
 - Wo wird die Arbeit tatsächlich ausgeführt? → auftrag.ausfuehrungsadresse
@@ -6361,14 +6376,23 @@ export async function processIncomingMessage(
             hasNoPriceSignal) &&
           !hasExplicitUnitPrice;
 
-        const unitPrice = hasExplicitUnitPrice
-          ? Number(detectedUnitPrice)
-          : shouldBlockCatalogFallback
-            ? 0
-            : catalogUnitPrice;
+        // V17.09 STRUCTURED_INTAKE_FAIL_CLOSED:
+        // Die KI muss Menge/Einheit/Preis pro Arbeitsposition selbst
+        // strukturiert liefern. Der Code darf nicht mehr still den
+        // Katalogpreis oder die Katalogeinheit als sichere Kundentext-Daten
+        // einsetzen, wenn die Position dafür keine eigene Evidence hat.
+        const serviceNameForReview = String(
+          matchedService.name || "Unbekannte Leistung",
+        );
+        const isFlatServiceUnit = serviceUnitType === "flat";
+        const hasOwnQuantityEvidence = detectedQuantity > 0;
+        const hasOwnUnitEvidence = detectedUnitType !== "unknown";
+        const hasOwnPriceEvidence = hasExplicitUnitPrice;
+
+        const unitPrice = hasOwnPriceEvidence ? Number(detectedUnitPrice) : 0;
 
         const priceOverrideDetected =
-          hasExplicitUnitPrice &&
+          hasOwnPriceEvidence &&
           catalogUnitPrice > 0 &&
           Math.abs(unitPrice - catalogUnitPrice) >= 0.01;
 
@@ -6382,15 +6406,39 @@ export async function processIncomingMessage(
         const mismatchDetected =
           hasExplicitDetectedUnit && serviceUnitType !== detectedUnitType;
 
-        const priceReviewReason = priceOverrideDetected
-          ? `price_override:${String(matchedService.name || "Unbekannte Leistung")}:${catalogUnitPrice}:${unitPrice}`
-          : shouldBlockCatalogFallback
-            ? `price_unclear:${String(matchedService.name || "Unbekannte Leistung")}`
-            : null;
+        const structuredReviewReasons: string[] = [];
 
-        const reviewReason = mismatchDetected
-          ? `unit_mismatch:${String(matchedService.name || "Unbekannte Leistung")}:${serviceUnit}:${unit}:${detectedQuantity}`
-          : priceReviewReason || quantityValidation.reason || null;
+        if (mismatchDetected) {
+          structuredReviewReasons.push(
+            `unit_mismatch:${serviceNameForReview}:${serviceUnit}:${unit}:${detectedQuantity}`,
+          );
+        } else if (!isFlatServiceUnit && !hasOwnUnitEvidence) {
+          structuredReviewReasons.push(
+            `unit_mismatch:${serviceNameForReview}:Unklar:${serviceUnit}:0`,
+          );
+        }
+
+        if (!isFlatServiceUnit && !hasOwnQuantityEvidence) {
+          structuredReviewReasons.push("quantity_review");
+        }
+
+        if (!hasOwnPriceEvidence) {
+          structuredReviewReasons.push(
+            `price_unclear:${serviceNameForReview}`,
+            "unit_price_review",
+          );
+        } else if (priceOverrideDetected) {
+          structuredReviewReasons.push(
+            `price_override:${serviceNameForReview}:${catalogUnitPrice}:${unitPrice}`,
+          );
+        }
+
+        if (shouldBlockCatalogFallback) {
+          structuredReviewReasons.push(`price_unclear:${serviceNameForReview}`);
+        }
+
+        const reviewReason =
+          structuredReviewReasons[0] || quantityValidation.reason || null;
 
         const explicitHourLineRepair = findExplicitHourLineRepairForMappedItem(
           {
@@ -6401,9 +6449,8 @@ export async function processIncomingMessage(
             unitPrice,
             totalPrice: unitPrice * quantityValidation.quantity,
             needsReview:
-              mismatchDetected ||
-              quantityValidation.needsReview ||
-              !!priceReviewReason,
+              structuredReviewReasons.length > 0 ||
+              quantityValidation.needsReview,
             reviewReason,
             sourceText: originalSegment || raw || null,
             evidence: item.evidence || item.source_text || evidenceText || null,
@@ -6420,6 +6467,19 @@ export async function processIncomingMessage(
           explicitHourLineRepair?.raw || originalSegment || raw || null;
         const finalMappedEvidence =
           explicitHourLineRepair?.raw || item.evidence || item.source_text || null;
+        const effectiveStructuredReviewReasons = explicitHourLineRepair
+          ? structuredReviewReasons.filter(
+              (reason) =>
+                reason !== "quantity_review" &&
+                reason !== "unit_price_review" &&
+                !reason.startsWith("price_unclear:") &&
+                !/^unit_mismatch:[^:]+:Unklar:/i.test(reason),
+            )
+          : structuredReviewReasons;
+        const effectiveReviewReason =
+          effectiveStructuredReviewReasons[0] ||
+          (explicitHourLineRepair ? null : quantityValidation.reason) ||
+          null;
 
         return {
           serviceName: formatWorkNameForDisplay(
@@ -6434,10 +6494,9 @@ export async function processIncomingMessage(
           unitPrice: finalMappedUnitPrice,
           totalPrice: roundIntakeMoney(finalMappedUnitPrice * finalMappedQuantity),
           needsReview:
-            mismatchDetected ||
-            quantityValidation.needsReview ||
-            !!priceReviewReason,
-          reviewReason,
+            effectiveStructuredReviewReasons.length > 0 ||
+            (!explicitHourLineRepair && quantityValidation.needsReview),
+          reviewReason: effectiveReviewReason,
           sourceText: finalMappedSourceText,
           evidence: finalMappedEvidence,
           detectedCurrency: item.currency || null,
