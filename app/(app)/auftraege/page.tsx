@@ -2753,10 +2753,20 @@ const getSystemBadges = (
 
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
-      ? order.items.some(
-          (it) =>
-            Number(it.unitPrice || 0) <= 0 || Number(it.quantity || 0) <= 0,
-        )
+      ? order.items.some((it) => {
+          const quantity = Number(it.quantity || 0);
+          const unitPrice = Number(it.unitPrice || 0);
+          const totalPrice = Number((it as any).totalPrice || 0);
+          const text = [it.unit, it.description, (it as any).sourceText, (it as any).evidence]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          const explicitReviewZeroTotal =
+            totalPrice <= 0 &&
+            (/einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(text) ||
+              /unit\s+(?:missing|open|unknown|unclear|review)/i.test(text));
+          return quantity <= 0 || unitPrice <= 0 || explicitReviewZeroTotal;
+        })
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
 
   // Rote Betragschips nur bei echten Blockern anzeigen.

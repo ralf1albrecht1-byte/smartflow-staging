@@ -308,7 +308,7 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       unit,
       unitPrice,
       quantity,
-      totalPrice: unitPrice * quantity,
+      totalPrice: Number(item?.totalPrice ?? unitPrice * quantity),
     };
   });
 
@@ -790,18 +790,48 @@ function roundMoney(value: number): number {
   return Number((Math.round((value + Number.EPSILON) * 100) / 100).toFixed(2));
 }
 
+function isExplicitZeroTotalReviewItem(item: any): boolean {
+  const storedTotal = Number(item?.totalPrice ?? 0);
+  if (storedTotal > 0) return false;
+
+  const reviewText = [
+    item?.unit,
+    item?.description,
+    item?.sourceText,
+    item?.evidence,
+    item?.reviewReason,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(reviewText) ||
+    /unit\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
+    /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
+    /price\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
+    /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
+    /quantity\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText)
+  );
+}
+
+function getItemNetTotalForOrder(item: any): number {
+  if (isExplicitZeroTotalReviewItem(item)) return 0;
+
+  const quantity = Number(item?.quantity ?? 0);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const storedTotal = Number(item?.totalPrice ?? 0);
+  const calculated = quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
+  const lineTotal = storedTotal > 0 ? storedTotal : calculated;
+
+  return Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0;
+}
+
 function calculateItemsNetTotal(o: any): number | null {
   const items = Array.isArray(o?.items) ? o.items : [];
   if (items.length === 0) return null;
 
-  const net = items.reduce((sum: number, item: any) => {
-    const quantity = Number(item?.quantity ?? 0);
-    const unitPrice = Number(item?.unitPrice ?? 0);
-    const storedTotal = Number(item?.totalPrice ?? 0);
-    const calculated = quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
-    const lineTotal = storedTotal > 0 ? storedTotal : calculated;
-    return sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0);
-  }, 0);
+  const net = items.reduce((sum: number, item: any) => sum + getItemNetTotalForOrder(item), 0);
 
   return net > 0 ? roundMoney(net) : null;
 }
@@ -947,8 +977,7 @@ export async function PUT(
       data?.quantity !== undefined ? Number(data.quantity) : undefined;
     if (items && items.length > 0) {
       totalPrice = items.reduce(
-        (sum: number, item: any) =>
-          sum + Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
+        (sum: number, item: any) => sum + getItemNetTotalForOrder(item),
         0,
       );
       primaryServiceName = normalizeServiceNameForDisplay(items[0].serviceName ?? primaryServiceName);
@@ -1144,8 +1173,10 @@ export async function PUT(
                   quantity: Number(item.quantity ?? 1),
                   unit: item.unit ?? "Stunde",
                   unitPrice: Number(item.unitPrice ?? 0),
-                  totalPrice:
-                    Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
+                  totalPrice: Number(
+                    item.totalPrice ??
+                      (Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1)),
+                  ),
                   workSiteId: resolveWorkSiteId(item.workSiteId),
                 })),
               },
