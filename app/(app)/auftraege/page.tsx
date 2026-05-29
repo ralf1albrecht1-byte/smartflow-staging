@@ -4325,13 +4325,14 @@ export default function AuftraegePage() {
                   reason.startsWith("item_currency_mismatch") ||
                   reason.startsWith("currency_conflict_item:"),
               ) ?? false;
-            const warningText = normalizeForMatch(rawAiWarning);
+            // V17.18: Bei bestehendem Währungs-/Mischwährungsblocker darf KEINE
+            // Position mit einem aus dem Kundentext übernommenen Preis vorbefüllt
+            // werden. Das gilt ausdrücklich auch für Anfahrt/Pauschalpositionen:
+            // "Anfahrt CHF 50" darf im EUR-Auftrag nicht als fertiger EUR-Preis
+            // erscheinen. Menge und Einheit bleiben sichtbar, Preis muss der
+            // Benutzer pro Position frisch bestätigen.
             const shouldRequireFreshManualPrice =
-              hasOrderCurrencyReview &&
-              !isCatalogConfirmed &&
-              /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
-                warningText,
-              );
+              hasOrderCurrencyReview && !isCatalogConfirmed;
 
             return {
               key: Math.random().toString(36).slice(2),
@@ -4978,11 +4979,17 @@ export default function AuftraegePage() {
             Number(nextItem.unitPrice || 0) > 0 &&
             Number(nextItem.quantity || 0) > 0;
 
+          // V17.18: Eine Position wird einzeln bestätigt, sobald der Benutzer
+          // dort einen vollständigen Zielpreis/eine gültige Menge/eine gültige
+          // Einheit eingibt. Nicht warten, bis ALLE Mischwährungspositionen
+          // ausgefüllt sind. Sonst bleiben bereits korrigierte Zeilen rot und
+          // wirken weiterhin blockiert.
           if (
             isResolvedInput &&
-            /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
-              warningText,
-            )
+            (hasCurrentEditCurrencyReview ||
+              /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
+                warningText,
+              ))
           ) {
             nextItem.aiWarning = "";
             nextItem.catalogReviewConfirmed = true;
@@ -8350,27 +8357,31 @@ export default function AuftraegePage() {
                             Number(item.quantity || 0) === 1;
 
                           const hasCurrencyConflict = hasEditCurrencyReview;
+                          // V17.18: Rot ist pro Position, nicht global.
+                          // Eine Mischwährung bleibt als Auftragsbanner sichtbar,
+                          // aber jede einzelne Leistung wird gelb/normal, sobald sie
+                          // vollständig manuell bestätigt ist. So sieht der Benutzer
+                          // sofort, welche Zeile noch fehlt.
                           const unresolvedCurrencyItem =
                             hasCurrencyConflict &&
-                            isBlockingCurrencyReviewText(item.aiWarning);
-                          const showCurrencyConflictItemReview = hasCurrencyConflict;
+                            !isManuallyConfirmedCurrencyItem(item);
+                          const showCurrencyConflictItemReview = unresolvedCurrencyItem;
                           const priceInputReview =
                             unresolvedCurrencyItem ||
                             Number(item.unitPrice || 0) === 0;
                           const quantityInputReview =
                             Number(item.quantity || 0) === 0;
-                          const priceInputCritical =
-                            priceInputReview || hasCurrencyConflict;
+                          const priceInputCritical = priceInputReview;
                           const quantityInputCritical = quantityInputReview;
                           const showUnitConflict =
-                            !hasCurrencyConflict &&
+                            !unresolvedCurrencyItem &&
                             Boolean(
                               item.aiWarning?.trim() ||
                                 unitMismatchReason ||
                                 unitMissingInTextReason,
                             );
                           const showPriceOverride =
-                            !hasCurrencyConflict &&
+                            !unresolvedCurrencyItem &&
                             !showUnitConflict &&
                             Boolean(
                               (!item.catalogReviewConfirmed && priceOverrideReason) ||
@@ -8378,7 +8389,7 @@ export default function AuftraegePage() {
                               hasFrontendCatalogTextFlatOverride,
                             );
                           const showPriceReferenceReview =
-                            !hasCurrencyConflict &&
+                            !unresolvedCurrencyItem &&
                             !priceInputReview &&
                             Boolean(
                               priceUnclearReason ||
@@ -8402,7 +8413,7 @@ export default function AuftraegePage() {
                             Boolean(item.serviceName?.trim()) &&
                             !isServiceInCatalog(item.serviceName);
                           const showManualServiceReview =
-                            !hasCurrencyConflict && isManualService;
+                            !unresolvedCurrencyItem && isManualService;
                           const sourceLineForItem =
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
@@ -8431,7 +8442,7 @@ export default function AuftraegePage() {
                           const orderSummary = orderSummaryParts.join(" ");
                           const showItemReviewBlock =
                             showCurrencyConflictItemReview ||
-                            (!hasCurrencyConflict &&
+                            (!unresolvedCurrencyItem &&
                               (showUnitConflict ||
                                 showPriceOverride ||
                                 showPriceReferenceReview ||
@@ -8441,7 +8452,7 @@ export default function AuftraegePage() {
                           const hasMissingItemInput =
                             priceInputReview || quantityInputReview;
                           const isBlockingItemReview =
-                            hasCurrencyConflict ||
+                            unresolvedCurrencyItem ||
                             hasMissingItemInput ||
                             Boolean(unitMissingInTextReason) ||
                             (showPriceReferenceReview &&
