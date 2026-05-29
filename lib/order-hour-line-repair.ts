@@ -621,6 +621,12 @@ function cleanServiceNameFromMissingPriceLine(line: string): string {
   return raw || "Leistung prüfen";
 }
 
+function hasMissingPriceSignal(value?: string | null): boolean {
+  return /\b(?:preis\s+(?:fehlt|offen|noch\s+offen|unbekannt|nachtragen|klaeren|klären)|betrag\s+(?:fehlt|offen|unbekannt)|ohne\s+preis|noch\s+kein\s+preis|price\s+(?:missing|open|unknown|tbd)|no\s+price|prix\s+(?:manquant|ouvert|inconnu)|sans\s+prix)\b/i.test(
+    String(value || ""),
+  );
+}
+
 function hasExistingMissingPriceRepresentation(
   candidate: MissingPriceRepairCandidate,
   items: HourLineRepairItem[],
@@ -629,7 +635,20 @@ function hasExistingMissingPriceRepresentation(
   return items.some((item) => {
     const itemService = normalizeHourRepairText(item.serviceName || item.description || "");
     if (!itemService || !candidateService) return false;
-    return itemService.includes(candidateService) || candidateService.includes(itemService);
+    const sameService = itemService.includes(candidateService) || candidateService.includes(itemService);
+    if (!sameService) return false;
+
+    // A false priced row with the same display name must NOT block creation of
+    // the real red missing-price row. It only counts as existing when it is
+    // already a blocker / zero-price representation or still carries the
+    // explicit missing-price source line.
+    const unitPrice = normalizeHourRepairNumber(item.unitPrice);
+    const totalPrice = normalizeHourRepairNumber(item.totalPrice);
+    const reviewText = [item.description, item.sourceText, item.evidence, item.reviewReason]
+      .filter(Boolean)
+      .join(" ");
+
+    return unitPrice <= 0 || totalPrice <= 0 || hasMissingPriceSignal(reviewText);
   });
 }
 
@@ -768,6 +787,120 @@ function buildMissingPriceReviewItems<T extends HourLineRepairItem>(
       sourceText: candidate.raw,
       evidence: candidate.raw,
     }) as unknown as T);
+}
+
+function isAnfahrtText(value?: string | null): boolean {
+  return /\b(?:anfahrt|fahrtkosten|fahrkosten|fahrt\s*pauschale|fahrpauschale|wegpauschale|reisepauschale|travel\s*(?:flat\s*)?fee|travel\s+costs?|trip\s+fee|transport\s+fee|deplacement|déplacement|frais\s+de\s+deplacement)\b/i.test(
+    normalizeHourRepairText(value || ""),
+  );
+}
+
+function isCatalogFloorLikeItem(item: HourLineRepairItem): boolean {
+  const key = normalizeHourRepairText([item.serviceName, item.description].filter(Boolean).join(" "));
+  const unit = normalizeHourRepairText(item.unit || "").replace(/[^a-z0-9]/g, "");
+  return /\bboden\b|floor|sol|paviment|suelo/.test(key) || ["quadratmeter", "m2", "qm", "sqm"].includes(unit);
+}
+
+function hasExistingAnfahrtWithPrice(items: HourLineRepairItem[], price: number): boolean {
+  return items.some((item) => {
+    const text = [item.serviceName, item.description, item.sourceText, item.evidence]
+      .filter(Boolean)
+      .join(" ");
+    return (
+      hourRepairServiceTopic(text) === "anfahrt" &&
+      Math.abs(normalizeHourRepairNumber(item.unitPrice) - price) < 0.01 &&
+      Math.abs(roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice)) - price) < 0.01
+    );
+  });
+}
+
+function isSpuriousFlatFeeDuplicateItem(
+  item: HourLineRepairItem,
+  allItems: HourLineRepairItem[],
+  flatFeeCandidates: FlatFeeRepairCandidate[],
+): boolean {
+  if (!flatFeeCandidates.length) return false;
+
+  const itemText = [item.serviceName, item.description, item.sourceText, item.evidence]
+    .filter(Boolean)
+    .join(" ");
+  if (hourRepairServiceTopic(itemText) === "anfahrt" || isAnfahrtText(item.serviceName)) return false;
+
+  const itemPrice = normalizeHourRepairNumber(item.unitPrice);
+  const itemTotal = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
+  const itemQuantity = normalizeHourRepairNumber(item.quantity);
+
+  const candidate = flatFeeCandidates.find((entry) => Math.abs(entry.price - itemPrice) < 0.01);
+  if (!candidate) return false;
+  if (!hasExistingAnfahrtWithPrice(allItems, candidate.price)) return false;
+
+  const looksLikeSyntheticOneUnit =
+    Math.abs(itemQuantity - 1) < 0.001 &&
+    Math.abs(itemTotal - candidate.price) < 0.01 &&
+    isCatalogFloorLikeItem(item);
+
+  const hasOwnStrongSource =
+    isAnfahrtText(itemText) ||
+    normalizeHourRepairText(itemText).includes(normalizeHourRepairText(candidate.raw));
+
+  return looksLikeSyntheticOneUnit && !hasOwnStrongSource;
+}
+
+function isSpuriousPricedMissingPriceDuplicateItem(
+  item: HourLineRepairItem,
+  allItems: HourLineRepairItem[],
+  missingPriceCandidates: MissingPriceRepairCandidate[],
+): boolean {
+  if (!missingPriceCandidates.length) return false;
+
+  const unitPrice = normalizeHourRepairNumber(item.unitPrice);
+  const totalPrice = normalizeHourRepairNumber(item.totalPrice);
+  if (unitPrice <= 0 || totalPrice <= 0) return false;
+
+  const itemText = [item.serviceName, item.description, item.sourceText, item.evidence]
+    .filter(Boolean)
+    .join(" ");
+  const itemKey = normalizeHourRepairText(itemText);
+
+  return missingPriceCandidates.some((candidate) => {
+    const candidateService = normalizeHourRepairText(candidate.serviceName);
+    const itemService = normalizeHourRepairText(item.serviceName || item.description || "");
+    const sameService = Boolean(
+      candidateService && itemService && (itemService.includes(candidateService) || candidateService.includes(itemService)),
+    );
+    const sameQuantity = Math.abs(normalizeHourRepairNumber(item.quantity) - candidate.quantity) < 0.001;
+    const sameUnit =
+      isHourRepairHourUnit(item.unit) === isHourRepairHourUnit(candidate.unit) ||
+      normalizeHourRepairText(item.unit || "") === normalizeHourRepairText(candidate.unit || "");
+    const hasSeparateZeroBlocker = allItems.some((other) => {
+      if (other === item) return false;
+      const otherService = normalizeHourRepairText(other.serviceName || other.description || "");
+      return (
+        otherService &&
+        candidateService &&
+        (otherService.includes(candidateService) || candidateService.includes(otherService)) &&
+        normalizeHourRepairNumber(other.unitPrice) <= 0
+      );
+    });
+
+    const sourceIsClearlyOtherPricedLine =
+      /fenster|window|vitre|glastuer|glastur|glass\s+door/.test(itemKey) &&
+      !/fenster|window|vitre|glastuer|glastur|glass\s+door/.test(candidateService);
+
+    return sameService && sameQuantity && sameUnit && (hasSeparateZeroBlocker || sourceIsClearlyOtherPricedLine);
+  });
+}
+
+function removeSpuriousRepairDuplicates<T extends HourLineRepairItem>(
+  items: T[],
+  flatFeeCandidates: FlatFeeRepairCandidate[],
+  missingPriceCandidates: MissingPriceRepairCandidate[],
+): T[] {
+  return items.filter((item) => {
+    if (isSpuriousFlatFeeDuplicateItem(item, items, flatFeeCandidates)) return false;
+    if (isSpuriousPricedMissingPriceDuplicateItem(item, items, missingPriceCandidates)) return false;
+    return true;
+  });
 }
 
 export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem>(
@@ -911,7 +1044,11 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     ...buildMissingFlatFeeItems(repairedItems, flatFeeCandidates),
     ...buildMissingPriceReviewItems(repairedItems, missingPriceCandidates),
   ];
-  const finalItems = [...repairedItems, ...createdItems];
+  const finalItems = removeSpuriousRepairDuplicates(
+    [...repairedItems, ...createdItems],
+    flatFeeCandidates,
+    missingPriceCandidates,
+  );
 
   const remainingZeroHourRows = finalItems.filter((item) =>
     isRepairableHourRepairRow(item, candidates),
@@ -973,12 +1110,20 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
       logPrefix: params.logPrefix,
     });
 
-    if (result.repairedCount === 0) {
-      return { order, repairedCount: 0, remainingZeroHourRows: result.remainingZeroHourRows };
-    }
+    const beforeById = new Map(
+      order.items
+        .filter((item: any) => item?.id)
+        .map((item: any) => [String(item.id), item]),
+    );
+    const keptIds = new Set(
+      result.items
+        .filter((item: any) => item?.id)
+        .map((item: any) => String(item.id)),
+    );
 
     const updates = result.items
-      .map((item: any, index: number) => ({ before: order.items[index], after: item }))
+      .filter((item: any) => item?.id && beforeById.has(String(item.id)))
+      .map((item: any) => ({ before: beforeById.get(String(item.id)), after: item }))
       .filter(({ before, after }: any) => {
         if (!before?.id) return false;
         return (
@@ -992,10 +1137,13 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
       });
 
     const creates = result.items
-      .slice(order.items.length)
-      .filter((item: any) => String(item?.serviceName || "").trim());
+      .filter((item: any) => !item?.id && String(item?.serviceName || "").trim());
 
-    if (updates.length === 0 && creates.length === 0) {
+    const deleteIds = order.items
+      .filter((item: any) => item?.id && !keptIds.has(String(item.id)))
+      .map((item: any) => String(item.id));
+
+    if (result.repairedCount === 0 && updates.length === 0 && creates.length === 0 && deleteIds.length === 0) {
       return { order, repairedCount: 0, remainingZeroHourRows: result.remainingZeroHourRows };
     }
 
@@ -1014,6 +1162,7 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
         vatAmount,
         total,
         items: {
+          deleteMany: deleteIds.length > 0 ? { id: { in: deleteIds } } : undefined,
           update: updates.map(({ before, after }: any) => ({
             where: { id: before.id },
             data: {
@@ -1040,7 +1189,7 @@ export async function repairPersistedOrderZeroHourItemsFromText(params: {
 
     return {
       order: updatedOrder,
-      repairedCount: updates.length + creates.length,
+      repairedCount: updates.length + creates.length + deleteIds.length,
       remainingZeroHourRows: result.remainingZeroHourRows,
     };
   } catch (err) {

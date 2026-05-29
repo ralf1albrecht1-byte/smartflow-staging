@@ -2372,7 +2372,7 @@ const formatServiceReviewSummaryTooltip = (input: {
     new Set((input.unitConflictServices || []).map(compactText).filter(Boolean)),
   );
   if (unitServices.length > 0) {
-    const lines = ["Einheit abweichend"];
+    const lines = ["Einheit abweichend · Einheit aus Text übernommen"];
     unitServices.slice(0, 6).forEach((service) => {
       const parts = service.split(":").map(compactText).filter(Boolean);
       const serviceName = canonicalServiceNameForOrderItem(parts[0] || service);
@@ -3170,7 +3170,7 @@ const renderBadgeTooltip = (
   const alignClass = align === "right" ? "right-0" : "left-0";
 
   const tooltipLines = tooltip.split("\n");
-  const headingPattern = /^(?:Einheit abweichend|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
+  const headingPattern = /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
 
   return (
     <span
