@@ -101,6 +101,24 @@ function isHourRepairHourUnit(value?: string | null): boolean {
   return ["stunde", "stunden", "std", "h", "hour", "hours", "stundensatz"].includes(unit);
 }
 
+function isBrokenHourRepairRow(item: HourLineRepairItem): boolean {
+  if (!isHourRepairHourUnit(item.unit)) return false;
+
+  const unitPrice = Number(item.unitPrice || 0);
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return false;
+
+  const quantity = Number(item.quantity || 0);
+  const totalPrice = Number(item.totalPrice || 0);
+
+  // Real bug observed in Railway:
+  // - DB/UI row is an hourly item with price > 0
+  // - the original text contains a valid hourly candidate
+  // - quantity is sometimes not <= 0 in the object passed to the repair helper
+  //   even though the UI shows "prüfen" and totalPrice is 0.
+  // Therefore a zero/invalid line total is treated as repairable too.
+  return !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(totalPrice) || totalPrice <= 0;
+}
+
 function detectHourRepairQuantityInLine(line?: string | null): number | null {
   const source = normalizeHourRepairText(line || "");
   if (!source) return null;
@@ -277,12 +295,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
 ): HourLineRepairResult<T> {
   const sourceItems = Array.isArray(items) ? items : [];
   const candidates = buildHourLineRepairCandidates(originalText);
-  const zeroHourRowsBefore = sourceItems.filter(
-    (item) =>
-      isHourRepairHourUnit(item.unit) &&
-      Number(item.unitPrice || 0) > 0 &&
-      Number(item.quantity || 0) <= 0,
-  );
+  const zeroHourRowsBefore = sourceItems.filter((item) => isBrokenHourRepairRow(item));
 
   if (options?.logPrefix) {
     const candidateSummary = candidates
@@ -314,10 +327,9 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
 
   let repairedCount = 0;
   const repairedItems = sourceItems.map((item) => {
-    if (!isHourRepairHourUnit(item.unit)) return item;
+    if (!isBrokenHourRepairRow(item)) return item;
     const currentPrice = Number(item.unitPrice || 0);
-    const currentQuantity = Number(item.quantity || 0);
-    if (!Number.isFinite(currentPrice) || currentPrice <= 0 || currentQuantity > 0) return item;
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return item;
 
     const chosen = chooseHourLineRepairCandidate(item, candidates);
     if (!chosen) {
@@ -347,12 +359,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     } as T;
   });
 
-  const remainingZeroHourRows = repairedItems.filter(
-    (item) =>
-      isHourRepairHourUnit(item.unit) &&
-      Number(item.unitPrice || 0) > 0 &&
-      Number(item.quantity || 0) <= 0,
-  ).length;
+  const remainingZeroHourRows = repairedItems.filter((item) => isBrokenHourRepairRow(item)).length;
 
   if (options?.logPrefix && zeroHourRowsBefore.length > 0) {
     console.info(`${options.logPrefix} done repaired=${repairedCount} remainingZeroHourRows=${remainingZeroHourRows}`);

@@ -6809,7 +6809,7 @@ ${fullWorkText}`,
     finalOrderItems,
     `${messageText}
 ${fullWorkText}`,
-    { logPrefix: "[INTAKE_HOUR_SHARED_FIX_V17_03]" },
+    { logPrefix: "[INTAKE_HOUR_SHARED_FIX_V17_05]" },
   ).items;
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
