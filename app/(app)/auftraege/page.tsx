@@ -285,6 +285,7 @@ const stripInternalItemDescriptionMarkers = (description?: string | null) => {
   if (!value) return "";
   return value
     .replace(new RegExp(`^\\s*${PRICE_REVIEW_CONFIRMED_PREFIX}\\s*`, "i"), "")
+    .replace(new RegExp(`^\\s*${MANUAL_CURRENCY_CONFIRMED_PREFIX}\\s*`, "i"), "")
     .replace(new RegExp(`^\\s*${AI_WARNING_PREFIX}\\s*`, "i"), "")
     .trim();
 };
@@ -631,12 +632,16 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
     const confirmedKey = normalizedItem.catalogReviewConfirmed
       ? "catalog_review_confirmed"
       : "";
-    const mergeKey = [
+    const manualCurrencyKey = normalizedItem.manualCurrencyConfirmed
+      ? "manual_currency_confirmed"
+      : "";
+    const mergeKey = 
       normalizeForMatch(serviceName),
       unitKey,
       unitPriceKey,
       warningKey,
       confirmedKey,
+      manualCurrencyKey,
       normalizedItem.workSiteId || "",
     ].join("|");
 
@@ -671,6 +676,9 @@ const mergeEquivalentOrderItems = (items: any[]) =>
       quantity: String(item.quantity ?? 0),
       aiWarning: getAiWarningFromItemDescription(item.description),
       catalogReviewConfirmed: getCatalogReviewConfirmedFromItemDescription(
+        item.description,
+      ),
+      manualCurrencyConfirmed: getManualCurrencyConfirmedFromItemDescription(
         item.description,
       ),
       workSiteId: item.workSiteId || null,
@@ -3778,7 +3786,9 @@ const hasOrderAllItemsManuallyResolvedForConversion = (order: Order | any) => {
   return items.every((item) => {
     const quantity = Number(item?.quantity ?? 0);
     const unitPrice = Number(item?.unitPrice ?? 0);
-    const total = Number(item?.totalPrice ?? unitPrice * quantity);
+    const storedTotal = Number(item?.totalPrice ?? 0);
+    const calculatedTotal = unitPrice > 0 && quantity > 0 ? unitPrice * quantity : 0;
+    const total = storedTotal > 0 ? storedTotal : calculatedTotal;
     return quantity > 0 && unitPrice > 0 && total > 0;
   });
 };
@@ -3808,10 +3818,13 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
       (item) =>
         Number(item?.unitPrice || 0) <= 0 ||
         Number(item?.quantity || 0) <= 0 ||
-        Number(
-          item?.totalPrice ??
-            Number(item?.unitPrice || 0) * Number(item?.quantity || 0),
-        ) <= 0,
+        (() => {
+          const unitPrice = Number(item?.unitPrice || 0);
+          const quantity = Number(item?.quantity || 0);
+          const storedTotal = Number(item?.totalPrice || 0);
+          const calculatedTotal = unitPrice > 0 && quantity > 0 ? unitPrice * quantity : 0;
+          return (storedTotal > 0 ? storedTotal : calculatedTotal) <= 0;
+        })(),
     )
   ) {
     blockers.push("Preis/Menge prüfen");
@@ -5182,6 +5195,20 @@ export default function AuftraegePage() {
       reviewText.includes("preis pruefen") ||
       reviewText.includes("preis prufen") ||
       reviewText.includes("preis fehlt") ||
+      reviewText.includes("waehrung preis noch nicht bestaetigt") ||
+      reviewText.includes("wahrung preis noch nicht bestatigt") ||
+      reviewText.includes("wahrung/preis") ||
+      reviewText.includes("waehrung/preis") ||
+      reviewText.includes("nicht in netto") ||
+      reviewText.includes("nicht in mwst") ||
+      reviewText.includes("nicht in total") ||
+      reviewText.includes("wird nicht in netto") ||
+      reviewText.includes("wird nicht in mwst") ||
+      reviewText.includes("wird nicht in total") ||
+      reviewText.includes("manuell pruefen") ||
+      reviewText.includes("manuell prufen") ||
+      reviewText.includes("preis unsicher") ||
+      reviewText.includes("preis unklar") ||
       reviewText.includes("menge pruefen") ||
       reviewText.includes("menge prufen") ||
       reviewText.includes("menge fehlt")
@@ -6631,6 +6658,20 @@ export default function AuftraegePage() {
       reviewText.includes("preis pruefen") ||
       reviewText.includes("preis prufen") ||
       reviewText.includes("preis fehlt") ||
+      reviewText.includes("waehrung preis noch nicht bestaetigt") ||
+      reviewText.includes("wahrung preis noch nicht bestatigt") ||
+      reviewText.includes("wahrung/preis") ||
+      reviewText.includes("waehrung/preis") ||
+      reviewText.includes("nicht in netto") ||
+      reviewText.includes("nicht in mwst") ||
+      reviewText.includes("nicht in total") ||
+      reviewText.includes("wird nicht in netto") ||
+      reviewText.includes("wird nicht in mwst") ||
+      reviewText.includes("wird nicht in total") ||
+      reviewText.includes("manuell pruefen") ||
+      reviewText.includes("manuell prufen") ||
+      reviewText.includes("preis unsicher") ||
+      reviewText.includes("preis unklar") ||
       reviewText.includes("menge pruefen") ||
       reviewText.includes("menge prufen") ||
       reviewText.includes("menge fehlt")

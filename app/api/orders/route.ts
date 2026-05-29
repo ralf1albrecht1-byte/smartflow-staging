@@ -536,8 +536,11 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
     /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(reviewText) ||
     /unit\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
     /unit_missing_in_text|unit_mismatch:/i.test(reviewText) ||
-    /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
-    /price\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
+    /preis\s+(?:fehlt|offen|unklar|pr[üu]fen|unsicher)/i.test(reviewText) ||
+    /w[äa]hrung\s*\/\s*preis\s+noch\s+nicht\s+best[äa]tigt/i.test(reviewText) ||
+    /(?:w[äa]hrung|currency).*preis.*(?:nicht\s+best[äa]tigt|unklar|unsicher)/i.test(reviewText) ||
+    /(?:nicht|wird\s+nicht)\s+in\s+(?:netto|mwst|total)/i.test(reviewText) ||
+    /price\s+(?:missing|open|unknown|unclear|review|unsafe|unconfirmed)/i.test(reviewText) ||
     /price_unclear:|unit_price_review/i.test(reviewText) ||
     /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
     /quantity\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
@@ -593,7 +596,7 @@ function shouldTrustClientItemValuesForPersist(data: any): boolean {
   return (
     data?.manualReviewResolved === true ||
     data?.manualItemValuesConfirmed === true ||
-    hasCompleteManualItemsForPersist(data)
+    (!hasCurrencyConflictReviewOnOrderLike(data) && hasCompleteManualItemsForPersist(data))
   );
 }
 
