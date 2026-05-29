@@ -16,6 +16,10 @@ import {
   buildSpecialNotes,
   splitSpecialNotes,
 } from "@/lib/special-notes-utils";
+import {
+  repairPersistedOrderZeroHourItemsFromText,
+  repairZeroQuantityHourItemsFromText,
+} from "@/lib/order-hour-line-repair";
 
 type SemanticNoteMatch = {
   label: string;
@@ -227,7 +231,7 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   if (!Array.isArray(items)) return undefined;
   const source = getOrderSourceTextForItems(data);
 
-  return items.map((item: any) => {
+  const normalized = items.map((item: any) => {
     const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
     const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
     const sourcePrice = extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
@@ -245,6 +249,10 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       totalPrice: unitPrice * quantity,
     };
   });
+
+  return repairZeroQuantityHourItemsFromText(normalized, source, {
+    logPrefix: "[OrdersIdNormalizeHourFixV17_03]",
+  }).items;
 }
 
 function extractExactOperationalHints(data: any) {
@@ -752,14 +760,23 @@ export async function GET(
     });
     if (!order)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
+
+    const persistedHourRepair = await repairPersistedOrderZeroHourItemsFromText({
+      prisma,
+      order,
+      originalText: getOrderSourceTextForItems(order),
+      logPrefix: "[OrdersIdGetHourFixV17_03]",
+    });
+    const safeOrder = persistedHourRepair.order || order;
+
     return NextResponse.json({
-      ...order,
-      totalPrice: Number(order?.totalPrice ?? 0),
-      unitPrice: Number(order?.unitPrice ?? 0),
-      quantity: Number(order?.quantity ?? 0),
-      currency: order?.currency === "EUR" ? "EUR" : "CHF",
-      ...normalizeOrderVat(order),
-      items: (order?.items ?? []).map((item: any) => ({
+      ...safeOrder,
+      totalPrice: Number(safeOrder?.totalPrice ?? 0),
+      unitPrice: Number(safeOrder?.unitPrice ?? 0),
+      quantity: Number(safeOrder?.quantity ?? 0),
+      currency: safeOrder?.currency === "EUR" ? "EUR" : "CHF",
+      ...normalizeOrderVat(safeOrder),
+      items: (safeOrder?.items ?? []).map((item: any) => ({
         ...item,
         unitPrice: Number(item?.unitPrice ?? 0),
         quantity: Number(item?.quantity ?? 0),
@@ -1099,6 +1116,16 @@ export async function PUT(
         details: { reason: "customer_data_complete" },
         request,
       });
+    }
+
+    const persistedHourRepairAfterUpdate = await repairPersistedOrderZeroHourItemsFromText({
+      prisma,
+      order: finalOrder,
+      originalText: getOrderSourceTextForItems({ ...existing, ...data, items: finalOrder.items }),
+      logPrefix: "[OrdersIdPutHourFixV17_03]",
+    });
+    if (persistedHourRepairAfterUpdate.repairedCount > 0 && persistedHourRepairAfterUpdate.order) {
+      finalOrder = persistedHourRepairAfterUpdate.order;
     }
 
     return NextResponse.json({

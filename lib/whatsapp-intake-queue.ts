@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { processIncomingMessage } from '@/lib/order-intake';
 import { logAuditAsync } from '@/lib/audit';
 import { maskPhoneForLog } from '@/lib/phone';
+import { repairPersistedOrderZeroHourItemsFromText } from '@/lib/order-hour-line-repair';
 
 const WHATSAPP_TEXT_DELAY_MS = Number.parseInt(
   process.env.WHATSAPP_TEXT_DELAY_MS ||
@@ -604,6 +605,15 @@ export async function processWhatsAppTextQueueForSender(queueKey: string): Promi
     });
 
     if (orderCreated?.orderId) {
+      await repairPersistedOrderZeroHourItemsFromText({
+        prisma,
+        orderId: orderCreated.orderId,
+        originalText: text,
+        logPrefix: '[WhatsAppQueueHourFixV17_03]',
+      });
+
+      // Legacy V17.02 fallback can stay as a second no-op safety net. If V17.03
+      // already repaired the row, this sees zero remaining rows and does nothing.
       await repairWhatsAppQueueZeroHourOrderItems({
         orderId: orderCreated.orderId,
         originalText: text,

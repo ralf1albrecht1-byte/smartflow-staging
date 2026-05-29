@@ -16,6 +16,7 @@ import {
 } from "@/lib/exact-customer-match";
 import { maskPhoneForLog } from "@/lib/phone";
 import { buildSpecialNotes } from "@/lib/special-notes-utils";
+import { repairZeroQuantityHourItemsFromText } from "@/lib/order-hour-line-repair";
 import {
   extractExecutionAddressFromText,
   runReadOnlyIntakeRiskValidator,
@@ -6800,6 +6801,16 @@ ${fullWorkText}`,
     `${messageText}
 ${fullWorkText}`,
   );
+
+  // V17.03: shared cross-route repair, same helper used by WhatsApp queue and
+  // Orders API. This is the final in-memory correction before totals and
+  // OrderItem.create, independent from shortened AI evidence like "Std. à CHF".
+  finalOrderItems = repairZeroQuantityHourItemsFromText(
+    finalOrderItems,
+    `${messageText}
+${fullWorkText}`,
+    { logPrefix: "[INTAKE_HOUR_SHARED_FIX_V17_03]" },
+  ).items;
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {

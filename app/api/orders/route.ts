@@ -15,6 +15,10 @@ import {
   buildSpecialNotes,
   splitSpecialNotes,
 } from "@/lib/special-notes-utils";
+import {
+  repairPersistedOrderZeroHourItemsFromText,
+  repairZeroQuantityHourItemsFromText,
+} from "@/lib/order-hour-line-repair";
 
 type SemanticNoteMatch = {
   label: string;
@@ -410,7 +414,7 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   if (!Array.isArray(items)) return undefined;
   const source = getOrderSourceTextForItems(data);
 
-  return items.map((item: any) => {
+  const normalized = items.map((item: any) => {
     const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
     const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
     const sourcePrice = extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
@@ -428,6 +432,10 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       totalPrice: unitPrice * quantity,
     };
   });
+
+  return repairZeroQuantityHourItemsFromText(normalized, source, {
+    logPrefix: "[OrdersRouteNormalizeHourFixV17_03]",
+  }).items;
 }
 
 function extractExactOperationalHints(data: any) {
@@ -969,8 +977,21 @@ export async function GET(request: Request) {
         workSites: true,
       },
     });
+
+    const safeOrders = await Promise.all(
+      (orders ?? []).map(async (order: any) => {
+        const repaired = await repairPersistedOrderZeroHourItemsFromText({
+          prisma,
+          order,
+          originalText: getOrderSourceTextForItems(order),
+          logPrefix: "[OrdersRouteGetHourFixV17_03]",
+        });
+        return repaired.order || order;
+      }),
+    );
+
     return NextResponse.json(
-      orders?.map((o: any) => ({
+      safeOrders?.map((o: any) => ({
         ...o,
         totalPrice: Number(o?.totalPrice ?? 0),
         unitPrice: Number(o?.unitPrice ?? 0),
@@ -1169,6 +1190,16 @@ export async function POST(request: Request) {
           }
         }
       }
+    }
+
+    const persistedHourRepair = await repairPersistedOrderZeroHourItemsFromText({
+      prisma,
+      order,
+      originalText: getOrderSourceTextForItems(data),
+      logPrefix: "[OrdersRoutePostHourFixV17_03]",
+    });
+    if (persistedHourRepair.repairedCount > 0 && persistedHourRepair.order) {
+      order = persistedHourRepair.order;
     }
 
     const su = await getSessionUser();
