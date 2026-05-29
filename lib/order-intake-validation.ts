@@ -4841,6 +4841,246 @@ function enforceHardMeasuredLineItemsFromRawText(
 }
 
 
+type UnitlessQuantityPriceLineCandidate = {
+  raw: string;
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  currency: string | null;
+  key: string;
+  topic: string | null;
+};
+
+function hasKnownUnitAttachedToQuantity(line: string, quantity: number): boolean {
+  const source = normalizeCompare(line);
+  if (!source || !quantity) return false;
+  const quantityLabel = Number.isInteger(quantity)
+    ? String(quantity)
+    : String(Number(quantity.toFixed(2))).replace(".", "[.,]");
+  const unitWords =
+    "(?:stueck|stück|stuck|stk|pcs|pc|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|qm|m2|m²|sqm|kubikmeter|cbm|m3|m³|laufmeter|lfm|meter|m|stunde|stunden|std|h|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l|pauschal|pauschale|forfait|flat)";
+  return new RegExp(`(^|[^0-9])${quantityLabel}\\s*${unitWords}\\b`, "i").test(
+    source,
+  );
+}
+
+function cleanServiceNameFromUnitlessQuantityPriceLine(line: string, index: number): string {
+  let raw = String(line || "").slice(0, Math.max(0, index));
+  raw = raw
+    .replace(/^\s*(?:leistung|arbeiten|position)\s*:?\s*/i, "")
+    .replace(/[:;,.-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const key = normalizeCompare(raw);
+  if (/lagerraum|lagerzone|lager\b|storage\s+room|stockroom/.test(key)) {
+    return "Lagerraum reinigen";
+  }
+  if (/technikraum|serverraum|technical\s+room|local\s+technique/.test(key)) {
+    return "Technikraum reinigen";
+  }
+  if (/fenster|window|vitre|fenetre|vitrin|finestr|ventan/.test(key)) {
+    return "Fenster reinigen";
+  }
+  if (/boden|floor|sol\b|paviment|suelo/.test(key)) {
+    return "Boden reinigen";
+  }
+  if (/glas|glass|miroir|spiegel/.test(key)) {
+    return raw || "Leistung prüfen";
+  }
+
+  return raw || "Leistung prüfen";
+}
+
+function stripAutomaticTranslationBlockForUnitlessGuard(value?: string | null): string {
+  return String(value || "")
+    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Automatic translation\s*---[\s\S]*$/i, "");
+}
+
+function extractUnitlessQuantityPriceLineCandidates(
+  originalText: string,
+): UnitlessQuantityPriceLineCandidate[] {
+  const lines = stripAutomaticTranslationBlockForUnitlessGuard(originalText)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line));
+
+  const candidates: UnitlessQuantityPriceLineCandidate[] = [];
+  const patterns: Array<{
+    regex: RegExp;
+    quantityGroup: number;
+    currencyGroup?: number;
+    priceGroup: number;
+  }> = [
+    {
+      regex: new RegExp(
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:à|a|zu|je|pro|per|at|/)\\s*(?:(${CURRENCY_WORDS})\\s*)?${PRICE_NUMBER}\\b`,
+        "gi",
+      ),
+      quantityGroup: 1,
+      currencyGroup: 2,
+      priceGroup: 3,
+    },
+    {
+      regex: new RegExp(
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:à|a|zu|je|pro|per|at|/)\\s*(${PRICE_NUMBER})\\s*(${CURRENCY_WORDS})\\b`,
+        "gi",
+      ),
+      quantityGroup: 1,
+      priceGroup: 2,
+      currencyGroup: 3,
+    },
+  ];
+
+  for (const line of lines) {
+    for (const pattern of patterns) {
+      pattern.regex.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.regex.exec(line))) {
+        const quantity = parseQuantityNumber(match[pattern.quantityGroup]);
+        const unitPrice = parsePriceNumber(match[pattern.priceGroup]);
+        if (!quantity || !unitPrice) continue;
+        if (hasKnownUnitAttachedToQuantity(line, quantity)) continue;
+
+        const serviceName = cleanServiceNameFromUnitlessQuantityPriceLine(
+          line,
+          match.index ?? 0,
+        );
+        const currency = pattern.currencyGroup
+          ? normalizeCurrency(match[pattern.currencyGroup])
+          : null;
+
+        candidates.push({
+          raw: line,
+          serviceName,
+          quantity,
+          unitPrice,
+          currency,
+          key: normalizeCompare(line),
+          topic: weakUnitlessServiceTopic(line) || weakUnitlessServiceTopic(serviceName),
+        });
+      }
+    }
+  }
+
+  const byKey = new Map<string, UnitlessQuantityPriceLineCandidate>();
+  for (const candidate of candidates) {
+    const key = `${candidate.key}:${candidate.quantity}:${candidate.unitPrice}`;
+    if (!byKey.has(key)) byKey.set(key, candidate);
+  }
+  return Array.from(byKey.values());
+}
+
+function weakUnitlessServiceTopic(value?: string | null): string | null {
+  const source = normalizeCompare(value);
+  if (!source) return null;
+  if (/lagerraum|lagerzone|lager\b|storage\s+room|stockroom/.test(source)) return "lager";
+  if (/technikraum|serverraum|technical\s+room|local\s+technique/.test(source)) return "technik";
+  if (/boden|floor|sol\b|paviment|suelo/.test(source)) return "boden";
+  if (/fenster|window|vitre|fenetre|vitrin|finestr|ventan/.test(source)) return "fenster";
+  if (/glas|glass|spiegel|miroir/.test(source)) return "glas";
+  return weakServiceTopic(value);
+}
+
+function tokenSetForUnitlessService(value?: string | null): Set<string> {
+  const generic = new Set([
+    "reinigen",
+    "reinigung",
+    "clean",
+    "cleaning",
+    "nettoyage",
+    "pulizia",
+    "limpieza",
+    "boden",
+    "floor",
+    "sol",
+    "leistung",
+    "arbeiten",
+    "arbeit",
+  ]);
+  return new Set(
+    normalizeCompare(value)
+      .split(/\s+/g)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3)
+      .filter((token) => !generic.has(token)),
+  );
+}
+
+function unitlessCandidateMatchesItem(
+  item: ParsedOrderItemForValidation,
+  candidate: UnitlessQuantityPriceLineCandidate,
+): boolean {
+  const itemText = normalizeCompare(
+    [item.serviceName, item.description, item.sourceText, item.evidence]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const candidateText = normalizeCompare([candidate.raw, candidate.serviceName].join(" "));
+  if (!itemText || !candidateText) return false;
+
+  if (itemText.includes(candidate.key) || candidate.key.includes(itemText.slice(0, 80))) {
+    return true;
+  }
+
+  const sameQuantity =
+    Math.abs(Number(item.quantity || 0) - Number(candidate.quantity || 0)) < 0.001;
+  const samePrice =
+    Math.abs(Number(item.unitPrice || 0) - Number(candidate.unitPrice || 0)) < 0.01;
+  const itemTopic = weakUnitlessServiceTopic(itemText);
+  const sameTopic = Boolean(itemTopic && candidate.topic && itemTopic === candidate.topic);
+
+  const itemTokens = tokenSetForUnitlessService(itemText);
+  const candidateTokens = tokenSetForUnitlessService(candidateText);
+  const sharedTokens = Array.from(candidateTokens).filter((token) => itemTokens.has(token));
+
+  return sameQuantity && samePrice && (sameTopic || sharedTokens.length > 0);
+}
+
+export function applyUnitlessQuantityPriceLineGuard(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const candidates = extractUnitlessQuantityPriceLineCandidates(originalText);
+  if (candidates.length === 0) return { items, reviewReasons: [] };
+
+  const reviewReasons: string[] = [];
+  const guardedItems = items.map((item) => {
+    const candidate = candidates.find((entry) => unitlessCandidateMatchesItem(item, entry));
+    if (!candidate) return item;
+
+    const serviceName = String(item.serviceName || candidate.serviceName || "Leistung prüfen").trim() || "Leistung prüfen";
+    reviewReasons.push(
+      `unit_missing_in_text:${serviceName}`,
+      `unit_mismatch:${serviceName}:Unklar:${item.unit || "Einheit prüfen"}:0`,
+      "amount_review",
+    );
+
+    return {
+      ...item,
+      serviceName,
+      description: `Einheit fehlt im Kundentext. ${candidate.raw}`,
+      quantity: candidate.quantity,
+      unit: "Einheit prüfen",
+      unitPrice: candidate.unitPrice,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: `unit_missing_in_text:${serviceName}`,
+      sourceText: candidate.raw,
+      evidence: candidate.raw,
+      detectedCurrency: candidate.currency || item.detectedCurrency || null,
+    };
+  });
+
+  return { items: guardedItems, reviewReasons: unique(reviewReasons) };
+}
+
+
 function applyStructuredFailClosedValidation(params: {
   items: ParsedOrderItemForValidation[];
   finalCurrency: IntakeCurrency;
@@ -4864,14 +5104,21 @@ function applyStructuredFailClosedValidation(params: {
 
     if (next.reviewReason) itemReasons.push(next.reviewReason);
 
+    const hasUnitMissingReason =
+      String(next.reviewReason || "").startsWith("unit_missing_in_text:") ||
+      itemReasons.some((reason) => reason.startsWith("unit_missing_in_text:"));
+
     const unitMissing =
       !isFlat &&
-      (!normalizedUnit ||
+      (hasUnitMissingReason ||
+        !normalizedUnit ||
         normalizedUnit === "unbekannt" ||
         normalizedUnit === "unknown" ||
         normalizedUnit === "unklar" ||
         normalizedUnit === "pruefen" ||
-        normalizedUnit === "prüfen");
+        normalizedUnit === "prüfen" ||
+        normalizedUnit.includes("pruefen") ||
+        normalizedUnit.includes("prüfen"));
 
     if (unitMissing) {
       itemReasons.push(`unit_mismatch:${serviceName}:Unklar:${next.unit || "Unklar"}:0`);
@@ -4887,17 +5134,23 @@ function applyStructuredFailClosedValidation(params: {
       itemReasons.push(`price_unclear:${serviceName}`, "unit_price_review");
     }
 
-    if (itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency) {
+    if (globalCurrencyConflict) {
+      // Bei Mischwährung ist der Auftrag als Ganzes nicht sicher berechenbar.
+      // Keine Einzelposition darf in der Fallback-Währung weitergerechnet werden,
+      // weil das wie eine stille Umrechnung wirkt.
+      next.unitPrice = 0;
+      itemReasons.push(
+        itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency
+          ? `item_currency_mismatch:${serviceName}:${itemDetectedCurrency}:${params.finalCurrency}`
+          : `currency_conflict_item:${serviceName}:${itemDetectedCurrency || "UNKNOWN"}`,
+        "currency_review",
+      );
+    } else if (itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency) {
       next.unitPrice = 0;
       itemReasons.push(
         `item_currency_mismatch:${serviceName}:${itemDetectedCurrency}:${params.finalCurrency}`,
         "currency_review",
       );
-    }
-
-    if (globalCurrencyConflict && !itemDetectedCurrency) {
-      next.unitPrice = 0;
-      itemReasons.push("currency_review");
     }
 
     if (isFlat && Number(next.unitPrice || 0) > 0) {
@@ -4928,7 +5181,12 @@ function applyStructuredFailClosedValidation(params: {
     }
 
     next.totalPrice = calculateSafeLineTotal(next);
-    if (next.needsReview && (Number(next.quantity || 0) <= 0 || Number(next.unitPrice || 0) <= 0)) {
+    if (
+      next.needsReview &&
+      (unitMissing ||
+        Number(next.quantity || 0) <= 0 ||
+        Number(next.unitPrice || 0) <= 0)
+    ) {
       next.totalPrice = 0;
     }
 
@@ -5222,6 +5480,13 @@ export function validateAndRepairParsedOrderItems(
   reviewReasons.push(...hardExplicitGuard.reviewReasons);
   reviewReasons.push(...explicitHourGuard.reviewReasons);
   reviewReasons.push(...hardMeasuredLineGuard.reviewReasons);
+
+  const unitlessQuantityPriceGuard = applyUnitlessQuantityPriceLineGuard(
+    items,
+    input.originalText,
+  );
+  items = unitlessQuantityPriceGuard.items;
+  reviewReasons.push(...unitlessQuantityPriceGuard.reviewReasons);
 
   const structuredFailClosedGuard = applyStructuredFailClosedValidation({
     items,

@@ -200,6 +200,7 @@ const statusColors: Record<string, string> = {
 };
 
 const priceTypes = [
+  "Einheit prüfen",
   "Stunde",
   "Tag",
   "Pauschal",
@@ -2041,6 +2042,22 @@ const hasUnitMismatchReviewForService = (
   );
 };
 
+const findUnitMissingInTextReviewForService = (
+  reviewReasons: string[] | null | undefined,
+  serviceName?: string | null,
+) => {
+  const key = normalizeForMatch(serviceName);
+  if (!key) return "";
+
+  return (
+    reviewReasons?.find((reason) => {
+      if (!reason.startsWith("unit_missing_in_text:")) return false;
+      const [, reasonService] = reason.split(":");
+      return normalizeForMatch(reasonService) === key;
+    }) || ""
+  );
+};
+
 const hasCatalogPriceDeviationForItem = (
   item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice"> & {
     description?: string | null;
@@ -2778,8 +2795,17 @@ const getSystemBadges = (
       label: "Betrag prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
-      tooltip:
-        "Preis oder Menge fehlt/ist unsicher. Bitte vor Angebot/Rechnung korrigieren.",
+      tooltip: (() => {
+        const unitMissingServices = (order.reviewReasons ?? [])
+          .filter((reason) => reason.startsWith("unit_missing_in_text:"))
+          .map((reason) => reason.split(":")[1])
+          .map(compactText)
+          .filter(Boolean);
+        if (unitMissingServices.length > 0) {
+          return `Einheit fehlt im Kundentext: ${unitMissingServices.join(", ")}. Bitte innen rot markierte Leistung prüfen.`;
+        }
+        return "Preis oder Menge fehlt/ist unsicher. Bitte vor Angebot/Rechnung korrigieren.";
+      })(),
     });
   }
 
@@ -5254,6 +5280,7 @@ export default function AuftraegePage() {
     if (normalized === "kilogramm") return "kg";
     if (normalized === "tonne") return "t";
     if (normalized === "liter") return "l";
+    if (normalized.includes("prüfen") || normalized.includes("pruefen")) return "prüfen";
     return unit || "–";
   };
 
@@ -8053,6 +8080,12 @@ export default function AuftraegePage() {
                               );
                             });
 
+                          const unitMissingInTextReason =
+                            findUnitMissingInTextReviewForService(
+                              curOrder?.reviewReasons,
+                              item.serviceName,
+                            );
+
                           const priceOverrideReason = curOrder?.reviewReasons
                             ?.filter((r: string) =>
                               r.startsWith("price_override:"),
@@ -8119,7 +8152,9 @@ export default function AuftraegePage() {
                           const showUnitConflict =
                             !hasCurrencyConflict &&
                             Boolean(
-                              item.aiWarning?.trim() || unitMismatchReason,
+                              item.aiWarning?.trim() ||
+                                unitMismatchReason ||
+                                unitMissingInTextReason,
                             );
                           const showPriceOverride =
                             !hasCurrencyConflict &&
@@ -8192,6 +8227,7 @@ export default function AuftraegePage() {
                             priceInputReview || quantityInputReview;
                           const isBlockingItemReview =
                             hasMissingItemInput ||
+                            Boolean(unitMissingInTextReason) ||
                             (showPriceReferenceReview &&
                               !isCompleteItemForCatalogAction) ||
                             (showUnitConflict &&
@@ -8203,6 +8239,7 @@ export default function AuftraegePage() {
                             Boolean(
                               hasCurrencyConflict ||
                               unitMismatchReason ||
+                              unitMissingInTextReason ||
                               item.aiWarning?.trim() ||
                               priceUnclearReason ||
                               curOrder?.reviewReasons?.includes(
@@ -8984,25 +9021,47 @@ export default function AuftraegePage() {
                                       </div>
 
                                       <div className="space-y-0.5">
-                                        {showUnitConflict && catalogService && (
+                                        {showUnitConflict && (
                                           <div className="space-y-0.5">
-                                            <div>
-                                              Text:{" "}
-                                              <span className="font-medium">
-                                                {orderSummary}
-                                              </span>
-                                            </div>
-                                            {catalogSummary && (
-                                              <div>
-                                                Katalog:{" "}
-                                                <span className="font-medium">
-                                                  {catalogSummary}
-                                                </span>
-                                              </div>
+                                            {unitMissingInTextReason ? (
+                                              <>
+                                                <div>
+                                                  Einheit fehlt im Kundentext.
+                                                </div>
+                                                {sourceLineForItem && (
+                                                  <div>
+                                                    Text:{" "}
+                                                    <span className="font-medium">
+                                                      {sourceLineForItem}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                                <div>
+                                                  Bitte Einheit bestätigen, bevor
+                                                  Angebot oder Rechnung erstellt wird.
+                                                </div>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <div>
+                                                  Text:{" "}
+                                                  <span className="font-medium">
+                                                    {orderSummary}
+                                                  </span>
+                                                </div>
+                                                {catalogSummary && (
+                                                  <div>
+                                                    Katalog:{" "}
+                                                    <span className="font-medium">
+                                                      {catalogSummary}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                                <div>
+                                                  Einheit prüfen: {item.serviceName || "Leistung"}
+                                                </div>
+                                              </>
                                             )}
-                                            <div>
-                                              Einheit prüfen: {item.serviceName || "Leistung"}
-                                            </div>
                                           </div>
                                         )}
 

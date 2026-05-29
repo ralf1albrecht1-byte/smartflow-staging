@@ -18,6 +18,7 @@ import { maskPhoneForLog } from "@/lib/phone";
 import { buildSpecialNotes } from "@/lib/special-notes-utils";
 import { repairZeroQuantityHourItemsFromText } from "@/lib/order-hour-line-repair";
 import {
+  applyUnitlessQuantityPriceLineGuard,
   extractExecutionAddressFromText,
   runReadOnlyIntakeRiskValidator,
   validateAndRepairParsedOrderItems,
@@ -4640,6 +4641,9 @@ V17.09 STRUKTURVERTRAG:
 - Wenn Einheit fehlt oder unsicher ist: einheit = null.
 - Wenn Einzelpreis fehlt oder unsicher ist: unit_price = null.
 - Wenn Währung fehlt oder unsicher ist: currency = null.
+- Wenn eine Zeile nur Menge + Preis enthält, aber keine Einheit, z. B.
+  "Boden im Lager reinigen 42 à CHF 7", dann ist einheit = null.
+  Du darfst NICHT aus dem Leistungskatalog "Stunde", "m2" oder "Stück" einsetzen.
 - Wenn CHF und EUR oder andere Währungen gemischt vorkommen, ordne jede Währung
   nur der exakt belegten Position zu und setze unsichere Positionswährungen auf null.
 - Wenn eine Position dadurch nicht vollständig abrechenbar ist, setze confidence = "niedrig"
@@ -6715,6 +6719,17 @@ ${fullWorkText}`,
     { logPrefix: "[INTAKE_HOUR_SHARED_FIX_V17_07]" },
   ).items;
 
+  // V17.10: Finaler KI-Struktur-Schutz direkt vor der Totalberechnung.
+  // Wenn der Kundentext zwar Menge + Preis, aber keine Einheit enthält
+  // (z. B. "42 à CHF 7"), darf keine KI-/Katalog-/Repair-Schicht daraus
+  // still eine Stunde/m2/Stück-Position mit berechnetem Total machen.
+  const unitlessQuantityGuardBeforePersist = applyUnitlessQuantityPriceLineGuard(
+    finalOrderItems,
+    `${messageText}
+${fullWorkText}`,
+  );
+  finalOrderItems = unitlessQuantityGuardBeforePersist.items;
+
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {
     customerAddress: addr.street,
@@ -6990,6 +7005,7 @@ ${fullWorkText}`,
     ...quantityReviewReasons,
     ...unitMismatchReasons,
     ...intakeValidation.reviewReasons,
+    ...unitlessQuantityGuardBeforePersist.reviewReasons,
     ...structuralRiskReviewReasons,
     ...(extractedExecutionAddress ? ["execution_address_detected"] : []),
   ];
