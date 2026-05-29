@@ -565,6 +565,30 @@ function hasCompleteManualItemsForPersist(data: any): boolean {
   });
 }
 
+function getManuallyConfirmedServiceNamesForPersist(data: any): Set<string> {
+  const items = Array.isArray(data?.items) ? data.items : [];
+  return new Set(
+    items
+      .filter((item: any) => isItemManuallyConfirmedForPersist(item))
+      .map((item: any) => normalizeSearchText(normalizeServiceNameForDisplay(item?.serviceName)))
+      .filter(Boolean),
+  );
+}
+
+function isReviewReasonResolvedByConfirmedItemForPersist(reason: string, data: any): boolean {
+  const key = String(reason || "");
+  const parts = key.split(":");
+  const serviceName = normalizeSearchText(normalizeServiceNameForDisplay(parts[1] || ""));
+  if (!serviceName) return false;
+  if (!getManuallyConfirmedServiceNamesForPersist(data).has(serviceName)) return false;
+  return (
+    key.startsWith("price_unclear:") ||
+    key.startsWith("item_currency_mismatch:") ||
+    key.startsWith("currency_conflict_item:") ||
+    key.startsWith("price_override:")
+  );
+}
+
 function shouldTrustClientItemValuesForPersist(data: any): boolean {
   return (
     data?.manualReviewResolved === true ||
@@ -709,6 +733,10 @@ function normalizeReviewReasonsForPersist(data: any) {
 
   return reasons.filter((reason: string) => {
     const key = String(reason || "");
+
+    if (isReviewReasonResolvedByConfirmedItemForPersist(key, data)) {
+      return false;
+    }
 
     if (
       allItemsComplete &&
@@ -1166,10 +1194,10 @@ function calculateItemsNetTotal(o: any): number | null {
   const items = Array.isArray(o?.items) ? o.items : [];
   if (items.length === 0) return null;
 
-  if (hasCurrencyConflictReviewOnOrderLike(o)) {
-    return 0;
-  }
-
+  // V17.20: Nicht mehr wegen eines globalen Mischwährungs-ReviewReasons
+  // pauschal 0 zurückgeben. Unbestätigte Positionen werden schon mit
+  // unitPrice/totalPrice 0 persistiert; manuell bestätigte Positionen sollen
+  // sofort in Außenkarte und API-Response zählen.
   const net = items.reduce((sum: number, item: any) => sum + getItemNetTotalForOrder(item), 0);
 
   // Wenn Positionen vorhanden sind, sind sie Source of Truth. Auch 0 ist dann

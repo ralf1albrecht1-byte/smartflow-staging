@@ -346,6 +346,10 @@ const buildItemDescription = (item: FormItem) => {
     return `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`;
   }
 
+  if (item.manualCurrencyConfirmed) {
+    return `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim();
+  }
+
   if (item.catalogReviewConfirmed) {
     return `${PRICE_REVIEW_CONFIRMED_PREFIX} ${item.serviceName}`.trim();
   }
@@ -4375,7 +4379,9 @@ export default function AuftraegePage() {
             // erscheinen. Menge und Einheit bleiben sichtbar, Preis muss der
             // Benutzer pro Position frisch bestätigen.
             const shouldRequireFreshManualPrice =
-              hasOrderCurrencyReview && !isCatalogConfirmed && !isManualCurrencyConfirmed;
+              !isCatalogConfirmed &&
+              !isManualCurrencyConfirmed &&
+              (hasOrderCurrencyReview || isBlockingCurrencyReviewText(rawAiWarning));
 
             return {
               key: Math.random().toString(36).slice(2),
@@ -5798,6 +5804,29 @@ export default function AuftraegePage() {
       isServiceInCatalog(item.serviceName),
     );
 
+    // V17.20: ReviewReasons pro Leistung bereinigen, nicht erst wenn alle
+    // Positionen erledigt sind. Sonst bleiben Außenkarte/Conversion global auf
+    // 0/rot, obwohl einzelne Leistungen bereits manuell bestätigt wurden.
+    const manuallyConfirmedServiceNames = new Set(
+      validItems
+        .filter((item) => isManuallyConfirmedCurrencyItem(item))
+        .map((item) => normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)))
+        .filter(Boolean),
+    );
+
+    const isReviewReasonResolvedByConfirmedItem = (reason: string) => {
+      const key = String(reason || "");
+      const parts = key.split(":");
+      const serviceName = normalizeForMatch(canonicalServiceNameForOrderItem(parts[1] || ""));
+      if (!serviceName || !manuallyConfirmedServiceNames.has(serviceName)) return false;
+      return (
+        key.startsWith("price_unclear:") ||
+        key.startsWith("item_currency_mismatch:") ||
+        key.startsWith("currency_conflict_item:") ||
+        key.startsWith("price_override:")
+      );
+    };
+
     const cleanedReviewReasons =
       orders
         .find((o) => o.id === editId)
@@ -5814,10 +5843,15 @@ export default function AuftraegePage() {
             return !confirmedCatalogReviewServiceNames.has(reasonName);
           }
 
+          if (isReviewReasonResolvedByConfirmedItem(reason)) {
+            return false;
+          }
+
           if (
             allItemsComplete &&
             (reason.startsWith("currency_") ||
               reason.startsWith("item_currency_mismatch") ||
+              reason.startsWith("currency_conflict_item:") ||
               reason.startsWith("price_unclear:") ||
               reason === "unit_price_review" ||
               reason === "quantity_review" ||
@@ -6604,16 +6638,10 @@ export default function AuftraegePage() {
   };
 
   const getSafeOrderNetTotal = (o: Order) => {
-    const hasCurrencyReview =
-      o.reviewReasons?.some(
-        (reason) =>
-          reason.startsWith("currency_") ||
-          reason.startsWith("item_currency_mismatch") ||
-          reason.startsWith("currency_conflict_item:"),
-      ) ?? false;
-
-    if (hasCurrencyReview) return 0;
-
+    // V17.20: Eine offene Mischwährung blockiert nicht mehr pauschal die
+    // Außenkarten-Summe. Jede Position ist Source of Truth: rote/offene
+    // Positionen haben totalPrice 0, bereits manuell bestätigte Positionen
+    // dürfen sichtbar in die Zwischensumme laufen.
     if (o.items && o.items.length > 0) {
       return o.items.reduce((sum, item) => {
         if (isBlockedOrderItemForTotal(item)) return sum;
