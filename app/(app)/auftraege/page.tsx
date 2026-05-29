@@ -27,27 +27,6 @@ import {
   ChevronRight,
   Mic,
 } from "lucide-react";
-function LadderIcon({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M6 22 12 2" />
-      <path d="m18 22-6-20" />
-      <path d="M8 14h8" />
-      <path d="M9.5 9h5" />
-      <path d="M10.8 5h2.4" />
-      <path d="M6.8 18h10.4" />
-    </svg>
-  );
-}
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import { CommunicationChips } from "@/components/communication-block";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
@@ -93,6 +72,34 @@ import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { AutoReuseBanner } from "@/components/auto-reuse-banner";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
 import { MobileListShortcut } from "@/components/mobile-list-shortcut";
+
+function LadderIcon({
+  className = "h-4 w-4",
+  strokeWidth = 2.2,
+}: {
+  className?: string;
+  strokeWidth?: number | string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M6 22 12 2" />
+      <path d="m18 22-6-20" />
+      <path d="M8 14h8" />
+      <path d="M9.5 9h5" />
+      <path d="M10.8 5h2.4" />
+      <path d="M6.8 18h10.4" />
+    </svg>
+  );
+}
 
 interface OrderWorkSite {
   id: string;
@@ -193,6 +200,7 @@ const statusColors: Record<string, string> = {
 };
 
 const priceTypes = [
+  "Einheit prüfen",
   "Stunde",
   "Tag",
   "Pauschal",
@@ -236,6 +244,7 @@ interface FormItem {
   quantity: string;
   aiWarning?: string;
   catalogReviewConfirmed?: boolean;
+  manualCurrencyConfirmed?: boolean;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
 }
@@ -247,11 +256,13 @@ const createEmptyItem = (): FormItem => ({
   unitPrice: "",
   quantity: "",
   catalogReviewConfirmed: false,
+  manualCurrencyConfirmed: false,
   workSiteId: null,
 });
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
+const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
 
 const isCatalogReviewConfirmedDescription = (
   description?: string | null,
@@ -261,11 +272,20 @@ const getCatalogReviewConfirmedFromItemDescription = (
   description?: string | null,
 ) => isCatalogReviewConfirmedDescription(description);
 
+const isManualCurrencyConfirmedDescription = (
+  description?: string | null,
+) => compactText(description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX);
+
+const getManualCurrencyConfirmedFromItemDescription = (
+  description?: string | null,
+) => isManualCurrencyConfirmedDescription(description);
+
 const stripInternalItemDescriptionMarkers = (description?: string | null) => {
   const value = compactText(description);
   if (!value) return "";
   return value
     .replace(new RegExp(`^\\s*${PRICE_REVIEW_CONFIRMED_PREFIX}\\s*`, "i"), "")
+    .replace(new RegExp(`^\\s*${MANUAL_CURRENCY_CONFIRMED_PREFIX}\\s*`, "i"), "")
     .replace(new RegExp(`^\\s*${AI_WARNING_PREFIX}\\s*`, "i"), "")
     .trim();
 };
@@ -327,6 +347,10 @@ const buildItemDescription = (item: FormItem) => {
     return `${AI_WARNING_PREFIX} ${item.aiWarning.trim()}`;
   }
 
+  if (item.manualCurrencyConfirmed) {
+    return `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim();
+  }
+
   if (item.catalogReviewConfirmed) {
     return `${PRICE_REVIEW_CONFIRMED_PREFIX} ${item.serviceName}`.trim();
   }
@@ -357,6 +381,7 @@ type ReviewBadge = {
   className: string;
   icon?: boolean;
   tooltip?: string;
+  focusTarget?: "specialNotes" | "items";
 };
 
 const compactText = (value?: string | null) =>
@@ -369,6 +394,39 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
+
+const CALLBACK_CONTACT_WORD_PATTERN =
+  /\b(?:anruf|anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|anruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
+
+const CONTACT_TIME_WORD_PATTERN =
+  /\b(?:sms|whatsapp|wa|mail|e-mail|email|schreiben|senden|schicken|rueckfragen|ruckfragen|nachricht|nachrichten|kontakt|kontaktieren|melden|anruf|anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|rueckruf|ruckruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
+
+const CALLBACK_TIME_PATTERN =
+  /(?:\b(?:erst\s+ab|erst\s+nach|nicht\s+vor|nicht\s+vorher\s+als|fruehestens|frühestens|ab|nach)\s+\d{1,2}(?:\s+\d{2}|[:.]\d{2})?\s*(?:uhr|h)?\b|\bzwischen\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b|\bvon\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+bis\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\b)/;
+
+const SWISS_NEGATION_PATTERN = "(?:noed|nöd|ned|nid|nit|nued|nüt|nuet)";
+
+const isPreArrivalInstructionLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return new RegExp(
+    `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+einfach\\s+(?:kommen|vorbeikommen|cho|verbi\\s+cho)|` +
+      `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+ohne\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)|` +
+      `vor\\s+(?:start|arbeitsbeginn|ankunft)\\s+(?:kurz\\s+)?(?:telefonisch\\s+)?(?:melden|anrufen|kontaktieren)|` +
+      `erst\\s+nach\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)`
+  ).test(text);
+};
+
+const isNegativeWhatsAppInstructionLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return new RegExp(
+    `\\b(?:keine?|kein|ohne|nicht|${SWISS_NEGATION_PATTERN})\\s+(?:per\\s+|via\\s+)?whats\\s*app\\b|` +
+      `\\bwhats\\s*app\\s+(?:bitte\\s+)?(?:nein|keine?|kein|${SWISS_NEGATION_PATTERN}|nicht(?!\\s+(?:telefon|telefonisch|anrufen|zurueckrufen|zuruckrufen)))\\b`
+  ).test(text);
+};
 
 const SOURCE_LINE_GENERIC_TOKENS = new Set([
   "arbeiten",
@@ -462,6 +520,7 @@ const findCustomerTextLineForService = (
   let bestScore = 0;
 
   for (const line of lines) {
+    if (/^\s*\[?\s*(?:titel|title)\s*:/i.test(line)) continue;
     const lineKey = normalizeForMatch(line);
     if (!lineKey) continue;
 
@@ -498,11 +557,30 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
 
+  if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
+    return "Archivraum reinigen";
+  }
+  if (/glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)) {
+    return "Glastür reinigen";
+  }
+  if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
+    return "Technikraum reinigen";
+  }
+  if (/meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
+    return "Besprechungsbereich reinigen";
+  }
+  if (/kontrollgang/.test(key)) {
+    return "Kontrollgang reinigen";
+  }
+  if (/gangbereich|corridor|couloir|flur/.test(key)) {
+    return "Gangbereich reinigen";
+  }
+
   // Display safety: normalize obvious service intent to German catalog names.
   // This is intentionally semantic/broad (cleaning intent), not tied to a
   // specific room such as Veloraum/Keller/Terrasse.
   if (
-    /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|deplacement|déplacement|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
+    /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|reisepauschale|deplacement|déplacement|frais de deplacement|travel|travel flat fee|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
       key,
     )
   ) {
@@ -554,13 +632,10 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
     const confirmedKey = normalizedItem.catalogReviewConfirmed
       ? "catalog_review_confirmed"
       : "";
-
-    const manualCurrencyKey =
-      (normalizedItem as any).manualCurrencyConfirmed
-        ? "manual_currency_confirmed"
-        : "";
-
-    const mergeKey = [
+    const manualCurrencyKey = normalizedItem.manualCurrencyConfirmed
+      ? "manual_currency_confirmed"
+      : "";
+    const mergeKey = 
       normalizeForMatch(serviceName),
       unitKey,
       unitPriceKey,
@@ -601,6 +676,9 @@ const mergeEquivalentOrderItems = (items: any[]) =>
       quantity: String(item.quantity ?? 0),
       aiWarning: getAiWarningFromItemDescription(item.description),
       catalogReviewConfirmed: getCatalogReviewConfirmedFromItemDescription(
+        item.description,
+      ),
+      manualCurrencyConfirmed: getManualCurrencyConfirmedFromItemDescription(
         item.description,
       ),
       workSiteId: item.workSiteId || null,
@@ -662,10 +740,11 @@ const getSemanticBadgeKind = (value?: string | null) => {
     )
   )
     return "ladder";
-  if (/park|zufahrt|innenhof|reserviert/.test(text)) return "parking";
+  if (/park|parking|parkplatz|parken|parkieren/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
     return "access";
+  if (isPreArrivalInstructionLine(value) || isAppointmentContactTimeLine(value)) return null;
   if (/termin|datum|uhr|morgen|vormittag|nachmittag/.test(text))
     return "appointment";
   if (/schubkarre/.test(text)) return "wheelbarrow";
@@ -734,7 +813,7 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|(?:innenhof).*(park(?:platz|ieren|en)?|zufahrt)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
+  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
     text,
   );
 };
@@ -746,7 +825,7 @@ const PARKING_DIFFICULT_PATTERN =
   /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
 
 const hasParkingReference = (value?: string | null) =>
-  /park|parking|parkplatz|parken|zufahrt|innenhof/.test(
+  /park|parking|parkplatz|parken|parkieren/.test(
     normalizeForMatch(value),
   );
 
@@ -767,6 +846,200 @@ const getParkingSignal = (value?: string | null) => {
     hasNoParking: PARKING_NO_PATTERN.test(text),
     hasDifficult: PARKING_DIFFICULT_PATTERN.test(text),
   };
+};
+
+
+const isMergedOrderForCard = (order: Order) =>
+  Boolean(
+    order.reviewReasons?.includes("manual_order_merge") ||
+      order.reviewReasons?.includes("double_merge") ||
+      (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1),
+  );
+
+const formatWorkSiteLabelForHint = (site: {
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+}) => {
+  const title = cleanWorkSiteDisplayName(site.siteName) || compactText(site.siteAddress);
+  const address = [
+    compactText(site.siteAddress),
+    [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return [title, address].filter(Boolean).join(" · ");
+};
+
+const looksLikeWorkSitePrefix = (value?: string | null) => {
+  const text = compactText(value);
+  if (!text) return false;
+  if (/\b\d{4,5}\b/.test(text)) return true;
+  if (/\b(?:haus|gebäude|gebaeude|restaurant|küche|kueche|entrée|entree|technopark|limmatweg|chemin|strasse|straße|weg|gasse|platz|adresse|arbeitsort)\b/i.test(text)) return true;
+  return /\s·\s/.test(text);
+};
+
+const splitLocationPrefixedHint = (value?: string | null) => {
+  let text = compactText(value).replace(/^\[HINWEIS\]\s*/i, "").replace(/^[-•]\s*/, "");
+  let location = "";
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    const match = text.match(/^([^:]{2,190}):\s+(.+)$/);
+    if (!match || !looksLikeWorkSitePrefix(match[1])) break;
+    location = compactText(match[1]);
+    text = compactText(match[2]).replace(/^[-•]\s*/, "");
+  }
+
+  return { location, hint: text };
+};
+
+const stripRepeatedLocationPrefix = (hint: string, location: string) => {
+  let text = compactText(hint).replace(/^[-•]\s*/, "");
+  const normalizedLocation = normalizeForMatch(location);
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    const parsed = splitLocationPrefixedHint(text);
+    if (!parsed.location) break;
+    if (normalizeForMatch(parsed.location) !== normalizedLocation) break;
+    text = parsed.hint;
+  }
+
+  return text;
+};
+
+const SPECIAL_NOTES_GROUP_SEPARATOR = "────────────────────";
+
+const isSpecialNotesGroupSeparator = (value?: string | null) =>
+  /^[-─—–_]{6,}$/.test(compactText(value));
+
+const isSpecialNotesGroupHeader = (value?: string | null) => {
+  const text = compactText(value);
+  if (!/^[^:]{2,190}:$/.test(text)) return false;
+  return looksLikeWorkSitePrefix(text.replace(/:$/, ""));
+};
+
+const formatSpecialNotesForDisplay = (lines: string[]) => {
+  const result: string[] = [];
+  let hasCurrentGroupContent = false;
+
+  for (const rawLine of lines) {
+    const line = compactText(rawLine);
+    if (!line || isSpecialNotesGroupSeparator(line)) continue;
+
+    if (isSpecialNotesGroupHeader(line)) {
+      if (result.length > 0 && hasCurrentGroupContent) {
+        result.push(SPECIAL_NOTES_GROUP_SEPARATOR);
+      }
+      result.push(line);
+      hasCurrentGroupContent = false;
+      continue;
+    }
+
+    result.push(line);
+    hasCurrentGroupContent = true;
+  }
+
+  return result.join("\n");
+};
+
+const structuredSpecialNoteHints = (order: Order) => {
+  const lines = String(order.specialNotes || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line).replace(/^\[HINWEIS\]\s*/i, ""))
+    .filter(Boolean);
+
+  const fallbackSites = (order.workSites ?? [])
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
+        Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
+    )
+    .map(formatWorkSiteLabelForHint)
+    .filter(Boolean);
+  const singleFallbackSite = fallbackSites.length === 1 ? fallbackSites[0] : "";
+
+  const result: Array<{ location: string; hint: string }> = [];
+  let currentLocation = "";
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/^[-•]\s*/, "");
+    const parsed = splitLocationPrefixedHint(line);
+
+    if (parsed.location) {
+      currentLocation = parsed.location;
+      if (parsed.hint) {
+        result.push({
+          location: currentLocation,
+          hint: stripRepeatedLocationPrefix(parsed.hint, currentLocation),
+        });
+      }
+      continue;
+    }
+
+    if (/^[^:]{2,190}:$/.test(line) && looksLikeWorkSitePrefix(line.replace(/:$/, ""))) {
+      currentLocation = compactText(line.replace(/:$/, ""));
+      continue;
+    }
+
+    result.push({
+      location: currentLocation || singleFallbackSite,
+      hint: line,
+    });
+  }
+
+  return result;
+};
+
+const operationalHintMatchesKind = (
+  kind: string,
+  line: string,
+  contextText: string,
+) => {
+  if (kind === "parking") {
+    return Boolean(getParkingBadge(line, contextText)) || getParkingSignal(line).hasParking;
+  }
+  return getSemanticBadgeKind(line) === kind;
+};
+
+const formatOperationalHintTooltip = (
+  order: Order,
+  kind: string,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+  fallbackLine: string,
+  contextText: string,
+) => {
+  const entries = [
+    ...structuredSpecialNoteHints(order),
+    ...parsedNotes.jobHints.map((line) => splitLocationPrefixedHint(line)),
+  ]
+    .map((entry) => ({
+      location: compactText(entry.location),
+      hint: compactText(stripRepeatedLocationPrefix(entry.hint, entry.location)),
+    }))
+    .filter((entry) => entry.hint && operationalHintMatchesKind(kind, entry.hint, contextText));
+
+  const seen = new Set<string>();
+  const formatted: string[] = [];
+
+  for (const entry of entries) {
+    const key = `${normalizeForMatch(entry.location)}|${normalizeForMatch(entry.hint)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    formatted.push(
+      entry.location
+        ? `${entry.location}:\n${entry.hint}`
+        : entry.hint,
+    );
+  }
+
+  if (formatted.length > 0) return formatted.join("\n\n");
+  return compactText(fallbackLine);
 };
 
 const getParkingConflictBadge = (
@@ -1107,8 +1380,11 @@ const extractAppointmentBadge = (
   const text = normalizeForMatch(raw);
   if (
     !text ||
+    isCallbackTimeLine(raw) ||
+    isPreArrivalInstructionLine(raw) ||
     isNonActionableSemanticHint(raw) ||
-    isNonActionableAppointmentHint(raw)
+    isNonActionableAppointmentHint(raw) ||
+    (hasExplicitPriceContextForAppointment(raw) && !hasAppointmentIntentWord(raw))
   ) {
     return null;
   }
@@ -1173,7 +1449,7 @@ const extractAppointmentBadge = (
 
   const dateMatch = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   const baseDate = parseAppointmentBaseDate(baseDateInput);
-  const explicitDateObject = dateMatch
+  const explicitDateObject = dateMatch && hasValidAppointmentDateParts(dateMatch[1], dateMatch[2])
     ? new Date(
         dateMatch[3]
           ? Number(
@@ -1237,6 +1513,362 @@ const extractAppointmentBadge = (
   const parts = [date, time || dayPart].filter(Boolean);
 
   return getAppointmentBadgeVisual(appointmentMoment, parts, orderStatus);
+};
+
+type AppointmentDetail = {
+  site: string;
+  address: string;
+  label: string;
+  reason?: string;
+};
+
+const looksLikeAddressLine = (value?: string | null) => {
+  const raw = compactText(value);
+  const text = normalizeForMatch(raw);
+  if (!raw || !text) return false;
+
+  return (
+    /\b\d{4,5}\b/.test(raw) ||
+    /\b(strasse|straße|weg|platz|gasse|allee|ring|chemin|route|rue|road|street|avenue|av\.|hauptstrasse|aarauerstrasse|limmatweg|technoparkstrasse)\b/.test(text)
+  );
+};
+
+const isAppointmentContactTimeLine = (value?: string | null) => {
+  const raw = compactText(value);
+  const text = normalizeForMatch(raw);
+  if (!text) return false;
+
+  if (CONTACT_TIME_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
+
+  // Contact availability like "SMS erst ab 14:00 Uhr", "Mail erst nach 11:30"
+  // or "telefonisch nur zwischen 15:00 und 16:00" is a contact window,
+  // not an execution appointment.
+  return (
+    CONTACT_TIME_WORD_PATTERN.test(text) &&
+    /(?:zwischen|von)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?/.test(raw.toLowerCase())
+  );
+};
+
+const hasExplicitPriceContextForAppointment = (value?: string | null) => {
+  const raw = compactText(value);
+  if (!raw) return false;
+  return (
+    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\s*\d+(?:[.,]\d{1,2})?\b/i.test(raw) ||
+    /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\b/i.test(raw)
+  );
+};
+
+const hasAppointmentIntentWord = (value?: string | null) =>
+  /\b(?:termin|datum|ausfuehrung|ausführung|arbeitsbeginn|zeitfenster|appointment|rendez\s*vous|appuntamento)\b/i.test(
+    normalizeForMatch(value),
+  );
+
+const hasValidAppointmentDateParts = (day?: string, month?: string) => {
+  const d = Number(day);
+  const m = Number(month);
+  return Number.isInteger(d) && Number.isInteger(m) && d >= 1 && d <= 31 && m >= 1 && m <= 12;
+};
+
+const normalizeAppointmentDateLabel = (value: string) => {
+  const match = value.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+  if (!match) return "";
+
+  if (!hasValidAppointmentDateParts(match[1], match[2])) return "";
+
+  const day = match[1].padStart(2, "0");
+  const month = match[2].padStart(2, "0");
+  const year = match[3]
+    ? match[3].length === 2
+      ? `20${match[3]}`
+      : match[3]
+    : "";
+
+  return year ? `${day}.${month}.${year}` : `${day}.${month}.`;
+};
+
+const normalizeAppointmentTimeLabel = (value: string) => {
+  const match =
+    value.match(/\b([01]?\d|2[0-3]):(\d{2})\b/) ||
+    value.match(/\b([01]?\d|2[0-3])\.(\d{2})\s*(?:uhr|h)?\b/i) ||
+    value.match(/\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+
+  if (!match) return "";
+  return formatAppointmentTime(match[1], match[2]);
+};
+
+const extractAppointmentDetailLabel = (value: string) => {
+  const raw = compactText(value);
+  if (!raw || isAppointmentContactTimeLine(raw) || isPreArrivalInstructionLine(raw)) return "";
+  if (hasExplicitPriceContextForAppointment(raw) && !hasAppointmentIntentWord(raw)) return "";
+
+  const date = normalizeAppointmentDateLabel(raw);
+  const time = normalizeAppointmentTimeLabel(raw);
+  const text = normalizeForMatch(raw);
+  const dayPart = /vormittag|morning|matin/.test(text)
+    ? "vormittags"
+    : /nachmittag|afternoon|apres midi|après-midi/.test(text)
+      ? "nachmittags"
+      : /abend|evening|soir/.test(text)
+        ? "abends"
+        : "";
+
+  // V16.95: A pure day-part without its own date/time is a reason/context
+  // for an appointment, not a separate appointment. Example: after
+  // "Termin: 08.07.2026 um 09:00", the line "Raum ist nur vormittags frei"
+  // must stay a reason and must not create an extra "Termin vormittags".
+  if (!date && !time) return "";
+  return [date, time || (date ? dayPart : "")].filter(Boolean).join(" · ");
+};
+
+const cleanAppointmentReason = (value?: string | null) =>
+  compactText(value)
+    .replace(/^Grund\s*[:\-–—]\s*/i, "")
+    .replace(/^Hinweis\s*[:\-–—]\s*/i, "")
+    .replace(/^Kontakt\s+vor\s+Ort\s*[:\-–—]\s*Grund\s*[:\-–—]?\s*/i, "")
+    .replace(/^Kontakt\s+vor\s+Ort\s*[:\-–—]\s*/i, "")
+    .trim();
+
+const appointmentDetailKey = (detail: AppointmentDetail) =>
+  normalizeForMatch([detail.site, detail.address, detail.label].join(" "));
+
+const extractAppointmentDetailsFromRawText = (
+  ...values: Array<string | null | undefined>
+): AppointmentDetail[] => {
+  const rawLines = values
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  const details: AppointmentDetail[] = [];
+  let currentSite = "";
+  let currentAddressParts: string[] = [];
+  let lastDetailIndex = -1;
+
+  const pushDetail = (line: string) => {
+    const label = extractAppointmentDetailLabel(line);
+    if (!label) return;
+
+    const detail: AppointmentDetail = {
+      site: currentSite,
+      address: currentAddressParts.join(" · "),
+      label,
+    };
+    const key = appointmentDetailKey(detail);
+    if (!key || details.some((existing) => appointmentDetailKey(existing) === key)) return;
+
+    details.push(detail);
+    lastDetailIndex = details.length - 1;
+  };
+
+  for (const rawLine of rawLines) {
+    const line = compactText(rawLine);
+    const normalized = normalizeForMatch(line);
+    if (!line || !normalized) continue;
+
+    const worksiteMatch = line.match(/^(?:Arbeitsort|Ausführung|Ausfuehrung|Adresse\s+travaux|Arbeitsadresse)\s*\d*\s*[:\-–—]\s*(.*)$/i);
+    if (worksiteMatch) {
+      const site = compactText(worksiteMatch[1]);
+      currentSite = site || currentSite;
+      currentAddressParts = [];
+      lastDetailIndex = -1;
+      continue;
+    }
+
+    if (
+      currentSite &&
+      currentAddressParts.length < 2 &&
+      looksLikeAddressLine(line) &&
+      !/^Termin\b/i.test(line) &&
+      !/^Grund\b/i.test(line) &&
+      !/^Leistung\b/i.test(line)
+    ) {
+      currentAddressParts.push(line);
+      continue;
+    }
+
+    if (/^Termin\b/i.test(line) || extractAppointmentDetailLabel(line)) {
+      pushDetail(line);
+      continue;
+    }
+
+    if (/^Grund\s*[:\-–—]/i.test(line) && lastDetailIndex >= 0) {
+      const reason = cleanAppointmentReason(line);
+      if (reason) details[lastDetailIndex] = { ...details[lastDetailIndex], reason };
+      continue;
+    }
+  }
+
+  return details;
+};
+
+const extractAppointmentDetailsFromGroupedNotes = (
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+): AppointmentDetail[] => {
+  const details: AppointmentDetail[] = [];
+  let currentSite = "";
+
+  parsedNotes.jobHints.forEach((hint) => {
+    const line = compactText(hint);
+    if (!line) return;
+
+    const groupedMatch = line.match(/^([^:]{2,160})\s*:\s*(.+)$/);
+    const site = compactText(groupedMatch?.[1] || currentSite);
+    const value = compactText(groupedMatch?.[2] || line);
+    if (groupedMatch) currentSite = site;
+
+    const label = extractAppointmentDetailLabel(value);
+    if (!label) return;
+
+    const detail: AppointmentDetail = {
+      site,
+      address: "",
+      label,
+      reason: cleanAppointmentReason(value.replace(/^(?:Termin|Zeitfenster)\s*[:\-–—]?\s*/i, "")),
+    };
+    const key = appointmentDetailKey(detail);
+    if (key && !details.some((existing) => appointmentDetailKey(existing) === key)) {
+      details.push(detail);
+    }
+  });
+
+  return details;
+};
+
+const formatAppointmentDetailsTooltip = (details: AppointmentDetail[]) =>
+  details
+    .map((detail, index) => {
+      const header = [detail.site, detail.address].filter(Boolean).join(" · ");
+      return [
+        `${index + 1}. ${header || "Termin"}`,
+        `   ${detail.label}`,
+        detail.reason ? `   ${detail.reason}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n\n");
+
+const mergeAppointmentDetail = (
+  existing: AppointmentDetail,
+  incoming: AppointmentDetail,
+): AppointmentDetail => ({
+  site: existing.site || incoming.site,
+  address: existing.address || incoming.address,
+  label: existing.label || incoming.label,
+  reason:
+    (existing.reason || "").length >= (incoming.reason || "").length
+      ? existing.reason
+      : incoming.reason,
+});
+
+const dedupeAppointmentDetails = (details: AppointmentDetail[]) => {
+  const result: AppointmentDetail[] = [];
+
+  details.forEach((detail) => {
+    const labelKey = normalizeForMatch(detail.label);
+    if (!labelKey) return;
+
+    const exactKey = appointmentDetailKey(detail);
+    const exactIndex = result.findIndex(
+      (existing) => appointmentDetailKey(existing) === exactKey,
+    );
+    if (exactIndex >= 0) {
+      result[exactIndex] = mergeAppointmentDetail(result[exactIndex], detail);
+      return;
+    }
+
+    const looseIndex = result.findIndex((existing) => {
+      if (normalizeForMatch(existing.label) !== labelKey) return false;
+
+      const existingHasPlace = Boolean(existing.site || existing.address);
+      const incomingHasPlace = Boolean(detail.site || detail.address);
+
+      // Collapse duplicate mentions of the same date/time when one source is
+      // only a loose note without worksite/address context. Keep two entries
+      // if both have different real places.
+      return !existingHasPlace || !incomingHasPlace;
+    });
+
+    if (looseIndex >= 0) {
+      result[looseIndex] = mergeAppointmentDetail(result[looseIndex], detail);
+      return;
+    }
+
+    result.push(detail);
+  });
+
+  return result;
+};
+
+const getMultipleAppointmentBadge = (
+  order: Order,
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+): ReviewBadge | null => {
+  const callbackSource = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const callbackTime = extractCallbackTimeHint(
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  );
+  const callbackTimeKey = normalizeForMatch(callbackTime);
+  const callbackTimeDigits = callbackTimeKey.replace(/[^0-9]/g, "");
+
+  const details = dedupeAppointmentDetails([
+    ...extractAppointmentDetailsFromRawText(
+      order.notes,
+      order.audioTranscript,
+      order.specialNotes,
+    ),
+    ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
+  ]).filter((detail) => {
+    const source = [detail.site, detail.address, detail.label, detail.reason]
+      .filter(Boolean)
+      .join(" ");
+    if (isAppointmentContactTimeLine(source)) return false;
+
+    // Do not show a bare time as appointment if the same time is already used
+    // by the callback/contact chip.
+    const labelKey = normalizeForMatch(detail.label);
+    const labelDigits = labelKey.replace(/[^0-9]/g, "");
+    if (
+      callbackTimeDigits &&
+      !/\d{1,2}[./-]\d{1,2}/.test(detail.label) &&
+      labelDigits &&
+      callbackTimeDigits.includes(labelDigits)
+    ) {
+      return false;
+    }
+
+    // Parser/LLM sometimes writes "Termin 13:00" next to a callback note.
+    // If there is no date and the overall source contains a callback/contact
+    // instruction for that time, keep it out of the Termine chip.
+    if (!/\d{1,2}[./-]\d{1,2}/.test(detail.label) && isAppointmentContactTimeLine(callbackSource)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (details.length < 2) return null;
+
+  return {
+    key: "appointments_multiple",
+    label: `Termine · ${details.length}`,
+    className: "bg-violet-100 text-violet-700 border border-violet-300",
+    tooltip: formatAppointmentDetailsTooltip(details),
+  };
 };
 
 const getOperationalBadges = (
@@ -1306,7 +1938,7 @@ const getOperationalBadges = (
         `hint_parking_${normalizeForMatch(parkingBadge.label)}`,
         parkingBadge.label,
         parkingBadge.className,
-        line,
+        formatOperationalHintTooltip(order, "parking", parsedNotes, line, orderBadgeContext),
       );
       return;
     }
@@ -1329,7 +1961,7 @@ const getOperationalBadges = (
       `hint_${kind}`,
       label,
       isPositiveSemanticHint(line) ? greenInfoClass : amberHintClass,
-      line,
+      formatOperationalHintTooltip(order, kind, parsedNotes, line, orderBadgeContext),
     );
   });
 
@@ -1338,7 +1970,13 @@ const getOperationalBadges = (
       "hint_parking_review",
       parkingConflictBadge.label,
       parkingConflictBadge.className,
-      "Es gibt unterschiedliche oder unklare Parkhinweise. Bitte Auftrag öffnen und prüfen.",
+      formatOperationalHintTooltip(
+        order,
+        "parking",
+        parsedNotes,
+        "Es gibt unterschiedliche oder unklare Parkhinweise. Bitte Auftrag öffnen und prüfen.",
+        orderBadgeContext,
+      ),
     );
   }
 
@@ -1363,6 +2001,7 @@ const AMOUNT_REVIEW_BADGE_KEYS = new Set([
   "price_deviation",
   "catalog_missing",
   "catalog_review_combined",
+  "service_review_summary",
 ]);
 
 const PRICE_AMOUNT_REVIEW_BADGE_KEYS = new Set([
@@ -1423,6 +2062,22 @@ const hasUnitMismatchReviewForService = (
       const [, reasonService] = reason.split(":");
       return normalizeForMatch(reasonService) === key;
     }) ?? false
+  );
+};
+
+const findUnitMissingInTextReviewForService = (
+  reviewReasons: string[] | null | undefined,
+  serviceName?: string | null,
+) => {
+  const key = normalizeForMatch(serviceName);
+  if (!key) return "";
+
+  return (
+    reviewReasons?.find((reason) => {
+      if (!reason.startsWith("unit_missing_in_text:")) return false;
+      const [, reasonService] = reason.split(":");
+      return normalizeForMatch(reasonService) === key;
+    }) || ""
   );
 };
 
@@ -1616,6 +2271,83 @@ const formatCatalogReviewTooltip = (input: {
   return lines.filter(Boolean).join("\n");
 };
 
+const uniqueCatalogReviewItems = <T extends Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>(
+  items: T[],
+) => {
+  const seen = new Set<string>();
+  const result: T[] = [];
+
+  items.forEach((item) => {
+    const key = [
+      normalizeForMatch(item.serviceName),
+      normalizePriceUnitForCompare(item.unit),
+      Number(item.unitPrice || 0),
+      Number(item.quantity || 0),
+    ].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(item);
+  });
+
+  return result;
+};
+
+const formatCatalogPriceDeviationTooltip = (
+  items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
+  services: ServiceDef[],
+  currency?: "CHF" | "EUR" | null,
+) => {
+  const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
+  const reviewItems = uniqueCatalogReviewItems(items).filter((item) =>
+    compactText(item.serviceName),
+  );
+
+  if (reviewItems.length === 0) {
+    return "Preis weicht vom Katalog ab.";
+  }
+
+  if (reviewItems.length === 1) {
+    const item = reviewItems[0];
+    return formatCatalogReviewTooltip({
+      title: "Preis weicht vom Katalog ab.",
+      item,
+      catalog: findCatalogServiceForName(services, item.serviceName),
+      currency,
+    });
+  }
+
+  const lines = [`${reviewItems.length} Preisabweichungen:`];
+
+  reviewItems.slice(0, 6).forEach((item, index) => {
+    const catalog = findCatalogServiceForName(services, item.serviceName);
+    const itemQuantity = Number(item.quantity || 0);
+    const itemPrice = Number(item.unitPrice || 0);
+    const itemQuantityLabel = itemQuantity > 0 ? String(item.quantity) : "Menge prüfen";
+    const itemPriceLabel = itemPrice > 0 ? formatCurrency(itemPrice, safeCurrency) : "Preis prüfen";
+
+    lines.push(`${index + 1}. ${compactText(item.serviceName) || "Leistung"}`);
+    lines.push(
+      `   Auftrag: ${itemQuantityLabel} ${formatReviewUnitLabel(item.unit || "")} · ${itemPriceLabel}`,
+    );
+    if (catalog) {
+      lines.push(
+        `   Katalog: ${formatReviewUnitLabel(catalog.unit)} · ${formatCurrency(
+          Number(catalog.defaultPrice || 0),
+          safeCurrency,
+        )}`,
+      );
+    } else {
+      lines.push("   Katalog: keine passende Leistung gefunden");
+    }
+  });
+
+  if (reviewItems.length > 6) {
+    lines.push(`+${reviewItems.length - 6} weitere Preisabweichungen`);
+  }
+
+  return lines.join("\n");
+};
+
 const formatCatalogMissingTooltip = (
   items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
   currency?: "CHF" | "EUR" | null,
@@ -1626,7 +2358,7 @@ const formatCatalogMissingTooltip = (
   const lines = [
     items.length > 1
       ? `${items.length} Leistungen nicht im Katalog:`
-      : "Nicht im Katalog:",
+      : "1 Leistung nicht im Katalog:",
     ...items.slice(0, 5).map((item) => {
       const quantity = Number(item.quantity || 0);
       const unitPrice = Number(item.unitPrice || 0);
@@ -1647,6 +2379,125 @@ const formatCatalogMissingTooltip = (
   return lines.filter(Boolean).join("\n");
 };
 
+const SERVICE_REVIEW_TOOLTIP_SEPARATOR = "────────────";
+
+const formatServiceReviewCalculation = (
+  item: Pick<OrderItem, "unit" | "unitPrice" | "quantity" | "totalPrice">,
+  currency?: "CHF" | "EUR" | null,
+) => {
+  const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  const totalPrice = Number(
+    (item as any).totalPrice ??
+      (quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0),
+  );
+
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) {
+    return "";
+  }
+
+  const quantityLabel = `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim();
+  return `${quantityLabel} × ${formatCurrency(unitPrice, safeCurrency)} = ${formatCurrency(totalPrice, safeCurrency)}`;
+};
+
+const formatServiceReviewItemLine = (
+  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">,
+  currency?: "CHF" | "EUR" | null,
+) => {
+  const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  const quantityLabel = quantity > 0
+    ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim()
+    : "Menge prüfen";
+  const priceLabel = unitPrice > 0
+    ? formatCurrency(unitPrice, safeCurrency)
+    : "Preis prüfen";
+  const calculation = formatServiceReviewCalculation(item, currency);
+  const baseLine = `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
+
+  return calculation ? `${baseLine}\n  Berechnung: ${calculation}` : baseLine;
+};
+
+const formatServiceReviewSummaryTooltip = (input: {
+  unitConflictServices?: string[];
+  priceItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
+  missingItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
+  items?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
+  services: ServiceDef[];
+  currency?: "CHF" | "EUR" | null;
+}) => {
+  const safeCurrency = input.currency === "EUR" ? "EUR" : "CHF";
+  const sections: string[] = [];
+
+  const unitServices = Array.from(
+    new Set((input.unitConflictServices || []).map(compactText).filter(Boolean)),
+  );
+  if (unitServices.length > 0) {
+    const lines = ["Einheit abweichend · Einheit aus Text übernommen"];
+    unitServices.slice(0, 6).forEach((service) => {
+      const parts = service.split(":").map(compactText).filter(Boolean);
+      const serviceName = canonicalServiceNameForOrderItem(parts[0] || service);
+      const textUnit = parts[1] ? formatReviewUnitLabel(parts[1]) : "";
+      const catalogUnit = parts[2] ? formatReviewUnitLabel(parts[2]) : "";
+      const matchingItem = (input.items || []).find(
+        (item) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
+          normalizeForMatch(serviceName),
+      );
+      const calculation = matchingItem
+        ? formatServiceReviewCalculation(matchingItem, input.currency)
+        : "";
+      if (textUnit || catalogUnit) {
+        lines.push(`• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}`);
+        if (calculation) lines.push(`  Berechnung: ${calculation}`);
+      } else {
+        lines.push(`• ${serviceName || "Leistung"}`);
+        if (calculation) lines.push(`  Berechnung: ${calculation}`);
+      }
+    });
+    if (unitServices.length > 6) lines.push(`+${unitServices.length - 6} weitere`);
+    sections.push(lines.join("\n"));
+  }
+
+  const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter((item) =>
+    compactText(item.serviceName),
+  );
+  if (priceItems.length > 0) {
+    const lines = ["Preis abweichend · Preis aus Text übernommen"];
+    priceItems.slice(0, 6).forEach((item) => {
+      const catalog = findCatalogServiceForName(input.services, item.serviceName);
+      const itemPrice = Number(item.unitPrice || 0);
+      const itemPriceLabel = itemPrice > 0
+        ? formatCurrency(itemPrice, safeCurrency)
+        : "Preis prüfen";
+      const catalogLabel = catalog
+        ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
+        : "kein Katalogpreis";
+      const calculation = formatServiceReviewCalculation(item, input.currency);
+      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`);
+      if (calculation) lines.push(`  Berechnung: ${calculation}`);
+    });
+    if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
+    sections.push(lines.join("\n"));
+  }
+
+  const missingItems = uniqueCatalogReviewItems(input.missingItems || []).filter((item) =>
+    compactText(item.serviceName),
+  );
+  if (missingItems.length > 0) {
+    const lines = ["Nicht im Katalog"];
+    missingItems.slice(0, 6).forEach((item) => {
+      lines.push(formatServiceReviewItemLine(item, input.currency));
+    });
+    if (missingItems.length > 6) lines.push(`+${missingItems.length - 6} weitere`);
+    sections.push(lines.join("\n"));
+  }
+
+  return sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
+};
+
 const cleanWorkSiteDisplayName = (value?: string | null) => {
   let text = compactText(value);
   if (!text) return "";
@@ -1663,6 +2514,61 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
   return text || compactText(value);
 };
 
+const looksLikeExecutionAddressLine = (value?: string | null) => {
+  const text = compactText(value);
+  if (!text) return false;
+
+  return (
+    /\b\d{4,5}\b/.test(text) ||
+    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|route|rue|chemin|avenue|av\.?|parkstrasse|badenerstrasse|rue\s+du|industrieweg|werkstrasse)\b/i.test(text) ||
+    /@/.test(text) ||
+    /\b(?:tel\.?|telefon|phone|mobile|handy|email|e-mail)\b/i.test(text)
+  );
+};
+
+const inferExecutionSiteNameFromText = (...values: Array<string | null | undefined>) => {
+  const source = values
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return "";
+
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  const markerPattern = /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
+  const stopPattern = /^(?:rechnung|facture|invoice|leistungen|leistung|besonderheiten|bemerkungen|hinweise|termin|datum|bitte|merci|please|kontakt|rückfragen|rueckfragen)\b/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(markerPattern);
+    if (!match) continue;
+
+    const inline = cleanWorkSiteDisplayName(match[1]);
+    if (inline && !looksLikeExecutionAddressLine(inline)) return inline;
+
+    for (let offset = 1; offset <= 3; offset += 1) {
+      const candidate = lines[index + offset];
+      if (!candidate || stopPattern.test(candidate)) break;
+      if (looksLikeExecutionAddressLine(candidate)) continue;
+
+      const cleaned = cleanWorkSiteDisplayName(candidate);
+      if (cleaned && !looksLikeExecutionAddressLine(cleaned)) return cleaned;
+    }
+  }
+
+  return "";
+};
+
+const inferOrderExecutionSiteName = (order?: Order | null) =>
+  inferExecutionSiteNameFromText(
+    order?.notes,
+    order?.description,
+    order?.audioTranscript,
+  );
+
 const formatExecutionAddressTooltip = (order: Order) => {
   const workSiteLines = (order.workSites ?? [])
     .slice()
@@ -1674,6 +2580,7 @@ const formatExecutionAddressTooltip = (order: Order) => {
     .map((site, index) => {
       const title =
         cleanWorkSiteDisplayName(site.siteName) ||
+        (index === 0 ? inferOrderExecutionSiteName(order) : "") ||
         compactText(site.siteAddress) ||
         `Arbeitsort ${index + 1}`;
       const address = [
@@ -1681,18 +2588,33 @@ const formatExecutionAddressTooltip = (order: Order) => {
         [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
       ]
         .filter(Boolean)
-        .join(", ");
+        .join(" · ");
 
-      return [title, address].filter(Boolean).join(": ");
+      return [
+        `${index + 1}. ${title}`,
+        address ? `   ${address}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
     })
     .filter(Boolean);
 
   if (workSiteLines.length > 0) {
-    return ["Ausführungsadresse:", ...workSiteLines.slice(0, 3)].join("\n");
+    const visibleLines = workSiteLines.slice(0, 8);
+    const hiddenCount = Math.max(0, workSiteLines.length - visibleLines.length);
+    return [
+      workSiteLines.length > 1
+        ? `Ausführungsorte (${workSiteLines.length}):`
+        : "Ausführungsadresse:",
+      ...visibleLines,
+      hiddenCount > 0 ? `+${hiddenCount} weitere Arbeitsorte` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   const fallback = [
-    compactText(order.siteName),
+    compactText(order.siteName) || inferOrderExecutionSiteName(order),
     compactText(order.siteAddress),
     [order.sitePlz, order.siteCity].map(compactText).filter(Boolean).join(" "),
   ].filter(Boolean);
@@ -1713,7 +2635,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
   const catalogBadges = combineCatalogReviewBadges(
     badges.filter((badge) =>
-      ["price_deviation", "catalog_missing"].includes(badge.key),
+      ["price_deviation", "catalog_missing", "service_review_summary"].includes(badge.key),
     ),
   );
 
@@ -1740,16 +2662,110 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   return [...blockingBadges, ...catalogBadges];
 };
 
+const MERGED_CONTACT_DATA_PATTERN =
+  /whatsapp|sms|mail|e-?mail|telefon|telefonisch|anruf|anrufen|rückruf|rueckruf|ruckruf|termin|uhr|appointment|call|no calls?|nicht anrufen|keine telefonische/i;
+
+const hasMergedMultipleContactData = (
+  order: Order,
+  parsedNotes?: ReturnType<typeof splitSpecialNotes>,
+) => {
+  if (order.reviewReasons?.includes("merged_multiple_contact_data")) return true;
+
+  const isMergedOrder =
+    order.reviewReasons?.includes("manual_order_merge") ||
+    order.reviewReasons?.includes("double_merge") ||
+    (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1);
+
+  if (!isMergedOrder) return false;
+
+  const notes = parsedNotes || splitSpecialNotes(order.specialNotes || "");
+  const groupedContactLines = notes.jobHints.filter((line) => {
+    const value = compactText(line);
+    return /^[^:]{2,120}:\s+/.test(value) && MERGED_CONTACT_DATA_PATTERN.test(value);
+  });
+
+  const phoneCandidates = [
+    order.customer?.phone,
+    order.notes,
+    order.specialNotes,
+    order.audioTranscript,
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
+
+  const uniquePhones = new Set(
+    phoneCandidates
+      .map((phone) => phone.replace(/\D/g, ""))
+      .filter((phone) => phone.length >= 7),
+  );
+
+  return groupedContactLines.length > 1 || uniquePhones.size > 1;
+};
+
+
+const normalizeAddressPartForCompare = (value?: string | null) =>
+  normalizeForMatch(value)
+    .replace(/\bstrasse\b/g, "str")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const hasDifferentExecutionAddressForBadge = (order: Order) => {
+  if (!order.siteAddressDifferent) return false;
+
+  const workSites = Array.isArray(order.workSites) ? order.workSites : [];
+  if (workSites.length > 1) return true;
+
+  const firstSite = workSites[0] || null;
+  const siteStreet = normalizeAddressPartForCompare(firstSite?.siteAddress || order.siteAddress);
+  const sitePlz = normalizeAddressPartForCompare(firstSite?.sitePlz || order.sitePlz);
+  const siteCity = normalizeAddressPartForCompare(firstSite?.siteCity || order.siteCity);
+
+  if (!siteStreet && !sitePlz && !siteCity) return false;
+
+  const customerStreet = normalizeAddressPartForCompare(order.customer?.address);
+  const customerPlz = normalizeAddressPartForCompare(order.customer?.plz);
+  const customerCity = normalizeAddressPartForCompare(order.customer?.city);
+
+  const hasCompleteComparableAddress = Boolean(
+    siteStreet &&
+      sitePlz &&
+      siteCity &&
+      customerStreet &&
+      customerPlz &&
+      customerCity,
+  );
+
+  if (
+    hasCompleteComparableAddress &&
+    siteStreet === customerStreet &&
+    sitePlz === customerPlz &&
+    siteCity === customerCity
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
 const getSystemBadges = (
   order: Order,
   services: ServiceDef[] = [],
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
-  if (order.siteAddressDifferent) {
+  if (hasDifferentExecutionAddressForBadge(order)) {
+    const workSiteCount = Array.isArray(order.workSites) ? order.workSites.length : 0;
+    const primaryWorkSite = (order.workSites ?? [])[0] || null;
+    const executionSiteTitle =
+      cleanWorkSiteDisplayName(primaryWorkSite?.siteName) ||
+      cleanWorkSiteDisplayName(order.siteName) ||
+      inferOrderExecutionSiteName(order);
     pushUniqueBadge(badges, {
       key: "site_address",
-      label: "Ausführungsadresse",
+      label: workSiteCount > 1
+        ? `Ausführungsorte · ${workSiteCount}`
+        : executionSiteTitle || "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
       tooltip: formatExecutionAddressTooltip(order),
     });
@@ -1777,41 +2793,91 @@ const getSystemBadges = (
 
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
-      ? order.items.some(
-          (it) =>
-            Number(it.unitPrice || 0) <= 0 || Number(it.quantity || 0) <= 0,
-        )
+      ? order.items.some((it) => {
+          const quantity = Number(it.quantity || 0);
+          const unitPrice = Number(it.unitPrice || 0);
+          const totalPrice = Number((it as any).totalPrice || 0);
+          const text = [it.unit, it.description, (it as any).sourceText, (it as any).evidence]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          const explicitReviewZeroTotal =
+            totalPrice <= 0 &&
+            (/einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(text) ||
+              /unit\s+(?:missing|open|unknown|unclear|review)/i.test(text));
+          return quantity <= 0 || unitPrice <= 0 || explicitReviewZeroTotal;
+        })
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
 
-  const hasPriceReferenceReview =
-    order.reviewReasons?.some(
-      (reason) =>
-        reason === "unit_price_review" ||
-        reason === "quantity_review" ||
-        reason.startsWith("price_unclear:"),
-    ) ?? false;
-
-  if (hasPriceQuantityReview || hasPriceReferenceReview) {
+  // Rote Betragschips nur bei echten Blockern anzeigen.
+  // Textpreis/Katalogabweichung mit vorhandenen Werten bleibt gelb,
+  // sonst wirkt ein korrekt berechneter Auftrag unnötig gesperrt.
+  if (hasPriceQuantityReview) {
     pushUniqueBadge(badges, {
       key: "price_quantity",
       label: "Betrag prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
-      tooltip:
-        "Preis oder Menge fehlt/ist unsicher. Bitte vor Angebot/Rechnung korrigieren.",
+      tooltip: (() => {
+        const unitMissingServices = (order.reviewReasons ?? [])
+          .filter((reason) => reason.startsWith("unit_missing_in_text:"))
+          .map((reason) => reason.split(":")[1])
+          .map(compactText)
+          .filter(Boolean);
+        if (unitMissingServices.length > 0) {
+          return `Einheit fehlt im Kundentext: ${unitMissingServices.join(", ")}. Bitte innen rot markierte Leistung prüfen.`;
+        }
+        return "Preis oder Menge fehlt/ist unsicher. Bitte vor Angebot/Rechnung korrigieren.";
+      })(),
     });
   }
 
-  const hasUnitConflict =
-    order.reviewReasons?.some((r) => r.startsWith("unit_mismatch:")) ?? false;
+  const unitConflictServices = Array.from(
+    new Set(
+      (order.reviewReasons ?? [])
+        .filter((reason) => reason.startsWith("unit_mismatch:"))
+        .map((reason) => {
+          const parts = reason.split(":").slice(1).map(compactText).filter(Boolean);
+          const rawService = parts[0] || "";
+          const serviceName = canonicalServiceNameForOrderItem(rawService);
+          if (!serviceName) return "";
+
+          const matchingItem = (order.items || []).find(
+            (item) =>
+              normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
+              normalizeForMatch(serviceName),
+          );
+          const catalog = findCatalogServiceForName(services, serviceName);
+          const itemUnit = matchingItem?.unit || parts[1] || "";
+          const catalogUnit = catalog?.unit || parts[2] || "";
+
+          const itemUnitKey = normalizePriceUnitForCompare(itemUnit);
+          const catalogUnitKey = normalizePriceUnitForCompare(catalogUnit);
+          if (itemUnitKey && catalogUnitKey && itemUnitKey === catalogUnitKey) {
+            return "";
+          }
+
+          return [serviceName, itemUnit || "Einheit prüfen", catalogUnit || "Katalog prüfen"].join(":");
+        })
+        .filter(Boolean),
+    ),
+  );
+  const hasUnitConflict = unitConflictServices.length > 0;
 
   if (hasUnitConflict) {
+    const unitConflictIsBlocking = hasPriceQuantityReview;
     pushUniqueBadge(badges, {
       key: "unit_conflict",
-      label: "Einheit prüfen",
-      className: "bg-red-100 text-red-700 border border-red-300",
-      tooltip:
-        "Einheit aus Kundentext und Leistungskatalog passen nicht sicher zusammen. Bitte Menge, Einheit und Preis prüfen.",
+      label: unitConflictIsBlocking ? "Einheit prüfen" : "Einheit abweichend",
+      className: unitConflictIsBlocking
+        ? "bg-red-100 text-red-700 border border-red-300"
+        : "bg-amber-100 text-amber-800 border border-amber-300",
+      tooltip: formatServiceReviewSummaryTooltip({
+        unitConflictServices,
+        items: order.items || [],
+        services,
+        currency: order.currency,
+      }) || "Einheit abweichend.",
     });
   }
 
@@ -1831,12 +2897,11 @@ const getSystemBadges = (
 
   const priceDeviationItems = getCatalogPriceDeviationItems(order, services);
   const flatOverrideItems = getCatalogTextFlatOverrideItems(order, services);
+  const priceReviewItems = uniqueCatalogReviewItems([
+    ...priceDeviationItems,
+    ...flatOverrideItems,
+  ]);
   const catalogMissingItems = getCatalogMissingItems(order, services);
-  const firstPriceDeviationItem = priceDeviationItems[0] || flatOverrideItems[0];
-  const firstCatalogMissingItem = catalogMissingItems[0];
-  const firstPriceCatalog = firstPriceDeviationItem
-    ? findCatalogServiceForName(services, firstPriceDeviationItem.serviceName)
-    : null;
   const hasPriceDeviationReview =
     (order.reviewReasons?.some((reason) =>
       reason.startsWith("price_override:"),
@@ -1851,12 +2916,16 @@ const getSystemBadges = (
       label: "Preis abweichend",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatCatalogReviewTooltip({
-        title: "Preis weicht vom Katalog ab.",
-        item: firstPriceDeviationItem || null,
-        catalog: firstPriceCatalog,
+      tooltip: formatServiceReviewSummaryTooltip({
+        priceItems: priceReviewItems,
+        items: order.items || [],
+        services,
         currency: order.currency,
-      }),
+      }) || formatCatalogPriceDeviationTooltip(
+        priceReviewItems,
+        services,
+        order.currency,
+      ),
     });
   }
 
@@ -1866,7 +2935,12 @@ const getSystemBadges = (
       label: "Nicht im Katalog",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatCatalogMissingTooltip(catalogMissingItems, order.currency),
+      tooltip: formatServiceReviewSummaryTooltip({
+        missingItems: catalogMissingItems,
+        items: order.items || [],
+        services,
+        currency: order.currency,
+      }) || formatCatalogMissingTooltip(catalogMissingItems, order.currency),
     });
   }
 
@@ -1881,6 +2955,37 @@ const getSystemBadges = (
       className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
       tooltip: "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
     });
+  }
+
+  const compactServiceReviewKeys = new Set([
+    "unit_conflict",
+    "price_deviation",
+    "catalog_missing",
+  ]);
+  const compactServiceReviewBadges = badges.filter((badge) =>
+    compactServiceReviewKeys.has(badge.key),
+  );
+
+  if (compactServiceReviewBadges.length >= 2) {
+    const serviceReviewTooltip = formatServiceReviewSummaryTooltip({
+      unitConflictServices,
+      priceItems: priceReviewItems,
+      missingItems: catalogMissingItems,
+      items: order.items || [],
+      services,
+      currency: order.currency,
+    });
+
+    return [
+      ...badges.filter((badge) => !compactServiceReviewKeys.has(badge.key)),
+      {
+        key: "service_review_summary",
+        label: `Leistungen prüfen · ${compactServiceReviewBadges.length}`,
+        className:
+          "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
+        tooltip: serviceReviewTooltip || "Leistungen prüfen.",
+      },
+    ];
   }
 
   return badges;
@@ -1898,7 +3003,7 @@ const detectAppointmentClarificationHint = (...values: Array<string | null | und
     if (!text) return false;
 
     const wantsSchedulingContact =
-      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|melden|kontaktieren|vereinbaren|ausmachen|besprechen)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)/.test(text);
+      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|melden|kontaktieren|vereinbaren|ausmachen|besprechen|offen|vorschlag|vorschlaege|vorschläge|senden|schicken)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)|(?:termin|datum|zeitfenster|zeitpunkt)\s+(?:ist\s+)?offen|(?:zwei|2)\s+(?:termin)?vorschlaege\s+senden|(?:zwei|2)\s+(?:termin)?vorschläge\s+senden/.test(text);
     if (!wantsSchedulingContact) return false;
 
     // Fixed appointments stay normal violet appointment chips.
@@ -1913,14 +3018,122 @@ const detectAppointmentClarificationHint = (...values: Array<string | null | und
   }) || null;
 };
 
+
+const extractCallbackTimeHint = (...values: Array<string | null | undefined>) => {
+  const source = values
+    .filter(Boolean)
+    .join("\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  for (const line of source) {
+    const normalized = normalizeForMatch(line);
+    if (!CALLBACK_CONTACT_WORD_PATTERN.test(normalized)) {
+      continue;
+    }
+
+    const rangeMatch = line.match(
+      /(?:zwischen|von)\s*(\d{1,2})(?::|\.)(\d{2})\s*(?:uhr|h)?\s*(?:und|bis)\s*(\d{1,2})(?::|\.)(\d{2})\s*(?:uhr|h)?\b/i,
+    );
+
+    if (rangeMatch?.[1]) {
+      const fromHour = rangeMatch[1].padStart(2, "0");
+      const fromMinute = rangeMatch[2] || "00";
+      const toHour = rangeMatch[3].padStart(2, "0");
+      const toMinute = rangeMatch[4] || "00";
+      return `${fromHour}:${fromMinute}–${toHour}:${toMinute}`;
+    }
+
+    const match = line.match(
+      /(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i,
+    );
+
+    if (match?.[1]) {
+      const hour = match[1].padStart(2, "0");
+      const minute = match[2] || "00";
+      return `erst ab ${hour}:${minute}`;
+    }
+
+    const notBeforeMatch = line.match(
+      /(?:nicht\s+vor|nicht\s+vorher\s+als|fr[uü]hestens)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i,
+    );
+
+    if (notBeforeMatch?.[1]) {
+      const hour = notBeforeMatch[1].padStart(2, "0");
+      const minute = notBeforeMatch[2] || "00";
+      return `erst ab ${hour}:${minute}`;
+    }
+  }
+
+  return "";
+};
+
+const isCallbackTimeLine = (value?: string | null) => {
+  return isAppointmentContactTimeLine(value);
+};
+
+
+const detectPreArrivalInstructionHint = (
+  ...values: Array<string | null | undefined>
+) => {
+  const lines = values
+    .filter(Boolean)
+    .join("\n")
+    .split(/\n+/g)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+
+  const direct = lines.find((line) => {
+    const text = normalizeForMatch(line);
+    if (!text) return false;
+    return (
+      isPreArrivalInstructionLine(line)
+    );
+  });
+
+  if (!direct) return null;
+
+  const callbackTime = extractCallbackTimeHint(...values);
+  const noWhatsApp = lines.some((line) => isNegativeWhatsAppInstructionLine(line));
+  return [direct, callbackTime, noWhatsApp ? "Keine WhatsApp." : ""]
+    .filter(Boolean)
+    .join("\n");
+};
+
+
+const isEmailOnlyContactInstructionLine = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  return (
+    /(?:nur|only|uniquement|solo|solamente)\s+(?:per\s+|via\s+)?(?:e\s*mail|email|mail)/.test(text) ||
+    /(?:e\s*mail|email|mail)\s+(?:reicht|only|uniquement)/.test(text) ||
+    /kontakt\s+nur\s+(?:per\s+)?(?:e\s*mail|email|mail)/.test(text) ||
+    /contact\s+us\s+by\s+email\s+only/.test(text)
+  );
+};
+
+const shouldSuppressCallbackBecauseEmailOnly = (lines: string[]) => {
+  const hasEmailOnly = lines.some((line) => isEmailOnlyContactInstructionLine(line));
+  if (!hasEmailOnly) return false;
+
+  const hasRealPhoneCallback = lines.some((line) => {
+    const text = normalizeForMatch(line);
+    if (!text) return false;
+    if (isEmailOnlyContactInstructionLine(line)) return false;
+    return /(?:rueckruf|ruckruf|zurueckrufen|zuruckrufen|anrufen|telefonisch\s+melden|telefonisch\s+kontaktieren|call\s+back|phone\s+call|please\s+call|call\s+us)/.test(text);
+  });
+
+  return !hasRealPhoneCallback;
+};
+
 const getBottomBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
   const blueClass = "bg-blue-100 text-blue-700 border border-blue-300";
-
-  // Zusammengeführt wird oben bei den Systemchips neben der Ausführungsadresse angezeigt.
 
   const callbackSource = [
     order.specialNotes,
@@ -1931,7 +3144,7 @@ const getBottomBadges = (
     .filter(Boolean)
     .join("\n");
 
-  const directCallbackHint = [
+  const callbackLinesForDetection = [
     order.specialNotes,
     order.notes,
     order.audioTranscript,
@@ -1940,14 +3153,87 @@ const getBottomBadges = (
     .filter(Boolean)
     .flatMap((part) => String(part).split(/\n+/g))
     .map((line) => line.trim())
-    .find((line) => isPositiveCallbackChipLine(line));
+    .filter(Boolean);
 
-  if (detectCallbackRequest(callbackSource) || directCallbackHint) {
+  const directCallbackHint = callbackLinesForDetection.find((line) =>
+    isPositiveCallbackChipLine(line),
+  );
+
+  const suppressCallbackBecauseEmailOnly =
+    shouldSuppressCallbackBecauseEmailOnly(callbackLinesForDetection);
+
+  const hasCallbackBadge = Boolean(
+    !suppressCallbackBecauseEmailOnly &&
+      (detectCallbackRequest(callbackSource) || directCallbackHint),
+  );
+  const callbackTimeHint = hasCallbackBadge
+    ? extractCallbackTimeHint(
+        order.specialNotes,
+        order.notes,
+        order.audioTranscript,
+        ...parsedNotes.jobHints,
+      )
+    : "";
+
+  const preArrivalHint = detectPreArrivalInstructionHint(
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+    ...parsedNotes.jobHints,
+  );
+  if (preArrivalHint && !hasCallbackBadge) {
+    pushUniqueBadge(badges, {
+      key: "pre_arrival_instruction",
+      label: "Nicht einfach kommen",
+      className: "bg-blue-100 text-blue-700 border border-blue-300",
+      tooltip: preArrivalHint,
+    });
+  }
+
+  // Zusammengeführt wird oben bei den Systemchips neben der Ausführungsadresse angezeigt.
+  // Wenn ein Merge mehrere Telefonnummern, Kontaktwege oder Termine enthält,
+  // zeigen wir außen nicht Mail/WhatsApp/SMS/Rückruf/Termin einzeln.
+  // Stattdessen steht dieser Sammelchip in der Kontaktchip-Zeile und springt
+  // direkt zu den gruppierten Besonderheiten.
+  if (hasMergedMultipleContactData(order, parsedNotes)) {
+    pushUniqueBadge(badges, {
+      key: "merged_data_review",
+      label: "Mehrere Daten prüfen",
+      className: "bg-emerald-100 text-emerald-800 border border-emerald-300",
+      tooltip:
+        "Mehrere Telefonnummern, Termine oder Kontaktwege erkannt. Bitte in den Besonderheiten manuell prüfen.",
+      focusTarget: "specialNotes",
+    });
+  }
+
+  if (hasCallbackBadge) {
+    const callbackLines = [
+      order.specialNotes,
+      order.notes,
+      order.audioTranscript,
+      ...parsedNotes.jobHints,
+    ]
+      .filter(Boolean)
+      .flatMap((part) => String(part).split(/\n+/g))
+      .map((line) => compactText(line))
+      .filter(Boolean);
+    const hasNegativeWhatsApp = callbackLines.some((line) =>
+      isNegativeWhatsAppInstructionLine(line),
+    );
+    const hasPreArrivalInstruction = Boolean(preArrivalHint);
+    const callbackTooltip = [
+      callbackTimeHint ? `Rückruf ${callbackTimeHint}` : "Rückruf gewünscht",
+      hasPreArrivalInstruction ? "Vorher telefonisch melden" : "",
+      hasNegativeWhatsApp ? "Keine WhatsApp" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
     pushUniqueBadge(badges, {
       key: "callback_request",
-      label: "Rückruf",
+      label: callbackTimeHint ? `Rückruf ${callbackTimeHint}` : "Rückruf",
       className: "bg-blue-100 text-blue-700 border border-blue-400 shadow-sm",
-      tooltip: directCallbackHint || "Kunde wünscht Rückruf oder telefonische Rücksprache.",
+      tooltip: callbackTooltip,
     });
   }
 
@@ -1955,24 +3241,29 @@ const getBottomBadges = (
   // Do not add an extra SMS review badge here; otherwise SMS appears twice.
 
   const appointmentBaseDate = order.createdAt || order.date;
-  const appointmentBadge = splitAppointmentSources(
+  const appointmentSourceLines = splitAppointmentSources(
     ...parsedNotes.jobHints,
     order.specialNotes,
     order.notes,
     order.audioTranscript,
-  )
-    .map((line) =>
-      extractAppointmentBadge(line, appointmentBaseDate, order.status),
-    )
-    .find(Boolean);
+  ).filter((line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line));
+
+  const multipleAppointmentBadge = getMultipleAppointmentBadge(order, parsedNotes);
+
+  const appointmentBadge = multipleAppointmentBadge ||
+    appointmentSourceLines
+      .map((line) =>
+        extractAppointmentBadge(line, appointmentBaseDate, order.status),
+      )
+      .find(Boolean);
 
   if (appointmentBadge) {
     pushUniqueBadge(badges, {
-      key: "appointment",
+      key: multipleAppointmentBadge ? "appointments_multiple" : "appointment",
       label: appointmentBadge.label,
       className: appointmentBadge.className,
       icon: appointmentBadge.icon,
-      tooltip: undefined,
+      tooltip: multipleAppointmentBadge ? multipleAppointmentBadge.tooltip : undefined,
     });
   } else {
     const appointmentClarification = detectAppointmentClarificationHint(
@@ -2006,7 +3297,9 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
 
   if (negative) return false;
 
-  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
+  if (CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
+
+  return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|aaluete|anluete|klingeln)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen|aaluete|anluete|klingeln)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren|aaluete|anluete|klingeln)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
     text,
   );
 };
@@ -2015,7 +3308,11 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
   String(value || "")
     .split(/\n+/g)
     .map((line) => line.trim())
-    .filter((line) => line && !isPositiveCallbackChipLine(line))
+    .filter(
+      (line) =>
+        line &&
+        !isPositiveCallbackChipLine(line),
+    )
     .join("\n");
 
 const getStrongerCardBadgeClassName = (className?: string | null) =>
@@ -2026,17 +3323,40 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
 const renderBadgeTooltip = (
   badge: ReviewBadge,
   align: "left" | "right" = "left",
+  forceVisible = false,
 ) => {
   const tooltip = String(badge.tooltip || "").trim();
   if (!tooltip) return null;
 
   const alignClass = align === "right" ? "right-0" : "left-0";
 
+  const tooltipLines = tooltip.split("\n");
+  const headingPattern = /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
+
   return (
     <span
-      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 hidden w-max max-w-[min(18rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 w-max max-w-[min(22rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-hover:block group-focus:block"}`}
     >
-      {tooltip}
+      {tooltipLines.map((line, index) => {
+        const trimmed = line.trim();
+        if (/^[-─—–_]{6,}$/.test(trimmed)) {
+          return (
+            <span
+              key={`sep_${index}`}
+              className="my-1 block border-t border-slate-200 dark:border-slate-700"
+            />
+          );
+        }
+
+        return (
+          <span
+            key={`line_${index}`}
+            className={`block ${headingPattern.test(trimmed) ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+          >
+            {line}
+          </span>
+        );
+      })}
     </span>
   );
 };
@@ -2053,7 +3373,14 @@ const renderReviewBadge = (
       key={badge.key}
       tabIndex={hasTooltip ? 0 : undefined}
       onClick={(event) => {
-        if (hasTooltip) event.stopPropagation();
+        if (!hasTooltip) return;
+        event.stopPropagation();
+        const target = event.currentTarget as HTMLElement;
+        if (document.activeElement === target) {
+          target.blur();
+        } else {
+          target.focus();
+        }
       }}
       className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${className} ${
         options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
@@ -2079,6 +3406,7 @@ const renderOrderCardBadge = (
     "price_deviation",
     "catalog_missing",
     "catalog_review_combined",
+    "service_review_summary",
   ].includes(badge.key);
 
   return renderReviewBadge(
@@ -2125,12 +3453,20 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       key={badge.key}
       type="button"
       tabIndex={0}
-      title={title}
       aria-label={title}
-      onClick={(event) => event.stopPropagation()}
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        const target = event.currentTarget as HTMLElement;
+        if (document.activeElement === target) {
+          target.blur();
+        } else {
+          target.focus();
+        }
+      }}
+      className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
     >
       {Icon ? <Icon className="h-3.5 w-3.5" strokeWidth={2.2} /> : badge.label.slice(0, 1)}
+      {renderBadgeTooltip(badge, "left")}
     </button>
   );
 };
@@ -2139,9 +3475,10 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
   if (badge.key !== "callback_request") return renderMobileIconBadge(badge);
 
   const phone = getOrderPhoneForHref(order);
+  const callbackInfo = compactText(badge.tooltip);
   const title = phone
-    ? `Anrufen: ${phone}`
-    : compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt";
+    ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
+    : callbackInfo || "Rückruf gewünscht · Nummer fehlt";
   const Icon = mobileIconForBadge(badge) || Phone;
   const className = `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`;
 
@@ -2154,9 +3491,10 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         title={title}
         aria-label={title}
         onClick={(event) => event.stopPropagation()}
-        className={className}
+        className={`group relative ${className}`}
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+        {renderBadgeTooltip({ ...badge, tooltip: title }, "left")}
       </button>
     );
   }
@@ -2181,6 +3519,31 @@ const renderMobileTextBadge = (badge: ReviewBadge, align: "left" | "right" = "ri
     "max-w-full truncate text-[10px] px-1.5 py-0.5 font-semibold",
     { strong: true, tooltipAlign: align },
   );
+
+const renderMobileRightReviewBadge = (badge: ReviewBadge) => {
+  const title = compactText(badge.tooltip) || badge.label;
+
+  return (
+    <button
+      key={`mobile_review_${badge.key}`}
+      type="button"
+      aria-label={title}
+      onClick={(event) => {
+        event.stopPropagation();
+        const target = event.currentTarget as HTMLElement;
+        if (document.activeElement === target) {
+          target.blur();
+        } else {
+          target.focus();
+        }
+      }}
+      className={`group relative inline-flex max-w-full items-center justify-end rounded-full px-1.5 py-0.5 text-right text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+    >
+      <span className="truncate">{badge.label}</span>
+      {renderBadgeTooltip(badge, "right")}
+    </button>
+  );
+};
 
 const mobileOverflowBadge = (count: number) =>
   count > 0 ? (
@@ -2227,9 +3590,10 @@ const renderCallbackCardBadge = (
     );
   }
 
+  const callbackInfo = compactText(badge.tooltip);
   const clickableBadge = {
     ...badge,
-    tooltip: `Anrufen: ${phone}`,
+    tooltip: [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · "),
   };
 
   return (
@@ -2407,12 +3771,34 @@ const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^unit_price_review$/,
   /^quantity_review$/,
   /^price_unclear:/,
-  /^unbekannte_leistung_pruefen$/,
   /^stunden_arbeitsposition_pruefen$/,
   /^total_unrealistic_check$/,
   /^currency_unsupported$/,
-  /^manual_flat_service_from_text$/,
 ];
+
+const isPersistedManualCurrencyConfirmedItem = (item: any) =>
+  compactText(item?.description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX) ||
+  compactText(item?.description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
+
+const hasOrderAllItemsManuallyResolvedForConversion = (order: Order | any) => {
+  const items: any[] = Array.isArray(order?.items) ? order.items : [];
+  if (items.length === 0) return false;
+  return items.every((item) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const storedTotal = Number(item?.totalPrice ?? 0);
+    const calculatedTotal = unitPrice > 0 && quantity > 0 ? unitPrice * quantity : 0;
+    const total = storedTotal > 0 ? storedTotal : calculatedTotal;
+    return quantity > 0 && unitPrice > 0 && total > 0;
+  });
+};
+
+const isResolvableConversionReviewReason = (reason: string) =>
+  reason.startsWith("currency_") ||
+  reason.startsWith("item_currency_mismatch") ||
+  reason.startsWith("currency_conflict_item:") ||
+  reason.startsWith("price_unclear:") ||
+  reason === "unit_price_review";
 
 const getOrderConversionBlockers = (order: Order | any): string[] => {
   const blockers: string[] = [];
@@ -2432,28 +3818,39 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
       (item) =>
         Number(item?.unitPrice || 0) <= 0 ||
         Number(item?.quantity || 0) <= 0 ||
-        Number(
-          item?.totalPrice ??
-            Number(item?.unitPrice || 0) * Number(item?.quantity || 0),
-        ) <= 0,
+        (() => {
+          const unitPrice = Number(item?.unitPrice || 0);
+          const quantity = Number(item?.quantity || 0);
+          const storedTotal = Number(item?.totalPrice || 0);
+          const calculatedTotal = unitPrice > 0 && quantity > 0 ? unitPrice * quantity : 0;
+          return (storedTotal > 0 ? storedTotal : calculatedTotal) <= 0;
+        })(),
     )
   ) {
     blockers.push("Preis/Menge prüfen");
   }
 
+  const allItemsResolvedForConversion =
+    hasOrderAllItemsManuallyResolvedForConversion(order);
+
   if (
-    reviewReasons.some((reason) =>
-      CRITICAL_CONVERSION_REVIEW_PATTERNS.some((pattern) =>
+    reviewReasons.some((reason) => {
+      const isCritical = CRITICAL_CONVERSION_REVIEW_PATTERNS.some((pattern) =>
         pattern.test(reason),
-      ),
-    )
+      );
+      if (!isCritical) return false;
+      // V17.19: Alte KI-/Währungs-ReviewReasons dürfen Angebot/Rechnung nicht
+      // mehr blockieren, wenn alle Positionen inzwischen manuell verwertbare
+      // Preise/Mengen/Totale haben. Harte Mengen-/Einheitsfehler bleiben Blocker.
+      return !(allItemsResolvedForConversion && isResolvableConversionReviewReason(reason));
+    })
   ) {
     blockers.push("Offene Prüfhinweise im Auftrag");
   }
 
-  if (order?.needsReview && reviewReasons.length > 0) {
-    blockers.push("Auftrag ist noch auf Prüfen gesetzt");
-  }
+  // needsReview alleine blockiert nicht mehr. Gelbe Hinweise wie
+  // Preisabweichung oder Nicht-im-Katalog dürfen Angebot/Rechnung nicht
+  // verhindern, solange Preis, Menge, Kunde und Währung verwertbar sind.
 
   if (isCustomerDataIncomplete(order?.customer)) {
     blockers.push("Kundendaten prüfen");
@@ -2569,6 +3966,11 @@ export default function AuftraegePage() {
     string | null
   >(null);
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
+  const specialNotesRef = useRef<HTMLDivElement | null>(null);
+  const serviceItemsRef = useRef<HTMLDivElement | null>(null);
+  const [pendingFocusSection, setPendingFocusSection] = useState<
+    "specialNotes" | "items" | null
+  >(null);
 
   // New duplicate check (Phase C — Sheet-based)
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
@@ -2666,6 +4068,7 @@ export default function AuftraegePage() {
 
   // Dropdown menu for create offer/invoice
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
+  const [activeMobileTooltipKey, setActiveMobileTooltipKey] = useState<string | null>(null);
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
@@ -2889,7 +4292,10 @@ export default function AuftraegePage() {
    * list-card "Kundendaten unvollständig" chip so the user lands directly
    * inside the customer editor with one tap (no extra "Bearbeiten" click).
    */
-  const openEdit = (o: Order, opts?: { openCustomerSection?: boolean }) => {
+  const openEdit = (
+    o: Order,
+    opts?: { openCustomerSection?: boolean; focusSection?: "specialNotes" | "items" },
+  ) => {
     setEditId(o.id);
     setServiceActionMenuKey(null);
     setDupCheckOpen(false);
@@ -2907,6 +4313,8 @@ export default function AuftraegePage() {
       city: "",
       country: "CH",
     });
+    const inferredSiteName = inferOrderExecutionSiteName(o);
+
     setForm({
       customerId: o.customerId ?? "",
       description: o.description ?? "",
@@ -2921,13 +4329,18 @@ export default function AuftraegePage() {
         });
       })(),
       siteAddressDifferent: Boolean(o.siteAddressDifferent),
-      siteName: o.siteName ?? "",
+      siteName: cleanWorkSiteDisplayName(o.siteName) || inferredSiteName || "",
       siteAddress: o.siteAddress ?? "",
       sitePlz: o.sitePlz ?? "",
       siteCity: o.siteCity ?? "",
       siteNote: o.siteNote ?? "",
     });
     const nextWorkSites = (o.workSites ?? [])
+      .map((site, index) =>
+        index === 0 && !cleanWorkSiteDisplayName(site.siteName) && inferredSiteName
+          ? { ...site, siteName: inferredSiteName }
+          : site,
+      )
       .slice()
       .sort(
         (a, b) =>
@@ -2957,21 +4370,53 @@ export default function AuftraegePage() {
               o.reviewReasons,
               item.serviceName,
             );
+            const quantityNumber = Number(item.quantity || 0);
+            const hasValidQuantity = Number.isFinite(quantityNumber) && quantityNumber > 0;
+            const rawAiWarning = getAiWarningFromItemDescription(item.description);
+            const isCatalogConfirmed = getCatalogReviewConfirmedFromItemDescription(
+              item.description,
+            );
+            const isManualCurrencyConfirmed =
+              getManualCurrencyConfirmedFromItemDescription(item.description);
+            const hasOrderCurrencyReview =
+              o.reviewReasons?.some(
+                (reason: string) =>
+                  reason.startsWith("currency_") ||
+                  reason.startsWith("item_currency_mismatch") ||
+                  reason.startsWith("currency_conflict_item:"),
+              ) ?? false;
+            // V17.18: Bei bestehendem Währungs-/Mischwährungsblocker darf KEINE
+            // Position mit einem aus dem Kundentext übernommenen Preis vorbefüllt
+            // werden. Das gilt ausdrücklich auch für Anfahrt/Pauschalpositionen:
+            // "Anfahrt CHF 50" darf im EUR-Auftrag nicht als fertiger EUR-Preis
+            // erscheinen. Menge und Einheit bleiben sichtbar, Preis muss der
+            // Benutzer pro Position frisch bestätigen.
+            const shouldRequireFreshManualPrice =
+              !isCatalogConfirmed &&
+              !isManualCurrencyConfirmed &&
+              (hasOrderCurrencyReview || isBlockingCurrencyReviewText(rawAiWarning));
 
             return {
               key: Math.random().toString(36).slice(2),
               serviceName: canonicalServiceNameForOrderItem(item.serviceName ?? ""),
               unit: item.unit ?? "Stunde",
-              unitPrice:
-                Number(item.unitPrice || 0) === 0 ? "" : String(item.unitPrice),
-              quantity: hasQuantityReview
+              // V17.16: Bei ungelöster Mischwährung auch Anfahrt nicht mit dem
+              // alten Textpreis vorbefüllen. Der Benutzer soll einen frischen
+              // Zielpreis eingeben; sonst springt Anfahrt nach Reload wieder auf
+              // den Originaltextwert wie CHF 50 zurück.
+              unitPrice: shouldRequireFreshManualPrice
                 ? ""
-                : Number(item.quantity || 0) === 0
+                : Number(item.unitPrice || 0) === 0
                   ? ""
-                  : String(item.quantity),
-              aiWarning: getAiWarningFromItemDescription(item.description),
-              catalogReviewConfirmed:
-                getCatalogReviewConfirmedFromItemDescription(item.description),
+                  : String(item.unitPrice),
+              // Keep trusted persisted quantities even when a unit_mismatch review chip
+              // remains. The review chip may still be valid because catalog unit and
+              // customer-text unit differ, but blanking a valid quantity turns a repaired
+              // hour row back into Menge prüfen / Total CHF 0.00 in the editor.
+              quantity: !hasValidQuantity ? "" : String(item.quantity),
+              aiWarning: isManualCurrencyConfirmed ? "" : rawAiWarning,
+              catalogReviewConfirmed: isCatalogConfirmed,
+              manualCurrencyConfirmed: isManualCurrencyConfirmed,
               workSiteId: item.workSiteId || null,
             };
           }),
@@ -2989,6 +4434,7 @@ export default function AuftraegePage() {
             quantity: Number(o.quantity || 0) === 0 ? "" : String(o.quantity),
             aiWarning: "",
             catalogReviewConfirmed: false,
+            manualCurrencyConfirmed: false,
             workSiteId: null,
           },
         ]),
@@ -3014,6 +4460,7 @@ export default function AuftraegePage() {
     setOrderVatRate(o.vatRate != null ? Number(o.vatRate) : defaultVatRate);
     setCurrency(o.currency === "EUR" ? "EUR" : "CHF");
     setDialogOpen(true);
+    setPendingFocusSection(opts?.focusSection || null);
     // V16.22: Do not auto-fill customer master data from order notes on dialog open.
     // Notes may contain execution addresses / onsite contact details and must not
     // silently write into the billing customer record. Manual customer editing stays available.
@@ -3098,8 +4545,37 @@ export default function AuftraegePage() {
   // Clear the pending flag when the dialog closes — prevents a stale request
   // from triggering on a subsequent unrelated open.
   useEffect(() => {
-    if (!dialogOpen) setPendingOpenCustomerEditor(null);
+    if (!dialogOpen) {
+      setPendingOpenCustomerEditor(null);
+      setPendingFocusSection(null);
+    }
   }, [dialogOpen]);
+
+  useEffect(() => {
+    if (!dialogOpen || !pendingFocusSection) return;
+
+    const frame = requestAnimationFrame(() => {
+      if (pendingFocusSection === "specialNotes") {
+        specialNotesRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        specialNotesRef.current?.focus?.();
+      }
+
+      if (pendingFocusSection === "items") {
+        serviceItemsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        serviceItemsRef.current?.focus?.();
+      }
+
+      setPendingFocusSection(null);
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [dialogOpen, pendingFocusSection]);
 
   // ISSUE 2 — Fetch inline PLZ/city suggestion when customer card is shown.
   // Only fires for existing customers (editId) with missing PLZ or city.
@@ -3542,7 +5018,49 @@ export default function AuftraegePage() {
     }
 
     setFormItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+      prev.map((item, i) => {
+        if (i !== index) return item;
+
+        const nextItem: FormItem = { ...item, [field]: value };
+
+        // V17.16: Sobald der Benutzer eine blockierte KI-/Währungsposition
+        // manuell korrigiert, muss diese Position eindeutig als vom Benutzer
+        // bestätigt gespeichert werden. Besonders Anfahrt kam sonst beim
+        // erneuten Öffnen wieder aus der Originalzeile "Anfahrt CHF 50" zurück.
+        if (
+          field === "unitPrice" ||
+          field === "quantity" ||
+          field === "unit" ||
+          field === "serviceName"
+        ) {
+          const warningText = normalizeForMatch(nextItem.aiWarning);
+          const unitText = normalizeForMatch(nextItem.unit);
+          const isResolvedInput =
+            nextItem.serviceName.trim().length > 0 &&
+            unitText.length > 0 &&
+            !unitText.includes("pruefen") &&
+            !unitText.includes("prufen") &&
+            Number(nextItem.unitPrice || 0) > 0 &&
+            Number(nextItem.quantity || 0) > 0;
+
+          // V17.19: Währungs-/Preisblocker pro Position bestätigen,
+          // ohne die Position künstlich als Katalogprüfung-erledigt zu markieren.
+          // So wird eine korrigierte einzelne Zeile sofort gelb/normal berechnet
+          // und bleibt nach Speichern/Reload erhalten; andere Zeilen bleiben rot.
+          if (
+            isResolvedInput &&
+            (hasCurrentEditCurrencyReview ||
+              /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
+                warningText,
+              ))
+          ) {
+            nextItem.aiWarning = "";
+            nextItem.manualCurrencyConfirmed = true;
+          }
+        }
+
+        return nextItem;
+      }),
     );
   };
 
@@ -3591,17 +5109,128 @@ export default function AuftraegePage() {
     });
   };
 
+  const currentEditOrder = editId
+    ? orders.find((o: Order) => o.id === editId) || null
+    : null;
+
+  const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
+  const hasCurrentEditCurrencyReview =
+    currentEditReviewReasons.some(
+      (reason: string) =>
+        reason.startsWith("currency_") ||
+        reason.startsWith("item_currency_mismatch") ||
+        reason.startsWith("currency_conflict_item:"),
+    ) ?? false;
+
+  const isBlockingCurrencyReviewText = (value?: string | null) => {
+    const text = normalizeForMatch(value);
+    if (!text) return false;
+
+    return (
+      text.includes("waehrung preis noch nicht bestaetigt") ||
+      text.includes("wahrung preis noch nicht bestatigt") ||
+      text.includes("waehrung") ||
+      text.includes("wahrung") ||
+      text.includes("currency") ||
+      text.includes("preis fehlt") ||
+      text.includes("preis im text unklar") ||
+      text.includes("price unclear") ||
+      text.includes("price missing") ||
+      text.includes("nicht in netto") ||
+      text.includes("nicht in mwst") ||
+      text.includes("nicht in total")
+    );
+  };
+
+  const isCompleteResolvedFormItem = (
+    item: Pick<FormItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+  ) => {
+    const unitText = normalizeForMatch(item.unit);
+    return (
+      String(item.serviceName || "").trim().length > 0 &&
+      unitText.length > 0 &&
+      !unitText.includes("pruefen") &&
+      !unitText.includes("prufen") &&
+      Number(item.unitPrice || 0) > 0 &&
+      Number(item.quantity || 0) > 0
+    );
+  };
+
+  const isManuallyConfirmedCurrencyItem = (item: FormItem) =>
+    isCompleteResolvedFormItem(item) &&
+    (Boolean(item.manualCurrencyConfirmed) ||
+      Boolean(item.catalogReviewConfirmed) ||
+      !isBlockingCurrencyReviewText(item.aiWarning));
+
+  // V17.16: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
+  // sperren, bis jede Position im Editor manuell vollständig bestätigt ist.
+  // Die Bestätigung wird pro Position persistiert, damit insbesondere Anfahrt
+  // nach Reload nicht wieder aus "Anfahrt CHF 50" zurückgesetzt wird.
+  const formHasResolvedCurrencyReview =
+    hasCurrentEditCurrencyReview &&
+    (currency === "CHF" || currency === "EUR") &&
+    formItems.length > 0 &&
+    formItems.every((item) => isManuallyConfirmedCurrencyItem(item));
+
+  const hasEditCurrencyReview =
+    hasCurrentEditCurrencyReview && !formHasResolvedCurrencyReview;
+
+  const isBlockedFormItemForTotal = (
+    item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed"> & {
+      serviceName?: string | null;
+    },
+    forceCurrencyConflict = hasEditCurrencyReview,
+  ) => {
+    if (forceCurrencyConflict && !isManuallyConfirmedCurrencyItem(item as FormItem)) return true;
+
+    const reviewText = normalizeForMatch(
+      [item.unit, item.aiWarning].filter(Boolean).join(" "),
+    );
+
+    return (
+      reviewText.includes("einheit pruefen") ||
+      reviewText.includes("einheit prufen") ||
+      reviewText.includes("einheit fehlt") ||
+      reviewText.includes("unit missing") ||
+      reviewText.includes("preis pruefen") ||
+      reviewText.includes("preis prufen") ||
+      reviewText.includes("preis fehlt") ||
+      reviewText.includes("waehrung preis noch nicht bestaetigt") ||
+      reviewText.includes("wahrung preis noch nicht bestatigt") ||
+      reviewText.includes("wahrung/preis") ||
+      reviewText.includes("waehrung/preis") ||
+      reviewText.includes("nicht in netto") ||
+      reviewText.includes("nicht in mwst") ||
+      reviewText.includes("nicht in total") ||
+      reviewText.includes("wird nicht in netto") ||
+      reviewText.includes("wird nicht in mwst") ||
+      reviewText.includes("wird nicht in total") ||
+      reviewText.includes("manuell pruefen") ||
+      reviewText.includes("manuell prufen") ||
+      reviewText.includes("preis unsicher") ||
+      reviewText.includes("preis unklar") ||
+      reviewText.includes("menge pruefen") ||
+      reviewText.includes("menge prufen") ||
+      reviewText.includes("menge fehlt")
+    );
+  };
+
+  const getSafeFormItemTotal = (
+    item: Pick<FormItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed">,
+    forceCurrencyConflict = hasEditCurrencyReview,
+  ) => {
+    if (isBlockedFormItemForTotal(item, forceCurrencyConflict)) return 0;
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    return quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
+  };
+
   const itemsTotal = formItems.reduce(
-    (sum, item) =>
-      sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+    (sum, item) => sum + getSafeFormItemTotal(item),
     0,
   );
 
   const totalWithVat = itemsTotal + (itemsTotal * orderVatRate) / 100;
-
-  const currentEditOrder = editId
-    ? orders.find((o: Order) => o.id === editId) || null
-    : null;
 
   const hasWorkSiteContent = (site?: OrderWorkSite | null) =>
     Boolean(
@@ -3686,8 +5315,7 @@ export default function AuftraegePage() {
 
   const getWorkSiteTotal = (siteId?: string | null) =>
     getWorkSiteItems(siteId).reduce(
-      (sum, item) =>
-        sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+      (sum, item) => sum + getSafeFormItemTotal(item),
       0,
     );
 
@@ -3805,7 +5433,7 @@ export default function AuftraegePage() {
   const formatWorkSiteItemSummary = (item: FormItem) => {
     const quantity = Number(item.quantity || 0);
     const unitPrice = Number(item.unitPrice || 0);
-    const total = quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0;
+    const total = getSafeFormItemTotal(item);
     const quantityLabel =
       quantity > 0
         ? `${item.quantity} ${unitShortLabel(item.unit)}`
@@ -3864,23 +5492,6 @@ export default function AuftraegePage() {
         isEmptySitePlaceholder: false,
       }));
 
-  const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
-  const formHasResolvedCurrencyReview =
-    (currency === "CHF" || currency === "EUR") &&
-    formItems.length > 0 &&
-    formItems.every(
-      (item) =>
-        item.serviceName.trim().length > 0 &&
-        Number(item.unitPrice || 0) > 0 &&
-        Number(item.quantity || 0) > 0,
-    );
-  const hasEditCurrencyReview =
-    currentEditReviewReasons.some(
-      (reason: string) =>
-        reason.startsWith("currency_") ||
-        reason.startsWith("item_currency_mismatch"),
-    ) && !formHasResolvedCurrencyReview;
-
   const unitShortLabel = (unit: string) => {
     const normalized = (unit || "").toLowerCase();
     if (normalized === "quadratmeter") return "m²";
@@ -3893,6 +5504,7 @@ export default function AuftraegePage() {
     if (normalized === "kilogramm") return "kg";
     if (normalized === "tonne") return "t";
     if (normalized === "liter") return "l";
+    if (normalized.includes("prüfen") || normalized.includes("pruefen")) return "prüfen";
     return unit || "–";
   };
 
@@ -3903,7 +5515,7 @@ export default function AuftraegePage() {
       const unitPrice = Number(item.unitPrice || 0);
       const hasQuantity = quantity > 0;
       const hasPrice = unitPrice > 0;
-      const sum = hasQuantity && hasPrice ? quantity * unitPrice : 0;
+      const sum = getSafeFormItemTotal(item);
 
       return {
         index: index + 1,
@@ -3938,13 +5550,15 @@ export default function AuftraegePage() {
 
   const parsedFormSpecialNotes = splitSpecialNotes(form.specialNotes);
   const dangerNoteLines = parsedFormSpecialNotes.safetyWarnings;
-  const normalSpecialNotesText = parsedFormSpecialNotes.jobHints.join("\n");
+  const normalSpecialNotesText = formatSpecialNotesForDisplay(
+    parsedFormSpecialNotes.jobHints,
+  );
 
   const updateNormalSpecialNotes = (value: string) => {
     const nextJobHints = value
       .split(/\n+/)
       .map((line) => line.trim())
-      .filter(Boolean);
+      .filter((line) => line && !isSpecialNotesGroupSeparator(line));
 
     setForm((prev) => {
       const previousNotes = splitSpecialNotes(prev.specialNotes);
@@ -4154,6 +5768,20 @@ export default function AuftraegePage() {
     const cleanWorkSites = formWorkSites.filter(
       (site) => hasWorkSiteContent(site) || assignedWorkSiteIds.has(site.id),
     );
+    const primaryWorkSiteForPayload =
+      cleanWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      cleanWorkSites[0] ||
+      null;
+    const siteFieldsForPayload = primaryWorkSiteForPayload
+      ? {
+          siteAddressDifferent: true,
+          siteName: cleanWorkSiteDisplayName(primaryWorkSiteForPayload.siteName) || "",
+          siteAddress: primaryWorkSiteForPayload.siteAddress?.trim() || "",
+          sitePlz: primaryWorkSiteForPayload.sitePlz?.trim() || "",
+          siteCity: primaryWorkSiteForPayload.siteCity?.trim() || "",
+          siteNote: primaryWorkSiteForPayload.siteNote?.trim() || "",
+        }
+      : {};
 
     if (
       cleanWorkSites.length > 1 &&
@@ -4174,7 +5802,9 @@ export default function AuftraegePage() {
       validItems
         .filter(
           (item) =>
-            Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0,
+            Number(item.quantity || 0) > 0 &&
+            Number(item.unitPrice || 0) > 0 &&
+            !isBlockedFormItemForTotal(item),
         )
         .map((item) => normalizeForMatch(item.serviceName)),
     );
@@ -4193,12 +5823,36 @@ export default function AuftraegePage() {
       (item) =>
         item.serviceName.trim().length > 0 &&
         Number(item.quantity || 0) > 0 &&
-        Number(item.unitPrice || 0) > 0,
+        Number(item.unitPrice || 0) > 0 &&
+        !isBlockedFormItemForTotal(item),
     );
 
     const allServicesInCatalog = validItems.every((item) =>
       isServiceInCatalog(item.serviceName),
     );
+
+    // V17.20: ReviewReasons pro Leistung bereinigen, nicht erst wenn alle
+    // Positionen erledigt sind. Sonst bleiben Außenkarte/Conversion global auf
+    // 0/rot, obwohl einzelne Leistungen bereits manuell bestätigt wurden.
+    const manuallyConfirmedServiceNames = new Set(
+      validItems
+        .filter((item) => isManuallyConfirmedCurrencyItem(item))
+        .map((item) => normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)))
+        .filter(Boolean),
+    );
+
+    const isReviewReasonResolvedByConfirmedItem = (reason: string) => {
+      const key = String(reason || "");
+      const parts = key.split(":");
+      const serviceName = normalizeForMatch(canonicalServiceNameForOrderItem(parts[1] || ""));
+      if (!serviceName || !manuallyConfirmedServiceNames.has(serviceName)) return false;
+      return (
+        key.startsWith("price_unclear:") ||
+        key.startsWith("item_currency_mismatch:") ||
+        key.startsWith("currency_conflict_item:") ||
+        key.startsWith("price_override:")
+      );
+    };
 
     const cleanedReviewReasons =
       orders
@@ -4216,10 +5870,15 @@ export default function AuftraegePage() {
             return !confirmedCatalogReviewServiceNames.has(reasonName);
           }
 
+          if (isReviewReasonResolvedByConfirmedItem(reason)) {
+            return false;
+          }
+
           if (
             allItemsComplete &&
             (reason.startsWith("currency_") ||
               reason.startsWith("item_currency_mismatch") ||
+              reason.startsWith("currency_conflict_item:") ||
               reason.startsWith("price_unclear:") ||
               reason === "unit_price_review" ||
               reason === "quantity_review" ||
@@ -4241,10 +5900,17 @@ export default function AuftraegePage() {
 
     const payload = {
       ...form,
+      ...siteFieldsForPayload,
       ...payloadOverrides,
       description: desc,
       vatRate: orderVatRate,
       currency,
+      // V17.14: Beim manuellen Bereinigen einer Mischwährung müssen die
+      // sichtbaren Editorwerte als bestätigt gespeichert werden. Sonst ziehen
+      // API-Sicherheitsnetze beim erneuten Öffnen wieder Preise/Währung aus dem
+      // ursprünglichen Kundentext und überschreiben die manuelle Korrektur.
+      manualReviewResolved: formHasResolvedCurrencyReview || allItemsComplete,
+      manualItemValuesConfirmed: formHasResolvedCurrencyReview || allItemsComplete,
       reviewReasons: cleanedReviewReasons,
       needsReview: cleanedReviewReasons.length > 0,
       workSites:
@@ -4261,14 +5927,28 @@ export default function AuftraegePage() {
               sourceOrderId: (site as any).sourceOrderId || null,
             }))
           : undefined,
-      items: validItems.map((item) => ({
-        serviceName: canonicalServiceNameForOrderItem(item.serviceName),
-        description: buildItemDescription(item),
-        quantity: Number(item.quantity || 0),
-        unit: item.unit,
-        unitPrice: Number(item.unitPrice || 0),
-        workSiteId: item.workSiteId || null,
-      })),
+      items: validItems.map((item) => {
+        const itemCurrencyConfirmed = isManuallyConfirmedCurrencyItem(item);
+        const resolvedCurrencyItem =
+          formHasResolvedCurrencyReview || itemCurrencyConfirmed;
+        const itemIsStillBlockedByCurrency =
+          hasEditCurrencyReview && !itemCurrencyConfirmed;
+
+        return {
+          serviceName: canonicalServiceNameForOrderItem(item.serviceName),
+          description:
+            hasCurrentEditCurrencyReview && itemCurrencyConfirmed
+              ? `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim()
+              : resolvedCurrencyItem
+                ? buildItemDescription({ ...item, aiWarning: "" })
+                : buildItemDescription(item),
+          quantity: Number(item.quantity || 0),
+          unit: item.unit,
+          unitPrice: itemIsStillBlockedByCurrency ? 0 : Number(item.unitPrice || 0),
+          totalPrice: getSafeFormItemTotal(item, hasEditCurrencyReview),
+          workSiteId: item.workSiteId || null,
+        };
+      }),
     };
     const res = await fetch(url, {
       method,
@@ -4963,22 +6643,57 @@ export default function AuftraegePage() {
 
   // Display items summary for list
 
+  const isBlockedOrderItemForTotal = (item: OrderItem) => {
+    const reviewText = normalizeForMatch(
+      [item.unit, item.description, (item as any).reviewReason]
+        .filter(Boolean)
+        .join(" "),
+    );
+
+    return (
+      reviewText.includes("einheit pruefen") ||
+      reviewText.includes("einheit prufen") ||
+      reviewText.includes("einheit fehlt") ||
+      reviewText.includes("unit missing") ||
+      reviewText.includes("preis pruefen") ||
+      reviewText.includes("preis prufen") ||
+      reviewText.includes("preis fehlt") ||
+      reviewText.includes("waehrung preis noch nicht bestaetigt") ||
+      reviewText.includes("wahrung preis noch nicht bestatigt") ||
+      reviewText.includes("wahrung/preis") ||
+      reviewText.includes("waehrung/preis") ||
+      reviewText.includes("nicht in netto") ||
+      reviewText.includes("nicht in mwst") ||
+      reviewText.includes("nicht in total") ||
+      reviewText.includes("wird nicht in netto") ||
+      reviewText.includes("wird nicht in mwst") ||
+      reviewText.includes("wird nicht in total") ||
+      reviewText.includes("manuell pruefen") ||
+      reviewText.includes("manuell prufen") ||
+      reviewText.includes("preis unsicher") ||
+      reviewText.includes("preis unklar") ||
+      reviewText.includes("menge pruefen") ||
+      reviewText.includes("menge prufen") ||
+      reviewText.includes("menge fehlt")
+    );
+  };
+
   const getSafeOrderNetTotal = (o: Order) => {
+    // V17.20: Eine offene Mischwährung blockiert nicht mehr pauschal die
+    // Außenkarten-Summe. Jede Position ist Source of Truth: rote/offene
+    // Positionen haben totalPrice 0, bereits manuell bestätigte Positionen
+    // dürfen sichtbar in die Zwischensumme laufen.
     if (o.items && o.items.length > 0) {
       return o.items.reduce((sum, item) => {
-        const hasUnitReview = hasQuantityReviewForService(
-          o.reviewReasons,
-          item.serviceName,
-        );
+        if (isBlockedOrderItemForTotal(item)) return sum;
 
         const qty = Number(item.quantity || 0);
         const price = Number(item.unitPrice || 0);
+        const storedLineTotal = Number(item.totalPrice || 0);
+        const calculatedLineTotal = qty > 0 && price > 0 ? qty * price : 0;
+        const lineTotal = storedLineTotal > 0 ? storedLineTotal : calculatedLineTotal;
 
-        if (hasUnitReview || qty <= 0 || price <= 0) {
-          return sum;
-        }
-
-        return sum + qty * price;
+        return sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0);
       }, 0);
     }
 
@@ -5153,34 +6868,213 @@ export default function AuftraegePage() {
             );
             const operationalBadges = getOperationalBadges(o, parsedCardNotes);
             const bottomBadges = getBottomBadges(o, parsedCardNotes);
-            const appointmentBadges = bottomBadges.filter(
-              (badge) => badge.key === "appointment",
+            const hasMultipleMergedData = hasMergedMultipleContactData(
+              o,
+              parsedCardNotes,
             );
-            const callbackBadges = bottomBadges.filter(
-              (badge) => badge.key === "callback_request",
+            const hiddenMergedDataBadgeKeys = [
+              "appointment",
+              "appointments_multiple",
+              "appointment_clarify",
+              "callback_request",
+              "sms_request",
+            ];
+            const appointmentBadges = bottomBadges.filter((badge) =>
+              hasMultipleMergedData
+                ? badge.key === "appointments_multiple"
+                : badge.key === "appointment" || badge.key === "appointments_multiple",
             );
-            const messageBadges = bottomBadges.filter(
-              (badge) => badge.key === "sms_request",
-            );
-            const otherFooterBadges = bottomBadges.filter(
-              (badge) =>
-                !["appointment", "callback_request", "sms_request"].includes(
-                  badge.key,
-                ),
+            const callbackBadges = hasMultipleMergedData
+              ? []
+              : bottomBadges.filter((badge) => badge.key === "callback_request");
+            const messageBadges = hasMultipleMergedData
+              ? []
+              : bottomBadges.filter((badge) => badge.key === "sms_request");
+            const otherFooterBadges = bottomBadges.filter((badge) =>
+              hasMultipleMergedData
+                ? !hiddenMergedDataBadgeKeys.includes(badge.key)
+                : !["appointment", "appointments_multiple", "callback_request", "sms_request"].includes(
+                    badge.key,
+                  ),
             );
             const rightSideBadges = amountReviewBadges;
             const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
             const mobileRightHiddenCount = Math.max(0, rightSideBadges.length - mobilePrimaryRightBadges.length);
-            const mobileSystemBadges = leftSystemBadges.filter((badge) => badge.key !== "site_address");
-            const mobileAddressBadge = leftSystemBadges.find((badge) => badge.key === "site_address") || null;
+            const mobileFocusBadges = leftSystemBadges.filter(
+              (badge) => badge.focusTarget === "specialNotes",
+            );
+            const mobileSystemBadges = leftSystemBadges.filter(
+              (badge) => badge.key !== "site_address" && !badge.focusTarget,
+            );
+            // Mobile: do not repeat the address pin as a large action icon.
+            // The address remains visible on desktop and in the edit dialog; the
+            // mobile icon row is reserved for real actions/hints.
             const mobileActionBadges = [
-              ...(mobileAddressBadge ? [mobileAddressBadge] : []),
+              ...mobileFocusBadges,
+              ...callbackBadges,
               ...operationalBadges,
               ...messageBadges,
               ...otherFooterBadges,
             ];
             const mobileVisibleActionBadges = mobileActionBadges.slice(0, 4);
             const mobileHiddenActionCount = Math.max(0, mobileActionBadges.length - mobileVisibleActionBadges.length);
+
+            const openOrderAtSpecialNotes = (event: any) => {
+              event.stopPropagation();
+              setActiveMobileTooltipKey(null);
+              openEdit(o, { focusSection: "specialNotes" });
+            };
+
+            const mobileTooltipKey = (badge: ReviewBadge, slot: string) =>
+              `${o.id}:${slot}:${badge.key}:${badge.label}`;
+
+            const toggleMobileTooltip = (
+              badge: ReviewBadge,
+              slot: string,
+              event: any,
+            ) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const title = compactText(badge.tooltip) || badge.label;
+              if (!title) return;
+              const key = mobileTooltipKey(badge, slot);
+              setActiveMobileTooltipKey((current) =>
+                current === key ? null : key,
+              );
+            };
+
+            const renderMobileChipTooltip = (
+              badge: ReviewBadge,
+              slot: string,
+              align: "left" | "right" = "left",
+            ) => {
+              // Mobile tooltips must be controlled only by tap state.
+              // Do not render the hidden group-focus/group-hover tooltip when inactive,
+              // because a touched button can keep focus and make the tooltip look stuck.
+              if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot)) return null;
+              return renderBadgeTooltip(badge, align, true);
+            };
+
+            const openOrderAtItems = (event: any) => {
+              event.stopPropagation();
+              setActiveMobileTooltipKey(null);
+              openEdit(o, { focusSection: "items" });
+            };
+
+            const renderInteractiveOrderCardBadge = (
+              badge: ReviewBadge,
+              tooltipAlign: "left" | "right" = "left",
+            ) => {
+              const shouldOpenItems = isAmountReviewBadge(badge);
+              const shouldOpenSpecialNotes = badge.focusTarget === "specialNotes";
+
+              if (!shouldOpenItems && !shouldOpenSpecialNotes) {
+                return renderOrderCardBadge(badge, tooltipAlign);
+              }
+
+              const isLargeYellowBadge = [
+                "price_deviation",
+                "catalog_missing",
+                "catalog_review_combined",
+                "service_review_summary",
+                "merged_data_review",
+              ].includes(badge.key);
+
+              return (
+                <button
+                  key={badge.key}
+                  type="button"
+                  aria-label={compactText(badge.tooltip) || badge.label}
+                  onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
+                  className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                    isLargeYellowBadge
+                      ? "text-[11px] px-2 py-0.5 font-semibold"
+                      : "text-[10px] px-1.5 py-0.5 font-medium"
+                  } ${getStrongerCardBadgeClassName(badge.className)}`}
+                >
+                  {badge.icon && badge.key !== "callback_request" && (
+                    <AlertTriangle className="w-3 h-3" />
+                  )}
+                  {badge.label}
+                  {renderBadgeTooltip(badge, tooltipAlign)}
+                </button>
+              );
+            };
+
+            const renderInteractiveMobileActionBadge = (badge: ReviewBadge) => {
+              if (badge.key === "callback_request") {
+                return renderMobileActionBadge(o, badge);
+              }
+
+              const Icon = mobileIconForBadge(badge) || AlertTriangle;
+              const title = compactText(badge.tooltip) || badge.label;
+              const tooltipSlot = "mobile_action";
+
+              if (badge.focusTarget === "specialNotes") {
+                return (
+                  <button
+                    key={badge.key}
+                    type="button"
+                    aria-label={title}
+                    onClick={openOrderAtSpecialNotes}
+                    className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
+                  >
+                    <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    {renderMobileChipTooltip(badge, tooltipSlot, "left")}
+                  </button>
+                );
+              }
+
+              return (
+                <button
+                  key={badge.key}
+                  type="button"
+                  aria-label={title}
+                  onClick={(event) => toggleMobileTooltip(badge, tooltipSlot, event)}
+                  className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
+                >
+                  <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  {renderMobileChipTooltip(badge, tooltipSlot, "left")}
+                </button>
+              );
+            };
+
+            const renderInteractiveMobileTextBadge = (
+              badge: ReviewBadge,
+              slot: string,
+              align: "left" | "right" = "right",
+            ) => {
+              const title = compactText(badge.tooltip) || badge.label;
+              return (
+                <button
+                  key={`${slot}_${badge.key}`}
+                  type="button"
+                  aria-label={title}
+                  onClick={(event) => toggleMobileTooltip(badge, slot, event)}
+                  className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                >
+                  <span className="truncate">{badge.label}</span>
+                  {renderMobileChipTooltip(badge, slot, align)}
+                </button>
+              );
+            };
+
+            const renderInteractiveMobileRightReviewBadge = (badge: ReviewBadge) => {
+              const title = compactText(badge.tooltip) || badge.label;
+              return (
+                <button
+                  key={`mobile_right_${badge.key}`}
+                  type="button"
+                  aria-label={title}
+                  onClick={openOrderAtItems}
+                  className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                >
+                  <span className="truncate">{badge.label}</span>
+                  {renderMobileChipTooltip(badge, "mobile_right", "right")}
+                </button>
+              );
+            };
+
             const showAudioTooLongBadge =
               o.audioTranscriptionStatus?.startsWith("skipped");
             const showImageOnlyBadge = false;
@@ -5195,6 +7089,7 @@ export default function AuftraegePage() {
                 <Card
                   className={`border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   onClick={() => {
+                    setActiveMobileTooltipKey(null);
                     if (isMergeMode) {
                       handleToggleSelect(o.id);
                       return;
@@ -5324,7 +7219,7 @@ export default function AuftraegePage() {
                           {mobileSystemBadges.length > 0 && (
                             <div className="mt-1 flex max-w-full flex-wrap items-center gap-1">
                               {mobileSystemBadges.slice(0, 1).map((badge) =>
-                                renderMobileTextBadge(badge, "left"),
+                                renderInteractiveMobileTextBadge(badge, "mobile_system", "left"),
                               )}
                             </div>
                           )}
@@ -5367,21 +7262,40 @@ export default function AuftraegePage() {
                               ))}
                             </select>
 
-                            <CommunicationChips
-                              compact
-                              data={{
+                            {!hasMultipleMergedData && (
+                              <CommunicationChips
+                                compact
+                                data={{
                                 ...o,
-                                specialNotes: o.specialNotes,
-                                notes: [o.notes, o.specialNotes, o.audioTranscript]
+                                specialNotes:
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.specialNotes,
+                                  ),
+                                notes: [
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.notes,
+                                  ),
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.specialNotes,
+                                  ),
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.audioTranscript,
+                                  ),
+                                ]
                                   .filter(Boolean)
                                   .join("\n"),
+                                audioTranscript:
+                                  removeCallbackLinesForCommunicationChips(
+                                    o.audioTranscript,
+                                  ),
                               }}
-                              onAudioClick={() => openMedia(o)}
-                              onImageClick={() => openMedia(o)}
-                            />
+                                onAudioClick={() => openMedia(o)}
+                                onImageClick={() => openMedia(o)}
+                              />
+                            )}
 
                             {mobileVisibleActionBadges.map((badge) =>
-                              renderMobileActionBadge(o, badge),
+                              renderInteractiveMobileActionBadge(badge),
                             )}
                             {mobileOverflowBadge(mobileHiddenActionCount)}
                           </div>
@@ -5390,10 +7304,10 @@ export default function AuftraegePage() {
                         <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
                           <div className="flex w-full flex-col items-end gap-1">
                             {appointmentBadges.slice(0, 1).map((badge) =>
-                              renderMobileTextBadge(badge, "right"),
+                              renderInteractiveMobileTextBadge(badge, "mobile_appointment", "right"),
                             )}
                             {mobilePrimaryRightBadges.map((badge) =>
-                              renderMobileTextBadge(badge, "right"),
+                              renderInteractiveMobileRightReviewBadge(badge),
                             )}
                             {mobileRightHiddenCount > 0 && (
                               <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
@@ -5457,7 +7371,7 @@ export default function AuftraegePage() {
                             {leftSystemBadges.length > 0 && (
                               <span className="inline-flex max-w-full flex-nowrap items-center gap-1 shrink-0">
                                 {leftSystemBadges.map((badge) =>
-                                  renderOrderCardBadge(badge),
+                                  renderInteractiveOrderCardBadge(badge),
                                 )}
                               </span>
                             )}
@@ -5510,8 +7424,9 @@ export default function AuftraegePage() {
                               ))}
                             </select>
 
-                            <CommunicationChips
-                              data={{
+                            {!hasMultipleMergedData && (
+                              <CommunicationChips
+                                data={{
                                 ...o,
                                 customer: o.customer,
                                 specialNotes:
@@ -5536,24 +7451,25 @@ export default function AuftraegePage() {
                                     o.audioTranscript,
                                   ),
                               }}
-                              onAudioClick={() => openMedia(o)}
-                              onImageClick={() => openMedia(o)}
-                            />
+                                onAudioClick={() => openMedia(o)}
+                                onImageClick={() => openMedia(o)}
+                              />
+                            )}
 
                             {callbackBadges.map((badge) =>
                               renderCallbackCardBadge(o, badge),
                             )}
 
                             {messageBadges.map((badge) =>
-                              renderOrderCardBadge(badge),
+                              renderInteractiveOrderCardBadge(badge),
                             )}
 
                             {operationalBadges.map((badge) =>
-                              renderOrderCardBadge(badge),
+                              renderInteractiveOrderCardBadge(badge),
                             )}
 
                             {otherFooterBadges.map((badge) =>
-                              renderOrderCardBadge(badge),
+                              renderInteractiveOrderCardBadge(badge),
                             )}
                           </div>
                         </div>
@@ -5561,14 +7477,14 @@ export default function AuftraegePage() {
                         <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[220px] xl:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
                             {rightSideBadges.map((badge) =>
-                              renderOrderCardBadge(badge, "right"),
+                              renderInteractiveOrderCardBadge(badge, "right"),
                             )}
                           </div>
 
                           <div className="flex w-full flex-wrap items-end justify-end gap-3">
                             <div className="flex flex-wrap justify-end gap-1">
                               {appointmentBadges.map((badge) =>
-                                renderOrderCardBadge(badge, "right"),
+                                renderInteractiveOrderCardBadge(badge, "right"),
                               )}
                             </div>
 
@@ -6402,7 +8318,7 @@ export default function AuftraegePage() {
                 </div>
               ) : (
                 <>
-                  <div className="rounded-xl border bg-background p-2.5 sm:p-3 space-y-2">
+                  <div ref={serviceItemsRef} tabIndex={-1} className="scroll-mt-24 rounded-xl border bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="text-base font-semibold">
@@ -6495,6 +8411,12 @@ export default function AuftraegePage() {
                               );
                             });
 
+                          const unitMissingInTextReason =
+                            findUnitMissingInTextReviewForService(
+                              curOrder?.reviewReasons,
+                              item.serviceName,
+                            );
+
                           const priceOverrideReason = curOrder?.reviewReasons
                             ?.filter((r: string) =>
                               r.startsWith("price_override:"),
@@ -6554,17 +8476,31 @@ export default function AuftraegePage() {
                             Number(item.quantity || 0) === 1;
 
                           const hasCurrencyConflict = hasEditCurrencyReview;
+                          // V17.18: Rot ist pro Position, nicht global.
+                          // Eine Mischwährung bleibt als Auftragsbanner sichtbar,
+                          // aber jede einzelne Leistung wird gelb/normal, sobald sie
+                          // vollständig manuell bestätigt ist. So sieht der Benutzer
+                          // sofort, welche Zeile noch fehlt.
+                          const unresolvedCurrencyItem =
+                            hasCurrencyConflict &&
+                            !isManuallyConfirmedCurrencyItem(item);
+                          const showCurrencyConflictItemReview = unresolvedCurrencyItem;
                           const priceInputReview =
+                            unresolvedCurrencyItem ||
                             Number(item.unitPrice || 0) === 0;
                           const quantityInputReview =
                             Number(item.quantity || 0) === 0;
+                          const priceInputCritical = priceInputReview;
+                          const quantityInputCritical = quantityInputReview;
                           const showUnitConflict =
-                            !hasCurrencyConflict &&
+                            !unresolvedCurrencyItem &&
                             Boolean(
-                              item.aiWarning?.trim() || unitMismatchReason,
+                              item.aiWarning?.trim() ||
+                                unitMismatchReason ||
+                                unitMissingInTextReason,
                             );
                           const showPriceOverride =
-                            !hasCurrencyConflict &&
+                            !unresolvedCurrencyItem &&
                             !showUnitConflict &&
                             Boolean(
                               (!item.catalogReviewConfirmed && priceOverrideReason) ||
@@ -6572,7 +8508,7 @@ export default function AuftraegePage() {
                               hasFrontendCatalogTextFlatOverride,
                             );
                           const showPriceReferenceReview =
-                            !hasCurrencyConflict &&
+                            !unresolvedCurrencyItem &&
                             !priceInputReview &&
                             Boolean(
                               priceUnclearReason ||
@@ -6580,10 +8516,14 @@ export default function AuftraegePage() {
                                 "unit_price_review",
                               ),
                             );
+                          const showManualCurrencyConfirmedReview =
+                            !unresolvedCurrencyItem &&
+                            Boolean(item.manualCurrencyConfirmed);
 
-                          const itemTotal =
-                            Number(item.unitPrice || 0) *
-                            Number(item.quantity || 0);
+                          const itemTotal = getSafeFormItemTotal(
+                            item,
+                            hasCurrencyConflict,
+                          );
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
                             item.unit?.trim() &&
@@ -6595,7 +8535,7 @@ export default function AuftraegePage() {
                             Boolean(item.serviceName?.trim()) &&
                             !isServiceInCatalog(item.serviceName);
                           const showManualServiceReview =
-                            !hasCurrencyConflict && isManualService;
+                            !unresolvedCurrencyItem && isManualService;
                           const sourceLineForItem =
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
@@ -6623,18 +8563,23 @@ export default function AuftraegePage() {
                           ].filter(Boolean);
                           const orderSummary = orderSummaryParts.join(" ");
                           const showItemReviewBlock =
-                            !hasCurrencyConflict &&
-                            (showUnitConflict ||
-                              showPriceOverride ||
-                              showPriceReferenceReview ||
-                              priceInputReview ||
-                              quantityInputReview ||
-                              showManualServiceReview);
+                            showCurrencyConflictItemReview ||
+                            (!unresolvedCurrencyItem &&
+                              (showUnitConflict ||
+                                showPriceOverride ||
+                                showPriceReferenceReview ||
+                                showManualCurrencyConfirmedReview ||
+                                priceInputReview ||
+                                quantityInputReview ||
+                                showManualServiceReview));
                           const hasMissingItemInput =
                             priceInputReview || quantityInputReview;
                           const isBlockingItemReview =
+                            unresolvedCurrencyItem ||
                             hasMissingItemInput ||
-                            showPriceReferenceReview ||
+                            Boolean(unitMissingInTextReason) ||
+                            (showPriceReferenceReview &&
+                              !isCompleteItemForCatalogAction) ||
                             (showUnitConflict &&
                               !isCompleteItemForCatalogAction);
                           const isMenuOpen = serviceActionMenuKey === item.key;
@@ -6644,6 +8589,7 @@ export default function AuftraegePage() {
                             Boolean(
                               hasCurrencyConflict ||
                               unitMismatchReason ||
+                              unitMissingInTextReason ||
                               item.aiWarning?.trim() ||
                               priceUnclearReason ||
                               curOrder?.reviewReasons?.includes(
@@ -6676,6 +8622,7 @@ export default function AuftraegePage() {
                           const hasAnyItemReview =
                             hasCriticalItemReview ||
                             showPriceOverride ||
+                            showManualCurrencyConfirmedReview ||
                             showManualServiceReview ||
                             hasResolvedReviewCatalogAction;
                           const siteIndex = site
@@ -7301,7 +9248,7 @@ export default function AuftraegePage() {
                                         type="number"
                                         step="0.05"
                                         className={`h-8 text-xs ${
-                                          priceInputReview
+                                          priceInputCritical
                                             ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                             : ""
                                         }`}
@@ -7332,7 +9279,7 @@ export default function AuftraegePage() {
                                         type="number"
                                         step="0.25"
                                         className={`h-8 text-xs ${
-                                          quantityInputReview
+                                          quantityInputCritical
                                             ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                             : ""
                                         }`}
@@ -7425,26 +9372,66 @@ export default function AuftraegePage() {
                                       </div>
 
                                       <div className="space-y-0.5">
-                                        {showUnitConflict && catalogService && (
+                                        {showCurrencyConflictItemReview && (
                                           <div className="space-y-0.5">
                                             <div>
-                                              Text:{" "}
-                                              <span className="font-medium">
-                                                {orderSummary}
-                                              </span>
+                                              Währung/Preis noch nicht bestätigt.
                                             </div>
-                                            {catalogSummary && (
+                                            {sourceLineForItem && (
                                               <div>
-                                                Katalog:{" "}
+                                                Text: {" "}
                                                 <span className="font-medium">
-                                                  {catalogSummary}
+                                                  {sourceLineForItem}
                                                 </span>
                                               </div>
                                             )}
                                             <div>
-                                              Einheit passt nicht. Menge,
-                                              Einheit und Preis prüfen.
+                                              Diese Position wird nicht in Netto/MwSt./Total gerechnet, bis die Währung und der Preis eindeutig bestätigt sind.
                                             </div>
+                                          </div>
+                                        )}
+
+                                        {showUnitConflict && (
+                                          <div className="space-y-0.5">
+                                            {unitMissingInTextReason ? (
+                                              <>
+                                                <div>
+                                                  Einheit fehlt im Kundentext.
+                                                </div>
+                                                {sourceLineForItem && (
+                                                  <div>
+                                                    Text:{" "}
+                                                    <span className="font-medium">
+                                                      {sourceLineForItem}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                                <div>
+                                                  Bitte Einheit bestätigen, bevor
+                                                  Angebot oder Rechnung erstellt wird.
+                                                </div>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <div>
+                                                  Text:{" "}
+                                                  <span className="font-medium">
+                                                    {orderSummary}
+                                                  </span>
+                                                </div>
+                                                {catalogSummary && (
+                                                  <div>
+                                                    Katalog:{" "}
+                                                    <span className="font-medium">
+                                                      {catalogSummary}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                                <div>
+                                                  Einheit prüfen: {item.serviceName || "Leistung"}
+                                                </div>
+                                              </>
+                                            )}
                                           </div>
                                         )}
 
@@ -7478,6 +9465,22 @@ export default function AuftraegePage() {
                                                   currency,
                                                 )}
                                               </div>
+                                            </div>
+                                          )}
+
+                                        {!showUnitConflict &&
+                                          !showPriceOverride &&
+                                          showManualCurrencyConfirmedReview && (
+                                            <div className="space-y-0.5">
+                                              <div>Preis/Währung manuell bestätigt.</div>
+                                              {sourceLineForItem && (
+                                                <div>
+                                                  Ausgangstext:{" "}
+                                                  <span className="font-medium">
+                                                    {sourceLineForItem}
+                                                  </span>
+                                                </div>
+                                              )}
                                             </div>
                                           )}
 
@@ -7688,7 +9691,11 @@ export default function AuftraegePage() {
                   )}
 
                   {/* Besonderheiten — always visible, important warnings highlighted */}
-                  <div className="space-y-2">
+                  <div
+                    ref={specialNotesRef}
+                    tabIndex={-1}
+                    className="scroll-mt-24 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60"
+                  >
                     <div className="flex items-center gap-2">
                       <Label className="font-semibold">Besonderheiten</Label>
                       {dangerNoteLines.length > 0 && (
