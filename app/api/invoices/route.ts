@@ -33,6 +33,29 @@ const CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^manual_flat_service_from_text$/,
 ];
 
+const isSourceOrderItemResolvedForDocument = (item: any) => {
+  const quantity = Number(item?.quantity ?? 0);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const total = Number(item?.totalPrice ?? quantity * unitPrice);
+
+  return quantity > 0 && unitPrice > 0 && total > 0;
+};
+
+const hasSourceOrderAllItemsResolvedForDocument = (order: any) => {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  if (items.length === 0) return false;
+  return items.every(isSourceOrderItemResolvedForDocument);
+};
+
+const isResolvableSourceOrderReviewReason = (reason: string) =>
+  reason.startsWith("currency_") ||
+  reason.startsWith("item_currency_mismatch") ||
+  reason.startsWith("currency_conflict_item:") ||
+  reason.startsWith("price_unclear:") ||
+  reason.startsWith("price_override:") ||
+  reason === "unit_price_review" ||
+  reason === "manual_flat_service_from_text";
+
 function sourceOrderBlockers(order: any): string[] {
   const blockers: string[] = [];
   const items = Array.isArray(order?.items) ? order.items : [];
@@ -42,31 +65,30 @@ function sourceOrderBlockers(order: any): string[] {
 
   if (items.length === 0) blockers.push("Keine Leistungen vorhanden");
 
-  if (
-    items.some(
-      (item: any) =>
-        Number(item?.quantity || 0) <= 0 ||
-        Number(item?.unitPrice || 0) <= 0 ||
-        Number(
-          item?.totalPrice ??
-            Number(item?.quantity || 0) * Number(item?.unitPrice || 0),
-        ) <= 0,
-    )
-  ) {
+  const allItemsResolved = hasSourceOrderAllItemsResolvedForDocument(order);
+
+  if (!allItemsResolved) {
     blockers.push("Preis/Menge prüfen");
   }
 
   if (
-    reviewReasons.some((reason: string) =>
-      CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS.some((pattern) =>
+    reviewReasons.some((reason: string) => {
+      const isCritical = CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS.some((pattern) =>
         pattern.test(reason),
-      ),
-    )
+      );
+      if (!isCritical) return false;
+
+      // Gelbe manuell bestätigte Preis-/Währungshinweise dürfen die
+      // Dokumenterstellung nicht blockieren, sobald jede Position einen
+      // verwertbaren Preis, eine Menge und ein Total hat. Harte Einheitsfehler
+      // bleiben Blocker.
+      return !(allItemsResolved && isResolvableSourceOrderReviewReason(reason));
+    })
   ) {
     blockers.push("Offene Prüfhinweise im Auftrag");
   }
 
-  if (order?.needsReview && reviewReasons.length > 0) {
+  if (order?.needsReview && reviewReasons.length > 0 && !allItemsResolved) {
     blockers.push("Auftrag ist noch auf Prüfen gesetzt");
   }
 

@@ -2176,6 +2176,8 @@ const hasCatalogPriceDeviationForItem = (
   if (isCatalogReviewConfirmedItem(item)) return false;
   if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName))
     return false;
+  if (hasCurrencyMismatchReviewForService(reviewReasons, item.serviceName))
+    return false;
 
   const catalog = findCatalogServiceForName(services, item.serviceName);
   if (!catalog) return false;
@@ -2204,6 +2206,8 @@ const hasCatalogTextFlatOverrideForItem = (
   if (!item?.serviceName?.trim()) return false;
   if (isCatalogReviewConfirmedItem(item)) return false;
   if (hasUnitMismatchReviewForService(reviewReasons, item.serviceName))
+    return false;
+  if (hasCurrencyMismatchReviewForService(reviewReasons, item.serviceName))
     return false;
 
   const catalog = findCatalogServiceForName(services, item.serviceName);
@@ -2632,23 +2636,6 @@ const formatCurrencyReviewTooltip = (
 
   sections.push(currencyLines.join("\n"));
 
-  const priceDeviationItems = getCatalogPriceDeviationItems(order, services);
-  const flatOverrideItems = getCatalogTextFlatOverrideItems(order, services);
-  const priceReviewItems = uniqueCatalogReviewItems([
-    ...priceDeviationItems,
-    ...flatOverrideItems,
-  ]);
-  const catalogMissingItems = getCatalogMissingItems(order, services);
-  const serviceTooltip = formatServiceReviewSummaryTooltip({
-    priceItems: priceReviewItems,
-    missingItems: catalogMissingItems,
-    items: order.items || [],
-    services,
-    currency: order.currency,
-  });
-
-  if (serviceTooltip) sections.push(serviceTooltip);
-
   return sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
 };
 
@@ -2793,10 +2780,11 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
     ),
   );
 
-  // Wenn die Währung selbst unsicher/konfliktbehaftet ist, reicht außen
-  // "Währung prüfen". Zusätzliche Sammelchips sind dann doppelt.
+  // Währungsfehler und normale Katalog-/Preisabweichungen sind getrennte
+  // Prüfarten. Außen müssen beide sichtbar bleiben: rot für echte
+  // Währungsblocker, gelb für weiterhin berechenbare Preisabweichungen.
   if (currencyBadges.length > 0) {
-    return currencyBadges;
+    return [...currencyBadges, ...catalogBadges];
   }
 
   if (blockingBadges.length > 1) {
@@ -3940,8 +3928,6 @@ const isPersistedManualCurrencyConfirmedItem = (item: any) =>
   compactText(item?.description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
 
 const hasOrderAllItemsManuallyResolvedForConversion = (order: Order | any) => {
-  if (hasAnyCurrencyReviewReason(order?.reviewReasons)) return false;
-
   const items: any[] = Array.isArray(order?.items) ? order.items : [];
   if (items.length === 0) return false;
   return items.every((item) => {
