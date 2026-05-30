@@ -2057,6 +2057,97 @@ const hasUnitMismatchReviewForService = (
   );
 };
 
+
+type CurrencyMismatchDetail = {
+  serviceName: string;
+  textCurrency: string;
+  orderCurrency: string;
+  reason: string;
+};
+
+const parseCurrencyMismatchReviewReason = (
+  reason?: string | null,
+): CurrencyMismatchDetail | null => {
+  const raw = String(reason || "").trim();
+  if (!raw) return null;
+
+  const parts = raw.split(":").map((part) => compactText(part));
+  const kind = parts[0] || "";
+
+  if (kind === "item_currency_mismatch" && parts.length >= 4) {
+    return {
+      serviceName: canonicalServiceNameForOrderItem(parts[1] || ""),
+      textCurrency: (parts[2] || "UNKNOWN").toUpperCase(),
+      orderCurrency: (parts[3] || "UNKNOWN").toUpperCase(),
+      reason: raw,
+    };
+  }
+
+  if (kind === "currency_conflict_item" && parts.length >= 2) {
+    return {
+      serviceName: canonicalServiceNameForOrderItem(parts[1] || ""),
+      textCurrency: (parts[2] || "UNKNOWN").toUpperCase(),
+      orderCurrency: (parts[3] || "UNKNOWN").toUpperCase(),
+      reason: raw,
+    };
+  }
+
+  return null;
+};
+
+const getCurrencyMismatchReviewDetails = (
+  reviewReasons?: string[] | null,
+): CurrencyMismatchDetail[] => {
+  const seen = new Set<string>();
+  const details: CurrencyMismatchDetail[] = [];
+
+  (reviewReasons || []).forEach((reason) => {
+    const detail = parseCurrencyMismatchReviewReason(reason);
+    if (!detail?.serviceName) return;
+
+    const key = [
+      normalizeForMatch(detail.serviceName),
+      detail.textCurrency,
+      detail.orderCurrency,
+    ].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    details.push(detail);
+  });
+
+  return details;
+};
+
+const hasItemLevelCurrencyReviewReasons = (
+  reviewReasons?: string[] | null,
+) => getCurrencyMismatchReviewDetails(reviewReasons).length > 0;
+
+const hasAnyCurrencyReviewReason = (reviewReasons?: string[] | null) =>
+  (reviewReasons || []).some(
+    (reason) =>
+      String(reason || "").startsWith("currency_") ||
+      String(reason || "").startsWith("item_currency_mismatch:") ||
+      String(reason || "").startsWith("currency_conflict_item:"),
+  );
+
+const hasCurrencyMismatchReviewForService = (
+  reviewReasons?: string[] | null,
+  serviceName?: string | null,
+) => {
+  const serviceKey = normalizeForMatch(canonicalServiceNameForOrderItem(serviceName));
+  if (!serviceKey) return false;
+
+  return getCurrencyMismatchReviewDetails(reviewReasons).some(
+    (detail) => normalizeForMatch(detail.serviceName) === serviceKey,
+  );
+};
+
+const hasGlobalCurrencyReviewWithoutItemDetails = (
+  reviewReasons?: string[] | null,
+) =>
+  hasAnyCurrencyReviewReason(reviewReasons) &&
+  !hasItemLevelCurrencyReviewReasons(reviewReasons);
+
 const findUnitMissingInTextReviewForService = (
   reviewReasons: string[] | null | undefined,
   serviceName?: string | null,
@@ -2490,6 +2581,77 @@ const formatServiceReviewSummaryTooltip = (input: {
   return sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
 };
 
+
+const formatCurrencyReviewTooltip = (
+  order: Order,
+  services: ServiceDef[],
+) => {
+  const orderCurrency = order.currency === "EUR" ? "EUR" : "CHF";
+  const sourceText = [order.notes, order.description, order.audioTranscript]
+    .filter(Boolean)
+    .join("\n");
+  const sections: string[] = [];
+  const mismatchDetails = getCurrencyMismatchReviewDetails(order.reviewReasons);
+
+  const currencyLines = [
+    "Währung prüfen",
+    "Unterschiedliche Währungen im Kundentext erkannt. Nicht passende Positionen werden nicht berechnet.",
+  ];
+
+  if (mismatchDetails.length > 0) {
+    mismatchDetails.slice(0, 8).forEach((detail) => {
+      const matchingItem = (order.items || []).find(
+        (item) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
+          normalizeForMatch(detail.serviceName),
+      );
+      const sourceLine = findCustomerTextLineForService(
+        sourceText,
+        detail.serviceName,
+        matchingItem
+          ? {
+              quantity: matchingItem.quantity,
+              unit: matchingItem.unit,
+              unitPrice: matchingItem.unitPrice,
+            }
+          : undefined,
+      );
+
+      currencyLines.push(
+        `• ${detail.serviceName || "Leistung"} — Text ${detail.textCurrency || "prüfen"}, Auftrag ${detail.orderCurrency || orderCurrency} · nicht berechnet`,
+      );
+      if (sourceLine) currencyLines.push(`  Text: ${sourceLine}`);
+    });
+
+    if (mismatchDetails.length > 8) {
+      currencyLines.push(`+${mismatchDetails.length - 8} weitere Währungsprobleme`);
+    }
+  } else {
+    currencyLines.push("• Währung im Auftrag oder Kundentext ist unklar. Auftrag öffnen und Positionen prüfen.");
+  }
+
+  sections.push(currencyLines.join("\n"));
+
+  const priceDeviationItems = getCatalogPriceDeviationItems(order, services);
+  const flatOverrideItems = getCatalogTextFlatOverrideItems(order, services);
+  const priceReviewItems = uniqueCatalogReviewItems([
+    ...priceDeviationItems,
+    ...flatOverrideItems,
+  ]);
+  const catalogMissingItems = getCatalogMissingItems(order, services);
+  const serviceTooltip = formatServiceReviewSummaryTooltip({
+    priceItems: priceReviewItems,
+    missingItems: catalogMissingItems,
+    items: order.items || [],
+    services,
+    currency: order.currency,
+  });
+
+  if (serviceTooltip) sections.push(serviceTooltip);
+
+  return sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
+};
+
 const cleanWorkSiteDisplayName = (value?: string | null) => {
   let text = compactText(value);
   if (!text) return "";
@@ -2797,7 +2959,12 @@ const getSystemBadges = (
             totalPrice <= 0 &&
             (/einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(text) ||
               /unit\s+(?:missing|open|unknown|unclear|review)/i.test(text));
-          return quantity <= 0 || unitPrice <= 0 || explicitReviewZeroTotal;
+          return (
+            quantity <= 0 ||
+            unitPrice <= 0 ||
+            explicitReviewZeroTotal ||
+            hasCurrencyMismatchReviewForService(order.reviewReasons, it.serviceName)
+          );
         })
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
 
@@ -2883,7 +3050,7 @@ const getSystemBadges = (
       label: "Währung prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
-      tooltip: "Die Währung ist unklar oder mehrere Währungen wurden erkannt.",
+      tooltip: formatCurrencyReviewTooltip(order, services),
     });
   }
 
@@ -3773,6 +3940,8 @@ const isPersistedManualCurrencyConfirmedItem = (item: any) =>
   compactText(item?.description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
 
 const hasOrderAllItemsManuallyResolvedForConversion = (order: Order | any) => {
+  if (hasAnyCurrencyReviewReason(order?.reviewReasons)) return false;
+
   const items: any[] = Array.isArray(order?.items) ? order.items : [];
   if (items.length === 0) return false;
   return items.every((item) => {
@@ -4365,23 +4534,16 @@ export default function AuftraegePage() {
             );
             const isManualCurrencyConfirmed =
               getManualCurrencyConfirmedFromItemDescription(item.description);
-            const hasOrderCurrencyReview =
-              o.reviewReasons?.some(
-                (reason: string) =>
-                  reason.startsWith("currency_") ||
-                  reason.startsWith("item_currency_mismatch") ||
-                  reason.startsWith("currency_conflict_item:"),
-              ) ?? false;
-            // V17.18: Bei bestehendem Währungs-/Mischwährungsblocker darf KEINE
-            // Position mit einem aus dem Kundentext übernommenen Preis vorbefüllt
-            // werden. Das gilt ausdrücklich auch für Anfahrt/Pauschalpositionen:
-            // "Anfahrt CHF 50" darf im EUR-Auftrag nicht als fertiger EUR-Preis
-            // erscheinen. Menge und Einheit bleiben sichtbar, Preis muss der
-            // Benutzer pro Position frisch bestätigen.
+            const hasItemCurrencyMismatch = hasCurrencyMismatchReviewForService(
+              o.reviewReasons,
+              item.serviceName,
+            );
+            // V17.22: Mischwährung wird pro Position bewertet. Nur die Zeilen,
+            // deren Textwährung von der Auftragswährung abweicht, werden rot/leer
+            // geöffnet. Eine EUR-Zeile in einem EUR-Auftrag bleibt befüllt und
+            // zeigt nur die normale gelbe Preisabweichung zum Katalog.
             const shouldRequireFreshManualPrice =
-              !isCatalogConfirmed &&
-              !isManualCurrencyConfirmed &&
-              (hasOrderCurrencyReview || isBlockingCurrencyReviewText(rawAiWarning));
+              !isManualCurrencyConfirmed && hasItemCurrencyMismatch;
 
             return {
               key: Math.random().toString(36).slice(2),
@@ -5036,6 +5198,7 @@ export default function AuftraegePage() {
           // und bleibt nach Speichern/Reload erhalten; andere Zeilen bleiben rot.
           if (
             isResolvedInput &&
+            !hasFormItemCurrencyMismatch(nextItem) &&
             (hasCurrentEditCurrencyReview ||
               /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
                 warningText,
@@ -5102,12 +5265,17 @@ export default function AuftraegePage() {
 
   const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
   const hasCurrentEditCurrencyReview =
-    currentEditReviewReasons.some(
-      (reason: string) =>
-        reason.startsWith("currency_") ||
-        reason.startsWith("item_currency_mismatch") ||
-        reason.startsWith("currency_conflict_item:"),
-    ) ?? false;
+    hasAnyCurrencyReviewReason(currentEditReviewReasons);
+  const hasCurrentEditItemCurrencyMismatch =
+    hasItemLevelCurrencyReviewReasons(currentEditReviewReasons);
+  const hasOnlyGlobalCurrentEditCurrencyReview =
+    hasGlobalCurrencyReviewWithoutItemDetails(currentEditReviewReasons);
+
+  const hasFormItemCurrencyMismatch = (item: { serviceName?: string | null }) =>
+    hasCurrencyMismatchReviewForService(
+      currentEditReviewReasons,
+      item.serviceName,
+    );
 
   const isBlockingCurrencyReviewText = (value?: string | null) => {
     const text = normalizeForMatch(value);
@@ -5143,11 +5311,16 @@ export default function AuftraegePage() {
     );
   };
 
-  const isManuallyConfirmedCurrencyItem = (item: FormItem) =>
-    isCompleteResolvedFormItem(item) &&
-    (Boolean(item.manualCurrencyConfirmed) ||
-      Boolean(item.catalogReviewConfirmed) ||
-      !isBlockingCurrencyReviewText(item.aiWarning));
+  const isManuallyConfirmedCurrencyItem = (item: FormItem) => {
+    if (hasFormItemCurrencyMismatch(item)) return false;
+
+    return (
+      isCompleteResolvedFormItem(item) &&
+      (Boolean(item.manualCurrencyConfirmed) ||
+        Boolean(item.catalogReviewConfirmed) ||
+        !isBlockingCurrencyReviewText(item.aiWarning))
+    );
+  };
 
   // V17.16: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
   // sperren, bis jede Position im Editor manuell vollständig bestätigt ist.
@@ -5155,6 +5328,7 @@ export default function AuftraegePage() {
   // nach Reload nicht wieder aus "Anfahrt CHF 50" zurückgesetzt wird.
   const formHasResolvedCurrencyReview =
     hasCurrentEditCurrencyReview &&
+    !hasCurrentEditItemCurrencyMismatch &&
     (currency === "CHF" || currency === "EUR") &&
     formItems.length > 0 &&
     formItems.every((item) => isManuallyConfirmedCurrencyItem(item));
@@ -5162,13 +5336,27 @@ export default function AuftraegePage() {
   const hasEditCurrencyReview =
     hasCurrentEditCurrencyReview && !formHasResolvedCurrencyReview;
 
+  const isFormItemBlockedByCurrencyReview = (item: FormItem) => {
+    if (!hasCurrentEditCurrencyReview) return false;
+    if (hasFormItemCurrencyMismatch(item)) return true;
+    if (hasOnlyGlobalCurrentEditCurrencyReview) {
+      return !isManuallyConfirmedCurrencyItem(item);
+    }
+    return false;
+  };
+
   const isBlockedFormItemForTotal = (
     item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed"> & {
       serviceName?: string | null;
     },
-    forceCurrencyConflict = hasEditCurrencyReview,
+    forceCurrencyConflict = false,
   ) => {
-    if (forceCurrencyConflict && !isManuallyConfirmedCurrencyItem(item as FormItem)) return true;
+    if (
+      forceCurrencyConflict ||
+      isFormItemBlockedByCurrencyReview(item as FormItem)
+    ) {
+      return true;
+    }
 
     const reviewText = normalizeForMatch(
       [item.unit, item.aiWarning].filter(Boolean).join(" "),
@@ -5882,8 +6070,12 @@ export default function AuftraegePage() {
       // sichtbaren Editorwerte als bestätigt gespeichert werden. Sonst ziehen
       // API-Sicherheitsnetze beim erneuten Öffnen wieder Preise/Währung aus dem
       // ursprünglichen Kundentext und überschreiben die manuelle Korrektur.
-      manualReviewResolved: formHasResolvedCurrencyReview || allItemsComplete,
-      manualItemValuesConfirmed: formHasResolvedCurrencyReview || allItemsComplete,
+      manualReviewResolved:
+        formHasResolvedCurrencyReview ||
+        (allItemsComplete && !hasCurrentEditCurrencyReview),
+      manualItemValuesConfirmed:
+        formHasResolvedCurrencyReview ||
+        (allItemsComplete && !hasCurrentEditCurrencyReview),
       reviewReasons: cleanedReviewReasons,
       needsReview: cleanedReviewReasons.length > 0,
       workSites:
@@ -5902,10 +6094,11 @@ export default function AuftraegePage() {
           : undefined,
       items: validItems.map((item) => {
         const itemCurrencyConfirmed = isManuallyConfirmedCurrencyItem(item);
-        const resolvedCurrencyItem =
-          formHasResolvedCurrencyReview || itemCurrencyConfirmed;
         const itemIsStillBlockedByCurrency =
-          hasEditCurrencyReview && !itemCurrencyConfirmed;
+          isFormItemBlockedByCurrencyReview(item);
+        const resolvedCurrencyItem =
+          !itemIsStillBlockedByCurrency &&
+          (formHasResolvedCurrencyReview || itemCurrencyConfirmed);
 
         return {
           serviceName: canonicalServiceNameForOrderItem(item.serviceName),
@@ -5918,7 +6111,7 @@ export default function AuftraegePage() {
           quantity: Number(item.quantity || 0),
           unit: item.unit,
           unitPrice: itemIsStillBlockedByCurrency ? 0 : Number(item.unitPrice || 0),
-          totalPrice: getSafeFormItemTotal(item, hasEditCurrencyReview),
+          totalPrice: getSafeFormItemTotal(item),
           workSiteId: item.workSiteId || null,
         };
       }),
@@ -6645,6 +6838,15 @@ export default function AuftraegePage() {
     if (o.items && o.items.length > 0) {
       return o.items.reduce((sum, item) => {
         if (isBlockedOrderItemForTotal(item)) return sum;
+        if (hasCurrencyMismatchReviewForService(o.reviewReasons, item.serviceName)) {
+          return sum;
+        }
+        if (
+          hasGlobalCurrencyReviewWithoutItemDetails(o.reviewReasons) &&
+          !isPersistedManualCurrencyConfirmedItem(item)
+        ) {
+          return sum;
+        }
 
         const qty = Number(item.quantity || 0);
         const price = Number(item.unitPrice || 0);
@@ -8435,14 +8637,12 @@ export default function AuftraegePage() {
                             Number(item.quantity || 0) === 1;
 
                           const hasCurrencyConflict = hasEditCurrencyReview;
-                          // V17.18: Rot ist pro Position, nicht global.
-                          // Eine Mischwährung bleibt als Auftragsbanner sichtbar,
-                          // aber jede einzelne Leistung wird gelb/normal, sobald sie
-                          // vollständig manuell bestätigt ist. So sieht der Benutzer
-                          // sofort, welche Zeile noch fehlt.
+                          // V17.22: Rot ist pro Position, nicht global. Eine
+                          // CHF-Zeile im EUR-Auftrag bleibt rot/0. Eine EUR-Zeile
+                          // im EUR-Auftrag bleibt berechenbar und wird bei
+                          // Katalogabweichung gelb markiert.
                           const unresolvedCurrencyItem =
-                            hasCurrencyConflict &&
-                            !isManuallyConfirmedCurrencyItem(item);
+                            isFormItemBlockedByCurrencyReview(item);
                           const showCurrencyConflictItemReview = unresolvedCurrencyItem;
                           const priceInputReview =
                             unresolvedCurrencyItem ||
@@ -8479,10 +8679,7 @@ export default function AuftraegePage() {
                             !unresolvedCurrencyItem &&
                             Boolean(item.manualCurrencyConfirmed);
 
-                          const itemTotal = getSafeFormItemTotal(
-                            item,
-                            hasCurrencyConflict,
-                          );
+                          const itemTotal = getSafeFormItemTotal(item);
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
                             item.unit?.trim() &&
@@ -8546,7 +8743,7 @@ export default function AuftraegePage() {
                           const hasResolvedReviewCatalogAction =
                             isCompleteItemForCatalogAction &&
                             Boolean(
-                              hasCurrencyConflict ||
+                              showCurrencyConflictItemReview ||
                               unitMismatchReason ||
                               unitMissingInTextReason ||
                               item.aiWarning?.trim() ||

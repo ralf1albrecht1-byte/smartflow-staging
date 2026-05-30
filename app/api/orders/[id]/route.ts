@@ -331,25 +331,107 @@ function hasCurrencyConflictReviewOnOrderLike(value: any): boolean {
   );
 }
 
+
+function parseCurrencyReviewService(reason: any): string {
+  const key = String(reason || "").trim();
+  const parts = key.split(":").map((part) => String(part || "").trim());
+  const kind = parts[0] || "";
+  if (
+    kind === "item_currency_mismatch" ||
+    kind === "currency_conflict_item" ||
+    kind === "price_unclear" ||
+    kind === "price_override" ||
+    kind === "unit_mismatch" ||
+    kind === "unit_missing_in_text"
+  ) {
+    return normalizeSearchText(normalizeServiceNameForDisplay(parts[1] || ""));
+  }
+  return "";
+}
+
+function hasItemLevelCurrencyReviewReasons(value: any): boolean {
+  const reasons = Array.isArray(value?.reviewReasons) ? value.reviewReasons : [];
+  return reasons.some((reason: any) => {
+    const key = String(reason || "");
+    return (
+      key.startsWith("item_currency_mismatch:") ||
+      key.startsWith("currency_conflict_item:")
+    );
+  });
+}
+
+function hasGlobalCurrencyReviewWithoutItemDetails(value: any): boolean {
+  return (
+    hasCurrencyConflictReviewOnOrderLike(value) &&
+    !hasItemLevelCurrencyReviewReasons(value)
+  );
+}
+
+function hasCurrencyMismatchReviewForService(data: any, serviceName?: string | null): boolean {
+  const serviceKey = normalizeSearchText(normalizeServiceNameForDisplay(serviceName));
+  if (!serviceKey) return false;
+
+  const reasons = Array.isArray(data?.reviewReasons) ? data.reviewReasons : [];
+  return reasons.some((reason: any) => {
+    const key = String(reason || "");
+    if (
+      !key.startsWith("item_currency_mismatch:") &&
+      !key.startsWith("currency_conflict_item:")
+    ) {
+      return false;
+    }
+    return parseCurrencyReviewService(key) === serviceKey;
+  });
+}
+
+function reviewReasonAppliesToItem(reason: any, item: any, data?: any): boolean {
+  const key = String(reason || "");
+  const serviceName = normalizeSearchText(normalizeServiceNameForDisplay(item?.serviceName));
+  const reasonService = parseCurrencyReviewService(key);
+
+  if (reasonService) return Boolean(serviceName && reasonService === serviceName);
+
+  // Global currency_review darf nur alle Positionen blockieren, wenn keine
+  // item_currency_mismatch-Zeilen vorhanden sind. Sonst blockiert nur die
+  // betroffene Position.
+  if (key.startsWith("currency_")) {
+    return hasGlobalCurrencyReviewWithoutItemDetails(data || {});
+  }
+
+  return true;
+}
+
 function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
   const itemIsManuallyConfirmed = isItemManuallyConfirmedForPersist(item);
   const globalReviewReasons = Array.isArray(data?.reviewReasons)
-    ? data.reviewReasons
+    ? data.reviewReasons.filter((reason: any) =>
+        itemIsManuallyConfirmed
+          ? false
+          : reviewReasonAppliesToItem(reason, item, data),
+      )
     : [];
+  const itemHasCurrencyMismatch = hasCurrencyMismatchReviewForService(
+    data || {},
+    item?.serviceName,
+  );
+  const globalCurrencyReviewApplies =
+    hasGlobalCurrencyReviewWithoutItemDetails(data || {}) &&
+    !itemIsManuallyConfirmed;
   const reviewText = [
     item?.unit,
     item?.description,
     item?.sourceText,
     item?.evidence,
     item?.reviewReason,
-    ...(itemIsManuallyConfirmed ? [] : globalReviewReasons),
+    ...globalReviewReasons,
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
 
   return (
-    (!itemIsManuallyConfirmed && hasCurrencyConflictReviewOnOrderLike(data || {})) ||
+    itemHasCurrencyMismatch ||
+    globalCurrencyReviewApplies ||
     /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(reviewText) ||
     /unit\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
     /unit_missing_in_text|unit_mismatch:/i.test(reviewText) ||
@@ -364,6 +446,8 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
   );
 }
 function hasCompleteManualItemsForPersist(data: any): boolean {
+  if (hasCurrencyConflictReviewOnOrderLike(data || {})) return false;
+
   const items = Array.isArray(data?.items) ? data.items : [];
   if (items.length === 0) return false;
 
@@ -400,8 +484,6 @@ function isReviewReasonResolvedByConfirmedItemForPersist(reason: string, data: a
   if (!getManuallyConfirmedServiceNamesForPersist(data).has(serviceName)) return false;
   return (
     key.startsWith("price_unclear:") ||
-    key.startsWith("item_currency_mismatch:") ||
-    key.startsWith("currency_conflict_item:") ||
     key.startsWith("price_override:")
   );
 }
@@ -559,10 +641,8 @@ function normalizeReviewReasonsForPersist(data: any) {
 
     if (
       allItemsComplete &&
-      (key.startsWith("currency_") ||
-        key.startsWith("item_currency_mismatch") ||
-        key.startsWith("currency_conflict_item:") ||
-        key.startsWith("price_unclear:") ||
+      !hasCurrencyConflictReviewOnOrderLike(data || {}) &&
+      (key.startsWith("price_unclear:") ||
         key === "unit_price_review" ||
         key === "quantity_review" ||
         key === "manual_flat_service_from_text" ||
