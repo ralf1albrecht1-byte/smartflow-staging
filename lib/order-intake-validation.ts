@@ -5135,16 +5135,27 @@ function applyStructuredFailClosedValidation(params: {
     }
 
     if (globalCurrencyConflict) {
-      // Bei Mischwährung ist der Auftrag als Ganzes nicht sicher berechenbar.
-      // Keine Einzelposition darf in der Fallback-Währung weitergerechnet werden,
-      // weil das wie eine stille Umrechnung wirkt.
-      next.unitPrice = 0;
-      itemReasons.push(
-        itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency
-          ? `item_currency_mismatch:${serviceName}:${itemDetectedCurrency}:${params.finalCurrency}`
-          : `currency_conflict_item:${serviceName}:${itemDetectedCurrency || "UNKNOWN"}`,
-        "currency_review",
-      );
+      reviewReasons.push("currency_review");
+
+      const unsupportedCurrencyBlocked =
+        params.unsupportedDetectedCurrencies.length > 0 &&
+        (!itemDetectedCurrency ||
+          (itemDetectedCurrency !== "CHF" && itemDetectedCurrency !== "EUR"));
+      const mixedCurrencyItemBlocked =
+        params.detectedCurrencies.length > 1 &&
+        (!itemDetectedCurrency || itemDetectedCurrency !== params.finalCurrency);
+
+      // V17.23: Mischwährung ist ein Auftrags-Banner, aber keine pauschale
+      // Sperre für jede Position. Eine EUR-Zeile in einem EUR-Auftrag bleibt
+      // berechenbar; nur CHF/UNKNOWN-Zeilen werden rot/0 blockiert.
+      if (unsupportedCurrencyBlocked || mixedCurrencyItemBlocked) {
+        next.unitPrice = 0;
+        itemReasons.push(
+          itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency
+            ? `item_currency_mismatch:${serviceName}:${itemDetectedCurrency}:${params.finalCurrency}`
+            : `currency_conflict_item:${serviceName}:${itemDetectedCurrency || "UNKNOWN"}:${params.finalCurrency}`,
+        );
+      }
     } else if (itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency) {
       next.unitPrice = 0;
       itemReasons.push(
@@ -5164,7 +5175,8 @@ function applyStructuredFailClosedValidation(params: {
         reason === "currency_review" ||
         reason.startsWith("price_unclear:") ||
         reason.startsWith("unit_mismatch:") ||
-        reason.startsWith("item_currency_mismatch:"),
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:"),
       )
     ) {
       next.needsReview = true;
@@ -5173,6 +5185,7 @@ function applyStructuredFailClosedValidation(params: {
           reason.startsWith("unit_mismatch:") ||
           reason.startsWith("price_unclear:") ||
           reason.startsWith("item_currency_mismatch:") ||
+          reason.startsWith("currency_conflict_item:") ||
           reason === "quantity_review" ||
           reason === "unit_price_review" ||
           reason === "currency_review",
@@ -5244,11 +5257,24 @@ function applyFinalBlockedLineTotalGuard(params: {
       reviewKey.includes("price missing") ||
       reviewKey.includes("price unclear");
 
+    const unsupportedCurrencyBlocked =
+      params.unsupportedDetectedCurrencies.length > 0 &&
+      (!itemDetectedCurrency ||
+        (itemDetectedCurrency !== "CHF" && itemDetectedCurrency !== "EUR"));
+    const mixedCurrencyItemBlocked =
+      params.detectedCurrencies.length > 1 &&
+      (!itemDetectedCurrency || itemDetectedCurrency !== params.finalCurrency);
+    const genericCurrencyReviewBlocked =
+      String(next.reviewReason || "") === "currency_review" &&
+      (!itemDetectedCurrency || itemDetectedCurrency !== params.finalCurrency);
+
     const currencyBlocked =
-      globalCurrencyConflict ||
+      unsupportedCurrencyBlocked ||
+      mixedCurrencyItemBlocked ||
       Boolean(itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency) ||
       String(next.reviewReason || "").startsWith("item_currency_mismatch:") ||
-      String(next.reviewReason || "") === "currency_review";
+      String(next.reviewReason || "").startsWith("currency_conflict_item:") ||
+      genericCurrencyReviewBlocked;
 
     const amountBlocked =
       unitMissingOrUnclear ||
@@ -5267,12 +5293,12 @@ function applyFinalBlockedLineTotalGuard(params: {
       // EUR/CHF-Summe weiterlaufen. Menge und Einheit bleiben als Hinweis
       // sichtbar, aber der Preis zählt nicht in Netto/MwSt/Total.
       next.unitPrice = 0;
-      if (!next.reviewReason) {
+      if (!next.reviewReason || next.reviewReason === "currency_review") {
         next.reviewReason = itemDetectedCurrency && itemDetectedCurrency !== params.finalCurrency
           ? `item_currency_mismatch:${serviceName}:${itemDetectedCurrency}:${params.finalCurrency}`
-          : `currency_conflict_item:${serviceName}:${itemDetectedCurrency || "UNKNOWN"}`;
+          : `currency_conflict_item:${serviceName}:${itemDetectedCurrency || "UNKNOWN"}:${params.finalCurrency}`;
       }
-      reviewReasons.push("currency_review", next.reviewReason || `currency_conflict_item:${serviceName}:UNKNOWN`);
+      reviewReasons.push("currency_review", next.reviewReason || `currency_conflict_item:${serviceName}:UNKNOWN:${params.finalCurrency}`);
       return next;
     }
 
@@ -5638,7 +5664,8 @@ export function validateAndRepairParsedOrderItems(
         reason === "currency_review" ||
         reason === "currency_conflict" ||
         reason === "currency_unsupported" ||
-        reason.startsWith("item_currency_mismatch:")
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:")
       ) {
         return { ...item, needsReview: false, reviewReason: null };
       }
@@ -5684,7 +5711,8 @@ export function validateAndRepairParsedOrderItems(
         reason === "currency_review" ||
         reason === "currency_conflict" ||
         reason === "currency_unsupported" ||
-        reason.startsWith("item_currency_mismatch:")
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:")
       ) {
         return hasRealCurrencyProblem;
       }
@@ -5701,7 +5729,8 @@ export function validateAndRepairParsedOrderItems(
         (reason === "currency_review" ||
           reason === "currency_conflict" ||
           reason === "currency_unsupported" ||
-          reason.startsWith("item_currency_mismatch:"))
+          reason.startsWith("item_currency_mismatch:") ||
+          reason.startsWith("currency_conflict_item:"))
       ) {
         return false;
       }

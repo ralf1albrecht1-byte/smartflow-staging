@@ -593,10 +593,12 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
           : reviewReasonAppliesToItem(reason, item, data),
       )
     : [];
-  const itemHasCurrencyMismatch = hasCurrencyMismatchReviewForService(
-    data || {},
-    item?.serviceName,
-  );
+  const itemHasCurrencyMismatch =
+    !itemIsManuallyConfirmed &&
+    hasCurrencyMismatchReviewForService(
+      data || {},
+      item?.serviceName,
+    );
   const globalCurrencyReviewApplies =
     hasGlobalCurrencyReviewWithoutItemDetails(data || {}) &&
     !itemIsManuallyConfirmed;
@@ -667,8 +669,29 @@ function isReviewReasonResolvedByConfirmedItemForPersist(reason: string, data: a
   if (!getManuallyConfirmedServiceNamesForPersist(data).has(serviceName)) return false;
   return (
     key.startsWith("price_unclear:") ||
-    key.startsWith("price_override:")
+    key.startsWith("price_override:") ||
+    key.startsWith("item_currency_mismatch:") ||
+    key.startsWith("currency_conflict_item:")
   );
+}
+
+function hasCompleteManualItemsIgnoringCurrencyForPersist(data: any): boolean {
+  const items = Array.isArray(data?.items) ? data.items : [];
+  if (items.length === 0) return false;
+
+  return items.every((item: any) => {
+    const unit = normalizeSearchText(item?.unit);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const quantity = Number(item?.quantity ?? 0);
+    return (
+      String(item?.serviceName || "").trim().length > 0 &&
+      unit.length > 0 &&
+      !unit.includes("pruefen") &&
+      !unit.includes("prufen") &&
+      unitPrice > 0 &&
+      quantity > 0
+    );
+  });
 }
 
 function shouldTrustClientItemValuesForPersist(data: any): boolean {
@@ -812,8 +835,10 @@ function normalizeReviewReasonsForPersist(data: any) {
   const items = Array.isArray(data?.items) ? data.items : [];
   const hasExplicitPriceSignal = hasExplicitPriceCurrencySignal(data);
   const allItemsComplete = hasCompleteManualItemsForPersist(data);
+  const allItemsCompleteIgnoringCurrency =
+    hasCompleteManualItemsIgnoringCurrencyForPersist(data);
 
-  return reasons.filter((reason: string) => {
+  const firstPass = reasons.filter((reason: string) => {
     const key = String(reason || "");
 
     if (isReviewReasonResolvedByConfirmedItemForPersist(key, data)) {
@@ -840,6 +865,26 @@ function normalizeReviewReasonsForPersist(data: any) {
     if (!item) return true;
     const hasPrice = Number(item?.unitPrice || 0) > 0 && Number(item?.quantity || 0) > 0;
     return !(hasPrice && hasExplicitPriceSignal);
+  });
+
+  const hasRemainingItemCurrencyReview = firstPass.some((reason: string) => {
+    const key = String(reason || "");
+    return (
+      key.startsWith("item_currency_mismatch:") ||
+      key.startsWith("currency_conflict_item:")
+    );
+  });
+
+  return firstPass.filter((reason: string) => {
+    const key = String(reason || "");
+    if (
+      allItemsCompleteIgnoringCurrency &&
+      !hasRemainingItemCurrencyReview &&
+      (key === "currency_review" || key === "currency_conflict")
+    ) {
+      return false;
+    }
+    return true;
   });
 }
 

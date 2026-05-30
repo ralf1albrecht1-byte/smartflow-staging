@@ -3361,11 +3361,19 @@ function applyFinalAmountBlockersBeforePersist(
     const quantityBlocked =
       getServiceUnitType(next.unit) !== "flat" && Number(next.quantity || 0) <= 0;
 
+    const mixedCurrencyItemBlocked =
+      hasGlobalCurrencyConflict &&
+      (!detectedCurrency || (finalCurrency && detectedCurrency !== finalCurrency));
+    const genericCurrencyReviewBlocked =
+      String(next.reviewReason || "") === "currency_review" &&
+      (!detectedCurrency || (finalCurrency && detectedCurrency !== finalCurrency));
+
     const currencyBlocked =
-      hasGlobalCurrencyConflict ||
+      mixedCurrencyItemBlocked ||
       Boolean(detectedCurrency && finalCurrency && detectedCurrency !== finalCurrency) ||
       String(next.reviewReason || "").startsWith("item_currency_mismatch:") ||
-      String(next.reviewReason || "") === "currency_review";
+      String(next.reviewReason || "").startsWith("currency_conflict_item:") ||
+      genericCurrencyReviewBlocked;
 
     if (!(unitBlocked || priceBlocked || quantityBlocked || currencyBlocked)) {
       return next;
@@ -3376,10 +3384,10 @@ function applyFinalAmountBlockersBeforePersist(
 
     if (currencyBlocked) {
       next.unitPrice = 0;
-      if (!next.reviewReason) {
+      if (!next.reviewReason || next.reviewReason === "currency_review") {
         next.reviewReason = detectedCurrency && finalCurrency && detectedCurrency !== finalCurrency
           ? `item_currency_mismatch:${serviceName}:${detectedCurrency}:${finalCurrency}`
-          : `currency_conflict_item:${serviceName}:${detectedCurrency || "UNKNOWN"}`;
+          : `currency_conflict_item:${serviceName}:${detectedCurrency || "UNKNOWN"}:${finalCurrency || "UNKNOWN"}`;
       }
       return next;
     }

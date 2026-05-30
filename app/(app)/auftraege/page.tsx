@@ -5198,7 +5198,6 @@ export default function AuftraegePage() {
           // und bleibt nach Speichern/Reload erhalten; andere Zeilen bleiben rot.
           if (
             isResolvedInput &&
-            !hasFormItemCurrencyMismatch(nextItem) &&
             (hasCurrentEditCurrencyReview ||
               /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
                 warningText,
@@ -5312,14 +5311,15 @@ export default function AuftraegePage() {
   };
 
   const isManuallyConfirmedCurrencyItem = (item: FormItem) => {
+    if (!isCompleteResolvedFormItem(item)) return false;
+
+    if (Boolean(item.manualCurrencyConfirmed) || Boolean(item.catalogReviewConfirmed)) {
+      return true;
+    }
+
     if (hasFormItemCurrencyMismatch(item)) return false;
 
-    return (
-      isCompleteResolvedFormItem(item) &&
-      (Boolean(item.manualCurrencyConfirmed) ||
-        Boolean(item.catalogReviewConfirmed) ||
-        !isBlockingCurrencyReviewText(item.aiWarning))
-    );
+    return !isBlockingCurrencyReviewText(item.aiWarning);
   };
 
   // V17.16: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
@@ -5338,6 +5338,7 @@ export default function AuftraegePage() {
 
   const isFormItemBlockedByCurrencyReview = (item: FormItem) => {
     if (!hasCurrentEditCurrencyReview) return false;
+    if (isManuallyConfirmedCurrencyItem(item)) return false;
     if (hasFormItemCurrencyMismatch(item)) return true;
     if (hasOnlyGlobalCurrentEditCurrencyReview) {
       return !isManuallyConfirmedCurrencyItem(item);
@@ -5378,7 +5379,7 @@ export default function AuftraegePage() {
 
   const getSafeFormItemTotal = (
     item: Pick<FormItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed">,
-    forceCurrencyConflict = hasEditCurrencyReview,
+    forceCurrencyConflict = false,
   ) => {
     if (isBlockedFormItemForTotal(item, forceCurrencyConflict)) return 0;
     const quantity = Number(item.quantity || 0);
@@ -9408,9 +9409,7 @@ export default function AuftraegePage() {
                                             ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                             : ""
                                         }`}
-                                        value={
-                                          priceInputReview ? "" : item.unitPrice
-                                        }
+                                        value={item.unitPrice}
                                         placeholder={
                                           priceInputReview ? "prüfen" : "0"
                                         }
@@ -9439,11 +9438,7 @@ export default function AuftraegePage() {
                                             ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                             : ""
                                         }`}
-                                        value={
-                                          quantityInputReview
-                                            ? ""
-                                            : item.quantity
-                                        }
+                                        value={item.quantity}
                                         placeholder={
                                           quantityInputReview ? "prüfen" : "0"
                                         }
