@@ -89,7 +89,7 @@ function getHazardChipVisual(value: string): SemanticChipVisual {
   const text = normalizeSemanticChipText(value);
 
   if (/\b(hund|dog|chien|cane|perro|cao)\b/.test(text)) {
-    return { icon: '🐕', iconOnly: true, title: value };
+    return { icon: '🐶', iconOnly: true, title: value };
   }
 
   return { icon: '⚠️', iconOnly: false, title: value };
@@ -100,6 +100,14 @@ function getEquipmentChipVisual(value: string): SemanticChipVisual {
 
   if (/\b(leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)) {
     return { icon: '🪜', iconOnly: true, title: value };
+  }
+
+  if (/\b(schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave)\b/.test(text)) {
+    return { icon: '🔑', iconOnly: true, title: value };
+  }
+
+  if (/\b(zugang|eingang|hintereingang|seiteneingang|tor|door|access|entree|entrée|porta|puerta)\b/.test(text)) {
+    return { icon: '🚪', iconOnly: true, title: value };
   }
 
   return { icon: '🔧', iconOnly: false, title: value };
@@ -775,7 +783,7 @@ export function CommunicationBlock({
                 title={visual.title}
                 aria-label={visual.title}
                 className={visual.iconOnly
-                  ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[15px] font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"
+                  ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[17px] font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"
                   : "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"}
               >
                 {visual.icon}{!visual.iconOnly && <> {h}</>}
@@ -791,7 +799,7 @@ export function CommunicationBlock({
                 title={visual.title}
                 aria-label={visual.title}
                 className={visual.iconOnly
-                  ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[15px] font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"
+                  ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[17px] font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"
                   : "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"}
               >
                 {visual.icon}{!visual.iconOnly && <> {h}</>}
@@ -1018,7 +1026,7 @@ export function CommunicationChips({
             title={visual.title}
             aria-label={visual.title}
             className={iconOnly
-              ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[15px] font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"
+              ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[17px] font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"
               : "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"}
           >
             {visual.icon}{!iconOnly && <> {h}</>}
@@ -1034,7 +1042,7 @@ export function CommunicationChips({
             title={visual.title}
             aria-label={visual.title}
             className={iconOnly
-              ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[15px] font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"
+              ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[17px] font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"
               : "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"}
           >
             {visual.icon}{!iconOnly && <> {h}</>}

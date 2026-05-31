@@ -5513,22 +5513,72 @@ function applyLineLocalMeasuredEvidenceGuard(
   });
 }
 
+function lineSegmentContainsNumberValue(segment: string, value: number): boolean {
+  if (!Number.isFinite(value) || value <= 0) return false;
+
+  const normalizedValue = String(roundMoney(value)).replace(/\.0+$/, "");
+  const alternatives = new Set<string>([
+    normalizedValue,
+    normalizedValue.replace(".", ","),
+  ]);
+
+  if (Number.isInteger(value)) {
+    alternatives.add(String(Math.trunc(value)));
+  }
+
+  const source = normalizeText(segment).replace(/'/g, "");
+  return Array.from(alternatives).some((candidate) => {
+    if (!candidate) return false;
+    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^0-9])${escaped}([^0-9]|$)`, "i").test(source);
+  });
+}
+
+function bestMeasuredEvidenceKeyForDedupe(
+  item: ParsedOrderItemForValidation,
+): string {
+  const quantity = roundMoney(Number(item.quantity || 0));
+  const unitPrice = roundMoney(Number(item.unitPrice || 0));
+
+  const segments = unique([
+    ...splitLineLocalEvidenceSegments(item.sourceText),
+    ...splitLineLocalEvidenceSegments(item.evidence),
+    ...splitLineLocalEvidenceSegments(item.description),
+  ]).filter((segment) => {
+    return (
+      lineSegmentContainsNumberValue(segment, quantity) &&
+      lineSegmentContainsNumberValue(segment, unitPrice)
+    );
+  });
+
+  if (segments.length > 0) {
+    return normalizeCompare(
+      segments.sort((a, b) => a.length - b.length)[0],
+    );
+  }
+
+  return normalizeCompare(
+    item.sourceText || item.evidence || item.description || "",
+  );
+}
+
 function sameEvidenceQuantityPriceKey(
   item: ParsedOrderItemForValidation,
 ): string | null {
-  const sourceKey = normalizeCompare(
-    item.sourceText || item.evidence || item.description || "",
-  );
-  if (!sourceKey || sourceKey.length < 8 || sourceKey.length > 260) return null;
-
   const quantity = roundMoney(Number(item.quantity || 0));
   const unitPrice = roundMoney(Number(item.unitPrice || 0));
   if (quantity <= 0 || unitPrice <= 0) return null;
 
-  const unitType = unitTypeFromDisplayUnit(item.unit) || "unknown";
-  const currency = normalizeCurrency(item.detectedCurrency) || "";
+  const sourceKey = bestMeasuredEvidenceKeyForDedupe(item);
+  if (!sourceKey || sourceKey.length < 8 || sourceKey.length > 260) return null;
 
-  return [sourceKey, quantity, unitPrice, unitType, currency].join("|");
+  const unitType = unitTypeFromDisplayUnit(item.unit) || "unknown";
+
+  // Currency is intentionally not part of this duplicate-split key. In mixed
+  // or partially repaired rows, one artifact can have detectedCurrency unset
+  // while the duplicate row carries CHF/EUR. Same measured evidence + same
+  // quantity + same price + same unit is the safer signal.
+  return [sourceKey, quantity, unitPrice, unitType].join("|");
 }
 
 function removeSameEvidenceQuantityPriceSplitArtifacts(

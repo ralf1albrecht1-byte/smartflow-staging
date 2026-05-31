@@ -1,6 +1,6 @@
 "use client";
 // CARD_BADGE_SPLIT_FINAL_V8
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
 import {
@@ -104,8 +104,34 @@ function LadderIcon({
 function DogIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <span className={`${className} inline-flex items-center justify-center leading-none`} aria-hidden="true">
-      🐕
+      🐶
     </span>
+  );
+}
+
+function OpenDoorIcon({
+  className = "h-4 w-4",
+  strokeWidth = 2.2,
+}: {
+  className?: string;
+  strokeWidth?: number | string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 21h16" />
+      <path d="M6 21V4.8A1.8 1.8 0 0 1 7.8 3H17v18" />
+      <path d="M10 20V6.4l7-2.1V21" />
+      <path d="M14.3 13h.01" />
+    </svg>
   );
 }
 
@@ -806,6 +832,25 @@ const getSemanticBadgeKind = (value?: string | null) => {
   return null;
 };
 
+const isAddressOrWorkSiteDescriptionOnlyHint = (value?: string | null) => {
+  const raw = compactText(value);
+  const text = normalizeForMatch(value);
+  if (!raw || !text) return false;
+
+  const hasAddressEvidence =
+    /\d{4,5}/.test(raw) ||
+    /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?/i.test(raw);
+
+  const looksLikeWorkSiteDescription =
+    /(?:arbeiten|arbeit|ausfuehrung|ausführung|arbeitsort|einsatzort|objekt|gereinigt\s+wird|ort\s+ist)/.test(text) ||
+    /(?:mfh|haus|keller|eingang|praxis|restaurant|halle|tiefgarage|garage)/.test(text);
+
+  const hasRealAccessAction =
+    /(?:schluessel|schlussel|schlüssel|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|hintereingang|seiteneingang|nebeneingang|rampe|klingeln|melden|anrufen|whatsapp|sms|nicht\s+einfach|vorher|erst\s+melden|briefkasten|empfang)/.test(text);
+
+  return hasAddressEvidence && looksLikeWorkSiteDescription && !hasRealAccessAction;
+};
+
 const isNonActionableSemanticHint = (
   value?: string | null,
   context?: string | null,
@@ -813,6 +858,10 @@ const isNonActionableSemanticHint = (
   const text = normalizeForMatch(value);
   const contextText = normalizeForMatch(context);
   if (!text) return true;
+
+  // Pure execution-address/site descriptions are already shown as the blue site chip.
+  // They must not create a second access/door chip with the same address text.
+  if (isAddressOrWorkSiteDescriptionOnlyHint(value)) return true;
 
   // Negative access/parking information is actionable: no parking / no lift
   // must still create an orange chip. Other negated hints stay inside only.
@@ -3526,14 +3575,16 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border-/g, "border-2 border-")
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
-const compactSymbolForBadge = (badge: ReviewBadge): string | null => {
+const compactIconForBadge = (badge: ReviewBadge): ComponentType<{ className?: string }> | null => {
   const label = normalizeForMatch(badge.label);
-  if (label.includes("hund")) return "🐕";
-  if (label.includes("leiter")) return "🪜";
-  if (label.includes("schluessel") || label.includes("schlussel")) return "🔑";
-  if (label === "zugang" || label.includes("seiteneingang") || label.includes("hintereingang")) return "🚪";
+  if (label.includes("hund")) return DogIcon;
+  if (label.includes("leiter")) return LadderIcon;
+  if (label.includes("schluessel") || label.includes("schlussel")) return KeyRound;
+  if (label === "zugang" || label.includes("zugang") || label.includes("seiteneingang") || label.includes("hintereingang")) return OpenDoorIcon;
   return null;
 };
+
+const compactSymbolForBadge = (_badge: ReviewBadge): string | null => null;
 
 const renderBadgeTooltip = (
   badge: ReviewBadge,
@@ -3582,9 +3633,11 @@ const renderReviewBadge = (
   options: { strong?: boolean; tooltipAlign?: "left" | "right" } = {},
 ) => {
   const hasTooltip = Boolean(compactText(badge.tooltip));
+  const CompactIcon = compactIconForBadge(badge);
   const compactSymbol = compactSymbolForBadge(badge);
-  const visualClassName = compactSymbol
-    ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[14px] font-semibold"
+  const isCompactIcon = Boolean(CompactIcon || compactSymbol);
+  const visualClassName = isCompactIcon
+    ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px] font-semibold"
     : className;
 
   return (
@@ -3601,13 +3654,15 @@ const renderReviewBadge = (
           target.focus();
         }
       }}
-      className={`group relative inline-flex items-center gap-1 ${compactSymbol ? "rounded-lg" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${visualClassName} ${
+      className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "rounded-lg" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${visualClassName} ${
         options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
       }`}
       aria-label={compactText(badge.tooltip) || badge.label}
-      title={compactSymbol ? compactText(badge.tooltip) || badge.label : undefined}
+      title={isCompactIcon ? compactText(badge.tooltip) || badge.label : undefined}
     >
-      {compactSymbol ? (
+      {CompactIcon ? (
+        <CompactIcon className={normalizeForMatch(badge.label).includes("hund") ? "h-5 w-5 text-[18px]" : "h-5 w-5"} />
+      ) : compactSymbol ? (
         <span aria-hidden="true" className="leading-none">{compactSymbol}</span>
       ) : (
         <>
@@ -3646,14 +3701,13 @@ const renderOrderCardBadge = (
 };
 
 const mobileIconForBadge = (badge: ReviewBadge) => {
+  const compactIcon = compactIconForBadge(badge);
+  if (compactIcon) return compactIcon;
+
   const label = normalizeForMatch(badge.label);
   if (badge.key === "site_address") return MapPin;
   if (badge.key === "callback_request") return Phone;
   if (badge.key === "appointment" || badge.key === "appointment_clarify") return CalendarDays;
-  if (label.includes("hund")) return DogIcon;
-  if (label.includes("leiter")) return LadderIcon;
-  if (label.includes("schluessel") || label.includes("schlussel")) return KeyRound;
-  if (label.includes("zugang")) return DoorOpen;
   if (label.includes("park")) return ParkingCircle;
   if (label.includes("mail")) return Mail;
   if (label.includes("whatsapp")) return WhatsAppIcon;
@@ -7223,24 +7277,28 @@ export default function AuftraegePage() {
                 "merged_data_review",
               ].includes(badge.key);
 
+              const CompactIcon = compactIconForBadge(badge);
               const compactSymbol = compactSymbolForBadge(badge);
+              const isCompactIcon = Boolean(CompactIcon || compactSymbol);
 
               return (
                 <button
                   key={badge.key}
                   type="button"
                   aria-label={compactText(badge.tooltip) || badge.label}
-                  title={compactSymbol ? compactText(badge.tooltip) || badge.label : undefined}
+                  title={isCompactIcon ? compactText(badge.tooltip) || badge.label : undefined}
                   onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
-                  className={`group relative inline-flex items-center gap-1 ${compactSymbol ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[14px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
-                    compactSymbol
+                  className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                    isCompactIcon
                       ? "font-semibold"
                       : isLargeYellowBadge
                         ? "text-[11px] px-2 py-0.5 font-semibold"
                         : "text-[10px] px-1.5 py-0.5 font-medium"
                   } ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
-                  {compactSymbol ? (
+                  {CompactIcon ? (
+                    <CompactIcon className={normalizeForMatch(badge.label).includes("hund") ? "h-5 w-5 text-[18px]" : "h-5 w-5"} />
+                  ) : compactSymbol ? (
                     <span aria-hidden="true" className="leading-none">{compactSymbol}</span>
                   ) : (
                     <>
