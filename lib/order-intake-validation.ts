@@ -2381,6 +2381,22 @@ function hasExplicitPriceEvidenceForItem(
   const explicitUnit = detectExplicitUnitPriceForItem(originalText, item);
   if (explicitFlat || explicitUnit) return true;
 
+  const directMeasuredEvidence = [item.sourceText, item.evidence, item.description]
+    .map((part) => normalizeText(part))
+    .filter(Boolean);
+  if (
+    directMeasuredEvidence.some((segment) => {
+      const parsed = parseLineLocalMeasuredPrice(segment, fallbackCurrency);
+      if (!parsed) return false;
+      const sameQuantity = Math.abs(Number(item.quantity || 0) - parsed.quantity) < 0.001;
+      const samePrice = Math.abs(Number(item.unitPrice || 0) - parsed.unitPrice) < 0.01;
+      const sameUnit = unitTypeFromDisplayUnit(item.unit) === parsed.unitType;
+      return sameQuantity && samePrice && sameUnit;
+    })
+  ) {
+    return true;
+  }
+
   // Broad item evidence can contain the full WhatsApp message. In that case a
   // price from another line (for example Anfahrt CHF 45) must not count as
   // explicit price evidence for a neighbouring service with "Preis wie letztes
@@ -2838,6 +2854,24 @@ function findExplicitUnitPriceInLine(
     priceGroup: number;
     unitGroup?: number;
   }> = [
+    // Highest priority: measured quantity + explicit price marker.
+    // This prevents "34 m2 à 7 CHF" from being read as price 34.
+    {
+      re: new RegExp(
+        `\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\s*(?:je|each|à|a|zu|mal|x|\\*)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        "i",
+      ),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(
+        `\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\s*(?:je|each|à|a|zu|mal|x|\\*)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        "i",
+      ),
+      currencyGroup: 2,
+      priceGroup: 1,
+    },
     // Line-local measured price without an explicit "je/pro" marker:
     // "Fenster innen 6stk 8 CHF", "Boden 49 m2 7 CHF".
     {
@@ -5719,6 +5753,135 @@ function removeHardSameEvidenceAmountDuplicates(
   return items.filter((item) => !remove.has(item));
 }
 
+
+type UnitlessQuantityPriceEvidenceLine = {
+  line: string;
+  quantity: number;
+  unitPrice: number;
+  currency: string | null;
+};
+
+function extractUnitlessQuantityPriceEvidenceLines(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): UnitlessQuantityPriceEvidenceLine[] {
+  const lines = normalizeText(originalText)
+    .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
+    .map((line) =>
+      normalizeText(line)
+        .replace(/^\s*(?:[-–—•]+|\d+[)])\s*/, "")
+        .trim(),
+    )
+    .filter(Boolean)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line));
+
+  const result: UnitlessQuantityPriceEvidenceLine[] = [];
+  const seen = new Set<string>();
+
+  for (const line of lines) {
+    const unitPrice = findExplicitUnitPriceInLine(line, finalCurrency);
+    if (!unitPrice || unitPrice.currency !== finalCurrency || unitPrice.amount <= 0) continue;
+
+    const beforePrice = line.slice(0, Math.max(0, unitPrice.index || 0));
+    if (!beforePrice.trim()) continue;
+
+    // This guard is only for unitless quantity/price lines like
+    // "Lagerraum Boden 42 à CHF 7". Measured lines such as
+    // "34 m2 à 7 CHF" are handled by the measured-line guards.
+    if (new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`, "i").test(beforePrice)) {
+      continue;
+    }
+
+    const quantityMatches = Array.from(
+      beforePrice.matchAll(new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\b`, "gi")),
+    );
+    if (quantityMatches.length === 0) continue;
+
+    const quantity = parseQuantityNumber(quantityMatches[quantityMatches.length - 1]?.[1]);
+    if (!quantity || quantity <= 0) continue;
+
+    const key = [normalizeCompare(line), roundMoney(quantity), roundMoney(unitPrice.amount), unitPrice.currency].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({
+      line,
+      quantity: roundMoney(quantity),
+      unitPrice: roundMoney(unitPrice.amount),
+      currency: unitPrice.currency,
+    });
+  }
+
+  return result;
+}
+
+function itemIsUnitlessReviewCandidate(item: ParsedOrderItemForValidation): boolean {
+  const unitKey = normalizeCompare(item.unit || "");
+  const reason = String(item.reviewReason || "");
+  return (
+    !isFlatUnit(item.unit) &&
+    (!unitTypeFromDisplayUnit(item.unit) ||
+      unitKey.includes("pruefen") ||
+      unitKey.includes("prüfen") ||
+      unitKey.includes("unklar") ||
+      reason.startsWith("unit_missing_in_text:") ||
+      reason.startsWith("unit_mismatch:"))
+  );
+}
+
+function itemLikelyBelongsToEvidenceLine(
+  item: ParsedOrderItemForValidation,
+  line: string,
+): boolean {
+  const lineKey = normalizeCompare(line);
+  const itemEvidence = normalizeCompare(
+    [item.sourceText, item.evidence, item.description].filter(Boolean).join(" "),
+  );
+  if (itemEvidence && (itemEvidence.includes(lineKey) || lineKey.includes(itemEvidence))) return true;
+
+  const tokens = meaningfulServiceTokens(item.serviceName);
+  if (tokens.length === 0) return false;
+  return tokens.some((token) => lineKey.includes(token));
+}
+
+function removeUnitlessSameEvidenceSplitArtifacts(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const evidenceLines = extractUnitlessQuantityPriceEvidenceLines(originalText, finalCurrency);
+  if (evidenceLines.length === 0) return items;
+
+  const removeIndexes = new Set<number>();
+
+  for (const evidence of evidenceLines) {
+    const candidates = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => {
+        if (!itemIsUnitlessReviewCandidate(item)) return false;
+        if (Math.abs(Number(item.quantity || 0) - evidence.quantity) >= 0.001) return false;
+        if (Math.abs(Number(item.unitPrice || 0) - evidence.unitPrice) >= 0.01) return false;
+        return itemLikelyBelongsToEvidenceLine(item, evidence.line);
+      });
+
+    if (candidates.length <= 1) continue;
+
+    const keep = candidates
+      .slice()
+      .sort(
+        (a, b) =>
+          scoreDuplicateEvidenceKeeper(b.item, evidence.line, b.index) -
+          scoreDuplicateEvidenceKeeper(a.item, evidence.line, a.index),
+      )[0];
+
+    for (const candidate of candidates) {
+      if (candidate.index !== keep.index) removeIndexes.add(candidate.index);
+    }
+  }
+
+  if (removeIndexes.size === 0) return items;
+  return items.filter((_, index) => !removeIndexes.has(index));
+}
+
 function measuredExplicitMatchesItemStrict(
   item: ParsedOrderItemForValidation,
   explicit: ExplicitServiceLineItem,
@@ -5852,6 +6015,83 @@ function applyFailClosedSuspiciousNumericGuard(
   });
 
   return { items: guarded, reviewReasons: unique(reviewReasons) };
+}
+
+
+function forceAppendMissingHardMeasuredLineItems(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const explicitItems = extractHardMeasuredLineItemsFromRawText(originalText, finalCurrency);
+  if (explicitItems.length === 0) return items;
+
+  const next = items.slice();
+
+  for (const explicit of explicitItems) {
+    const explicitSource = normalizeCompare(explicit.sourceText || explicit.evidence || explicit.description || "");
+    const explicitUnitType = unitTypeFromDisplayUnit(explicit.unit);
+    const explicitQuantity = Number(explicit.quantity || 0);
+    const explicitPrice = Number(explicit.unitPrice || 0);
+
+    const exactIndex = next.findIndex((item) => {
+      const itemSource = normalizeCompare(item.sourceText || item.evidence || item.description || "");
+      const sameSource = Boolean(
+        explicitSource && itemSource && (itemSource.includes(explicitSource) || explicitSource.includes(itemSource)),
+      );
+      if (!sameSource) return false;
+      const sameUnit = unitTypeFromDisplayUnit(item.unit) === explicitUnitType;
+      const sameQuantity = Math.abs(Number(item.quantity || 0) - explicitQuantity) < 0.001;
+      const samePrice = Math.abs(Number(item.unitPrice || 0) - explicitPrice) < 0.01;
+      return sameUnit && sameQuantity && samePrice;
+    });
+
+    if (exactIndex >= 0) {
+      next[exactIndex] = clearResolvedNumericReview({
+        ...next[exactIndex],
+        unit: explicit.unit,
+        quantity: explicit.quantity,
+        unitPrice: explicit.unitPrice,
+        totalPrice: calculateSafeLineTotal(explicit),
+        sourceText: explicit.sourceText,
+        evidence: explicit.evidence,
+        detectedCurrency: explicit.detectedCurrency || next[exactIndex].detectedCurrency || finalCurrency,
+      });
+      continue;
+    }
+
+    const staleIndex = next.findIndex((item) => {
+      const itemSource = normalizeCompare(item.sourceText || item.evidence || item.description || "");
+      return Boolean(explicitSource && itemSource && (itemSource.includes(explicitSource) || explicitSource.includes(itemSource)));
+    });
+
+    if (staleIndex >= 0) {
+      next[staleIndex] = clearResolvedNumericReview({
+        ...next[staleIndex],
+        serviceName: isWeakExplicitServiceName(next[staleIndex].serviceName)
+          ? explicit.serviceName
+          : next[staleIndex].serviceName || explicit.serviceName,
+        description: next[staleIndex].description || explicit.description,
+        unit: explicit.unit,
+        quantity: explicit.quantity,
+        unitPrice: explicit.unitPrice,
+        totalPrice: calculateSafeLineTotal(explicit),
+        sourceText: explicit.sourceText,
+        evidence: explicit.evidence,
+        detectedCurrency: explicit.detectedCurrency || next[staleIndex].detectedCurrency || finalCurrency,
+      });
+      continue;
+    }
+
+    next.push({
+      ...explicit,
+      totalPrice: calculateSafeLineTotal(explicit),
+    });
+  }
+
+  return removeHardSameEvidenceAmountDuplicates(
+    removeSameEvidenceQuantityPriceSplitArtifacts(next),
+  );
 }
 
 function applyFinalEvidenceSafetyPass(
@@ -6229,7 +6469,16 @@ export function validateAndRepairParsedOrderItems(
     input.originalText,
     finalCurrency,
   );
-  items = finalEvidenceSafetyPass.items;
+  items = removeUnitlessSameEvidenceSplitArtifacts(
+    finalEvidenceSafetyPass.items,
+    input.originalText,
+    finalCurrency,
+  );
+  items = forceAppendMissingHardMeasuredLineItems(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
   reviewReasons.push(...finalEvidenceSafetyPass.reviewReasons);
 
   const finalReviewReasons = unique(reviewReasons)
