@@ -101,6 +101,57 @@ function LadderIcon({
   );
 }
 
+
+function WhatsAppIcon({
+  className = "h-4 w-4",
+  strokeWidth = 2.1,
+}: {
+  className?: string;
+  strokeWidth?: number | string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5.2 19.1 6 15.9a7.4 7.4 0 1 1 2.8 2.7z" />
+      <path d="M9.1 8.7c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.7 1.6c.1.3.1.5-.1.7l-.4.5c.6 1.1 1.4 1.9 2.5 2.5l.5-.4c.2-.2.5-.2.7-.1l1.6.7c.3.1.4.3.4.5v.5c0 .3 0 .5-.5.7-.6.3-1.4.4-2.5 0-2.4-.8-4.4-2.8-5.2-5.2-.4-1.1-.3-1.9 0-2.5z" />
+    </svg>
+  );
+}
+
+function SmsIcon({
+  className = "h-4 w-4",
+  strokeWidth = 2.1,
+}: {
+  className?: string;
+  strokeWidth?: number | string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5 6.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" />
+      <path d="M8 12h.01" />
+      <path d="M12 12h.01" />
+      <path d="M16 12h.01" />
+    </svg>
+  );
+}
+
 interface OrderWorkSite {
   id: string;
   siteName?: string | null;
@@ -3575,8 +3626,8 @@ const mobileIconForBadge = (badge: ReviewBadge) => {
   if (label.includes("zugang")) return DoorOpen;
   if (label.includes("park")) return ParkingCircle;
   if (label.includes("mail")) return Mail;
-  if (label.includes("whatsapp")) return MessageCircle;
-  if (label.includes("sms")) return MessageCircle;
+  if (label.includes("whatsapp")) return WhatsAppIcon;
+  if (label.includes("sms")) return SmsIcon;
   if (badge.icon) return AlertTriangle;
   return null;
 };
@@ -5721,19 +5772,33 @@ export default function AuftraegePage() {
     });
   };
 
-  const customerMessageText = (
+  const stripInternalCustomerMessageMetadata = (value?: string | null) =>
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .filter((line) => {
+        const trimmed = line.trim();
+        return (
+          !/^\[\s*(?:titel|title)\s*[:：][^\]]*\]\s*$/i.test(trimmed) &&
+          !/^\[\s*(?:priorität|prioritaet|priority)\s*[:：][^\]]*\]\s*$/i.test(trimmed)
+        );
+      })
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+  const customerMessageText = stripInternalCustomerMessageMetadata(
     currentEditOrder?.notes ||
-    currentEditOrder?.audioTranscript ||
-    form.notes ||
-    ""
-  ).trim();
+      currentEditOrder?.audioTranscript ||
+      form.notes ||
+      "",
+  );
 
   const normalizeCustomerMessageForCompare = (value?: string | null) =>
-    String(value || "")
+    stripInternalCustomerMessageMetadata(value)
       .replace(/^(whatsapp|telegram):\s*/i, "")
       .replace(/\[\s*(?:transkription|transcription|transkript)\s*\]/gi, "")
-      .replace(/\n?\[Titel:.*?\]/gi, "")
-      .replace(/\n?\[Priorität:.*?\]/gi, "")
       .replace(/\s+/g, " ")
       .trim()
       .toLowerCase();

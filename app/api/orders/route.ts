@@ -35,6 +35,23 @@ const normalizeSearchText = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+function stripInternalTitleLinesFromText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+
+      // Interne Smartflow-Titel sind Metadaten und dürfen nicht als Kundentext
+      // oder spätere Leistungs-Evidence gespeichert werden.
+      return !/^\[\s*(?:titel|title)\s*[:：][^\]]*\]\s*$/i.test(trimmed);
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // V16.37: Route-level safety net for browser-created orders.
 // If the UI posts an order with a blank/new customerId and the original text
 // contains a clear nameless "Rechnung an:" block, persist that billing address
@@ -309,6 +326,7 @@ function getOrderSourceTextForItems(data: any) {
       ? data.items.flatMap((item: any) => [item?.serviceName, item?.description])
       : []),
   ]
+    .map(stripInternalTitleLinesFromText)
     .filter(Boolean)
     .join("\n");
 }
@@ -1399,6 +1417,10 @@ export async function GET(request: Request) {
     return NextResponse.json(
       safeOrders?.map((o: any) => ({
         ...o,
+        description: stripInternalTitleLinesFromText(o?.description),
+        notes: stripInternalTitleLinesFromText(o?.notes) || null,
+        specialNotes: stripInternalTitleLinesFromText(o?.specialNotes) || null,
+        audioTranscript: stripInternalTitleLinesFromText(o?.audioTranscript) || null,
         totalPrice: getOrderNetTotalForResponse(o),
         unitPrice: Number(o?.unitPrice ?? 0),
         quantity: Number(o?.quantity ?? 0),
@@ -1425,7 +1447,14 @@ export async function POST(request: Request) {
     return unauthorizedResponse();
   }
   try {
-    const data = await request.json();
+    const rawData = await request.json();
+    const data = {
+      ...rawData,
+      description: stripInternalTitleLinesFromText(rawData?.description),
+      notes: stripInternalTitleLinesFromText(rawData?.notes),
+      specialNotes: stripInternalTitleLinesFromText(rawData?.specialNotes),
+      audioTranscript: stripInternalTitleLinesFromText(rawData?.audioTranscript),
+    };
     const normalizedSpecialNotes = normalizeOrderSpecialNotes(data);
     const hasNormalizedSafetyWarnings =
       splitSpecialNotes(normalizedSpecialNotes).safetyWarnings.length > 0;
@@ -1504,7 +1533,7 @@ export async function POST(request: Request) {
         siteCity: data?.siteCity?.trim() || null,
         siteNote: data?.siteNote?.trim() || null,
         date: data?.date ? new Date(data.date) : new Date(),
-        notes: data?.notes ?? null,
+        notes: data?.notes || null,
         specialNotes: normalizedSpecialNotes,
         hinweisLevel:
           data?.hinweisLevel ??
@@ -1512,7 +1541,7 @@ export async function POST(request: Request) {
         mediaUrl: data?.mediaUrl ?? null,
         mediaType: data?.mediaType ?? null,
         imageUrls: data?.imageUrls ?? [],
-        audioTranscript: data?.audioTranscript ?? null,
+        audioTranscript: data?.audioTranscript || null,
         userId,
         ...(items && items.length > 0
           ? {
@@ -1628,6 +1657,10 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({
       ...order,
+      description: stripInternalTitleLinesFromText(order?.description),
+      notes: stripInternalTitleLinesFromText(order?.notes) || null,
+      specialNotes: stripInternalTitleLinesFromText(order?.specialNotes) || null,
+      audioTranscript: stripInternalTitleLinesFromText(order?.audioTranscript) || null,
       totalPrice: Number(order?.totalPrice ?? 0),
       unitPrice: Number(order?.unitPrice ?? 0),
       quantity: Number(order?.quantity ?? 0),

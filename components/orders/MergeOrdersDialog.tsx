@@ -96,8 +96,20 @@ const shortText = (value?: string | null, max = 340) => {
 
 const cleanOriginalMessageText = (value?: string | null) => {
   return (value || "")
-    .replace(/\[Verbunden von Auftrag [^\]]+\]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      return (
+        !/^\[Verbunden von Auftrag [^\]]+\]$/i.test(trimmed) &&
+        !/^\[\s*(?:titel|title)\s*[:：][^\]]*\]\s*$/i.test(trimmed) &&
+        !/^\[\s*(?:priorität|prioritaet|priority)\s*[:：][^\]]*\]\s*$/i.test(trimmed)
+      );
+    })
+    .join("\n")
     .replace(/^WhatsApp:\s*/im, "")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 };
 

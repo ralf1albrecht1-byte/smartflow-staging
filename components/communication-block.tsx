@@ -1,9 +1,68 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail, Phone, MessageCircle } from 'lucide-react';
+import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail } from 'lucide-react';
 import { splitSpecialNotes, splitJobHints, detectCallbackRequest } from '@/lib/special-notes-utils';
 import { formatAudioDuration } from '@/lib/audio-format';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
+
+
+function WhatsAppIcon({ className = 'w-3 h-3' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M20.5 11.8a8.5 8.5 0 0 1-12.7 7.4L3.5 20.5l1.3-4.1A8.5 8.5 0 1 1 20.5 11.8Z" />
+      <path d="M9.4 7.8c.2-.4.4-.4.7-.4h.5c.2 0 .4.1.5.4l.7 1.6c.1.3.1.5-.1.7l-.4.5c-.1.1-.1.3 0 .5.4.8 1.1 1.5 2 1.9.2.1.4.1.5 0l.6-.5c.2-.2.4-.2.7-.1l1.5.7c.3.1.4.3.4.6v.5c0 .4-.2.7-.5.9-.5.3-1.2.5-1.9.4-2.2-.2-5.1-2.3-6.2-4.3-.4-.7-.6-1.4-.5-2 .1-.5.3-.9.6-1.2l.4-.4Z" />
+    </svg>
+  );
+}
+
+function SmsIcon({ className = 'w-3 h-3' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4.5 5.5h15a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2H10l-4.5 3v-3h-1a2 2 0 0 1-2-2V7.5a2 2 0 0 1 2-2Z" />
+      <path d="M7.5 10.2h.01" />
+      <path d="M12 10.2h.01" />
+      <path d="M16.5 10.2h.01" />
+      <path d="M7.5 13.2h9" />
+    </svg>
+  );
+}
+
+function stripInternalCommunicationMetadata(value: string | null | undefined): string {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^\s*\[META\]/i.test(trimmed)) return false;
+      // Smartflow-internal marker lines are metadata, never customer work text.
+      // This is intentionally marker-based, not service-word-based.
+      if (/^\s*\[\s*(?:titel|title|titre|titolo|título|titulo|priorität|prioritaet|priority|priorité|priorita|prioridad)\s*:/i.test(trimmed)) return false;
+      return true;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 // ─── Types ───
 export interface CommunicationData {
@@ -98,10 +157,8 @@ function parseNotesField(notes: string | null | undefined): ParsedNotes {
     body = body.slice(0, transIdx).trim();
   }
 
-  // Remove system metadata lines like [Titel: ...], [Priorität: ...], and [META] ...
-  body = body.replace(/\n?\[Titel:.*?\]/g, '').replace(/\n?\[Priorität:.*?\]/g, '').trim();
-  // Strip [META] lines added by webhook intake (Layer 1 of data-pollution defense).
-  body = body.split('\n').filter(l => !/^\s*\[META\]/i.test(l)).join('\n').trim();
+  // Remove Smartflow-internal metadata lines like [Titel: ...], [Priorität: ...], and [META] ...
+  body = stripInternalCommunicationMetadata(body);
 
   return { source, originalMessage: body, translation };
 }
@@ -129,8 +186,8 @@ function isSameContent(a: string | null | undefined, b: string | null | undefine
       .replace(/\[\s*transkription\s*\]/gi, '')
       .replace(/\[\s*transcription\s*\]/gi, '')
       .replace(/\[\s*transkript\s*\]/gi, '')
-      .replace(/\n?\[Titel:.*?\]/gi, '')
-      .replace(/\n?\[Priorität:.*?\]/gi, '')
+      .replace(/\n?\[\s*(?:titel|title|titre|titolo|título|titulo):.*?\]/gi, '')
+      .replace(/\n?\[\s*(?:priorität|prioritaet|priority|priorité|priorita|prioridad):.*?\]/gi, '')
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
@@ -421,7 +478,7 @@ function detectCommunicationPreferenceChips(
     addChip({
       key: 'whatsapp',
       label: 'WhatsApp',
-      color: 'teal',
+      color: 'green',
       href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined,
       title: appendContactTime(phone ? `WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden', whatsappTime),
     });
@@ -431,7 +488,7 @@ function detectCommunicationPreferenceChips(
     addChip({
       key: 'sms',
       label: 'SMS',
-      color: 'teal',
+      color: 'blue',
       href: phone ? `sms:${phone}` : undefined,
       title: appendContactTime(phone ? `SMS: ${phone}` : 'SMS bevorzugt', smsTime),
     });
@@ -454,7 +511,7 @@ function Chip({ icon: Icon, label, color = 'default', href, title, compact = fal
     amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
     orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   };
-  const fallbackIcon = label === 'Mail' ? Mail : label === 'WhatsApp' ? MessageCircle : label === 'SMS' ? MessageCircle : undefined;
+  const fallbackIcon = label === 'Mail' ? Mail : label === 'WhatsApp' ? WhatsAppIcon : label === 'SMS' ? SmsIcon : undefined;
   const DisplayIcon = Icon || fallbackIcon;
   const className = compact
     ? `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`

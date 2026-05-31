@@ -2101,19 +2101,19 @@ function uniqueNormalizedLines(lines: string[]): string[] {
     });
 }
 
-function dedupeTitleLinesInText(value: string): string {
-  const seenTitles = new Set<string>();
-
+function stripInternalTitleLinesFromText(value?: string | null): string {
   return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
     .split("\n")
     .filter((line) => {
-      const match = line.trim().match(/^\[Titel:\s*(.*?)\]$/i);
-      if (!match) return true;
-      const key = normalizeSemanticText(match[1]);
-      if (!key) return true;
-      if (seenTitles.has(key)) return false;
-      seenTitles.add(key);
-      return true;
+      const trimmed = line.trim();
+
+      // Interne Karten-/Auftragstitel sind Metadaten. Sie dürfen nicht als
+      // Kundennachricht gespeichert und nicht erneut als Leistung interpretiert
+      // werden. Das ist keine Leistungs-Wortliste, sondern nur die Entfernung
+      // des technischen Markers, den Smartflow selbst erzeugt hatte.
+      return !/^\[\s*(?:titel|title)\s*[:：][^\]]*\]\s*$/i.test(trimmed);
     })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -5021,6 +5021,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Wenn bei einer Position kein eigener Preis steht → unit_price = null.
 - Wenn mehrere Preise/Währungen im Text stehen, jede Position separat zuordnen; bei Unsicherheit unit_price = null und confidence = "niedrig".
 - Keine Leistungen erfinden.
+- Interne Karten-/Auftragstitel, Betreff-/Überschriftszeilen und Zusammenfassungen sind keine Kundenleistung. Nutze sie höchstens als auftrag.titel, aber NIEMALS als eigene arbeitsposition, Preis-/Einheitsquelle, Adresse oder Besonderheit. Entscheide semantisch: Eine Arbeitsposition braucht echte Arbeitsaussage plus eigene Evidence aus dem Kundentext.
 - Nicht versuchen, unbekannte Arbeiten einer bestehenden Leistung zuzuordnen.
 - Wenn mehrere Arbeiten genannt werden, jede Arbeit separat ausgeben.
 - Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.
@@ -7099,9 +7100,11 @@ ${fullWorkText}`,
   }
 
   // --- Build notes ---
-  const notesParts: string[] = [`${source}:\n${messageText}`];
-  if (parsed.auftrag?.titel && !/\[Titel\s*:/i.test(messageText))
-    notesParts.push(`\n[Titel: ${parsed.auftrag.titel}]`);
+  // Der KI-Titel bleibt strukturierte Metainfo. Er darf nicht in den
+  // Kundennachrichten landen, weil er sonst später wieder als Leistung gelesen
+  // werden kann.
+  const cleanMessageTextForNotes = stripInternalTitleLinesFromText(messageText);
+  const notesParts: string[] = [`${source}:\n${cleanMessageTextForNotes}`];
   if (parsed.system?.prioritaet === "hoch")
     notesParts.push(`[Priorität: hoch]`);
   if (translationText)
@@ -7170,7 +7173,7 @@ ${fullWorkText}`,
       currency: intakeValidation.finalCurrency,
       vatRate: intakeVatRate,
       date: new Date(),
-      notes: dedupeTitleLinesInText(notesParts.join("\n")),
+      notes: stripInternalTitleLinesFromText(notesParts.join("\n")),
       specialNotes: finalSpecialNotes,
       siteAddressDifferent: Boolean(extractedExecutionAddress),
       siteName: extractedExecutionAddress?.siteName || null,
