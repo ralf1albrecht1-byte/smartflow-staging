@@ -77,13 +77,6 @@ const semanticNoteKey = (value: string) => {
   const text = normalizeDedupeText(value);
   if (!text) return "";
 
-  const keyCodeMatch = text.match(/\bcode\s*(?:ist|hat|hat er|:)?\s*(\d{3,})\b|\b(?:schluesselbox|schlusselbox|keybox|boite a cle|boite cle|cle).*?(\d{3,})\b/i);
-  const keyCode = keyCodeMatch?.[1] || keyCodeMatch?.[2] || "";
-  const hasKeyContext = /\bschluessel\b|\bschlüssel\b|\bkey\b|\bbriefkasten\b|\bschluesselbox\b|\bschlusselbox\b|\bkeybox\b|\bcle\b|\bboite\b|\bhauswart\b|\bhuuswart\b|\bconcierge\b/.test(text);
-  if (hasKeyContext && keyCode) return `key_code_${keyCode}`;
-  if (hasKeyContext && /\b(?:hauswart|huuswart|concierge|wart)\b/.test(text)) return "key_caretaker";
-  if (hasKeyContext) return "key";
-
   if (
     /^[^:]{2,120}:\s+/.test(visibleLine) &&
     !/^kontakt\s+vor\s+ort:\s*/i.test(visibleLine) &&
@@ -94,6 +87,7 @@ const semanticNoteKey = (value: string) => {
 
   if (/\bhund\b|\bgartenhund\b|\bdog\b/.test(text)) return "dog";
   if (/\bleiter\b|\bladder\b/.test(text)) return "ladder";
+  if (/\bschluessel\b|\bschlüssel\b|\bkey\b|\bbriefkasten\b/.test(text)) return "key";
   if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
   if (/(nicht einfach kommen|nicht einfach vorbeikommen|nicht ohne ruecksprache|nicht ohne rucksprache|vor arbeitsbeginn|vor start|vor ankunft).*(melden|anrufen|kontaktieren|kommen|whatsapp)|vorher melden/.test(text)) return "pre_arrival_instruction";
@@ -117,7 +111,6 @@ const noteSpecificityScore = (value: string) => {
   let score = text.length;
 
   if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
-  if (/\bschluessel|\bschlüssel|schluesselbox|schlusselbox|hauswart/.test(text)) score += 45;
   if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
   if (/bitte|nur|nicht anrufen|nicht telefonisch|keine telefonische|pas d appel|pas appeler|mail reicht|whatsapp|sms|nicht einfach|vor arbeitsbeginn|vor start|vor ankunft|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
   if (/\+\d|\b0\d{2,}\b/.test(text)) score += 80;
@@ -163,7 +156,7 @@ export const formatSafetyWarningLine = (line: string) => {
 
 export const formatHintLine = (line: string) => {
   const cleaned = stripKnownMarker(line);
-  return cleaned || "";
+  return cleaned ? `[HINWEIS] ${cleaned}` : "";
 };
 
 export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
@@ -196,8 +189,7 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     }
 
     const cleaned = stripKnownMarker(line);
-    const compacted = cleaned ? compactWorkAreaHintV17_29(cleaned) : cleaned;
-    if (compacted && isOperationalJobHint(compacted)) jobHints.push(compacted);
+    if (cleaned && isOperationalJobHint(cleaned)) jobHints.push(cleaned);
   }
 
   const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
@@ -261,61 +253,6 @@ function rebuildSpecialNoteLineV17_27(originalLine: string, body: string): strin
   return marker ? `${marker} ${cleanedBody}` : cleanedBody;
 }
 
-function stripAddressLikeTailV17_29(value: string): string {
-  return String(value || "")
-    .replace(/,?\s*[^,.;]*\b(?:strasse|straße|weg|gasse|platz|allee|ring|rain)\b[^,.;]*(?:\s+(?:in|,)?\s*\d{4}\s+[^,.;]*)?/gi, "")
-    .replace(/,?\s*\d{4}\s+[A-Za-zÄÖÜäöüß .'-]+\.?$/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*,\s*,+/g, ", ")
-    .replace(/^\s*,\s*|\s*,\s*$/g, "")
-    .trim();
-}
-
-function compactWorkAreaHintV17_29(body: string): string | null {
-  const original = String(body || "").replace(/\s+/g, " ").trim();
-  if (!original) return original;
-
-  const hasWorksitePrefix = /^(?:die\s+)?arbeiten\s+sind\s+nicht\s+dort,?\s+sondern\s+im\s+/i.test(original);
-  const hasArbeitsortPrefix = /^arbeitsort\s*:/i.test(original);
-  if (!hasWorksitePrefix && !hasArbeitsortPrefix) return original;
-
-  let value = original
-    .replace(/^(?:die\s+)?arbeiten\s+sind\s+nicht\s+dort,?\s+sondern\s+im\s+/i, "")
-    .replace(/^arbeitsort\s*:\s*/i, "")
-    .replace(/\.$/, "")
-    .trim();
-
-  value = stripAddressLikeTailV17_29(value);
-
-  const parts = value
-    .split(/,/) 
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => !/\b\d{4}\b|\b\d+[a-z]?\b/i.test(part))
-    .filter((part) => !/\b(?:strasse|straße|weg|gasse|platz|allee|ring|rain)\b/i.test(part));
-
-  if (parts.length >= 2) {
-    value = parts.slice(1).join(", ").trim();
-  } else if (parts.length === 1) {
-    value = parts[0];
-  }
-
-  value = value.replace(/\s+/g, " ").replace(/\.$/, "").trim();
-
-  if (!value) return null;
-  if (normalizeSpecialNoteLineV17_27(value) === normalizeSpecialNoteLineV17_27(original)) return null;
-  return value;
-}
-
-function rebuildVisibleSpecialNoteLineV17_29(originalLine: string, body: string): string {
-  const markerMatch = String(originalLine || "").match(/^\s*(\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\])\s*/i);
-  const marker = markerMatch?.[1] || "";
-  const cleanedBody = body.replace(/\s+/g, " ").trim();
-  if (!cleanedBody) return "";
-  if (/^\[(?:HINWEIS|INFO|NOTIZ)\]$/i.test(marker)) return cleanedBody;
-  return marker ? `${marker} ${cleanedBody}` : cleanedBody;
-}
-
 function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
   const normalizedBodies = lines.map((line) => normalizeSpecialNoteLineV17_27(stripKnownMarker(line)));
   const whatsappContextLines = lines.filter((line) => {
@@ -334,9 +271,8 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
     const isDanger = isSafetyWarningLine(line);
     let nextBody = body;
 
-    const compactedWorkArea = compactWorkAreaHintV17_29(nextBody);
-    if (compactedWorkArea === null) return;
-    nextBody = compactedWorkArea;
+    nextBody = nextBody.replace(/^Arbeiten sind nicht dort, sondern im\s+/i, "Arbeitsort: ");
+    nextBody = nextBody.replace(/^Die Arbeiten sind nicht dort, sondern im\s+/i, "Arbeitsort: ");
 
     const phone = firstPhoneKeyV17_27(body);
     const isShortWhatsappPreference = /whatsapp\s+bevorzugt/i.test(body) || /^whatsapp\s*:/i.test(body);
@@ -351,7 +287,7 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
       return;
     }
 
-    const rebuilt = rebuildVisibleSpecialNoteLineV17_29(line, nextBody);
+    const rebuilt = rebuildSpecialNoteLineV17_27(line, nextBody);
     key = normalizeSpecialNoteLineV17_27(stripKnownMarker(rebuilt));
     if (!key || seen.has(key)) return;
     seen.add(key);

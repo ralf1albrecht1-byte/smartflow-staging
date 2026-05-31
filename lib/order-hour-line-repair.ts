@@ -40,17 +40,6 @@ type MissingUnitRepairCandidate = {
   key: string;
 };
 
-type ExplicitLineRepairCandidate = {
-  raw: string;
-  serviceName: string;
-  quantity: number;
-  unit: string;
-  unitPrice: number;
-  totalPrice: number;
-  currency: string | null;
-  key: string;
-};
-
 export type HourLineRepairItem = {
   id?: string | null;
   serviceName?: string | null;
@@ -578,11 +567,6 @@ function buildMissingHourLineItems<T extends HourLineRepairItem>(
 }
 
 function buildFlatFeeRepairCandidates(originalText: string): FlatFeeRepairCandidate[] {
-  const allText = normalizeHourRepairText(originalText);
-  const hasChf = /\b(?:chf|sfr|franken|stutz|fr)\b/.test(allText);
-  const hasEur = /\b(?:eur|euro)\b|€/.test(allText);
-  const hasMixedCurrency = hasChf && hasEur;
-
   return stripAutomaticTranslationBlock(originalText)
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
@@ -591,7 +575,6 @@ function buildFlatFeeRepairCandidates(originalText: string): FlatFeeRepairCandid
     .filter((line) => line.length >= 6)
     .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line))
     .filter((line) => hourRepairServiceTopic(line) === "anfahrt")
-    .filter((line) => !(hasMixedCurrency && /\b(?:eur|euro)\b|€/i.test(line)))
     .map((line) => ({
       raw: line,
       price: detectHourRepairUnitPriceInLine(line),
@@ -1279,313 +1262,6 @@ function removeSpuriousRepairDuplicates<T extends HourLineRepairItem>(
   });
 }
 
-function cleanSemanticServiceNameV17_29(value?: string | null): string {
-  const original = String(value || "").replace(/\s+/g, " ").trim();
-  if (!original) return original;
-
-  let next = original;
-  let changed = false;
-
-  const withoutPureFragment = normalizeHourRepairText(next);
-  if (
-    !/[a-z]/i.test(withoutPureFragment) ||
-    /^(?:a|à|at|je|pro|per|mal|x|chf|fr|sfr|eur|euro|stutz|\d|[.,\s-])+$/i.test(withoutPureFragment)
-  ) {
-    return "Leistung prüfen";
-  }
-
-  const withoutCalcTail = next
-    .replace(/\s+(?:mal|x|×)\s*$/i, "")
-    .replace(/\s+(?:à|a|je|pro|per|at|zu)\s*$/i, "")
-    .trim();
-  if (withoutCalcTail !== next) {
-    next = withoutCalcTail;
-    changed = true;
-  }
-
-  const withoutConditionWords = next
-    .replace(/\b(?:sehr\s+)?(?:dreckig|schmutzig|verschmutzt|stark\s+verschmutzt)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (withoutConditionWords !== next) {
-    next = withoutConditionWords;
-    changed = true;
-  }
-
-  next = next.replace(/\s+/g, " ").trim();
-
-  const normalized = normalizeHourRepairText(next);
-  const hasCleaningVerb = /\b(?:reinigen|reinigung|putzen|säubern|saeubern|clean|nettoyer|nettoyage)\b/i.test(next);
-  const looksLikeBillableObject = /[a-z]/i.test(normalized) && normalized.length >= 4;
-  if (changed && looksLikeBillableObject && !hasCleaningVerb && !/^anfahrt$/i.test(next)) {
-    next = `${next} reinigen`;
-  }
-
-  return next || original;
-}
-
-function cleanSemanticServiceNamesV17_29<T extends HourLineRepairItem>(items: T[]): T[] {
-  return items.map((item) => {
-    const serviceName = String(item?.serviceName || "");
-    const cleaned = cleanSemanticServiceNameV17_29(serviceName);
-    if (!cleaned || cleaned === serviceName) return item;
-    return {
-      ...item,
-      serviceName: cleaned,
-    } as T;
-  });
-}
-
-function splitSourceAndAutomaticTranslationV17_30(value: string): { original: string; translated: string } {
-  const raw = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const parts = raw.split(/\n\s*---\s*(?:uebersetzung|übersetzung)\s*\(\s*automatisch\s*\)\s*---\s*\n/i);
-  return {
-    original: (parts[0] || "").trim(),
-    translated: (parts.slice(1).join("\n") || "").trim(),
-  };
-}
-
-function repairLineListV17_30(text: string): string[] {
-  return String(text || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split(/\n+|;/g)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => line.length >= 4)
-    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line))
-    .filter((line) => !/^\s*(?:rechnung|invoice|facture|rechnig|adresse|ort|work\s*site|einsatzort|baustellenadresse|kontakt|contact|machen|a\s*faire|zu\s*erledigen|gemacht\s+werden\s+soll)\s*:?\s*$/i.test(line));
-}
-
-function parseExplicitLineDecimalV17_30(value?: string | null): number | null {
-  const parsed = Number(String(value || "").replace("'", "").replace(",", "."));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function explicitLineQuantityUnitV17_30(line: string): { quantity: number; unit: string; index: number } | null {
-  const source = String(line || "");
-  const match = source.match(/\b(\d+(?:[.,]\d+)?)\s*(m2|m²|qm|quadratmeter|square\s*meters?|sqm|stück|stueck|stk\.?|pcs?\.?|pieces?|piece)\b/i);
-  const quantity = parseExplicitLineDecimalV17_30(match?.[1]);
-  if (!match || !quantity) return null;
-  const unitRaw = normalizeHourRepairText(match[2] || "");
-  const unit = /m2|qm|quadratmeter|square|sqm/.test(unitRaw) ? "Quadratmeter" : "Stück";
-  return { quantity, unit, index: match.index || 0 };
-}
-
-function explicitLinePriceV17_30(line: string): { unitPrice: number; currency: string | null } | null {
-  const source = String(line || "");
-  const currencyPattern = "(?:CHF|SFR\\.?|Fr\\.?|Franken|Stutz|EUR|Euro|€)";
-  const numberPattern = "(\\d+(?:[.,]\\d{1,2})?)";
-  const anchored = [
-    new RegExp(`(?:à|a|je|pro|per|at|zu|mal|x|×|/)\\s*${currencyPattern}?\\s*${numberPattern}\\b`, "i"),
-    new RegExp(`(?:à|a|je|pro|per|at|zu|mal|x|×|/)\\s*${numberPattern}\\s*${currencyPattern}\\b`, "i"),
-  ];
-  for (const pattern of anchored) {
-    const match = source.match(pattern);
-    const unitPrice = parseExplicitLineDecimalV17_30(match?.[1]);
-    if (unitPrice) {
-      const matched = match?.[0] || "";
-      const currency = /eur|euro|€/i.test(matched) ? "EUR" : /chf|sfr|fr\.?|franken|stutz/i.test(matched) ? "CHF" : null;
-      return { unitPrice, currency };
-    }
-  }
-
-  const currencyMatch = source.match(new RegExp(`${currencyPattern}\\s*${numberPattern}\\b|${numberPattern}\\s*${currencyPattern}\\b`, "i"));
-  const unitPrice = parseExplicitLineDecimalV17_30(currencyMatch?.[1] || currencyMatch?.[2]);
-  if (unitPrice) {
-    const matched = currencyMatch?.[0] || "";
-    const currency = /eur|euro|€/i.test(matched) ? "EUR" : "CHF";
-    return { unitPrice, currency };
-  }
-
-  return null;
-}
-
-function cleanExplicitLineServiceNameV17_30(line: string): string {
-  let value = String(line || "")
-    .replace(/\r|\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  value = value
-    .replace(/(?:à|a|je|pro|per|at|zu|mal|x|×|\/)\s*(?:CHF|SFR\.?|Fr\.?|Franken|Stutz|EUR|Euro|€)?\s*\d+(?:[.,]\d{1,2})?\s*(?:CHF|SFR\.?|Fr\.?|Franken|Stutz|EUR|Euro|€)?\b.*$/i, " ")
-    .replace(/\b(?:CHF|SFR\.?|Fr\.?|Franken|Stutz|EUR|Euro|€)\s*\d+(?:[.,]\d{1,2})?\b/gi, " ")
-    .replace(/\b\d+(?:[.,]\d{1,2})?\s*(?:CHF|SFR\.?|Fr\.?|Franken|Stutz|EUR|Euro|€)\b/gi, " ")
-    .replace(/\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|square\s*meters?|sqm|stück|stueck|stk\.?|pcs?\.?|pieces?|piece)\b/gi, " ")
-    .replace(/\b(?:sehr\s+)?(?:dreckig|schmutzig|verschmutzt|stark\s+verschmutzt)\b/gi, " ")
-    .replace(/[:;,.-]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const key = normalizeHourRepairText(value);
-  if (!key || !/[a-z]/i.test(key)) return "";
-  if (/^(?:a|à|at|je|pro|per|mal|x|chf|fr|sfr|eur|euro|stutz|\d|[.,\s-])+$/i.test(key)) return "";
-
-  const hasAction = /\b(?:reinigen|reinigung|putzen|säubern|saeubern|clean|nettoyer|nettoyage)\b/i.test(value);
-  if (!hasAction) value = `${value} reinigen`;
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function unitMatchesExplicitCandidateV17_30(itemUnit: any, candidateUnit: string): boolean {
-  const unit = normalizeHourRepairText(itemUnit || "").replace(/[^a-z0-9]/g, "");
-  if (candidateUnit === "Quadratmeter") return ["quadratmeter", "m2", "qm", "sqm"].includes(unit);
-  if (candidateUnit === "Stück") return ["stueck", "stuck", "stk", "piece", "pieces", "pcs"].includes(unit);
-  return normalizeHourRepairText(candidateUnit) === unit;
-}
-
-function isFragmentServiceNameV17_30(value?: string | null): boolean {
-  const text = normalizeHourRepairText(value || "");
-  if (!text) return true;
-  if (!/[a-z]/i.test(text)) return true;
-  if (/^(?:a|à|at|je|pro|per|mal|x|chf|fr|sfr|eur|euro|stutz|\d|[.,\s-])+$/i.test(text)) return true;
-  if (/^(?:a|à)\s*\d/.test(text)) return true;
-  return false;
-}
-
-function buildExplicitLineRepairCandidatesV17_30(originalText: string): ExplicitLineRepairCandidate[] {
-  const sections = splitSourceAndAutomaticTranslationV17_30(originalText);
-  const preferred = sections.translated || sections.original;
-  // When the AI already produced an automatic German translation, use that as
-  // the semantic source for visible service names. The original text remains
-  // stored in the customer message, but raw dialect/French/English fragments
-  // must not become visible service names.
-  const lines = repairLineListV17_30(preferred);
-  const candidates: ExplicitLineRepairCandidate[] = [];
-
-  for (const line of lines) {
-    const quantityUnit = explicitLineQuantityUnitV17_30(line);
-    const price = explicitLinePriceV17_30(line);
-    if (!quantityUnit || !price?.unitPrice) continue;
-
-    const serviceName = cleanExplicitLineServiceNameV17_30(line);
-    if (!serviceName || isFragmentServiceNameV17_30(serviceName)) continue;
-
-    candidates.push({
-      raw: line,
-      serviceName,
-      quantity: quantityUnit.quantity,
-      unit: quantityUnit.unit,
-      unitPrice: price.unitPrice,
-      totalPrice: roundHourRepairMoney(quantityUnit.quantity * price.unitPrice),
-      currency: price.currency,
-      key: normalizeHourRepairText(line),
-    });
-  }
-
-  const byKey = new Map<string, ExplicitLineRepairCandidate>();
-  for (const candidate of candidates) {
-    const key = [candidate.unit, candidate.quantity, candidate.unitPrice, normalizeHourRepairText(candidate.serviceName)].join("|");
-    const existing = byKey.get(key);
-    if (!existing || candidate.serviceName.length > existing.serviceName.length) byKey.set(key, candidate);
-  }
-  return Array.from(byKey.values());
-}
-
-function sameExplicitCandidateNumbersV17_30(item: HourLineRepairItem, candidate: ExplicitLineRepairCandidate): boolean {
-  return (
-    Math.abs(normalizeHourRepairNumber(item.quantity) - candidate.quantity) < 0.001 &&
-    Math.abs(normalizeHourRepairNumber(item.unitPrice) - candidate.unitPrice) < 0.01 &&
-    unitMatchesExplicitCandidateV17_30(item.unit, candidate.unit)
-  );
-}
-
-function hasExistingExplicitCandidateV17_30<T extends HourLineRepairItem>(items: T[], candidate: ExplicitLineRepairCandidate): boolean {
-  return items.some((item) => {
-    if (!sameExplicitCandidateNumbersV17_30(item, candidate)) return false;
-    const itemText = normalizeHourRepairText([item.serviceName, item.description, item.sourceText, item.evidence].filter(Boolean).join(" "));
-    const candidateService = normalizeHourRepairText(candidate.serviceName);
-    if (itemText.includes(candidate.key.slice(0, 80))) return true;
-    if (candidateService && itemText.includes(candidateService)) return true;
-    if (!isFragmentServiceNameV17_30(item.serviceName) && tokenOverlapScore(candidate.serviceName, String(item.serviceName || "")) >= 1) return true;
-    return false;
-  });
-}
-
-function applyExplicitLineRepairValidationV17_30<T extends HourLineRepairItem>(items: T[], originalText: string): T[] {
-  const candidates = buildExplicitLineRepairCandidatesV17_30(originalText);
-  if (!candidates.length) return items;
-
-  const repaired = items.map((item) => {
-    const candidate = candidates.find((entry) => sameExplicitCandidateNumbersV17_30(item, entry));
-    if (!candidate) return item;
-
-    const currentName = String(item.serviceName || "").trim();
-    const currentText = normalizeHourRepairText([item.serviceName, item.description, item.sourceText, item.evidence].filter(Boolean).join(" "));
-    const candidateService = normalizeHourRepairText(candidate.serviceName);
-    const shouldReplaceName =
-      isFragmentServiceNameV17_30(currentName) ||
-      !currentText.includes(candidate.key.slice(0, 60)) ||
-      (candidateService && !normalizeHourRepairText(currentName).includes(candidateService) && tokenOverlapScore(candidate.serviceName, currentName) === 0) ||
-      /\b(?:sehr\s+)?(?:dreckig|schmutzig|verschmutzt)\b|\bmal\b$/i.test(currentName);
-
-    if (!shouldReplaceName) return item;
-    return {
-      ...item,
-      serviceName: candidate.serviceName,
-      description: candidate.raw,
-      sourceText: candidate.raw,
-      evidence: candidate.raw,
-      quantity: candidate.quantity,
-      unit: candidate.unit,
-      unitPrice: candidate.unitPrice,
-      totalPrice: candidate.totalPrice,
-      needsReview: item.needsReview ?? true,
-    } as T;
-  });
-
-  const withMissing = [...repaired];
-  for (const candidate of candidates) {
-    if (candidate.currency && candidate.currency !== "CHF") continue;
-    if (hasExistingExplicitCandidateV17_30(withMissing, candidate)) continue;
-    withMissing.push({
-      serviceName: candidate.serviceName,
-      description: candidate.raw,
-      quantity: candidate.quantity,
-      unit: candidate.unit,
-      unitPrice: candidate.unitPrice,
-      totalPrice: candidate.totalPrice,
-      needsReview: true,
-      reviewReason: "Nicht im Leistungskatalog. Explizite Leistungszeile aus Kundentext übernommen.",
-      sourceText: candidate.raw,
-      evidence: candidate.raw,
-    } as unknown as T);
-  }
-
-  const out: T[] = [];
-  for (const item of withMissing) {
-    if (isFragmentServiceNameV17_30(item.serviceName)) {
-      const duplicate = out.some((kept) =>
-        Math.abs(normalizeHourRepairNumber(kept.quantity) - normalizeHourRepairNumber(item.quantity)) < 0.001 &&
-        Math.abs(normalizeHourRepairNumber(kept.unitPrice) - normalizeHourRepairNumber(item.unitPrice)) < 0.01 &&
-        normalizeHourRepairText(kept.unit || "") === normalizeHourRepairText(item.unit || ""),
-      );
-      if (duplicate) continue;
-    }
-
-    const sameIndex = out.findIndex((kept) => {
-      const sameNumbers =
-        Math.abs(normalizeHourRepairNumber(kept.quantity) - normalizeHourRepairNumber(item.quantity)) < 0.001 &&
-        Math.abs(normalizeHourRepairNumber(kept.unitPrice) - normalizeHourRepairNumber(item.unitPrice)) < 0.01 &&
-        normalizeHourRepairText(kept.unit || "") === normalizeHourRepairText(item.unit || "");
-      if (!sameNumbers) return false;
-      const keptSource = normalizeHourRepairText([kept.sourceText, kept.evidence, kept.description].filter(Boolean).join(" "));
-      const itemSource = normalizeHourRepairText([item.sourceText, item.evidence, item.description].filter(Boolean).join(" "));
-      return Boolean(keptSource && itemSource && (keptSource.includes(itemSource) || itemSource.includes(keptSource)));
-    });
-
-    if (sameIndex >= 0) {
-      if (isFragmentServiceNameV17_30(out[sameIndex].serviceName) && !isFragmentServiceNameV17_30(item.serviceName)) {
-        out[sameIndex] = item;
-      }
-      continue;
-    }
-
-    out.push(item);
-  }
-
-  return out;
-}
-
 export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem>(
   items: T[] | undefined | null,
   originalText: string,
@@ -1599,7 +1275,6 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
   const missingPriceCandidates = buildMissingPriceRepairCandidates(originalText);
   const missingQuantityCandidates = buildMissingQuantityRepairCandidates(originalText);
   const missingUnitCandidates = buildMissingUnitRepairCandidates(originalText);
-  const explicitLineCandidates = buildExplicitLineRepairCandidatesV17_30(originalText);
   const repairableRowsBefore = sourceItems.filter((item) =>
     isRepairableHourRepairRow(item, candidates),
   );
@@ -1625,11 +1300,11 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
       .map((item) => hourRepairItemDebugSummary(item))
       .join(" | ");
     console.info(
-      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${repairableRowsBefore.length} missingRows=${missingItems.length} hourCandidates=${candidates.length} flatFeeCandidates=${flatFeeCandidates.length} missingPriceCandidates=${missingPriceCandidates.length} missingQuantityCandidates=${missingQuantityCandidates.length} missingUnitCandidates=${missingUnitCandidates.length} explicitLineCandidates=${explicitLineCandidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
+      `${options.logPrefix} start items=${sourceItems.length} zeroHourRows=${repairableRowsBefore.length} missingRows=${missingItems.length} hourCandidates=${candidates.length} flatFeeCandidates=${flatFeeCandidates.length} missingPriceCandidates=${missingPriceCandidates.length} missingQuantityCandidates=${missingQuantityCandidates.length} missingUnitCandidates=${missingUnitCandidates.length} candidateSummary=${candidateSummary || "none"} zeroSummary=${zeroSummary || "none"} itemSummary=${itemSummary || "none"}`,
     );
   }
 
-  if (sourceItems.length === 0 && missingItems.length === 0 && explicitLineCandidates.length === 0) {
+  if (sourceItems.length === 0 && missingItems.length === 0) {
     if (options?.logPrefix) {
       console.info(`${options.logPrefix} done repaired=0 created=0 remainingZeroHourRows=0`);
     }
@@ -1641,7 +1316,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     };
   }
 
-  if (candidates.length === 0 && flatFeeCandidates.length === 0 && missingPriceCandidates.length === 0 && missingQuantityCandidates.length === 0 && missingUnitCandidates.length === 0 && explicitLineCandidates.length === 0 && missingItems.length === 0) {
+  if (candidates.length === 0 && flatFeeCandidates.length === 0 && missingPriceCandidates.length === 0 && missingQuantityCandidates.length === 0 && missingUnitCandidates.length === 0 && missingItems.length === 0) {
     if (options?.logPrefix) {
       console.info(
         `${options.logPrefix} done repaired=0 created=0 remainingZeroHourRows=${repairableRowsBefore.length}`,
@@ -1785,17 +1460,10 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     ...buildMissingQuantityReviewItems(repairedItems, missingQuantityCandidates),
     ...buildMissingUnitReviewItems(repairedItems, missingUnitCandidates),
   ];
-  const explicitValidatedItems = applyExplicitLineRepairValidationV17_30(
+  const finalItems = removeSpuriousRepairDuplicates(
     [...repairedItems, ...createdItems],
-    originalText,
-  );
-
-  const finalItems = cleanSemanticServiceNamesV17_29(
-    removeSpuriousRepairDuplicates(
-      explicitValidatedItems,
-      flatFeeCandidates,
-      missingPriceCandidates,
-    ),
+    flatFeeCandidates,
+    missingPriceCandidates,
   );
 
   const remainingZeroHourRows = finalItems.filter((item) =>
