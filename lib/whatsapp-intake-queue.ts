@@ -2,7 +2,6 @@ import { prisma } from '@/lib/prisma';
 import { processIncomingMessage } from '@/lib/order-intake';
 import { logAuditAsync } from '@/lib/audit';
 import { maskPhoneForLog } from '@/lib/phone';
-import { repairPersistedOrderZeroHourItemsFromText } from '@/lib/order-hour-line-repair';
 
 const DEFAULT_WHATSAPP_TEXT_DELAY_MS = 4_000;
 const MIN_WHATSAPP_TEXT_DELAY_MS = 2_500;
@@ -19,12 +18,6 @@ const CHANNEL = 'whatsapp';
 const PROCESSING_TIMEOUT_MS = 90_000;
 
 const scheduledWorkers = new Map<string, ReturnType<typeof setTimeout>>();
-
-
-// V17.04: Legacy V17.02 post-persist hour repair removed.
-// All WhatsApp hour-quantity repairs now run through the shared helper
-// in lib/order-hour-line-repair.ts, so logs and behavior are consistent
-// across intake, orders GET/POST/PUT and the WhatsApp queue.
 
 function queueDelayMs(): number {
   if (!Number.isFinite(WHATSAPP_TEXT_DELAY_MS)) {
@@ -276,14 +269,8 @@ export async function processWhatsAppTextQueueForSender(queueKey: string): Promi
     });
 
     if (orderCreated?.orderId) {
-      const hourRepairResult = await repairPersistedOrderZeroHourItemsFromText({
-        prisma,
-        orderId: orderCreated.orderId,
-        originalText: text,
-        logPrefix: '[WhatsAppQueueHourFixV17_06]',
-      });
       console.info(
-        `[WhatsAppQueueHourFixV17_06] result orderId=${orderCreated.orderId} repaired=${hourRepairResult.repairedCount} remainingZeroHourRows=${hourRepairResult.remainingZeroHourRows}`,
+        `[WhatsAppQueueHourFixV17_27] skipped post-persist repair orderId=${orderCreated.orderId}; semantic intake result kept as source of truth`,
       );
     }
 

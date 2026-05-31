@@ -796,14 +796,11 @@ function cleanServiceNameFromMissingUnitLine(line: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  const key = normalizeHourRepairText(raw);
-  if (/lagerraum|lager|storage\s+room|stockroom/.test(key)) return "Lagerraum reinigen";
-  if (/fenster|window|vitre|fenetre|vitrin|finestr|ventan/.test(key)) return "Fenster reinigen";
-  if (/glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)) return "Glastür reinigen";
-  if (/boden|floor|sol|paviment|suelo/.test(key)) return "Boden reinigen";
-  if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) return "Technikraum reinigen";
-  if (/meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) return "Besprechungsbereich reinigen";
-  if (/archiv/.test(key) || /archive\s+room/.test(key)) return "Archivraum reinigen";
+  // V17.27: Keine semantische Leistung aus dieser Reparaturschicht erfinden.
+  // Der LLM-/Intake-Layer entscheidet, was Leistung ist. Diese Datei darf nur
+  // numerische Struktur reparieren oder vorhandene Evidenz bewahren. Dadurch
+  // wird aus einer Quellzeile wie "Lagerraum Boden 42 à CHF 7" nicht zusätzlich
+  // "Lagerraum reinigen" erzeugt.
   return raw || "Leistung prüfen";
 }
 
@@ -857,17 +854,32 @@ function hasExistingMissingUnitRepresentation(
   items: HourLineRepairItem[],
 ): boolean {
   const candidateService = normalizeHourRepairText(candidate.serviceName);
+  const candidateRawKey = normalizeHourRepairText(candidate.raw || candidate.key || candidate.serviceName);
+
   return items.some((item) => {
     const itemText = [item.serviceName, item.description, item.sourceText, item.evidence]
       .filter(Boolean)
       .join(" ");
+    const itemKey = normalizeHourRepairText(itemText);
     const itemService = normalizeHourRepairText(item.serviceName || item.description || "");
     const sameService = Boolean(
       candidateService && itemService && (itemService.includes(candidateService) || candidateService.includes(itemService)),
     );
+    const sameLineEvidence = Boolean(
+      candidateRawKey &&
+        itemKey &&
+        (itemKey.includes(candidateRawKey) ||
+          candidateRawKey.includes(itemKey) ||
+          (candidate.key && itemKey.includes(String(candidate.key).slice(0, 80)))),
+    );
     const samePrice = Math.abs(normalizeHourRepairNumber(item.unitPrice) - candidate.unitPrice) < 0.01;
     const sameQuantity = Math.abs(normalizeHourRepairNumber(item.quantity) - candidate.quantity) < 0.001;
-    return sameService && samePrice && sameQuantity && (normalizeHourRepairNumber(item.totalPrice) <= 0 || hasMissingUnitSignal(itemText));
+    const reviewLikeExistingRow = normalizeHourRepairNumber(item.totalPrice) <= 0 || hasMissingUnitSignal(itemText);
+
+    // V17.27: Gleiche Quellzeile + gleiche Menge + gleicher Preis ist bereits
+    // dieselbe fachliche Evidenz. Dann darf diese Reparatur keine zweite Leistung
+    // aus derselben Zeile erzeugen, auch wenn der Servicename anders klingt.
+    return samePrice && sameQuantity && reviewLikeExistingRow && (sameService || sameLineEvidence || hasMissingUnitSignal(itemText));
   });
 }
 

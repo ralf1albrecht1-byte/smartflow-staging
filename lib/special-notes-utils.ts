@@ -1,18 +1,10 @@
 /**
  * Utility to split specialNotes into system hints, safety warnings and real job hints.
  *
- * New rule:
- * The UI does not guess hazards from words/languages anymore.
- * The parser/merge logic must write semantic markers into specialNotes:
- *
- * [GEFAHR] Hund frei auf Grundstück
- * [GEFAHR] Offene Stromkabel im Keller
- * [HINWEIS] Leiter eventuell benötigt
- * [HINWEIS] Rückruf vor Arbeitsbeginn
- *
- * Backward compatibility:
- * - Existing unmarked lines are treated as normal job hints.
- * - Existing system/check lines are still separated into systemHints.
+ * Rule:
+ * The parser/merge logic writes semantic markers into specialNotes:
+ * [GEFAHR], [WARNUNG], [HINWEIS].
+ * The UI should not invent hazards only from generic words.
  */
 
 const SYSTEM_KEYWORDS =
@@ -44,14 +36,18 @@ const APPOINTMENT_CLARIFY_HINT =
 const FIXED_APPOINTMENT_HINT =
   /^Termin\b.*(?:\d{1,2}[.\-/]\d{1,2}|\d{1,2}:\d{2}|\b(?:vormittag|nachmittag|abend|uhr)\b)/i;
 
+const PRE_ARRIVAL_HINT =
+  /(?:nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen))/i;
+
 const isOperationalJobHint = (value: string) => {
   const line = normalizeLine(value);
   if (!line) return false;
   if (APPOINTMENT_CLARIFY_HINT.test(line)) return true;
-  if (/(?:nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen))/i.test(line)) return true;
+  if (PRE_ARRIVAL_HINT.test(line)) return true;
   if (FIXED_APPOINTMENT_HINT.test(line)) return false;
   return !NON_OPERATIONAL_JOB_HINT.test(line);
 };
+
 const fixVisibleNoteGrammar = (value: string) =>
   value
     .replace(/\bKeine telefonische Rückruf notwendig\b/gi, "Kein telefonischer Rückruf notwendig")
@@ -81,10 +77,6 @@ const semanticNoteKey = (value: string) => {
   const text = normalizeDedupeText(value);
   if (!text) return "";
 
-  // Grouped merge notes must not be collapsed across work sites.
-  // Example: "Haus B · Limmatweg 14: Nicht telefonisch zurückrufen"
-  // and "Haus A · Limmatweg 12: Keine telefonische Rückfrage" are
-  // two different operational instructions, even if both are "no call".
   if (
     /^[^:]{2,120}:\s+/.test(visibleLine) &&
     !/^kontakt\s+vor\s+ort:\s*/i.test(visibleLine) &&
@@ -95,11 +87,12 @@ const semanticNoteKey = (value: string) => {
 
   if (/\bhund\b|\bgartenhund\b|\bdog\b/.test(text)) return "dog";
   if (/\bleiter\b|\bladder\b/.test(text)) return "ladder";
-  if (/\bschluessel\b|\bschluessel\b|\bkey\b|\bbriefkasten\b/.test(text)) return "key";
+  if (/\bschluessel\b|\bschlüssel\b|\bkey\b|\bbriefkasten\b/.test(text)) return "key";
   if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
   if (/(nicht einfach kommen|nicht einfach vorbeikommen|nicht ohne ruecksprache|nicht ohne rucksprache|vor arbeitsbeginn|vor start|vor ankunft).*(melden|anrufen|kontaktieren|kommen|whatsapp)|vorher melden/.test(text)) return "pre_arrival_instruction";
   if (/termin.*(klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(text)) return "appointment_clarify";
+
   const hasNoCall = /nicht anrufen|nicht telefonisch|keine telefonische|kein telefon|no calls?|do not call|pas d appel|pas d appels|pas appeler|pas telephoner|ne pas appeler|ne pas telephoner|sans appel telephonique/.test(text);
   if (/whatsapp/.test(text) && hasNoCall) return "communication_whatsapp_no_call";
   if (/\bsms\b/.test(text) && hasNoCall) return "communication_sms_no_call";
@@ -166,12 +159,6 @@ export const formatHintLine = (line: string) => {
   return cleaned ? `[HINWEIS] ${cleaned}` : "";
 };
 
-/**
- * Splits specialNotes text into:
- * - systemHints: internal review/customer matching hints
- * - safetyWarnings: lines explicitly marked with [GEFAHR] / [WARNUNG]
- * - jobHints: lines explicitly marked with [HINWEIS] or unmarked legacy lines
- */
 export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
   if (!text || !text.trim()) {
     return { systemHints: [], safetyWarnings: [], jobHints: [] };
@@ -218,15 +205,6 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
   };
 }
 
-/**
- * Legacy helper kept for existing UI/components.
- *
- * New behavior:
- * - Only explicit [GEFAHR] / [WARNUNG] markers are treated as hazards.
- * - No language/keyword guessing.
- * - "equipment" is intentionally empty unless a future explicit marker is added.
- * - Unmarked lines are operational hints.
- */
 export function splitJobHints(jobHints: string[]): SplitJobHints {
   const hazards: string[] = [];
   const equipment: string[] = [];
@@ -249,10 +227,76 @@ export function splitJobHints(jobHints: string[]): SplitJobHints {
   return { hazards, equipment, operational };
 }
 
-/**
- * Combines notes back into the stored specialNotes format.
- * Use this whenever saving merged/edited notes so markers stay consistent.
- */
+function normalizeSpecialNoteLineV17_27(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstPhoneKeyV17_27(value: string): string {
+  const match = String(value || "").match(/\+?\d[\d\s()./-]{6,}\d/);
+  return match ? match[0].replace(/\D/g, "") : "";
+}
+
+function rebuildSpecialNoteLineV17_27(originalLine: string, body: string): string {
+  const markerMatch = String(originalLine || "").match(/^\s*(\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\])\s*/i);
+  const marker = markerMatch?.[1] || "";
+  const cleanedBody = body.replace(/\s+/g, " ").trim();
+  return marker ? `${marker} ${cleanedBody}` : cleanedBody;
+}
+
+function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
+  const normalizedBodies = lines.map((line) => normalizeSpecialNoteLineV17_27(stripKnownMarker(line)));
+  const whatsappContextLines = lines.filter((line) => {
+    const key = normalizeSpecialNoteLineV17_27(stripKnownMarker(line));
+    return /whatsapp/.test(key) && /(vorher|zuerst|termin|nicht einfach kommen|melden|schreiben|kontakt)/.test(key);
+  });
+  const whatsappPhones = new Set(whatsappContextLines.map(firstPhoneKeyV17_27).filter(Boolean));
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  lines.forEach((line, index) => {
+    const body = stripKnownMarker(line);
+    let key = normalizedBodies[index] || "";
+    if (!key) return;
+
+    const isDanger = isSafetyWarningLine(line);
+    let nextBody = body;
+
+    nextBody = nextBody.replace(/^Arbeiten sind nicht dort, sondern im\s+/i, "Arbeitsort: ");
+    nextBody = nextBody.replace(/^Die Arbeiten sind nicht dort, sondern im\s+/i, "Arbeitsort: ");
+
+    const phone = firstPhoneKeyV17_27(body);
+    const isShortWhatsappPreference = /whatsapp\s+bevorzugt/i.test(body) || /^whatsapp\s*:/i.test(body);
+    if (!isDanger && isShortWhatsappPreference && phone && whatsappPhones.has(phone)) {
+      return;
+    }
+
+    if (!isDanger && /kontakt vor ort\s*:/i.test(body) && /rechnung\s+bitte\s+an/i.test(body)) {
+      return;
+    }
+    if (!isDanger && /^rechnung\s+bitte\s+an\b/i.test(body)) {
+      return;
+    }
+
+    const rebuilt = rebuildSpecialNoteLineV17_27(line, nextBody);
+    key = normalizeSpecialNoteLineV17_27(stripKnownMarker(rebuilt));
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(rebuilt);
+  });
+
+  return out;
+}
+
 export function buildSpecialNotes(input: {
   safetyWarnings?: string[];
   jobHints?: string[];
@@ -276,13 +320,9 @@ export function buildSpecialNotes(input: {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  return Array.from(new Set(lines)).join("\n");
+  return Array.from(new Set(compactSpecialNoteLinesV17_27(lines))).join("\n");
 }
 
-/**
- * Checks if a text contains explicit warning markers.
- * No keyword/language guessing.
- */
 export function hasWarningKeywords(text: string): boolean {
   if (!text) return false;
   return text
@@ -290,10 +330,6 @@ export function hasWarningKeywords(text: string): boolean {
     .some((line) => isSafetyWarningLine(line));
 }
 
-/**
- * Returns React-compatible segments.
- * New behavior: the whole line is marked as warning only when it has [GEFAHR]/[WARNUNG].
- */
 export function getWarningSegments(
   text: string,
 ): Array<{ text: string; isWarning: boolean }> {
@@ -314,15 +350,9 @@ export function getWarningSegments(
   });
 }
 
-/**
- * Callback detection should be handled semantically by the parser in the future.
- * Kept only for existing imports; does not guess from language-specific keywords anymore.
- */
 const normalizeCallbackText = (value: string) =>
   value
     .toLowerCase()
-    // Map German umlauts before Unicode accent stripping. Otherwise
-    // "Rückruf" becomes "ruckruf" and older "rueckruf" patterns miss it.
     .replace(/ä/g, "ae")
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
@@ -364,11 +394,6 @@ const isNegativeCallbackLine = (line: string) => {
   );
 };
 
-/**
- * Callback detection is intentionally positive-only.
- * Negative instructions such as "Kein Rückruf" or "Nicht telefonisch
- * zurückrufen" must never create a callback chip.
- */
 export function detectCallbackRequest(
   text: string | null | undefined,
 ): string | null {
@@ -384,9 +409,6 @@ export function detectCallbackRequest(
   return callbackHint || null;
 }
 
-/**
- * Checks if a customer has complete address data (Straße + PLZ + Ort).
- */
 export function hasCompleteAddress(
   customer:
     | { address?: string | null; plz?: string | null; city?: string | null }
