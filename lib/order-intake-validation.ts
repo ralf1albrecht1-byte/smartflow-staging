@@ -2049,8 +2049,9 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
       new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"),
       " ",
     )
-    .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?]*$/i, " ")
+    .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?-]*$/i, " ")
     .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
+    .replace(/\s*\.\-\s*$/g, "")
     .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -3163,9 +3164,10 @@ function cleanExplicitServiceNameFromLine(
       " ",
     )
     .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
-    .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?]*$/i, " ")
+    .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?-]*$/i, " ")
     .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
-    .replace(/[.,;:!?]+$/g, " ")
+    .replace(/\s*\.\-\s*$/g, " ")
+    .replace(/[.,;:!?-]+$/g, " ")
     // Remove unit prefixes that may remain in the visible service name.
     .replace(
       /^\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunde|stunden|std\.?|h|stück|stueck|stk|piece|pieces)\s+/gi,
@@ -3582,6 +3584,15 @@ function shouldPreferExplicitServiceName(
     itemName === "reinigung"
   )
     return true;
+
+  const itemScore = serviceNameQualityScore(item.serviceName);
+  const explicitScore = serviceNameQualityScore(explicit.serviceName);
+
+  // Prefer the service name reconstructed from the exact customer line when it
+  // is clearly stronger than the current row name. This fixes line-local cases
+  // like "Fenster Küche 3 stk je 8 CHF" being attached to the previous kitchen
+  // floor row. It is a quality comparison, not a customer-service word list.
+  if (explicitScore >= itemScore + 25) return true;
 
   const itemTokens = meaningfulServiceTokens(item.serviceName);
   const explicitTokens = meaningfulServiceTokens(explicit.serviceName);
@@ -4400,6 +4411,7 @@ function cleanFinalServiceNameArtifacts(
   return items.map((item) => {
     let serviceName = String(item.serviceName || "")
       .replace(/[,;:]?\s*(?:zu|a|à|pro|je|per|par)\s*$/i, "")
+      .replace(/\s*\.\-\s*$/g, "")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -5610,33 +5622,129 @@ function sameEvidenceQuantityPriceKey(
   return [sourceKey, quantity, unitPrice, unitType].join("|");
 }
 
+function sameEvidenceUnitPriceKey(
+  item: ParsedOrderItemForValidation,
+): string | null {
+  const unitPrice = roundMoney(Number(item.unitPrice || 0));
+  if (unitPrice <= 0) return null;
+
+  const sourceKey = bestMeasuredEvidenceKeyForDedupe(item);
+  if (!sourceKey || sourceKey.length < 8 || sourceKey.length > 260) return null;
+
+  const unitType = unitTypeFromDisplayUnit(item.unit) || "unknown";
+  return [sourceKey, unitPrice, unitType].join("|");
+}
+
+function itemQuantityIsPresentInOwnEvidence(
+  item: ParsedOrderItemForValidation,
+): boolean {
+  const quantity = roundMoney(Number(item.quantity || 0));
+  if (quantity <= 0) return false;
+
+  const segments = unique([
+    ...splitLineLocalEvidenceSegments(item.sourceText),
+    ...splitLineLocalEvidenceSegments(item.evidence),
+    ...splitLineLocalEvidenceSegments(item.description),
+  ]);
+
+  return segments.some((segment) =>
+    lineSegmentContainsNumberValue(segment, quantity),
+  );
+}
+
+function sameEvidenceSplitKeepScore(item: ParsedOrderItemForValidation): number {
+  let score = serviceNameQualityScore(item.serviceName);
+
+  // Structural signal, not service vocabulary: keep the row whose displayed
+  // quantity is actually present in its own evidence line. This prevents
+  // duplicated KI split artifacts from inflating 42 to 126 while still keeping
+  // true multi-number lines untouched.
+  if (itemQuantityIsPresentInOwnEvidence(item)) score += 220;
+
+  if (Number(item.unitPrice || 0) > 0) score += 20;
+  if (Number(item.totalPrice || 0) > 0) score += 10;
+  if (normalizeCompare(item.serviceName) === "unbekannte leistung") score -= 120;
+
+  return score;
+}
+
+function chooseBestSameEvidenceSplitItem(
+  group: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation {
+  return [...group].sort(
+    (a, b) => sameEvidenceSplitKeepScore(b) - sameEvidenceSplitKeepScore(a),
+  )[0];
+}
+
 function removeSameEvidenceQuantityPriceSplitArtifacts(
   items: ParsedOrderItemForValidation[],
 ): ParsedOrderItemForValidation[] {
-  const groups = new Map<string, ParsedOrderItemForValidation[]>();
+  const exactGroups = new Map<string, ParsedOrderItemForValidation[]>();
 
   for (const item of items) {
     const key = sameEvidenceQuantityPriceKey(item);
     if (!key) continue;
-    const list = groups.get(key) || [];
+    const list = exactGroups.get(key) || [];
     list.push(item);
-    groups.set(key, list);
+    exactGroups.set(key, list);
   }
 
   const toRemove = new Set<ParsedOrderItemForValidation>();
 
-  for (const group of groups.values()) {
+  for (const group of exactGroups.values()) {
     if (group.length <= 1) continue;
 
     // Structural Prüfer: same evidence + same quantity + same price + same unit
-    // means the LLM split one customer line into several positions. Keep one
-    // row only. No service-word list; the LLM remains responsible for the name.
-    const keep = group.find(
-      (item) => normalizeCompare(item.serviceName) !== "unbekannte leistung",
-    ) || group[0];
+    // means the LLM split one customer line into several positions. Keep the
+    // strongest row only. No service-word list; the LLM remains responsible for
+    // semantic classification, this pass only removes duplicate evidence rows.
+    const keep = chooseBestSameEvidenceSplitItem(group);
 
     for (const item of group) {
       if (item !== keep) toRemove.add(item);
+    }
+  }
+
+  const afterExact = items.filter((item) => !toRemove.has(item));
+  const looseGroups = new Map<string, ParsedOrderItemForValidation[]>();
+
+  for (const item of afterExact) {
+    const key = sameEvidenceUnitPriceKey(item);
+    if (!key) continue;
+    const list = looseGroups.get(key) || [];
+    list.push(item);
+    looseGroups.set(key, list);
+  }
+
+  for (const group of looseGroups.values()) {
+    if (group.length <= 1) continue;
+
+    const withQuantityInEvidence = group.filter((item) =>
+      itemQuantityIsPresentInOwnEvidence(item),
+    );
+
+    // If one same-evidence/same-price group has one row with a local quantity
+    // and other rows with quantities not present in that line, those other rows
+    // are artifacts. This is the Albis class of bug, solved structurally:
+    // same customer line + same unit price + same unit, but inflated/foreign
+    // quantity on a duplicate row.
+    if (withQuantityInEvidence.length >= 1 && withQuantityInEvidence.length < group.length) {
+      const keep = chooseBestSameEvidenceSplitItem(withQuantityInEvidence);
+      for (const item of group) {
+        if (item !== keep) toRemove.add(item);
+      }
+      continue;
+    }
+
+    // When all duplicates have the same local quantity evidence, still collapse
+    // them to the strongest semantic row. This catches two names for the exact
+    // same measured line without relying on any fixed service vocabulary.
+    const quantitySet = new Set(group.map((item) => roundMoney(Number(item.quantity || 0))));
+    if (quantitySet.size === 1) {
+      const keep = chooseBestSameEvidenceSplitItem(group);
+      for (const item of group) {
+        if (item !== keep) toRemove.add(item);
+      }
     }
   }
 
@@ -5958,10 +6066,16 @@ function applyEvidenceBoundMeasuredLineRepair(
 
       const repaired: ParsedOrderItemForValidation = clearResolvedNumericReview({
         ...before,
-        // Keep the LLM/catalog name when it is already meaningful; use the line
-        // name only if the existing name is weak. Zahlen kommen aber IMMER aus
-        // der Beweiszeile.
-        serviceName: isWeakExplicitServiceName(before.serviceName) ? explicit.serviceName : before.serviceName,
+        // Zahlen kommen immer aus der Beweiszeile. Den Namen behalten wir nur,
+        // wenn er fachlich mindestens so stark ist wie der Name aus derselben
+        // Kundenzeile. Damit bleibt die KI semantisch führend, aber der Prüfer
+        // verhindert, dass eine Nachbarzeile wie "Fenster Küche 3 stk..." am
+        // vorherigen Boden-Namen hängen bleibt.
+        serviceName:
+          isWeakExplicitServiceName(before.serviceName) ||
+          shouldPreferExplicitServiceName(before, explicit)
+            ? explicit.serviceName
+            : before.serviceName,
         description: before.description || explicit.description,
         quantity: explicit.quantity,
         unit: explicit.unit,
@@ -6056,6 +6170,11 @@ function forceAppendMissingHardMeasuredLineItems(
     if (exactIndex >= 0) {
       next[exactIndex] = clearResolvedNumericReview({
         ...next[exactIndex],
+        serviceName:
+          isWeakExplicitServiceName(next[exactIndex].serviceName) ||
+          shouldPreferExplicitServiceName(next[exactIndex], explicit)
+            ? explicit.serviceName
+            : next[exactIndex].serviceName || explicit.serviceName,
         unit: explicit.unit,
         quantity: explicit.quantity,
         unitPrice: explicit.unitPrice,
@@ -6075,9 +6194,11 @@ function forceAppendMissingHardMeasuredLineItems(
     if (staleIndex >= 0) {
       next[staleIndex] = clearResolvedNumericReview({
         ...next[staleIndex],
-        serviceName: isWeakExplicitServiceName(next[staleIndex].serviceName)
-          ? explicit.serviceName
-          : next[staleIndex].serviceName || explicit.serviceName,
+        serviceName:
+          isWeakExplicitServiceName(next[staleIndex].serviceName) ||
+          shouldPreferExplicitServiceName(next[staleIndex], explicit)
+            ? explicit.serviceName
+            : next[staleIndex].serviceName || explicit.serviceName,
         description: next[staleIndex].description || explicit.description,
         unit: explicit.unit,
         quantity: explicit.quantity,

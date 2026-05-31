@@ -68,23 +68,13 @@ function stripInternalCommunicationMetadata(value: string | null | undefined): s
 
 function LadderChipIcon({ className = 'h-5 w-5' }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
+    <span
+      className={`${className} inline-flex items-center justify-center leading-none`}
       aria-hidden="true"
+      title="Leiter"
     >
-      <path d="M6 22 12 2" />
-      <path d="m18 22-6-20" />
-      <path d="M8 15h8" />
-      <path d="M9.2 11h5.6" />
-      <path d="M10.4 7h3.2" />
-      <path d="M6.8 19h10.4" />
-    </svg>
+      🪜
+    </span>
   );
 }
 

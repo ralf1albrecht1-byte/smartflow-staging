@@ -75,29 +75,18 @@ import { MobileListShortcut } from "@/components/mobile-list-shortcut";
 
 function LadderIcon({
   className = "h-4 w-4",
-  strokeWidth = 2.2,
 }: {
   className?: string;
   strokeWidth?: number | string;
 }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
+    <span
+      className={`${className} inline-flex items-center justify-center leading-none`}
       aria-hidden="true"
+      title="Leiter"
     >
-      <path d="M6 22 12 2" />
-      <path d="m18 22-6-20" />
-      <path d="M8 14h8" />
-      <path d="M9.5 9h5" />
-      <path d="M10.8 5h2.4" />
-      <path d="M6.8 18h10.4" />
-    </svg>
+      🪜
+    </span>
   );
 }
 

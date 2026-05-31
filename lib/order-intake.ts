@@ -5054,7 +5054,9 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Nicht versuchen, unbekannte Arbeiten einer bestehenden Leistung zuzuordnen.
 - Wenn mehrere Arbeiten genannt werden, jede Arbeit separat ausgeben.
 - Aber eine einzige Preis-/Mengenzeile mit nur einer Menge und nur einem Preis ist keine Mehrfacharbeit, nur weil sie aus Bereich + Objekt besteht.
-- Keine Doppelpositionen aus derselben evidence: Wenn zwei Arbeitspositionen dieselbe raw/evidence-Zeile und dieselben Preis-/Mengen-/Währungswerte hätten, ist eine davon nur Kontext oder Zusammenfassung und muss entfallen.
+- Klassifiziere semantisch: In einer Zeile können Orts-/Bereichswörter und Arbeitsobjekt zusammenstehen. Das ist trotzdem eine einzige Arbeitsposition, wenn nur ein Mengen-/Preisblock vorhanden ist. Beispielprinzip: "Raum/Bereich + Objekt + Menge + Preis" darf nicht in "Raum reinigen" plus "Objekt reinigen" zerlegt werden.
+- Keine Doppelpositionen aus derselben evidence: Wenn zwei Arbeitspositionen dieselbe raw/evidence-Zeile und denselben Preis-/Mengen-/Währungsbeleg hätten, ist eine davon nur Kontext oder Zusammenfassung und muss entfallen.
+- Wenn eine zweite Position nur aus einem Ort, Raum, Bereich, Stockwerk, Gebäude-Teil oder Titel der gleichen Zeile besteht, ist sie keine eigene Leistung. Die echte Leistung ist die semantische Arbeit aus dieser Zeile.
 - Zweiter-Prüfer-Regel: Menge, Einheit, Preis und Währung müssen aus derselben Leistungszeile oder einem eindeutig verbundenen Satz stammen. Zahlen aus PLZ, Hausnummer, Telefonnummer, Uhrzeit, Adresse oder vorheriger/nächster Leistungszeile dürfen nie auf eine andere Leistung übertragen werden.
 - Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.
 
