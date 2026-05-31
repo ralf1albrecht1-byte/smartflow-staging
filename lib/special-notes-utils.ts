@@ -156,7 +156,7 @@ export const formatSafetyWarningLine = (line: string) => {
 
 export const formatHintLine = (line: string) => {
   const cleaned = stripKnownMarker(line);
-  return cleaned ? `[HINWEIS] ${cleaned}` : "";
+  return cleaned || "";
 };
 
 export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
@@ -253,6 +253,61 @@ function rebuildSpecialNoteLineV17_27(originalLine: string, body: string): strin
   return marker ? `${marker} ${cleanedBody}` : cleanedBody;
 }
 
+function stripAddressLikeTailV17_29(value: string): string {
+  return String(value || "")
+    .replace(/,?\s*[^,.;]*\b(?:strasse|straße|weg|gasse|platz|allee|ring|rain)\b[^,.;]*(?:\s+(?:in|,)?\s*\d{4}\s+[^,.;]*)?/gi, "")
+    .replace(/,?\s*\d{4}\s+[A-Za-zÄÖÜäöüß .'-]+\.?$/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*,\s*,+/g, ", ")
+    .replace(/^\s*,\s*|\s*,\s*$/g, "")
+    .trim();
+}
+
+function compactWorkAreaHintV17_29(body: string): string | null {
+  const original = String(body || "").replace(/\s+/g, " ").trim();
+  if (!original) return original;
+
+  const hasWorksitePrefix = /^(?:die\s+)?arbeiten\s+sind\s+nicht\s+dort,?\s+sondern\s+im\s+/i.test(original);
+  const hasArbeitsortPrefix = /^arbeitsort\s*:/i.test(original);
+  if (!hasWorksitePrefix && !hasArbeitsortPrefix) return original;
+
+  let value = original
+    .replace(/^(?:die\s+)?arbeiten\s+sind\s+nicht\s+dort,?\s+sondern\s+im\s+/i, "")
+    .replace(/^arbeitsort\s*:\s*/i, "")
+    .replace(/\.$/, "")
+    .trim();
+
+  value = stripAddressLikeTailV17_29(value);
+
+  const parts = value
+    .split(/,/) 
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => !/\b\d{4}\b|\b\d+[a-z]?\b/i.test(part))
+    .filter((part) => !/\b(?:strasse|straße|weg|gasse|platz|allee|ring|rain)\b/i.test(part));
+
+  if (parts.length >= 2) {
+    value = parts.slice(1).join(", ").trim();
+  } else if (parts.length === 1) {
+    value = parts[0];
+  }
+
+  value = value.replace(/\s+/g, " ").replace(/\.$/, "").trim();
+
+  if (!value) return null;
+  if (normalizeSpecialNoteLineV17_27(value) === normalizeSpecialNoteLineV17_27(original)) return null;
+  return value;
+}
+
+function rebuildVisibleSpecialNoteLineV17_29(originalLine: string, body: string): string {
+  const markerMatch = String(originalLine || "").match(/^\s*(\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\])\s*/i);
+  const marker = markerMatch?.[1] || "";
+  const cleanedBody = body.replace(/\s+/g, " ").trim();
+  if (!cleanedBody) return "";
+  if (/^\[(?:HINWEIS|INFO|NOTIZ)\]$/i.test(marker)) return cleanedBody;
+  return marker ? `${marker} ${cleanedBody}` : cleanedBody;
+}
+
 function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
   const normalizedBodies = lines.map((line) => normalizeSpecialNoteLineV17_27(stripKnownMarker(line)));
   const whatsappContextLines = lines.filter((line) => {
@@ -271,8 +326,9 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
     const isDanger = isSafetyWarningLine(line);
     let nextBody = body;
 
-    nextBody = nextBody.replace(/^Arbeiten sind nicht dort, sondern im\s+/i, "Arbeitsort: ");
-    nextBody = nextBody.replace(/^Die Arbeiten sind nicht dort, sondern im\s+/i, "Arbeitsort: ");
+    const compactedWorkArea = compactWorkAreaHintV17_29(nextBody);
+    if (compactedWorkArea === null) return;
+    nextBody = compactedWorkArea;
 
     const phone = firstPhoneKeyV17_27(body);
     const isShortWhatsappPreference = /whatsapp\s+bevorzugt/i.test(body) || /^whatsapp\s*:/i.test(body);
@@ -287,7 +343,7 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
       return;
     }
 
-    const rebuilt = rebuildSpecialNoteLineV17_27(line, nextBody);
+    const rebuilt = rebuildVisibleSpecialNoteLineV17_29(line, nextBody);
     key = normalizeSpecialNoteLineV17_27(stripKnownMarker(rebuilt));
     if (!key || seen.has(key)) return;
     seen.add(key);

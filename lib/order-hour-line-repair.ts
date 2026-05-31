@@ -1262,6 +1262,56 @@ function removeSpuriousRepairDuplicates<T extends HourLineRepairItem>(
   });
 }
 
+function cleanSemanticServiceNameV17_29(value?: string | null): string {
+  const original = String(value || "").replace(/\s+/g, " ").trim();
+  if (!original) return original;
+
+  let next = original;
+  let changed = false;
+
+  const withoutCalcTail = next
+    .replace(/\s+(?:mal|x|×)\s*$/i, "")
+    .replace(/\s+(?:à|a|je)\s*$/i, "")
+    .trim();
+  if (withoutCalcTail !== next) {
+    next = withoutCalcTail;
+    changed = true;
+  }
+
+  const withoutConditionWords = next
+    .replace(/\b(?:sehr\s+)?(?:dreckig|schmutzig|verschmutzt)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (withoutConditionWords !== next) {
+    next = withoutConditionWords;
+    changed = true;
+  }
+
+  next = next.replace(/\s+/g, " ").trim();
+
+  if (
+    changed &&
+    /\bboden\b/i.test(next) &&
+    !/\breinig(?:en|ung)\b/i.test(next)
+  ) {
+    next = `${next} reinigen`;
+  }
+
+  return next || original;
+}
+
+function cleanSemanticServiceNamesV17_29<T extends HourLineRepairItem>(items: T[]): T[] {
+  return items.map((item) => {
+    const serviceName = String(item?.serviceName || "");
+    const cleaned = cleanSemanticServiceNameV17_29(serviceName);
+    if (!cleaned || cleaned === serviceName) return item;
+    return {
+      ...item,
+      serviceName: cleaned,
+    } as T;
+  });
+}
+
 export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem>(
   items: T[] | undefined | null,
   originalText: string,
@@ -1460,10 +1510,12 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
     ...buildMissingQuantityReviewItems(repairedItems, missingQuantityCandidates),
     ...buildMissingUnitReviewItems(repairedItems, missingUnitCandidates),
   ];
-  const finalItems = removeSpuriousRepairDuplicates(
-    [...repairedItems, ...createdItems],
-    flatFeeCandidates,
-    missingPriceCandidates,
+  const finalItems = cleanSemanticServiceNamesV17_29(
+    removeSpuriousRepairDuplicates(
+      [...repairedItems, ...createdItems],
+      flatFeeCandidates,
+      missingPriceCandidates,
+    ),
   );
 
   const remainingZeroHourRows = finalItems.filter((item) =>
