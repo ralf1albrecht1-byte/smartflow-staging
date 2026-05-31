@@ -88,7 +88,7 @@ function normalizeSemanticChipText(value: string | null | undefined): string {
 function getHazardChipVisual(value: string): SemanticChipVisual {
   const text = normalizeSemanticChipText(value);
 
-  if (/(hund|dog|chien|cane|perro|cao)/.test(text)) {
+  if (/\b(hund|dog|chien|cane|perro|cao)\b/.test(text)) {
     return { icon: '🐕', iconOnly: true, title: value };
   }
 
@@ -98,7 +98,7 @@ function getHazardChipVisual(value: string): SemanticChipVisual {
 function getEquipmentChipVisual(value: string): SemanticChipVisual {
   const text = normalizeSemanticChipText(value);
 
-  if (/(leiter|ladder|echelle|scala|escalera|escada)/.test(text)) {
+  if (/\b(leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)) {
     return { icon: '🪜', iconOnly: true, title: value };
   }
 
@@ -404,12 +404,23 @@ function lineForbidsChannel(line: string, channel: CommunicationChannel): boolea
   if (!text || !lineMentionsChannel(text, channel)) return false;
 
   const channelSource = channelPatternSource(channel);
-  const near = '(?:[-/\\s]+[a-z0-9]+){0,6}[-/\\s]+';
-  const beforeChannel = new RegExp(`\\b${COMMUNICATION_NEGATION_TOKEN}\\b${near}(?:${channelSource})\\b`, 'i');
-  const afterChannel = new RegExp(`\\b(?:${channelSource})\\b${near}\\b${COMMUNICATION_NEGATION_TOKEN}\\b`, 'i');
-  const directNo = new RegExp(`\\b${COMMUNICATION_NEGATION_TOKEN}\\s+(?:per\\s+|via\\s+|ueber\\s+|uber\\s+|over\\s+)?(?:${channelSource})\\b`, 'i');
 
-  return beforeChannel.test(text) || afterChannel.test(text) || directNo.test(text);
+  // Only treat negation as a channel ban when it is attached to the channel.
+  // "WhatsApp an 079..., nicht einfach kommen" is not a WhatsApp ban.
+  const directBeforeChannel = new RegExp(
+    `\\b${COMMUNICATION_NEGATION_TOKEN}\\b(?:\\s+(?:bitte|mehr|mehrmals|nur|mehrfach|per|via|ueber|uber|over|mit|auf|durch|kontakt|kontaktieren|schreiben|senden|schicken|message|nachricht)){0,5}\\s+(?:${channelSource})\\b`,
+    'i',
+  );
+  const channelBeforeDirectNo = new RegExp(
+    `\\b(?:${channelSource})\\b(?:\\s+(?:bitte|mehr|mehrmals|verwenden|benutzen|nutzen|use|kontaktieren|schreiben|senden|schicken|message|nachricht)){0,6}\\s+\\b${COMMUNICATION_NEGATION_TOKEN}\\b`,
+    'i',
+  );
+  const explicitNoChannel = new RegExp(
+    `\\b(?:${channelSource})\\b\\s*(?:nein|verboten|unerwuenscht|unerwünscht|nicht\\s+(?:verwenden|benutzen|nutzen|kontaktieren|schreiben|senden|schicken)|no|not|never)\\b`,
+    'i',
+  );
+
+  return directBeforeChannel.test(text) || channelBeforeDirectNo.test(text) || explicitNoChannel.test(text);
 }
 
 function linePrefersChannel(line: string, channel: CommunicationChannel): boolean {
@@ -418,11 +429,14 @@ function linePrefersChannel(line: string, channel: CommunicationChannel): boolea
 
   const channelSource = channelPatternSource(channel);
   const positiveIntent = '(?:reicht|genuegt|genuget|bevorzugt|preferred|preferiert|am\\s+besten|best|only|nur|schreiben|senden|schicken|kontakt|kontaktieren|melden)';
+  const hasPhone = /(?:\+?\d[\d\s()./-]{6,}\d)/.test(line);
 
   return (
-    new RegExp(`\\b(?:${channelSource})\\b(?:[-/\\s]+[a-z0-9]+){0,8}[-/\\s]+${positiveIntent}\\b`, 'i').test(text) ||
+    new RegExp(`\\b(?:${channelSource})\\b(?:[-/\\s]+[a-z0-9]+){0,10}[-/\\s]+${positiveIntent}\\b`, 'i').test(text) ||
     new RegExp(`\\b(?:per|via|mit|nur|only)\\s+(?:${channelSource})\\b`, 'i').test(text) ||
-    new RegExp(`\\b${positiveIntent}\\s+(?:per|via|mit)?\\s*(?:${channelSource})\\b`, 'i').test(text)
+    new RegExp(`\\b${positiveIntent}\\s+(?:per|via|mit)?\\s*(?:${channelSource})\\b`, 'i').test(text) ||
+    new RegExp(`\\b(?:${channelSource})[-/\\s]*(?:kontakt|nummer|nr|an)\\b`, 'i').test(text) ||
+    (hasPhone && new RegExp(`\\b(?:${channelSource})\\b`, 'i').test(text))
   );
 }
 

@@ -101,6 +101,14 @@ function LadderIcon({
   );
 }
 
+function DogIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <span className={`${className} inline-flex items-center justify-center leading-none`} aria-hidden="true">
+      🐕
+    </span>
+  );
+}
+
 
 function WhatsAppIcon({
   className = "h-4 w-4",
@@ -3518,6 +3526,15 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border-/g, "border-2 border-")
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
+const compactSymbolForBadge = (badge: ReviewBadge): string | null => {
+  const label = normalizeForMatch(badge.label);
+  if (label.includes("hund")) return "🐕";
+  if (label.includes("leiter")) return "🪜";
+  if (label.includes("schluessel") || label.includes("schlussel")) return "🔑";
+  if (label === "zugang" || label.includes("seiteneingang") || label.includes("hintereingang")) return "🚪";
+  return null;
+};
+
 const renderBadgeTooltip = (
   badge: ReviewBadge,
   align: "left" | "right" = "left",
@@ -3565,6 +3582,10 @@ const renderReviewBadge = (
   options: { strong?: boolean; tooltipAlign?: "left" | "right" } = {},
 ) => {
   const hasTooltip = Boolean(compactText(badge.tooltip));
+  const compactSymbol = compactSymbolForBadge(badge);
+  const visualClassName = compactSymbol
+    ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[14px] font-semibold"
+    : className;
 
   return (
     <span
@@ -3580,17 +3601,25 @@ const renderReviewBadge = (
           target.focus();
         }
       }}
-      className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${className} ${
+      className={`group relative inline-flex items-center gap-1 ${compactSymbol ? "rounded-lg" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${visualClassName} ${
         options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
       }`}
+      aria-label={compactText(badge.tooltip) || badge.label}
+      title={compactSymbol ? compactText(badge.tooltip) || badge.label : undefined}
     >
-      {badge.key === "callback_request" && (
-        <span className="text-red-600 leading-none">☎</span>
+      {compactSymbol ? (
+        <span aria-hidden="true" className="leading-none">{compactSymbol}</span>
+      ) : (
+        <>
+          {badge.key === "callback_request" && (
+            <span className="text-red-600 leading-none">☎</span>
+          )}
+          {badge.icon && badge.key !== "callback_request" && (
+            <AlertTriangle className="w-3 h-3" />
+          )}
+          {badge.label}
+        </>
       )}
-      {badge.icon && badge.key !== "callback_request" && (
-        <AlertTriangle className="w-3 h-3" />
-      )}
-      {badge.label}
       {renderBadgeTooltip(badge, options.tooltipAlign || "left")}
     </span>
   );
@@ -3621,6 +3650,7 @@ const mobileIconForBadge = (badge: ReviewBadge) => {
   if (badge.key === "site_address") return MapPin;
   if (badge.key === "callback_request") return Phone;
   if (badge.key === "appointment" || badge.key === "appointment_clarify") return CalendarDays;
+  if (label.includes("hund")) return DogIcon;
   if (label.includes("leiter")) return LadderIcon;
   if (label.includes("schluessel") || label.includes("schlussel")) return KeyRound;
   if (label.includes("zugang")) return DoorOpen;
@@ -7193,22 +7223,33 @@ export default function AuftraegePage() {
                 "merged_data_review",
               ].includes(badge.key);
 
+              const compactSymbol = compactSymbolForBadge(badge);
+
               return (
                 <button
                   key={badge.key}
                   type="button"
                   aria-label={compactText(badge.tooltip) || badge.label}
+                  title={compactSymbol ? compactText(badge.tooltip) || badge.label : undefined}
                   onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
-                  className={`group relative inline-flex items-center gap-1 rounded-full shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
-                    isLargeYellowBadge
-                      ? "text-[11px] px-2 py-0.5 font-semibold"
-                      : "text-[10px] px-1.5 py-0.5 font-medium"
+                  className={`group relative inline-flex items-center gap-1 ${compactSymbol ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[14px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                    compactSymbol
+                      ? "font-semibold"
+                      : isLargeYellowBadge
+                        ? "text-[11px] px-2 py-0.5 font-semibold"
+                        : "text-[10px] px-1.5 py-0.5 font-medium"
                   } ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
-                  {badge.icon && badge.key !== "callback_request" && (
-                    <AlertTriangle className="w-3 h-3" />
+                  {compactSymbol ? (
+                    <span aria-hidden="true" className="leading-none">{compactSymbol}</span>
+                  ) : (
+                    <>
+                      {badge.icon && badge.key !== "callback_request" && (
+                        <AlertTriangle className="w-3 h-3" />
+                      )}
+                      {badge.label}
+                    </>
                   )}
-                  {badge.label}
                   {renderBadgeTooltip(badge, tooltipAlign)}
                 </button>
               );

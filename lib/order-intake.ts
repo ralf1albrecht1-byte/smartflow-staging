@@ -2148,11 +2148,27 @@ function isForbiddenChannelInstructionLine(
   const channelSource = communicationChannelSource(channel);
   if (!new RegExp(`\\b${channelSource}\\b`, "i").test(text)) return false;
 
-  const near = "(?:[-/\\s]+[a-z0-9]+){0,6}[-/\\s]+";
+  // Kanal-Verbote dürfen nur greifen, wenn die Verneinung semantisch den
+  // Kommunikationskanal betrifft. Beispiel Live-Fehler:
+  // "WhatsApp an 079..., nicht einfach kommen" ist WhatsApp POSITIV plus
+  // separate Zugangsanweisung. Das "nicht" gehört nicht zu WhatsApp.
+  const directBeforeChannel = new RegExp(
+    `\\b${COMMUNICATION_NEGATION_TOKEN}\\b(?:\\s+(?:bitte|mehr|mehrmals|nur|mehrfach|per|via|ueber|uber|over|mit|auf|durch|kontakt|kontaktieren|schreiben|senden|schicken|message|nachricht)){0,5}\\s+(?:${channelSource})\\b`,
+    "i",
+  );
+  const channelBeforeDirectNo = new RegExp(
+    `\\b(?:${channelSource})\\b(?:\\s+(?:bitte|mehr|mehrmals|verwenden|benutzen|nutzen|use|kontaktieren|schreiben|senden|schicken|message|nachricht)){0,6}\\s+\\b${COMMUNICATION_NEGATION_TOKEN}\\b`,
+    "i",
+  );
+  const explicitNoChannel = new RegExp(
+    `\\b(?:${channelSource})\\b\\s*(?:nein|verboten|unerwuenscht|unerwünscht|nicht\\s+(?:verwenden|benutzen|nutzen|kontaktieren|schreiben|senden|schicken)|no|not|never)\\b`,
+    "i",
+  );
+
   return (
-    new RegExp(`\\b${COMMUNICATION_NEGATION_TOKEN}\\b${near}(?:${channelSource})\\b`, "i").test(text) ||
-    new RegExp(`\\b(?:${channelSource})\\b${near}\\b${COMMUNICATION_NEGATION_TOKEN}\\b`, "i").test(text) ||
-    new RegExp(`\\b${COMMUNICATION_NEGATION_TOKEN}\\s+(?:per\\s+|via\\s+|ueber\\s+|uber\\s+|over\\s+)?(?:${channelSource})\\b`, "i").test(text)
+    directBeforeChannel.test(text) ||
+    channelBeforeDirectNo.test(text) ||
+    explicitNoChannel.test(text)
   );
 }
 
@@ -2609,7 +2625,7 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
       jobHints.push("Mail reicht");
     }
 
-    if (hasNoPhoneInstruction && !/(whats\s*app|sms|mail|e\s*mail|email|courriel)/i.test(line)) {
+    if (hasNoPhoneInstruction && !/(whats\s*app|\bsms\b|mail|e\s*mail|email|courriel)/i.test(line)) {
       jobHints.push(/keine\s+telefonische|nicht\s+telefonisch|pas\s+d\s+appel|pas\s+appeler|ne\s+pas|no\s+calls?|do\s+not\s+call/i.test(line) ? "Bitte keine telefonische Rückfrage" : "Bitte nicht anrufen");
     }
 
@@ -2644,13 +2660,13 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     const line = normalizeSemanticText(rawLine);
     if (!line) continue;
     const isAccessOrCodeHint =
-      /(?:zugang|zufahrt|eingang|seitentor|gartentor|torcode|codebox|code|schluessel|schlüssel|briefkasten|garage)/i.test(
+      /\b(?:zugang|zufahrt|eingang|seitentor|gartentor|torcode|codebox|code|schluessel|schlüssel|briefkasten|garage)\b/i.test(
         line,
       );
     const isPricingOrServiceLine =
-      /\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|meter|laufmeter|stunden?|std\.?|stueck|stück|stk)/i.test(
+      /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|meter|laufmeter|stunden?|std\.?|stueck|stück|stk)\b/i.test(
         rawLine,
-      ) || /(?:chf|eur|euro|franken|stutz)\s*\d|\d\s*(?:chf|eur|euro|franken|stutz)/i.test(rawLine);
+      ) || /\b(?:chf|eur|euro|franken|stutz)\s*\d|\d\s*(?:chf|eur|euro|franken|stutz)\b/i.test(rawLine);
 
     if (isAccessOrCodeHint && !isPricingOrServiceLine) {
       jobHints.push(rawLine.replace(/\s+/g, " ").trim());
@@ -4628,6 +4644,7 @@ ZIELE
   (Verneinte oder nicht relevante Aussagen NICHT aufnehmen: "kein Hund", "kein Öl", "keine Scherben", "Leiter nicht benötigt", "Termin flexibel", "Parkplatz kein Thema".)
   (Keine Leistungen, Preise oder Mengen in gefahren/besonderheiten schreiben.)
   (Kommunikationshinweise semantisch vollständig ausgeben: Kanal erlaubt/verboten/bevorzugt und Kontaktzeit sauber trennen. Wenn ein Kanal verboten ist, darf er nicht positiv formuliert werden. Beispiel: nicht über WhatsApp schreiben => "Kein WhatsApp; lieber Telefonkontakt". Beispiel: WhatsApp erst ab 18:00 => "WhatsApp-Kontakt erst ab 18:00 Uhr möglich".)
+  (WICHTIG: Verneinungen immer semantisch an den richtigen Satzteil binden. "WhatsApp an 079..., nicht einfach kommen" bedeutet WhatsApp bevorzugt + nicht unangemeldet kommen. Es bedeutet NICHT "Keine WhatsApp".)
   (Kontaktzeiten wie SMS/WhatsApp/Mail/Telefon erst ab/nach Uhrzeit sind KEINE Ausführungstermine.)
   (KEINE Systemhinweise.)
   (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist.)
@@ -4978,6 +4995,7 @@ sonst → ""
 - Beispiele für gefahren: freilaufender/ungesicherter/aggressiver Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
 - Beispiele für besonderheiten: telefonischer Rückruf, Zugang über Seiteneingang, Parkplatz reserviert/schwierig, Schlüssel, fester Terminwunsch, Leiter benötigt, Zufahrt, Kunde nur vormittags erreichbar, Hund freundlich vor Ort.
 - Kommunikationshinweise immer nach Absicht ausgeben, nicht nur zusammenfassen: Kanal verboten / bevorzugt / erlaubt plus Kontaktzeit. Ein verbotener Kanal darf nie als bevorzugter Kanal erscheinen.
+- Verneinungen müssen am richtigen Bezug hängen: "nicht einfach kommen" / "nicht eintreten" / "nicht ohne Rücksprache" sind Zugangs-/Ablaufhinweise und dürfen niemals als WhatsApp-/SMS-Verbot interpretiert werden, wenn WhatsApp/SMS in derselben Zeile positiv genannt ist.
 - Kontaktzeiten für Mail/SMS/WhatsApp/Telefon sind keine Ausführungstermine und dürfen keinen Terminchip erzeugen.
 - Rückruf nur bei echter telefonischer Kontaktaufnahme ausgeben. "Klingeln und warten", "an der Tür melden", "Kunde ist vor Ort", "Schlüssel wird an der Tür übergeben" oder "nicht anrufen" sind KEIN Rückruf.
 - Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie wirklich planungsrelevant sind: Parkplatz reserviert/vorhanden, Schlüssel liegt bereit. Rein neutrale Hinweise wie "Zugang frei", "Tür offen", "Parkplatz kein Thema" oder "direkt halten möglich" nicht als wichtigen Außen-Hinweis erzwingen.
@@ -5037,6 +5055,7 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Wenn mehrere Arbeiten genannt werden, jede Arbeit separat ausgeben.
 - Aber eine einzige Preis-/Mengenzeile mit nur einer Menge und nur einem Preis ist keine Mehrfacharbeit, nur weil sie aus Bereich + Objekt besteht.
 - Keine Doppelpositionen aus derselben evidence: Wenn zwei Arbeitspositionen dieselbe raw/evidence-Zeile und dieselben Preis-/Mengen-/Währungswerte hätten, ist eine davon nur Kontext oder Zusammenfassung und muss entfallen.
+- Zweiter-Prüfer-Regel: Menge, Einheit, Preis und Währung müssen aus derselben Leistungszeile oder einem eindeutig verbundenen Satz stammen. Zahlen aus PLZ, Hausnummer, Telefonnummer, Uhrzeit, Adresse oder vorheriger/nächster Leistungszeile dürfen nie auf eine andere Leistung übertragen werden.
 - Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.
 
 12. AUSFÜHRUNGSADRESSE / ARBEITSORT:
