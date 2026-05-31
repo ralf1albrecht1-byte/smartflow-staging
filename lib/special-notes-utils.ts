@@ -221,12 +221,23 @@ export function splitJobHints(jobHints: string[]): SplitJobHints {
     }
 
     const cleaned = stripKnownMarker(hint);
-    if (cleaned) operational.push(cleaned);
+    if (!cleaned) continue;
+
+    const semanticKey = semanticNoteKey(cleaned);
+    if (["key", "access", "ladder"].includes(semanticKey) && !isPureWorksiteNoteV17_28(cleaned)) {
+      equipment.push(compactKeyAccessBodyV17_28(cleaned));
+      continue;
+    }
+
+    operational.push(cleaned);
   }
 
-  return { hazards, equipment, operational };
+  return {
+    hazards: dedupeSemanticLines(hazards),
+    equipment: dedupeSemanticLines(equipment),
+    operational: dedupeSemanticLines(operational),
+  };
 }
-
 function normalizeSpecialNoteLineV17_27(value: string): string {
   return String(value || "")
     .toLowerCase()
@@ -246,6 +257,31 @@ function firstPhoneKeyV17_27(value: string): string {
   return match ? match[0].replace(/\D/g, "") : "";
 }
 
+function isKeyAccessNoteV17_28(value: string): boolean {
+  const key = normalizeSpecialNoteLineV17_27(stripKnownMarker(value));
+  return /\b(schluessel|schlussel|key|briefkasten|code|schluesselbox|schlusselbox)\b/.test(key);
+}
+
+function isPureWorksiteNoteV17_28(value: string): boolean {
+  const key = normalizeSpecialNoteLineV17_27(stripKnownMarker(value));
+  return /^(arbeitsort|ausfuehrung im|ausfuhrung im|ausfuehrungsort)\b/.test(key) && !isKeyAccessNoteV17_28(value);
+}
+
+function compactKeyAccessBodyV17_28(value: string): string {
+  return String(value || "")
+    .replace(/^Arbeitsort\s*:\s*/i, "")
+    .replace(/^Zugang\s*:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function containmentDuplicateKeyV17_28(value: string): string {
+  return normalizeSpecialNoteLineV17_27(value)
+    .replace(/\b(?:liegt|befindet\s+sich|ist|vorhanden|bitte|verwenden|nehmen)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function rebuildSpecialNoteLineV17_27(originalLine: string, body: string): string {
   const markerMatch = String(originalLine || "").match(/^\s*(\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\])\s*/i);
   const marker = markerMatch?.[1] || "";
@@ -261,6 +297,8 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
   });
   const whatsappPhones = new Set(whatsappContextLines.map(firstPhoneKeyV17_27).filter(Boolean));
   const seen = new Set<string>();
+  const seenContainment = new Set<string>();
+  const seenSemantic = new Set<string>();
   const out: string[] = [];
 
   lines.forEach((line, index) => {
@@ -283,8 +321,26 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
     if (!isDanger && /kontakt vor ort\s*:/i.test(body) && /rechnung\s+bitte\s+an/i.test(body)) {
       return;
     }
-    if (!isDanger && /^rechnung\s+bitte\s+an\b/i.test(body)) {
+    if (!isDanger && /^rechnung\s+bitte\s+an/i.test(body)) {
       return;
+    }
+
+    if (!isDanger && isKeyAccessNoteV17_28(nextBody)) {
+      nextBody = compactKeyAccessBodyV17_28(nextBody);
+    }
+
+    const semanticKey = semanticNoteKey(rebuildSpecialNoteLineV17_27(line, nextBody));
+    const containmentKey = containmentDuplicateKeyV17_28(nextBody);
+    if (!isDanger && semanticKey === "key") {
+      if (seenSemantic.has(semanticKey)) return;
+      seenSemantic.add(semanticKey);
+    }
+    if (!isDanger && containmentKey) {
+      const duplicateByContainment = Array.from(seenContainment).some(
+        (existing) => existing.includes(containmentKey) || containmentKey.includes(existing),
+      );
+      if (duplicateByContainment) return;
+      seenContainment.add(containmentKey);
     }
 
     const rebuilt = rebuildSpecialNoteLineV17_27(line, nextBody);
@@ -296,7 +352,6 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
 
   return out;
 }
-
 export function buildSpecialNotes(input: {
   safetyWarnings?: string[];
   jobHints?: string[];
