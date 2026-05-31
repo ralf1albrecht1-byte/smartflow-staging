@@ -65,8 +65,51 @@ function stripInternalCommunicationMetadata(value: string | null | undefined): s
 }
 
 
+
+function LadderChipIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M7 21 12 3" />
+      <path d="m17 21-5-18" />
+      <path d="M8.3 16h7.4" />
+      <path d="M9.5 12h5" />
+      <path d="M10.6 8h2.8" />
+      <path d="M6.4 21h11.2" />
+    </svg>
+  );
+}
+
+function DoorOpenChipIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 21h16" />
+      <path d="M6 21V4.8A1.8 1.8 0 0 1 7.8 3H15" />
+      <path d="M15 21V5.2c0-.9.9-1.5 1.7-1.2l2.1.8A1.8 1.8 0 0 1 20 6.5V21" />
+      <path d="M16.5 12h.01" />
+    </svg>
+  );
+}
+
 type SemanticChipVisual = {
-  icon: string;
+  icon: any;
   iconOnly: boolean;
   title: string;
 };
@@ -99,7 +142,7 @@ function getEquipmentChipVisual(value: string): SemanticChipVisual {
   const text = normalizeSemanticChipText(value);
 
   if (/\b(leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)) {
-    return { icon: '🪜', iconOnly: true, title: value };
+    return { icon: <LadderChipIcon />, iconOnly: true, title: value };
   }
 
   if (/\b(schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave)\b/.test(text)) {
@@ -107,7 +150,7 @@ function getEquipmentChipVisual(value: string): SemanticChipVisual {
   }
 
   if (/\b(zugang|eingang|hintereingang|seiteneingang|tor|door|access|entree|entrée|porta|puerta)\b/.test(text)) {
-    return { icon: '🚪', iconOnly: true, title: value };
+    return { icon: <DoorOpenChipIcon />, iconOnly: true, title: value };
   }
 
   return { icon: '🔧', iconOnly: false, title: value };

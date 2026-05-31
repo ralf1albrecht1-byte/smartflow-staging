@@ -4924,23 +4924,11 @@ function cleanServiceNameFromUnitlessQuantityPriceLine(line: string, index: numb
     .replace(/\s+/g, " ")
     .trim();
 
-  const key = normalizeCompare(raw);
-  if (/lagerraum|lagerzone|lager\b|storage\s+room|stockroom/.test(key)) {
-    return "Lagerraum reinigen";
-  }
-  if (/technikraum|serverraum|technical\s+room|local\s+technique/.test(key)) {
-    return "Technikraum reinigen";
-  }
-  if (/fenster|window|vitre|fenetre|vitrin|finestr|ventan/.test(key)) {
-    return "Fenster reinigen";
-  }
-  if (/boden|floor|sol\b|paviment|suelo/.test(key)) {
-    return "Boden reinigen";
-  }
-  if (/glas|glass|miroir|spiegel/.test(key)) {
-    return raw || "Leistung prüfen";
-  }
-
+  // Do not infer a catalog/service name from room words here.
+  // The LLM must do semantic classification. This guard is only allowed to
+  // preserve the original local evidence and numeric structure. If it invents
+  // "<room> reinigen" here, one customer line can become two charged/reviewed
+  // services (e.g. room context + floor work). Keep the raw local label.
   return raw || "Leistung prüfen";
 }
 
@@ -5614,6 +5602,281 @@ function removeSameEvidenceQuantityPriceSplitArtifacts(
   return items.filter((item) => !toRemove.has(item));
 }
 
+
+function alphaTokensBeforeFirstNumber(value?: string | null): string[] {
+  const source = normalizeCompare(value || "");
+  if (!source) return [];
+  const beforeNumber = source.split(/\b\d+(?:[.,]\d+)?\b/)[0] || source;
+  return beforeNumber
+    .split(/\s+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !/^(?:ca|circa|etwa|ungefaehr|ungefahr|ungefähr|bitte|noch|plus|und|mit|der|die|das|im|in|am|an|zu|zum|zur)$/.test(token));
+}
+
+function primaryEvidenceLineForAmount(
+  item: ParsedOrderItemForValidation,
+): string {
+  const quantity = roundMoney(Number(item.quantity || 0));
+  const unitPrice = roundMoney(Number(item.unitPrice || 0));
+  const candidates = unique([
+    ...splitLineLocalEvidenceSegments(item.sourceText),
+    ...splitLineLocalEvidenceSegments(item.evidence),
+    ...splitLineLocalEvidenceSegments(item.description),
+  ]);
+
+  const withBothNumbers = candidates.filter(
+    (segment) =>
+      lineSegmentContainsNumberValue(segment, quantity) &&
+      lineSegmentContainsNumberValue(segment, unitPrice),
+  );
+
+  if (withBothNumbers.length > 0) {
+    return withBothNumbers.sort((a, b) => a.length - b.length)[0];
+  }
+
+  const withAnyNumber = candidates.filter(
+    (segment) =>
+      lineSegmentContainsNumberValue(segment, quantity) ||
+      lineSegmentContainsNumberValue(segment, unitPrice),
+  );
+
+  if (withAnyNumber.length > 0) {
+    return withAnyNumber.sort((a, b) => a.length - b.length)[0];
+  }
+
+  return String(item.sourceText || item.evidence || item.description || "").trim();
+}
+
+function strictSameEvidenceAmountKey(
+  item: ParsedOrderItemForValidation,
+): string | null {
+  const quantity = roundMoney(Number(item.quantity || 0));
+  const unitPrice = roundMoney(Number(item.unitPrice || 0));
+  if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice) || quantity <= 0 || unitPrice <= 0) {
+    return null;
+  }
+
+  const evidenceLine = primaryEvidenceLineForAmount(item);
+  const evidenceKey = normalizeCompare(evidenceLine);
+  if (!evidenceKey || evidenceKey.length < 8) return null;
+
+  return [evidenceKey, quantity, unitPrice].join("|");
+}
+
+function scoreDuplicateEvidenceKeeper(
+  item: ParsedOrderItemForValidation,
+  sourceLine: string,
+  index: number,
+): number {
+  const serviceKey = normalizeCompare(item.serviceName);
+  const beforeTokens = alphaTokensBeforeFirstNumber(sourceLine);
+  const firstToken = beforeTokens[0] || "";
+  const lastToken = beforeTokens[beforeTokens.length - 1] || "";
+  let score = 1000 - index; // stable tie-breaker: keep original order
+
+  if (lastToken && serviceKey.includes(lastToken)) score += 80;
+  if (firstToken && serviceKey.includes(firstToken)) score += 20;
+  if (beforeTokens.length >= 2 && firstToken && serviceKey === `${firstToken} reinigen`) score -= 40;
+  if (normalizeCompare(item.serviceName) === "unbekannte leistung") score -= 100;
+  if (Number(item.totalPrice || 0) > 0) score += 10;
+  if (!item.needsReview) score += 5;
+  return score;
+}
+
+function removeHardSameEvidenceAmountDuplicates(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  const groups = new Map<string, Array<{ item: ParsedOrderItemForValidation; index: number; sourceLine: string }>>();
+
+  items.forEach((item, index) => {
+    const key = strictSameEvidenceAmountKey(item);
+    if (!key) return;
+    const sourceLine = primaryEvidenceLineForAmount(item);
+    const list = groups.get(key) || [];
+    list.push({ item, index, sourceLine });
+    groups.set(key, list);
+  });
+
+  const remove = new Set<ParsedOrderItemForValidation>();
+
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+
+    const keep = group
+      .slice()
+      .sort(
+        (a, b) =>
+          scoreDuplicateEvidenceKeeper(b.item, b.sourceLine, b.index) -
+          scoreDuplicateEvidenceKeeper(a.item, a.sourceLine, a.index),
+      )[0];
+
+    for (const entry of group) {
+      if (entry !== keep) remove.add(entry.item);
+    }
+  }
+
+  return items.filter((item) => !remove.has(item));
+}
+
+function measuredExplicitMatchesItemStrict(
+  item: ParsedOrderItemForValidation,
+  explicit: ExplicitServiceLineItem,
+): boolean {
+  const explicitSource = normalizeCompare(explicit.sourceText || explicit.evidence || explicit.description || "");
+  const itemSource = normalizeCompare([item.sourceText, item.evidence, item.description].filter(Boolean).join(" "));
+  if (explicitSource && itemSource && (itemSource.includes(explicitSource) || explicitSource.includes(itemSource))) {
+    return true;
+  }
+
+  const itemName = normalizeCompare(item.serviceName);
+  const explicitName = normalizeCompare(explicit.serviceName);
+  if (itemName && explicitName && (itemName === explicitName || itemName.includes(explicitName) || explicitName.includes(itemName))) {
+    return true;
+  }
+
+  const itemTokens = meaningfulServiceTokens(item.serviceName);
+  const explicitTokens = meaningfulServiceTokens(explicit.serviceName);
+  const shared = itemTokens.filter((token) => explicitTokens.includes(token));
+  if (shared.length > 0) return true;
+
+  const explicitLineTokens = alphaTokensBeforeFirstNumber(explicit.sourceText || explicit.evidence || explicit.description || "");
+  return explicitLineTokens.some((token) => itemName.includes(token));
+}
+
+function clearResolvedNumericReview(
+  item: ParsedOrderItemForValidation,
+): ParsedOrderItemForValidation {
+  const reason = item.reviewReason || "";
+  const clearable =
+    reason.startsWith("price_unclear:") ||
+    reason.startsWith("price_repaired_from_text:") ||
+    reason === "unit_price_review" ||
+    reason === "quantity_review";
+
+  if (!clearable) return item;
+  if (Number(item.quantity || 0) <= 0 || Number(item.unitPrice || 0) <= 0) return item;
+  if (!isFlatUnit(item.unit) && !unitTypeFromDisplayUnit(item.unit)) return item;
+
+  return { ...item, needsReview: false, reviewReason: null };
+}
+
+function applyEvidenceBoundMeasuredLineRepair(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const explicitItems = extractHardMeasuredLineItemsFromRawText(originalText, finalCurrency);
+  if (explicitItems.length === 0) return { items, reviewReasons: [] };
+
+  const reviewReasons: string[] = [];
+  const next = items.slice();
+
+  for (const explicit of explicitItems) {
+    const explicitUnitType = unitTypeFromDisplayUnit(explicit.unit);
+    const explicitQuantity = Number(explicit.quantity || 0);
+    const explicitPrice = Number(explicit.unitPrice || 0);
+
+    const existingIndex = next.findIndex((item) => measuredExplicitMatchesItemStrict(item, explicit));
+
+    if (existingIndex >= 0) {
+      const before = next[existingIndex];
+      const changed =
+        unitTypeFromDisplayUnit(before.unit) !== explicitUnitType ||
+        Math.abs(Number(before.quantity || 0) - explicitQuantity) >= 0.001 ||
+        Math.abs(Number(before.unitPrice || 0) - explicitPrice) >= 0.01;
+
+      const repaired: ParsedOrderItemForValidation = clearResolvedNumericReview({
+        ...before,
+        // Keep the LLM/catalog name when it is already meaningful; use the line
+        // name only if the existing name is weak. Zahlen kommen aber IMMER aus
+        // der Beweiszeile.
+        serviceName: isWeakExplicitServiceName(before.serviceName) ? explicit.serviceName : before.serviceName,
+        description: before.description || explicit.description,
+        quantity: explicit.quantity,
+        unit: explicit.unit,
+        unitPrice: explicit.unitPrice,
+        totalPrice: calculateSafeLineTotal(explicit),
+        sourceText: explicit.sourceText,
+        evidence: explicit.evidence,
+        detectedCurrency: explicit.detectedCurrency || before.detectedCurrency || finalCurrency,
+      });
+
+      next[existingIndex] = repaired;
+      if (changed) reviewReasons.push(`evidence_bound_line_repaired:${explicit.serviceName}`);
+      continue;
+    }
+
+    next.push({ ...explicit, totalPrice: calculateSafeLineTotal(explicit) });
+    reviewReasons.push(`evidence_bound_line_added:${explicit.serviceName}`);
+  }
+
+  return {
+    items: removeHardSameEvidenceAmountDuplicates(next),
+    reviewReasons: unique(reviewReasons),
+  };
+}
+
+function applyFailClosedSuspiciousNumericGuard(
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const reviewReasons: string[] = [];
+
+  const guarded = items.map((item) => {
+    if (isFlatUnit(item.unit)) return item;
+    const evidenceLine = primaryEvidenceLineForAmount(item);
+    const parsed = parseLineLocalMeasuredPrice(evidenceLine, finalCurrency);
+    if (!parsed) return item;
+
+    const sameQuantity = Math.abs(Number(item.quantity || 0) - parsed.quantity) < 0.001;
+    const samePrice = Math.abs(Number(item.unitPrice || 0) - parsed.unitPrice) < 0.01;
+    const sameUnit = unitTypeFromDisplayUnit(item.unit) === parsed.unitType;
+
+    if (sameQuantity && samePrice && sameUnit) return item;
+
+    // If the evidence line clearly contains a measured quantity and unit price,
+    // the line wins. This prevents expensive errors like 34×34 instead of 34×7.
+    const repaired: ParsedOrderItemForValidation = clearResolvedNumericReview({
+      ...item,
+      quantity: parsed.quantity,
+      unit: parsed.unit,
+      unitPrice: parsed.unitPrice,
+      totalPrice: roundMoney(parsed.quantity * parsed.unitPrice),
+      detectedCurrency: parsed.currency || item.detectedCurrency || finalCurrency,
+      sourceText: item.sourceText || evidenceLine,
+      evidence: item.evidence || evidenceLine,
+    });
+    reviewReasons.push(`evidence_numeric_repaired:${item.serviceName}`);
+    return repaired;
+  });
+
+  return { items: guarded, reviewReasons: unique(reviewReasons) };
+}
+
+function applyFinalEvidenceSafetyPass(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const reviewReasons: string[] = [];
+
+  const measuredRepair = applyEvidenceBoundMeasuredLineRepair(items, originalText, finalCurrency);
+  let next = measuredRepair.items;
+  reviewReasons.push(...measuredRepair.reviewReasons);
+
+  const numericGuard = applyFailClosedSuspiciousNumericGuard(next, finalCurrency);
+  next = numericGuard.items;
+  reviewReasons.push(...numericGuard.reviewReasons);
+
+  next = removeSameEvidenceQuantityPriceSplitArtifacts(next);
+  next = removeHardSameEvidenceAmountDuplicates(next);
+  next = dedupeUnsafeDuplicateItems(next);
+  next = removeZeroReviewItemsCoveredByPricedItems(next);
+
+  return { items: next, reviewReasons: unique(reviewReasons) };
+}
+
 export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
@@ -5961,6 +6224,14 @@ export function validateAndRepairParsedOrderItems(
     applyLineLocalMeasuredEvidenceGuard(items, finalCurrency),
   );
 
+  const finalEvidenceSafetyPass = applyFinalEvidenceSafetyPass(
+    items,
+    input.originalText,
+    finalCurrency,
+  );
+  items = finalEvidenceSafetyPass.items;
+  reviewReasons.push(...finalEvidenceSafetyPass.reviewReasons);
+
   const finalReviewReasons = unique(reviewReasons)
     .filter(
       (reason) =>
@@ -5969,7 +6240,10 @@ export function validateAndRepairParsedOrderItems(
         !reason.startsWith("explicit_hour_item_repaired_from_text:") &&
         !reason.startsWith("explicit_hour_item_added_from_text:") &&
         !reason.startsWith("hard_measured_line_repaired:") &&
-        !reason.startsWith("hard_measured_line_added:"),
+        !reason.startsWith("hard_measured_line_added:") &&
+        !reason.startsWith("evidence_bound_line_repaired:") &&
+        !reason.startsWith("evidence_bound_line_added:") &&
+        !reason.startsWith("evidence_numeric_repaired:"),
     )
     .filter((reason) => {
       if (!reason.startsWith("price_repaired_from_text:")) return true;
