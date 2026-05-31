@@ -190,49 +190,6 @@ function roundHourRepairMoney(value: number): number {
   return Number((Math.round((value + Number.EPSILON) * 100) / 100).toFixed(2));
 }
 
-
-function cleanHourRepairDisplayServiceNameV17_28(value: any): string {
-  const original = String(value || "").replace(/\s+/g, " ").trim();
-  if (!original) return original;
-
-  let text = original;
-
-  // V17.28: remove trailing billing/operator residue that can leak from lines
-  // like "41 qm mal 9 fr." into the display service name. This is structural
-  // cleanup, not a catalog/service-word mapping.
-  text = text
-    .replace(/\s+(?:mal|x|×|a|à|je|pro|per|zu|at)\s*$/i, "")
-    .replace(/[\s:;,.-]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  // Move obvious condition adjectives out of the service name. The condition
-  // belongs to notes/evidence; the billable service name must stay an action.
-  text = text
-    .replace(/\s+(?:sehr|stark|extrem|ziemlich)\s+(?:dreckig|verschmutzt|schmutzig)\s*$/i, "")
-    .replace(/\s+(?:dreckig|verschmutzt|schmutzig)\s*$/i, "")
-    .replace(/[\s:;,.-]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  // If the semantic intake produced only an object/location label for a floor
-  // service, keep that object but make the billable action explicit.
-  if (/boden/i.test(text) && !/(?:reinigen|reinigung|putzen|säubern|saeubern|clean|cleaning)/i.test(text)) {
-    text = `${text} reinigen`;
-  }
-
-  return text || original;
-}
-
-function normalizeHourRepairDisplayItemV17_28<T extends HourLineRepairItem>(item: T): T {
-  const cleanedServiceName = cleanHourRepairDisplayServiceNameV17_28(item?.serviceName);
-  if (!cleanedServiceName || cleanedServiceName === item?.serviceName) return item;
-  return {
-    ...item,
-    serviceName: cleanedServiceName,
-  } as T;
-}
-
 function normalizeHourRepairQuantity(value: number | null | undefined): number | null {
   const quantity = Number(value || 0);
   if (!Number.isFinite(quantity) || quantity <= 0) return null;
@@ -1310,7 +1267,7 @@ export function repairZeroQuantityHourItemsFromText<T extends HourLineRepairItem
   originalText: string,
   options?: { logPrefix?: string; skipFlatFeeRepair?: boolean },
 ): HourLineRepairResult<T> {
-  const sourceItems = Array.isArray(items) ? items.map(normalizeHourRepairDisplayItemV17_28) : [];
+  const sourceItems = Array.isArray(items) ? items : [];
   const candidates = buildHourLineRepairCandidates(originalText);
   const flatFeeCandidates = options?.skipFlatFeeRepair
     ? []
