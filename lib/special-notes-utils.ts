@@ -77,6 +77,13 @@ const semanticNoteKey = (value: string) => {
   const text = normalizeDedupeText(value);
   if (!text) return "";
 
+  const keyCodeMatch = text.match(/\bcode\s*(?:ist|hat|hat er|:)?\s*(\d{3,})\b|\b(?:schluesselbox|schlusselbox|keybox|boite a cle|boite cle|cle).*?(\d{3,})\b/i);
+  const keyCode = keyCodeMatch?.[1] || keyCodeMatch?.[2] || "";
+  const hasKeyContext = /\bschluessel\b|\bschlüssel\b|\bkey\b|\bbriefkasten\b|\bschluesselbox\b|\bschlusselbox\b|\bkeybox\b|\bcle\b|\bboite\b|\bhauswart\b|\bhuuswart\b|\bconcierge\b/.test(text);
+  if (hasKeyContext && keyCode) return `key_code_${keyCode}`;
+  if (hasKeyContext && /\b(?:hauswart|huuswart|concierge|wart)\b/.test(text)) return "key_caretaker";
+  if (hasKeyContext) return "key";
+
   if (
     /^[^:]{2,120}:\s+/.test(visibleLine) &&
     !/^kontakt\s+vor\s+ort:\s*/i.test(visibleLine) &&
@@ -87,7 +94,6 @@ const semanticNoteKey = (value: string) => {
 
   if (/\bhund\b|\bgartenhund\b|\bdog\b/.test(text)) return "dog";
   if (/\bleiter\b|\bladder\b/.test(text)) return "ladder";
-  if (/\bschluessel\b|\bschlüssel\b|\bkey\b|\bbriefkasten\b/.test(text)) return "key";
   if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
   if (/(nicht einfach kommen|nicht einfach vorbeikommen|nicht ohne ruecksprache|nicht ohne rucksprache|vor arbeitsbeginn|vor start|vor ankunft).*(melden|anrufen|kontaktieren|kommen|whatsapp)|vorher melden/.test(text)) return "pre_arrival_instruction";
@@ -111,6 +117,7 @@ const noteSpecificityScore = (value: string) => {
   let score = text.length;
 
   if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
+  if (/\bschluessel|\bschlüssel|schluesselbox|schlusselbox|hauswart/.test(text)) score += 45;
   if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
   if (/bitte|nur|nicht anrufen|nicht telefonisch|keine telefonische|pas d appel|pas appeler|mail reicht|whatsapp|sms|nicht einfach|vor arbeitsbeginn|vor start|vor ankunft|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
   if (/\+\d|\b0\d{2,}\b/.test(text)) score += 80;
@@ -189,7 +196,8 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     }
 
     const cleaned = stripKnownMarker(line);
-    if (cleaned && isOperationalJobHint(cleaned)) jobHints.push(cleaned);
+    const compacted = cleaned ? compactWorkAreaHintV17_29(cleaned) : cleaned;
+    if (compacted && isOperationalJobHint(compacted)) jobHints.push(compacted);
   }
 
   const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
