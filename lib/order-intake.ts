@@ -4732,6 +4732,17 @@ Ein Ort oder Kontext ist nicht automatisch die Leistung.
 Wenn eine Formulierung sagt, dass etwas IN einem Bereich gemacht wird, muss die Handlung die Leistung bestimmen.
 Die Leistung darf nur übernommen werden, wenn die evidence genau diese Handlung belegt.
 
+KONTEXT + ARBEITSOBJEKT IN EINER PREISZEILE:
+- Eine kurze Preiszeile kann Ort/Teilbereich + Arbeitsobjekt + Menge/Preis enthalten.
+- Wenn eine einzige Zeile nur EINE Menge, EINEN Preis und EINE Währung enthält, darf daraus grundsätzlich nur EINE Arbeitsposition entstehen.
+- Der Orts-/Bereichsteil gehört dann in context; die eigentliche bearbeitete Sache/Tätigkeit gehört in action_name/name.
+- Erzeuge NICHT zusätzlich eine zweite Leistung nur aus dem Orts-/Bereichsteil.
+- Beispiele semantisch, nicht als Wortliste:
+  - "Lagerraum Boden 42 à CHF 7" = eine Position; context = "Lagerraum", Arbeit = Boden/Fläche reinigen, Einheit unsicher wenn nicht genannt.
+  - "Garage floor 80 sqm at EUR 5" = eine Position; context = Garage, Arbeit = Boden reinigen.
+  - "Cave sol 30 m2 à CHF 6" = eine Position; context = Cave/Keller, Arbeit = Boden reinigen.
+- Wenn zwei mögliche Positionen dieselbe evidence/raw-Zeile, dieselbe Menge, denselben Preis und dieselbe Währung hätten, ist das ein Split-Fehler: behalte nur die eine fachlich konkrete Arbeitsposition und verschiebe den Rest in context.
+
 EVIDENCE-PFLICHT:
 Jedes automatisch gesetzte Feld braucht eine konkrete evidence aus dem Originaltext.
 Das gilt besonders für:
@@ -5024,6 +5035,8 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Interne Karten-/Auftragstitel, Betreff-/Überschriftszeilen und Zusammenfassungen sind keine Kundenleistung. Nutze sie höchstens als auftrag.titel, aber NIEMALS als eigene arbeitsposition, Preis-/Einheitsquelle, Adresse oder Besonderheit. Entscheide semantisch: Eine Arbeitsposition braucht echte Arbeitsaussage plus eigene Evidence aus dem Kundentext.
 - Nicht versuchen, unbekannte Arbeiten einer bestehenden Leistung zuzuordnen.
 - Wenn mehrere Arbeiten genannt werden, jede Arbeit separat ausgeben.
+- Aber eine einzige Preis-/Mengenzeile mit nur einer Menge und nur einem Preis ist keine Mehrfacharbeit, nur weil sie aus Bereich + Objekt besteht.
+- Keine Doppelpositionen aus derselben evidence: Wenn zwei Arbeitspositionen dieselbe raw/evidence-Zeile und dieselben Preis-/Mengen-/Währungswerte hätten, ist eine davon nur Kontext oder Zusammenfassung und muss entfallen.
 - Einheit und Menge gehören nur zu der Position, in deren Text sie stehen.
 
 12. AUSFÜHRUNGSADRESSE / ARBEITSORT:

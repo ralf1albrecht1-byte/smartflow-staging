@@ -64,6 +64,47 @@ function stripInternalCommunicationMetadata(value: string | null | undefined): s
     .trim();
 }
 
+
+type SemanticChipVisual = {
+  icon: string;
+  iconOnly: boolean;
+  title: string;
+};
+
+function normalizeSemanticChipText(value: string | null | undefined): string {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9\s/-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getHazardChipVisual(value: string): SemanticChipVisual {
+  const text = normalizeSemanticChipText(value);
+
+  if (/(hund|dog|chien|cane|perro|cao)/.test(text)) {
+    return { icon: '🐕', iconOnly: true, title: value };
+  }
+
+  return { icon: '⚠️', iconOnly: false, title: value };
+}
+
+function getEquipmentChipVisual(value: string): SemanticChipVisual {
+  const text = normalizeSemanticChipText(value);
+
+  if (/(leiter|ladder|echelle|scala|escalera|escada)/.test(text)) {
+    return { icon: '🪜', iconOnly: true, title: value };
+  }
+
+  return { icon: '🔧', iconOnly: false, title: value };
+}
+
 // ─── Types ───
 export interface CommunicationData {
   // Work summary (the clean normalized description)
@@ -712,17 +753,37 @@ export function CommunicationBlock({
             </span>
           )}
           {/* Hazard chips */}
-          {hazards.map((h, i) => (
-            <span key={`hz-${i}`} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700">
-              {/hund/i.test(h) ? '🐕' : '⚠️'} {h}
-            </span>
-          ))}
+          {hazards.map((h, i) => {
+            const visual = getHazardChipVisual(h);
+            return (
+              <span
+                key={`hz-${i}`}
+                title={visual.title}
+                aria-label={visual.title}
+                className={visual.iconOnly
+                  ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[15px] font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"
+                  : "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"}
+              >
+                {visual.icon}{!visual.iconOnly && <> {h}</>}
+              </span>
+            );
+          })}
           {/* Equipment chips */}
-          {equipment.map((h, i) => (
-            <span key={`eq-${i}`} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
-              🔧 {h}
-            </span>
-          ))}
+          {equipment.map((h, i) => {
+            const visual = getEquipmentChipVisual(h);
+            return (
+              <span
+                key={`eq-${i}`}
+                title={visual.title}
+                aria-label={visual.title}
+                className={visual.iconOnly
+                  ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[15px] font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"
+                  : "inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"}
+              >
+                {visual.icon}{!visual.iconOnly && <> {h}</>}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -934,16 +995,38 @@ export function CommunicationChips({
           <Chip label={chip.label} color={chip.color} href={chip.href} title={chip.title} compact={compact} />
         </span>
       ))}
-      {hazards.map((h, i) => (
-        <span key={`h-${i}`} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700">
-          {/hund/i.test(h) ? '🐕' : '⚠️'} {!compact && h}
-        </span>
-      ))}
-      {equipment.map((h, i) => (
-        <span key={`e-${i}`} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
-          🔧 {!compact && h}
-        </span>
-      ))}
+      {hazards.map((h, i) => {
+        const visual = getHazardChipVisual(h);
+        const iconOnly = compact || visual.iconOnly;
+        return (
+          <span
+            key={`h-${i}`}
+            title={visual.title}
+            aria-label={visual.title}
+            className={iconOnly
+              ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[15px] font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"
+              : "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200 border border-red-300 dark:border-red-700"}
+          >
+            {visual.icon}{!iconOnly && <> {h}</>}
+          </span>
+        );
+      })}
+      {equipment.map((h, i) => {
+        const visual = getEquipmentChipVisual(h);
+        const iconOnly = compact || visual.iconOnly;
+        return (
+          <span
+            key={`e-${i}`}
+            title={visual.title}
+            aria-label={visual.title}
+            className={iconOnly
+              ? "inline-flex h-7 w-7 items-center justify-center rounded-lg text-[15px] font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"
+              : "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700"}
+          >
+            {visual.icon}{!iconOnly && <> {h}</>}
+          </span>
+        );
+      })}
       {callbackNote && callbackPhone ? (
         <a
           href={`tel:${callbackPhone}`}
