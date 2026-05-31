@@ -5151,7 +5151,14 @@ export function applyUnitlessQuantityPriceLineGuard(
     };
   });
 
-  return { items: guardedItems, reviewReasons: unique(reviewReasons) };
+  // Last step inside this guard: once every matching item has the same local
+  // evidence line attached, collapse duplicate KI split artifacts immediately.
+  // This is intentionally structural only: same evidence + same quantity + same
+  // unit price + same unit. It does not use service-word lists.
+  return {
+    items: removeSameEvidenceQuantityPriceSplitArtifacts(guardedItems),
+    reviewReasons: unique(reviewReasons),
+  };
 }
 
 
