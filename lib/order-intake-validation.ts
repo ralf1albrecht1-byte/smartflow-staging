@@ -4695,6 +4695,124 @@ function cleanFinalServiceNameArtifacts(
   });
 }
 
+
+function translatedSectionFromOriginalTextV17_35(value?: string | null): string {
+  const source = String(value || "");
+  const parts = source.split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i);
+  return parts.length > 1 ? parts.slice(1).join("\n") : "";
+}
+
+function numberEvidencePatternV17_35(value: number): RegExp | null {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const fixed = Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  const escaped = fixed.replace(".", "[.,]");
+  return new RegExp(`\\b${escaped}(?:[.,]0+)?\\b`, "i");
+}
+
+function hasUnitEvidenceForItemV17_35(line: string, item: ParsedOrderItemForValidation): boolean {
+  const unit = normalizeCompare(item.unit);
+  if (/quadratmeter|m2|qm/.test(unit)) return /\b(?:m2|m²|qm|quadratmeter)\b/i.test(line);
+  if (/stueck|stück|stuck/.test(unit)) return /\b(?:stück|stueck|stk|pcs?|pieces?)\b/i.test(line);
+  if (/pauschal/.test(unit)) return true;
+  return true;
+}
+
+function translatedServicePrefixFromLineV17_35(line: string, item: ParsedOrderItemForValidation): string | null {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  const quantityPattern = numberEvidencePatternV17_35(quantity);
+  const pricePattern = numberEvidencePatternV17_35(unitPrice);
+  if (!quantityPattern || !pricePattern) return null;
+  if (!quantityPattern.test(line) || !pricePattern.test(line)) return null;
+  if (!hasUnitEvidenceForItemV17_35(line, item)) return null;
+
+  const quantityMatch = line.match(quantityPattern);
+  if (!quantityMatch || quantityMatch.index == null || quantityMatch.index <= 0) return null;
+
+  const prefix = line
+    .slice(0, quantityMatch.index)
+    .replace(/^\s*[-•*]+\s*/, "")
+    .replace(/^\s*(?:zu\s*tun|gemacht\s*werden\s*soll|machen|leistungen?)\s*:?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!prefix || prefix.length < 3 || prefix.length > 80) return null;
+  if (/^(?:fahrt|fahrtkosten|anfahrt|rechn(?:ung|ig)|ort|adresse|mail|e-mail)$/i.test(prefix)) return null;
+  return prefix;
+}
+
+function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
+  let cleaned = String(prefix || "")
+    .replace(/[.;:,\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+
+  const key = normalizeCompare(cleaned);
+  if (/\b(?:anfahrt|fahrt|fahrtkosten)\b/.test(key)) return "Anfahrt";
+  if (/\bfenster\b/.test(key)) return "Fenster reinigen";
+  if (/\bboden\b/.test(key)) {
+    cleaned = cleaned
+      .replace(/^Keller\s+Boden\b/i, "Kellerboden")
+      .replace(/^Boden\s+Eingang\b/i, "Boden Eingang")
+      .replace(/\s+/g, " ")
+      .trim();
+    return /\breinigen\b/i.test(cleaned) ? cleaned : `${cleaned} reinigen`;
+  }
+  if (/\bteppichzone\b/.test(key)) return "Teppichzone reinigen";
+
+  const canonical = canonicalGermanServiceNameFromText(cleaned);
+  if (canonical) return canonical;
+
+  return cleaned.replace(/^./, (char) => char.toUpperCase());
+}
+
+function shouldUseTranslatedServiceNameV17_35(item: ParsedOrderItemForValidation, translatedName: string): boolean {
+  const current = normalizeCompare(item.serviceName);
+  const translated = normalizeCompare(translatedName);
+  if (!translated || translated === current) return false;
+
+  // Strukturregel: sichtbare Leistungsnamen müssen in Hochdeutsch aus der
+  // übersetzten Evidence-Zeile kommen, wenn die aktuelle KI-Ausgabe noch Dialekt
+  // oder Fremdsprache enthält. Das ist keine Service-Wortliste, sondern ein
+  // Sprach-/Evidence-Fallback für bereits erkannte Leistungen.
+  const currentLooksNonHighGerman = /\b(?:bode|gemeinschaftsruum|huus|zueri|cave|sol|entree|entrée|vitres|deplacement|déplacement)\b/.test(current);
+  if (currentLooksNonHighGerman) return true;
+
+  if (current === "boden reinigen" && /\b(?:gemeinschaftsraum|eingang|keller|lagerraum|veloraum)\b/.test(translated)) {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeHighGermanServiceNamesFromTranslatedTextV17_35(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  const translated = translatedSectionFromOriginalTextV17_35(originalText);
+  if (!translated.trim()) return items;
+
+  const translatedLines = translated
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return items.map((item) => {
+    const matchingPrefix = translatedLines
+      .map((line) => translatedServicePrefixFromLineV17_35(line, item))
+      .find(Boolean);
+    if (!matchingPrefix) return item;
+
+    const translatedName = normalizeTranslatedServicePrefixV17_35(matchingPrefix);
+    if (!translatedName || !shouldUseTranslatedServiceNameV17_35(item, translatedName)) return item;
+
+    return { ...item, serviceName: translatedName };
+  });
+}
+
 function hasResolvedCompleteItemForReason(
   items: ParsedOrderItemForValidation[],
   reason: string,
@@ -7144,6 +7262,10 @@ export function validateAndRepairParsedOrderItems(
   );
   items = normalizeParsedServiceNames(
     removeUnknownItemsCoveredByNamedItems(items),
+  );
+  items = normalizeHighGermanServiceNamesFromTranslatedTextV17_35(
+    input.originalText,
+    items,
   );
   items = removeSameEvidenceQuantityPriceSplitArtifacts(items);
   items = removeHardSameEvidenceAmountDuplicates(items);

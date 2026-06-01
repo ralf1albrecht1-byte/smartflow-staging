@@ -107,18 +107,60 @@ function DogIcon({
       className={className}
       aria-hidden="true"
     >
-      <path d="M4.2 13.2c.7-2.2 2.4-3.7 5.2-3.7h4.2c1.8 0 3.1.7 4 2.1" />
-      <path d="M17.4 11.6l2.2-1.2c.7-.4 1.5.1 1.5.9v1.2c0 .7-.4 1.3-1 1.6l-1.7.8" />
-      <path d="M5.2 13.1 3 11.6" />
-      <path d="M8 9.6 6.9 7.8c-.3-.5.1-1.1.7-1.1h1.1c.6 0 1.1.4 1.2 1l.3 1.8" />
-      <path d="M7.2 13.4v4.4" />
-      <path d="M10.3 13.4v4.4" />
-      <path d="M14.2 13.4v4.4" />
-      <path d="M17.3 13.4v4.4" />
-      <path d="M6.6 18.2h1.3" />
-      <path d="M9.7 18.2H11" />
-      <path d="M13.6 18.2h1.3" />
-      <path d="M16.7 18.2H18" />
+      <path d="M4 12.4c1.1-2.5 3.1-3.7 5.7-3.7h4.3c2.4 0 4.2 1.2 5.2 3.4" />
+      <path d="M5.4 12.1 3.2 10.9" />
+      <path d="M18.8 12.3l2.1-1.3" />
+      <path d="M8.2 8.8 7.1 6.8" />
+      <path d="M10.1 8.8 9.6 6.7" />
+      <path d="M7.4 12.6v4.8" />
+      <path d="M10.4 12.6v4.8" />
+      <path d="M14.2 12.6v4.8" />
+      <path d="M17.3 12.6v4.8" />
+      <path d="M6.8 17.7h1.4" />
+      <path d="M9.8 17.7h1.4" />
+      <path d="M13.6 17.7H15" />
+      <path d="M16.7 17.7h1.4" />
+    </svg>
+  );
+}
+
+function DangerousDogIcon({
+  className = "h-4 w-4",
+  strokeWidth = 2.25,
+}: {
+  className?: string;
+  strokeWidth?: number | string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 13.1c1-2.7 3.2-4.1 6.4-4.1h4.1c2.2 0 4 1 5.2 3" />
+      <path d="M18.8 12.1 21 10.9" />
+      <path d="M5.4 12.5 2.9 11" />
+      <path d="M7.8 9.1 6.5 6.7" />
+      <path d="M10.2 9 9.3 6.5" />
+      <path d="M16.3 10.2c.6.4 1 1 1.2 1.7" />
+      <path d="M9.3 12.5c1.6 1.5 4.4 1.5 6.1 0" />
+      <path d="M8.6 14.3h8.2" />
+      <path d="M10.3 14.3v1.2" />
+      <path d="M12.8 14.3v1.2" />
+      <path d="M15.3 14.3v1.2" />
+      <path d="M7.2 13.2v4.5" />
+      <path d="M10.5 13.2v4.5" />
+      <path d="M14.2 13.2v4.5" />
+      <path d="M17.4 13.2v4.5" />
+      <path d="M6.6 18h1.4" />
+      <path d="M9.9 18h1.4" />
+      <path d="M13.6 18H15" />
+      <path d="M16.8 18h1.4" />
     </svg>
   );
 }
@@ -484,6 +526,16 @@ type ReviewBadge = {
 
 const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
+
+const stripVisibleNoteMarkerV17_35 = (value?: string | null) =>
+  compactText(value).replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, "").trim();
+
+const cleanVisibleTooltipTextV17_35 = (value?: string | null) =>
+  String(value || "")
+    .split(/\n+/g)
+    .map((line) => stripVisibleNoteMarkerV17_35(line))
+    .filter(Boolean)
+    .join("\n");
 
 const normalizeForMatch = (value?: string | null) =>
   compactText(value)
@@ -1085,7 +1137,7 @@ const structuredSpecialNoteHints = (order: Order) => {
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .split(/\n+/g)
-    .map((line) => compactText(line).replace(/^\[HINWEIS\]\s*/i, ""))
+    .map((line) => stripVisibleNoteMarkerV17_35(line))
     .filter(Boolean);
 
   const fallbackSites = (order.workSites ?? [])
@@ -1784,7 +1836,7 @@ const extractAppointmentDetailsFromRawText = (
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .split(/\n+/g)
-    .map((line) => compactText(line))
+    .map((line) => stripVisibleNoteMarkerV17_35(line))
     .filter(Boolean);
 
   const details: AppointmentDetail[] = [];
@@ -3621,7 +3673,13 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
 
 const compactIconForBadge = (badge: ReviewBadge): ComponentType<{ className?: string }> | null => {
   const label = normalizeForMatch(badge.label);
-  if (label.includes("hund")) return DogIcon;
+  const tooltip = normalizeForMatch(badge.tooltip);
+  const isDangerStyle = /border-red|bg-red|text-red/.test(String(badge.className || ""));
+  if (label.includes("hund")) {
+    return isDangerStyle || /bellt|frei|achtung|gefahr|aggressiv|beisst|beißt|beissen|beißen|warnung/.test(tooltip)
+      ? DangerousDogIcon
+      : DogIcon;
+  }
   if (label.includes("leiter")) return LadderIcon;
   if (label.includes("schluessel") || label.includes("schlussel")) return KeyRound;
   if (label === "zugang" || label.includes("zugang") || label.includes("seiteneingang") || label.includes("hintereingang")) return OpenDoorIcon;
@@ -3635,7 +3693,7 @@ const renderBadgeTooltip = (
   align: "left" | "right" = "left",
   forceVisible = false,
 ) => {
-  const tooltip = String(badge.tooltip || "").trim();
+  const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
   if (!tooltip) return null;
 
   const alignClass = align === "right" ? "right-0" : "left-0";

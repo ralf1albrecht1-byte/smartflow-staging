@@ -143,14 +143,54 @@ const isContactBeforeArrivalLineV17_34 = (value: string): boolean => {
     /\b(?:whatsapp|sms|telefon|anrufen|kontaktieren|melden)\b/.test(text);
 };
 
+const extractPhoneFromGenericNoteV17_35 = (value: string): string => {
+  const match = stripKnownMarker(value).match(/\+?\d[\d\s()./-]{6,}\d/);
+  return match ? match[0].replace(/\s+/g, " ").trim() : "";
+};
+
+const isWhatsappPhonePreferenceLineV17_35 = (value: string): boolean => {
+  const text = normalizeDedupeText(value);
+  if (!text) return false;
+  return /\bwhatsapp\b/.test(text) && Boolean(extractPhoneFromGenericNoteV17_35(value)) && !/\bsms\b/.test(text);
+};
+
+const hasPreArrivalInstructionSignalV17_35 = (value: string): boolean =>
+  /\bnicht\s+einfach\s+(?:kommen|vorbeikommen)\b/.test(normalizeDedupeText(value));
+
+const buildCleanWhatsappPreArrivalLineV17_35 = (phoneLine: string, contactLine: string, preArrivalOnly: string): string => {
+  const markerMatch =
+    contactLine.match(/^\s*(\[(?:HINWEIS|INFO|NOTIZ)\])\s*/i) ||
+    preArrivalOnly.match(/^\s*(\[(?:HINWEIS|INFO|NOTIZ)\])\s*/i) ||
+    phoneLine.match(/^\s*(\[(?:HINWEIS|INFO|NOTIZ)\])\s*/i);
+  const marker = markerMatch?.[1] || "[HINWEIS]";
+  const phone = extractPhoneFromGenericNoteV17_35(phoneLine || contactLine);
+  const contactBody = stripNoteSentencePunctuationV17_34(stripKnownMarker(contactLine));
+  const needsNoEntry = hasPreArrivalInstructionSignalV17_35(contactLine) || hasPreArrivalInstructionSignalV17_35(preArrivalOnly);
+
+  if (phone) {
+    return `${marker} Vorher WhatsApp an ${phone}${needsNoEntry ? "; nicht einfach kommen" : ""}.`;
+  }
+
+  if (contactBody) {
+    return `${marker} ${contactBody}${needsNoEntry && !hasPreArrivalInstructionSignalV17_35(contactBody) ? "; nicht einfach kommen" : ""}.`;
+  }
+
+  return `${marker} Nicht einfach kommen.`;
+};
+
 const mergePreArrivalInstructionLinesV17_34 = (lines: string[]): string[] => {
   const out: string[] = [];
   let preArrivalOnly = "";
   let contactLine = "";
+  let whatsappPhoneLine = "";
 
   for (const line of lines) {
     if (isPreArrivalOnlyLineV17_34(line)) {
       preArrivalOnly = preArrivalOnly || line;
+      continue;
+    }
+    if (isWhatsappPhonePreferenceLineV17_35(line)) {
+      whatsappPhoneLine = whatsappPhoneLine || line;
       continue;
     }
     if (isContactBeforeArrivalLineV17_34(line)) {
@@ -160,13 +200,15 @@ const mergePreArrivalInstructionLinesV17_34 = (lines: string[]): string[] => {
     out.push(line);
   }
 
-  if (contactLine && preArrivalOnly) {
-    const markerMatch = contactLine.match(/^\s*(\[(?:HINWEIS|INFO|NOTIZ)\])\s*/i) || preArrivalOnly.match(/^\s*(\[(?:HINWEIS|INFO|NOTIZ)\])\s*/i);
-    const marker = markerMatch?.[1] || "[HINWEIS]";
-    const contactBody = stripNoteSentencePunctuationV17_34(stripKnownMarker(contactLine));
-    out.push(`${marker} ${contactBody}; nicht einfach kommen.`);
+  if (contactLine && (preArrivalOnly || whatsappPhoneLine)) {
+    out.push(buildCleanWhatsappPreArrivalLineV17_35(whatsappPhoneLine, contactLine, preArrivalOnly));
+  } else if (whatsappPhoneLine && preArrivalOnly) {
+    out.push(buildCleanWhatsappPreArrivalLineV17_35(whatsappPhoneLine, "", preArrivalOnly));
+  } else if (contactLine && preArrivalOnly) {
+    out.push(buildCleanWhatsappPreArrivalLineV17_35("", contactLine, preArrivalOnly));
   } else {
     if (contactLine) out.push(contactLine);
+    if (whatsappPhoneLine) out.push(whatsappPhoneLine);
     if (preArrivalOnly) out.push(preArrivalOnly);
   }
 
@@ -219,6 +261,9 @@ const canonicalSpecialNoteBodyV17_32 = (value: string): string => {
   const mentionsMailbox = /\b(?:briefkasten|mailbox|letterbox)\b/.test(normalized);
   const codeHeldByCaretaker = /\b(?:code\s+(?:hat|het)\s+(?:er|sie)|code\s+beim\s+hauswart|code\s+hat\s+der\s+hauswart)\b/.test(normalized);
 
+  if (!mentionsKey && mentionsCaretaker && (codeHeldByCaretaker || /code\s+beim\s+hauswart/.test(normalized))) {
+    return "Schlüssel beim Hauswart; Code beim Hauswart.";
+  }
   if (mentionsKey && mentionsCaretaker && mentionsMailbox && code) {
     return `Schlüssel liegt beim Hauswart im Briefkasten; Code ${code}.`;
   }
@@ -316,6 +361,11 @@ const dedupeSemanticLines = (values: string[]) => {
     const existing = byKey.get(key);
     if (existing && key === "communication_sms") {
       const merged = mergeCommunicationLinesV17_33([existing, value])[0] || existing;
+      byKey.set(key, merged);
+      continue;
+    }
+    if (existing && key === "communication_whatsapp") {
+      const merged = mergePreArrivalInstructionLinesV17_34([existing, value])[0] || existing;
       byKey.set(key, merged);
       continue;
     }
