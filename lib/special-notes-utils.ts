@@ -44,6 +44,7 @@ const isOperationalJobHint = (value: string) => {
   if (!line) return false;
   if (isPureWorkSiteHeaderV17_32(line)) return false;
   if (isWorkSiteOnlySpecialNoteLineV17_33(line)) return false;
+  if (isNonSafetyConditionLineV17_33(line)) return false;
   if (isServiceLikeSpecialNoteLineV17_32(line)) return false;
   if (APPOINTMENT_CLARIFY_HINT.test(line)) return true;
   if (PRE_ARRIVAL_HINT.test(line)) return true;
@@ -429,7 +430,10 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
 
     if (isSafetyWarningLine(line)) {
       const cleaned = stripKnownMarker(line);
-      if (cleaned && (isNonSafetyConditionLineV17_33(cleaned) || isEquipmentOnlyWarningLineV17_34(cleaned))) {
+      if (cleaned && isNonSafetyConditionLineV17_33(cleaned)) {
+        continue;
+      }
+      if (cleaned && isEquipmentOnlyWarningLineV17_34(cleaned)) {
         if (isOperationalJobHint(cleaned)) jobHints.push(cleaned);
         continue;
       }
@@ -621,13 +625,14 @@ export function buildSpecialNotes(input: {
   const rawSafetyWarnings = (input.safetyWarnings ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
   const demotedSafetyHints = rawSafetyWarnings
     .map(stripKnownMarker)
-    .filter((line) => isNonSafetyConditionLineV17_33(line) || isEquipmentOnlyWarningLineV17_34(line));
+    .filter((line) => isEquipmentOnlyWarningLineV17_34(line));
   const safetyWarnings = rawSafetyWarnings.filter((line) => {
     const cleaned = stripKnownMarker(line);
     return !isNonSafetyConditionLineV17_33(cleaned) && !isEquipmentOnlyWarningLineV17_34(cleaned);
   });
   const jobHints = [...(input.jobHints ?? []), ...demotedSafetyHints]
     .map(canonicalizeSpecialNoteLineV17_32)
+    .filter((line) => !isNonSafetyConditionLineV17_33(line))
     .filter(isOperationalJobHint);
   const systemHints = (input.systemHints ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
 

@@ -839,7 +839,7 @@ function extractExactOperationalHints(data: any) {
             /(?:nach|ab|erst\s+nach)\s*\d{1,2}(?::\d{2})?\s*(?:uhr)?\s*(?:anrufen|telefonieren|kontaktieren|melden|alueute|aluete|alute)/.test(text) ||
             /termin.*(?:klaeren|klaren|abstimmen|vereinbaren|abmachen|melden|ruecksprache|rucksprache|vorschlagen)|(?:ruecksprache|rucksprache|melden|abmachen|vorschlagen).*termin/.test(text) ||
             /\b\d{1,2}[.\-/]\d{1,2}(?:[.\-/]\d{2,4})?\b.*(?:bestaetigen|bestätigen|falls|waere|wäre|geht|passt|confirm)/i.test(line) ||
-            /leiter|schluessel|schlussel|key|rezeption|reception|zugang|hintereingang|seiteneingang|side entrance|park/.test(text)
+            /hund|dog|chien|perro|cane|leiter|schluessel|schlussel|key|rezeption|reception|zugang|hintereingang|seiteneingang|side entrance|park/.test(text)
           );
         })
         .map((line) => line.replace(/^\s*(?:whatsapp|telegram)\s*:\s*/i, "").trim()),
@@ -929,8 +929,20 @@ function normalizeReviewReasonsForPersist(data: any) {
 
 const semanticNoteMatches: SemanticNoteMatch[] = [
   {
-    label: "Hund vor Ort",
+    label: "Gefährlicher Hund vor Ort",
     type: "safety",
+    patterns: [
+      /\bhund\b.*\b(?:bellt|frei|laeuft|läuft|aggressiv|beisst|beißt|beissen|beißen|achtung|warnung|gefahr|tuer\s+zu|türe\s+zu|tuer\s+geschlossen|türe\s+geschlossen|tor\s+geschlossen|geschlossen\s+halten)\b/,
+      /\b(?:bellt|frei|laeuft|läuft|aggressiv|beisst|beißt|beissen|beißen|achtung|warnung|gefahr|tuer\s+zu|türe\s+zu|tuer\s+geschlossen|türe\s+geschlossen|tor\s+geschlossen|geschlossen\s+halten)\b.*\bhund\b/,
+      /\bchien\b.*\b(?:attention|cour|portail|fermer|dangereux|agressif|aboie)\b/,
+      /\b(?:attention|cour|portail|fermer|dangereux|agressif|aboie)\b.*\bchien\b/,
+      /\bdog\b.*\b(?:barks|free|loose|aggressive|danger|warning|bite|biting)\b/,
+      /\b(?:barks|free|loose|aggressive|danger|warning|bite|biting)\b.*\bdog\b/,
+    ],
+  },
+  {
+    label: "Hund vor Ort",
+    type: "hint",
     patterns: [
       /\bhund\b/,
       /\bdog\b/,
@@ -1253,11 +1265,13 @@ function detectSemanticNotes(source: unknown) {
 function normalizeOrderSpecialNotes(data: any) {
   const parsed = splitSpecialNotes(data?.specialNotes);
   const exactOperationalHints = extractExactOperationalHints(data);
-  const detectedSafetyOnly = detectSemanticNotes(
+  const detectedSemanticNotes = detectSemanticNotes(
     [data?.specialNotes, data?.audioTranscript, ...exactOperationalHints]
       .filter(Boolean)
       .join("\n"),
-  ).safetyWarnings;
+  );
+  const detectedSafetyOnly = detectedSemanticNotes.safetyWarnings;
+  const detectedJobHints = detectedSemanticNotes.jobHints;
 
   const existingSafety = parsed.safetyWarnings.flatMap((line) => {
     const detectedLine = detectSemanticNotes(line).safetyWarnings;
@@ -1274,7 +1288,7 @@ function normalizeOrderSpecialNotes(data: any) {
     new Set([...existingSafety, ...detectedSafetyOnly]),
   );
   const nextJobHints = Array.from(
-    new Set([...existingJobHints, ...exactOperationalHints]),
+    new Set([...existingJobHints, ...detectedJobHints, ...exactOperationalHints]),
   );
 
   if (
