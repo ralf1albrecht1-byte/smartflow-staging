@@ -618,9 +618,12 @@ function Chip({ icon: Icon, label, color = 'default', href, title, compact = fal
     orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   };
   const fallbackIcon = label === 'Mail' ? Mail : label === 'WhatsApp' ? WhatsAppIcon : label === 'SMS' ? SmsIcon : undefined;
-  const DisplayIcon = Icon || fallbackIcon;
+  const compactTextLabel = compact && label === 'SMS';
+  const DisplayIcon = compactTextLabel ? undefined : Icon || fallbackIcon;
   const className = compact
-    ? `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
+    ? compactTextLabel
+      ? `group relative inline-flex h-7 shrink-0 items-center justify-center rounded-lg px-2 text-[11px] font-bold tracking-wide ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
+      : `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
     : `group relative inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
   const tooltip = title ? (
     <span className="pointer-events-none absolute left-0 bottom-full z-[9999] mb-1 hidden w-[min(18rem,calc(100vw-2rem))] whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
@@ -630,8 +633,8 @@ function Chip({ icon: Icon, label, color = 'default', href, title, compact = fal
   const content = (
     <>
       {DisplayIcon && <DisplayIcon className={compact ? "w-3.5 h-3.5" : "w-3 h-3"} />}
-      {!compact && label}
-      {compact && !DisplayIcon && label.slice(0, 1)}
+      {(!compact || compactTextLabel) && label}
+      {compact && !compactTextLabel && !DisplayIcon && label.slice(0, 1)}
       {tooltip}
     </>
   );

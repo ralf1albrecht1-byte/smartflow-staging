@@ -1607,7 +1607,7 @@ function cleanExecutionSiteNameCandidate(
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
 
   candidate = candidate
-    .split(/\b(?:bitte|please|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
+    .split(/\b(?:hinweise?|notes?|bemerkungen?|besonderheiten|bitte|please|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
     .replace(/[,;:.\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -1763,6 +1763,50 @@ function repairExecutionStreetFromText(args: {
   return null;
 }
 
+
+function translatedExecutionSiteNameCandidateFromTextV17_45(
+  rawText: string | null | undefined,
+): string | null {
+  const translated = String(rawText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i).slice(1).join("\n");
+  const executionBlock = extractExecutionBlockFromText(translated || rawText);
+  if (!executionBlock) return null;
+
+  const descriptors: string[] = [];
+  for (const rawLine of splitIntakeLines(executionBlock)) {
+    const line = rawLine.replace(/\s+/g, " ").trim();
+    if (!line) continue;
+    if (parseBillingStreetLine(line)) break;
+    if (parseBillingPlzCityFromLine(line).plz) break;
+    const candidate = cleanExecutionSiteNameCandidate(line);
+    if (candidate) descriptors.push(candidate);
+  }
+
+  const uniqueDescriptors = Array.from(
+    new Map(descriptors.map((line) => [normalizeUnitText(line), line])).values(),
+  ).slice(0, 2);
+
+  return uniqueDescriptors.length > 0 ? uniqueDescriptors.join(", ") : null;
+}
+
+function shouldReplaceExecutionSiteNameWithTranslatedV17_45(args: {
+  currentSiteName: string | null;
+  translatedSiteName: string | null;
+  rawText: string | null | undefined;
+}): boolean {
+  const current = normalizeUnitText(args.currentSiteName || "");
+  const translated = normalizeUnitText(args.translatedSiteName || "");
+  if (!current || !translated || current === translated) return false;
+
+  const translatedBlock = String(args.rawText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i).slice(1).join("\n");
+  if (!translatedBlock) return false;
+  if (!normalizeUnitText(translatedBlock).includes(translated)) return false;
+
+  // Replace raw-language site labels with the clean translated object label.
+  // This is not a room-word mapping; the translated execution block itself is
+  // used as evidence.
+  return !normalizeUnitText(translatedBlock).includes(current) || /\b(?:locale|ufficio|sala|room|staff|laundry|stairwell|work\s*site)\b/i.test(current);
+}
+
 function repairExecutionSiteNameFromText(args: {
   rawText: string | null | undefined;
   currentSiteName: string | null;
@@ -1842,6 +1886,17 @@ function sanitizeExtractedExecutionAddress<
     sitePlz: address.sitePlz || null,
     siteCity,
   });
+
+  const translatedSiteName = translatedExecutionSiteNameCandidateFromTextV17_45(rawText);
+  if (
+    shouldReplaceExecutionSiteNameWithTranslatedV17_45({
+      currentSiteName: siteName,
+      translatedSiteName,
+      rawText,
+    })
+  ) {
+    siteName = translatedSiteName;
+  }
 
   const cleaned = {
     ...address,

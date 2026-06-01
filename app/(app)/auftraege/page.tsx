@@ -664,6 +664,13 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
 
+  const hasDescriptiveCleaningObject =
+    /boden|floor|sol|paviment|suelo|fenster|vitrin|vitre|window|fenetre|finestr|glastuer|glastur|glastür|glas|schreibtisch|regal|theke|maschine|geländer|gelaender/.test(key) &&
+    /reinig|putz|saeuber|säuber|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug/.test(key);
+  if (hasDescriptiveCleaningObject && name.length > 12) {
+    return name;
+  }
+
   if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
     return "Archivraum reinigen";
   }
@@ -683,34 +690,17 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
     return "Gangbereich reinigen";
   }
 
-  // Display safety: normalize obvious service intent to German catalog names.
-  // This is intentionally semantic/broad (cleaning intent), not tied to a
-  // specific room such as Veloraum/Keller/Terrasse.
+  // Display safety: only normalize clear travel flat-fee labels here.
+  // Do NOT collapse descriptive service names like "Archivboden reinigen",
+  // "Glasvitrinen Saal 3 reinigen" or "Personalraum Fenster reinigen" to
+  // generic catalog labels. The validator/AI evidence already carries the
+  // precise customer line; the UI must preserve that detail.
   if (
     /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|reisepauschale|deplacement|déplacement|frais de deplacement|travel|travel flat fee|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
       key,
     )
   ) {
     return "Anfahrt";
-  }
-
-  const hasFloorIntent =
-    /(?:^|\b|[a-z])boden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b/i.test(key) ||
-    /bodenreinigung|floor cleaning|nettoyage du sol|nettoyage sol|pulizia pavimento|limpieza suelo/.test(key);
-  const hasCleaningIntent =
-    /reinig|putz|putze|saeuber|säuber|clean|nettoyage|pulizia|limpieza|wisch/.test(key);
-
-  if (hasFloorIntent && hasCleaningIntent) {
-    return "Boden reinigen";
-  }
-
-  const hasWindowIntent =
-    /fenster|fensterli|vitrin|vitre|window|fenetre|fenêtre|finestr|ventan/.test(key);
-  const hasNonCleaningWindowIntent =
-    /streich|maler|lackier|reparier|ersetzen|montier|einbau|abdicht|dicht/.test(key);
-
-  if (hasWindowIntent && !hasNonCleaningWindowIntent) {
-    return "Fenster reinigen";
   }
 
   return name;

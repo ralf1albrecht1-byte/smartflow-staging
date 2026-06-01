@@ -4391,23 +4391,22 @@ function extractStructuredGermanServiceSectionLinesV17_43(
     .map((line) => normalizeText(line).replace(/^[-–—•]+\s*/, "").trim())
     .filter(Boolean);
 
-  const startIndex = lines.findIndex((line) =>
-    /^(?:leistungen|arbeiten|zu\s+erledigen|auszufuehrende\s+arbeiten|auszuführende\s+arbeiten)\s*:?$/i.test(
-      normalizeCompare(line),
-    ),
-  );
-  if (startIndex < 0) return [];
+  const serviceHeaderRe = /^(?:leistungen|arbeiten|zu\s+erledigen|auszufuehrende\s+arbeiten|ausführende\s+arbeiten|auszuführende\s+arbeiten)\s*:?$/i;
+  const stopRe = /^(?:rechnung|rechnungsadresse|kunde|kundendaten|arbeitsort|ausfuehrungsort|ausführungsort|ausfuehrung|ausführung|adresse|hinweise|besonderheiten|kontakt|zugang|termin|notizen|bemerkungen)\b/i;
 
-  const result: string[] = [];
-  for (const line of lines.slice(startIndex + 1)) {
+  const isPricedServiceLine = (line: string) => {
     const key = normalizeCompare(line);
-    if (!key) continue;
+    if (!key || serviceHeaderRe.test(key) || stopRe.test(key)) return false;
+
+    // Do not let operational notes become service rows just because they contain
+    // a time, phone number or code.
     if (
-      /^(?:rechnung|rechnungsadresse|kunde|kundendaten|arbeitsort|ausfuehrungsort|ausführungsort|ausfuehrung|ausführung|adresse|hinweise|besonderheiten|kontakt|zugang|termin|notizen|bemerkungen)\b/.test(
+      /\b(?:whatsapp|sms|telefon|phone|e\s*mail|email|kontakt|zugang|code|tuercode|türcode|schluessel|schlüssel|hinweis|achtung|warnung|rutschig|hund|kabel|strom|lift|aufzug|parkplatz|anmelden|melden|kommen|beginn|uhr)\b/i.test(
         key,
-      )
+      ) &&
+      !/\b(?:anfahrt|anfahrtskosten|fahrtkosten|reisekosten|travel|deplacement|trasferta)\b/i.test(key)
     ) {
-      break;
+      return false;
     }
 
     const hasMeasuredQuantity = new RegExp(
@@ -4419,12 +4418,32 @@ function extractStructuredGermanServiceSectionLinesV17_43(
       /\b(?:preis|pauschal|pauschale|flat|forfait|à|a|zu|je|each)\b/i.test(line);
     const hasFlatPrice = Boolean(findExplicitFlatPriceInLine(line, "CHF"));
 
-    if ((hasMeasuredQuantity && hasCurrencyOrPrice) || hasFlatPrice) {
-      result.push(line);
+    return (hasMeasuredQuantity && hasCurrencyOrPrice) || hasFlatPrice;
+  };
+
+  const startIndex = lines.findIndex((line) =>
+    serviceHeaderRe.test(normalizeCompare(line)),
+  );
+
+  const candidateLines: string[] = [];
+  if (startIndex >= 0) {
+    for (const line of lines.slice(startIndex + 1)) {
+      const key = normalizeCompare(line);
+      if (!key) continue;
+      if (stopRe.test(key)) break;
+      if (isPricedServiceLine(line)) candidateLines.push(line);
+    }
+  } else {
+    // Some normalization answers contain a clean German translation but no
+    // explicit "Leistungen:" heading. In that case, take only price-bearing
+    // service rows from the translated section. This is structural: quantity,
+    // unit and price must be in the same line.
+    for (const line of lines) {
+      if (isPricedServiceLine(line)) candidateLines.push(line);
     }
   }
 
-  return unique(result);
+  return unique(candidateLines);
 }
 
 function cleanStructuredGermanServiceNameV17_43(
