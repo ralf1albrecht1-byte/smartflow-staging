@@ -43,6 +43,7 @@ const isOperationalJobHint = (value: string) => {
   const line = normalizeLine(value);
   if (!line) return false;
   if (isPureWorkSiteHeaderV17_32(line)) return false;
+  if (isWorkSiteOnlySpecialNoteLineV17_33(line)) return false;
   if (isServiceLikeSpecialNoteLineV17_32(line)) return false;
   if (APPOINTMENT_CLARIFY_HINT.test(line)) return true;
   if (PRE_ARRIVAL_HINT.test(line)) return true;
@@ -83,6 +84,29 @@ const extractAccessCodeV17_32 = (value: string): string => {
 const isPureWorkSiteHeaderV17_32 = (value: string): boolean =>
   /^\s*(?:arbeitsort|ausfuehrungsort|ausführungsort|einsatzort|objekt)\s*:?\s*$/i.test(stripKnownMarker(value));
 
+const isWorkSiteOnlySpecialNoteLineV17_33 = (value: string): boolean => {
+  const body = stripKnownMarker(value);
+  const text = normalizeDedupeText(body);
+  if (!body || !text) return false;
+
+  const startsAsWorkSite = /^\s*(?:arbeitsort|ausfuehrungsort|ausführungsort|einsatzort|objekt|baustelle)\s*:/i.test(body);
+  const hasAddressEvidence = /\b\d{4,5}\b/.test(body) || /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?\b/i.test(body);
+  const hasActionableSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
+
+  return (startsAsWorkSite || hasAddressEvidence) && !hasActionableSignal;
+};
+
+const isNonSafetyConditionLineV17_33 = (value: string): boolean => {
+  const text = normalizeDedupeText(value);
+  if (!text) return false;
+
+  const hasRealSafetyRisk = /\b(?:hund|dog|chien|oel|ol|oil|rutsch|glatt|slippery|strom|kabel|gas|rauch|scherb|glasbruch|asbest|schimmel|chem|feuer|brand|sturz|absturz|instabil|einsturz|gefahr|warnung)\b/.test(text);
+  const isDirtOrConditionOnly = /\b(?:dreckig|verschmutzt|schmutzig|stark verschmutzt|dirty|sale|salissure|encrasse|verdreckt)\b/.test(text);
+  const hasCleaningContext = /\b(?:boden|kueche|kuche|küche|eingang|raum|floor|sol|cuisine|reinigen|reinigung|nettoyage)\b/.test(text);
+
+  return isDirtOrConditionOnly && hasCleaningContext && !hasRealSafetyRisk;
+};
+
 const isServiceLikeSpecialNoteLineV17_32 = (value: string): boolean => {
   const body = stripKnownMarker(value);
   const text = normalizeDedupeText(value);
@@ -94,13 +118,18 @@ const isServiceLikeSpecialNoteLineV17_32 = (value: string): boolean => {
     /\(\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|stueck|stück|stk)\s*\)/i.test(body) ||
     /\b(?:chf|eur|euro|franken|stutz)\s*\d/i.test(body);
 
-  return hasWorkAction && hasMeasureOrPrice;
+  const actionCount = (text.match(/\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
+  const hasListSeparator = /[,;+]/.test(body);
+  const hasOperationalSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
+
+  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2));
 };
 
 const canonicalSpecialNoteBodyV17_32 = (value: string): string => {
   let body = stripKnownMarker(value).replace(/\s+/g, " ").trim();
   if (!body) return "";
   if (isPureWorkSiteHeaderV17_32(body)) return "";
+  if (isWorkSiteOnlySpecialNoteLineV17_33(body)) return "";
   if (isServiceLikeSpecialNoteLineV17_32(body)) return "";
 
   body = body
@@ -152,7 +181,9 @@ const semanticNoteKey = (value: string) => {
   const text = normalizeDedupeText(canonicalLine || value);
   if (!text) return "";
 
+  const isCommunicationLine = /\b(?:sms|whatsapp|telefon|tel\.?|mail|email|e-mail)\b/i.test(visibleLine);
   if (
+    !isCommunicationLine &&
     /^[^:]{2,120}:\s+/.test(visibleLine) &&
     !/^kontakt\s+vor\s+ort:\s*/i.test(visibleLine) &&
     /(?:whatsapp|sms|mail|email|e-mail|telefon|anruf|anrufen|rueckruf|ruckruf|rückruf|termin|uhr|schluessel|schlüssel|zugang|eingang|hauswart|rezeption)/i.test(visibleLine)
@@ -176,11 +207,13 @@ const semanticNoteKey = (value: string) => {
   if (/termin.*(klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(text)) return "appointment_clarify";
 
   const hasNoCall = /nicht anrufen|nicht telefonisch|keine telefonische|kein telefon|no calls?|do not call|pas d appel|pas d appels|pas appeler|pas telephoner|ne pas appeler|ne pas telephoner|sans appel telephonique/.test(text);
+  const hasNoWhatsapp = /(?:kein|keine|keinen|ohne|no|not|pas|sans)\s+whatsapp|whatsapp\s+(?:nicht|not|pas|nein)/.test(text);
+  if (/\bsms\b/.test(text) && hasNoWhatsapp) return "communication_sms";
   if (/whatsapp/.test(text) && hasNoCall) return "communication_whatsapp_no_call";
   if (/\bsms\b/.test(text) && hasNoCall) return "communication_sms_no_call";
   if (/(?:mail|email|e mail|e-mail)/.test(text) && hasNoCall) return "communication_email_no_call";
-  if (/whatsapp/.test(text)) return "communication_whatsapp";
   if (/\bsms\b/.test(text)) return "communication_sms";
+  if (/whatsapp/.test(text)) return "communication_whatsapp";
   if (hasNoCall) return "communication_no_call";
   if (/mail|email|e mail|e-mail/.test(text)) return "communication_email";
   if (/\brueckruf\b|\bruckruf\b|\banrufen\b|\btelefonisch\b|\btelefon\b/.test(text)) return "callback";
@@ -213,9 +246,21 @@ const dedupeSemanticLines = (values: string[]) => {
     if (!key) continue;
 
     const existing = byKey.get(key);
+    if (existing && key === "communication_sms") {
+      const merged = mergeCommunicationLinesV17_33([existing, value])[0] || existing;
+      byKey.set(key, merged);
+      continue;
+    }
+
     if (!existing || noteSpecificityScore(value) > noteSpecificityScore(existing)) {
       byKey.set(key, value);
     }
+  }
+
+  const semanticKeys = Array.from(byKey.keys());
+  const hasSpecificKey = semanticKeys.some((key) => key.startsWith("key:"));
+  if (hasSpecificKey) {
+    byKey.delete("key");
   }
 
   return Array.from(byKey.values());
@@ -266,6 +311,10 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
 
     if (isSafetyWarningLine(line)) {
       const cleaned = stripKnownMarker(line);
+      if (cleaned && isNonSafetyConditionLineV17_33(cleaned)) {
+        if (isOperationalJobHint(cleaned)) jobHints.push(cleaned);
+        continue;
+      }
       if (cleaned) safetyWarnings.push(cleaned);
       continue;
     }
@@ -335,6 +384,53 @@ function rebuildSpecialNoteLineV17_27(originalLine: string, body: string): strin
   return marker ? `${marker} ${cleanedBody}` : cleanedBody;
 }
 
+const extractPhoneFromNoteV17_33 = (value: string): string => {
+  const match = String(value || "").match(/\+?\d[\d\s()./-]{6,}\d/);
+  return match ? match[0].replace(/\s+/g, " ").trim() : "";
+};
+
+const extractContactTimeFromNoteV17_33 = (value: string): string => {
+  const raw = stripKnownMarker(value);
+  const between = raw.match(/(?:zwischen|von)\s*(\d{1,2})(?::(\d{2}))?\s*(?:und|bis|-)\s*(\d{1,2})(?::(\d{2}))?\s*(?:uhr)?/i);
+  if (between) {
+    const start = `${between[1]}${between[2] ? `:${between[2]}` : ""}`;
+    const end = `${between[3]}${between[4] ? `:${between[4]}` : ""}`;
+    return `zwischen ${start} und ${end} Uhr`;
+  }
+  const after = raw.match(/(?:ab|nach|erst\s+nach)\s*(\d{1,2})(?::(\d{2}))?\s*(?:uhr)?/i);
+  if (after) return `ab ${after[1]}${after[2] ? `:${after[2]}` : ""} Uhr`;
+  return "";
+};
+
+function mergeCommunicationLinesV17_33(lines: string[]): string[] {
+  const out: string[] = [];
+  const smsLines: string[] = [];
+
+  for (const line of lines) {
+    if (semanticNoteKey(line) === "communication_sms") {
+      smsLines.push(line);
+      continue;
+    }
+    out.push(line);
+  }
+
+  if (smsLines.length > 0) {
+    const phone = smsLines.map(extractPhoneFromNoteV17_33).find(Boolean) || "";
+    const time = smsLines.map(extractContactTimeFromNoteV17_33).find(Boolean) || "";
+    const hasOnlySms = smsLines.some((line) => /\b(?:nur|only|seulement)\s+(?:per\s+)?sms\b/i.test(stripKnownMarker(line)));
+    const noWhatsapp = smsLines.some((line) => /(?:kein|keine|no|pas)\s+whatsapp|pas\s+whatsapp/i.test(stripKnownMarker(line)));
+
+    const parts = [hasOnlySms ? "Nur SMS als Kontakt" : "SMS-Kontakt bevorzugt"];
+    if (phone) parts[0] += `: ${phone}`;
+    if (time) parts.push(`bevorzugt ${time}`);
+    if (noWhatsapp) parts.push("keine WhatsApp");
+
+    out.push(`[HINWEIS] ${parts.join("; ")}.`);
+  }
+
+  return out;
+}
+
 function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
   const normalizedBodies = lines.map((line) => normalizeSpecialNoteLineV17_27(stripKnownMarker(line)));
   const whatsappContextLines = lines.filter((line) => {
@@ -381,7 +477,7 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
     out.push(rebuilt);
   });
 
-  return out;
+  return mergeCommunicationLinesV17_33(out);
 }
 
 export function buildSpecialNotes(input: {
@@ -389,8 +485,14 @@ export function buildSpecialNotes(input: {
   jobHints?: string[];
   systemHints?: string[];
 }) {
-  const safetyWarnings = (input.safetyWarnings ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
-  const jobHints = (input.jobHints ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(isOperationalJobHint);
+  const rawSafetyWarnings = (input.safetyWarnings ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
+  const demotedSafetyHints = rawSafetyWarnings
+    .map(stripKnownMarker)
+    .filter(isNonSafetyConditionLineV17_33);
+  const safetyWarnings = rawSafetyWarnings.filter((line) => !isNonSafetyConditionLineV17_33(stripKnownMarker(line)));
+  const jobHints = [...(input.jobHints ?? []), ...demotedSafetyHints]
+    .map(canonicalizeSpecialNoteLineV17_32)
+    .filter(isOperationalJobHint);
   const systemHints = (input.systemHints ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
 
   const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);

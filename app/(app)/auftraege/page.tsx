@@ -26,6 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Mic,
+  Dog as DogLucide,
 } from "lucide-react";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import { CommunicationChips } from "@/components/communication-block";
@@ -83,7 +84,6 @@ function LadderIcon({
     <span
       className={`${className} inline-flex items-center justify-center leading-none`}
       aria-hidden="true"
-      title="Leiter"
     >
       🪜
     </span>
@@ -92,31 +92,17 @@ function LadderIcon({
 
 function DogIcon({
   className = "h-4 w-4",
-  strokeWidth = 2.2,
+  strokeWidth = 2.4,
 }: {
   className?: string;
   strokeWidth?: number | string;
 }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <DogLucide
       className={className}
+      strokeWidth={strokeWidth}
       aria-hidden="true"
-    >
-      <path d="M4 12.5 2.8 10.7" />
-      <path d="M4 12.5h8.5l2-2.4h2.4c1.7 0 3.1 1.4 3.1 3.1v1.2" />
-      <path d="M15 10.1 14 7.7l2.4 1" />
-      <path d="M6.2 12.7v4" />
-      <path d="M11.4 12.7v4" />
-      <path d="M16.5 13.4v3.3" />
-      <path d="M19.8 13.4v3.3" />
-      <circle cx="18.4" cy="11.5" r="0.45" fill="currentColor" stroke="none" />
-    </svg>
+    />
   );
 }
 
@@ -814,12 +800,18 @@ const isServiceLikeOperationalHintForBadges = (value?: string | null) => {
     /\(\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|stueck|stück|stk)\s*\)/i.test(raw) ||
     /\b(?:chf|eur|euro|franken|stutz)\s*\d/i.test(raw);
 
-  return hasWorkAction && hasMeasureOrPrice;
+  const actionCount = (text.match(/\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
+  const hasListSeparator = /[,;+]/.test(raw);
+  const hasOperationalSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
+
+  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2));
 };
 
 const getSemanticBadgeKind = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return null;
+
+  if (isServiceLikeOperationalHintForBadges(value)) return null;
 
   if (
     /oel|öl|rutsch|strom|kabel|gas|rauch|scherb|asbest|schimmel|chem|feuer|brand|sturz|absturz/.test(
@@ -830,7 +822,6 @@ const getSemanticBadgeKind = (value?: string | null) => {
   }
 
   if (/hund/.test(text)) return "dog";
-  if (isServiceLikeOperationalHintForBadges(value)) return null;
   // Leiter nur als Werkzeug anzeigen, nicht bei Rollenwörtern wie Bauleiter.
   // Darum nicht mehr auf jedes "leiter" reagieren, sondern nur bei echtem
   // Ausrüstungs-/Mitbring-Signal.
@@ -3692,7 +3683,6 @@ const renderReviewBadge = (
         options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
       }`}
       aria-label={compactText(badge.tooltip) || badge.label}
-      title={isCompactIcon ? compactText(badge.tooltip) || badge.label : undefined}
     >
       {CompactIcon ? (
         <CompactIcon className="h-5 w-5" />
@@ -3804,7 +3794,6 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         key={badge.key}
         type="button"
         tabIndex={0}
-        title={title}
         aria-label={title}
         onClick={(event) => event.stopPropagation()}
         className={`group relative ${className}`}
@@ -3821,7 +3810,6 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
       href={`tel:${phone}`}
       onClick={(event) => event.stopPropagation()}
       aria-label={title}
-      title={title}
       className={className}
     >
       <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -7320,8 +7308,7 @@ export default function AuftraegePage() {
                   key={badge.key}
                   type="button"
                   aria-label={compactText(badge.tooltip) || badge.label}
-                  title={isCompactIcon ? compactText(badge.tooltip) || badge.label : undefined}
-                  onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
+                              onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
                   className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                     isCompactIcon
                       ? "font-semibold"

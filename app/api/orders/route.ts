@@ -794,6 +794,25 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   }).items;
 }
 
+function isRouteOnlyWorkSiteOrServiceHintV17_33(line: string): boolean {
+  const raw = String(line || "").replace(/\s+/g, " ").trim();
+  const text = normalizeSearchText(raw);
+  if (!raw || !text) return true;
+
+  const startsAsWorkSite = /^\s*(?:arbeitsort|ausfuehrungsort|ausführungsort|einsatzort|objekt|baustelle)\s*:/i.test(raw);
+  const hasAddressEvidence = /\b\d{4,5}\b/.test(raw) || /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?\b/i.test(raw);
+  const hasOperationalSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin|parkplatz|parking)\b/.test(text);
+  if ((startsAsWorkSite || hasAddressEvidence) && !hasOperationalSignal) return true;
+
+  const hasWorkAction = /\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/.test(text);
+  const hasMeasureOrPrice = /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|stunden?|std|stueck|stück|stk|pcs?|chf|eur|euro|franken|stutz)\b/i.test(raw) || /\(\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|stueck|stück|stk)\s*\)/i.test(raw) || /\b(?:chf|eur|euro|franken|stutz)\s*\d/i.test(raw);
+  const actionCount = (text.match(/\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
+  const hasListSeparator = /[,;+]/.test(raw);
+  if (hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2))) return true;
+
+  return false;
+}
+
 function extractExactOperationalHints(data: any) {
   const source = [data?.notes, data?.audioTranscript, data?.specialNotes]
     .filter(Boolean)
@@ -812,6 +831,7 @@ function extractExactOperationalHints(data: any) {
         .filter((line) => {
           const text = normalizeSearchText(line);
           if (!text) return false;
+          if (isRouteOnlyWorkSiteOrServiceHintV17_33(line)) return false;
           return (
             /nicht\s+anrufen|keine?\s+telefonische|kein\s+telefon|mail\s+reicht|e\s*mail\s+reicht|nur\s+(?:per\s+)?(?:mail|whats\s*app|sms)|whats\s*app(?:\s+nummer)?|\bsms\b/.test(text) ||
             /(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zurueckrufen|zuruckrufen|rueckrufen|ruckrufen|alueute|aluete|alute)\b/.test(text) ||
@@ -1231,27 +1251,12 @@ function detectSemanticNotes(source: unknown) {
 
 function normalizeOrderSpecialNotes(data: any) {
   const parsed = splitSpecialNotes(data?.specialNotes);
-  const itemText = Array.isArray(data?.items)
-    ? data.items
-        .map((item: any) =>
-          [item?.serviceName, item?.description].filter(Boolean).join(" "),
-        )
-        .join("\n")
-    : "";
-
-  const sourceText = [
-    data?.description,
-    data?.serviceName,
-    data?.notes,
-    data?.specialNotes,
-    data?.audioTranscript,
-    itemText,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const detectedAll = detectSemanticNotes(sourceText);
   const exactOperationalHints = extractExactOperationalHints(data);
+  const detectedSafetyOnly = detectSemanticNotes(
+    [data?.specialNotes, data?.audioTranscript, ...exactOperationalHints]
+      .filter(Boolean)
+      .join("\n"),
+  ).safetyWarnings;
 
   const existingSafety = parsed.safetyWarnings.flatMap((line) => {
     const detectedLine = detectSemanticNotes(line).safetyWarnings;
@@ -1265,10 +1270,10 @@ function normalizeOrderSpecialNotes(data: any) {
   });
 
   const nextSafetyWarnings = Array.from(
-    new Set([...existingSafety, ...detectedAll.safetyWarnings]),
+    new Set([...existingSafety, ...detectedSafetyOnly]),
   );
   const nextJobHints = Array.from(
-    new Set([...existingJobHints, ...detectedAll.jobHints, ...exactOperationalHints]),
+    new Set([...existingJobHints, ...exactOperationalHints]),
   );
 
   if (
