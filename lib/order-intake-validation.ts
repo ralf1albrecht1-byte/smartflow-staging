@@ -1,4 +1,4 @@
-// INTAKE_VALIDATION_SEMANTIC_SAFETY_V13
+// INTAKE_VALIDATION_SEMANTIC_SAFETY_V13_AI_STRUCTURAL
 export type IntakeCurrency = "CHF" | "EUR";
 
 export interface ParsedOrderItemForValidation {
@@ -204,13 +204,6 @@ const normalizeText = (value?: string | null) =>
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-
-function stripAutomaticTranslationBlock(value?: string | null): string {
-  return String(value || "")
-    .replace(/\n+---\s*Übersetzung\s*\(automatisch\)\s*---[\s\S]*$/i, "")
-    .replace(/\n+---\s*Uebersetzung\s*\(automatisch\)\s*---[\s\S]*$/i, "")
-    .replace(/\n+---\s*Automatic\s+translation\s*---[\s\S]*$/i, "");
-}
 
 const normalizeCompare = (value?: string | null) =>
   String(value || "")
@@ -547,7 +540,7 @@ const unitTypeFromText = (value?: string | null): string | null => {
   if (!source) return null;
 
   if (
-    /\b(stueck|stuck|stück|stk|pcs|pc|piece|pieces|pezzo|pezzi|pz|pza|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten)\b/i.test(
+    /\b(stueck|stuck|stück|stk|pcs|pc|piece|pieces|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten)\b/i.test(
       source,
     )
   )
@@ -1021,50 +1014,6 @@ function canonicalGermanServiceNameFromText(
   if (!normalized) return null;
 
   if (
-    /\b(?:hotte|dunstabzug|abzugshaube|haube)\b/.test(normalized)
-  ) {
-    return /\b(?:aussen|außen|exterieur|exterieure|exterior|externo|esterna|esterno|outside)\b/.test(normalized)
-      ? "Dunstabzug außen reinigen"
-      : "Dunstabzug reinigen";
-  }
-  if (
-    /\b(?:serverraum|server\s*raum|locale\s+server)\b/.test(normalized) &&
-    /\b(?:boden|floor|sol|pavimento)\b/.test(normalized)
-  ) {
-    return "Boden Serverraum reinigen";
-  }
-  if (
-    /\b(?:gemeinschaftsraum|gemeinschaftsruum)\b/.test(normalized) &&
-    /\b(?:boden|bode|floor|sol|pavimento)\b/.test(normalized)
-  ) {
-    return "Boden Gemeinschaftsraum reinigen";
-  }
-  if (
-    /\b(?:kueche|küche|kitchen|cuisine|cucina)\b/.test(normalized) &&
-    /\b(?:boden|floor|sol|pavimento)\b/.test(normalized)
-  ) {
-    return "Küchenboden reinigen";
-  }
-  if (
-    /\b(?:keller|cave|cantina)\b/.test(normalized) &&
-    /\b(?:boden|floor|sol|pavimento)\b/.test(normalized)
-  ) {
-    return "Kellerboden reinigen";
-  }
-  if (
-    /\b(?:eingang|eingangsbereich|entree|entrée|entrata|ingresso)\b/.test(normalized) &&
-    /\b(?:boden|floor|sol|pavimento)\b/.test(normalized)
-  ) {
-    return "Eingangsboden reinigen";
-  }
-  if (
-    /\b(?:schreibtisch|schreibtische|desk|desks|scrivania|scrivanie|bureau|bureaux)\b/.test(normalized)
-  ) {
-    return /\b(?:verwaltung|administration|amministrazione|administrativo|administrative)\b/.test(normalized)
-      ? "Schreibtische Administration reinigen"
-      : "Schreibtische reinigen";
-  }
-  if (
     /\b(nettoyage\s+du\s+garage|nettoyage\s+du\s+sol\s+du\s+garage|garage\s+floor|sol\s+du\s+garage|garagenboden)\b/.test(
       normalized,
     )
@@ -1080,25 +1029,6 @@ function canonicalGermanServiceNameFromText(
     )
   ) {
     return "Eingangsbereich reinigen";
-  }
-  if (
-    /\b(?:vitres|vitrines|fenetres|fenster|windows|window|finestre|ventanas)\b/.test(normalized) &&
-    /\b(?:terrasse|terrace|terrazza|terraza|terrassen)\b/.test(normalized)
-  ) {
-    return "Terrassenfenster reinigen";
-  }
-  if (
-    /\b(?:vitres|vitrines|fenetres|fenster|windows|window|finestre|ventanas)\b/.test(normalized) &&
-    /\b(?:buro|buero|büro|office|bureau|ufficio)\b/.test(normalized) &&
-    /\b(?:innen|inneren|interne|interno|internal|inside|indoor)\b/.test(normalized)
-  ) {
-    return "Fenster Büro innen reinigen";
-  }
-  if (
-    /\b(?:vitres|vitrines|fenetres|fenster|windows|window|finestre|ventanas)\b/.test(normalized) &&
-    /\b(?:keller|cave|cantina)\b/.test(normalized)
-  ) {
-    return "Kellerfenster reinigen";
   }
   if (
     /\b(nettoyage\s+des\s+vitres|nettoyage\s+vitres|nettoyage\s+des\s+vitrines|nettoyage\s+vitrines|vitres|vitrines|fenetres|windows|window\s+cleaning|fenster|ventanas|limpieza\s+de\s+ventanas|finestre|pulizia\s+finestre|janelas|limpeza\s+de\s+janelas)\b/.test(
@@ -1158,15 +1088,6 @@ function canonicalGermanServiceNameFromText(
     )
   ) {
     return "Material Kleinzeug";
-  }
-  if (/\bteppichzone\b/.test(normalized)) {
-    return "Teppichzone reinigen";
-  }
-  if (
-    /\b(?:gelaender|gelander|geländer|railing)\b/.test(normalized) &&
-    /\b(?:treppenhaus|stiege|stiegenhaus|stair|stairwell)\b/.test(normalized)
-  ) {
-    return "Geländer Treppenhaus reinigen";
   }
   if (
     /\b(moebel|mobel|möbel|furniture)\b/.test(normalized) &&
@@ -1661,10 +1582,9 @@ function addMissingTravelFlatCostItems(
       .filter(Boolean),
   );
 
-  const originalOnlyText = stripAutomaticTranslationBlock(originalText);
   const candidateLines = unique([
-    ...splitRawIntakeLines(originalOnlyText),
-    ...splitExplicitServiceLineCandidates(originalOnlyText),
+    ...splitRawIntakeLines(originalText),
+    ...splitExplicitServiceLineCandidates(originalText),
   ]);
 
   let nextItems = items.slice();
@@ -1675,11 +1595,8 @@ function addMissingTravelFlatCostItems(
 
     const flatPrice =
       findExplicitFlatPriceInLine(line, fallbackCurrency) ||
-      (!hasExplicitCurrencyAmount(line)
-        ? detectCurrencylessFlatPriceFromSegment(line, fallbackCurrency)
-        : null);
-    const flatCurrency = normalizeCurrency(flatPrice?.currency || null);
-    if (!flatPrice || (flatCurrency !== "CHF" && flatCurrency !== "EUR")) continue;
+      detectCurrencylessFlatPriceFromSegment(line, fallbackCurrency);
+    if (!flatPrice || flatPrice.currency !== fallbackCurrency) continue;
 
     const amountKey = roundMoney(flatPrice.amount);
     const sourceAlreadyCaptured = Array.from(existingSourceKeys).some(
@@ -1701,14 +1618,11 @@ function addMissingTravelFlatCostItems(
         unit: "Pauschal",
         unitPrice: flatPrice.amount,
         totalPrice: flatPrice.amount,
-        needsReview: flatCurrency !== fallbackCurrency,
-        reviewReason:
-          flatCurrency !== fallbackCurrency
-            ? `item_currency_mismatch:Anfahrt:${flatCurrency}:${fallbackCurrency}`
-            : null,
+        needsReview: false,
+        reviewReason: null,
         sourceText: nextItems[incompleteExistingIndex].sourceText || line,
         evidence: nextItems[incompleteExistingIndex].evidence || line,
-        detectedCurrency: flatCurrency,
+        detectedCurrency: flatPrice.currency,
       };
       existingAmountKeys.add(amountKey);
       existingSourceKeys.add(lineKey);
@@ -1724,14 +1638,11 @@ function addMissingTravelFlatCostItems(
       unit: "Pauschal",
       unitPrice: flatPrice.amount,
       totalPrice: flatPrice.amount,
-      needsReview: flatCurrency !== fallbackCurrency,
-      reviewReason:
-        flatCurrency !== fallbackCurrency
-          ? `item_currency_mismatch:Anfahrt:${flatCurrency}:${fallbackCurrency}`
-          : null,
+      needsReview: false,
+      reviewReason: null,
       sourceText: line,
       evidence: line,
-      detectedCurrency: flatCurrency,
+      detectedCurrency: flatPrice.currency,
     });
     existingAmountKeys.add(amountKey);
     existingSourceKeys.add(lineKey);
@@ -2961,7 +2872,7 @@ const EXPLICIT_SERVICE_NAME_BLOCKLIST = new Set([
 ]);
 
 function splitExplicitServiceLineCandidates(text?: string | null): string[] {
-  const source = normalizeText(stripAutomaticTranslationBlock(text));
+  const source = normalizeText(text);
   if (!source) return [];
 
   const cleanup = (line: string) =>
@@ -3250,7 +3161,7 @@ function findExplicitFlatPriceInLine(
   index: number;
   raw: string;
 } | null {
-  const allowStandaloneFlatPrice = isLikelyStandaloneFlatServiceLine(line) || isLikelyTravelFlatCostLine(line);
+  const allowStandaloneFlatPrice = isLikelyStandaloneFlatServiceLine(line);
   const patterns: Array<{
     re: RegExp;
     currencyGroup?: number;
@@ -4102,7 +4013,7 @@ function addMissingStandaloneFlatLineItems(
     ),
   );
 
-  const candidates = splitExplicitServiceLineCandidates(stripAutomaticTranslationBlock(originalText))
+  const candidates = splitExplicitServiceLineCandidates(originalText)
     .flatMap((part) => String(part || "").split(/\n+/g))
     .map((line) => line.trim())
     .filter(Boolean);
@@ -4177,7 +4088,7 @@ function extractLooseExplicitServiceLineItems(
   originalText: string,
   fallbackCurrency: IntakeCurrency,
 ): ExplicitServiceLineItem[] {
-  const rawLines = splitRawIntakeLines(stripAutomaticTranslationBlock(originalText))
+  const rawLines = splitRawIntakeLines(originalText)
     .flatMap((line) => String(line || "").split(/;|\s+•\s+|\s+\|\s+/g))
     .map((line) =>
       normalizeText(line)
@@ -4834,76 +4745,29 @@ function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
   let cleaned = String(prefix || "")
     .replace(/\s*[-–—/]\s*/g, " ")
     .replace(/[.;:,\s]+$/g, "")
+    .replace(/^\s*(?:zu\s*tun|gemacht\s*werden\s*soll|machen|arbeiten|leistungen?)\s*:?\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!cleaned) return null;
+  if (!cleaned || cleaned.length < 3 || cleaned.length > 90) return null;
 
   const key = normalizeCompare(cleaned);
-  if (/\b(?:anfahrt|fahrt|fahrtkosten|reise|fahrkosten)\b/.test(key)) {
+
+  // Cost/travel positions are a business category, not a customer-specific service dictionary.
+  if (/\b(?:anfahrt|fahrt|fahrtkosten|fahrkosten|reise|wegpauschale)\b/.test(key)) {
     return "Anfahrt";
   }
 
-  if (/\b(?:dunstabzug|abzugshaube|haube|hotte)\b/.test(key)) {
-    return /\b(?:aussen|außen|exterieur|exterieure|extern|external|außenhaube)\b/.test(key)
-      ? "Dunstabzug außen reinigen"
-      : "Dunstabzug reinigen";
+  // Keep the translated German meaning. Do not collapse it through a fixed
+  // service-name dictionary; the LLM translation/evidence line is the source.
+  const hasAction = hasVisibleGermanWorkActionV17_37(cleaned);
+  if (hasAction) {
+    return cleaned.replace(/^./, (char) => char.toUpperCase());
   }
 
-  if (/\bfenster\b/.test(key)) {
-    if (/\b(?:buero|buro|büro|bureau|office)\b/.test(key)) {
-      return /\b(?:innen|inneren|interne|interno|inside)\b/.test(key)
-        ? "Fenster Büro innen reinigen"
-        : "Fenster Büro reinigen";
-    }
-    if (/\bkeller\b/.test(key)) return "Kellerfenster reinigen";
-    if (/\bterrasse\b/.test(key)) return "Terrassenfenster reinigen";
-    return "Fenster reinigen";
-  }
-
-  if (/\b(?:schreibtisch|schreibtische)\b/.test(key)) {
-    return /\b(?:verwaltung|administration)\b/.test(key)
-      ? "Schreibtische Administration reinigen"
-      : "Schreibtische reinigen";
-  }
-
-  if (/\b(?:serverraumboden|serverraum.*boden|boden.*serverraum)\b/.test(key)) {
-    return "Boden Serverraum reinigen";
-  }
-  if (/\b(?:gemeinschaftsraum.*boden|boden.*gemeinschaftsraum)\b/.test(key)) {
-    return "Boden Gemeinschaftsraum reinigen";
-  }
-  if (/\b(?:kuechenboden|küchenboden|kueche.*boden|küche.*boden|boden.*kueche|boden.*küche)\b/.test(key)) {
-    return "Küchenboden reinigen";
-  }
-  if (/\b(?:kellerboden|keller.*boden|boden.*keller)\b/.test(key)) {
-    return "Kellerboden reinigen";
-  }
-  if (/\b(?:eingangsboden|eingang.*boden|boden.*eingang)\b/.test(key)) {
-    return "Eingangsboden reinigen";
-  }
-  if (/\bboden\b/.test(key)) {
-    cleaned = cleaned
-      .replace(/^Keller\s+Boden\b/i, "Kellerboden")
-      .replace(/^Garage\s+Boden\b/i, "Garagenboden")
-      .replace(/^Boden\s+Eingang\b/i, "Boden Eingang")
-      .replace(/^Reinigung\s+(?:des|der|von)\s+/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    const trailingFloorObject = cleaned.match(/^(.{3,70})\s+Boden$/i);
-    if (trailingFloorObject && !/^Boden\b/i.test(cleaned) && !/boden$/i.test(trailingFloorObject[1])) {
-      cleaned = `Boden ${trailingFloorObject[1]}`.replace(/\s+/g, " ").trim();
-    }
-
-    return /\breinigen\b/i.test(cleaned) ? cleaned : `${cleaned} reinigen`;
-  }
-
-  if (/\bteppichzone\b/.test(key)) return "Teppichzone reinigen";
-
-  const canonical = canonicalGermanServiceNameFromText(cleaned);
-  if (canonical) return canonical;
-
-  return cleaned.replace(/^./, (char) => char.toUpperCase());
+  // Generic structural rule: a priced work line with object/location but no
+  // verb is still a cleaning/work item in this intake context. Preserve the
+  // translated object and append the neutral action instead of mapping words.
+  return `${cleaned.replace(/^./, (char) => char.toUpperCase())} reinigen`;
 }
 
 function hasVisibleGermanWorkActionV17_37(value?: string | null): boolean {
@@ -4942,10 +4806,7 @@ function shouldUseTranslatedServiceNameV17_35(item: ParsedOrderItemForValidation
   // Die übersetzte Evidence-Zeile wurde bereits über Menge + Einheit + Preis
   // an genau diese Position gebunden. Wenn daraus ein klarerer deutscher
   // Leistungsname entsteht, ersetzt er die rohe Mundart-/Fremdsprachenform.
-  if (translatedScore >= currentScore + 15) return true;
-
-  const currentLooksRawForeignOrDialect = /\b(?:bode|gemeinschaftsruum|nettoyage|pulizia|limpieza|finestre|pezzi|hotte|sol|cave|ufficio|scrivanie|pavimento|locale)\b/i.test(current);
-  if (currentLooksRawForeignOrDialect && translatedScore >= currentScore) return true;
+  if (translatedScore >= currentScore + 10) return true;
 
   const currentHasAction = hasVisibleGermanWorkActionV17_37(item.serviceName);
   const translatedHasAction = hasVisibleGermanWorkActionV17_37(translatedName);
@@ -5353,7 +5214,7 @@ function extractHardMeasuredLineItemsFromRawText(
   const result: ExplicitServiceLineItem[] = [];
   const seen = new Set<string>();
 
-  const lines = normalizeText(stripAutomaticTranslationBlock(originalText))
+  const lines = normalizeText(originalText)
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
     .map((line) =>
       normalizeText(line)
@@ -5608,7 +5469,10 @@ function cleanServiceNameFromUnitlessQuantityPriceLine(
 function stripAutomaticTranslationBlockForUnitlessGuard(
   value?: string | null,
 ): string {
-  return stripAutomaticTranslationBlock(value);
+  return String(value || "")
+    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Automatic translation\s*---[\s\S]*$/i, "");
 }
 
 function extractUnitlessQuantityPriceLineCandidates(
@@ -6585,7 +6449,7 @@ function extractUnitlessQuantityPriceEvidenceLines(
   originalText: string,
   finalCurrency: IntakeCurrency,
 ): UnitlessQuantityPriceEvidenceLine[] {
-  const lines = normalizeText(stripAutomaticTranslationBlock(originalText))
+  const lines = normalizeText(originalText)
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
     .map((line) =>
       normalizeText(line)
@@ -7453,8 +7317,7 @@ export function validateAndRepairParsedOrderItems(
         !reason.startsWith("hard_measured_line_added:") &&
         !reason.startsWith("evidence_bound_line_repaired:") &&
         !reason.startsWith("evidence_bound_line_added:") &&
-        !reason.startsWith("evidence_numeric_repaired:") &&
-        !reason.startsWith("price_repaired_from_text:"),
+        !reason.startsWith("evidence_numeric_repaired:"),
     )
     .filter((reason) => {
       if (!reason.startsWith("price_repaired_from_text:")) return true;
@@ -7520,7 +7383,7 @@ export function validateAndRepairParsedOrderItems(
 }
 
 const EXECUTION_ADDRESS_MARKER =
-  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|auftragsort|uftragsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+(?:du\s+)?chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
+  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|auftragsort|uftragsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
 
 const STOP_MARKER =
   /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet|macht|kommt)|zugang|hauswart|hausmeister|concierge|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp|titel|title)\b/i;
@@ -7813,9 +7676,6 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
     "dort",
     "hier",
     "adresse",
-    "nadresse",
-    "n adresse",
-    "chantier",
     "ausfuehrungsadresse",
     "ausführungsadresse",
     "bei",
@@ -8076,8 +7936,6 @@ export function extractExecutionAddressFromText(
     .map((line) => line.trim())
     .filter(Boolean);
 
-  let bestCandidate: ExtractedExecutionAddress | null = null;
-
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (
@@ -8090,11 +7948,7 @@ export function extractExecutionAddressFromText(
       line,
       customer,
     );
-    if (inlineAddress) {
-      if (inlineAddress.siteName) return inlineAddress;
-      if (!bestCandidate) bestCandidate = inlineAddress;
-      continue;
-    }
+    if (inlineAddress) return inlineAddress;
 
     const blockLines = getExecutionAddressCandidates(lines, index);
     if (blockLines.length === 0) continue;
@@ -8121,7 +7975,7 @@ export function extractExecutionAddressFromText(
         customerCity: customer?.customerCity,
       })
     ) {
-      continue;
+      return null;
     }
 
     const siteName = pickSiteName(blockLines, siteAddress, sitePlz);
@@ -8131,17 +7985,14 @@ export function extractExecutionAddressFromText(
       sitePlz,
     );
 
-    const candidate = {
+    return {
       siteName,
       siteAddress: cleanSiteAddress || siteAddress,
       sitePlz,
       siteCity,
       siteNote: null,
     };
-
-    if (candidate.siteName) return candidate;
-    if (!bestCandidate) bestCandidate = candidate;
   }
 
-  return bestCandidate;
+  return null;
 }

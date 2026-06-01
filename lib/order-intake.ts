@@ -1593,7 +1593,7 @@ function cleanExecutionSiteNameCandidate(
   let candidate = String(value || "")
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
     .replace(
-      /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i,
+      /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+(?:du\s+)?chantier|adresse\s+chantier|lieu\s+d[’']intervention|lieu\s+de\s+travail|luogo\s+di\s+lavoro|luogo\s+di\s+intervento|work\s+site|job\s+site)\s*:?\s*/i,
       "",
     )
     .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
@@ -1635,6 +1635,14 @@ function cleanExecutionSiteNameCandidate(
     "morgen",
     "heute",
     "bitte",
+    "nadresse",
+    "n adresse",
+    "adresse",
+    "adresse chantier",
+    "adresse du chantier",
+    "lieu intervention",
+    "luogo di lavoro",
+    "work site",
   ]);
   if (blockedExact.has(normalized)) return null;
 
@@ -1687,7 +1695,7 @@ function extractExecutionBlockFromText(
   if (lines.length === 0) return null;
 
   const startRegex =
-    /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+    /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|adresse\s+(?:du\s+)?chantier|adresse\s+chantier|lieu\s+d[’']intervention|lieu\s+de\s+travail|luogo\s+di\s+lavoro|luogo\s+di\s+intervento|work\s+site|job\s+site)\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
@@ -7012,16 +7020,70 @@ export async function processIncomingMessage(
           },
         ];
 
+  // --- Auto-translation before validation ---
+  // Die KI-Übersetzung muss bereits dem Validator zur Verfügung stehen.
+  // Sonst kann der Validator sichtbare Leistungsnamen nicht semantisch auf
+  // Hochdeutsch aus der übersetzten Evidence-Zeile übernehmen.
+  let translationText = "";
+  if (messageText.trim() && hauptsprache) {
+    try {
+      const transRes = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4.1-mini",
+            messages: [
+              {
+                role: "system",
+                content: `Du bist ein Spracherkennungs- und Übersetzungsassistent. Analysiere den folgenden Text und bestimme die Sprache. Wenn der Text NICHT auf ${hauptsprache} ist, übersetze ihn auf ${hauptsprache}. Antworte NUR mit gültigem JSON:\n{"detected_language": "...", "is_target_language": true/false, "translation": "..." oder null falls keine Übersetzung nötig}\nKEINE Erklärungen, NUR JSON.`,
+              },
+              { role: "user", content: messageText },
+            ],
+            response_format: { type: "json_object" },
+            max_tokens: 2600,
+          }),
+        },
+      );
+      if (transRes.ok) {
+        const transResult = await transRes.json();
+        const transContent = transResult?.choices?.[0]?.message?.content;
+        if (transContent) {
+          const transData = JSON.parse(transContent);
+          if (
+            transData &&
+            !transData.is_target_language &&
+            transData.translation
+          ) {
+            translationText = transData.translation;
+            console.log(
+              `[${source}] Auto-translated from ${transData.detected_language} to ${hauptsprache}`,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[${source}] Translation failed:`, e);
+    }
+  }
+
+  const originalTextForValidation = translationText
+    ? `${messageText}\n${fullWorkText}\n--- Übersetzung (automatisch) ---\n${translationText}`
+    : `${messageText}\n${fullWorkText}`;
+
   const intakeValidation = validateAndRepairParsedOrderItems({
     items: finalOrderItems,
-    originalText: `${messageText}\n${fullWorkText}`,
+    originalText: originalTextForValidation,
     fallbackCurrency: intakeCurrency,
   });
 
   finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
     intakeValidation.items,
-    `${messageText}
-${fullWorkText}`,
+    originalTextForValidation,
   );
 
   // INTAKE_FLAT_TOTAL_LAST_GUARD_V8
@@ -7116,24 +7178,18 @@ ${fullWorkText}`,
   const aiStructuredExecutionAddress = extractAiStructuredExecutionAddress(
     aiExecutionAddress,
     executionAddressCustomerContext,
-    `${messageText}
-${fullWorkText}`,
+    originalTextForValidation,
   );
 
   let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
     aiStructuredExecutionAddress ||
       (legacyAddressFallbackEnabled
         ? extractExecutionAddressFromText(
-            messageText,
-            executionAddressCustomerContext,
-          ) ||
-          extractExecutionAddressFromText(
-            fullWorkText,
+            originalTextForValidation,
             executionAddressCustomerContext,
           )
         : null),
-    `${messageText}
-${fullWorkText}`,
+    originalTextForValidation,
   );
 
   if (
@@ -7298,54 +7354,6 @@ ${fullWorkText}`,
     parsed.auftrag?.beschreibung ||
     parsed.auftrag?.titel ||
     `${source}-Auftrag`;
-
-  // --- Auto-translation if message is not in hauptsprache ---
-  let translationText = "";
-  if (messageText.trim() && hauptsprache) {
-    try {
-      const transRes = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-4.1-mini",
-            messages: [
-              {
-                role: "system",
-                content: `Du bist ein Spracherkennungs- und Übersetzungsassistent. Analysiere den folgenden Text und bestimme die Sprache. Wenn der Text NICHT auf ${hauptsprache} ist, übersetze ihn auf ${hauptsprache}. Antworte NUR mit gültigem JSON:\n{"detected_language": "...", "is_target_language": true/false, "translation": "..." oder null falls keine Übersetzung nötig}\nKEINE Erklärungen, NUR JSON.`,
-              },
-              { role: "user", content: messageText },
-            ],
-            response_format: { type: "json_object" },
-            max_tokens: 2600,
-          }),
-        },
-      );
-      if (transRes.ok) {
-        const transResult = await transRes.json();
-        const transContent = transResult?.choices?.[0]?.message?.content;
-        if (transContent) {
-          const transData = JSON.parse(transContent);
-          if (
-            transData &&
-            !transData.is_target_language &&
-            transData.translation
-          ) {
-            translationText = transData.translation;
-            console.log(
-              `[${source}] Auto-translated from ${transData.detected_language} to ${hauptsprache}`,
-            );
-          }
-        }
-      }
-    } catch (e) {
-      console.error(`[${source}] Translation failed:`, e);
-    }
-  }
 
   // --- Build notes ---
   // Der KI-Titel bleibt strukturierte Metainfo. Er darf nicht in den
