@@ -50,9 +50,18 @@ const isOperationalJobHint = (value: string) => {
 
 const fixVisibleNoteGrammar = (value: string) =>
   value
-    .replace(/\bKeine telefonische Rückruf notwendig\b/gi, "Kein telefonischer Rückruf notwendig")
-    .replace(/\bKeine telefonische Rückrufwunsch\b/gi, "Kein telefonischer Rückrufwunsch")
-    .replace(/\bKeine telefonischer Rückrufwunsch\b/gi, "Kein telefonischer Rückrufwunsch");
+    .replace(
+      /\bKeine telefonische Rückruf notwendig\b/gi,
+      "Kein telefonischer Rückruf notwendig",
+    )
+    .replace(
+      /\bKeine telefonische Rückrufwunsch\b/gi,
+      "Kein telefonischer Rückrufwunsch",
+    )
+    .replace(
+      /\bKeine telefonischer Rückrufwunsch\b/gi,
+      "Kein telefonischer Rückrufwunsch",
+    );
 
 const stripKnownMarker = (line: string) =>
   fixVisibleNoteGrammar(
@@ -72,36 +81,168 @@ const normalizeDedupeText = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const ACCESS_NOTE_MARKER_PREFIX =
+  /^\s*(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|objekt|ort|hinweis|notiz)\s*:\s*/i;
+
+const normalizeAccessNoteKeyText = (value: string) =>
+  normalizeDedupeText(value)
+    .replace(/\bhuuswart\b/g, "hauswart")
+    .replace(/\bhauswartung\b/g, "hauswart")
+    .replace(/\bbim\b/g, "beim")
+    .replace(/\bhet\b/g, "hat")
+    .replace(/\ber\b/g, "hauswart")
+    .replace(/\bvorhanden\b/g, "beim hauswart")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const extractAccessCodeDigits = (value: string): string => {
+  const match = String(value || "").match(
+    /\b(?:code|pin)\s*[:=]?\s*(\d{2,12})\b/i,
+  );
+  return match?.[1] || "";
+};
+
+const isAccessNoteText = (value: string) => {
+  const text = normalizeAccessNoteKeyText(
+    value.replace(ACCESS_NOTE_MARKER_PREFIX, ""),
+  );
+  return /\b(schluessel|key|zugang|access|briefkasten|schluesselbox|keybox|hauswart|rezeption|empfang|code|pin)\b/.test(
+    text,
+  );
+};
+
+const canonicalAccessNoteKey = (value: string): string | null => {
+  const visible = stripKnownMarker(value).replace(
+    ACCESS_NOTE_MARKER_PREFIX,
+    "",
+  );
+  const text = normalizeAccessNoteKeyText(visible);
+  if (!text || !isAccessNoteText(text)) return null;
+
+  const code = extractAccessCodeDigits(visible);
+  const holder = /\bhauswart\b/.test(text)
+    ? "hauswart"
+    : /\b(?:rezeption|empfang)\b/.test(text)
+      ? "rezeption"
+      : /\b(?:schluesselbox|keybox)\b/.test(text)
+        ? "keybox"
+        : "access";
+
+  const place = /\bbriefkasten\b/.test(text)
+    ? "briefkasten"
+    : /\b(?:schluesselbox|keybox)\b/.test(text)
+      ? "keybox"
+      : "";
+
+  const externalCode =
+    !code &&
+    /\bcode\b/.test(text) &&
+    /\b(?:hat|beim|hauswart|rezeption|empfang|vorhanden)\b/.test(text);
+
+  return [
+    "access",
+    holder,
+    place,
+    code ? `code:${code}` : externalCode ? "code:external" : "code:none",
+  ]
+    .filter(Boolean)
+    .join(":");
+};
+
+const canonicalAccessNoteDisplay = (value: string): string | null => {
+  const raw = stripKnownMarker(value).replace(ACCESS_NOTE_MARKER_PREFIX, "");
+  const text = normalizeAccessNoteKeyText(raw);
+  if (!text || !isAccessNoteText(text)) return null;
+
+  const code = extractAccessCodeDigits(raw);
+
+  if (/\b(?:schluesselbox|keybox)\b/.test(text)) {
+    return code
+      ? `Schlüssel in Schlüsselbox; Code ${code}.`
+      : "Schlüssel in Schlüsselbox.";
+  }
+
+  if (/\bhauswart\b/.test(text) && /\bbriefkasten\b/.test(text)) {
+    return code
+      ? `Schlüssel liegt beim Hauswart im Briefkasten; Code ${code}.`
+      : "Schlüssel liegt beim Hauswart im Briefkasten.";
+  }
+
+  if (/\bhauswart\b/.test(text)) {
+    if (code) return `Schlüssel beim Hauswart; Code ${code}.`;
+    if (/\bcode\b/.test(text))
+      return "Schlüssel beim Hauswart; Code beim Hauswart.";
+    return "Schlüssel beim Hauswart.";
+  }
+
+  if (/\b(?:rezeption|empfang)\b/.test(text)) {
+    return code
+      ? `Schlüssel bei der Rezeption; Code ${code}.`
+      : "Schlüssel bei der Rezeption.";
+  }
+
+  return null;
+};
+
+const normalizeSpecialNoteDisplayValue = (value: string) => {
+  const accessDisplay = canonicalAccessNoteDisplay(value);
+  if (accessDisplay) return accessDisplay;
+  return normalizeLine(value);
+};
+
 const semanticNoteKey = (value: string) => {
   const visibleLine = stripKnownMarker(value);
   const text = normalizeDedupeText(value);
   if (!text) return "";
 
+  const accessKey = canonicalAccessNoteKey(visibleLine);
+  if (accessKey) return accessKey;
+
   if (
     /^[^:]{2,120}:\s+/.test(visibleLine) &&
     !/^kontakt\s+vor\s+ort:\s*/i.test(visibleLine) &&
-    /(?:whatsapp|sms|mail|email|e-mail|telefon|anruf|anrufen|rueckruf|ruckruf|rückruf|termin|uhr|schluessel|schlüssel|zugang|eingang|hauswart|rezeption)/i.test(visibleLine)
+    /(?:whatsapp|sms|mail|email|e-mail|telefon|anruf|anrufen|rueckruf|ruckruf|rückruf|termin|uhr)/i.test(
+      visibleLine,
+    )
   ) {
     return text;
   }
 
   if (/\bhund\b|\bgartenhund\b|\bdog\b/.test(text)) return "dog";
   if (/\bleiter\b|\bladder\b/.test(text)) return "ladder";
-  if (/\bschluessel\b|\bschlüssel\b|\bkey\b|\bbriefkasten\b/.test(text)) return "key";
-  if (/\bzugang\b|\beingang\b|\btor\b|\bseitentor\b|\baccess\b/.test(text)) return "access";
   if (/\bparkplatz\b|\bparken\b|\bparking\b/.test(text)) return "parking";
-  if (/(nicht einfach kommen|nicht einfach vorbeikommen|nicht ohne ruecksprache|nicht ohne rucksprache|vor arbeitsbeginn|vor start|vor ankunft).*(melden|anrufen|kontaktieren|kommen|whatsapp)|vorher melden/.test(text)) return "pre_arrival_instruction";
-  if (/termin.*(klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(text)) return "appointment_clarify";
+  if (
+    /(nicht einfach kommen|nicht einfach vorbeikommen|nicht ohne ruecksprache|nicht ohne rucksprache|vor arbeitsbeginn|vor start|vor ankunft).*(melden|anrufen|kontaktieren|kommen|whatsapp)|vorher melden/.test(
+      text,
+    )
+  )
+    return "pre_arrival_instruction";
+  if (
+    /termin.*(klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|vereinbaren|abmachen|melden)|ruecksprache.*termin|rucksprache.*termin/.test(
+      text,
+    )
+  )
+    return "appointment_clarify";
 
-  const hasNoCall = /nicht anrufen|nicht telefonisch|keine telefonische|kein telefon|no calls?|do not call|pas d appel|pas d appels|pas appeler|pas telephoner|ne pas appeler|ne pas telephoner|sans appel telephonique/.test(text);
-  if (/whatsapp/.test(text) && hasNoCall) return "communication_whatsapp_no_call";
+  const hasNoCall =
+    /nicht anrufen|nicht telefonisch|keine telefonische|kein telefon|no calls?|do not call|pas d appel|pas d appels|pas appeler|pas telephoner|ne pas appeler|ne pas telephoner|sans appel telephonique/.test(
+      text,
+    );
+  if (/whatsapp/.test(text) && hasNoCall)
+    return "communication_whatsapp_no_call";
   if (/\bsms\b/.test(text) && hasNoCall) return "communication_sms_no_call";
-  if (/(?:mail|email|e mail|e-mail)/.test(text) && hasNoCall) return "communication_email_no_call";
+  if (/(?:mail|email|e mail|e-mail)/.test(text) && hasNoCall)
+    return "communication_email_no_call";
   if (/whatsapp/.test(text)) return "communication_whatsapp";
   if (/\bsms\b/.test(text)) return "communication_sms";
   if (hasNoCall) return "communication_no_call";
   if (/mail|email|e mail|e-mail/.test(text)) return "communication_email";
-  if (/\brueckruf\b|\bruckruf\b|\banrufen\b|\btelefonisch\b|\btelefon\b/.test(text)) return "callback";
+  if (
+    /\brueckruf\b|\bruckruf\b|\banrufen\b|\btelefonisch\b|\btelefon\b/.test(
+      text,
+    )
+  )
+    return "callback";
 
   return text;
 };
@@ -110,9 +251,15 @@ const noteSpecificityScore = (value: string) => {
   const text = normalizeDedupeText(value);
   let score = text.length;
 
-  if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
+  if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text))
+    score += 100;
   if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
-  if (/bitte|nur|nicht anrufen|nicht telefonisch|keine telefonische|pas d appel|pas appeler|mail reicht|whatsapp|sms|nicht einfach|vor arbeitsbeginn|vor start|vor ankunft|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
+  if (
+    /bitte|nur|nicht anrufen|nicht telefonisch|keine telefonische|pas d appel|pas appeler|mail reicht|whatsapp|sms|nicht einfach|vor arbeitsbeginn|vor start|vor ankunft|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(
+      text,
+    )
+  )
+    score += 90;
   if (/\+\d|\b0\d{2,}\b/.test(text)) score += 80;
   if (/eventuell|vielleicht|moeglich|möglich/.test(text)) score -= 30;
   if (/vor ort/.test(text)) score -= 20;
@@ -124,14 +271,17 @@ const dedupeSemanticLines = (values: string[]) => {
   const byKey = new Map<string, string>();
 
   for (const rawValue of values) {
-    const value = normalizeLine(rawValue);
+    const value = normalizeSpecialNoteDisplayValue(normalizeLine(rawValue));
     if (!value) continue;
 
     const key = semanticNoteKey(value);
     if (!key) continue;
 
     const existing = byKey.get(key);
-    if (!existing || noteSpecificityScore(value) > noteSpecificityScore(existing)) {
+    if (
+      !existing ||
+      noteSpecificityScore(value) > noteSpecificityScore(existing)
+    ) {
       byKey.set(key, value);
     }
   }
@@ -246,20 +396,34 @@ function firstPhoneKeyV17_27(value: string): string {
   return match ? match[0].replace(/\D/g, "") : "";
 }
 
-function rebuildSpecialNoteLineV17_27(originalLine: string, body: string): string {
-  const markerMatch = String(originalLine || "").match(/^\s*(\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\])\s*/i);
+function rebuildSpecialNoteLineV17_27(
+  originalLine: string,
+  body: string,
+): string {
+  const markerMatch = String(originalLine || "").match(
+    /^\s*(\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\])\s*/i,
+  );
   const marker = markerMatch?.[1] || "";
   const cleanedBody = body.replace(/\s+/g, " ").trim();
   return marker ? `${marker} ${cleanedBody}` : cleanedBody;
 }
 
 function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
-  const normalizedBodies = lines.map((line) => normalizeSpecialNoteLineV17_27(stripKnownMarker(line)));
+  const normalizedBodies = lines.map((line) =>
+    normalizeSpecialNoteLineV17_27(stripKnownMarker(line)),
+  );
   const whatsappContextLines = lines.filter((line) => {
     const key = normalizeSpecialNoteLineV17_27(stripKnownMarker(line));
-    return /whatsapp/.test(key) && /(vorher|zuerst|termin|nicht einfach kommen|melden|schreiben|kontakt)/.test(key);
+    return (
+      /whatsapp/.test(key) &&
+      /(vorher|zuerst|termin|nicht einfach kommen|melden|schreiben|kontakt)/.test(
+        key,
+      )
+    );
   });
-  const whatsappPhones = new Set(whatsappContextLines.map(firstPhoneKeyV17_27).filter(Boolean));
+  const whatsappPhones = new Set(
+    whatsappContextLines.map(firstPhoneKeyV17_27).filter(Boolean),
+  );
   const seen = new Set<string>();
   const out: string[] = [];
 
@@ -271,16 +435,32 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
     const isDanger = isSafetyWarningLine(line);
     let nextBody = body;
 
-    nextBody = nextBody.replace(/^Arbeiten sind nicht dort, sondern im\s+/i, "Arbeitsort: ");
-    nextBody = nextBody.replace(/^Die Arbeiten sind nicht dort, sondern im\s+/i, "Arbeitsort: ");
+    nextBody = nextBody.replace(
+      /^Arbeiten sind nicht dort, sondern im\s+/i,
+      "Arbeitsort: ",
+    );
+    nextBody = nextBody.replace(
+      /^Die Arbeiten sind nicht dort, sondern im\s+/i,
+      "Arbeitsort: ",
+    );
 
     const phone = firstPhoneKeyV17_27(body);
-    const isShortWhatsappPreference = /whatsapp\s+bevorzugt/i.test(body) || /^whatsapp\s*:/i.test(body);
-    if (!isDanger && isShortWhatsappPreference && phone && whatsappPhones.has(phone)) {
+    const isShortWhatsappPreference =
+      /whatsapp\s+bevorzugt/i.test(body) || /^whatsapp\s*:/i.test(body);
+    if (
+      !isDanger &&
+      isShortWhatsappPreference &&
+      phone &&
+      whatsappPhones.has(phone)
+    ) {
       return;
     }
 
-    if (!isDanger && /kontakt vor ort\s*:/i.test(body) && /rechnung\s+bitte\s+an/i.test(body)) {
+    if (
+      !isDanger &&
+      /kontakt vor ort\s*:/i.test(body) &&
+      /rechnung\s+bitte\s+an/i.test(body)
+    ) {
       return;
     }
     if (!isDanger && /^rechnung\s+bitte\s+an\b/i.test(body)) {
@@ -325,9 +505,7 @@ export function buildSpecialNotes(input: {
 
 export function hasWarningKeywords(text: string): boolean {
   if (!text) return false;
-  return text
-    .split("\n")
-    .some((line) => isSafetyWarningLine(line));
+  return text.split("\n").some((line) => isSafetyWarningLine(line));
 }
 
 export function getWarningSegments(
@@ -364,7 +542,8 @@ const normalizeCallbackText = (value: string) =>
     .trim();
 
 const CALLBACK_WORD = "(?:rueckruf|ruckruf)";
-const CALL_BACK_VERB = "(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|melden|kontaktieren)";
+const CALL_BACK_VERB =
+  "(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|melden|kontaktieren)";
 const CALLBACK_NEGATIVE_PATTERN = new RegExp(
   `\\b(?:nicht\\s+(?:telefonisch\\s+)?${CALL_BACK_VERB}|kein(?:e[nm]?)?\\s+(?:telefonischer\\s+)?(?:${CALLBACK_WORD}|anruf)|${CALLBACK_WORD}\\s+(?:nicht\\s+)?(?:noetig|notig|erwuenscht)|nicht\\s+erwuenscht)\\b`,
   "i",
@@ -390,7 +569,9 @@ const isNegativeCallbackLine = (line: string) => {
 
   return (
     CALLBACK_NEGATIVE_PATTERN.test(text) ||
-    /\b(klingeln|warten|haupteingang|kunde\s+ist\s+vor\s+ort|kundin\s+ist\s+vor\s+ort|oeffnet\s+die\s+tuer|offnet\s+die\s+tur)\b/i.test(text)
+    /\b(klingeln|warten|haupteingang|kunde\s+ist\s+vor\s+ort|kundin\s+ist\s+vor\s+ort|oeffnet\s+die\s+tuer|offnet\s+die\s+tur)\b/i.test(
+      text,
+    )
   );
 };
 

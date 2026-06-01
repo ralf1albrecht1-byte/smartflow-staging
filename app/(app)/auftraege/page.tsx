@@ -1,6 +1,12 @@
 "use client";
 // CARD_BADGE_SPLIT_FINAL_V8
-import { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ComponentType,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
 import {
@@ -90,11 +96,34 @@ function LadderIcon({
   );
 }
 
-function DogIcon({ className = "h-4 w-4" }: { className?: string }) {
+function DogIcon({
+  className = "h-4 w-4",
+  strokeWidth = 2.15,
+}: {
+  className?: string;
+  strokeWidth?: number | string;
+}) {
   return (
-    <span className={`${className} inline-flex items-center justify-center leading-none`} aria-hidden="true">
-      🐶
-    </span>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5.2 13.5c0-3 2.5-5.2 5.7-5.2h3.5c2.9 0 5.1 2 5.1 4.8v2.5" />
+      <path d="M7.2 13.1 5 15.4l-1.7-.7" />
+      <path d="M9 8.5 7.4 5.2 4.8 7.1 7 9.6" />
+      <path d="M15.5 8.5 18 5.4l2.2 2.2-2.3 2" />
+      <path d="M8.2 16.2v3" />
+      <path d="M16.8 16.2v3" />
+      <path d="M19.5 13.2l2-1.3" />
+      <path d="M11 11.2h.01" />
+      <path d="M4.8 15.5c1.4 1.2 3.3 1.8 5.6 1.8h5.1c2.3 0 4-1.1 4-3.1" />
+    </svg>
   );
 }
 
@@ -123,7 +152,6 @@ function OpenDoorIcon({
     </svg>
   );
 }
-
 
 function WhatsAppIcon({
   className = "h-4 w-4",
@@ -338,17 +366,15 @@ const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
 const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
 
-const isCatalogReviewConfirmedDescription = (
-  description?: string | null,
-) => compactText(description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
+const isCatalogReviewConfirmedDescription = (description?: string | null) =>
+  compactText(description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
 
 const getCatalogReviewConfirmedFromItemDescription = (
   description?: string | null,
 ) => isCatalogReviewConfirmedDescription(description);
 
-const isManualCurrencyConfirmedDescription = (
-  description?: string | null,
-) => compactText(description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX);
+const isManualCurrencyConfirmedDescription = (description?: string | null) =>
+  compactText(description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX);
 
 const getManualCurrencyConfirmedFromItemDescription = (
   description?: string | null,
@@ -366,7 +392,8 @@ const stripInternalItemDescriptionMarkers = (description?: string | null) => {
 const isCatalogReviewConfirmedItem = (item?: {
   description?: string | null;
   catalogReviewConfirmed?: boolean | null;
-}) => Boolean(item?.catalogReviewConfirmed) ||
+}) =>
+  Boolean(item?.catalogReviewConfirmed) ||
   isCatalogReviewConfirmedDescription(item?.description);
 
 const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
@@ -487,7 +514,7 @@ const isPreArrivalInstructionLine = (value?: string | null) => {
     `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+einfach\\s+(?:kommen|vorbeikommen|cho|verbi\\s+cho)|` +
       `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+ohne\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)|` +
       `vor\\s+(?:start|arbeitsbeginn|ankunft)\\s+(?:kurz\\s+)?(?:telefonisch\\s+)?(?:melden|anrufen|kontaktieren)|` +
-      `erst\\s+nach\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)`
+      `erst\\s+nach\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)`,
   ).test(text);
 };
 
@@ -497,7 +524,7 @@ const isNegativeWhatsAppInstructionLine = (value?: string | null) => {
 
   return new RegExp(
     `\\b(?:keine?|kein|ohne|nicht|${SWISS_NEGATION_PATTERN})\\s+(?:per\\s+|via\\s+)?whats\\s*app\\b|` +
-      `\\bwhats\\s*app\\s+(?:bitte\\s+)?(?:nein|keine?|kein|${SWISS_NEGATION_PATTERN}|nicht(?!\\s+(?:telefon|telefonisch|anrufen|zurueckrufen|zuruckrufen)))\\b`
+      `\\bwhats\\s*app\\s+(?:bitte\\s+)?(?:nein|keine?|kein|${SWISS_NEGATION_PATTERN}|nicht(?!\\s+(?:telefon|telefonisch|anrufen|zurueckrufen|zuruckrufen)))\\b`,
   ).test(text);
 };
 
@@ -528,29 +555,57 @@ const sourceLineServiceTokens = (serviceName?: string | null) => {
     .filter((token) => !SOURCE_LINE_GENERIC_TOKENS.has(token));
 
   if (/fenster|vitrin|vitre|window|fenetre|finestr|ventan/.test(serviceKey)) {
-    tokens.push("fenster", "vitrin", "vitre", "window", "fenetre", "finestr", "ventan");
+    tokens.push(
+      "fenster",
+      "vitrin",
+      "vitre",
+      "window",
+      "fenetre",
+      "finestr",
+      "ventan",
+    );
   }
 
   if (/boden|floor|sol|paviment|suelo/.test(serviceKey)) {
     tokens.push("boden", "floor", "sol", "paviment", "suelo");
   }
 
-  if (/anfahrt|fahrt|weg|deplacement|deplacement|travel|trip|transport|trasfert|viaje/.test(serviceKey)) {
-    tokens.push("anfahrt", "fahrt", "deplacement", "travel", "trip", "transport", "trasfert", "viaje");
+  if (
+    /anfahrt|fahrt|weg|deplacement|deplacement|travel|trip|transport|trasfert|viaje/.test(
+      serviceKey,
+    )
+  ) {
+    tokens.push(
+      "anfahrt",
+      "fahrt",
+      "deplacement",
+      "travel",
+      "trip",
+      "transport",
+      "trasfert",
+      "viaje",
+    );
   }
 
   return Array.from(new Set(tokens));
 };
 
 const normalizeSourceNumber = (value?: string | number | null) => {
-  const numeric = Number(String(value ?? "").replace("'", "").replace(",", "."));
+  const numeric = Number(
+    String(value ?? "")
+      .replace("'", "")
+      .replace(",", "."),
+  );
   if (!Number.isFinite(numeric) || numeric <= 0) return "";
   return Number.isInteger(numeric)
     ? String(numeric)
     : String(Number(numeric.toFixed(2))).replace(".", "[.,]");
 };
 
-const sourceLineContainsNumber = (line: string, value?: string | number | null) => {
+const sourceLineContainsNumber = (
+  line: string,
+  value?: string | number | null,
+) => {
   const numberPattern = normalizeSourceNumber(value);
   if (!numberPattern) return false;
   return new RegExp(`(^|[^0-9])${numberPattern}([^0-9]|$)`).test(line);
@@ -562,7 +617,17 @@ const sourceLineUnitTokens = (unit?: string | null) => {
   if (key === "quadratmeter") return ["quadratmeter", "qm", "m2", "m²", "sqm"];
   if (key === "kubikmeter") return ["kubikmeter", "cbm", "m3", "m³"];
   if (key === "meter") return ["meter", "laufmeter", "lfm"];
-  if (key === "stueck" || key === "stuck") return ["stueck", "stuck", "stück", "stk", "piece", "pieces", "vitrine", "vitrines"];
+  if (key === "stueck" || key === "stuck")
+    return [
+      "stueck",
+      "stuck",
+      "stück",
+      "stk",
+      "piece",
+      "pieces",
+      "vitrine",
+      "vitrines",
+    ];
   if (key === "stunde") return ["stunde", "stunden", "std", "hour", "hours"];
   if (key === "tag") return ["tag", "tage", "day", "days"];
   if (key === "pauschal") return ["pauschal", "pauschale", "flat", "forfait"];
@@ -575,7 +640,11 @@ const sourceLineUnitTokens = (unit?: string | null) => {
 const findCustomerTextLineForService = (
   sourceText?: string | null,
   serviceName?: string | null,
-  item?: { quantity?: string | number | null; unit?: string | null; unitPrice?: string | number | null },
+  item?: {
+    quantity?: string | number | null;
+    unit?: string | null;
+    unitPrice?: string | number | null;
+  },
 ) => {
   const source = String(sourceText || "").trim();
   const serviceKey = normalizeForMatch(serviceName);
@@ -613,7 +682,9 @@ const findCustomerTextLineForService = (
     if (sourceLineContainsNumber(lineKey, item?.unitPrice)) score += 3;
 
     const unitTokens = sourceLineUnitTokens(item?.unit);
-    if (unitTokens.some((token) => lineKey.includes(normalizeForMatch(token)))) {
+    if (
+      unitTokens.some((token) => lineKey.includes(normalizeForMatch(token)))
+    ) {
       score += 1;
     }
 
@@ -633,13 +704,19 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
     return "Archivraum reinigen";
   }
-  if (/glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)) {
+  if (
+    /glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)
+  ) {
     return "Glastür reinigen";
   }
   if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
     return "Technikraum reinigen";
   }
-  if (/meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
+  if (
+    /meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(
+      key,
+    )
+  ) {
     return "Besprechungsbereich reinigen";
   }
   if (/kontrollgang/.test(key)) {
@@ -661,19 +738,29 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   }
 
   const hasFloorIntent =
-    /(?:^|\b|[a-z])boden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b/i.test(key) ||
-    /bodenreinigung|floor cleaning|nettoyage du sol|nettoyage sol|pulizia pavimento|limpieza suelo/.test(key);
+    /(?:^|\b|[a-z])boden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b/i.test(
+      key,
+    ) ||
+    /bodenreinigung|floor cleaning|nettoyage du sol|nettoyage sol|pulizia pavimento|limpieza suelo/.test(
+      key,
+    );
   const hasCleaningIntent =
-    /reinig|putz|putze|saeuber|säuber|clean|nettoyage|pulizia|limpieza|wisch/.test(key);
+    /reinig|putz|putze|saeuber|säuber|clean|nettoyage|pulizia|limpieza|wisch/.test(
+      key,
+    );
 
   if (hasFloorIntent && hasCleaningIntent) {
     return "Boden reinigen";
   }
 
   const hasWindowIntent =
-    /fenster|fensterli|vitrin|vitre|window|fenetre|fenêtre|finestr|ventan/.test(key);
+    /fenster|fensterli|vitrin|vitre|window|fenetre|fenêtre|finestr|ventan/.test(
+      key,
+    );
   const hasNonCleaningWindowIntent =
-    /streich|maler|lackier|reparier|ersetzen|montier|einbau|abdicht|dicht/.test(key);
+    /streich|maler|lackier|reparier|ersetzen|montier|einbau|abdicht|dicht/.test(
+      key,
+    );
 
   if (hasWindowIntent && !hasNonCleaningWindowIntent) {
     return "Fenster reinigen";
@@ -810,7 +897,8 @@ const getSemanticBadgeKind = (value?: string | null) => {
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (/zugang|eingang|tor|lift|seiteneingang|hintereingang/.test(text))
     return "access";
-  if (isPreArrivalInstructionLine(value) || isAppointmentContactTimeLine(value)) return null;
+  if (isPreArrivalInstructionLine(value) || isAppointmentContactTimeLine(value))
+    return null;
   if (/termin|datum|uhr|morgen|vormittag|nachmittag/.test(text))
     return "appointment";
   if (/schubkarre/.test(text)) return "wheelbarrow";
@@ -828,16 +916,26 @@ const isAddressOrWorkSiteDescriptionOnlyHint = (value?: string | null) => {
 
   const hasAddressEvidence =
     /\d{4,5}/.test(raw) ||
-    /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?/i.test(raw);
+    /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?/i.test(
+      raw,
+    );
 
   const looksLikeWorkSiteDescription =
-    /(?:arbeiten|arbeit|ausfuehrung|ausführung|arbeitsort|einsatzort|objekt|gereinigt\s+wird|ort\s+ist)/.test(text) ||
-    /(?:mfh|haus|keller|eingang|praxis|restaurant|halle|tiefgarage|garage)/.test(text);
+    /(?:arbeiten|arbeit|ausfuehrung|ausführung|arbeitsort|einsatzort|objekt|gereinigt\s+wird|ort\s+ist)/.test(
+      text,
+    ) ||
+    /(?:mfh|haus|keller|eingang|praxis|restaurant|halle|tiefgarage|garage)/.test(
+      text,
+    );
 
   const hasRealAccessAction =
-    /(?:schluessel|schlussel|schlüssel|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|hintereingang|seiteneingang|nebeneingang|rampe|klingeln|melden|anrufen|whatsapp|sms|nicht\s+einfach|vorher|erst\s+melden|briefkasten|empfang)/.test(text);
+    /(?:schluessel|schlussel|schlüssel|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|hintereingang|seiteneingang|nebeneingang|rampe|klingeln|melden|anrufen|whatsapp|sms|nicht\s+einfach|vorher|erst\s+melden|briefkasten|empfang)/.test(
+      text,
+    );
 
-  return hasAddressEvidence && looksLikeWorkSiteDescription && !hasRealAccessAction;
+  return (
+    hasAddressEvidence && looksLikeWorkSiteDescription && !hasRealAccessAction
+  );
 };
 
 const isNonActionableSemanticHint = (
@@ -914,9 +1012,7 @@ const PARKING_DIFFICULT_PATTERN =
   /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
 
 const hasParkingReference = (value?: string | null) =>
-  /park|parking|parkplatz|parken|parkieren/.test(
-    normalizeForMatch(value),
-  );
+  /park|parking|parkplatz|parken|parkieren/.test(normalizeForMatch(value));
 
 const getParkingSignal = (value?: string | null) => {
   const text = normalizeForMatch(value);
@@ -937,12 +1033,11 @@ const getParkingSignal = (value?: string | null) => {
   };
 };
 
-
 const isMergedOrderForCard = (order: Order) =>
   Boolean(
     order.reviewReasons?.includes("manual_order_merge") ||
-      order.reviewReasons?.includes("double_merge") ||
-      (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1),
+    order.reviewReasons?.includes("double_merge") ||
+    (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1),
   );
 
 const formatWorkSiteLabelForHint = (site: {
@@ -951,7 +1046,8 @@ const formatWorkSiteLabelForHint = (site: {
   sitePlz?: string | null;
   siteCity?: string | null;
 }) => {
-  const title = cleanWorkSiteDisplayName(site.siteName) || compactText(site.siteAddress);
+  const title =
+    cleanWorkSiteDisplayName(site.siteName) || compactText(site.siteAddress);
   const address = [
     compactText(site.siteAddress),
     [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
@@ -966,12 +1062,19 @@ const looksLikeWorkSitePrefix = (value?: string | null) => {
   const text = compactText(value);
   if (!text) return false;
   if (/\b\d{4,5}\b/.test(text)) return true;
-  if (/\b(?:haus|gebäude|gebaeude|restaurant|küche|kueche|entrée|entree|technopark|limmatweg|chemin|strasse|straße|weg|gasse|platz|adresse|arbeitsort)\b/i.test(text)) return true;
+  if (
+    /\b(?:haus|gebäude|gebaeude|restaurant|küche|kueche|entrée|entree|technopark|limmatweg|chemin|strasse|straße|weg|gasse|platz|adresse|arbeitsort)\b/i.test(
+      text,
+    )
+  )
+    return true;
   return /\s·\s/.test(text);
 };
 
 const splitLocationPrefixedHint = (value?: string | null) => {
-  let text = compactText(value).replace(/^\[HINWEIS\]\s*/i, "").replace(/^[-•]\s*/, "");
+  let text = compactText(value)
+    .replace(/^\[HINWEIS\]\s*/i, "")
+    .replace(/^[-•]\s*/, "");
   let location = "";
 
   for (let pass = 0; pass < 4; pass += 1) {
@@ -1070,7 +1173,10 @@ const structuredSpecialNoteHints = (order: Order) => {
       continue;
     }
 
-    if (/^[^:]{2,190}:$/.test(line) && looksLikeWorkSitePrefix(line.replace(/:$/, ""))) {
+    if (
+      /^[^:]{2,190}:$/.test(line) &&
+      looksLikeWorkSitePrefix(line.replace(/:$/, ""))
+    ) {
       currentLocation = compactText(line.replace(/:$/, ""));
       continue;
     }
@@ -1090,7 +1196,10 @@ const operationalHintMatchesKind = (
   contextText: string,
 ) => {
   if (kind === "parking") {
-    return Boolean(getParkingBadge(line, contextText)) || getParkingSignal(line).hasParking;
+    return (
+      Boolean(getParkingBadge(line, contextText)) ||
+      getParkingSignal(line).hasParking
+    );
   }
   return getSemanticBadgeKind(line) === kind;
 };
@@ -1108,9 +1217,14 @@ const formatOperationalHintTooltip = (
   ]
     .map((entry) => ({
       location: compactText(entry.location),
-      hint: compactText(stripRepeatedLocationPrefix(entry.hint, entry.location)),
+      hint: compactText(
+        stripRepeatedLocationPrefix(entry.hint, entry.location),
+      ),
     }))
-    .filter((entry) => entry.hint && operationalHintMatchesKind(kind, entry.hint, contextText));
+    .filter(
+      (entry) =>
+        entry.hint && operationalHintMatchesKind(kind, entry.hint, contextText),
+    );
 
   const seen = new Set<string>();
   const formatted: string[] = [];
@@ -1121,9 +1235,7 @@ const formatOperationalHintTooltip = (
     seen.add(key);
 
     formatted.push(
-      entry.location
-        ? `${entry.location}:\n${entry.hint}`
-        : entry.hint,
+      entry.location ? `${entry.location}:\n${entry.hint}` : entry.hint,
     );
   }
 
@@ -1473,7 +1585,8 @@ const extractAppointmentBadge = (
     isPreArrivalInstructionLine(raw) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw) ||
-    (hasExplicitPriceContextForAppointment(raw) && !hasAppointmentIntentWord(raw))
+    (hasExplicitPriceContextForAppointment(raw) &&
+      !hasAppointmentIntentWord(raw))
   ) {
     return null;
   }
@@ -1538,17 +1651,18 @@ const extractAppointmentBadge = (
 
   const dateMatch = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   const baseDate = parseAppointmentBaseDate(baseDateInput);
-  const explicitDateObject = dateMatch && hasValidAppointmentDateParts(dateMatch[1], dateMatch[2])
-    ? new Date(
-        dateMatch[3]
-          ? Number(
-              dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3],
-            )
-          : baseDate.getFullYear(),
-        Number(dateMatch[2]) - 1,
-        Number(dateMatch[1]),
-      )
-    : null;
+  const explicitDateObject =
+    dateMatch && hasValidAppointmentDateParts(dateMatch[1], dateMatch[2])
+      ? new Date(
+          dateMatch[3]
+            ? Number(
+                dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3],
+              )
+            : baseDate.getFullYear(),
+          Number(dateMatch[2]) - 1,
+          Number(dateMatch[1]),
+        )
+      : null;
 
   const computedAppointmentDate =
     explicitDateObject ||
@@ -1618,7 +1732,9 @@ const looksLikeAddressLine = (value?: string | null) => {
 
   return (
     /\b\d{4,5}\b/.test(raw) ||
-    /\b(strasse|straße|weg|platz|gasse|allee|ring|chemin|route|rue|road|street|avenue|av\.|hauptstrasse|aarauerstrasse|limmatweg|technoparkstrasse)\b/.test(text)
+    /\b(strasse|straße|weg|platz|gasse|allee|ring|chemin|route|rue|road|street|avenue|av\.|hauptstrasse|aarauerstrasse|limmatweg|technoparkstrasse)\b/.test(
+      text,
+    )
   );
 };
 
@@ -1627,14 +1743,17 @@ const isAppointmentContactTimeLine = (value?: string | null) => {
   const text = normalizeForMatch(raw);
   if (!text) return false;
 
-  if (CONTACT_TIME_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
+  if (CONTACT_TIME_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text))
+    return true;
 
   // Contact availability like "SMS erst ab 14:00 Uhr", "Mail erst nach 11:30"
   // or "telefonisch nur zwischen 15:00 und 16:00" is a contact window,
   // not an execution appointment.
   return (
     CONTACT_TIME_WORD_PATTERN.test(text) &&
-    /(?:zwischen|von)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?/.test(raw.toLowerCase())
+    /(?:zwischen|von)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?/.test(
+      raw.toLowerCase(),
+    )
   );
 };
 
@@ -1642,8 +1761,12 @@ const hasExplicitPriceContextForAppointment = (value?: string | null) => {
   const raw = compactText(value);
   if (!raw) return false;
   return (
-    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\s*\d+(?:[.,]\d{1,2})?\b/i.test(raw) ||
-    /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\b/i.test(raw)
+    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\s*\d+(?:[.,]\d{1,2})?\b/i.test(
+      raw,
+    ) ||
+    /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\b/i.test(
+      raw,
+    )
   );
 };
 
@@ -1655,7 +1778,14 @@ const hasAppointmentIntentWord = (value?: string | null) =>
 const hasValidAppointmentDateParts = (day?: string, month?: string) => {
   const d = Number(day);
   const m = Number(month);
-  return Number.isInteger(d) && Number.isInteger(m) && d >= 1 && d <= 31 && m >= 1 && m <= 12;
+  return (
+    Number.isInteger(d) &&
+    Number.isInteger(m) &&
+    d >= 1 &&
+    d <= 31 &&
+    m >= 1 &&
+    m <= 12
+  );
 };
 
 const normalizeAppointmentDateLabel = (value: string) => {
@@ -1687,8 +1817,17 @@ const normalizeAppointmentTimeLabel = (value: string) => {
 
 const extractAppointmentDetailLabel = (value: string) => {
   const raw = compactText(value);
-  if (!raw || isAppointmentContactTimeLine(raw) || isPreArrivalInstructionLine(raw)) return "";
-  if (hasExplicitPriceContextForAppointment(raw) && !hasAppointmentIntentWord(raw)) return "";
+  if (
+    !raw ||
+    isAppointmentContactTimeLine(raw) ||
+    isPreArrivalInstructionLine(raw)
+  )
+    return "";
+  if (
+    hasExplicitPriceContextForAppointment(raw) &&
+    !hasAppointmentIntentWord(raw)
+  )
+    return "";
 
   const date = normalizeAppointmentDateLabel(raw);
   const time = normalizeAppointmentTimeLabel(raw);
@@ -1747,7 +1886,11 @@ const extractAppointmentDetailsFromRawText = (
       label,
     };
     const key = appointmentDetailKey(detail);
-    if (!key || details.some((existing) => appointmentDetailKey(existing) === key)) return;
+    if (
+      !key ||
+      details.some((existing) => appointmentDetailKey(existing) === key)
+    )
+      return;
 
     details.push(detail);
     lastDetailIndex = details.length - 1;
@@ -1758,7 +1901,9 @@ const extractAppointmentDetailsFromRawText = (
     const normalized = normalizeForMatch(line);
     if (!line || !normalized) continue;
 
-    const worksiteMatch = line.match(/^(?:Arbeitsort|Ausführung|Ausfuehrung|Adresse\s+travaux|Arbeitsadresse)\s*\d*\s*[:\-–—]\s*(.*)$/i);
+    const worksiteMatch = line.match(
+      /^(?:Arbeitsort|Ausführung|Ausfuehrung|Adresse\s+travaux|Arbeitsadresse)\s*\d*\s*[:\-–—]\s*(.*)$/i,
+    );
     if (worksiteMatch) {
       const site = compactText(worksiteMatch[1]);
       currentSite = site || currentSite;
@@ -1786,7 +1931,8 @@ const extractAppointmentDetailsFromRawText = (
 
     if (/^Grund\s*[:\-–—]/i.test(line) && lastDetailIndex >= 0) {
       const reason = cleanAppointmentReason(line);
-      if (reason) details[lastDetailIndex] = { ...details[lastDetailIndex], reason };
+      if (reason)
+        details[lastDetailIndex] = { ...details[lastDetailIndex], reason };
       continue;
     }
   }
@@ -1816,10 +1962,15 @@ const extractAppointmentDetailsFromGroupedNotes = (
       site,
       address: "",
       label,
-      reason: cleanAppointmentReason(value.replace(/^(?:Termin|Zeitfenster)\s*[:\-–—]?\s*/i, "")),
+      reason: cleanAppointmentReason(
+        value.replace(/^(?:Termin|Zeitfenster)\s*[:\-–—]?\s*/i, ""),
+      ),
     };
     const key = appointmentDetailKey(detail);
-    if (key && !details.some((existing) => appointmentDetailKey(existing) === key)) {
+    if (
+      key &&
+      !details.some((existing) => appointmentDetailKey(existing) === key)
+    ) {
       details.push(detail);
     }
   });
@@ -1943,7 +2094,10 @@ const getMultipleAppointmentBadge = (
     // Parser/LLM sometimes writes "Termin 13:00" next to a callback note.
     // If there is no date and the overall source contains a callback/contact
     // instruction for that time, keep it out of the Termine chip.
-    if (!/\d{1,2}[./-]\d{1,2}/.test(detail.label) && isAppointmentContactTimeLine(callbackSource)) {
+    if (
+      !/\d{1,2}[./-]\d{1,2}/.test(detail.label) &&
+      isAppointmentContactTimeLine(callbackSource)
+    ) {
       return false;
     }
 
@@ -2027,7 +2181,13 @@ const getOperationalBadges = (
         `hint_parking_${normalizeForMatch(parkingBadge.label)}`,
         parkingBadge.label,
         parkingBadge.className,
-        formatOperationalHintTooltip(order, "parking", parsedNotes, line, orderBadgeContext),
+        formatOperationalHintTooltip(
+          order,
+          "parking",
+          parsedNotes,
+          line,
+          orderBadgeContext,
+        ),
       );
       return;
     }
@@ -2050,7 +2210,13 @@ const getOperationalBadges = (
       `hint_${kind}`,
       label,
       isPositiveSemanticHint(line) ? greenInfoClass : amberHintClass,
-      formatOperationalHintTooltip(order, kind, parsedNotes, line, orderBadgeContext),
+      formatOperationalHintTooltip(
+        order,
+        kind,
+        parsedNotes,
+        line,
+        orderBadgeContext,
+      ),
     );
   });
 
@@ -2154,7 +2320,6 @@ const hasUnitMismatchReviewForService = (
   );
 };
 
-
 type CurrencyMismatchDetail = {
   serviceName: string;
   textCurrency: string;
@@ -2215,9 +2380,8 @@ const getCurrencyMismatchReviewDetails = (
   return details;
 };
 
-const hasItemLevelCurrencyReviewReasons = (
-  reviewReasons?: string[] | null,
-) => getCurrencyMismatchReviewDetails(reviewReasons).length > 0;
+const hasItemLevelCurrencyReviewReasons = (reviewReasons?: string[] | null) =>
+  getCurrencyMismatchReviewDetails(reviewReasons).length > 0;
 
 const hasAnyCurrencyReviewReason = (reviewReasons?: string[] | null) =>
   (reviewReasons || []).some(
@@ -2231,7 +2395,9 @@ const hasCurrencyMismatchReviewForService = (
   reviewReasons?: string[] | null,
   serviceName?: string | null,
 ) => {
-  const serviceKey = normalizeForMatch(canonicalServiceNameForOrderItem(serviceName));
+  const serviceKey = normalizeForMatch(
+    canonicalServiceNameForOrderItem(serviceName),
+  );
   if (!serviceKey) return false;
 
   return getCurrencyMismatchReviewDetails(reviewReasons).some(
@@ -2410,7 +2576,10 @@ const getCatalogMissingItems = (order: Order, services: ServiceDef[]) => {
 
 const formatCatalogReviewTooltip = (input: {
   title: string;
-  item?: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity"> | null;
+  item?: Pick<
+    OrderItem,
+    "serviceName" | "unit" | "unitPrice" | "quantity"
+  > | null;
   catalog?: ServiceDef | null;
   currency?: "CHF" | "EUR" | null;
   sourceLine?: string | null;
@@ -2455,7 +2624,9 @@ const formatCatalogReviewTooltip = (input: {
   return lines.filter(Boolean).join("\n");
 };
 
-const uniqueCatalogReviewItems = <T extends Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>(
+const uniqueCatalogReviewItems = <
+  T extends Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+>(
   items: T[],
 ) => {
   const seen = new Set<string>();
@@ -2477,7 +2648,9 @@ const uniqueCatalogReviewItems = <T extends Pick<OrderItem, "serviceName" | "uni
 };
 
 const formatCatalogPriceDeviationTooltip = (
-  items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
+  items: Array<
+    Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">
+  >,
   services: ServiceDef[],
   currency?: "CHF" | "EUR" | null,
 ) => {
@@ -2506,8 +2679,10 @@ const formatCatalogPriceDeviationTooltip = (
     const catalog = findCatalogServiceForName(services, item.serviceName);
     const itemQuantity = Number(item.quantity || 0);
     const itemPrice = Number(item.unitPrice || 0);
-    const itemQuantityLabel = itemQuantity > 0 ? String(item.quantity) : "Menge prüfen";
-    const itemPriceLabel = itemPrice > 0 ? formatCurrency(itemPrice, safeCurrency) : "Preis prüfen";
+    const itemQuantityLabel =
+      itemQuantity > 0 ? String(item.quantity) : "Menge prüfen";
+    const itemPriceLabel =
+      itemPrice > 0 ? formatCurrency(itemPrice, safeCurrency) : "Preis prüfen";
 
     lines.push(`${index + 1}. ${compactText(item.serviceName) || "Leistung"}`);
     lines.push(
@@ -2533,7 +2708,9 @@ const formatCatalogPriceDeviationTooltip = (
 };
 
 const formatCatalogMissingTooltip = (
-  items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
+  items: Array<
+    Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">
+  >,
   currency?: "CHF" | "EUR" | null,
 ) => {
   const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
@@ -2546,12 +2723,14 @@ const formatCatalogMissingTooltip = (
     ...items.slice(0, 5).map((item) => {
       const quantity = Number(item.quantity || 0);
       const unitPrice = Number(item.unitPrice || 0);
-      const quantityLabel = quantity > 0
-        ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`
-        : formatReviewUnitLabel(item.unit || "");
-      const priceLabel = unitPrice > 0
-        ? formatCurrency(unitPrice, safeCurrency)
-        : "Preis prüfen";
+      const quantityLabel =
+        quantity > 0
+          ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`
+          : formatReviewUnitLabel(item.unit || "");
+      const priceLabel =
+        unitPrice > 0
+          ? formatCurrency(unitPrice, safeCurrency)
+          : "Preis prüfen";
       return `${item.serviceName || "Leistung"} · ${quantityLabel} · ${priceLabel}`;
     }),
   ];
@@ -2577,27 +2756,36 @@ const formatServiceReviewCalculation = (
       (quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0),
   );
 
-  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) {
+  if (
+    !Number.isFinite(quantity) ||
+    quantity <= 0 ||
+    !Number.isFinite(unitPrice) ||
+    unitPrice <= 0
+  ) {
     return "";
   }
 
-  const quantityLabel = `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim();
+  const quantityLabel =
+    `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim();
   return `${quantityLabel} × ${formatCurrency(unitPrice, safeCurrency)} = ${formatCurrency(totalPrice, safeCurrency)}`;
 };
 
 const formatServiceReviewItemLine = (
-  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">,
+  item: Pick<
+    OrderItem,
+    "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+  >,
   currency?: "CHF" | "EUR" | null,
 ) => {
   const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
   const quantity = Number(item.quantity || 0);
   const unitPrice = Number(item.unitPrice || 0);
-  const quantityLabel = quantity > 0
-    ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim()
-    : "Menge prüfen";
-  const priceLabel = unitPrice > 0
-    ? formatCurrency(unitPrice, safeCurrency)
-    : "Preis prüfen";
+  const quantityLabel =
+    quantity > 0
+      ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim()
+      : "Menge prüfen";
+  const priceLabel =
+    unitPrice > 0 ? formatCurrency(unitPrice, safeCurrency) : "Preis prüfen";
   const calculation = formatServiceReviewCalculation(item, currency);
   const baseLine = `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
 
@@ -2606,9 +2794,24 @@ const formatServiceReviewItemLine = (
 
 const formatServiceReviewSummaryTooltip = (input: {
   unitConflictServices?: string[];
-  priceItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
-  missingItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
-  items?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
+  priceItems?: Array<
+    Pick<
+      OrderItem,
+      "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+    >
+  >;
+  missingItems?: Array<
+    Pick<
+      OrderItem,
+      "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+    >
+  >;
+  items?: Array<
+    Pick<
+      OrderItem,
+      "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+    >
+  >;
   services: ServiceDef[];
   currency?: "CHF" | "EUR" | null;
 }) => {
@@ -2616,7 +2819,9 @@ const formatServiceReviewSummaryTooltip = (input: {
   const sections: string[] = [];
 
   const unitServices = Array.from(
-    new Set((input.unitConflictServices || []).map(compactText).filter(Boolean)),
+    new Set(
+      (input.unitConflictServices || []).map(compactText).filter(Boolean),
+    ),
   );
   if (unitServices.length > 0) {
     const lines = ["Einheit abweichend · Einheit aus Text übernommen"];
@@ -2627,66 +2832,73 @@ const formatServiceReviewSummaryTooltip = (input: {
       const catalogUnit = parts[2] ? formatReviewUnitLabel(parts[2]) : "";
       const matchingItem = (input.items || []).find(
         (item) =>
-          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
-          normalizeForMatch(serviceName),
+          normalizeForMatch(
+            canonicalServiceNameForOrderItem(item.serviceName),
+          ) === normalizeForMatch(serviceName),
       );
       const calculation = matchingItem
         ? formatServiceReviewCalculation(matchingItem, input.currency)
         : "";
       if (textUnit || catalogUnit) {
-        lines.push(`• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}`);
+        lines.push(
+          `• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}`,
+        );
         if (calculation) lines.push(`  Berechnung: ${calculation}`);
       } else {
         lines.push(`• ${serviceName || "Leistung"}`);
         if (calculation) lines.push(`  Berechnung: ${calculation}`);
       }
     });
-    if (unitServices.length > 6) lines.push(`+${unitServices.length - 6} weitere`);
+    if (unitServices.length > 6)
+      lines.push(`+${unitServices.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
-  const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter((item) =>
-    compactText(item.serviceName),
+  const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter(
+    (item) => compactText(item.serviceName),
   );
   if (priceItems.length > 0) {
     const lines = ["Preis abweichend · Preis aus Text übernommen"];
     priceItems.slice(0, 6).forEach((item) => {
-      const catalog = findCatalogServiceForName(input.services, item.serviceName);
+      const catalog = findCatalogServiceForName(
+        input.services,
+        item.serviceName,
+      );
       const itemPrice = Number(item.unitPrice || 0);
-      const itemPriceLabel = itemPrice > 0
-        ? formatCurrency(itemPrice, safeCurrency)
-        : "Preis prüfen";
+      const itemPriceLabel =
+        itemPrice > 0
+          ? formatCurrency(itemPrice, safeCurrency)
+          : "Preis prüfen";
       const catalogLabel = catalog
         ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
         : "kein Katalogpreis";
       const calculation = formatServiceReviewCalculation(item, input.currency);
-      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`);
+      lines.push(
+        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`,
+      );
       if (calculation) lines.push(`  Berechnung: ${calculation}`);
     });
     if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
-  const missingItems = uniqueCatalogReviewItems(input.missingItems || []).filter((item) =>
-    compactText(item.serviceName),
-  );
+  const missingItems = uniqueCatalogReviewItems(
+    input.missingItems || [],
+  ).filter((item) => compactText(item.serviceName));
   if (missingItems.length > 0) {
     const lines = ["Nicht im Katalog"];
     missingItems.slice(0, 6).forEach((item) => {
       lines.push(formatServiceReviewItemLine(item, input.currency));
     });
-    if (missingItems.length > 6) lines.push(`+${missingItems.length - 6} weitere`);
+    if (missingItems.length > 6)
+      lines.push(`+${missingItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
   return sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
 };
 
-
-const formatCurrencyReviewTooltip = (
-  order: Order,
-  services: ServiceDef[],
-) => {
+const formatCurrencyReviewTooltip = (order: Order, services: ServiceDef[]) => {
   const orderCurrency = order.currency === "EUR" ? "EUR" : "CHF";
   const sourceText = [order.notes, order.description, order.audioTranscript]
     .filter(Boolean)
@@ -2703,8 +2915,9 @@ const formatCurrencyReviewTooltip = (
     mismatchDetails.slice(0, 8).forEach((detail) => {
       const matchingItem = (order.items || []).find(
         (item) =>
-          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
-          normalizeForMatch(detail.serviceName),
+          normalizeForMatch(
+            canonicalServiceNameForOrderItem(item.serviceName),
+          ) === normalizeForMatch(detail.serviceName),
       );
       const sourceLine = findCustomerTextLineForService(
         sourceText,
@@ -2725,10 +2938,14 @@ const formatCurrencyReviewTooltip = (
     });
 
     if (mismatchDetails.length > 8) {
-      currencyLines.push(`+${mismatchDetails.length - 8} weitere Währungsprobleme`);
+      currencyLines.push(
+        `+${mismatchDetails.length - 8} weitere Währungsprobleme`,
+      );
     }
   } else {
-    currencyLines.push("• Währung im Auftrag oder Kundentext ist unklar. Auftrag öffnen und Positionen prüfen.");
+    currencyLines.push(
+      "• Währung im Auftrag oder Kundentext ist unklar. Auftrag öffnen und Positionen prüfen.",
+    );
   }
 
   sections.push(currencyLines.join("\n"));
@@ -2742,9 +2959,18 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
 
   // Remove generic source markers from the title. Keep the actual object name.
   text = text
-    .replace(/^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i, "")
-    .replace(/^(?:wo\s+gemacht\s+werden\s+muss|wo\s+arbeiten\s+sind|wo\s+es\s+gemacht\s+wird)\s*:?\s*/i, "")
-    .replace(/^(?:ist|isch|is)\s+(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
+    .replace(
+      /^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i,
+      "",
+    )
+    .replace(
+      /^(?:wo\s+gemacht\s+werden\s+muss|wo\s+arbeiten\s+sind|wo\s+es\s+gemacht\s+wird)\s*:?\s*/i,
+      "",
+    )
+    .replace(
+      /^(?:ist|isch|is)\s+(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i,
+      "",
+    )
     .replace(/^(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
     .replace(/^[:\-–,\s]+/, "")
     .trim();
@@ -2758,13 +2984,17 @@ const looksLikeExecutionAddressLine = (value?: string | null) => {
 
   return (
     /\b\d{4,5}\b/.test(text) ||
-    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|route|rue|chemin|avenue|av\.?|parkstrasse|badenerstrasse|rue\s+du|industrieweg|werkstrasse)\b/i.test(text) ||
+    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|route|rue|chemin|avenue|av\.?|parkstrasse|badenerstrasse|rue\s+du|industrieweg|werkstrasse)\b/i.test(
+      text,
+    ) ||
     /@/.test(text) ||
     /\b(?:tel\.?|telefon|phone|mobile|handy|email|e-mail)\b/i.test(text)
   );
 };
 
-const inferExecutionSiteNameFromText = (...values: Array<string | null | undefined>) => {
+const inferExecutionSiteNameFromText = (
+  ...values: Array<string | null | undefined>
+) => {
   const source = values
     .filter(Boolean)
     .join("\n")
@@ -2777,8 +3007,10 @@ const inferExecutionSiteNameFromText = (...values: Array<string | null | undefin
     .map((line) => compactText(line))
     .filter(Boolean);
 
-  const markerPattern = /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
-  const stopPattern = /^(?:rechnung|facture|invoice|leistungen|leistung|besonderheiten|bemerkungen|hinweise|termin|datum|bitte|merci|please|kontakt|rückfragen|rueckfragen)\b/i;
+  const markerPattern =
+    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
+  const stopPattern =
+    /^(?:rechnung|facture|invoice|leistungen|leistung|besonderheiten|bemerkungen|hinweise|termin|datum|bitte|merci|please|kontakt|rückfragen|rueckfragen)\b/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(markerPattern);
@@ -2823,15 +3055,15 @@ const formatExecutionAddressTooltip = (order: Order) => {
         `Arbeitsort ${index + 1}`;
       const address = [
         compactText(site.siteAddress),
-        [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
+        [site.sitePlz, site.siteCity]
+          .map(compactText)
+          .filter(Boolean)
+          .join(" "),
       ]
         .filter(Boolean)
         .join(" · ");
 
-      return [
-        `${index + 1}. ${title}`,
-        address ? `   ${address}` : "",
-      ]
+      return [`${index + 1}. ${title}`, address ? `   ${address}` : ""]
         .filter(Boolean)
         .join("\n");
     })
@@ -2873,7 +3105,9 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
   const catalogBadges = combineCatalogReviewBadges(
     badges.filter((badge) =>
-      ["price_deviation", "catalog_missing", "service_review_summary"].includes(badge.key),
+      ["price_deviation", "catalog_missing", "service_review_summary"].includes(
+        badge.key,
+      ),
     ),
   );
 
@@ -2908,7 +3142,8 @@ const hasMergedMultipleContactData = (
   order: Order,
   parsedNotes?: ReturnType<typeof splitSpecialNotes>,
 ) => {
-  if (order.reviewReasons?.includes("merged_multiple_contact_data")) return true;
+  if (order.reviewReasons?.includes("merged_multiple_contact_data"))
+    return true;
 
   const isMergedOrder =
     order.reviewReasons?.includes("manual_order_merge") ||
@@ -2920,18 +3155,21 @@ const hasMergedMultipleContactData = (
   const notes = parsedNotes || splitSpecialNotes(order.specialNotes || "");
   const groupedContactLines = notes.jobHints.filter((line) => {
     const value = compactText(line);
-    return /^[^:]{2,120}:\s+/.test(value) && MERGED_CONTACT_DATA_PATTERN.test(value);
+    return (
+      /^[^:]{2,120}:\s+/.test(value) && MERGED_CONTACT_DATA_PATTERN.test(value)
+    );
   });
 
-  const phoneCandidates = [
-    order.customer?.phone,
-    order.notes,
-    order.specialNotes,
-    order.audioTranscript,
-  ]
-    .filter(Boolean)
-    .join("\n")
-    .match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
+  const phoneCandidates =
+    [
+      order.customer?.phone,
+      order.notes,
+      order.specialNotes,
+      order.audioTranscript,
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
 
   const uniquePhones = new Set(
     phoneCandidates
@@ -2941,7 +3179,6 @@ const hasMergedMultipleContactData = (
 
   return groupedContactLines.length > 1 || uniquePhones.size > 1;
 };
-
 
 const normalizeAddressPartForCompare = (value?: string | null) =>
   normalizeForMatch(value)
@@ -2956,23 +3193,31 @@ const hasDifferentExecutionAddressForBadge = (order: Order) => {
   if (workSites.length > 1) return true;
 
   const firstSite = workSites[0] || null;
-  const siteStreet = normalizeAddressPartForCompare(firstSite?.siteAddress || order.siteAddress);
-  const sitePlz = normalizeAddressPartForCompare(firstSite?.sitePlz || order.sitePlz);
-  const siteCity = normalizeAddressPartForCompare(firstSite?.siteCity || order.siteCity);
+  const siteStreet = normalizeAddressPartForCompare(
+    firstSite?.siteAddress || order.siteAddress,
+  );
+  const sitePlz = normalizeAddressPartForCompare(
+    firstSite?.sitePlz || order.sitePlz,
+  );
+  const siteCity = normalizeAddressPartForCompare(
+    firstSite?.siteCity || order.siteCity,
+  );
 
   if (!siteStreet && !sitePlz && !siteCity) return false;
 
-  const customerStreet = normalizeAddressPartForCompare(order.customer?.address);
+  const customerStreet = normalizeAddressPartForCompare(
+    order.customer?.address,
+  );
   const customerPlz = normalizeAddressPartForCompare(order.customer?.plz);
   const customerCity = normalizeAddressPartForCompare(order.customer?.city);
 
   const hasCompleteComparableAddress = Boolean(
     siteStreet &&
-      sitePlz &&
-      siteCity &&
-      customerStreet &&
-      customerPlz &&
-      customerCity,
+    sitePlz &&
+    siteCity &&
+    customerStreet &&
+    customerPlz &&
+    customerCity,
   );
 
   if (
@@ -2994,7 +3239,9 @@ const getSystemBadges = (
   const badges: ReviewBadge[] = [];
 
   if (hasDifferentExecutionAddressForBadge(order)) {
-    const workSiteCount = Array.isArray(order.workSites) ? order.workSites.length : 0;
+    const workSiteCount = Array.isArray(order.workSites)
+      ? order.workSites.length
+      : 0;
     const primaryWorkSite = (order.workSites ?? [])[0] || null;
     const executionSiteTitle =
       cleanWorkSiteDisplayName(primaryWorkSite?.siteName) ||
@@ -3002,9 +3249,10 @@ const getSystemBadges = (
       inferOrderExecutionSiteName(order);
     pushUniqueBadge(badges, {
       key: "site_address",
-      label: workSiteCount > 1
-        ? `Ausführungsorte · ${workSiteCount}`
-        : executionSiteTitle || "Ausführungsadresse",
+      label:
+        workSiteCount > 1
+          ? `Ausführungsorte · ${workSiteCount}`
+          : executionSiteTitle || "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
       tooltip: formatExecutionAddressTooltip(order),
     });
@@ -3021,7 +3269,10 @@ const getSystemBadges = (
     const mergedCount = originCount > 1 ? originCount : 0;
     pushUniqueBadge(badges, {
       key: "merged",
-      label: mergedCount > 0 ? `Zusammengeführt · ${mergedCount}` : "Zusammengeführt",
+      label:
+        mergedCount > 0
+          ? `Zusammengeführt · ${mergedCount}`
+          : "Zusammengeführt",
       className: "bg-blue-100 text-blue-700 border border-blue-300",
       tooltip:
         mergedCount > 0
@@ -3036,7 +3287,12 @@ const getSystemBadges = (
           const quantity = Number(it.quantity || 0);
           const unitPrice = Number(it.unitPrice || 0);
           const totalPrice = Number((it as any).totalPrice || 0);
-          const text = [it.unit, it.description, (it as any).sourceText, (it as any).evidence]
+          const text = [
+            it.unit,
+            it.description,
+            (it as any).sourceText,
+            (it as any).evidence,
+          ]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
@@ -3048,7 +3304,10 @@ const getSystemBadges = (
             quantity <= 0 ||
             unitPrice <= 0 ||
             explicitReviewZeroTotal ||
-            hasCurrencyMismatchReviewForService(order.reviewReasons, it.serviceName)
+            hasCurrencyMismatchReviewForService(
+              order.reviewReasons,
+              it.serviceName,
+            )
           );
         })
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
@@ -3081,15 +3340,20 @@ const getSystemBadges = (
       (order.reviewReasons ?? [])
         .filter((reason) => reason.startsWith("unit_mismatch:"))
         .map((reason) => {
-          const parts = reason.split(":").slice(1).map(compactText).filter(Boolean);
+          const parts = reason
+            .split(":")
+            .slice(1)
+            .map(compactText)
+            .filter(Boolean);
           const rawService = parts[0] || "";
           const serviceName = canonicalServiceNameForOrderItem(rawService);
           if (!serviceName) return "";
 
           const matchingItem = (order.items || []).find(
             (item) =>
-              normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
-              normalizeForMatch(serviceName),
+              normalizeForMatch(
+                canonicalServiceNameForOrderItem(item.serviceName),
+              ) === normalizeForMatch(serviceName),
           );
           const catalog = findCatalogServiceForName(services, serviceName);
           const itemUnit = matchingItem?.unit || parts[1] || "";
@@ -3101,7 +3365,11 @@ const getSystemBadges = (
             return "";
           }
 
-          return [serviceName, itemUnit || "Einheit prüfen", catalogUnit || "Katalog prüfen"].join(":");
+          return [
+            serviceName,
+            itemUnit || "Einheit prüfen",
+            catalogUnit || "Katalog prüfen",
+          ].join(":");
         })
         .filter(Boolean),
     ),
@@ -3116,12 +3384,13 @@ const getSystemBadges = (
       className: unitConflictIsBlocking
         ? "bg-red-100 text-red-700 border border-red-300"
         : "bg-amber-100 text-amber-800 border border-amber-300",
-      tooltip: formatServiceReviewSummaryTooltip({
-        unitConflictServices,
-        items: order.items || [],
-        services,
-        currency: order.currency,
-      }) || "Einheit abweichend.",
+      tooltip:
+        formatServiceReviewSummaryTooltip({
+          unitConflictServices,
+          items: order.items || [],
+          services,
+          currency: order.currency,
+        }) || "Einheit abweichend.",
     });
   }
 
@@ -3160,16 +3429,18 @@ const getSystemBadges = (
       label: "Preis abweichend",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatServiceReviewSummaryTooltip({
-        priceItems: priceReviewItems,
-        items: order.items || [],
-        services,
-        currency: order.currency,
-      }) || formatCatalogPriceDeviationTooltip(
-        priceReviewItems,
-        services,
-        order.currency,
-      ),
+      tooltip:
+        formatServiceReviewSummaryTooltip({
+          priceItems: priceReviewItems,
+          items: order.items || [],
+          services,
+          currency: order.currency,
+        }) ||
+        formatCatalogPriceDeviationTooltip(
+          priceReviewItems,
+          services,
+          order.currency,
+        ),
     });
   }
 
@@ -3179,12 +3450,13 @@ const getSystemBadges = (
       label: "Nicht im Katalog",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatServiceReviewSummaryTooltip({
-        missingItems: catalogMissingItems,
-        items: order.items || [],
-        services,
-        currency: order.currency,
-      }) || formatCatalogMissingTooltip(catalogMissingItems, order.currency),
+      tooltip:
+        formatServiceReviewSummaryTooltip({
+          missingItems: catalogMissingItems,
+          items: order.items || [],
+          services,
+          currency: order.currency,
+        }) || formatCatalogMissingTooltip(catalogMissingItems, order.currency),
     });
   }
 
@@ -3197,7 +3469,8 @@ const getSystemBadges = (
       key: "customer_review",
       label: "Kunde prüfen",
       className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
-      tooltip: "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
+      tooltip:
+        "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
     });
   }
 
@@ -3235,35 +3508,44 @@ const getSystemBadges = (
   return badges;
 };
 
-const detectAppointmentClarificationHint = (...values: Array<string | null | undefined>) => {
+const detectAppointmentClarificationHint = (
+  ...values: Array<string | null | undefined>
+) => {
   const lines = values
     .filter(Boolean)
     .flatMap((value) => String(value).split(/\n+/g))
     .map((line) => compactText(line))
     .filter(Boolean);
 
-  return lines.find((line) => {
-    const text = normalizeForMatch(line);
-    if (!text) return false;
+  return (
+    lines.find((line) => {
+      const text = normalizeForMatch(line);
+      if (!text) return false;
 
-    const wantsSchedulingContact =
-      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|melden|kontaktieren|vereinbaren|ausmachen|besprechen|offen|vorschlag|vorschlaege|vorschläge|senden|schicken)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)|(?:termin|datum|zeitfenster|zeitpunkt)\s+(?:ist\s+)?offen|(?:zwei|2)\s+(?:termin)?vorschlaege\s+senden|(?:zwei|2)\s+(?:termin)?vorschläge\s+senden/.test(text);
-    if (!wantsSchedulingContact) return false;
+      const wantsSchedulingContact =
+        /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|melden|kontaktieren|vereinbaren|ausmachen|besprechen|offen|vorschlag|vorschlaege|vorschläge|senden|schicken)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)|(?:termin|datum|zeitfenster|zeitpunkt)\s+(?:ist\s+)?offen|(?:zwei|2)\s+(?:termin)?vorschlaege\s+senden|(?:zwei|2)\s+(?:termin)?vorschläge\s+senden/.test(
+          text,
+        );
+      if (!wantsSchedulingContact) return false;
 
-    // Fixed appointments stay normal violet appointment chips.
-    const hasConcreteDateOrTime =
-      /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(line) ||
-      /\b(?:heute|morgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/.test(text) ||
-      /\b(?:vormittag|nachmittag|abend)\b/.test(text) ||
-      /\b\d{1,2}(?::|\.)\d{2}\b/.test(line) ||
-      /\b\d{1,2}\s*(?:uhr|h)\b/.test(text);
+      // Fixed appointments stay normal violet appointment chips.
+      const hasConcreteDateOrTime =
+        /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(line) ||
+        /\b(?:heute|morgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/.test(
+          text,
+        ) ||
+        /\b(?:vormittag|nachmittag|abend)\b/.test(text) ||
+        /\b\d{1,2}(?::|\.)\d{2}\b/.test(line) ||
+        /\b\d{1,2}\s*(?:uhr|h)\b/.test(text);
 
-    return !hasConcreteDateOrTime;
-  }) || null;
+      return !hasConcreteDateOrTime;
+    }) || null
+  );
 };
 
-
-const extractCallbackTimeHint = (...values: Array<string | null | undefined>) => {
+const extractCallbackTimeHint = (
+  ...values: Array<string | null | undefined>
+) => {
   const source = values
     .filter(Boolean)
     .join("\n")
@@ -3317,7 +3599,6 @@ const isCallbackTimeLine = (value?: string | null) => {
   return isAppointmentContactTimeLine(value);
 };
 
-
 const detectPreArrivalInstructionHint = (
   ...values: Array<string | null | undefined>
 ) => {
@@ -3331,27 +3612,28 @@ const detectPreArrivalInstructionHint = (
   const direct = lines.find((line) => {
     const text = normalizeForMatch(line);
     if (!text) return false;
-    return (
-      isPreArrivalInstructionLine(line)
-    );
+    return isPreArrivalInstructionLine(line);
   });
 
   if (!direct) return null;
 
   const callbackTime = extractCallbackTimeHint(...values);
-  const noWhatsApp = lines.some((line) => isNegativeWhatsAppInstructionLine(line));
+  const noWhatsApp = lines.some((line) =>
+    isNegativeWhatsAppInstructionLine(line),
+  );
   return [direct, callbackTime, noWhatsApp ? "Keine WhatsApp." : ""]
     .filter(Boolean)
     .join("\n");
 };
-
 
 const isEmailOnlyContactInstructionLine = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
   return (
-    /(?:nur|only|uniquement|solo|solamente)\s+(?:per\s+|via\s+)?(?:e\s*mail|email|mail)/.test(text) ||
+    /(?:nur|only|uniquement|solo|solamente)\s+(?:per\s+|via\s+)?(?:e\s*mail|email|mail)/.test(
+      text,
+    ) ||
     /(?:e\s*mail|email|mail)\s+(?:reicht|only|uniquement)/.test(text) ||
     /kontakt\s+nur\s+(?:per\s+)?(?:e\s*mail|email|mail)/.test(text) ||
     /contact\s+us\s+by\s+email\s+only/.test(text)
@@ -3359,14 +3641,18 @@ const isEmailOnlyContactInstructionLine = (value?: string | null) => {
 };
 
 const shouldSuppressCallbackBecauseEmailOnly = (lines: string[]) => {
-  const hasEmailOnly = lines.some((line) => isEmailOnlyContactInstructionLine(line));
+  const hasEmailOnly = lines.some((line) =>
+    isEmailOnlyContactInstructionLine(line),
+  );
   if (!hasEmailOnly) return false;
 
   const hasRealPhoneCallback = lines.some((line) => {
     const text = normalizeForMatch(line);
     if (!text) return false;
     if (isEmailOnlyContactInstructionLine(line)) return false;
-    return /(?:rueckruf|ruckruf|zurueckrufen|zuruckrufen|anrufen|telefonisch\s+melden|telefonisch\s+kontaktieren|call\s+back|phone\s+call|please\s+call|call\s+us)/.test(text);
+    return /(?:rueckruf|ruckruf|zurueckrufen|zuruckrufen|anrufen|telefonisch\s+melden|telefonisch\s+kontaktieren|call\s+back|phone\s+call|please\s+call|call\s+us)/.test(
+      text,
+    );
   });
 
   return !hasRealPhoneCallback;
@@ -3408,7 +3694,7 @@ const getBottomBadges = (
 
   const hasCallbackBadge = Boolean(
     !suppressCallbackBecauseEmailOnly &&
-      (detectCallbackRequest(callbackSource) || directCallbackHint),
+    (detectCallbackRequest(callbackSource) || directCallbackHint),
   );
   const callbackTimeHint = hasCallbackBadge
     ? extractCallbackTimeHint(
@@ -3490,11 +3776,17 @@ const getBottomBadges = (
     order.specialNotes,
     order.notes,
     order.audioTranscript,
-  ).filter((line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line));
+  ).filter(
+    (line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line),
+  );
 
-  const multipleAppointmentBadge = getMultipleAppointmentBadge(order, parsedNotes);
+  const multipleAppointmentBadge = getMultipleAppointmentBadge(
+    order,
+    parsedNotes,
+  );
 
-  const appointmentBadge = multipleAppointmentBadge ||
+  const appointmentBadge =
+    multipleAppointmentBadge ||
     appointmentSourceLines
       .map((line) =>
         extractAppointmentBadge(line, appointmentBaseDate, order.status),
@@ -3507,7 +3799,9 @@ const getBottomBadges = (
       label: appointmentBadge.label,
       className: appointmentBadge.className,
       icon: appointmentBadge.icon,
-      tooltip: multipleAppointmentBadge ? multipleAppointmentBadge.tooltip : undefined,
+      tooltip: multipleAppointmentBadge
+        ? multipleAppointmentBadge.tooltip
+        : undefined,
     });
   } else {
     const appointmentClarification = detectAppointmentClarificationHint(
@@ -3541,7 +3835,11 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
 
   if (negative) return false;
 
-  if (CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
+  if (
+    CALLBACK_CONTACT_WORD_PATTERN.test(text) &&
+    CALLBACK_TIME_PATTERN.test(text)
+  )
+    return true;
 
   return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|aaluete|anluete|klingeln)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen|aaluete|anluete|klingeln)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren|aaluete|anluete|klingeln)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
     text,
@@ -3552,11 +3850,7 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
   String(value || "")
     .split(/\n+/g)
     .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line &&
-        !isPositiveCallbackChipLine(line),
-    )
+    .filter((line) => line && !isPositiveCallbackChipLine(line))
     .join("\n");
 
 const getStrongerCardBadgeClassName = (className?: string | null) =>
@@ -3564,12 +3858,21 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border-/g, "border-2 border-")
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
-const compactIconForBadge = (badge: ReviewBadge): ComponentType<{ className?: string }> | null => {
+const compactIconForBadge = (
+  badge: ReviewBadge,
+): ComponentType<{ className?: string }> | null => {
   const label = normalizeForMatch(badge.label);
   if (label.includes("hund")) return DogIcon;
   if (label.includes("leiter")) return LadderIcon;
-  if (label.includes("schluessel") || label.includes("schlussel")) return KeyRound;
-  if (label === "zugang" || label.includes("zugang") || label.includes("seiteneingang") || label.includes("hintereingang")) return OpenDoorIcon;
+  if (label.includes("schluessel") || label.includes("schlussel"))
+    return KeyRound;
+  if (
+    label === "zugang" ||
+    label.includes("zugang") ||
+    label.includes("seiteneingang") ||
+    label.includes("hintereingang")
+  )
+    return OpenDoorIcon;
   return null;
 };
 
@@ -3586,7 +3889,8 @@ const renderBadgeTooltip = (
   const alignClass = align === "right" ? "right-0" : "left-0";
 
   const tooltipLines = tooltip.split("\n");
-  const headingPattern = /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
+  const headingPattern =
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
 
   return (
     <span
@@ -3644,15 +3948,27 @@ const renderReviewBadge = (
         }
       }}
       className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "rounded-lg" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${visualClassName} ${
-        options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
+        options.strong
+          ? getStrongerCardBadgeClassName(badge.className)
+          : badge.className
       }`}
       aria-label={compactText(badge.tooltip) || badge.label}
-      title={isCompactIcon ? compactText(badge.tooltip) || badge.label : undefined}
+      title={
+        isCompactIcon ? compactText(badge.tooltip) || badge.label : undefined
+      }
     >
       {CompactIcon ? (
-        <CompactIcon className={normalizeForMatch(badge.label).includes("hund") ? "h-5 w-5 text-[18px]" : "h-5 w-5"} />
+        <CompactIcon
+          className={
+            normalizeForMatch(badge.label).includes("hund")
+              ? "h-5 w-5 text-[18px]"
+              : "h-5 w-5"
+          }
+        />
       ) : compactSymbol ? (
-        <span aria-hidden="true" className="leading-none">{compactSymbol}</span>
+        <span aria-hidden="true" className="leading-none">
+          {compactSymbol}
+        </span>
       ) : (
         <>
           {badge.key === "callback_request" && (
@@ -3696,7 +4012,8 @@ const mobileIconForBadge = (badge: ReviewBadge) => {
   const label = normalizeForMatch(badge.label);
   if (badge.key === "site_address") return MapPin;
   if (badge.key === "callback_request") return Phone;
-  if (badge.key === "appointment" || badge.key === "appointment_clarify") return CalendarDays;
+  if (badge.key === "appointment" || badge.key === "appointment_clarify")
+    return CalendarDays;
   if (label.includes("park")) return ParkingCircle;
   if (label.includes("mail")) return Mail;
   if (label.includes("whatsapp")) return WhatsAppIcon;
@@ -3710,9 +4027,12 @@ const mobileIconBadgeClass = (badge: ReviewBadge) => {
   if (/red/.test(className)) return "bg-red-50 text-red-700 border-red-300";
   if (/blue/.test(className)) return "bg-blue-50 text-blue-700 border-blue-300";
   if (/cyan/.test(className)) return "bg-cyan-50 text-cyan-700 border-cyan-300";
-  if (/emerald|green/.test(className)) return "bg-emerald-50 text-emerald-700 border-emerald-300";
-  if (/violet|purple/.test(className)) return "bg-violet-50 text-violet-700 border-violet-300";
-  if (/yellow|amber|orange/.test(className)) return "bg-amber-50 text-amber-700 border-amber-300";
+  if (/emerald|green/.test(className))
+    return "bg-emerald-50 text-emerald-700 border-emerald-300";
+  if (/violet|purple/.test(className))
+    return "bg-violet-50 text-violet-700 border-violet-300";
+  if (/yellow|amber|orange/.test(className))
+    return "bg-amber-50 text-amber-700 border-amber-300";
   return "bg-slate-50 text-slate-700 border-slate-300";
 };
 
@@ -3736,7 +4056,11 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       }}
       className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
     >
-      {Icon ? <Icon className="h-3.5 w-3.5" strokeWidth={2.2} /> : badge.label.slice(0, 1)}
+      {Icon ? (
+        <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+      ) : (
+        badge.label.slice(0, 1)
+      )}
       {renderBadgeTooltip(badge, "left")}
     </button>
   );
@@ -3784,7 +4108,10 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
   );
 };
 
-const renderMobileTextBadge = (badge: ReviewBadge, align: "left" | "right" = "right") =>
+const renderMobileTextBadge = (
+  badge: ReviewBadge,
+  align: "left" | "right" = "right",
+) =>
   renderReviewBadge(
     badge,
     "max-w-full truncate text-[10px] px-1.5 py-0.5 font-semibold",
@@ -3829,8 +4156,12 @@ const mobileOverflowBadge = (count: number) =>
 const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
   const source = values.filter(Boolean).join("\n");
   const explicitPhone =
-    source.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
-    source.match(/(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    source.match(
+      /(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i,
+    )?.[1] ||
+    source.match(
+      /(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i,
+    )?.[1] ||
     source.match(/(\+\d[\d\s()./-]{7,}\d)/)?.[1] ||
     "";
   const normalized = explicitPhone.replace(/[^+0-9]/g, "");
@@ -3855,7 +4186,8 @@ const renderCallbackCardBadge = (
     return renderOrderCardBadge(
       {
         ...badge,
-        tooltip: compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt",
+        tooltip:
+          compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt",
       },
       tooltipAlign,
     );
@@ -4016,7 +4348,8 @@ const getMobileOrderCardServiceSummary = (order: Order) => {
     (label) => normalizeForMatch(label) !== "sonstiges",
   );
   const structuredSummary = formatMobileServiceSummary(usableStructuredLabels);
-  if (structuredSummary && structuredSummary !== "Leistung prüfen") return structuredSummary;
+  if (structuredSummary && structuredSummary !== "Leistung prüfen")
+    return structuredSummary;
   return formatMobileServiceSummary(extractFallbackServiceLabels(order));
 };
 
@@ -4108,7 +4441,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
       // V17.19: Alte KI-/Währungs-ReviewReasons dürfen Angebot/Rechnung nicht
       // mehr blockieren, wenn alle Positionen inzwischen manuell verwertbare
       // Preise/Mengen/Totale haben. Harte Mengen-/Einheitsfehler bleiben Blocker.
-      return !(allItemsResolvedForConversion && isResolvableConversionReviewReason(reason));
+      return !(
+        allItemsResolvedForConversion &&
+        isResolvableConversionReviewReason(reason)
+      );
     })
   ) {
     blockers.push("Offene Prüfhinweise im Auftrag");
@@ -4196,8 +4532,7 @@ export default function AuftraegePage() {
   const [expandedWorkSiteIds, setExpandedWorkSiteIds] = useState<string[]>([]);
   const [customerMessagesExpanded, setCustomerMessagesExpanded] =
     useState(false);
-  const [serviceOverviewExpanded, setServiceOverviewExpanded] =
-    useState(false);
+  const [serviceOverviewExpanded, setServiceOverviewExpanded] = useState(false);
   const [movingItemKey, setMovingItemKey] = useState<string | null>(null);
   // Persisted MwSt on Auftrag — saved on the Order itself (see app/api/orders)
   // and forwarded to the derived Offer/Invoice when converting.
@@ -4334,7 +4669,9 @@ export default function AuftraegePage() {
 
   // Dropdown menu for create offer/invoice
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
-  const [activeMobileTooltipKey, setActiveMobileTooltipKey] = useState<string | null>(null);
+  const [activeMobileTooltipKey, setActiveMobileTooltipKey] = useState<
+    string | null
+  >(null);
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
@@ -4560,7 +4897,10 @@ export default function AuftraegePage() {
    */
   const openEdit = (
     o: Order,
-    opts?: { openCustomerSection?: boolean; focusSection?: "specialNotes" | "items" },
+    opts?: {
+      openCustomerSection?: boolean;
+      focusSection?: "specialNotes" | "items";
+    },
   ) => {
     setEditId(o.id);
     setServiceActionMenuKey(null);
@@ -4603,7 +4943,9 @@ export default function AuftraegePage() {
     });
     const nextWorkSites = (o.workSites ?? [])
       .map((site, index) =>
-        index === 0 && !cleanWorkSiteDisplayName(site.siteName) && inferredSiteName
+        index === 0 &&
+        !cleanWorkSiteDisplayName(site.siteName) &&
+        inferredSiteName
           ? { ...site, siteName: inferredSiteName }
           : site,
       )
@@ -4637,11 +4979,13 @@ export default function AuftraegePage() {
               item.serviceName,
             );
             const quantityNumber = Number(item.quantity || 0);
-            const hasValidQuantity = Number.isFinite(quantityNumber) && quantityNumber > 0;
-            const rawAiWarning = getAiWarningFromItemDescription(item.description);
-            const isCatalogConfirmed = getCatalogReviewConfirmedFromItemDescription(
+            const hasValidQuantity =
+              Number.isFinite(quantityNumber) && quantityNumber > 0;
+            const rawAiWarning = getAiWarningFromItemDescription(
               item.description,
             );
+            const isCatalogConfirmed =
+              getCatalogReviewConfirmedFromItemDescription(item.description);
             const isManualCurrencyConfirmed =
               getManualCurrencyConfirmedFromItemDescription(item.description);
             const hasItemCurrencyMismatch = hasCurrencyMismatchReviewForService(
@@ -4657,7 +5001,9 @@ export default function AuftraegePage() {
 
             return {
               key: Math.random().toString(36).slice(2),
-              serviceName: canonicalServiceNameForOrderItem(item.serviceName ?? ""),
+              serviceName: canonicalServiceNameForOrderItem(
+                item.serviceName ?? "",
+              ),
               unit: item.unit ?? "Stunde",
               // V17.16: Bei ungelöster Mischwährung auch Anfahrt nicht mit dem
               // alten Textpreis vorbefüllen. Der Benutzer soll einen frischen
@@ -5076,7 +5422,7 @@ export default function AuftraegePage() {
     const existingPrice = Number(existing?.defaultPrice || 0);
     const existingNeedsUpdate = Boolean(
       existing &&
-        (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
+      (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
     );
 
     if (existing && existingNeedsUpdate) {
@@ -5116,7 +5462,9 @@ export default function AuftraegePage() {
       }
 
       setServiceActionMenuKey(null);
-      toast.success("Leistung ist im Katalog und wurde im Auftrag gespeichert ✓");
+      toast.success(
+        "Leistung ist im Katalog und wurde im Auftrag gespeichert ✓",
+      );
       return;
     }
 
@@ -5159,7 +5507,9 @@ export default function AuftraegePage() {
       }
 
       setServiceActionMenuKey(null);
-      toast.success("Leistung wurde in Leistungen übernommen und Auftrag gespeichert ✓");
+      toast.success(
+        "Leistung wurde in Leistungen übernommen und Auftrag gespeichert ✓",
+      );
     } catch {
       toast.error("Leistung konnte nicht übernommen werden");
     }
@@ -5177,7 +5527,8 @@ export default function AuftraegePage() {
     }
 
     const nextItems = getCatalogResolvedFormItems(formItems, index, {
-      serviceName: catalogDecision.existing.name || catalogDecision.normalizedName,
+      serviceName:
+        catalogDecision.existing.name || catalogDecision.normalizedName,
       catalogReviewConfirmed: true,
     });
 
@@ -5199,7 +5550,9 @@ export default function AuftraegePage() {
 
       setCatalogDecision(null);
       setServiceActionMenuKey(null);
-      toast.success("Nur dieser Auftrag wurde dauerhaft als geprüft gespeichert ✓");
+      toast.success(
+        "Nur dieser Auftrag wurde dauerhaft als geprüft gespeichert ✓",
+      );
     } catch {
       toast.error("Prüfung konnte nicht gespeichert werden");
     } finally {
@@ -5263,7 +5616,9 @@ export default function AuftraegePage() {
 
       setCatalogDecision(null);
       setServiceActionMenuKey(null);
-      toast.success("Katalogpreis wurde global aktualisiert und Auftrag gespeichert ✓");
+      toast.success(
+        "Katalogpreis wurde global aktualisiert und Auftrag gespeichert ✓",
+      );
     } catch {
       toast.error("Katalogpreis konnte nicht aktualisiert werden");
     } finally {
@@ -5373,10 +5728,12 @@ export default function AuftraegePage() {
     : null;
 
   const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
-  const hasCurrentEditCurrencyReview =
-    hasAnyCurrencyReviewReason(currentEditReviewReasons);
-  const hasCurrentEditItemCurrencyMismatch =
-    hasItemLevelCurrencyReviewReasons(currentEditReviewReasons);
+  const hasCurrentEditCurrencyReview = hasAnyCurrencyReviewReason(
+    currentEditReviewReasons,
+  );
+  const hasCurrentEditItemCurrencyMismatch = hasItemLevelCurrencyReviewReasons(
+    currentEditReviewReasons,
+  );
   const hasOnlyGlobalCurrentEditCurrencyReview =
     hasGlobalCurrencyReviewWithoutItemDetails(currentEditReviewReasons);
 
@@ -5423,7 +5780,10 @@ export default function AuftraegePage() {
   const isManuallyConfirmedCurrencyItem = (item: FormItem) => {
     if (!isCompleteResolvedFormItem(item)) return false;
 
-    if (Boolean(item.manualCurrencyConfirmed) || Boolean(item.catalogReviewConfirmed)) {
+    if (
+      Boolean(item.manualCurrencyConfirmed) ||
+      Boolean(item.catalogReviewConfirmed)
+    ) {
       return true;
     }
 
@@ -5457,7 +5817,10 @@ export default function AuftraegePage() {
   };
 
   const isBlockedFormItemForTotal = (
-    item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed"> & {
+    item: Pick<
+      FormItem,
+      "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed"
+    > & {
       serviceName?: string | null;
     },
     forceCurrencyConflict = false,
@@ -5488,7 +5851,15 @@ export default function AuftraegePage() {
   };
 
   const getSafeFormItemTotal = (
-    item: Pick<FormItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed">,
+    item: Pick<
+      FormItem,
+      | "serviceName"
+      | "unit"
+      | "unitPrice"
+      | "quantity"
+      | "aiWarning"
+      | "catalogReviewConfirmed"
+    >,
     forceCurrencyConflict = false,
   ) => {
     if (isBlockedFormItemForTotal(item, forceCurrencyConflict)) return 0;
@@ -5507,10 +5878,10 @@ export default function AuftraegePage() {
   const hasWorkSiteContent = (site?: OrderWorkSite | null) =>
     Boolean(
       compactText(site?.siteName) ||
-        compactText(site?.siteAddress) ||
-        compactText(site?.sitePlz) ||
-        compactText(site?.siteCity) ||
-        compactText(site?.siteNote),
+      compactText(site?.siteAddress) ||
+      compactText(site?.sitePlz) ||
+      compactText(site?.siteCity) ||
+      compactText(site?.siteNote),
     );
 
   const hasItemsAssignedToWorkSite = (siteId?: string | null) =>
@@ -5605,7 +5976,8 @@ export default function AuftraegePage() {
 
   const addFormWorkSite = () => {
     const openDraft = formWorkSites.find(
-      (site) => !hasWorkSiteContent(site) && !hasItemsAssignedToWorkSite(site.id),
+      (site) =>
+        !hasWorkSiteContent(site) && !hasItemsAssignedToWorkSite(site.id),
     );
 
     if (openDraft) {
@@ -5776,7 +6148,8 @@ export default function AuftraegePage() {
     if (normalized === "kilogramm") return "kg";
     if (normalized === "tonne") return "t";
     if (normalized === "liter") return "l";
-    if (normalized.includes("prüfen") || normalized.includes("pruefen")) return "prüfen";
+    if (normalized.includes("prüfen") || normalized.includes("pruefen"))
+      return "prüfen";
     return unit || "–";
   };
 
@@ -5854,7 +6227,9 @@ export default function AuftraegePage() {
         const trimmed = line.trim();
         return (
           !/^\[\s*(?:titel|title)\s*[:：][^\]]*\]\s*$/i.test(trimmed) &&
-          !/^\[\s*(?:priorität|prioritaet|priority)\s*[:：][^\]]*\]\s*$/i.test(trimmed)
+          !/^\[\s*(?:priorität|prioritaet|priority)\s*[:：][^\]]*\]\s*$/i.test(
+            trimmed,
+          )
         );
       })
       .join("\n")
@@ -6061,7 +6436,8 @@ export default function AuftraegePage() {
     const siteFieldsForPayload = primaryWorkSiteForPayload
       ? {
           siteAddressDifferent: true,
-          siteName: cleanWorkSiteDisplayName(primaryWorkSiteForPayload.siteName) || "",
+          siteName:
+            cleanWorkSiteDisplayName(primaryWorkSiteForPayload.siteName) || "",
           siteAddress: primaryWorkSiteForPayload.siteAddress?.trim() || "",
           sitePlz: primaryWorkSiteForPayload.sitePlz?.trim() || "",
           siteCity: primaryWorkSiteForPayload.siteCity?.trim() || "",
@@ -6123,15 +6499,20 @@ export default function AuftraegePage() {
     const manuallyConfirmedServiceNames = new Set(
       validItems
         .filter((item) => isManuallyConfirmedCurrencyItem(item))
-        .map((item) => normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)))
+        .map((item) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)),
+        )
         .filter(Boolean),
     );
 
     const isReviewReasonResolvedByConfirmedItem = (reason: string) => {
       const key = String(reason || "");
       const parts = key.split(":");
-      const serviceName = normalizeForMatch(canonicalServiceNameForOrderItem(parts[1] || ""));
-      if (!serviceName || !manuallyConfirmedServiceNames.has(serviceName)) return false;
+      const serviceName = normalizeForMatch(
+        canonicalServiceNameForOrderItem(parts[1] || ""),
+      );
+      if (!serviceName || !manuallyConfirmedServiceNames.has(serviceName))
+        return false;
       return (
         key.startsWith("price_unclear:") ||
         key.startsWith("item_currency_mismatch:") ||
@@ -6235,7 +6616,9 @@ export default function AuftraegePage() {
                 : buildItemDescription(item),
           quantity: Number(item.quantity || 0),
           unit: item.unit,
-          unitPrice: itemIsStillBlockedByCurrency ? 0 : Number(item.unitPrice || 0),
+          unitPrice: itemIsStillBlockedByCurrency
+            ? 0
+            : Number(item.unitPrice || 0),
           totalPrice: getSafeFormItemTotal(item),
           workSiteId: item.workSiteId || null,
         };
@@ -6793,7 +7176,9 @@ export default function AuftraegePage() {
     let cancelled = false;
 
     (async () => {
-      const resolved = await Promise.all(imagePaths.map((path) => resolveS3Url(path)));
+      const resolved = await Promise.all(
+        imagePaths.map((path) => resolveS3Url(path)),
+      );
       if (!cancelled) {
         setCustomerMessageImagePreviewUrls(resolved);
       }
@@ -6802,7 +7187,13 @@ export default function AuftraegePage() {
     return () => {
       cancelled = true;
     };
-  }, [dialogOpen, currentEditOrder?.id, currentEditOrder?.imageUrls?.join("|"), currentEditOrder?.mediaUrl, currentEditOrder?.mediaType]);
+  }, [
+    dialogOpen,
+    currentEditOrder?.id,
+    currentEditOrder?.imageUrls?.join("|"),
+    currentEditOrder?.mediaUrl,
+    currentEditOrder?.mediaType,
+  ]);
 
   const createOffer = async (o: Order) => {
     if (blockConversionIfUnsafe(o, "Angebot")) {
@@ -6963,7 +7354,9 @@ export default function AuftraegePage() {
     if (o.items && o.items.length > 0) {
       return o.items.reduce((sum, item) => {
         if (isBlockedOrderItemForTotal(item)) return sum;
-        if (hasCurrencyMismatchReviewForService(o.reviewReasons, item.serviceName)) {
+        if (
+          hasCurrencyMismatchReviewForService(o.reviewReasons, item.serviceName)
+        ) {
           return sum;
         }
         if (
@@ -6977,9 +7370,12 @@ export default function AuftraegePage() {
         const price = Number(item.unitPrice || 0);
         const storedLineTotal = Number(item.totalPrice || 0);
         const calculatedLineTotal = qty > 0 && price > 0 ? qty * price : 0;
-        const lineTotal = storedLineTotal > 0 ? storedLineTotal : calculatedLineTotal;
+        const lineTotal =
+          storedLineTotal > 0 ? storedLineTotal : calculatedLineTotal;
 
-        return sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0);
+        return (
+          sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0)
+        );
       }, 0);
     }
 
@@ -7168,24 +7564,33 @@ export default function AuftraegePage() {
             const appointmentBadges = bottomBadges.filter((badge) =>
               hasMultipleMergedData
                 ? badge.key === "appointments_multiple"
-                : badge.key === "appointment" || badge.key === "appointments_multiple",
+                : badge.key === "appointment" ||
+                  badge.key === "appointments_multiple",
             );
             const callbackBadges = hasMultipleMergedData
               ? []
-              : bottomBadges.filter((badge) => badge.key === "callback_request");
+              : bottomBadges.filter(
+                  (badge) => badge.key === "callback_request",
+                );
             const messageBadges = hasMultipleMergedData
               ? []
               : bottomBadges.filter((badge) => badge.key === "sms_request");
             const otherFooterBadges = bottomBadges.filter((badge) =>
               hasMultipleMergedData
                 ? !hiddenMergedDataBadgeKeys.includes(badge.key)
-                : !["appointment", "appointments_multiple", "callback_request", "sms_request"].includes(
-                    badge.key,
-                  ),
+                : ![
+                    "appointment",
+                    "appointments_multiple",
+                    "callback_request",
+                    "sms_request",
+                  ].includes(badge.key),
             );
             const rightSideBadges = amountReviewBadges;
             const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
-            const mobileRightHiddenCount = Math.max(0, rightSideBadges.length - mobilePrimaryRightBadges.length);
+            const mobileRightHiddenCount = Math.max(
+              0,
+              rightSideBadges.length - mobilePrimaryRightBadges.length,
+            );
             const mobileFocusBadges = leftSystemBadges.filter(
               (badge) => badge.focusTarget === "specialNotes",
             );
@@ -7203,7 +7608,10 @@ export default function AuftraegePage() {
               ...otherFooterBadges,
             ];
             const mobileVisibleActionBadges = mobileActionBadges.slice(0, 4);
-            const mobileHiddenActionCount = Math.max(0, mobileActionBadges.length - mobileVisibleActionBadges.length);
+            const mobileHiddenActionCount = Math.max(
+              0,
+              mobileActionBadges.length - mobileVisibleActionBadges.length,
+            );
 
             const openOrderAtSpecialNotes = (event: any) => {
               event.stopPropagation();
@@ -7237,7 +7645,8 @@ export default function AuftraegePage() {
               // Mobile tooltips must be controlled only by tap state.
               // Do not render the hidden group-focus/group-hover tooltip when inactive,
               // because a touched button can keep focus and make the tooltip look stuck.
-              if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot)) return null;
+              if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot))
+                return null;
               return renderBadgeTooltip(badge, align, true);
             };
 
@@ -7252,7 +7661,8 @@ export default function AuftraegePage() {
               tooltipAlign: "left" | "right" = "left",
             ) => {
               const shouldOpenItems = isAmountReviewBadge(badge);
-              const shouldOpenSpecialNotes = badge.focusTarget === "specialNotes";
+              const shouldOpenSpecialNotes =
+                badge.focusTarget === "specialNotes";
 
               if (!shouldOpenItems && !shouldOpenSpecialNotes) {
                 return renderOrderCardBadge(badge, tooltipAlign);
@@ -7275,8 +7685,14 @@ export default function AuftraegePage() {
                   key={badge.key}
                   type="button"
                   aria-label={compactText(badge.tooltip) || badge.label}
-                  title={isCompactIcon ? compactText(badge.tooltip) || badge.label : undefined}
-                  onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
+                  title={
+                    isCompactIcon
+                      ? compactText(badge.tooltip) || badge.label
+                      : undefined
+                  }
+                  onClick={
+                    shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes
+                  }
                   className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                     isCompactIcon
                       ? "font-semibold"
@@ -7286,9 +7702,17 @@ export default function AuftraegePage() {
                   } ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   {CompactIcon ? (
-                    <CompactIcon className={normalizeForMatch(badge.label).includes("hund") ? "h-5 w-5 text-[18px]" : "h-5 w-5"} />
+                    <CompactIcon
+                      className={
+                        normalizeForMatch(badge.label).includes("hund")
+                          ? "h-5 w-5 text-[18px]"
+                          : "h-5 w-5"
+                      }
+                    />
                   ) : compactSymbol ? (
-                    <span aria-hidden="true" className="leading-none">{compactSymbol}</span>
+                    <span aria-hidden="true" className="leading-none">
+                      {compactSymbol}
+                    </span>
                   ) : (
                     <>
                       {badge.icon && badge.key !== "callback_request" && (
@@ -7331,7 +7755,9 @@ export default function AuftraegePage() {
                   key={badge.key}
                   type="button"
                   aria-label={title}
-                  onClick={(event) => toggleMobileTooltip(badge, tooltipSlot, event)}
+                  onClick={(event) =>
+                    toggleMobileTooltip(badge, tooltipSlot, event)
+                  }
                   className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
                 >
                   <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -7360,7 +7786,9 @@ export default function AuftraegePage() {
               );
             };
 
-            const renderInteractiveMobileRightReviewBadge = (badge: ReviewBadge) => {
+            const renderInteractiveMobileRightReviewBadge = (
+              badge: ReviewBadge,
+            ) => {
               const title = compactText(badge.tooltip) || badge.label;
               return (
                 <button
@@ -7519,9 +7947,15 @@ export default function AuftraegePage() {
 
                           {mobileSystemBadges.length > 0 && (
                             <div className="mt-1 flex max-w-full flex-wrap items-center gap-1">
-                              {mobileSystemBadges.slice(0, 1).map((badge) =>
-                                renderInteractiveMobileTextBadge(badge, "mobile_system", "left"),
-                              )}
+                              {mobileSystemBadges
+                                .slice(0, 1)
+                                .map((badge) =>
+                                  renderInteractiveMobileTextBadge(
+                                    badge,
+                                    "mobile_system",
+                                    "left",
+                                  ),
+                                )}
                             </div>
                           )}
 
@@ -7567,29 +8001,29 @@ export default function AuftraegePage() {
                               <CommunicationChips
                                 compact
                                 data={{
-                                ...o,
-                                specialNotes:
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.specialNotes,
-                                  ),
-                                notes: [
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.notes,
-                                  ),
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.specialNotes,
-                                  ),
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.audioTranscript,
-                                  ),
-                                ]
-                                  .filter(Boolean)
-                                  .join("\n"),
-                                audioTranscript:
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.audioTranscript,
-                                  ),
-                              }}
+                                  ...o,
+                                  specialNotes:
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.specialNotes,
+                                    ),
+                                  notes: [
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.notes,
+                                    ),
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.specialNotes,
+                                    ),
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.audioTranscript,
+                                    ),
+                                  ]
+                                    .filter(Boolean)
+                                    .join("\n"),
+                                  audioTranscript:
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.audioTranscript,
+                                    ),
+                                }}
                                 onAudioClick={() => openMedia(o)}
                                 onImageClick={() => openMedia(o)}
                               />
@@ -7604,9 +8038,15 @@ export default function AuftraegePage() {
 
                         <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
                           <div className="flex w-full flex-col items-end gap-1">
-                            {appointmentBadges.slice(0, 1).map((badge) =>
-                              renderInteractiveMobileTextBadge(badge, "mobile_appointment", "right"),
-                            )}
+                            {appointmentBadges
+                              .slice(0, 1)
+                              .map((badge) =>
+                                renderInteractiveMobileTextBadge(
+                                  badge,
+                                  "mobile_appointment",
+                                  "right",
+                                ),
+                              )}
                             {mobilePrimaryRightBadges.map((badge) =>
                               renderInteractiveMobileRightReviewBadge(badge),
                             )}
@@ -7682,7 +8122,6 @@ export default function AuftraegePage() {
                                 ⚠️ Audio zu lang
                               </span>
                             )}
-
                           </div>
 
                           {/* Row 2: compact service-only preview */}
@@ -7728,30 +8167,30 @@ export default function AuftraegePage() {
                             {!hasMultipleMergedData && (
                               <CommunicationChips
                                 data={{
-                                ...o,
-                                customer: o.customer,
-                                specialNotes:
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.specialNotes,
-                                  ),
-                                notes: [
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.notes,
-                                  ),
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.specialNotes,
-                                  ),
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.audioTranscript,
-                                  ),
-                                ]
-                                  .filter(Boolean)
-                                  .join("\n"),
-                                audioTranscript:
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.audioTranscript,
-                                  ),
-                              }}
+                                  ...o,
+                                  customer: o.customer,
+                                  specialNotes:
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.specialNotes,
+                                    ),
+                                  notes: [
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.notes,
+                                    ),
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.specialNotes,
+                                    ),
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.audioTranscript,
+                                    ),
+                                  ]
+                                    .filter(Boolean)
+                                    .join("\n"),
+                                  audioTranscript:
+                                    removeCallbackLinesForCommunicationChips(
+                                      o.audioTranscript,
+                                    ),
+                                }}
                                 onAudioClick={() => openMedia(o)}
                                 onImageClick={() => openMedia(o)}
                               />
@@ -8619,7 +9058,11 @@ export default function AuftraegePage() {
                 </div>
               ) : (
                 <>
-                  <div ref={serviceItemsRef} tabIndex={-1} className="scroll-mt-24 rounded-xl border bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60">
+                  <div
+                    ref={serviceItemsRef}
+                    tabIndex={-1}
+                    className="scroll-mt-24 rounded-xl border bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60"
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="text-base font-semibold">
@@ -8644,7 +9087,9 @@ export default function AuftraegePage() {
                                 onClick={toggleWorkSiteOverview}
                                 className="h-7 px-2 text-xs"
                               >
-                                {expandedWorkSiteIds.length > 0 ? "Übersicht" : "Alle öffnen"}
+                                {expandedWorkSiteIds.length > 0
+                                  ? "Übersicht"
+                                  : "Alle öffnen"}
                               </Button>
                               <Button
                                 type="button"
@@ -8670,7 +9115,8 @@ export default function AuftraegePage() {
                         </div>
                         {hasMultipleEditWorkSites && (
                           <span className="text-[10px] text-muted-foreground">
-                            Ein Block: Arbeitsort aufklappen, dort Leistungen bearbeiten.
+                            Ein Block: Arbeitsort aufklappen, dort Leistungen
+                            bearbeiten.
                           </span>
                         )}
                       </div>
@@ -8783,7 +9229,8 @@ export default function AuftraegePage() {
                           // Katalogabweichung gelb markiert.
                           const unresolvedCurrencyItem =
                             isFormItemBlockedByCurrencyReview(item);
-                          const showCurrencyConflictItemReview = unresolvedCurrencyItem;
+                          const showCurrencyConflictItemReview =
+                            unresolvedCurrencyItem;
                           const priceInputReview =
                             unresolvedCurrencyItem ||
                             Number(item.unitPrice || 0) === 0;
@@ -8795,14 +9242,15 @@ export default function AuftraegePage() {
                             !unresolvedCurrencyItem &&
                             Boolean(
                               item.aiWarning?.trim() ||
-                                unitMismatchReason ||
-                                unitMissingInTextReason,
+                              unitMismatchReason ||
+                              unitMissingInTextReason,
                             );
                           const showPriceOverride =
                             !unresolvedCurrencyItem &&
                             !showUnitConflict &&
                             Boolean(
-                              (!item.catalogReviewConfirmed && priceOverrideReason) ||
+                              (!item.catalogReviewConfirmed &&
+                                priceOverrideReason) ||
                               hasFrontendCatalogPriceDeviation ||
                               hasFrontendCatalogTextFlatOverride,
                             );
@@ -8947,10 +9395,8 @@ export default function AuftraegePage() {
                             for (const groupItem of groupItems) {
                               const itemName = groupItem.serviceName || "";
                               const itemKey = normalizeForMatch(itemName);
-                              const groupCatalogService = findCatalogServiceForName(
-                                services,
-                                itemName,
-                              );
+                              const groupCatalogService =
+                                findCatalogServiceForName(services, itemName);
                               const groupCatalogPrice = Number(
                                 groupCatalogService?.defaultPrice || 0,
                               );
@@ -8960,69 +9406,82 @@ export default function AuftraegePage() {
                               const groupItemQuantity = Number(
                                 groupItem.quantity || 0,
                               );
-                              const groupUnitMismatchReason = curOrder?.reviewReasons
-                                ?.filter((reason: string) =>
-                                  reason.startsWith("unit_mismatch:"),
-                                )
-                                .find((reason: string) => {
-                                  const [, serviceName] = reason.split(":");
-                                  return (
-                                    normalizeForMatch(serviceName) === itemKey
-                                  );
-                                });
-                              const groupPriceOverrideReason = curOrder?.reviewReasons
-                                ?.filter((reason: string) =>
-                                  reason.startsWith("price_override:"),
-                                )
-                                .find((reason: string) => {
-                                  const [, serviceName] = reason.split(":");
-                                  return (
-                                    normalizeForMatch(serviceName) === itemKey
-                                  );
-                                });
-                              const groupPriceUnclearReason = curOrder?.reviewReasons
-                                ?.filter((reason: string) =>
-                                  reason.startsWith("price_unclear:"),
-                                )
-                                .find((reason: string) => {
-                                  const [, serviceName] = reason.split(":");
-                                  return (
-                                    !serviceName ||
-                                    normalizeForMatch(serviceName) === itemKey
-                                  );
-                                });
+                              const groupUnitMismatchReason =
+                                curOrder?.reviewReasons
+                                  ?.filter((reason: string) =>
+                                    reason.startsWith("unit_mismatch:"),
+                                  )
+                                  .find((reason: string) => {
+                                    const [, serviceName] = reason.split(":");
+                                    return (
+                                      normalizeForMatch(serviceName) === itemKey
+                                    );
+                                  });
+                              const groupPriceOverrideReason =
+                                curOrder?.reviewReasons
+                                  ?.filter((reason: string) =>
+                                    reason.startsWith("price_override:"),
+                                  )
+                                  .find((reason: string) => {
+                                    const [, serviceName] = reason.split(":");
+                                    return (
+                                      normalizeForMatch(serviceName) === itemKey
+                                    );
+                                  });
+                              const groupPriceUnclearReason =
+                                curOrder?.reviewReasons
+                                  ?.filter((reason: string) =>
+                                    reason.startsWith("price_unclear:"),
+                                  )
+                                  .find((reason: string) => {
+                                    const [, serviceName] = reason.split(":");
+                                    return (
+                                      !serviceName ||
+                                      normalizeForMatch(serviceName) === itemKey
+                                    );
+                                  });
                               const groupCatalogPriceDeviation = Boolean(
                                 groupCatalogService &&
-                                  !groupItem.catalogReviewConfirmed &&
-                                  !groupUnitMismatchReason &&
+                                !groupItem.catalogReviewConfirmed &&
+                                !groupUnitMismatchReason &&
+                                normalizePriceUnitForCompare(
+                                  groupCatalogService.unit,
+                                ) ===
                                   normalizePriceUnitForCompare(
-                                    groupCatalogService.unit,
-                                  ) === normalizePriceUnitForCompare(groupItem.unit) &&
-                                  Number.isFinite(groupCatalogPrice) &&
-                                  Number.isFinite(groupItemPrice) &&
-                                  groupCatalogPrice > 0 &&
-                                  groupItemPrice > 0 &&
-                                  Math.abs(groupCatalogPrice - groupItemPrice) >= 0.01,
+                                    groupItem.unit,
+                                  ) &&
+                                Number.isFinite(groupCatalogPrice) &&
+                                Number.isFinite(groupItemPrice) &&
+                                groupCatalogPrice > 0 &&
+                                groupItemPrice > 0 &&
+                                Math.abs(groupCatalogPrice - groupItemPrice) >=
+                                  0.01,
                               );
                               const groupTextFlatOverride = Boolean(
                                 groupCatalogService &&
-                                  !groupItem.catalogReviewConfirmed &&
-                                  !groupUnitMismatchReason &&
+                                !groupItem.catalogReviewConfirmed &&
+                                !groupUnitMismatchReason &&
+                                normalizePriceUnitForCompare(
+                                  groupCatalogService.unit,
+                                ) !==
                                   normalizePriceUnitForCompare(
-                                    groupCatalogService.unit,
-                                  ) !== normalizePriceUnitForCompare(groupItem.unit) &&
-                                  normalizePriceUnitForCompare(groupItem.unit) ===
-                                    "flat" &&
-                                  groupItemPrice > 0 &&
-                                  groupItemQuantity === 1,
+                                    groupItem.unit,
+                                  ) &&
+                                normalizePriceUnitForCompare(groupItem.unit) ===
+                                  "flat" &&
+                                groupItemPrice > 0 &&
+                                groupItemQuantity === 1,
                               );
                               const groupCatalogMissing = Boolean(
                                 itemName.trim() &&
-                                  !groupItem.catalogReviewConfirmed &&
-                                  !groupCatalogService,
+                                !groupItem.catalogReviewConfirmed &&
+                                !groupCatalogService,
                               );
 
-                              if (groupItemPrice <= 0 || groupItemQuantity <= 0) {
+                              if (
+                                groupItemPrice <= 0 ||
+                                groupItemQuantity <= 0
+                              ) {
                                 addBadge(
                                   "amount",
                                   "Preis/Menge prüfen",
@@ -9031,7 +9490,10 @@ export default function AuftraegePage() {
                                 );
                                 continue;
                               }
-                              if (groupUnitMismatchReason || groupItem.aiWarning?.trim()) {
+                              if (
+                                groupUnitMismatchReason ||
+                                groupItem.aiWarning?.trim()
+                              ) {
                                 addBadge(
                                   "unit",
                                   "Einheit prüfen",
@@ -9048,7 +9510,8 @@ export default function AuftraegePage() {
                                 );
                               }
                               if (
-                                (!groupItem.catalogReviewConfirmed && groupPriceOverrideReason) ||
+                                (!groupItem.catalogReviewConfirmed &&
+                                  groupPriceOverrideReason) ||
                                 groupCatalogPriceDeviation ||
                                 groupTextFlatOverride
                               ) {
@@ -9231,7 +9694,9 @@ export default function AuftraegePage() {
 
                                   {site && isEditingSite && (
                                     <div
-                                      onClick={(event) => event.stopPropagation()}
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
                                       className="mt-2 rounded-md border bg-background/80 p-2 space-y-2"
                                     >
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -9272,7 +9737,9 @@ export default function AuftraegePage() {
                                       </div>
                                       <div className="grid grid-cols-1 sm:grid-cols-[110px_1fr] gap-2">
                                         <div>
-                                          <Label className="text-[10px]">PLZ</Label>
+                                          <Label className="text-[10px]">
+                                            PLZ
+                                          </Label>
                                           <Input
                                             className="h-8 text-xs"
                                             value={site.sitePlz || ""}
@@ -9287,7 +9754,9 @@ export default function AuftraegePage() {
                                           />
                                         </div>
                                         <div>
-                                          <Label className="text-[10px]">Ort</Label>
+                                          <Label className="text-[10px]">
+                                            Ort
+                                          </Label>
                                           <Input
                                             className="h-8 text-xs"
                                             value={site.siteCity || ""}
@@ -9303,7 +9772,9 @@ export default function AuftraegePage() {
                                         </div>
                                       </div>
                                       <div>
-                                        <Label className="text-[10px]">Hinweis</Label>
+                                        <Label className="text-[10px]">
+                                          Hinweis
+                                        </Label>
                                         <Input
                                           className="h-8 text-xs"
                                           value={site.siteNote || ""}
@@ -9319,14 +9790,17 @@ export default function AuftraegePage() {
                                       </div>
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="text-[11px] text-muted-foreground">
-                                          Zugeordnet: {groupItemCount} Leistung(en)
+                                          Zugeordnet: {groupItemCount}{" "}
+                                          Leistung(en)
                                         </div>
                                         <Button
                                           type="button"
                                           size="sm"
                                           variant="ghost"
                                           className="text-red-600 hover:text-red-700"
-                                          onClick={() => removeFormWorkSite(site.id)}
+                                          onClick={() =>
+                                            removeFormWorkSite(site.id)
+                                          }
                                         >
                                           Löschen
                                         </Button>
@@ -9350,7 +9824,8 @@ export default function AuftraegePage() {
                                       : "Noch keine Leistungen in diesem Arbeitsort."}
                                   </div>
                                   <div className="mt-0.5 text-muted-foreground">
-                                    Arbeitsort bearbeiten oder löschen. Leistung erst hinzufügen, wenn der Ort stimmt.
+                                    Arbeitsort bearbeiten oder löschen. Leistung
+                                    erst hinzufügen, wenn der Ort stimmt.
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     {site && (
@@ -9373,321 +9848,427 @@ export default function AuftraegePage() {
                                         size="sm"
                                         variant="outline"
                                         className="h-7 px-2 text-xs"
-                                        onClick={() => addItemToWorkSite(site.id)}
+                                        onClick={() =>
+                                          addItemToWorkSite(site.id)
+                                        }
                                       >
                                         + Leistung hier hinzufügen
                                       </Button>
                                     )}
                                   </div>
                                 </div>
-                              ) : groupExpanded && (
-                                <div
-                                  className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
-                                    hasMultipleEditWorkSites
-                                      ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
-                                      : "rounded-lg"
-                                  } ${
-                                    hasCriticalItemReview
-                                      ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
-                                      : hasAnyItemReview
-                                        ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                        : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
-                                  }`}
-                                  onClick={() =>
-                                    site && setActiveWorkSiteId(site.id)
-                                  }
-                                >
-                                  <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
-                                    <div className="min-w-0 space-y-1">
-                                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
-                                        <div className="group min-w-0">
-                                          <ServiceCombobox
-                                            value={item.serviceName}
-                                            services={
-                                              services as ServiceOption[]
-                                            }
-                                            onChange={(name, svc) =>
-                                              onItemServiceSelect(
-                                                index,
-                                                name,
-                                                svc,
-                                              )
-                                            }
-                                            onServiceCreated={
-                                              handleServiceCreated
-                                            }
-                                            currentPrice={item.unitPrice}
-                                            currentUnit={item.unit}
-                                            showManualHint={false}
-                                            saveButtonPlacement="none"
-                                          />
-                                          {item.serviceName.trim().length >
-                                            28 && (
-                                            <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
-                                              {item.serviceName.trim()}
-                                            </p>
-                                          )}
-                                        </div>
+                              ) : (
+                                groupExpanded && (
+                                  <div
+                                    className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
+                                      hasMultipleEditWorkSites
+                                        ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
+                                        : "rounded-lg"
+                                    } ${
+                                      hasCriticalItemReview
+                                        ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                        : hasAnyItemReview
+                                          ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                          : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                                    }`}
+                                    onClick={() =>
+                                      site && setActiveWorkSiteId(site.id)
+                                    }
+                                  >
+                                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
+                                      <div className="min-w-0 space-y-1">
+                                        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
+                                          <div className="group min-w-0">
+                                            <ServiceCombobox
+                                              value={item.serviceName}
+                                              services={
+                                                services as ServiceOption[]
+                                              }
+                                              onChange={(name, svc) =>
+                                                onItemServiceSelect(
+                                                  index,
+                                                  name,
+                                                  svc,
+                                                )
+                                              }
+                                              onServiceCreated={
+                                                handleServiceCreated
+                                              }
+                                              currentPrice={item.unitPrice}
+                                              currentUnit={item.unit}
+                                              showManualHint={false}
+                                              saveButtonPlacement="none"
+                                            />
+                                            {item.serviceName.trim().length >
+                                              28 && (
+                                              <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
+                                                {item.serviceName.trim()}
+                                              </p>
+                                            )}
+                                          </div>
 
-                                        <div
-                                          className="h-1"
-                                          aria-hidden="true"
+                                          <div
+                                            className="h-1"
+                                            aria-hidden="true"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
+                                        <div>Total</div>
+                                        <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
+                                          {formatCurrency(itemTotal, currency)}
+                                        </div>
+                                      </div>
+
+                                      <div className="relative shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setServiceActionMenuKey((prev) =>
+                                              prev === item.key
+                                                ? null
+                                                : item.key,
+                                            );
+                                          }}
+                                          className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                          title="Aktionen"
+                                        >
+                                          <MoreVertical className="w-3.5 h-3.5" />
+                                        </button>
+
+                                        {isMenuOpen && (
+                                          <div
+                                            onClick={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                          >
+                                            {hasMultipleEditWorkSites && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setMovingItemKey(item.key);
+                                                  setActiveWorkSiteId(
+                                                    item.workSiteId ||
+                                                      activeWorkSiteId,
+                                                  );
+                                                  setServiceActionMenuKey(null);
+                                                }}
+                                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                              >
+                                                📍 Arbeitsort ändern
+                                              </button>
+                                            )}
+
+                                            {hasCatalogActionMenu && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  saveItemToServices(index);
+                                                  setServiceActionMenuKey(null);
+                                                }}
+                                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                              >
+                                                <Plus className="h-3.5 w-3.5" />
+                                                In Leistungskatalog übernehmen
+                                              </button>
+                                            )}
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                removeItem(index);
+                                                setServiceActionMenuKey(null);
+                                              }}
+                                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                              Löschen
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                      <div>
+                                        <Label className="text-[10px] leading-none">
+                                          Einheit
+                                        </Label>
+                                        <select
+                                          className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                          value={item.unit}
+                                          onChange={(e: any) =>
+                                            updateItem(
+                                              index,
+                                              "unit",
+                                              e?.target?.value ?? "Stunde",
+                                            )
+                                          }
+                                        >
+                                          {priceTypes.map((pt) => (
+                                            <option key={pt} value={pt}>
+                                              {pt}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+
+                                      <div>
+                                        <Label className="text-[10px] leading-none">
+                                          Preis ({currency})
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.05"
+                                          className={`h-8 text-xs ${
+                                            priceInputCritical
+                                              ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                              : ""
+                                          }`}
+                                          value={item.unitPrice}
+                                          placeholder={
+                                            priceInputReview ? "prüfen" : "0"
+                                          }
+                                          onFocus={(e) =>
+                                            e.currentTarget.select()
+                                          }
+                                          onChange={(e: any) =>
+                                            updateItem(
+                                              index,
+                                              "unitPrice",
+                                              e?.target?.value ?? "",
+                                            )
+                                          }
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <Label className="text-[10px] leading-none">
+                                          Menge
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.25"
+                                          className={`h-8 text-xs ${
+                                            quantityInputCritical
+                                              ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                              : ""
+                                          }`}
+                                          value={item.quantity}
+                                          placeholder={
+                                            quantityInputReview ? "prüfen" : "0"
+                                          }
+                                          onFocus={(e) =>
+                                            e.currentTarget.select()
+                                          }
+                                          onChange={(e: any) =>
+                                            updateItem(
+                                              index,
+                                              "quantity",
+                                              e?.target?.value ?? "",
+                                            )
+                                          }
                                         />
                                       </div>
                                     </div>
 
-                                    <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
-                                      <div>Total</div>
-                                      <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
-                                        {formatCurrency(itemTotal, currency)}
-                                      </div>
-                                    </div>
-
-                                    <div className="relative shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setServiceActionMenuKey((prev) =>
-                                            prev === item.key ? null : item.key,
-                                          );
-                                        }}
-                                        className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                        title="Aktionen"
-                                      >
-                                        <MoreVertical className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {isMenuOpen && (
-                                        <div
-                                          onClick={(event) =>
-                                            event.stopPropagation()
-                                          }
-                                          className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
-                                        >
-                                          {hasMultipleEditWorkSites && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setMovingItemKey(item.key);
-                                                setActiveWorkSiteId(
-                                                  item.workSiteId ||
-                                                    activeWorkSiteId,
-                                                );
-                                                setServiceActionMenuKey(null);
-                                              }}
-                                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                            >
-                                              📍 Arbeitsort ändern
-                                            </button>
-                                          )}
-
-                                          {hasCatalogActionMenu && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                saveItemToServices(index);
-                                                setServiceActionMenuKey(null);
-                                              }}
-                                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                            >
-                                              <Plus className="h-3.5 w-3.5" />
-                                              In Leistungskatalog übernehmen
-                                            </button>
-                                          )}
-
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              removeItem(index);
-                                              setServiceActionMenuKey(null);
-                                            }}
-                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                                          >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                            Löschen
-                                          </button>
+                                    {hasMultipleEditWorkSites &&
+                                      (movingItemKey === item.key ||
+                                        !item.workSiteId) && (
+                                        <div className="flex justify-end">
+                                          <div className="flex w-full items-end gap-2 sm:w-auto">
+                                            <div className="min-w-0 flex-1 sm:w-72">
+                                              <Label className="text-[10px] leading-none">
+                                                Arbeitsort ändern
+                                              </Label>
+                                              <select
+                                                className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                                value={item.workSiteId || ""}
+                                                onChange={(e: any) => {
+                                                  updateItem(
+                                                    index,
+                                                    "workSiteId",
+                                                    e?.target?.value ?? "",
+                                                  );
+                                                  setMovingItemKey(null);
+                                                }}
+                                              >
+                                                <option value="">
+                                                  Arbeitsort wählen
+                                                </option>
+                                                {currentEditWorkSites.map(
+                                                  (siteOption) => (
+                                                    <option
+                                                      key={siteOption.id}
+                                                      value={siteOption.id}
+                                                    >
+                                                      {getWorkSiteSelectLabel(
+                                                        siteOption,
+                                                      )}
+                                                    </option>
+                                                  ),
+                                                )}
+                                              </select>
+                                            </div>
+                                            {item.workSiteId && (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setMovingItemKey(null)
+                                                }
+                                                className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
+                                              >
+                                                Fertig
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
                                       )}
-                                    </div>
-                                  </div>
 
-                                  <div className="grid grid-cols-3 gap-1.5">
-                                    <div>
-                                      <Label className="text-[10px] leading-none">
-                                        Einheit
-                                      </Label>
-                                      <select
-                                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                        value={item.unit}
-                                        onChange={(e: any) =>
-                                          updateItem(
-                                            index,
-                                            "unit",
-                                            e?.target?.value ?? "Stunde",
-                                          )
-                                        }
+                                    {showItemReviewBlock && (
+                                      <div
+                                        className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
+                                          isBlockingItemReview
+                                            ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
+                                            : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
+                                        }`}
                                       >
-                                        {priceTypes.map((pt) => (
-                                          <option key={pt} value={pt}>
-                                            {pt}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-
-                                    <div>
-                                      <Label className="text-[10px] leading-none">
-                                        Preis ({currency})
-                                      </Label>
-                                      <Input
-                                        type="number"
-                                        step="0.05"
-                                        className={`h-8 text-xs ${
-                                          priceInputCritical
-                                            ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                            : ""
-                                        }`}
-                                        value={item.unitPrice}
-                                        placeholder={
-                                          priceInputReview ? "prüfen" : "0"
-                                        }
-                                        onFocus={(e) =>
-                                          e.currentTarget.select()
-                                        }
-                                        onChange={(e: any) =>
-                                          updateItem(
-                                            index,
-                                            "unitPrice",
-                                            e?.target?.value ?? "",
-                                          )
-                                        }
-                                      />
-                                    </div>
-
-                                    <div>
-                                      <Label className="text-[10px] leading-none">
-                                        Menge
-                                      </Label>
-                                      <Input
-                                        type="number"
-                                        step="0.25"
-                                        className={`h-8 text-xs ${
-                                          quantityInputCritical
-                                            ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                            : ""
-                                        }`}
-                                        value={item.quantity}
-                                        placeholder={
-                                          quantityInputReview ? "prüfen" : "0"
-                                        }
-                                        onFocus={(e) =>
-                                          e.currentTarget.select()
-                                        }
-                                        onChange={(e: any) =>
-                                          updateItem(
-                                            index,
-                                            "quantity",
-                                            e?.target?.value ?? "",
-                                          )
-                                        }
-                                      />
-                                    </div>
-                                  </div>
-
-                                  {hasMultipleEditWorkSites &&
-                                    (movingItemKey === item.key ||
-                                      !item.workSiteId) && (
-                                      <div className="flex justify-end">
-                                        <div className="flex w-full items-end gap-2 sm:w-auto">
-                                          <div className="min-w-0 flex-1 sm:w-72">
-                                            <Label className="text-[10px] leading-none">
-                                              Arbeitsort ändern
-                                            </Label>
-                                            <select
-                                              className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                              value={item.workSiteId || ""}
-                                              onChange={(e: any) => {
-                                                updateItem(
-                                                  index,
-                                                  "workSiteId",
-                                                  e?.target?.value ?? "",
-                                                );
-                                                setMovingItemKey(null);
-                                              }}
-                                            >
-                                              <option value="">
-                                                Arbeitsort wählen
-                                              </option>
-                                              {currentEditWorkSites.map(
-                                                (siteOption) => (
-                                                  <option
-                                                    key={siteOption.id}
-                                                    value={siteOption.id}
-                                                  >
-                                                    {getWorkSiteSelectLabel(
-                                                      siteOption,
-                                                    )}
-                                                  </option>
-                                                ),
-                                              )}
-                                            </select>
-                                          </div>
-                                          {item.workSiteId && (
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setMovingItemKey(null)
-                                              }
-                                              className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
-                                            >
-                                              Fertig
-                                            </button>
-                                          )}
+                                        <div className="mb-0.5 flex items-center gap-1 font-semibold">
+                                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                                          Manuell prüfen
                                         </div>
-                                      </div>
-                                    )}
 
-                                  {showItemReviewBlock && (
-                                    <div
-                                      className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
-                                        isBlockingItemReview
-                                          ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
-                                          : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
-                                      }`}
-                                    >
-                                      <div className="mb-0.5 flex items-center gap-1 font-semibold">
-                                        <AlertTriangle className="h-3 w-3 shrink-0" />
-                                        Manuell prüfen
-                                      </div>
-
-                                      <div className="space-y-0.5">
-                                        {showCurrencyConflictItemReview && (
-                                          <div className="space-y-0.5">
-                                            <div>
-                                              Währung/Preis noch nicht bestätigt.
-                                            </div>
-                                            {sourceLineForItem && (
+                                        <div className="space-y-0.5">
+                                          {showCurrencyConflictItemReview && (
+                                            <div className="space-y-0.5">
                                               <div>
-                                                Text: {" "}
-                                                <span className="font-medium">
-                                                  {sourceLineForItem}
-                                                </span>
+                                                Währung/Preis noch nicht
+                                                bestätigt.
+                                              </div>
+                                              {sourceLineForItem && (
+                                                <div>
+                                                  Text:{" "}
+                                                  <span className="font-medium">
+                                                    {sourceLineForItem}
+                                                  </span>
+                                                </div>
+                                              )}
+                                              <div>
+                                                Diese Position wird nicht in
+                                                Netto/MwSt./Total gerechnet, bis
+                                                die Währung und der Preis
+                                                eindeutig bestätigt sind.
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {showUnitConflict && (
+                                            <div className="space-y-0.5">
+                                              {unitMissingInTextReason ? (
+                                                <>
+                                                  <div>
+                                                    Einheit fehlt im Kundentext.
+                                                  </div>
+                                                  {sourceLineForItem && (
+                                                    <div>
+                                                      Text:{" "}
+                                                      <span className="font-medium">
+                                                        {sourceLineForItem}
+                                                      </span>
+                                                    </div>
+                                                  )}
+                                                  <div>
+                                                    Bitte Einheit bestätigen,
+                                                    bevor Angebot oder Rechnung
+                                                    erstellt wird.
+                                                  </div>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <div>
+                                                    Text:{" "}
+                                                    <span className="font-medium">
+                                                      {orderSummary}
+                                                    </span>
+                                                  </div>
+                                                  {catalogSummary && (
+                                                    <div>
+                                                      Katalog:{" "}
+                                                      <span className="font-medium">
+                                                        {catalogSummary}
+                                                      </span>
+                                                    </div>
+                                                  )}
+                                                  <div>
+                                                    Einheit prüfen:{" "}
+                                                    {item.serviceName ||
+                                                      "Leistung"}
+                                                  </div>
+                                                </>
+                                              )}
+                                            </div>
+                                          )}
+
+                                          {!showUnitConflict &&
+                                            showPriceOverride &&
+                                            catalogService && (
+                                              <div className="space-y-0.5">
+                                                {sourceLineForItem ? (
+                                                  <div>
+                                                    Text:{" "}
+                                                    <span className="font-medium">
+                                                      {sourceLineForItem}
+                                                    </span>
+                                                    <span className="font-semibold">
+                                                      {" "}
+                                                      — Textpreis übernommen.
+                                                    </span>
+                                                  </div>
+                                                ) : (
+                                                  <div>
+                                                    Textpreis übernommen: Preis
+                                                    stammt aus dem Kundentext.
+                                                    Genaue Textzeile bitte bei
+                                                    Bedarf unten prüfen.
+                                                  </div>
+                                                )}
+                                                <div className="text-amber-700/75 dark:text-amber-200/75">
+                                                  Katalog: {catalogService.unit}{" "}
+                                                  ·{" "}
+                                                  {formatCurrency(
+                                                    catalogPrice,
+                                                    currency,
+                                                  )}
+                                                </div>
                                               </div>
                                             )}
-                                            <div>
-                                              Diese Position wird nicht in Netto/MwSt./Total gerechnet, bis die Währung und der Preis eindeutig bestätigt sind.
-                                            </div>
-                                          </div>
-                                        )}
 
-                                        {showUnitConflict && (
-                                          <div className="space-y-0.5">
-                                            {unitMissingInTextReason ? (
-                                              <>
+                                          {!showUnitConflict &&
+                                            !showPriceOverride &&
+                                            showManualCurrencyConfirmedReview && (
+                                              <div className="space-y-0.5">
                                                 <div>
-                                                  Einheit fehlt im Kundentext.
+                                                  Preis/Währung manuell
+                                                  bestätigt.
                                                 </div>
+                                                {sourceLineForItem && (
+                                                  <div>
+                                                    Ausgangstext:{" "}
+                                                    <span className="font-medium">
+                                                      {sourceLineForItem}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+
+                                          {!showUnitConflict &&
+                                            showPriceReferenceReview && (
+                                              <div className="space-y-0.5">
+                                                <div>Preis im Text unklar.</div>
                                                 {sourceLineForItem && (
                                                   <div>
                                                     Text:{" "}
@@ -9697,129 +10278,44 @@ export default function AuftraegePage() {
                                                   </div>
                                                 )}
                                                 <div>
-                                                  Bitte Einheit bestätigen, bevor
-                                                  Angebot oder Rechnung erstellt wird.
+                                                  Bitte Preis bestätigen.
                                                 </div>
-                                              </>
-                                            ) : (
-                                              <>
-                                                <div>
-                                                  Text:{" "}
-                                                  <span className="font-medium">
-                                                    {orderSummary}
-                                                  </span>
-                                                </div>
-                                                {catalogSummary && (
+                                              </div>
+                                            )}
+
+                                          {!showUnitConflict &&
+                                            (priceInputReview ||
+                                              quantityInputReview) && (
+                                              <div className="space-y-0.5">
+                                                {priceInputReview && (
                                                   <div>
-                                                    Katalog:{" "}
-                                                    <span className="font-medium">
-                                                      {catalogSummary}
-                                                    </span>
+                                                    Preis fehlt oder ist
+                                                    unsicher.
+                                                  </div>
+                                                )}
+                                                {quantityInputReview && (
+                                                  <div>
+                                                    Menge fehlt oder ist
+                                                    unsicher.
                                                   </div>
                                                 )}
                                                 <div>
-                                                  Einheit prüfen: {item.serviceName || "Leistung"}
+                                                  Vor Angebot/Rechnung ergänzen.
                                                 </div>
-                                              </>
+                                              </div>
                                             )}
-                                          </div>
-                                        )}
 
-                                        {!showUnitConflict &&
-                                          showPriceOverride &&
-                                          catalogService && (
-                                            <div className="space-y-0.5">
-                                              {sourceLineForItem ? (
-                                                <div>
-                                                  Text:{" "}
-                                                  <span className="font-medium">
-                                                    {sourceLineForItem}
-                                                  </span>
-                                                  <span className="font-semibold">
-                                                    {" "}
-                                                    — Textpreis übernommen.
-                                                  </span>
-                                                </div>
-                                              ) : (
-                                                <div>
-                                                  Textpreis übernommen: Preis
-                                                  stammt aus dem Kundentext.
-                                                  Genaue Textzeile bitte bei
-                                                  Bedarf unten prüfen.
-                                                </div>
-                                              )}
-                                              <div className="text-amber-700/75 dark:text-amber-200/75">
-                                                Katalog: {catalogService.unit} ·{" "}
-                                                {formatCurrency(
-                                                  catalogPrice,
-                                                  currency,
-                                                )}
-                                              </div>
+                                          {showManualServiceReview && (
+                                            <div>
+                                              Nicht im Leistungskatalog.
+                                              Optional über Menü übernehmen.
                                             </div>
                                           )}
-
-                                        {!showUnitConflict &&
-                                          !showPriceOverride &&
-                                          showManualCurrencyConfirmedReview && (
-                                            <div className="space-y-0.5">
-                                              <div>Preis/Währung manuell bestätigt.</div>
-                                              {sourceLineForItem && (
-                                                <div>
-                                                  Ausgangstext:{" "}
-                                                  <span className="font-medium">
-                                                    {sourceLineForItem}
-                                                  </span>
-                                                </div>
-                                              )}
-                                            </div>
-                                          )}
-
-                                        {!showUnitConflict &&
-                                          showPriceReferenceReview && (
-                                            <div className="space-y-0.5">
-                                              <div>Preis im Text unklar.</div>
-                                              {sourceLineForItem && (
-                                                <div>
-                                                  Text:{" "}
-                                                  <span className="font-medium">
-                                                    {sourceLineForItem}
-                                                  </span>
-                                                </div>
-                                              )}
-                                              <div>Bitte Preis bestätigen.</div>
-                                            </div>
-                                          )}
-
-                                        {!showUnitConflict &&
-                                          (priceInputReview ||
-                                            quantityInputReview) && (
-                                            <div className="space-y-0.5">
-                                              {priceInputReview && (
-                                                <div>
-                                                  Preis fehlt oder ist unsicher.
-                                                </div>
-                                              )}
-                                              {quantityInputReview && (
-                                                <div>
-                                                  Menge fehlt oder ist unsicher.
-                                                </div>
-                                              )}
-                                              <div>
-                                                Vor Angebot/Rechnung ergänzen.
-                                              </div>
-                                            </div>
-                                          )}
-
-                                        {showManualServiceReview && (
-                                          <div>
-                                            Nicht im Leistungskatalog. Optional
-                                            über Menü übernehmen.
-                                          </div>
-                                        )}
+                                        </div>
                                       </div>
-                                    </div>
-                                  )}
-                                </div>
+                                    )}
+                                  </div>
+                                )
                               )}
                             </div>
                           );
@@ -10021,7 +10517,9 @@ export default function AuftraegePage() {
                             0,
                           ),
                       )}
-                      style={{ fieldSizing: "content", overflow: "hidden" } as any}
+                      style={
+                        { fieldSizing: "content", overflow: "hidden" } as any
+                      }
                       placeholder="z.B. Rückruf, Zugang, Parkplatz, Leiter nötig, Terminwunsch..."
                       value={normalSpecialNotesText}
                       onChange={(e) => updateNormalSpecialNotes(e.target.value)}
@@ -10257,7 +10755,10 @@ export default function AuftraegePage() {
                                   ? "Mediendatei vorhanden"
                                   : "Keine Kundennachricht gespeichert"}
                           </span>
-                          <span>Zusammenführung: bei Bedarf Original öffnen und prüfen.</span>
+                          <span>
+                            Zusammenführung: bei Bedarf Original öffnen und
+                            prüfen.
+                          </span>
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -10283,32 +10784,42 @@ export default function AuftraegePage() {
                                       Bildvorschau
                                     </div>
                                     <div className="text-xs text-muted-foreground">
-                                      {customerMessageImagePreviewUrls.length} Bild{customerMessageImagePreviewUrls.length === 1 ? "" : "er"} · Miniatur anklicken
+                                      {customerMessageImagePreviewUrls.length}{" "}
+                                      Bild
+                                      {customerMessageImagePreviewUrls.length ===
+                                      1
+                                        ? ""
+                                        : "er"}{" "}
+                                      · Miniatur anklicken
                                     </div>
                                   </div>
                                   <ImageIcon className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <div className="flex flex-wrap gap-2">
-                                  {customerMessageImagePreviewUrls.map((url, index) => (
-                                    <button
-                                      key={`${url}-${index}`}
-                                      type="button"
-                                      className="group flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted hover:ring-2 hover:ring-primary"
-                                      onClick={() => {
-                                        setGalleryUrls(customerMessageImagePreviewUrls);
-                                        setGalleryIdx(index);
-                                        setMediaType("image");
-                                        setMediaUrl(null);
-                                        setMediaDialogOpen(true);
-                                      }}
-                                    >
-                                      <img
-                                        src={url}
-                                        alt={`Kundenbild ${index + 1}`}
-                                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                                      />
-                                    </button>
-                                  ))}
+                                  {customerMessageImagePreviewUrls.map(
+                                    (url, index) => (
+                                      <button
+                                        key={`${url}-${index}`}
+                                        type="button"
+                                        className="group flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted hover:ring-2 hover:ring-primary"
+                                        onClick={() => {
+                                          setGalleryUrls(
+                                            customerMessageImagePreviewUrls,
+                                          );
+                                          setGalleryIdx(index);
+                                          setMediaType("image");
+                                          setMediaUrl(null);
+                                          setMediaDialogOpen(true);
+                                        }}
+                                      >
+                                        <img
+                                          src={url}
+                                          alt={`Kundenbild ${index + 1}`}
+                                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                                        />
+                                      </button>
+                                    ),
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -10339,7 +10850,6 @@ export default function AuftraegePage() {
                       )}
                     </div>
                   </div>
-
                 </>
               )}
             </div>
