@@ -107,22 +107,90 @@ const isNonSafetyConditionLineV17_33 = (value: string): boolean => {
   return isDirtOrConditionOnly && hasCleaningContext && !hasRealSafetyRisk;
 };
 
+const isEquipmentOnlyWarningLineV17_34 = (value: string): boolean => {
+  const text = normalizeDedupeText(value);
+  if (!text) return false;
+
+  // Eine Leiter ist Ausrüstung/Arbeitsmittel, kein roter Gefahrenhinweis.
+  // Echte Gefahren wie Gas, Rauch, Strom, Rutschgefahr usw. bleiben rot.
+  const hasLadder = /\bleiter\b|\bladder\b|\bechelle\b|\bescalera\b|\bscala\b|\bescada\b/.test(text);
+  if (!hasLadder) return false;
+
+  const hasRealSafetyRisk = /\b(?:hund|dog|chien|oel|ol|oil|rutsch|glatt|slippery|strom|kabel|gas|rauch|scherb|glasbruch|asbest|schimmel|chem|feuer|brand|sturz|absturz|instabil|einsturz)\b/.test(text);
+  return !hasRealSafetyRisk;
+};
+
+const stripNoteSentencePunctuationV17_34 = (value: string): string =>
+  String(value || "").replace(/[.;:,\s]+$/g, "").trim();
+
+const isNoWhatsappOnlyLineV17_34 = (value: string): boolean => {
+  const text = normalizeDedupeText(value);
+  if (!text) return false;
+  return /\b(?:kein|keine|keinen|ohne|no|not|pas|sans)\s+whatsapp\b|\bwhatsapp\s+(?:nicht|not|pas|nein)\b/.test(text) && !/\bsms\b/.test(text);
+};
+
+const isPreArrivalOnlyLineV17_34 = (value: string): boolean => {
+  const text = normalizeDedupeText(value);
+  if (!text) return false;
+  return /\bnicht\s+einfach\s+(?:kommen|vorbeikommen)\b/.test(text) &&
+    !/\b(?:whatsapp|sms|telefon|anrufen|kontaktieren|melden)\b/.test(text);
+};
+
+const isContactBeforeArrivalLineV17_34 = (value: string): boolean => {
+  const text = normalizeDedupeText(value);
+  if (!text) return false;
+  return /\b(?:vorher|zuerst|vor\s+(?:ankunft|arbeitsbeginn|start))\b/.test(text) &&
+    /\b(?:whatsapp|sms|telefon|anrufen|kontaktieren|melden)\b/.test(text);
+};
+
+const mergePreArrivalInstructionLinesV17_34 = (lines: string[]): string[] => {
+  const out: string[] = [];
+  let preArrivalOnly = "";
+  let contactLine = "";
+
+  for (const line of lines) {
+    if (isPreArrivalOnlyLineV17_34(line)) {
+      preArrivalOnly = preArrivalOnly || line;
+      continue;
+    }
+    if (isContactBeforeArrivalLineV17_34(line)) {
+      contactLine = contactLine || line;
+      continue;
+    }
+    out.push(line);
+  }
+
+  if (contactLine && preArrivalOnly) {
+    const markerMatch = contactLine.match(/^\s*(\[(?:HINWEIS|INFO|NOTIZ)\])\s*/i) || preArrivalOnly.match(/^\s*(\[(?:HINWEIS|INFO|NOTIZ)\])\s*/i);
+    const marker = markerMatch?.[1] || "[HINWEIS]";
+    const contactBody = stripNoteSentencePunctuationV17_34(stripKnownMarker(contactLine));
+    out.push(`${marker} ${contactBody}; nicht einfach kommen.`);
+  } else {
+    if (contactLine) out.push(contactLine);
+    if (preArrivalOnly) out.push(preArrivalOnly);
+  }
+
+  return out;
+};
+
 const isServiceLikeSpecialNoteLineV17_32 = (value: string): boolean => {
   const body = stripKnownMarker(value);
   const text = normalizeDedupeText(value);
   if (!body || !text) return false;
 
-  const hasWorkAction = /\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/.test(text);
+  const hasWorkAction = /(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/.test(text);
   const hasMeasureOrPrice =
     /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|stunden?|std|stueck|stück|stk|pcs?|chf|eur|euro|franken|stutz)\b/i.test(body) ||
     /\(\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|stueck|stück|stk)\s*\)/i.test(body) ||
     /\b(?:chf|eur|euro|franken|stutz)\s*\d/i.test(body);
 
-  const actionCount = (text.match(/\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
+  const actionCount = (text.match(/(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
   const hasListSeparator = /[,;+]/.test(body);
   const hasOperationalSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
 
-  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2));
+  const hasServiceListSummary = hasListSeparator && actionCount >= 1 && /\b(?:anfahrt|fahrtkosten|fahrt|pauschale)\b/.test(text);
+
+  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2) || hasServiceListSummary);
 };
 
 const canonicalSpecialNoteBodyV17_32 = (value: string): string => {
@@ -311,7 +379,7 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
 
     if (isSafetyWarningLine(line)) {
       const cleaned = stripKnownMarker(line);
-      if (cleaned && isNonSafetyConditionLineV17_33(cleaned)) {
+      if (cleaned && (isNonSafetyConditionLineV17_33(cleaned) || isEquipmentOnlyWarningLineV17_34(cleaned))) {
         if (isOperationalJobHint(cleaned)) jobHints.push(cleaned);
         continue;
       }
@@ -328,11 +396,17 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
   const dedupedJobHints = dedupeSemanticLines(jobHints).filter(
     (line) => !safetyKeys.has(semanticNoteKey(line)),
   );
+  const cleanedJobHints = mergePreArrivalInstructionLinesV17_34(
+    mergeCommunicationLinesV17_33(dedupedJobHints),
+  )
+    .map(stripKnownMarker)
+    .map(normalizeLine)
+    .filter(Boolean);
 
   return {
     systemHints: dedupeSemanticLines(systemHints),
     safetyWarnings: dedupedSafetyWarnings,
-    jobHints: dedupedJobHints,
+    jobHints: cleanedJobHints,
   };
 }
 
@@ -405,20 +479,27 @@ const extractContactTimeFromNoteV17_33 = (value: string): string => {
 function mergeCommunicationLinesV17_33(lines: string[]): string[] {
   const out: string[] = [];
   const smsLines: string[] = [];
+  const noWhatsappOnlyLines: string[] = [];
 
   for (const line of lines) {
-    if (semanticNoteKey(line) === "communication_sms") {
+    const key = semanticNoteKey(line);
+    if (key === "communication_sms") {
       smsLines.push(line);
+      continue;
+    }
+    if (isNoWhatsappOnlyLineV17_34(line)) {
+      noWhatsappOnlyLines.push(line);
       continue;
     }
     out.push(line);
   }
 
   if (smsLines.length > 0) {
-    const phone = smsLines.map(extractPhoneFromNoteV17_33).find(Boolean) || "";
-    const time = smsLines.map(extractContactTimeFromNoteV17_33).find(Boolean) || "";
-    const hasOnlySms = smsLines.some((line) => /\b(?:nur|only|seulement)\s+(?:per\s+)?sms\b/i.test(stripKnownMarker(line)));
-    const noWhatsapp = smsLines.some((line) => /(?:kein|keine|no|pas)\s+whatsapp|pas\s+whatsapp/i.test(stripKnownMarker(line)));
+    const mergedSmsSource = [...smsLines, ...noWhatsappOnlyLines];
+    const phone = mergedSmsSource.map(extractPhoneFromNoteV17_33).find(Boolean) || "";
+    const time = mergedSmsSource.map(extractContactTimeFromNoteV17_33).find(Boolean) || "";
+    const hasOnlySms = mergedSmsSource.some((line) => /\b(?:nur|only|seulement)\s+(?:per\s+)?sms\b/i.test(stripKnownMarker(line)));
+    const noWhatsapp = mergedSmsSource.some((line) => /(?:kein|keine|no|pas)\s+whatsapp|pas\s+whatsapp/i.test(stripKnownMarker(line)));
 
     const parts = [hasOnlySms ? "Nur SMS als Kontakt" : "SMS-Kontakt bevorzugt"];
     if (phone) parts[0] += `: ${phone}`;
@@ -426,6 +507,8 @@ function mergeCommunicationLinesV17_33(lines: string[]): string[] {
     if (noWhatsapp) parts.push("keine WhatsApp");
 
     out.push(`[HINWEIS] ${parts.join("; ")}.`);
+  } else {
+    out.push(...noWhatsappOnlyLines);
   }
 
   return out;
@@ -477,7 +560,7 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
     out.push(rebuilt);
   });
 
-  return mergeCommunicationLinesV17_33(out);
+  return mergePreArrivalInstructionLinesV17_34(mergeCommunicationLinesV17_33(out));
 }
 
 export function buildSpecialNotes(input: {
@@ -488,8 +571,11 @@ export function buildSpecialNotes(input: {
   const rawSafetyWarnings = (input.safetyWarnings ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
   const demotedSafetyHints = rawSafetyWarnings
     .map(stripKnownMarker)
-    .filter(isNonSafetyConditionLineV17_33);
-  const safetyWarnings = rawSafetyWarnings.filter((line) => !isNonSafetyConditionLineV17_33(stripKnownMarker(line)));
+    .filter((line) => isNonSafetyConditionLineV17_33(line) || isEquipmentOnlyWarningLineV17_34(line));
+  const safetyWarnings = rawSafetyWarnings.filter((line) => {
+    const cleaned = stripKnownMarker(line);
+    return !isNonSafetyConditionLineV17_33(cleaned) && !isEquipmentOnlyWarningLineV17_34(cleaned);
+  });
   const jobHints = [...(input.jobHints ?? []), ...demotedSafetyHints]
     .map(canonicalizeSpecialNoteLineV17_32)
     .filter(isOperationalJobHint);

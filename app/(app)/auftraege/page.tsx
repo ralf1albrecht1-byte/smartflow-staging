@@ -26,7 +26,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Mic,
-  Dog as DogLucide,
 } from "lucide-react";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import { CommunicationChips } from "@/components/communication-block";
@@ -92,17 +91,35 @@ function LadderIcon({
 
 function DogIcon({
   className = "h-4 w-4",
-  strokeWidth = 2.4,
+  strokeWidth = 2.2,
 }: {
   className?: string;
   strokeWidth?: number | string;
 }) {
   return (
-    <DogLucide
-      className={className}
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
       strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
       aria-hidden="true"
-    />
+    >
+      <path d="M4.2 13.2c.7-2.2 2.4-3.7 5.2-3.7h4.2c1.8 0 3.1.7 4 2.1" />
+      <path d="M17.4 11.6l2.2-1.2c.7-.4 1.5.1 1.5.9v1.2c0 .7-.4 1.3-1 1.6l-1.7.8" />
+      <path d="M5.2 13.1 3 11.6" />
+      <path d="M8 9.6 6.9 7.8c-.3-.5.1-1.1.7-1.1h1.1c.6 0 1.1.4 1.2 1l.3 1.8" />
+      <path d="M7.2 13.4v4.4" />
+      <path d="M10.3 13.4v4.4" />
+      <path d="M14.2 13.4v4.4" />
+      <path d="M17.3 13.4v4.4" />
+      <path d="M6.6 18.2h1.3" />
+      <path d="M9.7 18.2H11" />
+      <path d="M13.6 18.2h1.3" />
+      <path d="M16.7 18.2H18" />
+    </svg>
   );
 }
 
@@ -794,17 +811,19 @@ const isServiceLikeOperationalHintForBadges = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!raw || !text) return false;
 
-  const hasWorkAction = /\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/.test(text);
+  const hasWorkAction = /(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/.test(text);
   const hasMeasureOrPrice =
     /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|stunden?|std|stueck|stück|stk|pcs?|chf|eur|euro|franken|stutz)\b/i.test(raw) ||
     /\(\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|stueck|stück|stk)\s*\)/i.test(raw) ||
     /\b(?:chf|eur|euro|franken|stutz)\s*\d/i.test(raw);
 
-  const actionCount = (text.match(/\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
+  const actionCount = (text.match(/(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
   const hasListSeparator = /[,;+]/.test(raw);
   const hasOperationalSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
 
-  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2));
+  const hasServiceListSummary = hasListSeparator && actionCount >= 1 && /\b(?:anfahrt|fahrtkosten|fahrt|pauschale)\b/.test(text);
+
+  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2) || hasServiceListSummary);
 };
 
 const getSemanticBadgeKind = (value?: string | null) => {
@@ -4009,14 +4028,19 @@ const extractFallbackServiceLabels = (order: Order) => {
   return [cleaned.length > 80 ? `${cleaned.slice(0, 77).trim()}…` : cleaned];
 };
 
+const cleanCardServiceLabelV17_34 = (value?: string | null) =>
+  compactText(value)
+    .replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, "")
+    .trim();
+
 const getOrderCardServiceSummary = (order: Order) => {
   const itemLabels =
     order.items && order.items.length > 0
-      ? order.items.map((item) => item.serviceName)
+      ? order.items.map((item) => cleanCardServiceLabelV17_34(item.serviceName))
       : [];
 
   const structuredLabels =
-    itemLabels.length > 0 ? itemLabels : [order.serviceName || ""];
+    itemLabels.length > 0 ? itemLabels : [cleanCardServiceLabelV17_34(order.serviceName) || ""];
   const usableStructuredLabels = structuredLabels.filter(
     (label) => normalizeForMatch(label) !== "sonstiges",
   );
@@ -4041,10 +4065,10 @@ const formatMobileServiceSummary = (labels: string[]) => {
 const getMobileOrderCardServiceSummary = (order: Order) => {
   const itemLabels =
     order.items && order.items.length > 0
-      ? order.items.map((item) => item.serviceName)
+      ? order.items.map((item) => cleanCardServiceLabelV17_34(item.serviceName))
       : [];
   const structuredLabels =
-    itemLabels.length > 0 ? itemLabels : [order.serviceName || ""];
+    itemLabels.length > 0 ? itemLabels : [cleanCardServiceLabelV17_34(order.serviceName) || ""];
   const usableStructuredLabels = structuredLabels.filter(
     (label) => normalizeForMatch(label) !== "sonstiges",
   );
