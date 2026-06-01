@@ -416,11 +416,21 @@ function hourRepairServiceTopic(value?: string | null): string | null {
 }
 
 function stripAutomaticTranslationBlock(value?: string | null): string {
-  return String(value || "")
+  const source = String(value || "")
     .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split(/\n\s*---\s*(?:uebersetzung|übersetzung)\s*\(\s*automatisch\s*\)\s*---\s*/i)[0]
-    .trim();
+    .replace(/\r/g, "\n");
+  const parts = source.split(
+    /\n\s*---\s*(?:uebersetzung|übersetzung)\s*\(\s*automatisch\s*\)\s*---\s*/i,
+  );
+
+  // If a standard-German validation translation is attached, use it as the
+  // semantic repair source. This prevents raw dialect/original-language lines
+  // and their translated counterparts from being repaired twice.
+  if (parts.length > 1 && parts.slice(1).join("\n").trim()) {
+    return parts.slice(1).join("\n").trim();
+  }
+
+  return parts[0].trim();
 }
 
 export function buildHourLineRepairCandidates(originalText: string): HourLineRepairCandidate[] {
@@ -1000,10 +1010,15 @@ function hasExistingFlatFeeRepresentation(
   items: HourLineRepairItem[],
 ): boolean {
   return items.some((item) => {
-    const itemText = [item.serviceName, item.description, item.sourceText, item.evidence]
+    const serviceTopic = hourRepairServiceTopic(item.serviceName || "");
+    if (serviceTopic !== "anfahrt" && isCompletePricedNonFlatRepairItem(item)) {
+      return false;
+    }
+
+    const evidenceText = [item.sourceText, item.evidence, item.description]
       .filter(Boolean)
       .join(" ");
-    const itemTopic = hourRepairServiceTopic(itemText);
+    const itemTopic = serviceTopic || hourRepairServiceTopic(evidenceText);
     const itemPrice = normalizeHourRepairNumber(item.unitPrice);
     const itemTotal = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
     const itemQuantity = normalizeHourRepairNumber(item.quantity);
@@ -1031,36 +1046,84 @@ function hasExistingFlatFeeRepresentation(
   });
 }
 
+function isCompletePricedNonFlatRepairItem(item: HourLineRepairItem): boolean {
+  const quantity = normalizeHourRepairNumber(item.quantity);
+  const unitPrice = normalizeHourRepairNumber(item.unitPrice);
+  const totalPrice = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
+  const unit = normalizeHourRepairText(item.unit || "").replace(/[^a-z0-9]/g, "");
+
+  return (
+    quantity > 0 &&
+    unitPrice > 0 &&
+    totalPrice > 0 &&
+    unit !== "" &&
+    unit !== "pauschal" &&
+    !isHourRepairHourUnit(item.unit) &&
+    Math.abs(totalPrice - quantity * unitPrice) < 0.01
+  );
+}
+
+function narrowFlatFeeEvidenceText(item: HourLineRepairItem): string {
+  return [item.sourceText, item.evidence, item.description]
+    .filter(Boolean)
+    .map((part) => String(part))
+    .join("\n");
+}
+
 function chooseFlatFeeRepairCandidateForItem(
   item: HourLineRepairItem,
   candidates: FlatFeeRepairCandidate[],
 ): FlatFeeRepairCandidate | null {
   if (!candidates.length) return null;
 
-  const itemText = [item.serviceName, item.description, item.sourceText, item.evidence]
-    .filter(Boolean)
-    .join(" ");
-  if (hourRepairServiceTopic(itemText) !== "anfahrt") return null;
+  const serviceTopic = hourRepairServiceTopic(item.serviceName || "");
 
-  const itemPrice = normalizeHourRepairNumber(item.unitPrice);
-  const samePrice = candidates.find((candidate) => Math.abs(candidate.price - itemPrice) < 0.01);
-  if (samePrice) return samePrice;
+  // A complete measured service row must never be turned into Anfahrt just
+  // because broad WhatsApp evidence contains a later travel-price line.
+  if (serviceTopic !== "anfahrt" && isCompletePricedNonFlatRepairItem(item)) {
+    return null;
+  }
 
-  const itemKey = normalizeHourRepairText(itemText);
-  const direct = candidates.find((candidate) =>
-    itemKey.includes(candidate.key) || candidate.key.includes(itemKey),
-  );
-  if (direct) return direct;
+  if (serviceTopic === "anfahrt") {
+    const itemPrice = normalizeHourRepairNumber(item.unitPrice);
+    const samePrice = candidates.find(
+      (candidate) => Math.abs(candidate.price - itemPrice) < 0.01,
+    );
+    if (samePrice) return samePrice;
+    return candidates[0] || null;
+  }
 
-  return candidates[0] || null;
+  const evidenceText = narrowFlatFeeEvidenceText(item);
+  const evidenceKey = normalizeHourRepairText(evidenceText);
+  if (!evidenceKey || hourRepairServiceTopic(evidenceText) !== "anfahrt") {
+    return null;
+  }
+
+  const direct = candidates.find((candidate) => {
+    if (!candidate.key) return false;
+    const candidateContained = evidenceKey.includes(candidate.key);
+    const evidenceContained = candidate.key.includes(evidenceKey);
+    if (!candidateContained && !evidenceContained) return false;
+
+    // Broad full-message evidence can contain every line; only accept a direct
+    // match when the candidate and item evidence are nearly the same line.
+    return evidenceKey.length <= candidate.key.length + 80;
+  });
+
+  return direct || null;
 }
 
 function needsFlatFeeRepair(item: HourLineRepairItem, candidate: FlatFeeRepairCandidate): boolean {
   const serviceName = normalizeHourRepairText(item.serviceName || "");
+  const serviceTopic = hourRepairServiceTopic(item.serviceName || "");
   const unit = normalizeHourRepairText(item.unit || "").replace(/[^a-z0-9]/g, "");
   const quantity = normalizeHourRepairNumber(item.quantity);
   const unitPrice = normalizeHourRepairNumber(item.unitPrice);
   const totalPrice = roundHourRepairMoney(normalizeHourRepairNumber(item.totalPrice));
+
+  if (serviceTopic !== "anfahrt" && isCompletePricedNonFlatRepairItem(item)) {
+    return false;
+  }
 
   // V17.17: Do not overwrite a complete Anfahrt/Pauschal row with the old
   // customer-text amount. The repair is only allowed to fill missing/broken

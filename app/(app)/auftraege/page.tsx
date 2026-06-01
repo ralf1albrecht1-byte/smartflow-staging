@@ -2050,6 +2050,7 @@ const getOperationalBadges = (
       className: redWarningClass,
       icon: true,
       tooltip,
+      focusTarget: "specialNotes",
     });
 
   const addHint = (
@@ -2063,6 +2064,7 @@ const getOperationalBadges = (
       label,
       className,
       tooltip,
+      focusTarget: "specialNotes",
     });
 
   parsedNotes.safetyWarnings.forEach((line) => {
@@ -2733,7 +2735,7 @@ const formatServiceReviewSummaryTooltip = (input: {
         ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
         : "kein Katalogpreis";
       const calculation = formatServiceReviewCalculation(item, input.currency);
-      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Auftrag ${itemPriceLabel}, Katalog ${catalogLabel}`);
+      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Text ${itemPriceLabel}, Katalog ${catalogLabel}`);
       if (calculation) lines.push(`  Berechnung: ${calculation}`);
     });
     if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
@@ -3412,8 +3414,18 @@ const detectPreArrivalInstructionHint = (
   if (!direct) return null;
 
   const callbackTime = extractCallbackTimeHint(...values);
-  const noWhatsApp = lines.some((line) => isNegativeWhatsAppInstructionLine(line));
-  return [direct, callbackTime, noWhatsApp ? "Keine WhatsApp." : ""]
+  const cleanedDirect = compactText(direct)
+    .replace(/\b(?:keine?|kein|ohne|nicht)\s+(?:per\s+|via\s+)?whats\s*app\.?/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return [
+    "Vorher melden, nicht direkt erscheinen.",
+    cleanedDirect && normalizeForMatch(cleanedDirect) !== "nicht einfach kommen"
+      ? cleanedDirect
+      : "",
+    callbackTime ? `Zeit: ${callbackTime}` : "",
+  ]
     .filter(Boolean)
     .join("\n");
 };
@@ -3504,6 +3516,7 @@ const getBottomBadges = (
       label: "Nicht einfach kommen",
       className: "bg-blue-100 text-blue-700 border border-blue-300",
       tooltip: preArrivalHint,
+      focusTarget: "specialNotes",
     });
   }
 
@@ -3596,6 +3609,7 @@ const getBottomBadges = (
         label: "Termin klären",
         className: "bg-amber-100 text-amber-800 border border-amber-300",
         tooltip: compactText(appointmentClarification).slice(0, 120),
+        focusTarget: "specialNotes",
       });
     }
   }
@@ -3678,10 +3692,12 @@ const renderBadgeTooltip = (
           );
         }
 
+        const emphasizeLine = headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed);
+
         return (
           <span
             key={`line_${index}`}
-            className={`block ${headingPattern.test(trimmed) ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+            className={`block ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
           >
             {line}
           </span>

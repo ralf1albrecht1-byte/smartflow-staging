@@ -1606,6 +1606,14 @@ function cleanExecutionSiteNameCandidate(
 
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
 
+  candidate = candidate
+    .split(/\b(?:bitte|please|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
+    .replace(/[,;:.\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!candidate || /^[-–—]+$/.test(candidate)) return null;
+
   // Titel-Zeilen sind reine Auftrags-/Karten-Titel und niemals Objekt-/Ortsnamen.
   // Beispiel: "[Titel: Fenster Kontakt vor Ort]" darf nicht als Ausführungsadresse-Label gespeichert werden.
   if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate))
@@ -1635,6 +1643,8 @@ function cleanExecutionSiteNameCandidate(
     "morgen",
     "heute",
     "bitte",
+    "nadresse",
+    "n adresse",
   ]);
   if (blockedExact.has(normalized)) return null;
 
@@ -2156,6 +2166,7 @@ Regeln:
 - Übersetze/normalisiere dann den kompletten Text nach professionellem Standard-${targetLanguage}.
 - Erhalte Struktur, Zeilenumbrüche, Adressblöcke, Telefonnummern, E-Mail, Mengen, Einheiten, Preise, Währungen, Codes und Reihenfolge exakt sinngemäß.
 - Leistungszeilen müssen in der Übersetzung als klare fachliche Standard-${targetLanguage}-Arbeitszeilen erscheinen, mit sauberem Verb, z.B. "... reinigen", "... abstauben", "... entfernen", "... streichen" usw., wenn die Handlung aus dem Text hervorgeht.
+- Ausführungsort-/Arbeitsort-Zeilen dürfen nur Objekt, Räume und Adresse enthalten. Kontaktwege, WhatsApp/SMS/Telefon, Zeitfenster, Zugang, Gefahren und Sonderhinweise bleiben eigene Hinweiszeilen und dürfen nicht an den Ortsnamen angehängt werden.
 - Keine neuen Leistungen erfinden. Keine Mengen/Preise ändern. Keine Zeilen zusammenmischen.
 - Wenn der Text bereits vollständig sauberes Standard-${targetLanguage} ist, needs_normalization=false und translation=null.`,
           },

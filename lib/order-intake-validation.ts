@@ -2873,7 +2873,7 @@ const EXPLICIT_SERVICE_NAME_BLOCKLIST = new Set([
 ]);
 
 function splitExplicitServiceLineCandidates(text?: string | null): string[] {
-  const source = normalizeText(text);
+  const source = normalizeText(preferredSemanticLineSourceV17_41(text));
   if (!source) return [];
 
   const cleanup = (line: string) =>
@@ -3405,7 +3405,7 @@ function inferExplicitServiceNameFromPreviousContext(
   originalText: string,
   currentLine: string,
 ): string | null {
-  const source = normalizeText(originalText);
+  const source = normalizeText(preferredSemanticLineSourceV17_41(originalText));
   const current = normalizeText(currentLine);
   if (!source || !current) return null;
 
@@ -4704,6 +4704,17 @@ function translatedSectionFromOriginalTextV17_35(value?: string | null): string 
   return parts.length > 1 ? parts.slice(1).join("\n") : "";
 }
 
+function preferredSemanticLineSourceV17_41(value?: string | null): string {
+  const source = String(value || "");
+  const translated = translatedSectionFromOriginalTextV17_35(source).trim();
+  if (translated) return translated;
+
+  return source
+    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Automatic translation\s*---[\s\S]*$/i, "");
+}
+
 function numberEvidencePatternV17_35(value: number): RegExp | null {
   if (!Number.isFinite(value) || value <= 0) return null;
   const fixed = Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
@@ -4754,7 +4765,14 @@ function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
   const key = normalizeCompare(cleaned);
   if (/\b(?:anfahrt|fahrt|fahrtkosten)\b/.test(key)) return "Anfahrt";
   if (/\bfenster\b/.test(key)) {
-    return /\breinigen\b/i.test(cleaned) ? cleaned : `${cleaned} reinigen`;
+    const windowName = cleaned
+      .replace(/\b(?:inneren|im\s+inneren|interne[nrms]?|intern)\b/gi, "innen")
+      .replace(/\s+/g, " ")
+      .trim();
+    return /\breinigen\b/i.test(windowName) ? windowName : `${windowName} reinigen`;
+  }
+  if (/\b(?:gelaender|geländer)\b/.test(key)) {
+    return /\b(?:reinigen|abstauben|abwischen|wischen)\b/i.test(cleaned) ? cleaned : `${cleaned} reinigen`;
   }
   if (/\bboden\b/.test(key)) {
     cleaned = cleaned
@@ -4782,7 +4800,7 @@ function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
 function hasVisibleGermanWorkActionV17_37(value?: string | null): boolean {
   const key = normalizeCompare(value);
   if (!key) return false;
-  return /\b(?:reinigen|reinigung|putzen|saeubern|abstauben|entfernen|arbeiten|anfahrt|fahrtkosten|streichen|malen|schneiden|entsorgen|montieren|demontieren|reparieren|liefern|umstellen)\b/.test(key);
+  return /\b(?:reinigen|reinigung|putzen|saeubern|abstauben|entfernen|abstauben|abwischen|wischen|arbeiten|anfahrt|fahrtkosten|streichen|malen|schneiden|entsorgen|montieren|demontieren|reparieren|liefern|umstellen)\b/.test(key);
 }
 
 function visibleServiceNameQualityScoreV17_37(value?: string | null): number {
@@ -4855,6 +4873,111 @@ function normalizeHighGermanServiceNamesFromTranslatedTextV17_35(
 
     return { ...item, serviceName: translatedName };
   });
+}
+
+
+function duplicateTranslationAmountKeyV17_41(
+  item: ParsedOrderItemForValidation,
+): string | null {
+  const quantity = roundMoney(Number(item.quantity || 0));
+  const unitPrice = roundMoney(Number(item.unitPrice || 0));
+  if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice)) return null;
+  if (quantity <= 0 || unitPrice <= 0) return null;
+
+  const unitType = unitTypeFromDisplayUnit(item.unit) || normalizeCompare(item.unit);
+  if (!unitType || unitType === "pauschal") return null;
+
+  const currency = normalizeCurrency(item.detectedCurrency || null) || "";
+  return [unitType, quantity, unitPrice, currency].join("|");
+}
+
+function genericVisibleServiceNameV17_41(value?: string | null): boolean {
+  const key = normalizeCompare(value);
+  return /^(?:boden reinigen|fenster reinigen|reinigung|leistung pruefen|unbekannte leistung)$/.test(key);
+}
+
+function translatedDuplicateKeepScoreV17_41(
+  item: ParsedOrderItemForValidation,
+): number {
+  const raw = String(item.serviceName || "").trim();
+  const key = normalizeCompare(raw);
+  let score = visibleServiceNameQualityScoreV17_37(raw) + serviceNameQualityScore(raw);
+
+  const tokenCount = key.split(/\s+/g).filter(Boolean).length;
+  score += tokenCount * 8;
+  score += meaningfulServiceTokens(raw).length * 22;
+
+  if (genericVisibleServiceNameV17_41(raw)) score -= 55;
+  if (/[,;:]?\s*(?:zu|a|à|pro|je|per|par)\s*$/i.test(raw)) score -= 140;
+  if (/\b(?:chf|eur|m2|m²|qm|stk|stueck|stück|meter)\b/i.test(raw)) score -= 140;
+  if (!hasVisibleGermanWorkActionV17_37(raw) && key !== "anfahrt") score -= 35;
+  if (Number(item.totalPrice || 0) > 0) score += 10;
+  if (!item.needsReview) score += 5;
+
+  return score;
+}
+
+function removeOriginalTranslatedAmountDuplicatesV17_41(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  if (items.length <= 1) return items;
+
+  const groups = new Map<
+    string,
+    Array<{ item: ParsedOrderItemForValidation; index: number }>
+  >();
+
+  items.forEach((item, index) => {
+    const key = duplicateTranslationAmountKeyV17_41(item);
+    if (!key) return;
+    const list = groups.get(key) || [];
+    list.push({ item, index });
+    groups.set(key, list);
+  });
+
+  const remove = new Set<number>();
+
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+
+    const distinctNames = new Set(
+      group.map(({ item }) => normalizeCompare(item.serviceName)).filter(Boolean),
+    );
+    if (distinctNames.size <= 1) {
+      group.slice(1).forEach((entry) => remove.add(entry.index));
+      continue;
+    }
+
+    const sorted = group
+      .slice()
+      .sort(
+        (a, b) =>
+          translatedDuplicateKeepScoreV17_41(b.item) -
+            translatedDuplicateKeepScoreV17_41(a.item) || a.index - b.index,
+      );
+
+    const best = sorted[0];
+    const bestScore = translatedDuplicateKeepScoreV17_41(best.item);
+    const shouldCollapse = sorted.slice(1).some((entry) => {
+      const score = translatedDuplicateKeepScoreV17_41(entry.item);
+      const name = String(entry.item.serviceName || "");
+      return (
+        bestScore >= score + 15 ||
+        genericVisibleServiceNameV17_41(name) ||
+        /[,;:]?\s*(?:zu|a|à|pro|je|per|par)\s*$/i.test(name) ||
+        isPriceAnchorOnlyServiceName(name)
+      );
+    });
+
+    if (!shouldCollapse) continue;
+
+    for (const entry of sorted.slice(1)) {
+      remove.add(entry.index);
+    }
+  }
+
+  if (remove.size === 0) return items;
+  return items.filter((_, index) => !remove.has(index));
 }
 
 function hasResolvedCompleteItemForReason(
@@ -5223,7 +5346,7 @@ function extractHardMeasuredLineItemsFromRawText(
   const result: ExplicitServiceLineItem[] = [];
   const seen = new Set<string>();
 
-  const lines = normalizeText(originalText)
+  const lines = normalizeText(preferredSemanticLineSourceV17_41(originalText))
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
     .map((line) =>
       normalizeText(line)
@@ -5478,10 +5601,7 @@ function cleanServiceNameFromUnitlessQuantityPriceLine(
 function stripAutomaticTranslationBlockForUnitlessGuard(
   value?: string | null,
 ): string {
-  return String(value || "")
-    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
-    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
-    .replace(/\n+---\s*Automatic translation\s*---[\s\S]*$/i, "");
+  return preferredSemanticLineSourceV17_41(value);
 }
 
 function extractUnitlessQuantityPriceLineCandidates(
@@ -6458,7 +6578,7 @@ function extractUnitlessQuantityPriceEvidenceLines(
   originalText: string,
   finalCurrency: IntakeCurrency,
 ): UnitlessQuantityPriceEvidenceLine[] {
-  const lines = normalizeText(originalText)
+  const lines = normalizeText(preferredSemanticLineSourceV17_41(originalText))
     .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
     .map((line) =>
       normalizeText(line)
@@ -7311,6 +7431,7 @@ export function validateAndRepairParsedOrderItems(
     input.originalText,
     items,
   );
+  items = removeOriginalTranslatedAmountDuplicatesV17_41(items);
   items = removeSameEvidenceQuantityPriceSplitArtifacts(items);
   items = removeHardSameEvidenceAmountDuplicates(items);
   reviewReasons.push(...finalEvidenceSafetyPass.reviewReasons);
@@ -7557,6 +7678,14 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
 
   if (!candidate) return null;
 
+  candidate = candidate
+    .split(/\b(?:bitte|please|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
+    .replace(/[,;:.\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!candidate) return null;
+
   // Titel-Zeilen sind reine Auftrags-/Karten-Titel und niemals Objekt-/Ortsnamen.
   if (/^\s*\[?\s*(?:titel|title)\s*[:：].*\]?\s*$/i.test(candidate))
     return null;
@@ -7685,6 +7814,8 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
     "dort",
     "hier",
     "adresse",
+    "nadresse",
+    "n adresse",
     "ausfuehrungsadresse",
     "ausführungsadresse",
     "bei",
