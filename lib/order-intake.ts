@@ -2435,6 +2435,33 @@ function canonicalizeSpecialNoteLine(line: string): string {
   const normalized = normalizeSemanticText(original);
   if (!original || !normalized) return original;
 
+  // Keep stored special notes visible in German. The LLM may occasionally
+  // return a mixed-language note although the translated block is German.
+  // This guard is phrase-meaning based for recurring safety/access concepts,
+  // not a service-word mapping.
+  if (
+    /\b(paviment|pavimento|pavimento\s+delicato|detergente\s+neutro|detergenti\s+neutri)\b/i.test(normalized) ||
+    (/\b(delicat|delicato|delicata|empfindlich|neutro|neutre|neutral)\b/i.test(normalized) && /\b(boden|floor|sol|suelo|paviment|pavimento|reinigungsmittel|detergente|detergent)\b/i.test(normalized))
+  ) {
+    return "Empfindlicher Boden, neutrales Reinigungsmittel verwenden";
+  }
+
+  if (/\b(non\s+toccare|ne\s+pas\s+toucher|do\s+not\s+touch|nicht\s+beruehren|nicht\s+berühren)\b/i.test(normalized) && /\b(kabel|cable|cavi|cables|strom|lichtanlage)\b/i.test(normalized)) {
+    return /lichtanlage/i.test(normalized)
+      ? "Lichtanlage nicht berühren"
+      : "Nicht an den Kabeln arbeiten";
+  }
+
+  if (/\b(accesso|access|acceso|zugang|eingang|garage|porta|tuercode|türcode|code)\b/i.test(normalized) && /\b(code|garage|porta|tuer|tür|eingang|zugang)\b/i.test(normalized)) {
+    return original
+      .replace(/\bEntrare\s+dal\s+garage\b/gi, "Zugang über die Garage")
+      .replace(/\bcodice\s+porta\b/gi, "Türcode")
+      .replace(/\baccesso\b/gi, "Zugang")
+      .replace(/\bporta\b/gi, "Tür")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   if (/^kontakt\s+vor\s+ort:/i.test(normalized)) {
     return original
       .replace(/\bist\s+nur\s+und\b/gi, "ist nur Kontaktperson vor Ort und")

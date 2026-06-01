@@ -3028,6 +3028,26 @@ function findExplicitUnitPriceInLine(
       currencyGroup: 1,
       priceGroup: 2,
     },
+    // Line-local measured price with punctuation after the measured amount:
+    // "Boden im Serverraum reinigen, 25 m², CHF 8." / "4 Stück, CHF 9".
+    // This is intentionally structural: quantity + unit + price must be on the
+    // same line, so prices cannot leak from another service line.
+    {
+      re: new RegExp(
+        `\b${QUANTITY_NUMBER_OR_WORD}\s*${UNIT_WORDS}\s*(?:[,;:\-–—]|\s)+\s*(?:(?:zum\s+preis\s+von|zum\s+preis|preis\s+von|preis|einzelpreis)\s*)?(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\b`,
+        "i",
+      ),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(
+        `\b${QUANTITY_NUMBER_OR_WORD}\s*${UNIT_WORDS}\s*(?:[,;:\-–—]|\s)+\s*(?:(?:zum\s+preis\s+von|zum\s+preis|preis\s+von|preis|einzelpreis)\s*)?${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\b`,
+        "i",
+      ),
+      currencyGroup: 2,
+      priceGroup: 1,
+    },
     // Currencyless "à 35.-" / "je 8" on a measured line. The order currency
     // is used as fallback; this is line-local only and never crosses services.
     {
