@@ -118,10 +118,20 @@ function normalizeSemanticChipText(value: string | null | undefined): string {
     .trim();
 }
 
+function isNegatedAnimalHint(value: string | null | undefined): boolean {
+  const text = normalizeSemanticChipText(value);
+  if (!text || !/\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text)) return false;
+
+  return (
+    /\b(?:kein|keine|keinen|keinem|keiner|ohne|nicht|no|not|without|pas|sans|aucun|aucune|nessun|nessuna|sin)\b.{0,36}\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text) ||
+    /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b.{0,36}\b(?:nicht|nein|none|absent|abwesend|nicht vorhanden|kein thema|no issue)\b/.test(text)
+  );
+}
+
 function getHazardChipVisual(value: string): SemanticChipVisual {
   const text = normalizeSemanticChipText(value);
 
-  if (/\b(hund|dog|chien|cane|perro|cao)\b/.test(text)) {
+  if (!isNegatedAnimalHint(value) && /\b(hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text)) {
     return { icon: '🐶', iconOnly: true, title: value };
   }
 
@@ -808,7 +818,7 @@ export function CommunicationBlock({
             </span>
           )}
           {/* Hazard chips */}
-          {hazards.map((h, i) => {
+          {hazards.filter((h) => !isNegatedAnimalHint(h)).map((h, i) => {
             const visual = getHazardChipVisual(h);
             return (
               <span
@@ -1050,7 +1060,7 @@ export function CommunicationChips({
           <Chip label={chip.label} color={chip.color} href={chip.href} title={chip.title} compact={compact} />
         </span>
       ))}
-      {hazards.map((h, i) => {
+      {hazards.filter((h) => !isNegatedAnimalHint(h)).map((h, i) => {
         const visual = getHazardChipVisual(h);
         const iconOnly = compact || visual.iconOnly;
         return (

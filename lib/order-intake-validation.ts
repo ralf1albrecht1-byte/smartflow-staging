@@ -7911,7 +7911,7 @@ function cleanSiteNameCandidate(value?: string | null): string | null {
   if (!candidate) return null;
 
   candidate = candidate
-    .split(/\b(?:bitte|please|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
+    .split(/\b(?:bitte|please|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|hinweise?|notizen?|bemerkungen?|notes?|arbeitsbeginn|beginn|anwesenheit|anwesend|kinder|children|kein\s+hund|keine\s+hunde|befindet\s+sich\s+kein|hund\s+(?:vor\s+ort|anwesend|im|in)|lift|aufzug|rutschig|strom|kabel|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
     .replace(/[,;:.\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -8038,6 +8038,12 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
   if (ADDRESS_WORD_PATTERN.test(candidate)) return false;
   if (STOP_MARKER.test(candidate)) return false;
   if (EXECUTION_ADDRESS_MARKER.test(candidate)) return false;
+  if (
+    /\b(hinweise?|notizen?|bemerkungen?|arbeitsbeginn|beginn|anwesenheit|anwesend|kinder|children|kein\s+hund|keine\s+hunde|befindet\s+sich\s+kein|hund\s+(?:vor\s+ort|anwesend|im|in)|lift|aufzug|rutschig|strom|kabel|whatsapp|sms|telefon|kontakt)\b/i.test(
+      key,
+    )
+  )
+    return false;
 
   const blocked = new Set([
     "ist",

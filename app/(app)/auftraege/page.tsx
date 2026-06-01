@@ -835,11 +835,41 @@ const isServiceLikeOperationalHintForBadges = (value?: string | null) => {
   return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2) || hasServiceListSummary);
 };
 
+const isNegatedDogHint = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text || !/\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text)) return false;
+
+  // Negative animal notes such as "Kein Hund vor Ort" are informational only.
+  // They must never create the red dog chip.
+  return (
+    /\b(?:kein|keine|keinen|keinem|keiner|ohne|nicht|no|not|without|pas|sans|aucun|aucune|nessun|nessuna|sin)\b.{0,36}\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text) ||
+    /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b.{0,36}\b(?:nicht|nein|none|absent|abwesend|nicht vorhanden|kein thema|no issue)\b/.test(text)
+  );
+};
+
+const normalizeOperationalHintDisplay = (kind: string, value?: string | null) => {
+  const raw = compactText(value);
+  const text = normalizeForMatch(value);
+  if (!raw || !text) return "";
+
+  if (kind === "care") {
+    if (/holzspielzeug|holz|nicht nass|nicht feucht|trocken|dry/.test(text)) {
+      return "Schonend reinigen, nicht nass reinigen";
+    }
+    if (/pavimento delicat|detergente neutro|detergent neutre|delicate floor|sensitive floor|empfindlich|delikat|heikel|schonend|neutral/.test(text)) {
+      return "Empfindlicher Boden, neutrales Reinigungsmittel verwenden";
+    }
+  }
+
+  return raw;
+};
+
 const getSemanticBadgeKind = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return null;
 
   if (isServiceLikeOperationalHintForBadges(value)) return null;
+  if (isNegatedDogHint(value)) return null;
 
   if (
     /oel|öl|rutsch|strom|kabel|gas|rauch|scherb|asbest|schimmel|chem|feuer|brand|sturz|absturz/.test(
@@ -1179,11 +1209,15 @@ const formatOperationalHintTooltip = (
     ...structuredSpecialNoteHints(order),
     ...parsedNotes.jobHints.map((line) => splitLocationPrefixedHint(line)),
   ]
-    .map((entry) => ({
-      location: compactText(stripVisibleNoteMarkerV17_35(entry.location)),
-      hint: compactText(stripVisibleNoteMarkerV17_35(stripRepeatedLocationPrefix(entry.hint, entry.location))),
-    }))
-    .filter((entry) => entry.hint && operationalHintMatchesKind(kind, entry.hint, contextText));
+    .map((entry) => {
+      const cleanHint = compactText(stripVisibleNoteMarkerV17_35(stripRepeatedLocationPrefix(entry.hint, entry.location)));
+      return {
+        location: compactText(stripVisibleNoteMarkerV17_35(entry.location)),
+        hint: normalizeOperationalHintDisplay(kind, cleanHint),
+        matchHint: cleanHint,
+      };
+    })
+    .filter((entry) => entry.matchHint && operationalHintMatchesKind(kind, entry.matchHint, contextText));
 
   const seen = new Set<string>();
   const seenHint = new Set<string>();
@@ -1301,7 +1335,7 @@ const badgeLabelByKind: Record<string, string> = {
 
 const dangerBadgeLabel = (value?: string | null) => {
   const text = normalizeForMatch(value);
-  if (/hund/.test(text)) return "Hund";
+  if (/hund/.test(text) && !isNegatedDogHint(value)) return "Hund";
   if (/oel|öl/.test(text)) return "Öl";
   if (/rutsch/.test(text)) return "Rutschig";
   if (/strom|kabel/.test(text)) return "Strom";
