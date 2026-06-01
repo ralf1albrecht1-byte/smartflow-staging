@@ -7164,7 +7164,13 @@ export async function processIncomingMessage(
   finalOrderItems = repairZeroQuantityHourItemsFromText(
     finalOrderItems,
     validationSourceText,
-    { logPrefix: "[INTAKE_HOUR_SHARED_FIX_V17_07]" },
+    {
+      logPrefix: "[INTAKE_HOUR_SHARED_FIX_V17_07]",
+      // V17.43: Pauschal-/Anfahrtszeilen werden bereits line-local im
+      // Validator aus dem normalisierten Leistungsteil erstellt. Die alte
+      // Nachreparatur darf keine zweite "Anfahrts"-Position mehr anhängen.
+      skipFlatFeeRepair: true,
+    },
   ).items;
 
   // V17.10: Finaler KI-Struktur-Schutz direkt vor der Totalberechnung.

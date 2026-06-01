@@ -536,6 +536,14 @@ function detectExplicitHourQuantityInLine(
 }
 
 const unitTypeFromText = (value?: string | null): string | null => {
+  const rawValue = String(value || "");
+  if (/(^|[^a-z0-9])(?:quadratmeter|qm|m2|m²|sqm)(?=$|[^a-z0-9])/i.test(rawValue)) {
+    return "square_meter";
+  }
+  if (/(^|[^a-z0-9])(?:kubikmeter|cbm|m3|m³)(?=$|[^a-z0-9])/i.test(rawValue)) {
+    return "cubic_meter";
+  }
+
   const source = normalizeCompare(value);
   if (!source) return null;
 
@@ -649,7 +657,7 @@ function isLikelyStandaloneFlatServiceLine(value?: string | null): boolean {
   // Targeted safety-net for auxiliary services that customers usually write as
   // flat lines without the word "pauschal": "Abdecken CHF 90", "Anfahrt CHF 45",
   // "Grüngut entsorgen CHF 75". Measured services like m²/Stück/Meter stay out.
-  return /\b(?:anfahrt|anfahrtspauschale|fahrtkosten|fahrkosten|fahrt|fahrpauschale|wegpauschale|einsatzpauschale|abdeck\w*|spachtel\w*|grungut|gruengut|gruenabfall|gartenabfall|entsorg\w*|materialpauschale|material|kleinmaterial|kleinzeug|verbrauchsmaterial|deplacement)\b/i.test(
+  return /\b(?:anfahrt|anfahrtspauschale|fahrtkosten|fahrkosten|fahrt|fahrpauschale|wegpauschale|einsatzpauschale|reise|reisekosten|reisepauschale|travel|trasferta|transferta|abdeck\w*|spachtel\w*|grungut|gruengut|gruenabfall|gartenabfall|entsorg\w*|materialpauschale|material|kleinmaterial|kleinzeug|verbrauchsmaterial|deplacement)\b/i.test(
     normalized,
   );
 }
@@ -772,7 +780,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     // The quantity unit is anchored earlier in the same segment, not after the price.
     {
       re: new RegExp(
-        `(?:à|a|zu|preis|einzelpreis|ep|=|:)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        `(?:à|a|zu|zum\\s+preis\\s+von|zum\\s+preis|preis\\s+von|preis|einzelpreis|ep|=|:)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "gi",
       ),
       currencyGroup: 1,
@@ -780,7 +788,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     },
     {
       re: new RegExp(
-        `(?:à|a|zu|preis|einzelpreis|ep|=|:)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        `(?:à|a|zu|zum\\s+preis\\s+von|zum\\s+preis|preis\\s+von|preis|einzelpreis|ep|=|:)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "gi",
       ),
       currencyGroup: 2,
@@ -2572,7 +2580,7 @@ function findQuantityOnlyUnclearLine(line: string): {
 } | null {
   if (!hasUnclearPriceSignal(line)) return null;
   const quantityMatch = line.match(
-    new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`, "i"),
+    new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
   );
   const quantity = parseQuantityNumber(quantityMatch?.[1]);
   const unitType = unitTypeFromText(quantityMatch?.[2]);
@@ -2911,7 +2919,7 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
       return false;
 
     const hasQuantityWithUnit = new RegExp(
-      `\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`,
+      `\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}(?=\\b|\\s|[.,;:!?)])`,
       "i",
     ).test(line);
     const hasFlatSignal =
@@ -3087,7 +3095,7 @@ function findExplicitUnitPriceInLine(
     // "35 m2 Wände streichen à CHF 18" / "30 m2 Decke streichen zu CHF 22".
     {
       re: new RegExp(
-        `(?:à|a|zu|preis|einzelpreis|ep|=|:)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        `(?:à|a|zu|zum\\s+preis\\s+von|zum\\s+preis|preis\\s+von|preis|einzelpreis|ep|=|:)\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "i",
       ),
       currencyGroup: 1,
@@ -3095,7 +3103,7 @@ function findExplicitUnitPriceInLine(
     },
     {
       re: new RegExp(
-        `(?:à|a|zu|preis|einzelpreis|ep|=|:)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        `(?:à|a|zu|zum\\s+preis\\s+von|zum\\s+preis|preis\\s+von|preis|einzelpreis|ep|=|:)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "i",
       ),
       currencyGroup: 2,
@@ -3517,7 +3525,7 @@ function extractExplicitServiceLineItems(
 
   for (const line of lines) {
     const quantityMatch = line.match(
-      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`, "i"),
+      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
     );
     const unitPrice = findExplicitUnitPriceInLine(line, fallbackCurrency);
     const flatPrice = findExplicitFlatPriceInLine(line, fallbackCurrency);
@@ -4367,6 +4375,221 @@ function mergeExplicitLineItemList(
   }
 
   return nextItems;
+}
+
+
+function extractStructuredGermanServiceSectionLinesV17_43(
+  originalText: string,
+): string[] {
+  const semanticSource = normalizeText(preferredSemanticLineSourceV17_41(originalText));
+  if (!semanticSource) return [];
+
+  const lines = semanticSource
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => normalizeText(line).replace(/^[-–—•]+\s*/, "").trim())
+    .filter(Boolean);
+
+  const startIndex = lines.findIndex((line) =>
+    /^(?:leistungen|arbeiten|zu\s+erledigen|auszufuehrende\s+arbeiten|auszuführende\s+arbeiten)\s*:?$/i.test(
+      normalizeCompare(line),
+    ),
+  );
+  if (startIndex < 0) return [];
+
+  const result: string[] = [];
+  for (const line of lines.slice(startIndex + 1)) {
+    const key = normalizeCompare(line);
+    if (!key) continue;
+    if (
+      /^(?:rechnung|rechnungsadresse|kunde|kundendaten|arbeitsort|ausfuehrungsort|ausführungsort|ausfuehrung|ausführung|adresse|hinweise|besonderheiten|kontakt|zugang|termin|notizen|bemerkungen)\b/.test(
+        key,
+      )
+    ) {
+      break;
+    }
+
+    const hasMeasuredQuantity = new RegExp(
+      `\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}(?=\\b|\\s|[.,;:!?)])`,
+      "i",
+    ).test(line);
+    const hasCurrencyOrPrice =
+      new RegExp(CURRENCY_WORDS, "i").test(line) ||
+      /\b(?:preis|pauschal|pauschale|flat|forfait|à|a|zu|je|each)\b/i.test(line);
+    const hasFlatPrice = Boolean(findExplicitFlatPriceInLine(line, "CHF"));
+
+    if ((hasMeasuredQuantity && hasCurrencyOrPrice) || hasFlatPrice) {
+      result.push(line);
+    }
+  }
+
+  return unique(result);
+}
+
+function cleanStructuredGermanServiceNameV17_43(
+  line: string,
+  args: { quantityRaw?: string | null; priceRaw?: string | null; flat?: boolean } = {},
+): string {
+  const quantityIndex = args.quantityRaw
+    ? line.toLowerCase().indexOf(String(args.quantityRaw).toLowerCase())
+    : -1;
+  const priceIndex = args.priceRaw
+    ? line.toLowerCase().indexOf(String(args.priceRaw).toLowerCase())
+    : -1;
+  const cutIndexes = [quantityIndex, priceIndex].filter((index) => index >= 0);
+  const cutAt = cutIndexes.length > 0 ? Math.min(...cutIndexes) : -1;
+
+  let name = normalizeText(cutAt >= 0 ? line.slice(0, cutAt) : line)
+    .replace(/^[-–—•]+\s*/, "")
+    .replace(/\b(?:zum\s+preis\s+von|zum\s+preis|preis\s+von|preis|einzelpreis)\b.*$/i, "")
+    .replace(/\b(?:pauschal|pauschale|flat\s+fee|travel\s+flat\s+fee)\b.*$/i, "")
+    .replace(/\s+(?:a|à)\s*$/i, "")
+    .replace(/[.,;:!?-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const key = normalizeCompare(name);
+  if (!key || isPriceAnchorOnlyServiceName(name)) return "Unbekannte Leistung";
+
+  if (
+    args.flat ||
+    /^(?:anfahrt|anfahrts|anfahrtspauschale|fahrtkosten|fahrkosten|reise|reisepauschale|travel|travel\s+flat\s+fee|deplacement|déplacement|trasferta|transferta)\b/i.test(
+      key,
+    )
+  ) {
+    return "Anfahrt";
+  }
+
+  // Grammatik-Normalisierung aus KI-Übersetzung: keine Service-Wortliste,
+  // nur deutsche Nominalform "Reinigung des X" -> "X reinigen".
+  name = name
+    .replace(/^reinigung\s+(?:des|der|dem|den)\s+(.+)$/i, "$1 reinigen")
+    .replace(/^reinigen\s+(?:des|der|dem|den)\s+(.+)$/i, "$1 reinigen")
+    .replace(/^putzen\s+(?:des|der|dem|den)\s+(.+)$/i, "$1 reinigen")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (normalizeCompare(name) === "anfahrts") return "Anfahrt";
+  return name.replace(/^./, (char) => char.toUpperCase());
+}
+
+function extractStructuredGermanServiceItemsV17_43(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const lines = extractStructuredGermanServiceSectionLinesV17_43(originalText);
+  if (lines.length === 0) return [];
+
+  const result: ExplicitServiceLineItem[] = [];
+  for (const line of lines) {
+    const quantityMatch = line.match(
+      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
+    );
+    const unitPrice = findExplicitUnitPriceInLine(line, finalCurrency);
+
+    if (quantityMatch && unitPrice) {
+      const quantity = parseQuantityNumber(quantityMatch[1]) || 0;
+      const unitType = unitTypeFromText(quantityMatch[2]);
+      if (!quantity || !unitType) continue;
+
+      const serviceName = cleanStructuredGermanServiceNameV17_43(line, {
+        quantityRaw: quantityMatch[0],
+        priceRaw: unitPrice.raw,
+      });
+      if (normalizeCompare(serviceName) === "unbekannte leistung") continue;
+
+      const currencyMatches = unitPrice.currency === finalCurrency;
+      result.push({
+        serviceName,
+        description: line,
+        quantity,
+        unit: unitTypeToDisplayUnit(unitType) || "Pauschal",
+        unitPrice: currencyMatches ? unitPrice.amount : 0,
+        totalPrice: currencyMatches ? roundMoney(quantity * unitPrice.amount) : 0,
+        needsReview: !currencyMatches,
+        reviewReason: currencyMatches
+          ? null
+          : `item_currency_mismatch:${serviceName}:${unitPrice.currency || "UNKNOWN"}:${finalCurrency}`,
+        sourceText: line,
+        evidence: line,
+        detectedCurrency: unitPrice.currency,
+      });
+      continue;
+    }
+
+    const flatPrice = findExplicitFlatPriceInLine(line, finalCurrency);
+    if (!flatPrice) continue;
+    const serviceName = cleanStructuredGermanServiceNameV17_43(line, {
+      priceRaw: flatPrice.raw,
+      flat: true,
+    });
+    if (normalizeCompare(serviceName) === "unbekannte leistung") continue;
+
+    const currencyMatches = flatPrice.currency === finalCurrency;
+    result.push({
+      serviceName,
+      description: line,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: currencyMatches ? flatPrice.amount : 0,
+      totalPrice: currencyMatches ? flatPrice.amount : 0,
+      needsReview: !currencyMatches,
+      reviewReason: currencyMatches
+        ? null
+        : `item_currency_mismatch:${serviceName}:${flatPrice.currency || "UNKNOWN"}:${finalCurrency}`,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: flatPrice.currency,
+    });
+  }
+
+  const bySignature = new Map<string, ExplicitServiceLineItem>();
+  for (const item of result) {
+    const signature = [
+      normalizeCompare(item.sourceText),
+      normalizeCompare(item.serviceName),
+      String(item.quantity),
+      normalizeCompare(item.unit),
+      String(roundMoney(Number(item.unitPrice || 0))),
+      item.detectedCurrency || "",
+    ].join("|");
+    if (!bySignature.has(signature)) bySignature.set(signature, item);
+  }
+
+  return Array.from(bySignature.values());
+}
+
+function enforceStructuredGermanServiceSectionV17_43(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const structuredItems = extractStructuredGermanServiceItemsV17_43(
+    originalText,
+    finalCurrency,
+  );
+
+  // Only take over a real structured service block. This avoids replacing a
+  // short manual order that has no clean KI-normalized Leistung section.
+  if (structuredItems.length < 2) return { items, reviewReasons: [] };
+
+  const pricedStructuredCount = structuredItems.filter(
+    (item) => Number(item.quantity || 0) > 0 && (Number(item.unitPrice || 0) > 0 || item.needsReview),
+  ).length;
+  if (pricedStructuredCount < 2) return { items, reviewReasons: [] };
+
+  const reviewReasons = structuredItems
+    .map((item) => item.reviewReason)
+    .filter((reason): reason is string => Boolean(reason));
+
+  return {
+    items: structuredItems.map((item) => ({
+      ...item,
+      totalPrice: calculateSafeLineTotal(item),
+    })),
+    reviewReasons: unique(reviewReasons),
+  };
 }
 
 function mergeRobustExplicitLineItems(
@@ -5363,7 +5586,7 @@ function extractHardMeasuredLineItemsFromRawText(
     const workerHourQuantity = detectWorkerHourQuantityInLine(line);
     const explicitHourQuantity = detectExplicitHourQuantityInLine(line);
     const quantityMatch = line.match(
-      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`, "i"),
+      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
     );
 
     const textUnitType = quantityMatch
@@ -6119,7 +6342,7 @@ function parseLineLocalMeasuredPrice(
   if (!source) return null;
 
   const quantityMatch = source.match(
-    new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})\\b`, "i"),
+    new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
   );
   const quantity = parseQuantityNumber(quantityMatch?.[1]);
   const unitType = unitTypeFromText(quantityMatch?.[2]);
@@ -7434,6 +7657,15 @@ export function validateAndRepairParsedOrderItems(
   items = removeOriginalTranslatedAmountDuplicatesV17_41(items);
   items = removeSameEvidenceQuantityPriceSplitArtifacts(items);
   items = removeHardSameEvidenceAmountDuplicates(items);
+
+  const structuredGermanServiceSection = enforceStructuredGermanServiceSectionV17_43(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
+  items = structuredGermanServiceSection.items;
+  reviewReasons.push(...structuredGermanServiceSection.reviewReasons);
+
   reviewReasons.push(...finalEvidenceSafetyPass.reviewReasons);
 
   const finalReviewReasons = unique(reviewReasons)

@@ -478,7 +478,7 @@ type ReviewBadge = {
   className: string;
   icon?: boolean;
   tooltip?: string;
-  focusTarget?: "specialNotes" | "items";
+  focusTarget?: "specialNotes" | "items" | "customer";
 };
 
 const compactText = (value?: string | null) =>
@@ -3299,6 +3299,7 @@ const getSystemBadges = (
       label: "Kunde prüfen",
       className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
       tooltip: "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
+      focusTarget: "customer",
     });
   }
 
@@ -7310,7 +7311,7 @@ export default function AuftraegePage() {
             const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
             const mobileRightHiddenCount = Math.max(0, rightSideBadges.length - mobilePrimaryRightBadges.length);
             const mobileFocusBadges = leftSystemBadges.filter(
-              (badge) => badge.focusTarget === "specialNotes",
+              (badge) => badge.focusTarget === "specialNotes" || badge.focusTarget === "customer",
             );
             const mobileSystemBadges = leftSystemBadges.filter(
               (badge) => badge.key !== "site_address" && !badge.focusTarget,
@@ -7332,6 +7333,12 @@ export default function AuftraegePage() {
               event.stopPropagation();
               setActiveMobileTooltipKey(null);
               openEdit(o, { focusSection: "specialNotes" });
+            };
+
+            const openOrderAtCustomer = (event: any) => {
+              event.stopPropagation();
+              setActiveMobileTooltipKey(null);
+              openEdit(o, { openCustomerSection: true });
             };
 
             const mobileTooltipKey = (badge: ReviewBadge, slot: string) =>
@@ -7376,8 +7383,9 @@ export default function AuftraegePage() {
             ) => {
               const shouldOpenItems = isAmountReviewBadge(badge);
               const shouldOpenSpecialNotes = badge.focusTarget === "specialNotes";
+              const shouldOpenCustomer = badge.focusTarget === "customer";
 
-              if (!shouldOpenItems && !shouldOpenSpecialNotes) {
+              if (!shouldOpenItems && !shouldOpenSpecialNotes && !shouldOpenCustomer) {
                 return renderOrderCardBadge(badge, tooltipAlign);
               }
 
@@ -7398,7 +7406,7 @@ export default function AuftraegePage() {
                   key={badge.key}
                   type="button"
                   aria-label={compactText(badge.tooltip) || badge.label}
-                              onClick={shouldOpenItems ? openOrderAtItems : openOrderAtSpecialNotes}
+                              onClick={shouldOpenItems ? openOrderAtItems : shouldOpenCustomer ? openOrderAtCustomer : openOrderAtSpecialNotes}
                   className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                     isCompactIcon
                       ? "font-semibold"
@@ -7433,13 +7441,13 @@ export default function AuftraegePage() {
               const title = compactText(badge.tooltip) || badge.label;
               const tooltipSlot = "mobile_action";
 
-              if (badge.focusTarget === "specialNotes") {
+              if (badge.focusTarget === "specialNotes" || badge.focusTarget === "customer") {
                 return (
                   <button
                     key={badge.key}
                     type="button"
                     aria-label={title}
-                    onClick={openOrderAtSpecialNotes}
+                    onClick={badge.focusTarget === "customer" ? openOrderAtCustomer : openOrderAtSpecialNotes}
                     className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
                   >
                     <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
