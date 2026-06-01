@@ -850,6 +850,18 @@ const getSemanticBadgeKind = (value?: string | null) => {
   }
 
   if (/hund/.test(text)) return "dog";
+  if (
+    /empfindlich|delikat|heikel|schonend|neutral(?:e[rsn]?)?\s+(?:reinigungsmittel|reiniger)|detergent\s+neutre|detergente\s+neutro|sensitive\s+floor|delicate\s+floor|pavimento\s+delicato|pavimento\s+delicata/.test(
+      text,
+    )
+  )
+    return "care";
+  if (
+    /baustellenhelm|bauhelm|helm|sicherheitsschuhe?|schutzschuhe?|schutzkleidung|schutzhelm|psa|ppe|ueberschuhe|überschuhe/.test(
+      text,
+    )
+  )
+    return "ppe";
   // Leiter nur als Werkzeug anzeigen, nicht bei Rollenwörtern wie Bauleiter.
   // Darum nicht mehr auf jedes "leiter" reagieren, sondern nur bei echtem
   // Ausrüstungs-/Mitbring-Signal.
@@ -1283,6 +1295,8 @@ const badgeLabelByKind: Record<string, string> = {
   barrier_tape: "Absperrband",
   scaffold: "Gerüst",
   slope: "Hanglage",
+  care: "Schonend",
+  ppe: "Schutz",
 };
 
 const dangerBadgeLabel = (value?: string | null) => {
@@ -2068,6 +2082,18 @@ const getOperationalBadges = (
     });
 
   parsedNotes.safetyWarnings.forEach((line) => {
+    const kind = getSemanticBadgeKind(line);
+    if (kind === "care" || kind === "ppe") {
+      const label = badgeLabelByKind[kind];
+      addHint(
+        `hint_${kind}_${normalizeForMatch(line).slice(0, 48)}`,
+        label,
+        amberHintClass,
+        formatOperationalHintTooltip(order, kind, parsedNotes, line, orderBadgeContext),
+      );
+      return;
+    }
+
     const label = dangerBadgeLabel(line);
     addDanger(`danger_${normalizeForMatch(label)}`, label, line);
   });
@@ -3416,14 +3442,18 @@ const detectPreArrivalInstructionHint = (
   const callbackTime = extractCallbackTimeHint(...values);
   const cleanedDirect = compactText(direct)
     .replace(/\b(?:keine?|kein|ohne|nicht)\s+(?:per\s+|via\s+)?whats\s*app\.?/gi, "")
+    .replace(/[;,.]?\s*(?:bitte\s+)?(?:nicht|nid|ned|noed|nöd)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)\.?/gi, "")
+    .replace(/^(?:bitte\s+)?(?:nicht|nid|ned|noed|nöd)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)\.?$/gi, "")
     .replace(/\s{2,}/g, " ")
+    .replace(/\s*[;,.]\s*$/g, "")
     .trim();
 
+  const detailLine = cleanedDirect && normalizeForMatch(cleanedDirect) !== "nicht einfach kommen"
+    ? cleanedDirect
+    : "Vorher melden, nicht direkt erscheinen.";
+
   return [
-    "Vorher melden, nicht direkt erscheinen.",
-    cleanedDirect && normalizeForMatch(cleanedDirect) !== "nicht einfach kommen"
-      ? cleanedDirect
-      : "",
+    detailLine,
     callbackTime ? `Zeit: ${callbackTime}` : "",
   ]
     .filter(Boolean)
@@ -7819,6 +7849,7 @@ export default function AuftraegePage() {
 
                             {!hasMultipleMergedData && (
                               <CommunicationChips
+                                compact
                                 data={{
                                 ...o,
                                 customer: o.customer,
