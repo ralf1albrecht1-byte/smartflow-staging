@@ -411,7 +411,7 @@ function hourRepairServiceTopic(value?: string | null): string | null {
   if (/\bboden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b|hallenboden|lagerboden|kellerboden/.test(text) && hasCleaningIntent) return "boden_reinigen";
   if (/fenster|fensterli|fensterfront|vitrin|vitre|window|fenetre|finestr|ventan/.test(text)) return "fenster_reinigen";
   if (/\bteppich\b|carpet|moquette/.test(text) && hasCleaningIntent) return "teppich_reinigen";
-  if (/\banfahrt\b|\bfahrtkosten\b|\bfahrkosten\b|\bfahrpauschale\b|\bwegpauschale\b|\breisepauschale\b|\bdeplacement\b|\bdeplacement\b|\bfrais\s+de\s+deplacement\b|\btravel\b|\btravel\s+flat\s+fee\b|\btrip\b/.test(text)) return "anfahrt";
+  if (/\banfahrt\b|\banfahrtskosten\b|\banfahrtspauschale\b|\bpauschale\s+(?:fuer|für)\s+anfahrt\b|\bfahrtkosten\b|\bfahrkosten\b|\bfahrpauschale\b|\bwegpauschale\b|\breiseaufwand\b|\breisekosten\b|\breisepauschale\b|\bdeplacement\b|\bdeplacement\b|\bfrais\s+de\s+deplacement\b|\btravel\b|\btravel\s+flat\s+fee\b|\btrip\b/.test(text)) return "anfahrt";
   return null;
 }
 
@@ -1188,7 +1188,7 @@ function buildMissingPriceReviewItems<T extends HourLineRepairItem>(
 }
 
 function isAnfahrtText(value?: string | null): boolean {
-  return /\b(?:anfahrt|fahrtkosten|fahrkosten|fahrt\s*pauschale|fahrpauschale|wegpauschale|reisepauschale|travel\s*(?:flat\s*)?fee|travel\s+costs?|trip\s+fee|transport\s+fee|deplacement|déplacement|frais\s+de\s+deplacement)\b/i.test(
+  return /\b(?:anfahrt|anfahrtskosten|anfahrtspauschale|pauschale\s+(?:fuer|für)\s+anfahrt|fahrtkosten|fahrkosten|fahrt\s*pauschale|fahrpauschale|wegpauschale|reiseaufwand|reisekosten|reisepauschale|travel\s*(?:flat\s*)?fee|travel\s+costs?|trip\s+fee|transport\s+fee|deplacement|déplacement|frais\s+de\s+deplacement)\b/i.test(
     normalizeHourRepairText(value || ""),
   );
 }

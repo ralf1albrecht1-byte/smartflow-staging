@@ -3473,9 +3473,17 @@ const detectPreArrivalInstructionHint = (
     .replace(/\s*[;,.]\s*$/g, "")
     .trim();
 
-  const detailLine = cleanedDirect && normalizeForMatch(cleanedDirect) !== "nicht einfach kommen"
+  let detailLine = cleanedDirect && normalizeForMatch(cleanedDirect) !== "nicht einfach kommen"
     ? cleanedDirect
     : "Vorher melden, nicht direkt erscheinen.";
+
+  if (/^\s*[,;:.\-–—]+\s*/.test(detailLine)) {
+    detailLine = detailLine.replace(/^\s*[,;:.\-–—]+\s*/, "").trim();
+  }
+
+  if (!detailLine || normalizeForMatch(detailLine) === "nicht einfach kommen") {
+    detailLine = "Vorher melden, nicht direkt erscheinen.";
+  }
 
   return [
     detailLine,
@@ -3793,6 +3801,7 @@ const renderReviewBadge = (
         options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
       }`}
       aria-label={compactText(badge.tooltip) || badge.label}
+      title={compactText(badge.tooltip) || badge.label}
     >
       {CompactIcon ? (
         <CompactIcon className="h-5 w-5" />

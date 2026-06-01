@@ -657,7 +657,7 @@ function isLikelyStandaloneFlatServiceLine(value?: string | null): boolean {
   // Targeted safety-net for auxiliary services that customers usually write as
   // flat lines without the word "pauschal": "Abdecken CHF 90", "Anfahrt CHF 45",
   // "Grüngut entsorgen CHF 75". Measured services like m²/Stück/Meter stay out.
-  return /\b(?:anfahrt|anfahrtspauschale|fahrtkosten|fahrkosten|fahrt|fahrpauschale|wegpauschale|einsatzpauschale|reise|reisekosten|reisepauschale|travel|trasferta|transferta|abdeck\w*|spachtel\w*|grungut|gruengut|gruenabfall|gartenabfall|entsorg\w*|materialpauschale|material|kleinmaterial|kleinzeug|verbrauchsmaterial|deplacement)\b/i.test(
+  return /\b(?:anfahrt|anfahrtskosten|anfahrtspauschale|fahrtkosten|fahrkosten|fahrt|fahrpauschale|wegpauschale|einsatzpauschale|reise|reiseaufwand|reisekosten|reisepauschale|travel|trasferta|transferta|abdeck\w*|spachtel\w*|grungut|gruengut|gruenabfall|gartenabfall|entsorg\w*|materialpauschale|material|kleinmaterial|kleinzeug|verbrauchsmaterial|deplacement)\b/i.test(
     normalized,
   );
 }
@@ -3178,7 +3178,7 @@ function findExplicitFlatPriceInLine(
   }> = [
     {
       re: new RegExp(
-        `\\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        `\\b(?:pauschal|pauschale|pauschale\\s+fuer|pauschale\\s+für|pauschale\\s+fuer\\s+anfahrt|pauschale\\s+für\\s+anfahrt|fixpreis|festpreis|forfait|flat)\\b(?:\\s+(?:fuer|für|von|zur|zum|fuer\\s+anfahrt|für\\s+anfahrt|anfahrt|reise|reiseaufwand|anfahrtskosten|anfahrts\\s*kosten))*\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "i",
       ),
       currencyGroup: 1,
@@ -3186,7 +3186,7 @@ function findExplicitFlatPriceInLine(
     },
     {
       re: new RegExp(
-        `\\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        `\\b(?:pauschal|pauschale|pauschale\\s+fuer|pauschale\\s+für|pauschale\\s+fuer\\s+anfahrt|pauschale\\s+für\\s+anfahrt|fixpreis|festpreis|forfait|flat)\\b(?:\\s+(?:fuer|für|von|zur|zum|fuer\\s+anfahrt|für\\s+anfahrt|anfahrt|reise|reiseaufwand|anfahrtskosten|anfahrts\\s*kosten))*\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "i",
       ),
       currencyGroup: 2,
@@ -4473,7 +4473,7 @@ function cleanStructuredGermanServiceNameV17_43(
 
   if (
     args.flat ||
-    /^(?:anfahrt|anfahrts|anfahrtspauschale|fahrtkosten|fahrkosten|reise|reisepauschale|travel|travel\s+flat\s+fee|deplacement|déplacement|trasferta|transferta)\b/i.test(
+    /^(?:anfahrt|anfahrts|anfahrtskosten|anfahrtspauschale|fahrtkosten|fahrkosten|reise|reiseaufwand|reisekosten|reisepauschale|travel|travel\s+flat\s+fee|deplacement|déplacement|trasferta|transferta)\b/i.test(
       key,
     )
   ) {
