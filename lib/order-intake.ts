@@ -1593,7 +1593,7 @@ function cleanExecutionSiteNameCandidate(
   let candidate = String(value || "")
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
     .replace(
-      /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+(?:du\s+)?chantier|adresse\s+chantier|lieu\s+d[’']intervention|lieu\s+de\s+travail|luogo\s+di\s+lavoro|luogo\s+di\s+intervento|work\s+site|job\s+site)\s*:?\s*/i,
+      /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse)\s*:?\s*/i,
       "",
     )
     .replace(/^\s*(?:bei|beim|am|an|in|zur|zum)\s+(?:der|dem|den|das)?\s*/i, "")
@@ -1635,14 +1635,6 @@ function cleanExecutionSiteNameCandidate(
     "morgen",
     "heute",
     "bitte",
-    "nadresse",
-    "n adresse",
-    "adresse",
-    "adresse chantier",
-    "adresse du chantier",
-    "lieu intervention",
-    "luogo di lavoro",
-    "work site",
   ]);
   if (blockedExact.has(normalized)) return null;
 
@@ -1695,7 +1687,7 @@ function extractExecutionBlockFromText(
   if (lines.length === 0) return null;
 
   const startRegex =
-    /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|adresse\s+(?:du\s+)?chantier|adresse\s+chantier|lieu\s+d[’']intervention|lieu\s+de\s+travail|luogo\s+di\s+lavoro|luogo\s+di\s+intervento|work\s+site|job\s+site)\s*:?\s*(.*)$/i;
+    /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
@@ -2129,6 +2121,68 @@ function stripInternalTitleLinesFromText(value?: string | null): string {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+async function createStandardGermanValidationTranslation(args: {
+  text: string;
+  targetLanguage: string;
+  source: string;
+}): Promise<string> {
+  const rawText = stripInternalTitleLinesFromText(args.text || "").trim();
+  const targetLanguage = (args.targetLanguage || "Deutsch").trim() || "Deutsch";
+  if (!rawText || !process.env.OPENAI_API_KEY) return "";
+
+  try {
+    const transRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        messages: [
+          {
+            role: "system",
+            content: `Du bist der vorgeschaltete Normalisierungs-Schritt für eine Auftragserfassung.
+Ziel: Der nachfolgende Validator muss Leistungen, Ausführungsadresse und Hinweise strukturell korrekt lesen können.
+
+Gib NUR gültiges JSON zurück:
+{"detected_language":"...","needs_normalization":true/false,"translation":"..." oder null}
+
+Regeln:
+- Wenn der Text nicht vollständig sauberes ${targetLanguage} ist, needs_normalization=true.
+- Schweizerdeutsch, Dialekt, Umgangssprache, Mischsprache, Französisch, Italienisch, Englisch, Spanisch usw. gelten als needs_normalization=true, auch wenn der Text teilweise deutsch ist.
+- Übersetze/normalisiere dann den kompletten Text nach professionellem Standard-${targetLanguage}.
+- Erhalte Struktur, Zeilenumbrüche, Adressblöcke, Telefonnummern, E-Mail, Mengen, Einheiten, Preise, Währungen, Codes und Reihenfolge exakt sinngemäß.
+- Leistungszeilen müssen in der Übersetzung als klare fachliche Standard-${targetLanguage}-Arbeitszeilen erscheinen, mit sauberem Verb, z.B. "... reinigen", "... abstauben", "... entfernen", "... streichen" usw., wenn die Handlung aus dem Text hervorgeht.
+- Keine neuen Leistungen erfinden. Keine Mengen/Preise ändern. Keine Zeilen zusammenmischen.
+- Wenn der Text bereits vollständig sauberes Standard-${targetLanguage} ist, needs_normalization=false und translation=null.`,
+          },
+          { role: "user", content: rawText },
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 3600,
+      }),
+    });
+
+    if (!transRes.ok) return "";
+    const transResult = await transRes.json();
+    const transContent = transResult?.choices?.[0]?.message?.content;
+    if (!transContent) return "";
+
+    const transData = JSON.parse(transContent);
+    const translation = String(transData?.translation || "").trim();
+    if (!transData?.needs_normalization || !translation) return "";
+
+    console.log(
+      `[${args.source}] Intake text normalized from ${transData.detected_language || "unknown"} to ${targetLanguage}`,
+    );
+    return stripInternalTitleLinesFromText(translation);
+  } catch (error) {
+    console.error(`[${args.source}] Intake normalization failed:`, error);
+    return "";
+  }
 }
 
 function isNegatedSpecialNoteLine(value: string): boolean {
@@ -7020,70 +7074,29 @@ export async function processIncomingMessage(
           },
         ];
 
-  // --- Auto-translation before validation ---
-  // Die KI-Übersetzung muss bereits dem Validator zur Verfügung stehen.
-  // Sonst kann der Validator sichtbare Leistungsnamen nicht semantisch auf
-  // Hochdeutsch aus der übersetzten Evidence-Zeile übernehmen.
-  let translationText = "";
-  if (messageText.trim() && hauptsprache) {
-    try {
-      const transRes = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-4.1-mini",
-            messages: [
-              {
-                role: "system",
-                content: `Du bist ein Spracherkennungs- und Übersetzungsassistent. Analysiere den folgenden Text und bestimme die Sprache. Wenn der Text NICHT auf ${hauptsprache} ist, übersetze ihn auf ${hauptsprache}. Antworte NUR mit gültigem JSON:\n{"detected_language": "...", "is_target_language": true/false, "translation": "..." oder null falls keine Übersetzung nötig}\nKEINE Erklärungen, NUR JSON.`,
-              },
-              { role: "user", content: messageText },
-            ],
-            response_format: { type: "json_object" },
-            max_tokens: 2600,
-          }),
-        },
-      );
-      if (transRes.ok) {
-        const transResult = await transRes.json();
-        const transContent = transResult?.choices?.[0]?.message?.content;
-        if (transContent) {
-          const transData = JSON.parse(transContent);
-          if (
-            transData &&
-            !transData.is_target_language &&
-            transData.translation
-          ) {
-            translationText = transData.translation;
-            console.log(
-              `[${source}] Auto-translated from ${transData.detected_language} to ${hauptsprache}`,
-            );
-          }
-        }
-      }
-    } catch (e) {
-      console.error(`[${source}] Translation failed:`, e);
-    }
-  }
+  const translationText = await createStandardGermanValidationTranslation({
+    text: messageText,
+    targetLanguage: hauptsprache,
+    source,
+  });
 
-  const originalTextForValidation = translationText
-    ? `${messageText}\n${fullWorkText}\n--- Übersetzung (automatisch) ---\n${translationText}`
-    : `${messageText}\n${fullWorkText}`;
+  const validationSourceText = [
+    messageText,
+    fullWorkText,
+    translationText ? `--- Übersetzung (automatisch) ---\n${translationText}` : "",
+  ]
+    .filter((part) => String(part || "").trim())
+    .join("\n");
 
   const intakeValidation = validateAndRepairParsedOrderItems({
     items: finalOrderItems,
-    originalText: originalTextForValidation,
+    originalText: validationSourceText,
     fallbackCurrency: intakeCurrency,
   });
 
   finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
     intakeValidation.items,
-    originalTextForValidation,
+    validationSourceText,
   );
 
   // INTAKE_FLAT_TOTAL_LAST_GUARD_V8
@@ -7123,8 +7136,7 @@ export async function processIncomingMessage(
   // hour rows after all validation and flat-item normalization steps.
   finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
     finalOrderItems,
-    `${messageText}
-${fullWorkText}`,
+    validationSourceText,
   );
 
   // V17.00: absolutely last explicit-hour repair before totals and persistence.
@@ -7132,8 +7144,7 @@ ${fullWorkText}`,
   // before OrderItem.create, after every parser/validation step has finished.
   finalOrderItems = repairExplicitHourQuantitiesBeforePersist(
     finalOrderItems,
-    `${messageText}
-${fullWorkText}`,
+    validationSourceText,
   );
 
   // V17.03: shared cross-route repair, same helper used by WhatsApp queue and
@@ -7141,8 +7152,7 @@ ${fullWorkText}`,
   // OrderItem.create, independent from shortened AI evidence like "Std. à CHF".
   finalOrderItems = repairZeroQuantityHourItemsFromText(
     finalOrderItems,
-    `${messageText}
-${fullWorkText}`,
+    validationSourceText,
     { logPrefix: "[INTAKE_HOUR_SHARED_FIX_V17_07]" },
   ).items;
 
@@ -7153,8 +7163,7 @@ ${fullWorkText}`,
   const unitlessQuantityGuardBeforePersist =
     applyUnitlessQuantityPriceLineGuard(
       finalOrderItems,
-      `${messageText}
-${fullWorkText}`,
+      validationSourceText,
     );
   finalOrderItems = unitlessQuantityGuardBeforePersist.items;
 
@@ -7178,18 +7187,18 @@ ${fullWorkText}`,
   const aiStructuredExecutionAddress = extractAiStructuredExecutionAddress(
     aiExecutionAddress,
     executionAddressCustomerContext,
-    originalTextForValidation,
+    validationSourceText,
   );
 
   let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
     aiStructuredExecutionAddress ||
       (legacyAddressFallbackEnabled
         ? extractExecutionAddressFromText(
-            originalTextForValidation,
+            validationSourceText,
             executionAddressCustomerContext,
           )
         : null),
-    originalTextForValidation,
+    validationSourceText,
   );
 
   if (
@@ -7354,6 +7363,10 @@ ${fullWorkText}`,
     parsed.auftrag?.beschreibung ||
     parsed.auftrag?.titel ||
     `${source}-Auftrag`;
+
+  // translationText wurde absichtlich vor der Validator-Phase erzeugt, damit
+  // Dialekt/Fremdsprache bereits dort für line-local Prüfung und sichtbare
+  // Hochdeutsch-Leistungsnamen verfügbar ist.
 
   // --- Build notes ---
   // Der KI-Titel bleibt strukturierte Metainfo. Er darf nicht in den

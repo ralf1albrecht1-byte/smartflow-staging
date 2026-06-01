@@ -1,4 +1,4 @@
-// INTAKE_VALIDATION_SEMANTIC_SAFETY_V13_AI_STRUCTURAL
+// INTAKE_VALIDATION_SEMANTIC_SAFETY_V12
 export type IntakeCurrency = "CHF" | "EUR";
 
 export interface ParsedOrderItemForValidation {
@@ -226,7 +226,7 @@ const CURRENCY_WORDS =
   "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|£)";
 
 const UNIT_WORDS =
-  "(?:stueck|stück|stuck|stk|pcs|pc|einheit|piece|pieces|pezzo|pezzi|pz|pza|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
+  "(?:stueck|stück|stuck|stk|pcs|pc|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
 
 const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 
@@ -1734,7 +1734,7 @@ function detectQuantityForUnitTypeFromText(
   const patterns: Record<string, RegExp[]> = {
     piece: [
       new RegExp(
-        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:stueck|stuck|stk|piece|pieces|pezzo|pezzi|pz|pza|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows)\\b`,
+        `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(?:stueck|stuck|stk|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows)\\b`,
         "i",
       ),
     ],
@@ -2150,6 +2150,7 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
       " ",
     )
     .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?-]*$/i, " ")
+    .replace(/\s+(?:a|à)\s*$/i, " ")
     .replace(
       /\b(?:sehr|stark|ziemlich|extrem|mega)?\s*(?:dreckig|verschmutzt|schmutzig|verstaubt|fettig|klebrig)\b.*$/i,
       " ",
@@ -3296,6 +3297,7 @@ function cleanExplicitServiceNameFromLine(
     )
     .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
     .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?-]*$/i, " ")
+    .replace(/\s+(?:a|à)\s*$/i, " ")
     .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
     .replace(/\s*\.\-\s*$/g, " ")
     .replace(/[.,;:!?-]+$/g, " ")
@@ -4745,35 +4747,42 @@ function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
   let cleaned = String(prefix || "")
     .replace(/\s*[-–—/]\s*/g, " ")
     .replace(/[.;:,\s]+$/g, "")
-    .replace(/^\s*(?:zu\s*tun|gemacht\s*werden\s*soll|machen|arbeiten|leistungen?)\s*:?\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!cleaned || cleaned.length < 3 || cleaned.length > 90) return null;
+  if (!cleaned) return null;
 
   const key = normalizeCompare(cleaned);
-
-  // Cost/travel positions are a business category, not a customer-specific service dictionary.
-  if (/\b(?:anfahrt|fahrt|fahrtkosten|fahrkosten|reise|wegpauschale)\b/.test(key)) {
-    return "Anfahrt";
+  if (/\b(?:anfahrt|fahrt|fahrtkosten)\b/.test(key)) return "Anfahrt";
+  if (/\bfenster\b/.test(key)) {
+    return /\breinigen\b/i.test(cleaned) ? cleaned : `${cleaned} reinigen`;
   }
+  if (/\bboden\b/.test(key)) {
+    cleaned = cleaned
+      .replace(/^Keller\s+Boden\b/i, "Kellerboden")
+      .replace(/^Garage\s+Boden\b/i, "Garagenboden")
+      .replace(/^Boden\s+Eingang\b/i, "Boden Eingang")
+      .replace(/\s+/g, " ")
+      .trim();
 
-  // Keep the translated German meaning. Do not collapse it through a fixed
-  // service-name dictionary; the LLM translation/evidence line is the source.
-  const hasAction = hasVisibleGermanWorkActionV17_37(cleaned);
-  if (hasAction) {
-    return cleaned.replace(/^./, (char) => char.toUpperCase());
+    const trailingFloorObject = cleaned.match(/^(.{3,70})\s+Boden$/i);
+    if (trailingFloorObject && !/^Boden\b/i.test(cleaned) && !/boden$/i.test(trailingFloorObject[1])) {
+      cleaned = `Boden ${trailingFloorObject[1]}`.replace(/\s+/g, " ").trim();
+    }
+
+    return /\breinigen\b/i.test(cleaned) ? cleaned : `${cleaned} reinigen`;
   }
+  if (/\bteppichzone\b/.test(key)) return "Teppichzone reinigen";
 
-  // Generic structural rule: a priced work line with object/location but no
-  // verb is still a cleaning/work item in this intake context. Preserve the
-  // translated object and append the neutral action instead of mapping words.
-  return `${cleaned.replace(/^./, (char) => char.toUpperCase())} reinigen`;
+  const canonical = canonicalGermanServiceNameFromText(cleaned);
+  if (canonical) return canonical;
+
+  return cleaned.replace(/^./, (char) => char.toUpperCase());
 }
 
 function hasVisibleGermanWorkActionV17_37(value?: string | null): boolean {
   const key = normalizeCompare(value);
   if (!key) return false;
-  return /\b(?:reinigen|reinigung|putzen|saeubern|arbeiten|anfahrt|fahrtkosten|streichen|malen|schneiden|entsorgen|montieren|demontieren|reparieren|liefern|umstellen)\b/.test(key);
+  return /\b(?:reinigen|reinigung|putzen|saeubern|abstauben|entfernen|arbeiten|anfahrt|fahrtkosten|streichen|malen|schneiden|entsorgen|montieren|demontieren|reparieren|liefern|umstellen)\b/.test(key);
 }
 
 function visibleServiceNameQualityScoreV17_37(value?: string | null): number {
@@ -4806,7 +4815,7 @@ function shouldUseTranslatedServiceNameV17_35(item: ParsedOrderItemForValidation
   // Die übersetzte Evidence-Zeile wurde bereits über Menge + Einheit + Preis
   // an genau diese Position gebunden. Wenn daraus ein klarerer deutscher
   // Leistungsname entsteht, ersetzt er die rohe Mundart-/Fremdsprachenform.
-  if (translatedScore >= currentScore + 10) return true;
+  if (translatedScore >= currentScore + 25) return true;
 
   const currentHasAction = hasVisibleGermanWorkActionV17_37(item.serviceName);
   const translatedHasAction = hasVisibleGermanWorkActionV17_37(translatedName);
@@ -5441,7 +5450,7 @@ function hasKnownUnitAttachedToQuantity(
     ? String(quantity)
     : String(Number(quantity.toFixed(2))).replace(".", "[.,]");
   const unitWords =
-    "(?:stueck|stück|stuck|stk|pcs|pc|piece|pieces|pezzo|pezzi|pz|pza|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|qm|m2|m²|sqm|kubikmeter|cbm|m3|m³|laufmeter|lfm|meter|m|stunde|stunden|std|h|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l|pauschal|pauschale|forfait|flat)";
+    "(?:stueck|stück|stuck|stk|pcs|pc|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|qm|m2|m²|sqm|kubikmeter|cbm|m3|m³|laufmeter|lfm|meter|m|stunde|stunden|std|h|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l|pauschal|pauschale|forfait|flat)";
   return new RegExp(`(^|[^0-9])${quantityLabel}\\s*${unitWords}\\b`, "i").test(
     source,
   );
