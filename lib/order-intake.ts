@@ -5233,6 +5233,9 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 - Preis, Menge, Einheit und Währung dürfen NUR gesetzt werden, wenn sie in der evidence derselben Position stehen.
 - Jede Arbeitsposition muss eine echte fachliche Tätigkeit oder Kostenposition sein. Reine Preis-/Rechenfragmente wie "à 6.50", "je 8.-", "mal 9", "CHF 35", "pro m2" sind NIEMALS eigene arbeitspositionen.
 - service_name/name immer als sauberen deutschen Leistungsnamen ausgeben. Mundart, Französisch, Englisch oder Rohformulierungen nicht sichtbar speichern.
+- Wenn die Kundenzeile in Mundart, Französisch, Englisch, Italienisch, Spanisch oder gemischt formuliert ist, übersetze die Bedeutung zuerst semantisch in professionelles Deutsch und speichere nur diese deutsche Form als name/action_name. Der Originalwortlaut bleibt ausschließlich in raw/evidence/sourceText.
+- Sichtbare Leistungsnamen müssen eine echte Tätigkeit oder Kostenposition ausdrücken. Wenn eine Preiszeile nur Bereich + Objekt + Menge + Preis enthält, formuliere daraus eine einzige deutsche Leistung mit Objekt und Bereich, z. B. sinngemäß "Boden Gemeinschaftsraum reinigen" statt Rohsprache oder zwei Split-Positionen.
+- Wenn du eine fremdsprachige/mundartliche Leistung nicht sicher auf Deutsch formulieren kannst, setze name/action_name lieber auf null und confidence = "niedrig", statt die Rohform sichtbar zu speichern.
 - Zustand, Verschmutzungsgrad und Rechenwörter gehören nicht in den Leistungsnamen: "sehr dreckig", "stark verschmutzt", "mal", "je", "à", "pro" in besonderheiten/evidence lassen, aber aus name/action_name entfernen.
 - Eine Kundenzeile mit Objekt + Menge + Preis ergibt genau eine Position. Nicht zusätzlich den Preisanker oder einen Teil der Zeile als zweite Position ausgeben.
 

@@ -4743,6 +4743,7 @@ function translatedServicePrefixFromLineV17_35(line: string, item: ParsedOrderIt
 
 function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
   let cleaned = String(prefix || "")
+    .replace(/\s*[-–—/]\s*/g, " ")
     .replace(/[.;:,\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -4754,9 +4755,16 @@ function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
   if (/\bboden\b/.test(key)) {
     cleaned = cleaned
       .replace(/^Keller\s+Boden\b/i, "Kellerboden")
+      .replace(/^Garage\s+Boden\b/i, "Garagenboden")
       .replace(/^Boden\s+Eingang\b/i, "Boden Eingang")
       .replace(/\s+/g, " ")
       .trim();
+
+    const trailingFloorObject = cleaned.match(/^(.{3,70})\s+Boden$/i);
+    if (trailingFloorObject && !/^Boden\b/i.test(cleaned) && !/boden$/i.test(trailingFloorObject[1])) {
+      cleaned = `Boden ${trailingFloorObject[1]}`.replace(/\s+/g, " ").trim();
+    }
+
     return /\breinigen\b/i.test(cleaned) ? cleaned : `${cleaned} reinigen`;
   }
   if (/\bteppichzone\b/.test(key)) return "Teppichzone reinigen";
@@ -4767,21 +4775,53 @@ function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
   return cleaned.replace(/^./, (char) => char.toUpperCase());
 }
 
+function hasVisibleGermanWorkActionV17_37(value?: string | null): boolean {
+  const key = normalizeCompare(value);
+  if (!key) return false;
+  return /\b(?:reinigen|reinigung|putzen|saeubern|arbeiten|anfahrt|fahrtkosten|streichen|malen|schneiden|entsorgen|montieren|demontieren|reparieren|liefern|umstellen)\b/.test(key);
+}
+
+function visibleServiceNameQualityScoreV17_37(value?: string | null): number {
+  const raw = String(value || "").trim();
+  const key = normalizeCompare(raw);
+  if (!key) return -999;
+
+  let score = 0;
+  if (hasVisibleGermanWorkActionV17_37(raw)) score += 90;
+  if (/^[A-ZÄÖÜ]/.test(raw)) score += 10;
+  if (key.split(/\s+/g).length >= 2) score += 15;
+  if (/\b(?:boden|fenster|teppich|garage|keller|raum|bereich|anfahrt)\b/.test(key)) score += 15;
+
+  if (/\b(?:unbekannte\s+leistung|sonstiges)\b/.test(key)) score -= 160;
+  if (/\b(?:chf|eur|usd|gbp|m2|m²|qm|stk|stueck|stück|std|stunden?)\b/.test(key)) score -= 90;
+  if (/\b(?:à|a|je|pro|per|mal)\b/.test(raw.toLowerCase())) score -= 60;
+  if (!hasVisibleGermanWorkActionV17_37(raw) && key !== "anfahrt") score -= 45;
+
+  return score;
+}
+
 function shouldUseTranslatedServiceNameV17_35(item: ParsedOrderItemForValidation, translatedName: string): boolean {
   const current = normalizeCompare(item.serviceName);
   const translated = normalizeCompare(translatedName);
   if (!translated || translated === current) return false;
 
-  // Strukturregel: sichtbare Leistungsnamen müssen in Hochdeutsch aus der
-  // übersetzten Evidence-Zeile kommen, wenn die aktuelle KI-Ausgabe noch Dialekt
-  // oder Fremdsprache enthält. Das ist keine Service-Wortliste, sondern ein
-  // Sprach-/Evidence-Fallback für bereits erkannte Leistungen.
-  const currentLooksNonHighGerman = /\b(?:bode|gemeinschaftsruum|huus|zueri|cave|sol|entree|entrée|vitres|deplacement|déplacement)\b/.test(current);
-  if (currentLooksNonHighGerman) return true;
+  const currentScore = visibleServiceNameQualityScoreV17_37(item.serviceName);
+  const translatedScore = visibleServiceNameQualityScoreV17_37(translatedName);
 
-  if (current === "boden reinigen" && /\b(?:gemeinschaftsraum|eingang|keller|lagerraum|veloraum)\b/.test(translated)) {
-    return true;
-  }
+  // Die übersetzte Evidence-Zeile wurde bereits über Menge + Einheit + Preis
+  // an genau diese Position gebunden. Wenn daraus ein klarerer deutscher
+  // Leistungsname entsteht, ersetzt er die rohe Mundart-/Fremdsprachenform.
+  if (translatedScore >= currentScore + 25) return true;
+
+  const currentHasAction = hasVisibleGermanWorkActionV17_37(item.serviceName);
+  const translatedHasAction = hasVisibleGermanWorkActionV17_37(translatedName);
+  if (!currentHasAction && translatedHasAction) return true;
+
+  const currentTokens = current.split(/\s+/g).filter((token) => token.length >= 5);
+  const translatedKeepsCurrentMeaning =
+    currentTokens.length > 0 &&
+    currentTokens.every((token) => translated.includes(token));
+  if (translatedHasAction && translatedKeepsCurrentMeaning) return true;
 
   return false;
 }

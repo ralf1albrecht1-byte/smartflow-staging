@@ -101,7 +101,7 @@ function DogIcon({
   return (
     <span
       className={`${className} inline-block bg-center bg-contain bg-no-repeat align-middle`}
-      style={{ backgroundImage: `url(${NORMAL_DOG_ICON_DATA_URI})` }}
+      style={{ backgroundImage: `url(${DANGEROUS_DOG_ICON_DATA_URI})` }}
       aria-hidden="true"
     />
   );
@@ -2099,6 +2099,15 @@ const getOperationalBadges = (
     const label = badgeLabelByKind[kind];
     if (!label) return;
 
+    if (kind === "dog") {
+      addDanger(
+        `danger_${normalizeForMatch(label)}`,
+        label,
+        formatOperationalHintTooltip(order, kind, parsedNotes, line, orderBadgeContext),
+      );
+      return;
+    }
+
     // If a safety warning already created a red danger chip, do not add the
     // same semantic hint again in yellow. Example: "Achtung Hund" must show
     // one Hund chip, not red Hund + yellow Hund.
@@ -3630,12 +3639,8 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
 
 const compactIconForBadge = (badge: ReviewBadge): ComponentType<{ className?: string }> | null => {
   const label = normalizeForMatch(badge.label);
-  const tooltip = normalizeForMatch(badge.tooltip);
-  const isDangerStyle = /border-red|bg-red|text-red/.test(String(badge.className || ""));
   if (label.includes("hund")) {
-    return isDangerStyle || /bellt|frei|achtung|gefahr|aggressiv|beisst|beißt|beissen|beißen|warnung/.test(tooltip)
-      ? DangerousDogIcon
-      : DogIcon;
+    return DangerousDogIcon;
   }
   if (label.includes("leiter")) return LadderIcon;
   if (label.includes("schluessel") || label.includes("schlussel")) return KeyRound;
