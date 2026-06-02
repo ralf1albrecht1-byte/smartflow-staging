@@ -3571,9 +3571,16 @@ const getBottomBadges = (
   const suppressCallbackBecauseEmailOnly =
     shouldSuppressCallbackBecauseEmailOnly(callbackLinesForDetection);
 
+  // V17.52: Kanal-Zeilen wie "Kontakt nur per SMS an ..." oder
+  // "WhatsApp vorher an ..." sind keine Rückruf-/Telefonbitte. Rückruf bleibt
+  // nur bei echter Telefon-/Rückruf-Anweisung aktiv.
+  const callbackDetectionSource = callbackLinesForDetection
+    .filter((line) => !isChannelOnlyContactLineForCommunicationChips(line))
+    .join("\n");
+
   const hasCallbackBadge = Boolean(
     !suppressCallbackBecauseEmailOnly &&
-      (detectCallbackRequest(callbackSource) || directCallbackHint),
+      (directCallbackHint || detectCallbackRequest(callbackDetectionSource)),
   );
   const callbackTimeHint = hasCallbackBadge
     ? extractCallbackTimeHint(
@@ -3761,6 +3768,31 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
     .map((line) => sanitizeCommunicationChipLineForCommunicationChips(line))
     .filter(Boolean)
     .join("\n");
+
+const buildCommunicationChipDataV17_52 = (order: Order): any => {
+  const cleanedSpecialNotes = removeCallbackLinesForCommunicationChips(order.specialNotes);
+  const cleanedNotes = [
+    removeCallbackLinesForCommunicationChips(order.notes),
+    cleanedSpecialNotes,
+    removeCallbackLinesForCommunicationChips(order.audioTranscript),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const cleanedAudioTranscript = removeCallbackLinesForCommunicationChips(order.audioTranscript);
+
+  // Card-level communication chips must not create a generic red phone chip
+  // from SMS/WhatsApp-only contact data. Rückruf is handled by its own badge.
+  return {
+    ...order,
+    phone: "",
+    customerPhone: "",
+    contactPhone: "",
+    customer: order.customer ? { ...order.customer, phone: "" } : order.customer,
+    specialNotes: cleanedSpecialNotes,
+    notes: cleanedNotes,
+    audioTranscript: cleanedAudioTranscript,
+  };
+};
 
 const getStrongerCardBadgeClassName = (className?: string | null) =>
   String(className || "")
@@ -7806,30 +7838,7 @@ export default function AuftraegePage() {
                               <div className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]">
                                 <CommunicationChips
                                   compact
-                                  data={{
-                                  ...o,
-                                  specialNotes:
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.specialNotes,
-                                  ),
-                                notes: [
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.notes,
-                                  ),
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.specialNotes,
-                                  ),
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.audioTranscript,
-                                  ),
-                                ]
-                                  .filter(Boolean)
-                                  .join("\n"),
-                                audioTranscript:
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.audioTranscript,
-                                  ),
-                              }}
+                                  data={buildCommunicationChipDataV17_52(o)}
                                 onAudioClick={() => openMedia(o)}
                                   onImageClick={() => openMedia(o)}
                                 />
@@ -7970,31 +7979,7 @@ export default function AuftraegePage() {
                               <div className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]">
                                 <CommunicationChips
                                   compact
-                                  data={{
-                                  ...o,
-                                  customer: o.customer,
-                                  specialNotes:
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.specialNotes,
-                                  ),
-                                notes: [
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.notes,
-                                  ),
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.specialNotes,
-                                  ),
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.audioTranscript,
-                                  ),
-                                ]
-                                  .filter(Boolean)
-                                  .join("\n"),
-                                audioTranscript:
-                                  removeCallbackLinesForCommunicationChips(
-                                    o.audioTranscript,
-                                  ),
-                              }}
+                                  data={buildCommunicationChipDataV17_52(o)}
                                 onAudioClick={() => openMedia(o)}
                                   onImageClick={() => openMedia(o)}
                                 />

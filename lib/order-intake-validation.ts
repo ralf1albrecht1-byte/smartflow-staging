@@ -2171,11 +2171,11 @@ function removeUnpricedDuplicateServiceArtifacts(
 function stripServiceFieldLabelArtifactsV17_47(value: string): string {
   let text = normalizeText(value || "")
     .replace(
-      /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]?\s*$/gi,
+      /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|laenge|länge|dauer|zeit|stueck|stück|quantity|area|amount|price|unit|length|duration|count|piece|pieces)\s*[:=]?\s*$/gi,
       " ",
     )
     .replace(
-      /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]\s*$/gi,
+      /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|laenge|länge|dauer|zeit|stueck|stück|quantity|area|amount|price|unit|length|duration|count|piece|pieces)\s*[:=]\s*$/gi,
       " ",
     )
     .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
@@ -2186,13 +2186,13 @@ function stripServiceFieldLabelArtifactsV17_47(value: string): string {
   // "Name, Anzahl:" erzeugen. Das sind strukturelle Feldlabels, keine
   // Leistungsbestandteile.
   while (
-    /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]?\s*$/i.test(
+    /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|laenge|länge|dauer|zeit|stueck|stück|quantity|area|amount|price|unit|length|duration|count|piece|pieces)\s*[:=]?\s*$/i.test(
       text,
     )
   ) {
     text = text
       .replace(
-        /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]?\s*$/i,
+        /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|laenge|länge|dauer|zeit|stueck|stück|quantity|area|amount|price|unit|length|duration|count|piece|pieces)\s*[:=]?\s*$/i,
         " ",
       )
       .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
@@ -4948,6 +4948,76 @@ function shouldPreferLineLocalServiceNameV17_50(
   return false;
 }
 
+function extractLineLocalMeasuredNameCandidatesV17_52(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const lines = normalizeText(originalText)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8);
+
+  const result: ExplicitServiceLineItem[] = [];
+  for (const line of lines) {
+    const key = normalizeCompare(line);
+    if (!key) continue;
+    if (/^(?:rechnung|kunde|kundin|adresse|ausfuehrung|ausführung|hinweise|kontakt|telefon|tel|email|e-mail)\b/.test(key)) continue;
+
+    const quantityMatch = line.match(
+      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
+    );
+    const unitPrice = findExplicitUnitPriceInLine(line, finalCurrency);
+    if (!quantityMatch || !unitPrice || unitPrice.currency !== finalCurrency) continue;
+
+    const quantity = parseQuantityNumber(quantityMatch[1]) || 0;
+    const unitType = unitTypeFromText(quantityMatch[2]);
+    if (!quantity || !unitType) continue;
+
+    let serviceName = cleanStructuredGermanServiceNameV17_43(line, {
+      quantityRaw: quantityMatch[0],
+      priceRaw: unitPrice.raw,
+    });
+    const afterQuantity = line.slice((quantityMatch.index || 0) + quantityMatch[0].length);
+    if (
+      !/\b(?:reinigen|reinigung|putzen|abstauben|abwischen|saugen|entfernen|schneiden|sauber\s+machen)\b/i.test(serviceName) &&
+      /\b(?:reinigen|reinigung|putzen|abstauben|abwischen|saugen|entfernen|schneiden|sauber\s+machen|clean|nettoyer|nettoyage|pulizia)\b/i.test(afterQuantity)
+    ) {
+      serviceName = `${serviceName} reinigen`;
+    }
+    serviceName = cleanValidationServiceDisplayName(serviceName);
+    if (normalizeCompare(serviceName) === "unbekannte leistung") continue;
+
+    result.push({
+      serviceName,
+      description: line,
+      quantity,
+      unit: unitTypeToDisplayUnit(unitType) || "Pauschal",
+      unitPrice: unitPrice.amount,
+      totalPrice: roundMoney(quantity * unitPrice.amount),
+      needsReview: false,
+      reviewReason: null,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: unitPrice.currency,
+    });
+  }
+
+  const bySig = new Map<string, ExplicitServiceLineItem>();
+  for (const item of result) {
+    const sig = [
+      normalizeCompare(item.serviceName),
+      String(item.quantity),
+      normalizeCompare(item.unit),
+      String(roundMoney(Number(item.unitPrice || 0))),
+      item.detectedCurrency || "",
+    ].join("|");
+    if (!bySig.has(sig)) bySig.set(sig, item);
+  }
+  return Array.from(bySig.values());
+}
+
 function preferLineLocalMeasuredServiceNamesV17_50(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -4955,6 +5025,7 @@ function preferLineLocalMeasuredServiceNamesV17_50(
 ): ParsedOrderItemForValidation[] {
   const candidates = [
     ...extractStructuredGermanServiceItemsV17_43(originalText, finalCurrency),
+    ...extractLineLocalMeasuredNameCandidatesV17_52(originalText, finalCurrency),
     ...extractExplicitServiceLineItems(originalText, finalCurrency),
     ...extractLooseExplicitServiceLineItems(originalText, finalCurrency),
   ].filter(
@@ -6374,6 +6445,33 @@ function extractUnitlessQuantityPriceLineCandidates(
   ];
 
   for (const line of lines) {
+    // V17.52: Unitless count price line with free service text between
+    // quantity and price, e.g. "3 Ölauffangmatten reinigen à CHF 12".
+    // This is structural, not service-word based: leading count + local
+    // action/object + price anchor.
+    const unitlessCountCandidate =
+      detectUnitlessCountPriceServiceLineV17_51(line, "CHF") ||
+      detectUnitlessCountPriceServiceLineV17_51(line, "EUR");
+    if (unitlessCountCandidate) {
+      const serviceName = cleanExplicitServiceNameFromLine(line, {
+        quantityRaw: unitlessCountCandidate.quantityRaw,
+        priceRaw: unitlessCountCandidate.price.raw,
+      });
+      if (normalizeCompare(serviceName) !== "unbekannte leistung") {
+        candidates.push({
+          raw: line,
+          serviceName,
+          quantity: unitlessCountCandidate.quantity,
+          unitPrice: unitlessCountCandidate.price.amount,
+          currency: unitlessCountCandidate.price.currency,
+          key: normalizeCompare(line),
+          topic:
+            weakUnitlessServiceTopic(line) ||
+            weakUnitlessServiceTopic(serviceName),
+        });
+      }
+    }
+
     for (const pattern of patterns) {
       pattern.regex.lastIndex = 0;
       let match: RegExpExecArray | null;
@@ -6534,12 +6632,40 @@ export function applyUnitlessQuantityPriceLineGuard(
     };
   });
 
+  const completedItems = guardedItems.slice();
+  for (const candidate of candidates) {
+    const covered = completedItems.some((item) =>
+      unitlessCandidateMatchesItem(item, candidate) ||
+      (Math.abs(Number(item.quantity || 0) - candidate.quantity) < 0.001 &&
+        Math.abs(Number(item.unitPrice || 0) - candidate.unitPrice) < 0.01 &&
+        normalizeCompare([item.sourceText, item.evidence, item.description].filter(Boolean).join(" ")).includes(candidate.key)),
+    );
+    if (covered) continue;
+
+    const serviceName = cleanValidationServiceDisplayName(candidate.serviceName);
+    if (!serviceName || normalizeCompare(serviceName) === "unbekannte leistung") continue;
+
+    completedItems.push({
+      serviceName,
+      description: candidate.raw,
+      quantity: candidate.quantity,
+      unit: "Stück",
+      unitPrice: candidate.unitPrice,
+      totalPrice: roundMoney(candidate.quantity * candidate.unitPrice),
+      needsReview: false,
+      reviewReason: null,
+      sourceText: candidate.raw,
+      evidence: candidate.raw,
+      detectedCurrency: candidate.currency || null,
+    });
+  }
+
   // Last step inside this guard: once every matching item has the same local
   // evidence line attached, collapse duplicate KI split artifacts immediately.
   // This is intentionally structural only: same evidence + same quantity + same
   // unit price + same unit. It does not use service-word lists.
   return {
-    items: removeSameEvidenceQuantityPriceSplitArtifacts(guardedItems),
+    items: removeSameEvidenceQuantityPriceSplitArtifacts(completedItems),
     reviewReasons: unique(reviewReasons),
   };
 }
