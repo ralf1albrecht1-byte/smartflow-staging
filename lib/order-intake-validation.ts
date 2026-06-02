@@ -4791,6 +4791,100 @@ function mergeStructuredWithMissingOriginalMeasuredItemsV17_48(
   return next;
 }
 
+function sameMeasuredSignatureV17_50(
+  item: ParsedOrderItemForValidation,
+  explicit: ExplicitServiceLineItem,
+): boolean {
+  const itemUnit = unitTypeFromDisplayUnit(item.unit);
+  const explicitUnit = unitTypeFromDisplayUnit(explicit.unit);
+  if (itemUnit && explicitUnit && itemUnit !== explicitUnit) return false;
+
+  return (
+    Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) < 0.001 &&
+    Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) < 0.01
+  );
+}
+
+function shouldPreferLineLocalServiceNameV17_50(
+  currentName: string | null | undefined,
+  explicitName: string | null | undefined,
+): boolean {
+  const current = cleanValidationServiceDisplayName(currentName);
+  const explicit = cleanValidationServiceDisplayName(explicitName);
+  const currentKey = normalizeCompare(current);
+  const explicitKey = normalizeCompare(explicit);
+  if (!explicitKey || explicitKey === "unbekannte leistung") return false;
+  if (!currentKey || currentKey === "unbekannte leistung" || currentKey === "reinigung") return true;
+  if (currentKey === explicitKey) return false;
+  if (currentKey === "anfahrt" || explicitKey === "anfahrt") return false;
+
+  const currentTokens = meaningfulServiceTokens(current);
+  const explicitTokens = meaningfulServiceTokens(explicit);
+  if (explicitTokens.length === 0) return false;
+
+  const overlap = explicitTokens.filter((token) => currentTokens.includes(token)).length;
+  const currentScore = visibleServiceNameQualityScoreV17_37(current) + serviceNameQualityScore(current);
+  const explicitScore = visibleServiceNameQualityScoreV17_37(explicit) + serviceNameQualityScore(explicit);
+
+  // Same quantity/unit/price already binds this explicit line to this row. If
+  // the current name shares no meaningful token with the exact evidence line,
+  // keep the line-local object instead of the generalized AI label.
+  if (overlap === 0 && explicitTokens.length >= Math.max(1, currentTokens.length)) {
+    return true;
+  }
+
+  if (explicitScore >= currentScore + 18) return true;
+
+  const explicitAddsObjectContext =
+    explicitTokens.length > currentTokens.length &&
+    explicitTokens.some((token) => !currentTokens.includes(token));
+  if (explicitAddsObjectContext && explicitScore >= currentScore - 5) return true;
+
+  return false;
+}
+
+function preferLineLocalMeasuredServiceNamesV17_50(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const candidates = [
+    ...extractStructuredGermanServiceItemsV17_43(originalText, finalCurrency),
+    ...extractExplicitServiceLineItems(originalText, finalCurrency),
+    ...extractLooseExplicitServiceLineItems(originalText, finalCurrency),
+  ].filter(
+    (candidate) =>
+      candidate.detectedCurrency === finalCurrency &&
+      Number(candidate.quantity || 0) > 0 &&
+      Number(candidate.unitPrice || 0) > 0 &&
+      normalizeCompare(candidate.serviceName) !== "unbekannte leistung" &&
+      normalizeCompare(candidate.serviceName) !== "anfahrt",
+  );
+
+  if (candidates.length === 0) return items;
+
+  return items.map((item) => {
+    const matching = candidates
+      .filter((candidate) => sameMeasuredSignatureV17_50(item, candidate))
+      .filter((candidate) =>
+        shouldPreferLineLocalServiceNameV17_50(item.serviceName, candidate.serviceName),
+      )
+      .sort((a, b) =>
+        serviceNameQualityScore(b.serviceName) - serviceNameQualityScore(a.serviceName),
+      )[0];
+
+    if (!matching) return item;
+
+    return {
+      ...item,
+      serviceName: cleanValidationServiceDisplayName(matching.serviceName),
+      description: item.description || matching.description,
+      sourceText: item.sourceText || matching.sourceText,
+      evidence: item.evidence || matching.evidence,
+    };
+  });
+}
+
 function enforceStructuredGermanServiceSectionV17_43(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -7909,7 +8003,11 @@ export function validateAndRepairParsedOrderItems(
     items,
     finalCurrency,
   );
-  items = structuredGermanServiceSection.items;
+  items = preferLineLocalMeasuredServiceNamesV17_50(
+    input.originalText,
+    structuredGermanServiceSection.items,
+    finalCurrency,
+  );
   reviewReasons.push(...structuredGermanServiceSection.reviewReasons);
 
   reviewReasons.push(...finalEvidenceSafetyPass.reviewReasons);

@@ -1832,6 +1832,65 @@ function extractLikelyOriginalProperSitePhrasesV17_49(value: string | null | und
   return Array.from(phrases);
 }
 
+function escapeRegExpV17_50(value: string): string {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function originalExecutionSiteDescriptorFromTextV17_50(
+  rawText: string | null | undefined,
+): string | null {
+  const originalPart =
+    String(rawText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
+  const executionBlock = extractExecutionBlockFromText(originalPart);
+  if (!executionBlock) return null;
+
+  for (const rawLine of splitIntakeLines(executionBlock)) {
+    const line = rawLine.replace(/\s+/g, " ").trim();
+    if (!line) continue;
+    if (parseBillingStreetLine(line)) break;
+    if (parseBillingPlzCityFromLine(line).plz) break;
+    const candidate = cleanExecutionSiteNameCandidate(line);
+    if (candidate) return candidate;
+  }
+
+  return null;
+}
+
+function preserveOriginalProperSitePhraseV17_50(args: {
+  translatedSiteName: string | null | undefined;
+  rawText: string | null | undefined;
+}): string | null {
+  const translated = compactText(args.translatedSiteName);
+  if (!translated) return null;
+
+  const originalDescriptor = originalExecutionSiteDescriptorFromTextV17_50(args.rawText);
+  if (!originalDescriptor) return translated;
+
+  const translatedKey = normalizeUnitText(translated);
+  const properPhrases = extractLikelyOriginalProperSitePhrasesV17_49(originalDescriptor);
+
+  for (const phrase of properPhrases) {
+    const phraseClean = compactText(phrase);
+    const phraseKey = normalizeUnitText(phraseClean);
+    if (!phraseClean || phraseKey.length < 5) continue;
+    if (translatedKey.includes(phraseKey)) return translated;
+
+    const phraseParts = phraseClean.split(/\s+/g).filter(Boolean);
+    const tail = phraseParts.slice(1).join(" ").trim();
+    if (tail.length < 4) continue;
+
+    const tailRe = new RegExp(`(^|,\\s*)[^,]{0,60}\\b${escapeRegExpV17_50(tail)}\\b`, "i");
+    if (tailRe.test(translated)) {
+      return translated
+        .replace(tailRe, (_match, prefix) => `${prefix || ""}${phraseClean}`)
+        .replace(/\s+/g, " ")
+        .replace(/\s+,/g, ",")
+        .trim();
+    }
+  }
+
+  return translated;
+}
+
 function translatedSiteNameWouldDropOriginalProperNameV17_49(args: {
   currentSiteName: string | null | undefined;
   translatedSiteName: string | null | undefined;
@@ -1878,7 +1937,11 @@ function translatedExecutionSiteNameCandidateFromTextV17_45(
     descriptors,
   ).slice(0, 2);
 
-  return uniqueDescriptors.length > 0 ? uniqueDescriptors.join(", ") : null;
+  if (uniqueDescriptors.length === 0) return null;
+  return preserveOriginalProperSitePhraseV17_50({
+    translatedSiteName: uniqueDescriptors.join(", "),
+    rawText,
+  });
 }
 
 function shouldReplaceExecutionSiteNameWithTranslatedV17_45(args: {
@@ -2010,6 +2073,11 @@ function sanitizeExtractedExecutionAddress<
   ) {
     siteName = translatedSiteName;
   }
+
+  siteName = preserveOriginalProperSitePhraseV17_50({
+    translatedSiteName: siteName,
+    rawText,
+  });
 
   const cleaned = {
     ...address,
