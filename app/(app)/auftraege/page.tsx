@@ -521,6 +521,7 @@ const isPreArrivalInstructionLine = (value?: string | null) => {
     `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+einfach\\s+(?:kommen|vorbeikommen|cho|verbi\\s+cho)|` +
       `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+ohne\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)|` +
       `(?:nicht\\s+vor|nicht\\s+vorher\\s+als|erst\\s+ab|fruehestens|frühestens)\\s+\\d{1,2}(?:[:.]\\d{2})?\\s*(?:uhr|h)?\\s*(?:kommen|erscheinen|starten|beginnen|da\\s+sein|vor\\s+ort)?|` +
+      `vor\\s+\\d{1,2}(?:[:.]\\d{2})?\\s*(?:uhr|h)?\\s+(?:nicht|${SWISS_NEGATION_PATTERN})\\s+(?:kommen|erscheinen|starten|beginnen|vorbeikommen|cho)|` +
       `vor\\s+(?:start|arbeitsbeginn|ankunft)\\s+(?:kurz\\s+)?(?:telefonisch\\s+)?(?:melden|anrufen|kontaktieren)|` +
       `erst\\s+nach\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)`
   ).test(text);

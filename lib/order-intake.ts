@@ -1290,6 +1290,20 @@ function sameStructuredAddress(args: {
   return Boolean(a && b && a === b);
 }
 
+function hasExplicitExecutionNotBillingAddressDirectiveV17_51(
+  rawText: string | null | undefined,
+): boolean {
+  const text = normalizeUnitText(rawText || "");
+  if (!text) return false;
+
+  return (
+    /nicht\s+an\s+(?:die\s+)?rechnungsadresse/.test(text) ||
+    /nicht\s+zur\s+rechnungsadresse/.test(text) ||
+    /rechnung(?:sadresse)?\s+.*(?:sondern|aber)\s+(?:in|im|bei|zur|zum)/.test(text) ||
+    /(?:sondern|aber)\s+(?:in|im|bei|zur|zum)\s+(?:die\s+)?(?:werkstatt|arbeitsort|objekt|baustelle|filiale|lager|innenhof|spielplatz)/.test(text)
+  );
+}
+
 function extractAiStructuredExecutionAddress(
   aiExecutionAddress: any,
   customer?: {
@@ -1385,12 +1399,12 @@ function extractAiStructuredExecutionAddress(
       bStreet: customer?.customerAddress,
       bPlz: customer?.customerPlz,
       bCity: customer?.customerCity,
-    })
+    }) &&
+    !siteName
   ) {
-    // Gleiche Strasse/PLZ/Ort ist keine abweichende Ausführungsadresse.
-    // Ein Objektbereich wie "Küche hinten" oder "Veloraum" bleibt im
-    // Kundentext/Besonderheiten, darf aber keinen separaten Ausführungsort
-    // und keinen Ausführungsadresse-Chip erzeugen.
+    // Gleiche Strasse/PLZ/Ort ohne eigenen Arbeitsbereich ist keine separate
+    // Ausführungsadresse. Ein echter Arbeitsbereich wie Innenhof, Werkstatt
+    // oder Seiteneingang darf dagegen als kompakter Ort erhalten bleiben.
     return null;
   }
 
@@ -6175,6 +6189,40 @@ export async function processIncomingMessage(
   });
 
   if (
+    hasExplicitExecutionNotBillingAddressDirectiveV17_51(messageText) &&
+    billingEvidence.source !== "labeled"
+  ) {
+    const executionBlock = extractExecutionBlockFromText(validationSourceText);
+    const executionStreet = executionBlock
+      ? parseBillingStreetFromBlock(executionBlock)
+      : null;
+    const executionPlzCity = executionBlock
+      ? parseBillingPlzCityFromBlock(executionBlock)
+      : { plz: null, city: null };
+    if (
+      sameStructuredAddress({
+        aStreet: addr.street,
+        aPlz: addr.plz,
+        aCity: addr.city,
+        bStreet: executionStreet,
+        bPlz: executionPlzCity.plz,
+        bCity: executionPlzCity.city,
+      })
+    ) {
+      kundeData.strasse = null;
+      kundeData.hausnummer = null;
+      kundeData.plz = null;
+      kundeData.ort = null;
+      addr.street = null;
+      addr.plz = null;
+      addr.city = null;
+      customerGuardReviewReasons.push("customer_address_cleared_execution_site_only_v17_51");
+      parsed.system = parsed.system || {};
+      parsed.system.needs_review = true;
+    }
+  }
+
+  if (
     normalizeUnitText(addr.city) === "form" &&
     /in\s+form\s+(bringen|schneiden|setzen|machen|pflegen)/i.test(
       normalizeUnitText(messageText),
@@ -7583,6 +7631,7 @@ export async function processIncomingMessage(
 
   if (
     extractedExecutionAddress &&
+    !extractedExecutionAddress.siteName &&
     sameStructuredAddress({
       aStreet: extractedExecutionAddress.siteAddress,
       aPlz: extractedExecutionAddress.sitePlz,

@@ -662,6 +662,38 @@ function isLikelyStandaloneFlatServiceLine(value?: string | null): boolean {
   );
 }
 
+function detectUnitlessCountPriceServiceLineV17_51(
+  line: string,
+  fallbackCurrency: IntakeCurrency,
+): { quantity: number; quantityRaw: string; price: ReturnType<typeof findExplicitUnitPriceInLine> } | null {
+  const source = normalizeText(line);
+  const normalized = normalizeCompare(source);
+  if (!source || !normalized) return null;
+  if (hasQuantityWithExplicitUnit(source)) return null;
+
+  const price = findExplicitUnitPriceInLine(source, fallbackCurrency);
+  if (!price || price.currency !== fallbackCurrency) return null;
+
+  const match = source.match(
+    new RegExp(`^\s*(${QUANTITY_NUMBER_OR_WORD})\s+(.{3,160})$`, "i"),
+  );
+  const quantity = parseQuantityNumber(match?.[1]);
+  if (!match || !quantity || quantity <= 0 || quantity > 9999) return null;
+
+  const beforePrice = source.slice(0, price.index).trim();
+  const restAfterQuantity = beforePrice
+    .replace(match[1], " ")
+    .replace(/^[\s,.;:–—-]+/g, "")
+    .trim();
+  if (!/[\p{L}]/u.test(restAfterQuantity) || restAfterQuantity.length < 3) {
+    return null;
+  }
+
+  if (!/(?:\b(?:à|a|je|each|per|pro|zu|mal|x)\b|\*)/i.test(source)) return null;
+
+  return { quantity, quantityRaw: match[1], price };
+}
+
 const roundMoney = (value: number) =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -2996,9 +3028,14 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
       hasFlatSignal && /\b\d+(?:[.,]\d{1,2})?\b/i.test(line);
     const hasStandaloneFlatServicePrice =
       isLikelyStandaloneFlatServiceLine(line);
+    const hasUnitlessCountUnitPrice = Boolean(
+      detectUnitlessCountPriceServiceLineV17_51(line, "CHF") ||
+        detectUnitlessCountPriceServiceLineV17_51(line, "EUR"),
+    );
 
     return (
       (hasQuantityWithUnit && (hasCurrency || hasCurrencylessUnitPrice)) ||
+      hasUnitlessCountUnitPrice ||
       (hasFlatSignal && (hasCurrency || hasCurrencylessFlatPrice)) ||
       hasStandaloneFlatServicePrice
     );
@@ -3402,6 +3439,7 @@ function cleanExplicitServiceNameFromLine(
     .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
     .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?-]*$/i, " ")
     .replace(/\s+(?:a|à)\s*$/i, " ")
+    .replace(/(?:^|\s)(?:à|je|each|mal|x|\*)(?=\s|$)/gi, " ")
     .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
     .replace(/\s*\.\-\s*$/g, " ")
     .replace(/[.,;:!?-]+$/g, " ")
@@ -3666,6 +3704,39 @@ function extractExplicitServiceLineItems(
         detectedCurrency: fallbackCurrency,
       });
       continue;
+    }
+
+    const unitlessCountPrice = detectUnitlessCountPriceServiceLineV17_51(
+      line,
+      fallbackCurrency,
+    );
+
+    if (unitlessCountPrice && unitPrice) {
+      const serviceName = resolveExplicitServiceNameFromContext(
+        originalText,
+        line,
+        cleanExplicitServiceNameFromLine(line, {
+          quantityRaw: unitlessCountPrice.quantityRaw,
+          priceRaw: unitPrice.raw,
+        }),
+      );
+
+      if (normalizeCompare(serviceName) !== "unbekannte leistung") {
+        result.push({
+          serviceName,
+          description: line,
+          quantity: unitlessCountPrice.quantity,
+          unit: "Stück",
+          unitPrice: unitPrice.amount,
+          totalPrice: roundMoney(unitlessCountPrice.quantity * unitPrice.amount),
+          needsReview: false,
+          reviewReason: null,
+          sourceText: line,
+          evidence: line,
+          detectedCurrency: unitPrice.currency,
+        });
+        continue;
+      }
     }
 
     if ((quantityMatch || explicitHourQuantity) && unitPrice) {
@@ -4228,6 +4299,38 @@ function extractLooseExplicitServiceLineItems(
     );
     const unitPrice = findExplicitUnitPriceInLine(line, fallbackCurrency);
 
+    const unitlessCountPrice = detectUnitlessCountPriceServiceLineV17_51(
+      line,
+      fallbackCurrency,
+    );
+
+    if (unitlessCountPrice && unitPrice && unitPrice.currency === fallbackCurrency) {
+      const serviceName = resolveExplicitServiceNameFromContext(
+        originalText,
+        line,
+        cleanExplicitServiceNameFromLine(line, {
+          quantityRaw: unitlessCountPrice.quantityRaw,
+          priceRaw: unitPrice.raw,
+        }),
+      );
+      if (normalizeCompare(serviceName) !== "unbekannte leistung") {
+        result.push({
+          serviceName,
+          description: line,
+          quantity: unitlessCountPrice.quantity,
+          unit: "Stück",
+          unitPrice: unitPrice.amount,
+          totalPrice: roundMoney(unitlessCountPrice.quantity * unitPrice.amount),
+          needsReview: false,
+          reviewReason: null,
+          sourceText: line,
+          evidence: line,
+          detectedCurrency: unitPrice.currency,
+        });
+        continue;
+      }
+    }
+
     if (
       (workerHour || explicitHourQuantity || quantityMatch) &&
       unitPrice &&
@@ -4746,12 +4849,14 @@ function mergeStructuredWithMissingOriginalMeasuredItemsV17_48(
   structuredItems: ExplicitServiceLineItem[],
   finalCurrency: IntakeCurrency,
 ): ExplicitServiceLineItem[] {
-  const originalItems = extractHardMeasuredLineItemsFromRawText(
-    originalText
-      .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
-      .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, ""),
-    finalCurrency,
-  );
+  const originalOnlyText = originalText
+    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "");
+  const originalItems = [
+    ...extractHardMeasuredLineItemsFromRawText(originalOnlyText, finalCurrency),
+    ...extractExplicitServiceLineItems(originalOnlyText, finalCurrency),
+    ...extractLooseExplicitServiceLineItems(originalOnlyText, finalCurrency),
+  ];
   if (originalItems.length === 0) return structuredItems;
 
   const next = structuredItems.slice();
@@ -4881,6 +4986,69 @@ function preferLineLocalMeasuredServiceNamesV17_50(
       description: item.description || matching.description,
       sourceText: item.sourceText || matching.sourceText,
       evidence: item.evidence || matching.evidence,
+    };
+  });
+}
+
+function repairLineLocalStandaloneFlatServiceNamesV17_51(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const flatCandidates = [
+    ...extractExplicitServiceLineItems(originalText, finalCurrency),
+    ...extractLooseExplicitServiceLineItems(originalText, finalCurrency),
+    ...extractStructuredGermanServiceItemsV17_43(originalText, finalCurrency),
+  ].filter((candidate) => {
+    if (candidate.detectedCurrency !== finalCurrency) return false;
+    if (unitTypeFromDisplayUnit(candidate.unit) !== "flat") return false;
+    if (Number(candidate.unitPrice || 0) <= 0 || Number(candidate.quantity || 0) !== 1) return false;
+    const key = normalizeCompare(candidate.serviceName);
+    if (!key || key === "unbekannte leistung" || key === "anfahrt") return false;
+    return true;
+  });
+
+  if (flatCandidates.length === 0) return items;
+
+  return items.map((item) => {
+    if (unitTypeFromDisplayUnit(item.unit) !== "flat") return item;
+    const itemAmount = roundMoney(Number(item.unitPrice || 0));
+    if (itemAmount <= 0) return item;
+
+    const matching = flatCandidates
+      .filter(
+        (candidate) =>
+          Math.abs(roundMoney(Number(candidate.unitPrice || 0)) - itemAmount) < 0.01,
+      )
+      .sort(
+        (a, b) =>
+          serviceNameQualityScore(b.serviceName) - serviceNameQualityScore(a.serviceName),
+      )[0];
+    if (!matching) return item;
+
+    const itemKey = normalizeCompare(item.serviceName);
+    const matchingKey = normalizeCompare(matching.serviceName);
+    if (!matchingKey || matchingKey === itemKey) return item;
+
+    const itemLooksGenericTravel =
+      itemKey === "anfahrt" ||
+      itemKey === "fahrt" ||
+      itemKey === "pauschal" ||
+      itemKey === "kosten" ||
+      itemKey === "unbekannte leistung";
+    const nameIsClearlyBetter = shouldPreferLineLocalServiceNameV17_50(
+      item.serviceName,
+      matching.serviceName,
+    );
+    if (!itemLooksGenericTravel && !nameIsClearlyBetter) return item;
+
+    return {
+      ...item,
+      serviceName: cleanValidationServiceDisplayName(matching.serviceName),
+      description: item.description || matching.description,
+      sourceText: matching.sourceText || item.sourceText,
+      evidence: matching.evidence || item.evidence,
+      detectedCurrency: matching.detectedCurrency || item.detectedCurrency,
     };
   });
 }
@@ -8006,6 +8174,11 @@ export function validateAndRepairParsedOrderItems(
   items = preferLineLocalMeasuredServiceNamesV17_50(
     input.originalText,
     structuredGermanServiceSection.items,
+    finalCurrency,
+  );
+  items = repairLineLocalStandaloneFlatServiceNamesV17_51(
+    input.originalText,
+    items,
     finalCurrency,
   );
   reviewReasons.push(...structuredGermanServiceSection.reviewReasons);
