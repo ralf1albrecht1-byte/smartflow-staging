@@ -5724,6 +5724,41 @@ export default function AuftraegePage() {
     : null;
 
   const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
+  const addressRoleReviewCandidateV17_62 = (() => {
+    const primarySite =
+      formWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      formWorkSites[0] ||
+      null;
+    const siteName =
+      cleanWorkSiteDisplayName(primarySite?.siteName) ||
+      cleanWorkSiteDisplayName(form.siteName) ||
+      "";
+    const siteAddress =
+      compactText(primarySite?.siteAddress) || compactText(form.siteAddress);
+    const sitePlz =
+      compactText(primarySite?.sitePlz) || compactText(form.sitePlz);
+    const siteCity =
+      compactText(primarySite?.siteCity) || compactText(form.siteCity);
+    const siteNote =
+      compactText(primarySite?.siteNote) || compactText(form.siteNote);
+    const hasAny = Boolean(siteName || siteAddress || sitePlz || siteCity || siteNote);
+    const hasCompleteAddress = Boolean(siteAddress && sitePlz && siteCity);
+
+    return {
+      siteName,
+      siteAddress,
+      sitePlz,
+      siteCity,
+      siteNote,
+      hasAny,
+      hasCompleteAddress,
+    };
+  })();
+  const shouldShowAddressRoleReviewBoxV17_62 = Boolean(
+    currentEditOrder &&
+      hasAddressRoleReviewReasonV17_61(currentEditOrder) &&
+      addressRoleReviewCandidateV17_62.hasAny,
+  );
   const hasCurrentEditCurrencyReview =
     hasAnyCurrencyReviewReason(currentEditReviewReasons);
   const hasCurrentEditItemCurrencyMismatch =
@@ -5736,6 +5771,107 @@ export default function AuftraegePage() {
       currentEditReviewReasons,
       item.serviceName,
     );
+
+  const applyAddressReviewAsBillingV17_62 = () => {
+    const candidate = addressRoleReviewCandidateV17_62;
+    if (!candidate.hasAny) {
+      toast.error("Keine erkannte Adresse zum Übernehmen vorhanden.");
+      return;
+    }
+
+    const currentCustomer =
+      customers.find((c: Customer) => c.id === form.customerId) || null;
+    const orderCustomer = currentEditOrder?.customer || null;
+    const rawName = compactText(currentCustomer?.name || orderCustomer?.name);
+    const safeName =
+      rawName &&
+      !isFallbackCustomerName(rawName) &&
+      !/^[-–—]$/.test(rawName) &&
+      !/^name fehlt$/i.test(rawName)
+        ? rawName
+        : "";
+
+    setNewCust({
+      name: safeName,
+      phone: compactText(currentCustomer?.phone || orderCustomer?.phone),
+      email: compactText(currentCustomer?.email || orderCustomer?.email),
+      address: candidate.siteAddress,
+      plz: candidate.sitePlz,
+      city: candidate.siteCity,
+      country: currentCustomer?.country || "CH",
+    });
+    setEditingCustomer(Boolean(form.customerId));
+    setShowNewCustomer(true);
+    setDupCheckOpen(false);
+    setSiteAddressEditing(false);
+    window.setTimeout(() => {
+      customerEditorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 40);
+    toast.info(
+      "Adresse in die Rechnungsadresse übernommen. Kundennamen prüfen, Kunde speichern, danach Auftrag speichern.",
+    );
+  };
+
+  const applyAddressReviewAsExecutionV17_62 = () => {
+    const candidate = addressRoleReviewCandidateV17_62;
+    if (!candidate.hasAny) {
+      toast.error("Keine erkannte Adresse zum Übernehmen vorhanden.");
+      return;
+    }
+
+    const existingSite =
+      formWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      formWorkSites[0] ||
+      null;
+    const siteId =
+      existingSite?.id || `local-site-${Date.now().toString(36)}`;
+    const nextSite: OrderWorkSite = {
+      ...(existingSite || {}),
+      id: siteId,
+      siteName: candidate.siteName || "Ausführungsadresse",
+      siteAddress: candidate.siteAddress || null,
+      sitePlz: candidate.sitePlz || null,
+      siteCity: candidate.siteCity || null,
+      siteNote: candidate.siteNote || null,
+      isPrimary: true,
+      sortOrder: 0,
+    };
+
+    setForm((prev) => ({
+      ...prev,
+      siteAddressDifferent: true,
+      siteName: nextSite.siteName || "",
+      siteAddress: nextSite.siteAddress || "",
+      sitePlz: nextSite.sitePlz || "",
+      siteCity: nextSite.siteCity || "",
+      siteNote: nextSite.siteNote || "",
+    }));
+    setFormWorkSites((prev) => {
+      if (existingSite) {
+        return prev.map((site) =>
+          site.id === existingSite.id
+            ? nextSite
+            : { ...site, isPrimary: false },
+        );
+      }
+      return [nextSite];
+    });
+    setFormItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        workSiteId: item.workSiteId || siteId,
+      })),
+    );
+    setActiveWorkSiteId(siteId);
+    setExpandedWorkSiteIds((prev) =>
+      prev.includes(siteId) ? prev : [siteId, ...prev],
+    );
+    setSiteAddressEditing(false);
+    toast.info("Adresse als Ausführungsadresse übernommen. Danach Auftrag speichern.");
+  };
 
   const isBlockingCurrencyReviewText = (value?: string | null) => {
     const text = normalizeForMatch(value);
@@ -8775,6 +8911,69 @@ export default function AuftraegePage() {
                   </div>
                 )}
               </div>
+
+              {shouldShowAddressRoleReviewBoxV17_62 && (
+                <div className="rounded-lg border border-red-200 bg-red-50/80 dark:border-red-900/60 dark:bg-red-950/20 p-3 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-red-800 dark:text-red-200">
+                        Adresse prüfen
+                      </div>
+                      <p className="text-xs text-red-700/90 dark:text-red-200/80">
+                        Diese Adresse wurde erkannt, ist aber noch nicht sicher als Rechnungsadresse oder Ausführungsadresse bestätigt.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-red-100 bg-white/80 p-2 text-sm dark:border-red-900/50 dark:bg-background/60">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Adresse erkannt
+                    </div>
+                    {addressRoleReviewCandidateV17_62.siteName && (
+                      <div className="font-medium">
+                        {addressRoleReviewCandidateV17_62.siteName}
+                      </div>
+                    )}
+                    <div>
+                      {addressRoleReviewCandidateV17_62.siteAddress || "Strasse fehlt"}
+                    </div>
+                    <div>
+                      {[addressRoleReviewCandidateV17_62.sitePlz, addressRoleReviewCandidateV17_62.siteCity]
+                        .filter(Boolean)
+                        .join(" ") || "PLZ / Ort fehlt"}
+                    </div>
+                    {addressRoleReviewCandidateV17_62.siteNote && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {addressRoleReviewCandidateV17_62.siteNote}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={applyAddressReviewAsBillingV17_62}
+                      className="justify-center border-red-200 bg-white text-red-800 hover:bg-red-50 dark:bg-background dark:text-red-100"
+                    >
+                      Als Rechnungsadresse verwenden
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={applyAddressReviewAsExecutionV17_62}
+                      className="justify-center"
+                    >
+                      Als Ausführungsadresse verwenden
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Danach speichern. Angebot/Rechnung bleiben blockiert, bis die Adressprüfung erledigt ist.
+                  </p>
+                </div>
+              )}
 
               {/* Ausführungsadresse / Baustellenadresse.
                   Bei mehreren Arbeitsorten ist der bearbeitbare Block darunter die einzige Wahrheit. */}
