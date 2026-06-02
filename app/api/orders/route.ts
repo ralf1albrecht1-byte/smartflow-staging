@@ -264,6 +264,22 @@ function normalizeServiceNameForDisplay(value?: string | null) {
   const key = normalizeSearchText(name);
   if (!name) return "";
 
+
+  // V17.58: API persistence must preserve concrete, line-local service names
+  // coming from the semantic intake. Do not collapse "Tische im Sitzungszimmer
+  // reinigen" to "Besprechungsbereich reinigen" or "Technikraum abstauben" to
+  // "Technikraum reinigen". This is action-based and structural, not a fixed
+  // service-word mapping.
+  const hasLineLocalWorkAction = /\b(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)\b/.test(key);
+  const wordCount = key.split(/\s+/g).filter(Boolean).length;
+  if (hasLineLocalWorkAction && wordCount >= 2 && name.length > 12) {
+    return name
+      .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
+      .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
     return "Archivraum reinigen";
   }
