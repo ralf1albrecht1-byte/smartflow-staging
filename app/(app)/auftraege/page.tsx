@@ -666,12 +666,12 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const name = compactText(value);
   const key = normalizeForMatch(name);
 
-  // V17.57: preserve already line-local, explicit service labels from the
+  // V17.59: preserve already line-local, explicit service labels from the
   // validator. The editor must not collapse concrete customer-line services
   // such as "Tische im Sitzungszimmer reinigen" into broad area labels such
   // as "Besprechungsbereich reinigen". This is action-based, not a fixed
   // service-word mapping.
-  const hasLineLocalWorkAction = /\b(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)\b/.test(key);
+  const hasLineLocalWorkAction = /(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)/.test(key);
   const wordCount = key.split(/\s+/g).filter(Boolean).length;
   if (hasLineLocalWorkAction && wordCount >= 2 && name.length > 12) {
     return name.replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen");
