@@ -11,7 +11,18 @@ export async function GET(request: Request, { params }: { params: { id: string }
   let userId: string;
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
-    const customer = await prisma.customer.findFirst({ where: { id: params?.id, userId }, include: { orders: { orderBy: { date: 'desc' } }, invoices: { orderBy: { invoiceDate: 'desc' } }, offers: { orderBy: { offerDate: 'desc' } } } });
+    const customer = await prisma.customer.findFirst({
+      where: { id: params?.id, userId },
+      include: {
+        orders: { orderBy: { date: 'desc' } },
+        executionAddresses: {
+          where: { deletedAt: null },
+          orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }],
+        },
+        invoices: { orderBy: { invoiceDate: 'desc' } },
+        offers: { orderBy: { offerDate: 'desc' } },
+      },
+    });
     if (!customer) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
     return NextResponse.json(customer);
   } catch (error: any) {

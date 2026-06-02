@@ -16,6 +16,11 @@ export async function GET() {
       orderBy: { name: 'asc' },
       include: {
         orders: { where: { deletedAt: null }, select: { id: true, offerId: true, invoiceId: true } },
+        executionAddresses: {
+          where: { deletedAt: null },
+          orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }],
+          take: 12,
+        },
         offers: { where: { deletedAt: null }, select: { id: true, status: true } },
         invoices: { where: { deletedAt: null }, select: { id: true, sourceOfferId: true, status: true } },
       },

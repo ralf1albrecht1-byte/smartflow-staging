@@ -20,6 +20,7 @@ import {
   repairPersistedOrderZeroHourItemsFromText,
   repairZeroQuantityHourItemsFromText,
 } from "@/lib/order-hour-line-repair";
+import { rememberExecutionAddressesFromOrder } from "@/lib/customer-execution-addresses";
 
 type SemanticNoteMatch = {
   label: string;
@@ -1679,6 +1680,10 @@ export async function PUT(
     if (persistedHourRepairAfterUpdate.repairedCount > 0 && persistedHourRepairAfterUpdate.order) {
       finalOrder = persistedHourRepairAfterUpdate.order;
     }
+
+    // V17.68: Sobald ein Auftrag mit vollständiger Ausführungsadresse gespeichert
+    // wird, wird diese Adresse auch kundenbasiert für spätere Vorschläge gemerkt.
+    await rememberExecutionAddressesFromOrder(prisma, { userId, order: finalOrder });
 
     return NextResponse.json({
       ...finalOrder,

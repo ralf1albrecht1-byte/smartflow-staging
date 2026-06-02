@@ -270,6 +270,17 @@ interface Order {
   originOrderIds?: string[];
   items?: OrderItem[];
 }
+interface CustomerExecutionAddress {
+  id: string;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+  country?: string | null;
+  usageCount?: number | null;
+  lastUsedAt?: string | null;
+}
 interface Customer {
   id: string;
   name: string;
@@ -280,6 +291,7 @@ interface Customer {
   country?: string | null;
   phone?: string | null;
   email?: string | null;
+  executionAddresses?: CustomerExecutionAddress[];
 }
 interface ServiceDef {
   id: string;
@@ -6314,14 +6326,23 @@ export default function AuftraegePage() {
     return [title, address].filter(Boolean).join(" · ") || "Arbeitsort prüfen";
   };
 
-  const normalizePreviousWorkSiteKeyV17_67 = (site: OrderWorkSite) => [
+  const normalizePersistentExecutionAddressKeyV17_68 = (site: {
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+  }) => [
     normalizeAddressPartForCompare(site.siteAddress),
     normalizeAddressPartForCompare(site.sitePlz),
     normalizeAddressPartForCompare(site.siteCity),
   ].join("|");
 
-  const previousExecutionAddressSuggestionsV17_67 = useMemo(() => {
+  const previousExecutionAddressSuggestionsV17_68 = useMemo(() => {
     if (!form.customerId) return [] as OrderWorkSite[];
+
+    const customer = customers.find((entry) => entry.id === form.customerId);
+    const storedAddresses = customer && Array.isArray(customer.executionAddresses)
+      ? customer.executionAddresses
+      : [];
 
     const seen = new Set<string>();
     const suggestions: OrderWorkSite[] = [];
@@ -6331,83 +6352,53 @@ export default function AuftraegePage() {
       siteCity: form.siteCity,
     };
 
-    const addSuggestion = (site: OrderWorkSite | null | undefined) => {
-      if (!site) return;
-
-      const normalizedSite: OrderWorkSite = {
-        id: site.id || `previous-site-${suggestions.length}`,
-        siteName: cleanWorkSiteDisplayName(site.siteName) || null,
-        siteAddress: compactText(site.siteAddress) || null,
-        sitePlz: compactText(site.sitePlz) || null,
-        siteCity: compactText(site.siteCity) || null,
-        siteNote: compactText(site.siteNote) || null,
-        isPrimary: true,
-        sortOrder: suggestions.length,
-      };
-
-      // Nur vollständige, belastbare Ausführungsadressen vorschlagen.
-      // Keine Namens-/Objektfragmente ohne Strasse+PLZ+Ort automatisch anbieten.
-      if (
-        !normalizedSite.siteAddress ||
-        !normalizedSite.sitePlz ||
-        !normalizedSite.siteCity
-      ) {
-        return;
-      }
-
-      if (isSameAddressPartsV17_63(normalizedSite, currentAddress)) return;
-
-      const key = normalizePreviousWorkSiteKeyV17_67(normalizedSite);
-      if (!key || key === "||" || seen.has(key)) return;
-      seen.add(key);
-      suggestions.push(normalizedSite);
-    };
-
-    orders
-      .filter((order) => order.customerId === form.customerId && order.id !== editId)
+    storedAddresses
       .slice()
       .sort((a, b) => {
-        const bTime = new Date(b.createdAt || b.date || 0).getTime();
-        const aTime = new Date(a.createdAt || a.date || 0).getTime();
+        const bTime = new Date(b.lastUsedAt || 0).getTime();
+        const aTime = new Date(a.lastUsedAt || 0).getTime();
         return bTime - aTime;
       })
-      .forEach((order) => {
-        const orderedSites = (order.workSites || [])
-          .filter((site) => hasWorkSiteContent(site))
-          .slice()
-          .sort(
-            (a, b) =>
-              Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
-              Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
-          );
+      .forEach((stored, index) => {
+        const normalizedSite: OrderWorkSite = {
+          id: `customer-execution-${stored.id || index}`,
+          siteName: cleanWorkSiteDisplayName(stored.siteName) || null,
+          siteAddress: compactText(stored.siteAddress) || null,
+          sitePlz: compactText(stored.sitePlz) || null,
+          siteCity: compactText(stored.siteCity) || null,
+          siteNote: compactText(stored.siteNote) || null,
+          isPrimary: true,
+          sortOrder: index,
+        };
 
-        orderedSites.forEach(addSuggestion);
-
-        if (order.siteAddressDifferent) {
-          addSuggestion({
-            id: `legacy-${order.id}`,
-            siteName: order.siteName || null,
-            siteAddress: order.siteAddress || null,
-            sitePlz: order.sitePlz || null,
-            siteCity: order.siteCity || null,
-            siteNote: order.siteNote || null,
-            isPrimary: true,
-            sortOrder: suggestions.length,
-          });
+        // Nur vollständige, dauerhaft gespeicherte Ausführungsadressen anbieten.
+        // Ein Objektname ohne Strasse/PLZ/Ort ist zu unsicher für Autocomplete.
+        if (
+          !normalizedSite.siteAddress ||
+          !normalizedSite.sitePlz ||
+          !normalizedSite.siteCity
+        ) {
+          return;
         }
+
+        if (isSameAddressPartsV17_63(normalizedSite, currentAddress)) return;
+
+        const key = normalizePersistentExecutionAddressKeyV17_68(normalizedSite);
+        if (!key || key === "||" || seen.has(key)) return;
+        seen.add(key);
+        suggestions.push(normalizedSite);
       });
 
     return suggestions.slice(0, 6);
   }, [
-    orders,
+    customers,
     form.customerId,
     form.siteAddress,
     form.sitePlz,
     form.siteCity,
-    editId,
   ]);
 
-  const applyPreviousExecutionAddressSuggestionV17_67 = (site: OrderWorkSite) => {
+  const applyPersistentExecutionAddressSuggestionV17_68 = (site: OrderWorkSite) => {
     const existingSite =
       formWorkSites.find((entry) => Boolean(entry.isPrimary)) ||
       formWorkSites[0] ||
@@ -9433,18 +9424,18 @@ export default function AuftraegePage() {
                         </p>
                       </div>
 
-                      {previousExecutionAddressSuggestionsV17_67.length > 0 && (
+                      {previousExecutionAddressSuggestionsV17_68.length > 0 && (
                         <div className="rounded-lg border border-cyan-200 bg-cyan-50/70 p-2.5 dark:border-cyan-900/60 dark:bg-cyan-950/20">
                           <div className="mb-2 flex items-center justify-between gap-2">
                             <div className="text-xs font-semibold text-cyan-900 dark:text-cyan-100">
-                              Frühere Ausführungsadressen
+                              Gespeicherte Ausführungsorte
                             </div>
                             <div className="text-[10px] text-cyan-700 dark:text-cyan-300">
-                              Vorschlag · speichert nicht automatisch
+                              vom Kunden · speichert nicht automatisch
                             </div>
                           </div>
                           <div className="grid gap-1.5">
-                            {previousExecutionAddressSuggestionsV17_67.map((site) => {
+                            {previousExecutionAddressSuggestionsV17_68.map((site) => {
                               const title = formatWorkSiteTitle(site);
                               const address = [
                                 compactText(site.siteAddress),
@@ -9458,10 +9449,10 @@ export default function AuftraegePage() {
 
                               return (
                                 <button
-                                  key={normalizePreviousWorkSiteKeyV17_67(site)}
+                                  key={normalizePersistentExecutionAddressKeyV17_68(site)}
                                   type="button"
                                   onClick={() =>
-                                    applyPreviousExecutionAddressSuggestionV17_67(site)
+                                    applyPersistentExecutionAddressSuggestionV17_68(site)
                                   }
                                   className="w-full rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
                                 >

@@ -19,6 +19,7 @@ import {
   repairPersistedOrderZeroHourItemsFromText,
   repairZeroQuantityHourItemsFromText,
 } from "@/lib/order-hour-line-repair";
+import { rememberExecutionAddressesFromOrder } from "@/lib/customer-execution-addresses";
 
 type SemanticNoteMatch = {
   label: string;
@@ -1705,6 +1706,11 @@ export async function POST(request: Request) {
     if (persistedHourRepair.repairedCount > 0 && persistedHourRepair.order) {
       order = persistedHourRepair.order;
     }
+
+    // V17.68: Vollständige Ausführungsadressen zusätzlich dauerhaft am Kunden merken.
+    // Dadurch bleiben frühere Arbeitsorte auch dann verfügbar, wenn ein Auftrag
+    // später gelöscht, in ein Angebot/eine Rechnung überführt oder archiviert wird.
+    await rememberExecutionAddressesFromOrder(prisma, { userId, order });
 
     const su = await getSessionUser();
     logAuditAsync({

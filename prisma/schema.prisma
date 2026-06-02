@@ -39,6 +39,7 @@ model User {
   accounts           Account[]
   sessions           Session[]
   customers          Customer[]
+  customerExecutionAddresses CustomerExecutionAddress[]
   orders             Order[]
   invoices           Invoice[]
   offers             Offer[]
@@ -98,6 +99,7 @@ model Customer {
   userId         String?
   user           User?     @relation(fields: [userId], references: [id])
   orders         Order[]
+  executionAddresses CustomerExecutionAddress[]
   invoices       Invoice[]
   offers         Offer[]
   deletedAt      DateTime?
@@ -105,6 +107,30 @@ model Customer {
   updatedAt      DateTime  @updatedAt
 
   @@index([userId])
+}
+
+
+model CustomerExecutionAddress {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  siteName    String?
+  siteAddress String
+  sitePlz     String
+  siteCity    String
+  siteNote    String?
+  country     String   @default("CH")
+  usageCount  Int      @default(1)
+  lastUsedAt  DateTime @default(now())
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([userId])
+  @@index([customerId, deletedAt, lastUsedAt])
 }
 
 model Service {

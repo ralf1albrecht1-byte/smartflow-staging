@@ -26,6 +26,14 @@ interface Customer {
   phone: string | null;
   email: string | null;
   notes: string | null;
+  executionAddresses?: Array<{
+    id: string;
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+    siteNote?: string | null;
+  }>;
   _count?: { orders: number; offers: number; invoices: number };
   _totalCount?: { orders: number; offers: number; invoices: number; archivedInvoices: number };
 }
@@ -145,6 +153,7 @@ export default function KundenPage() {
             // "Zu prüfen → Kundendaten fehlen" count on the dashboard are
             // guaranteed to match exactly.
             const hasMissingData = isCustomerDataIncomplete(c);
+            const executionAddressCount = Array.isArray(c.executionAddresses) ? c.executionAddresses.length : 0;
             return (
             <div key={c?.id}>
               {/* Stage L (2026-04-25) — single-tap card.
@@ -235,6 +244,11 @@ export default function KundenPage() {
                           {vc!.invoices === 1 ? '1 Rechnung' : `${vc!.invoices} Rechnungen`}
                         </span>
                       )}
+                      {executionAddressCount > 0 && (
+                        <span title="Gespeicherte Ausführungsorte beim Kunden" className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 font-medium leading-tight whitespace-nowrap">
+                          {executionAddressCount === 1 ? '1 Ausführungsort' : `${executionAddressCount} Ausführungsorte`}
+                        </span>
+                      )}
                     </div>
 
                     {/* SPACER */}
@@ -286,7 +300,7 @@ export default function KundenPage() {
                     </div>
 
                     {/* Row B — compact chip strip (entirely non-interactive) */}
-                    {(hasMissingData || hiddenHistory > 0 || (vc?.orders ?? 0) > 0 || (vc?.offers ?? 0) > 0 || (vc?.invoices ?? 0) > 0) && (
+                    {(hasMissingData || hiddenHistory > 0 || executionAddressCount > 0 || (vc?.orders ?? 0) > 0 || (vc?.offers ?? 0) > 0 || (vc?.invoices ?? 0) > 0) && (
                       <div className="flex items-center flex-wrap gap-1 pointer-events-none">
                         {hasMissingData && (
                           <span title="Pflichtangaben fehlen — Name, Strasse, PLZ oder Ort sind nicht erfasst">
@@ -324,6 +338,14 @@ export default function KundenPage() {
                             className="text-[10px] leading-none px-1.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-medium whitespace-nowrap"
                           >
                             {vc!.invoices === 1 ? '1 Rechnung' : `${vc!.invoices} Rechnungen`}
+                          </span>
+                        )}
+                        {executionAddressCount > 0 && (
+                          <span
+                            title="Gespeicherte Ausführungsorte"
+                            className="text-[10px] leading-none px-1.5 py-1 rounded-full bg-cyan-100 text-cyan-800 font-medium whitespace-nowrap"
+                          >
+                            {executionAddressCount} Orte
                           </span>
                         )}
                       </div>

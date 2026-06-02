@@ -139,6 +139,12 @@ export async function POST(request: Request) {
         where: { customerId: primaryId, needsReview: true },
         data: { needsReview: false, reviewReasons: [] },
       }),
+      // V17.68b: Persistente Ausführungsorte beim Kunden-Merge mitnehmen.
+      // Keine Änderung an Merge-Richtung/Kundennummer/Validierung.
+      (prisma as any).customerExecutionAddress.updateMany({
+        where: { customerId: secondaryId },
+        data: { customerId: primaryId, userId },
+      }),
       // Transfer ALL offers (including archived/deleted)
       prisma.offer.updateMany({
         where: { customerId: secondaryId },
