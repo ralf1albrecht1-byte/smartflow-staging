@@ -665,7 +665,7 @@ function isLikelyStandaloneFlatServiceLine(value?: string | null): boolean {
 function detectUnitlessCountPriceServiceLineV17_51(
   line: string,
   fallbackCurrency: IntakeCurrency,
-): { quantity: number; quantityRaw: string; price: ReturnType<typeof findExplicitUnitPriceInLine> } | null {
+): { quantity: number; quantityRaw: string; price: NonNullable<ReturnType<typeof findExplicitUnitPriceInLine>> } | null {
   const source = normalizeText(line);
   const normalized = normalizeCompare(source);
   if (!source || !normalized) return null;
@@ -675,7 +675,7 @@ function detectUnitlessCountPriceServiceLineV17_51(
   if (!price || price.currency !== fallbackCurrency) return null;
 
   const match = source.match(
-    new RegExp(`^\s*(${QUANTITY_NUMBER_OR_WORD})\s+(.{3,160})$`, "i"),
+    new RegExp(`^\\s*(${QUANTITY_NUMBER_OR_WORD})\\s+(.{3,160})$`, "i"),
   );
   const quantity = parseQuantityNumber(match?.[1]);
   if (!match || !quantity || quantity <= 0 || quantity > 9999) return null;
