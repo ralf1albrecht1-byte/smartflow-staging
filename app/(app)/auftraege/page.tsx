@@ -7910,11 +7910,24 @@ export default function AuftraegePage() {
             const rightSideBadges = amountReviewBadges;
             const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
             const mobileRightHiddenCount = Math.max(0, rightSideBadges.length - mobilePrimaryRightBadges.length);
+            // Mobile: customer/address-state chips belong in the card header near
+            // customer number, not in the lower action icon row. On touch they
+            // only open the small tooltip; tapping the card itself still opens
+            // the order at the relevant section.
+            const mobileHeaderBadgeKeys = new Set([
+              "site_address",
+              "address_review",
+              "customer_review",
+            ]);
             const mobileFocusBadges = leftSystemBadges.filter(
-              (badge) => badge.focusTarget === "specialNotes" || badge.focusTarget === "customer",
+              (badge) =>
+                !mobileHeaderBadgeKeys.has(badge.key) &&
+                (badge.focusTarget === "specialNotes" || badge.focusTarget === "customer"),
             );
             const mobileSystemBadges = leftSystemBadges.filter(
-              (badge) => badge.key !== "site_address" && !badge.focusTarget,
+              (badge) =>
+                mobileHeaderBadgeKeys.has(badge.key) ||
+                (badge.key !== "site_address" && !badge.focusTarget),
             );
             // Mobile: do not repeat the address pin as a large action icon.
             // The address remains visible on desktop and in the edit dialog; the
@@ -8007,8 +8020,7 @@ export default function AuftraegePage() {
                   key={badge.key}
                   type="button"
                   aria-label={title}
-                  title={title}
-                              onClick={shouldOpenItems ? openOrderAtItems : shouldOpenCustomer ? openOrderAtCustomer : openOrderAtSpecialNotes}
+                  onClick={shouldOpenItems ? openOrderAtItems : shouldOpenCustomer ? openOrderAtCustomer : openOrderAtSpecialNotes}
                   className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                     isCompactIcon
                       ? "font-semibold"
@@ -8233,7 +8245,7 @@ export default function AuftraegePage() {
                             </span>
                           </div>
 
-                          <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1">
                             <span
                               className={`min-w-0 truncate text-[13px] font-semibold ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
                             >
@@ -8247,15 +8259,10 @@ export default function AuftraegePage() {
                                   ({o.customer.customerNumber})
                                 </span>
                               )}
+                            {mobileSystemBadges.slice(0, 3).map((badge) =>
+                              renderInteractiveMobileTextBadge(badge, "mobile_system", "left"),
+                            )}
                           </div>
-
-                          {mobileSystemBadges.length > 0 && (
-                            <div className="mt-1 flex max-w-full flex-wrap items-center gap-1">
-                              {mobileSystemBadges.slice(0, 1).map((badge) =>
-                                renderInteractiveMobileTextBadge(badge, "mobile_system", "left"),
-                              )}
-                            </div>
-                          )}
 
                           <p
                             className={`mt-1 line-clamp-2 text-[13px] font-medium leading-snug ${
