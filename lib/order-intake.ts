@@ -6192,7 +6192,13 @@ export async function processIncomingMessage(
     hasExplicitExecutionNotBillingAddressDirectiveV17_51(messageText) &&
     billingEvidence.source !== "labeled"
   ) {
-    const executionBlock = extractExecutionBlockFromText(validationSourceText);
+    const addressValidationSourceTextV17_51 = [
+      messageText,
+      translationText ? `--- Übersetzung (automatisch) ---\n${translationText}` : "",
+    ]
+      .filter((part) => String(part || "").trim())
+      .join("\n");
+    const executionBlock = extractExecutionBlockFromText(addressValidationSourceTextV17_51);
     const executionStreet = executionBlock
       ? parseBillingStreetFromBlock(executionBlock)
       : null;
