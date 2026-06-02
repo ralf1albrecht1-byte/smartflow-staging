@@ -6314,6 +6314,149 @@ export default function AuftraegePage() {
     return [title, address].filter(Boolean).join(" · ") || "Arbeitsort prüfen";
   };
 
+  const normalizePreviousWorkSiteKeyV17_67 = (site: OrderWorkSite) => [
+    normalizeAddressPartForCompare(site.siteAddress),
+    normalizeAddressPartForCompare(site.sitePlz),
+    normalizeAddressPartForCompare(site.siteCity),
+  ].join("|");
+
+  const previousExecutionAddressSuggestionsV17_67 = useMemo(() => {
+    if (!form.customerId) return [] as OrderWorkSite[];
+
+    const seen = new Set<string>();
+    const suggestions: OrderWorkSite[] = [];
+    const currentAddress = {
+      siteAddress: form.siteAddress,
+      sitePlz: form.sitePlz,
+      siteCity: form.siteCity,
+    };
+
+    const addSuggestion = (site: OrderWorkSite | null | undefined) => {
+      if (!site) return;
+
+      const normalizedSite: OrderWorkSite = {
+        id: site.id || `previous-site-${suggestions.length}`,
+        siteName: cleanWorkSiteDisplayName(site.siteName) || null,
+        siteAddress: compactText(site.siteAddress) || null,
+        sitePlz: compactText(site.sitePlz) || null,
+        siteCity: compactText(site.siteCity) || null,
+        siteNote: compactText(site.siteNote) || null,
+        isPrimary: true,
+        sortOrder: suggestions.length,
+      };
+
+      // Nur vollständige, belastbare Ausführungsadressen vorschlagen.
+      // Keine Namens-/Objektfragmente ohne Strasse+PLZ+Ort automatisch anbieten.
+      if (
+        !normalizedSite.siteAddress ||
+        !normalizedSite.sitePlz ||
+        !normalizedSite.siteCity
+      ) {
+        return;
+      }
+
+      if (isSameAddressPartsV17_63(normalizedSite, currentAddress)) return;
+
+      const key = normalizePreviousWorkSiteKeyV17_67(normalizedSite);
+      if (!key || key === "||" || seen.has(key)) return;
+      seen.add(key);
+      suggestions.push(normalizedSite);
+    };
+
+    orders
+      .filter((order) => order.customerId === form.customerId && order.id !== editId)
+      .slice()
+      .sort((a, b) => {
+        const bTime = new Date(b.createdAt || b.date || 0).getTime();
+        const aTime = new Date(a.createdAt || a.date || 0).getTime();
+        return bTime - aTime;
+      })
+      .forEach((order) => {
+        const orderedSites = (order.workSites || [])
+          .filter((site) => hasWorkSiteContent(site))
+          .slice()
+          .sort(
+            (a, b) =>
+              Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
+              Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
+          );
+
+        orderedSites.forEach(addSuggestion);
+
+        if (order.siteAddressDifferent) {
+          addSuggestion({
+            id: `legacy-${order.id}`,
+            siteName: order.siteName || null,
+            siteAddress: order.siteAddress || null,
+            sitePlz: order.sitePlz || null,
+            siteCity: order.siteCity || null,
+            siteNote: order.siteNote || null,
+            isPrimary: true,
+            sortOrder: suggestions.length,
+          });
+        }
+      });
+
+    return suggestions.slice(0, 6);
+  }, [
+    orders,
+    form.customerId,
+    form.siteAddress,
+    form.sitePlz,
+    form.siteCity,
+    editId,
+  ]);
+
+  const applyPreviousExecutionAddressSuggestionV17_67 = (site: OrderWorkSite) => {
+    const existingSite =
+      formWorkSites.find((entry) => Boolean(entry.isPrimary)) ||
+      formWorkSites[0] ||
+      null;
+    const siteId = existingSite?.id || `local-site-${Date.now().toString(36)}`;
+    const nextSite: OrderWorkSite = {
+      ...(existingSite || {}),
+      id: siteId,
+      siteName: cleanWorkSiteDisplayName(site.siteName) || null,
+      siteAddress: compactText(site.siteAddress) || null,
+      sitePlz: compactText(site.sitePlz) || null,
+      siteCity: compactText(site.siteCity) || null,
+      siteNote: compactText(site.siteNote) || null,
+      isPrimary: true,
+      sortOrder: 0,
+    };
+
+    const nextWorkSites = existingSite
+      ? formWorkSites.map((entry) =>
+          entry.id === existingSite.id
+            ? nextSite
+            : { ...entry, isPrimary: false },
+        )
+      : [nextSite];
+
+    setForm((prev) => ({
+      ...prev,
+      siteAddressDifferent: true,
+      siteName: cleanWorkSiteDisplayName(nextSite.siteName) || "",
+      siteAddress: nextSite.siteAddress || "",
+      sitePlz: nextSite.sitePlz || "",
+      siteCity: nextSite.siteCity || "",
+      siteNote: nextSite.siteNote || "",
+    }));
+    setFormWorkSites(nextWorkSites);
+    setFormItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        workSiteId: item.workSiteId || siteId,
+      })),
+    );
+    setActiveWorkSiteId(siteId);
+    setExpandedWorkSiteIds((prev) =>
+      prev.includes(siteId) ? prev : [siteId, ...prev],
+    );
+    setSiteAddressEditing(true);
+    toast.success("Ausführungsadresse übernommen – Auftrag speichern.");
+  };
+
   const getWorkSiteShortLabel = (site?: OrderWorkSite | null) => {
     if (!site) return "Ohne Arbeitsort";
     return formatWorkSiteTitle(site);
@@ -9289,6 +9432,56 @@ export default function AuftraegePage() {
                           Rechnung und PDF separat angezeigt.
                         </p>
                       </div>
+
+                      {previousExecutionAddressSuggestionsV17_67.length > 0 && (
+                        <div className="rounded-lg border border-cyan-200 bg-cyan-50/70 p-2.5 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold text-cyan-900 dark:text-cyan-100">
+                              Frühere Ausführungsadressen
+                            </div>
+                            <div className="text-[10px] text-cyan-700 dark:text-cyan-300">
+                              Vorschlag · speichert nicht automatisch
+                            </div>
+                          </div>
+                          <div className="grid gap-1.5">
+                            {previousExecutionAddressSuggestionsV17_67.map((site) => {
+                              const title = formatWorkSiteTitle(site);
+                              const address = [
+                                compactText(site.siteAddress),
+                                [site.sitePlz, site.siteCity]
+                                  .map(compactText)
+                                  .filter(Boolean)
+                                  .join(" "),
+                              ]
+                                .filter(Boolean)
+                                .join(" · ");
+
+                              return (
+                                <button
+                                  key={normalizePreviousWorkSiteKeyV17_67(site)}
+                                  type="button"
+                                  onClick={() =>
+                                    applyPreviousExecutionAddressSuggestionV17_67(site)
+                                  }
+                                  className="w-full rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
+                                >
+                                  <div className="font-semibold text-slate-900 dark:text-slate-100">
+                                    {title}
+                                  </div>
+                                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                    {address}
+                                  </div>
+                                  {site.siteNote && (
+                                    <div className="mt-0.5 truncate text-[11px] text-cyan-800 dark:text-cyan-200">
+                                      {site.siteNote}
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
