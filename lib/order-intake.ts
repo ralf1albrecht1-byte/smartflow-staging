@@ -2406,10 +2406,10 @@ Regeln:
       }),
     });
 
-    if (!transRes.ok) return "";
+    if (!transRes.ok) return EMPTY_INTAKE_NORMALIZATION_V17_49;
     const transResult = await transRes.json();
     const transContent = transResult?.choices?.[0]?.message?.content;
-    if (!transContent) return "";
+    if (!transContent) return EMPTY_INTAKE_NORMALIZATION_V17_49;
 
     const transData = JSON.parse(transContent);
     const translation = String(transData?.translation || "").trim();
