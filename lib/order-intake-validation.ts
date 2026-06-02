@@ -5175,6 +5175,180 @@ function forceExactLineLocalMeasuredNamesV17_53(
   });
 }
 
+
+function extractFinalMeasuredNameCandidatesV17_55(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const lines = normalizeText(originalText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8);
+
+  const candidates: ExplicitServiceLineItem[] = [];
+  for (const line of lines) {
+    const key = normalizeCompare(line);
+    if (!key) continue;
+    if (/^(?:rechnung|invoice|facture|fattura|kunde|kundin|adresse|ausfuehrung|ausführung|execution|exécution|esecuzione|hinweis|hinweise|kontakt|telefon|tel|email|e-mail)\b/.test(key)) {
+      continue;
+    }
+    if (!isPricedServiceLine(line)) continue;
+
+    const quantityMatch = line.match(
+      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
+    );
+    if (!quantityMatch) continue;
+
+    const unitPrice = findExplicitUnitPriceInLine(line, finalCurrency);
+    if (!unitPrice || unitPrice.currency !== finalCurrency) continue;
+
+    const quantity = parseQuantityNumber(quantityMatch[1]) || 0;
+    const unitType = unitTypeFromText(quantityMatch[2]);
+    if (!quantity || !unitType) continue;
+
+    let serviceName = cleanMeasuredLineServiceNameV17_55(line, {
+      quantityRaw: quantityMatch[0],
+      priceRaw: unitPrice.raw,
+    });
+
+    if (normalizeCompare(serviceName) === "unbekannte leistung") continue;
+    if (normalizeCompare(serviceName) === "anfahrt") continue;
+
+    candidates.push({
+      serviceName,
+      description: line,
+      quantity,
+      unit: unitTypeToDisplayUnit(unitType) || "Pauschal",
+      unitPrice: unitPrice.amount,
+      totalPrice: roundMoney(quantity * unitPrice.amount),
+      needsReview: false,
+      reviewReason: null,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: unitPrice.currency,
+    });
+  }
+
+  const bySignature = new Map<string, ExplicitServiceLineItem>();
+  for (const candidate of candidates) {
+    const signature = [
+      roundMoney(candidate.quantity),
+      unitTypeFromDisplayUnit(candidate.unit) || "",
+      roundMoney(candidate.unitPrice),
+      candidate.detectedCurrency || "",
+      normalizeCompare(candidate.serviceName),
+    ].join("|");
+    const existing = bySignature.get(signature);
+    if (!existing || semanticLineLocalNameScoreV17_53(candidate.serviceName) > semanticLineLocalNameScoreV17_53(existing.serviceName)) {
+      bySignature.set(signature, candidate);
+    }
+  }
+
+  return Array.from(bySignature.values());
+}
+
+function cleanMeasuredLineServiceNameV17_55(
+  line: string,
+  args: { quantityRaw?: string | null; priceRaw?: string | null },
+): string {
+  let name = normalizeText(line || "")
+    .replace(/^[-–—•]+\s*/, "")
+    .replace(/^\s*(?:leistungen?|arbeiten?|position|service)\s*:?\s*/i, " ");
+
+  if (args.priceRaw) {
+    name = name.replace(new RegExp(escapeRegExp(String(args.priceRaw)), "i"), " ");
+  }
+  if (args.quantityRaw) {
+    name = name.replace(new RegExp(escapeRegExp(String(args.quantityRaw)), "i"), " ");
+  }
+
+  name = name
+    .replace(/\b(?:zum\s+preis\s+von|zum\s+preis|preis\s+von|preis|einzelpreis|kosten)\b\s*:?/gi, " ")
+    .replace(/\b(?:zu|für|fuer|par|per|pro|je|a|à)\b\s*$/gi, " ")
+    .replace(/\b(?:zu|für|fuer|par|per|pro|je|a|à)\b\s*[.,;:!?-]*(?=\s*$)/gi, " ")
+    .replace(/[.,;:!?-]+$/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  name = cleanGermanServiceNounArtifactsV17_48(
+    stripServiceFieldLabelArtifactsV17_47(name),
+  );
+  name = cleanValidationServiceDisplayName(name);
+
+  const key = normalizeCompare(name);
+  if (!key || isPriceAnchorOnlyServiceName(name)) return "Unbekannte Leistung";
+  return name.replace(/^./, (char) => char.toUpperCase());
+}
+
+function finalMeasuredCandidateShouldReplaceNameV17_55(
+  item: ParsedOrderItemForValidation,
+  candidate: ExplicitServiceLineItem,
+): boolean {
+  if (!sameMeasuredSignatureV17_50(item, candidate)) return false;
+
+  const current = cleanValidationServiceDisplayName(item.serviceName);
+  const proposed = cleanValidationServiceDisplayName(candidate.serviceName);
+  const currentKey = normalizeCompare(current);
+  const proposedKey = normalizeCompare(proposed);
+  if (!proposedKey || proposedKey === "unbekannte leistung" || proposedKey === "anfahrt") return false;
+  if (!currentKey || currentKey === "unbekannte leistung" || currentKey === "reinigung") return true;
+  if (currentKey === proposedKey) return false;
+  if (currentKey === "anfahrt") return false;
+
+  const currentTokens = meaningfulServiceTokens(current);
+  const proposedTokens = meaningfulServiceTokens(proposed);
+  if (proposedTokens.length === 0) return false;
+
+  const proposedAddsConcreteContext = proposedTokens.some((token) => !currentTokens.includes(token));
+  if (!proposedAddsConcreteContext && !hasVisibleGermanWorkActionV17_37(proposed)) return false;
+
+  const currentScore = semanticLineLocalNameScoreV17_53(current);
+  const proposedScore = semanticLineLocalNameScoreV17_53(proposed);
+
+  if (isBroadAreaOnlyServiceNameV17_54(current)) {
+    return proposedScore >= 25;
+  }
+
+  if (!hasVisibleGermanWorkActionV17_37(current) && hasVisibleGermanWorkActionV17_37(proposed)) {
+    return true;
+  }
+
+  if (proposedTokens.length > currentTokens.length && proposedScore >= currentScore - 25) {
+    return true;
+  }
+
+  return proposedScore >= currentScore + 10;
+}
+
+function forceFinalMeasuredLineLocalNamesV17_55(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const candidates = extractFinalMeasuredNameCandidatesV17_55(originalText, finalCurrency);
+  if (candidates.length === 0) return items;
+
+  return items.map((item) => {
+    if (normalizeCompare(item.serviceName) === "anfahrt") return item;
+
+    const best = candidates
+      .filter((candidate) => finalMeasuredCandidateShouldReplaceNameV17_55(item, candidate))
+      .sort((a, b) => semanticLineLocalNameScoreV17_53(b.serviceName) - semanticLineLocalNameScoreV17_53(a.serviceName))[0];
+
+    if (!best) return item;
+
+    return {
+      ...item,
+      serviceName: cleanValidationServiceDisplayName(best.serviceName),
+      description: item.description || best.description,
+      sourceText: item.sourceText || best.sourceText,
+      evidence: item.evidence || best.evidence,
+    };
+  });
+}
+
 function repairLineLocalStandaloneFlatServiceNamesV17_51(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -8416,6 +8590,11 @@ export function validateAndRepairParsedOrderItems(
     finalCurrency,
   );
   items = forceExactLineLocalMeasuredNamesV17_53(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
+  items = forceFinalMeasuredLineLocalNamesV17_55(
     input.originalText,
     items,
     finalCurrency,
