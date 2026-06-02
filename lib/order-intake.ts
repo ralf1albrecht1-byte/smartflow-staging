@@ -1648,6 +1648,13 @@ function cleanExecutionSiteNameCandidate(
   ]);
   if (blockedExact.has(normalized)) return null;
 
+  const looksLikeOperationalOrSafetyInstruction =
+    /\b(?:kein(?:e|en|em)?\s+(?:hund|tiere?|tier)|keine\s+tiere|hund\s+(?:vor\s+ort|befindet|ist)|tiere?\s+(?:im\s+gebaeude|im\s+gebäude|erlaubt|verboten)|ankunft|empfang|anmelden|melden|nicht\s+einfach|vorher|zuerst|kontakt|whatsapp|sms|telefon|phone|schluessel|schlussel|schlüssel|code|zugang|hinweis|achtung|warnung)\b/i.test(
+      normalized,
+    );
+
+  if (looksLikeOperationalOrSafetyInstruction) return null;
+
   if (
     /^(?:um\s*\d|am\s*\d|es\s+geht\s+um|es\s+handelt\s+sich|zugang\s+(?:über|ueber)|bitte\b)/i.test(
       candidate,
@@ -5526,6 +5533,17 @@ export async function processIncomingMessage(
     detectedCurrency || (companySettings?.currency === "EUR" ? "EUR" : "CHF");
   const hauptsprache = (companySettings as any)?.hauptsprache || "Deutsch";
 
+  // V17.46 SEMANTIC_NORMALIZATION_BEFORE_MAIN_LLM:
+  // Fremdsprache/Dialekt darf gar nicht erst als sichtbarer Leistungsname,
+  // Ausführungsort oder Hinweis in die Haupt-KI laufen. Die Normalisierung
+  // bleibt beweisführend getrennt: Originaltext für Zahlen/Preise,
+  // Arbeitsfassung für professionelle deutsche Namen und Rollen.
+  const translationText = await createStandardGermanValidationTranslation({
+    text: messageText,
+    targetLanguage: hauptsprache,
+    source,
+  });
+
   // Resolve default VAT rate from CompanySettings.
   // If MwSt is active and a rate is configured → use that rate.
   // If MwSt is explicitly disabled → 0.
@@ -5553,7 +5571,15 @@ export async function processIncomingMessage(
   const isImageOnly =
     !messageText.trim() && (hasMultipleImages || !!imageBase64);
   if (messageText.trim()) {
-    userContent.push({ type: "text", text: `Nachricht:\n"${messageText}"` });
+    const normalizedMessageForAi = translationText
+      ? [
+          `Nachricht Original:\n"${messageText}"`,
+          `--- Semantisch normalisierte Arbeitsfassung (${hauptsprache}) ---\n${translationText}`,
+          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes und Adressen. Die Arbeitsfassung ist maßgeblich für sichtbare professionelle ${hauptsprache}-Leistungsnamen, Ausführungsort-Namen und Hinweise. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert.`,
+        ].join("\n\n")
+      : `Nachricht:\n"${messageText}"`;
+
+    userContent.push({ type: "text", text: normalizedMessageForAi });
   }
   if (hasMultipleImages) {
     if (isImageOnly) {
@@ -7166,12 +7192,6 @@ export async function processIncomingMessage(
             reviewReason: "unbekannte_leistung_pruefen",
           },
         ];
-
-  const translationText = await createStandardGermanValidationTranslation({
-    text: messageText,
-    targetLanguage: hauptsprache,
-    source,
-  });
 
   const validationSourceText = [
     messageText,

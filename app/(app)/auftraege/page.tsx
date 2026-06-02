@@ -3451,7 +3451,7 @@ const detectPreArrivalInstructionHint = (
     .filter(Boolean)
     .join("\n")
     .split(/\n+/g)
-    .map((line) => compactText(line))
+    .map((line) => compactText(stripVisibleNoteMarkerV17_35(line)))
     .filter(Boolean);
 
   const direct = lines.find((line) => {
@@ -3465,7 +3465,7 @@ const detectPreArrivalInstructionHint = (
   if (!direct) return null;
 
   const callbackTime = extractCallbackTimeHint(...values);
-  const cleanedDirect = compactText(direct)
+  const cleanedDirect = compactText(stripVisibleNoteMarkerV17_35(direct))
     .replace(/\b(?:keine?|kein|ohne|nicht)\s+(?:per\s+|via\s+)?whats\s*app\.?/gi, "")
     .replace(/[;,.]?\s*(?:bitte\s+)?(?:nicht|nid|ned|noed|nöd)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)\.?/gi, "")
     .replace(/^(?:bitte\s+)?(?:nicht|nid|ned|noed|nöd)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)\.?$/gi, "")
@@ -7433,12 +7433,14 @@ export default function AuftraegePage() {
               const CompactIcon = compactIconForBadge(badge);
               const compactSymbol = compactSymbolForBadge(badge);
               const isCompactIcon = Boolean(CompactIcon || compactSymbol);
+              const title = compactText(badge.tooltip) || badge.label;
 
               return (
                 <button
                   key={badge.key}
                   type="button"
-                  aria-label={compactText(badge.tooltip) || badge.label}
+                  aria-label={title}
+                  title={title}
                               onClick={shouldOpenItems ? openOrderAtItems : shouldOpenCustomer ? openOrderAtCustomer : openOrderAtSpecialNotes}
                   className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                     isCompactIcon

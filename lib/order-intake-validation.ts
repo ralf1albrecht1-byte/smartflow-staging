@@ -4599,6 +4599,64 @@ function extractStructuredGermanServiceItemsV17_43(
   return Array.from(bySignature.values());
 }
 
+function mergeSingleStructuredGermanServiceItemsV17_46(
+  items: ParsedOrderItemForValidation[],
+  structuredItems: ExplicitServiceLineItem[],
+): ParsedOrderItemForValidation[] {
+  if (structuredItems.length === 0 || items.length === 0) return items;
+
+  let nextItems = items.slice();
+
+  for (const structured of structuredItems) {
+    const structuredName = cleanValidationServiceDisplayName(structured.serviceName);
+    if (normalizeCompare(structuredName) === "unbekannte leistung") continue;
+
+    const structuredQuantity = roundMoney(Number(structured.quantity || 0));
+    const structuredPrice = roundMoney(Number(structured.unitPrice || 0));
+    if (!Number.isFinite(structuredQuantity) || structuredQuantity <= 0) continue;
+
+    const candidates = nextItems
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => {
+        const sameQuantity = Math.abs(roundMoney(Number(item.quantity || 0)) - structuredQuantity) < 0.001;
+        if (!sameQuantity) return false;
+
+        const itemPrice = roundMoney(Number(item.unitPrice || 0));
+        const samePositivePrice = structuredPrice > 0 && Math.abs(itemPrice - structuredPrice) < 0.01;
+        const sameBlockedPrice = structuredPrice === 0 && itemPrice === 0 && Boolean(structured.detectedCurrency || item.detectedCurrency);
+        return samePositivePrice || sameBlockedPrice;
+      });
+
+    if (candidates.length !== 1) continue;
+
+    const { item, index } = candidates[0];
+    const currentName = cleanValidationServiceDisplayName(item.serviceName);
+    const useStructuredName =
+      shouldUseTranslatedServiceNameV17_35(item, structuredName) ||
+      visibleServiceNameQualityScoreV17_37(structuredName) >= visibleServiceNameQualityScoreV17_37(currentName) + 15 ||
+      normalizeCompare(currentName) === "unbekannte leistung";
+
+    if (!useStructuredName) continue;
+
+    const nextReviewReason = item.reviewReason?.startsWith("price_unclear:")
+      ? `price_unclear:${structuredName}`
+      : item.reviewReason;
+
+    nextItems[index] = {
+      ...item,
+      serviceName: structuredName,
+      description: item.description || structured.description,
+      unit: structured.unit || item.unit,
+      sourceText: item.sourceText || structured.sourceText,
+      evidence: item.evidence || structured.evidence,
+      detectedCurrency: structured.detectedCurrency || item.detectedCurrency,
+      reviewReason: nextReviewReason,
+    };
+  }
+
+  return nextItems;
+}
+
 function enforceStructuredGermanServiceSectionV17_43(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -4609,9 +4667,17 @@ function enforceStructuredGermanServiceSectionV17_43(
     finalCurrency,
   );
 
-  // Only take over a real structured service block. This avoids replacing a
-  // short manual order that has no clean KI-normalized Leistung section.
-  if (structuredItems.length < 2) return { items, reviewReasons: [] };
+  // V17.46: Auch eine einzelne KI-normalisierte Preiszeile darf einen rohen
+  // Fremdsprachen-/Dialekt-Leistungsnamen ersetzen, wenn sie eindeutig über
+  // Menge + Preis an genau eine vorhandene Position gebunden ist. Vollersatz
+  // der gesamten Positionsliste bleibt erst ab mindestens zwei strukturierten
+  // Leistungszeilen aktiv.
+  if (structuredItems.length < 2) {
+    return {
+      items: mergeSingleStructuredGermanServiceItemsV17_46(items, structuredItems),
+      reviewReasons: [],
+    };
+  }
 
   const pricedStructuredCount = structuredItems.filter(
     (item) => Number(item.quantity || 0) > 0 && (Number(item.unitPrice || 0) > 0 || item.needsReview),
