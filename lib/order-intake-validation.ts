@@ -5377,6 +5377,194 @@ function forceFinalMeasuredLineLocalNamesV17_55(
   });
 }
 
+function splitSemanticMeasuredNameSourcesV17_56(originalText: string): string[] {
+  const translated = translatedSectionFromOriginalTextV17_35(originalText).trim();
+  const primary = translated || originalText || "";
+
+  return normalizeText(primary)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8);
+}
+
+function cleanExactMeasuredLineServiceNameV17_56(
+  line: string,
+  args: {
+    quantityRaw?: string | null;
+    priceRaw?: string | null;
+    unitType?: string | null;
+  },
+): string {
+  let name = normalizeText(line || "")
+    .replace(/^[-–—•]+\s*/, "")
+    .replace(/^\s*(?:leistungen?|arbeiten?|position|service)\s*:?\s*/i, " ");
+
+  if (args.priceRaw) {
+    name = name.replace(new RegExp(escapeRegExp(String(args.priceRaw)), "i"), " ");
+  }
+  if (args.quantityRaw) {
+    name = name.replace(new RegExp(escapeRegExp(String(args.quantityRaw)), "i"), " ");
+  }
+
+  name = name
+    .replace(/\b(?:zum\s+preis\s+von|zum\s+preis|preis\s+von|preis|einzelpreis|kosten)\b\s*:?/gi, " ")
+    .replace(/\b(?:zu|für|fuer|par|per|pro|je|each|a|à|mal|x)\b\s*[.,;:!?-]*(?=\s*$)/gi, " ")
+    .replace(/(?:^|\s)(?:à|je|each|mal|x|\*)(?=\s|$)/gi, " ")
+    .replace(/[.,;:!?-]+$/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  name = cleanGermanServiceNounArtifactsV17_48(
+    stripServiceFieldLabelArtifactsV17_47(name),
+  );
+
+  if (!name || isPriceAnchorOnlyServiceName(name)) return "Unbekannte Leistung";
+
+  // V17.56: Exact line-local names must not be collapsed through the generic
+  // catalog canonicalizer (for example "Kellerboden reinigen" -> "Boden reinigen").
+  // This helper only removes structural amount/price fragments and keeps the
+  // object/context wording from the priced line itself.
+  const key = normalizeCompare(name);
+  if (!key || key.length < 3) return "Unbekannte Leistung";
+  if (normalizeCompare(name) === "anfahrts") return "Anfahrt";
+
+  if (!hasVisibleGermanWorkActionV17_37(name) && key !== "anfahrt") {
+    name = `${name} reinigen`;
+  }
+
+  return normalizeText(name).replace(/^./, (char) => char.toUpperCase());
+}
+
+function extractExactSemanticMeasuredLineCandidatesV17_56(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const lines = splitSemanticMeasuredNameSourcesV17_56(originalText);
+  const candidates: ExplicitServiceLineItem[] = [];
+
+  for (const line of lines) {
+    const key = normalizeCompare(line);
+    if (!key) continue;
+    if (/^(?:rechnung|invoice|facture|fattura|kunde|kundin|adresse|ausfuehrung|ausführung|execution|exécution|esecuzione|hinweis|hinweise|kontakt|telefon|tel|email|e-mail|whatsapp|sms|zugang|besonderheiten|schluessel|schlüssel)\b/.test(key)) {
+      continue;
+    }
+
+    const quantityMatch = line.match(
+      new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
+    );
+    if (!quantityMatch) continue;
+
+    const unitPrice = findExplicitUnitPriceInLine(line, finalCurrency);
+    if (!unitPrice || unitPrice.currency !== finalCurrency) continue;
+
+    const quantity = parseQuantityNumber(quantityMatch[1]) || 0;
+    const unitType = unitTypeFromText(quantityMatch[2]);
+    if (!quantity || !unitType) continue;
+
+    const serviceName = cleanExactMeasuredLineServiceNameV17_56(line, {
+      quantityRaw: quantityMatch[0],
+      priceRaw: unitPrice.raw,
+      unitType,
+    });
+    if (normalizeCompare(serviceName) === "unbekannte leistung") continue;
+    if (normalizeCompare(serviceName) === "anfahrt") continue;
+
+    candidates.push({
+      serviceName,
+      description: line,
+      quantity,
+      unit: unitTypeToDisplayUnit(unitType) || "Pauschal",
+      unitPrice: unitPrice.amount,
+      totalPrice: roundMoney(quantity * unitPrice.amount),
+      needsReview: false,
+      reviewReason: null,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: unitPrice.currency,
+    });
+  }
+
+  const bySignature = new Map<string, ExplicitServiceLineItem>();
+  for (const candidate of candidates) {
+    const signature = [
+      roundMoney(candidate.quantity),
+      unitTypeFromDisplayUnit(candidate.unit) || "",
+      roundMoney(candidate.unitPrice),
+      candidate.detectedCurrency || "",
+      normalizeCompare(candidate.serviceName),
+    ].join("|");
+    const existing = bySignature.get(signature);
+    if (!existing || semanticLineLocalNameScoreV17_53(candidate.serviceName) > semanticLineLocalNameScoreV17_53(existing.serviceName)) {
+      bySignature.set(signature, candidate);
+    }
+  }
+
+  return Array.from(bySignature.values());
+}
+
+function shouldForceExactSemanticMeasuredNameV17_56(
+  item: ParsedOrderItemForValidation,
+  candidate: ExplicitServiceLineItem,
+): boolean {
+  if (!sameMeasuredSignatureV17_50(item, candidate)) return false;
+
+  const current = cleanValidationServiceDisplayName(item.serviceName);
+  const proposed = cleanExactMeasuredLineServiceNameV17_56(candidate.serviceName, {});
+  const currentKey = normalizeCompare(current);
+  const proposedKey = normalizeCompare(proposed);
+  if (!proposedKey || proposedKey === "unbekannte leistung" || proposedKey === "anfahrt") return false;
+  if (currentKey === proposedKey) return false;
+  if (!currentKey || currentKey === "unbekannte leistung" || currentKey === "reinigung") return true;
+  if (currentKey === "anfahrt") return false;
+
+  const currentTokens = meaningfulServiceTokens(current);
+  const proposedTokens = meaningfulServiceTokens(proposed);
+  if (proposedTokens.length === 0) return false;
+
+  const overlap = proposedTokens.filter((token) => currentTokens.includes(token)).length;
+  const currentScore = semanticLineLocalNameScoreV17_53(current);
+  const proposedScore = semanticLineLocalNameScoreV17_53(proposed);
+
+  if (isBroadAreaOnlyServiceNameV17_54(current)) return true;
+  if (overlap === 0 && proposedTokens.length >= Math.max(1, currentTokens.length)) return true;
+  if (!hasVisibleGermanWorkActionV17_37(current) && hasVisibleGermanWorkActionV17_37(proposed)) return true;
+  if (proposedTokens.length > currentTokens.length && proposedScore >= currentScore - 35) return true;
+
+  return proposedScore >= currentScore + 5;
+}
+
+function forceExactSemanticMeasuredLineNamesV17_56(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const candidates = extractExactSemanticMeasuredLineCandidatesV17_56(
+    originalText,
+    finalCurrency,
+  );
+  if (candidates.length === 0) return items;
+
+  return items.map((item) => {
+    if (normalizeCompare(item.serviceName) === "anfahrt") return item;
+
+    const best = candidates
+      .filter((candidate) => shouldForceExactSemanticMeasuredNameV17_56(item, candidate))
+      .sort((a, b) => semanticLineLocalNameScoreV17_53(b.serviceName) - semanticLineLocalNameScoreV17_53(a.serviceName))[0];
+
+    if (!best) return item;
+
+    return {
+      ...item,
+      serviceName: cleanExactMeasuredLineServiceNameV17_56(best.serviceName, {}),
+      description: item.description || best.description,
+      sourceText: item.sourceText || best.sourceText,
+      evidence: item.evidence || best.evidence,
+    };
+  });
+}
+
 function repairLineLocalStandaloneFlatServiceNamesV17_51(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -8623,6 +8811,11 @@ export function validateAndRepairParsedOrderItems(
     finalCurrency,
   );
   items = forceFinalMeasuredLineLocalNamesV17_55(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
+  items = forceExactSemanticMeasuredLineNamesV17_56(
     input.originalText,
     items,
     finalCurrency,
