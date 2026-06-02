@@ -233,6 +233,34 @@ const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 const QUANTITY_NUMBER_OR_WORD =
   "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|viertel|halbe|halb|dreiviertel|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)";
 
+
+function isPricedServiceLine(line: string): boolean {
+  const key = normalizeCompare(line);
+  if (!key) return false;
+
+  if (/^(?:rechnung|invoice|facture|fattura|kunde|kundin|adresse|ausfuehrung|ausführung|execution|exécution|esecuzione|hinweis|hinweise|kontakt|telefon|tel|email|e-mail|zugang|besonderheiten)\b/i.test(key)) {
+    return false;
+  }
+
+  if (
+    /\b(?:whatsapp|sms|telefon|phone|e\s*mail|email|kontakt|zugang|code|tuercode|türcode|schluessel|schlüssel|hinweis|achtung|warnung|rutschig|hund|kabel|strom|lift|aufzug|parkplatz|anmelden|melden|kommen|beginn|uhr)\b/i.test(key) &&
+    !/\b(?:anfahrt|anfahrtskosten|fahrtkosten|reisekosten|travel|deplacement|déplacement|trasferta)\b/i.test(key)
+  ) {
+    return false;
+  }
+
+  const hasMeasuredQuantity = new RegExp(
+    `\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}(?=\\b|\\s|[.,;:!?)])`,
+    "i",
+  ).test(line);
+  const hasCurrencyOrPrice =
+    new RegExp(CURRENCY_WORDS, "i").test(line) ||
+    /\b(?:preis|pauschal|pauschale|flat|forfait|à|a|zu|je|each)\b/i.test(line);
+  const hasFlatPrice = Boolean(findExplicitFlatPriceInLine(line, "CHF"));
+
+  return (hasMeasuredQuantity && hasCurrencyOrPrice) || hasFlatPrice;
+}
+
 const QUANTITY_WORD_VALUES: Record<string, number> = {
   ein: 1,
   eine: 1,
