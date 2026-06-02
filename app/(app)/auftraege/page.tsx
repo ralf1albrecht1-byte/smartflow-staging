@@ -3167,6 +3167,39 @@ const hasDifferentExecutionAddressForBadge = (order: Order) => {
   return true;
 };
 
+
+const hasAddressRoleReviewReasonV17_61 = (order: Order) =>
+  order.reviewReasons?.some(
+    (reason) =>
+      reason === "address_role_uncertain" ||
+      reason === "customer_address_quarantined_ambiguous_role_v17_61" ||
+      reason === "execution_address_incomplete" ||
+      reason.startsWith("intake_address:"),
+  ) ?? false;
+
+const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
+  const lines = [
+    "Adresse im Kundentext erkannt, aber nicht sicher als Rechnungsadresse oder Ausführungsadresse zugeordnet.",
+  ];
+
+  const executionTooltip = compactText(formatExecutionAddressTooltip(order));
+  if (executionTooltip) {
+    lines.push("", "Aktuelle Ausführungsadresse:", executionTooltip);
+  }
+
+  const customerParts = [
+    order.customer?.name,
+    order.customer?.address,
+    [order.customer?.plz, order.customer?.city].filter(Boolean).join(" "),
+  ].map(compactText).filter(Boolean);
+  if (customerParts.length > 0) {
+    lines.push("", "Aktuelle Rechnungsadresse:", customerParts.join("\n"));
+  }
+
+  lines.push("", "Bitte im Auftrag prüfen und danach speichern.");
+  return lines.join("\n");
+};
+
 const getSystemBadges = (
   order: Order,
   services: ServiceDef[] = [],
@@ -3190,6 +3223,17 @@ const getSystemBadges = (
         : executionSiteChipLabel || "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
       tooltip: formatExecutionAddressTooltip(order),
+    });
+  }
+
+  if (hasAddressRoleReviewReasonV17_61(order)) {
+    pushUniqueBadge(badges, {
+      key: "address_review",
+      label: "Adresse prüfen",
+      className: "bg-red-100 text-red-700 border border-red-300",
+      icon: true,
+      tooltip: formatAddressRoleReviewTooltipV17_61(order),
+      focusTarget: "customer",
     });
   }
 
@@ -4340,6 +4384,9 @@ const emptyForm = {
 };
 
 const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
+  /^address_role_uncertain$/,
+  /^customer_address_quarantined_ambiguous_role_v17_61$/,
+  /^execution_address_incomplete$/,
   /^currency_/,
   /^item_currency_mismatch/,
   /^unit_mismatch:/,
@@ -6421,6 +6468,25 @@ export default function AuftraegePage() {
       isServiceInCatalog(item.serviceName),
     );
 
+    const currentCustomerForAddressReview = customers.find(
+      (c: Customer) => c.id === form.customerId,
+    );
+    const hasResolvedBillingAddressForReview = Boolean(
+      currentCustomerForAddressReview?.name?.trim() &&
+        currentCustomerForAddressReview?.address?.trim() &&
+        currentCustomerForAddressReview?.plz?.trim() &&
+        currentCustomerForAddressReview?.city?.trim(),
+    );
+    const hasResolvedExecutionAddressForReview = cleanWorkSites.some(
+      (site) =>
+        site.siteAddress?.trim() && site.sitePlz?.trim() && site.siteCity?.trim(),
+    );
+    const isAddressRoleReviewReasonV17_61 = (reason: string) =>
+      reason === "address_role_uncertain" ||
+      reason === "customer_address_quarantined_ambiguous_role_v17_61" ||
+      reason === "execution_address_incomplete" ||
+      reason.startsWith("intake_address:");
+
     // V17.20: ReviewReasons pro Leistung bereinigen, nicht erst wenn alle
     // Positionen erledigt sind. Sonst bleiben Außenkarte/Conversion global auf
     // 0/rot, obwohl einzelne Leistungen bereits manuell bestätigt wurden.
@@ -6481,6 +6547,13 @@ export default function AuftraegePage() {
           if (
             allServicesInCatalog &&
             reason === "unbekannte_leistung_pruefen"
+          ) {
+            return false;
+          }
+
+          if (
+            isAddressRoleReviewReasonV17_61(reason) &&
+            (hasResolvedBillingAddressForReview || hasResolvedExecutionAddressForReview)
           ) {
             return false;
           }

@@ -1417,6 +1417,119 @@ function extractAiStructuredExecutionAddress(
   };
 }
 
+
+// V17.61_PHASE1_ADDRESS_ROLE_SAFETY
+// Phase 1 of the address-assignment workflow: do not let a single/ambiguous
+// address silently become the billing customer address. This is intentionally
+// conservative and uses only existing fields (needsReview/reviewReasons) so no
+// schema migration and no customer-merge code change is required.
+function hasExplicitBillingAddressDirectiveV17_61(
+  rawText: string | null | undefined,
+): boolean {
+  const text = normalizeUnitText(rawText || "");
+  if (!text) return false;
+
+  return /\b(?:rechnungsadresse|rechnungskunde|rechnungsempfaenger|rechnungsempfänger|rechnung\s+(?:geht\s+)?an|rechnung\s+(?:fuer|für)|rechnung\s+bekommt|auftraggeber|besteller|zahler|facturation|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|bill\s+to)\b/.test(
+    text,
+  );
+}
+
+function hasExecutionAddressDirectiveV17_61(
+  rawText: string | null | undefined,
+): boolean {
+  const text = normalizeUnitText(rawText || "");
+  if (!text) return false;
+
+  return /\b(?:ausfuehrungsadresse|ausführungsadresse|ausfuehrungsort|ausführungsort|arbeitsort|arbeitsadresse|einsatzort|baustelle|objektadresse|objekt|leistungsadresse|serviceadresse|job\s+site|work\s+address|service\s+address|adresse\s+de\s+travail|lieu\s+d\s+intervention|lieu\s+d['’]?intervention)\b/.test(
+    text,
+  );
+}
+
+function hasAddressEvidenceInTextV17_61(
+  rawText: string | null | undefined,
+): boolean {
+  const source = normalizeIntakeSourceText(rawText);
+  if (!source) return false;
+
+  const lines = splitIntakeLines(source);
+  const windows: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    windows.push(lines[index]);
+    if (lines[index + 1]) windows.push(`${lines[index]}\n${lines[index + 1]}`);
+    if (lines[index + 2]) windows.push(`${lines[index]}\n${lines[index + 1]}\n${lines[index + 2]}`);
+  }
+
+  return windows.some((candidate) => {
+    const street = parseBillingStreetLine(candidate);
+    const city = parseBillingPlzCityFromBlock(candidate);
+    return Boolean(street || (city.plz && city.city));
+  });
+}
+
+function shouldQuarantineBillingAddressRoleV17_61(args: {
+  rawText: string | null | undefined;
+  billingEvidence: SafeBillingCustomerEvidence;
+  billingName?: string | null;
+  billingStreet?: string | null;
+  billingPlz?: string | null;
+  billingCity?: string | null;
+}): { quarantine: boolean; reviewReasons: string[] } {
+  const hasPersistedAddressCandidate = Boolean(
+    args.billingStreet || args.billingPlz || args.billingCity,
+  );
+  const hasFullAddressCandidate = Boolean(
+    args.billingStreet && args.billingPlz && args.billingCity,
+  );
+  const hasAddressEvidence = hasAddressEvidenceInTextV17_61(args.rawText);
+
+  if (!hasPersistedAddressCandidate && !hasAddressEvidence) {
+    return { quarantine: false, reviewReasons: [] };
+  }
+
+  const hasExplicitBillingMarker = hasExplicitBillingAddressDirectiveV17_61(
+    args.rawText,
+  );
+  const hasExecutionMarker = hasExecutionAddressDirectiveV17_61(args.rawText);
+  const hasUsableBillingName = Boolean(
+    cleanAiStructuredBillingName(args.billingName || null),
+  );
+
+  const reviewReasons: string[] = [];
+
+  if (
+    hasAddressEvidence &&
+    !args.billingEvidence.hasReliableCustomerBlock &&
+    !hasExplicitBillingMarker
+  ) {
+    reviewReasons.push("address_role_uncertain");
+  }
+
+  if (hasExecutionMarker && !hasExplicitBillingMarker) {
+    reviewReasons.push("address_role_uncertain");
+  }
+
+  const onlyAddressWithoutSafeName =
+    hasFullAddressCandidate && !hasUsableBillingName && !hasExplicitBillingMarker;
+  if (onlyAddressWithoutSafeName) {
+    reviewReasons.push("address_role_uncertain");
+  }
+
+  const clearBillingAddress = Boolean(
+    hasPersistedAddressCandidate &&
+      !hasExplicitBillingMarker &&
+      (hasExecutionMarker || onlyAddressWithoutSafeName),
+  );
+
+  if (clearBillingAddress) {
+    reviewReasons.push("customer_address_quarantined_ambiguous_role_v17_61");
+  }
+
+  return {
+    quarantine: clearBillingAddress,
+    reviewReasons: Array.from(new Set(reviewReasons)),
+  };
+}
+
 function extractSafeBillingCustomerEvidence(
   rawText: string | null | undefined,
 ): SafeBillingCustomerEvidence {
@@ -6265,6 +6378,39 @@ export async function processIncomingMessage(
       `[${source}] 🚫 Removed invalid addr.city from work phrase: "${addr.city}"`,
     );
     addr.city = null;
+  }
+
+  const addressRoleSafetyV17_61 = shouldQuarantineBillingAddressRoleV17_61({
+    rawText: [
+      messageText,
+      translationText ? `--- Übersetzung (automatisch) ---\n${translationText}` : "",
+    ]
+      .filter((part) => String(part || "").trim())
+      .join("\n"),
+    billingEvidence,
+    billingName: kundeData.name || null,
+    billingStreet: addr.street,
+    billingPlz: addr.plz,
+    billingCity: addr.city,
+  });
+
+  if (addressRoleSafetyV17_61.quarantine) {
+    console.log(
+      `[${source}] 🛡️ ambiguous address role → customer billing address kept empty; order marked for address review`,
+    );
+    kundeData.strasse = null;
+    kundeData.hausnummer = null;
+    kundeData.plz = null;
+    kundeData.ort = null;
+    addr.street = null;
+    addr.plz = null;
+    addr.city = null;
+  }
+
+  if (addressRoleSafetyV17_61.reviewReasons.length > 0) {
+    customerGuardReviewReasons.push(...addressRoleSafetyV17_61.reviewReasons);
+    parsed.system = parsed.system || {};
+    parsed.system.needs_review = true;
   }
 
   let customerId: string | null = null;
