@@ -2274,6 +2274,12 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
   ) {
     return `${cleaned.replace(/^./, (char) => char.toUpperCase())} reinigen`;
   }
+  if (
+    /\b(fenster|glas|glasflaechen|glasflächen)\b/.test(key) &&
+    !hasVisibleGermanWorkActionV17_37(cleaned)
+  ) {
+    return `${cleaned.replace(/^./, (char) => char.toUpperCase())} reinigen`;
+  }
 
   if (
     !key ||
@@ -5065,6 +5071,25 @@ function preferLineLocalMeasuredServiceNamesV17_50(
   });
 }
 
+function isBroadAreaOnlyServiceNameV17_54(value?: string | null): boolean {
+  const cleaned = cleanValidationServiceDisplayName(value);
+  const key = normalizeCompare(cleaned);
+  if (!key || key === "anfahrt" || key === "unbekannte leistung") return false;
+  if (!hasVisibleGermanWorkActionV17_37(cleaned)) return false;
+
+  const withoutAction = key
+    .replace(/\b(?:reinigen|reinigung|putzen|saeubern|sauber\s+machen|abstauben|abwischen|wischen|saugen|entfernen)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const tokens = withoutAction.split(/\s+/g).filter(Boolean);
+  if (tokens.length !== 1) return false;
+
+  // Structural area-only labels are usually summaries created by the model,
+  // not the priced work object from the customer line. The exact local line
+  // with the same quantity/unit/price may replace them.
+  return /(?:bereich|raum|flur|gang)$/.test(tokens[0]);
+}
+
 function semanticLineLocalNameScoreV17_53(value?: string | null): number {
   const cleaned = cleanValidationServiceDisplayName(value);
   const key = normalizeCompare(cleaned);
@@ -5077,8 +5102,8 @@ function semanticLineLocalNameScoreV17_53(value?: string | null): number {
   // Penalize labels that describe only a broad area. This is a structural
   // specificity check, not a service-word mapping: the exact priced line wins
   // when it names an object/task more precisely with the same quantity/unit/price.
-  if (/\b(?:bereich|raum|flur|gang)\s+reinigen\b/i.test(key) && tokens.length <= 1) {
-    score -= 35;
+  if (isBroadAreaOnlyServiceNameV17_54(cleaned)) {
+    score -= 55;
   }
   if (!hasVisibleGermanWorkActionV17_37(cleaned) && key !== "anfahrt") score -= 35;
   return score;
@@ -5115,7 +5140,6 @@ function forceExactLineLocalMeasuredNamesV17_53(
         score: semanticLineLocalNameScoreV17_53(candidate.serviceName),
       }))
       .filter(({ candidate, score }) => {
-        if (score < 60) return false;
         const candidateName = cleanValidationServiceDisplayName(candidate.serviceName);
         const candidateKey = normalizeCompare(candidateName);
         const itemKey = normalizeCompare(item.serviceName);
@@ -5126,6 +5150,15 @@ function forceExactLineLocalMeasuredNamesV17_53(
         const addsSpecificToken = candidateTokens.some((token) => !itemTokens.includes(token));
         if (!addsSpecificToken) return false;
 
+        // V17.54: if the current label is only a broad area summary
+        // (e.g. "Besprechungsbereich reinigen"), the exact local priced line
+        // with the same quantity/unit/price is allowed to win even when the
+        // model gave the area label a deceptively high score.
+        if (isBroadAreaOnlyServiceNameV17_54(item.serviceName)) {
+          return score >= 35 && candidateTokens.length >= Math.max(1, itemTokens.length);
+        }
+
+        if (score < 60) return false;
         return score >= currentScore - 10;
       })
       .sort((a, b) => b.score - a.score)[0]?.candidate;
@@ -6691,22 +6724,21 @@ export function applyUnitlessQuantityPriceLineGuard(
       String(
         item.serviceName || candidate.serviceName || "Leistung prüfen",
       ).trim() || "Leistung prüfen";
-    reviewReasons.push(
-      `unit_missing_in_text:${serviceName}`,
-      `unit_mismatch:${serviceName}:Unklar:${item.unit || "Einheit prüfen"}:0`,
-      "amount_review",
-    );
 
+    // V17.54: A leading count with a local work object and unit price is a
+    // countable Stück line, not an unknown unit. Example structure:
+    // "3 <object/action> à CHF 12". This remains purely structural; it does
+    // not depend on the object name.
     return {
       ...item,
       serviceName,
-      description: `Einheit fehlt im Kundentext. ${candidate.raw}`,
+      description: candidate.raw,
       quantity: candidate.quantity,
-      unit: "Einheit prüfen",
+      unit: "Stück",
       unitPrice: candidate.unitPrice,
-      totalPrice: 0,
-      needsReview: true,
-      reviewReason: `unit_missing_in_text:${serviceName}`,
+      totalPrice: roundMoney(candidate.quantity * candidate.unitPrice),
+      needsReview: false,
+      reviewReason: null,
       sourceText: candidate.raw,
       evidence: candidate.raw,
       detectedCurrency: candidate.currency || item.detectedCurrency || null,
