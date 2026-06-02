@@ -829,11 +829,11 @@ const isNegatedDogHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text || !/\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text)) return false;
 
-  // Negative animal notes such as "Kein Hund vor Ort" are informational only.
-  // They must never create the red dog chip.
+  // Nur echte Abwesenheit unterdrückt den Hund-Chip. Hinweise wie
+  // "Hund ist nicht gefährlich" bedeuten weiterhin: Hund vorhanden -> roter Hund-Chip.
   return (
-    /\b(?:kein|keine|keinen|keinem|keiner|ohne|nicht|no|not|without|pas|sans|aucun|aucune|nessun|nessuna|sin)\b.{0,36}\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text) ||
-    /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b.{0,36}\b(?:nicht|nein|none|absent|abwesend|nicht vorhanden|kein thema|no issue)\b/.test(text)
+    /\b(?:kein|keine|keinen|keinem|keiner|ohne|no|without|pas|sans|aucun|aucune|nessun|nessuna|sin)\b.{0,36}\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text) ||
+    /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b.{0,36}\b(?:none|absent|abwesend|nicht\s+(?:vorhanden|da|anwesend)|kein\s+thema|no\s+issue)\b/.test(text)
   );
 };
 
@@ -3698,6 +3698,40 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
   );
 };
 
+const COMMUNICATION_CHIP_PHONE_NUMBER_PATTERN = /\+?\d[\d\s()./-]{6,}\d/g;
+
+const isChannelOnlyContactLineForCommunicationChips = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text || isPositiveCallbackChipLine(value)) return false;
+
+  const mentionsChannel = /\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(text);
+  if (!mentionsChannel) return false;
+
+  const saysChannelOnlyOrPreferred =
+    /\b(?:nur|only|uniquement|solo|solamente)\b.{0,28}\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(text) ||
+    /\b(?:kontakt|contact)\b.{0,28}\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(text) ||
+    /\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b.{0,32}\b(?:bevorzugt|reicht|preferred|only)\b/.test(text) ||
+    /\b(?:vorher|zuerst|erst)\b.{0,24}\b(?:sms|whats\s*app|whatsapp|schreiben|message|nachricht)\b/.test(text);
+
+  const forbidsPhone =
+    /\b(?:nicht|keine?|kein|ohne|no|not|without)\b.{0,32}\b(?:telefon|anruf|anrufen|rueckruf|ruckruf|zurueckrufen|zuruckrufen|call)\b/.test(text) ||
+    /\b(?:telefon|anruf|anrufen|rueckruf|ruckruf|zurueckrufen|zuruckrufen|call)\b.{0,32}\b(?:nicht|keine?|kein|ohne|no|not|without)\b/.test(text);
+
+  return saysChannelOnlyOrPreferred || forbidsPhone;
+};
+
+const sanitizeCommunicationChipLineForCommunicationChips = (line: string) => {
+  if (!isChannelOnlyContactLineForCommunicationChips(line)) return line;
+
+  return compactText(
+    line
+      .replace(COMMUNICATION_CHIP_PHONE_NUMBER_PATTERN, "")
+      .replace(/\ban\s+(?=schreiben|senden|melden|kontaktieren|message|nachricht)/i, "")
+      .replace(/\b(?:an|unter|auf|via)\s*[.,;:!?-]*$/i, "")
+      .replace(/\s{2,}/g, " "),
+  );
+};
+
 const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
   String(value || "")
     .split(/\n+/g)
@@ -3707,6 +3741,8 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
         line &&
         !isPositiveCallbackChipLine(line),
     )
+    .map((line) => sanitizeCommunicationChipLineForCommunicationChips(line))
+    .filter(Boolean)
     .join("\n");
 
 const getStrongerCardBadgeClassName = (className?: string | null) =>
@@ -4031,8 +4067,27 @@ const renderCallbackCardBadge = (
   );
 };
 
+const stripServiceLabelFieldArtifactsV17_47 = (value?: string | null) => {
+  let text = compactText(value);
+  while (
+    /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]?\s*$/i.test(
+      normalizeForMatch(text),
+    )
+  ) {
+    text = compactText(
+      text.replace(
+        /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]?\s*$/i,
+        " ",
+      ),
+    );
+  }
+  return text;
+};
+
 const cleanServiceLabel = (value?: string | null) => {
-  let text = compactText(canonicalServiceNameForOrderItem(value));
+  let text = stripServiceLabelFieldArtifactsV17_47(
+    canonicalServiceNameForOrderItem(value),
+  );
   if (!text) return "";
 
   text = text
@@ -4046,6 +4101,8 @@ const cleanServiceLabel = (value?: string | null) => {
     )
     .replace(/\s+/g, " ")
     .trim();
+
+  text = stripServiceLabelFieldArtifactsV17_47(text);
 
   if (text.length > 55) {
     text = `${text.slice(0, 52).trim()}…`;
@@ -7729,11 +7786,12 @@ export default function AuftraegePage() {
                             </select>
 
                             {!hasMultipleMergedData && (
-                              <CommunicationChips
-                                compact
-                                data={{
-                                ...o,
-                                specialNotes:
+                              <div className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]">
+                                <CommunicationChips
+                                  compact
+                                  data={{
+                                  ...o,
+                                  specialNotes:
                                   removeCallbackLinesForCommunicationChips(
                                     o.specialNotes,
                                   ),
@@ -7756,8 +7814,9 @@ export default function AuftraegePage() {
                                   ),
                               }}
                                 onAudioClick={() => openMedia(o)}
-                                onImageClick={() => openMedia(o)}
-                              />
+                                  onImageClick={() => openMedia(o)}
+                                />
+                              </div>
                             )}
 
                             {mobileVisibleActionBadges.map((badge) =>
@@ -7891,12 +7950,13 @@ export default function AuftraegePage() {
                             </select>
 
                             {!hasMultipleMergedData && (
-                              <CommunicationChips
-                                compact
-                                data={{
-                                ...o,
-                                customer: o.customer,
-                                specialNotes:
+                              <div className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]">
+                                <CommunicationChips
+                                  compact
+                                  data={{
+                                  ...o,
+                                  customer: o.customer,
+                                  specialNotes:
                                   removeCallbackLinesForCommunicationChips(
                                     o.specialNotes,
                                   ),
@@ -7919,8 +7979,9 @@ export default function AuftraegePage() {
                                   ),
                               }}
                                 onAudioClick={() => openMedia(o)}
-                                onImageClick={() => openMedia(o)}
-                              />
+                                  onImageClick={() => openMedia(o)}
+                                />
+                              </div>
                             )}
 
                             {callbackBadges.map((badge) =>

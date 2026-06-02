@@ -2136,11 +2136,47 @@ function removeUnpricedDuplicateServiceArtifacts(
   });
 }
 
+function stripServiceFieldLabelArtifactsV17_47(value: string): string {
+  let text = normalizeText(value || "")
+    .replace(
+      /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]?\s*$/gi,
+      " ",
+    )
+    .replace(
+      /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]\s*$/gi,
+      " ",
+    )
+    .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Mehrfach absichern: KI-Übersetzungen können "Name, Fläche:" oder
+  // "Name, Anzahl:" erzeugen. Das sind strukturelle Feldlabels, keine
+  // Leistungsbestandteile.
+  while (
+    /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]?\s*$/i.test(
+      text,
+    )
+  ) {
+    text = text
+      .replace(
+        /(?:^|[\s,;:–—-]+)(?:flaeche|fläche|anzahl|menge|preis|einheit|stueckzahl|stückzahl|quantity|area|amount|price|unit)\s*[:=]?\s*$/i,
+        " ",
+      )
+      .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  return text;
+}
+
 function cleanValidationServiceDisplayName(value?: string | null): string {
   if (isPriceAnchorOnlyServiceName(value)) return "Unbekannte Leistung";
 
-  const cleaned = normalizeText(value || "")
-    .replace(/^\s*(?:leistung|service|arbeit|position)\s*:?\s*/i, "")
+  const cleaned = stripServiceFieldLabelArtifactsV17_47(
+    normalizeText(value || "")
+      .replace(/^\s*(?:leistung|service|arbeit|position)\s*:?\s*/i, "")
     .replace(
       /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\s*\d+(?:[.,]\d{1,2})?\b/gi,
       " ",
@@ -2167,8 +2203,9 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
     .replace(/\b(?:und|\+)\s+anfahrt\b.*$/i, " ")
     .replace(/\s*\.\-\s*$/g, "")
     .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 
   const canonical = canonicalGermanServiceNameFromText(cleaned);
   if (canonical) return canonical;
@@ -4488,6 +4525,8 @@ function cleanStructuredGermanServiceNameV17_43(
     .replace(/\s+/g, " ")
     .trim();
 
+  name = stripServiceFieldLabelArtifactsV17_47(name);
+
   const key = normalizeCompare(name);
   if (!key || isPriceAnchorOnlyServiceName(name)) return "Unbekannte Leistung";
 
@@ -4508,6 +4547,8 @@ function cleanStructuredGermanServiceNameV17_43(
     .replace(/^putzen\s+(?:des|der|dem|den)\s+(.+)$/i, "$1 reinigen")
     .replace(/\s+/g, " ")
     .trim();
+
+  name = stripServiceFieldLabelArtifactsV17_47(name);
 
   if (normalizeCompare(name) === "anfahrts") return "Anfahrt";
   return name.replace(/^./, (char) => char.toUpperCase());
@@ -5013,6 +5054,8 @@ function cleanFinalServiceNameArtifacts(
       .replace(/\s*\.\-\s*$/g, "")
       .replace(/\s+/g, " ")
       .trim();
+
+    serviceName = stripServiceFieldLabelArtifactsV17_47(serviceName);
 
     if (!serviceName) serviceName = item.serviceName;
 
