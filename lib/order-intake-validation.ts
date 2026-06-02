@@ -689,7 +689,11 @@ function detectUnitlessCountPriceServiceLineV17_51(
     return null;
   }
 
-  if (!/(?:\b(?:à|a|je|each|per|pro|zu|mal|x)\b|\*)/i.test(source)) return null;
+  // V17.53: "à" is a non-ASCII/non-word price marker, so a word-boundary
+  // around it does not match reliably. Keep the guard structural: a local
+  // count/action line must contain a unit-price marker before it can become a
+  // Stück line.
+  if (!/(?:à|\b(?:a|je|each|per|pro|zu|mal|x)\b|\*)/i.test(source)) return null;
 
   return { quantity, quantityRaw: match[1], price };
 }
@@ -5061,6 +5065,83 @@ function preferLineLocalMeasuredServiceNamesV17_50(
   });
 }
 
+function semanticLineLocalNameScoreV17_53(value?: string | null): number {
+  const cleaned = cleanValidationServiceDisplayName(value);
+  const key = normalizeCompare(cleaned);
+  if (!key || key === "unbekannte leistung" || key === "anfahrt") return -999;
+
+  let score = visibleServiceNameQualityScoreV17_37(cleaned) + serviceNameQualityScore(cleaned);
+  const tokens = meaningfulServiceTokens(cleaned);
+  score += tokens.length * 12;
+
+  // Penalize labels that describe only a broad area. This is a structural
+  // specificity check, not a service-word mapping: the exact priced line wins
+  // when it names an object/task more precisely with the same quantity/unit/price.
+  if (/\b(?:bereich|raum|flur|gang)\s+reinigen\b/i.test(key) && tokens.length <= 1) {
+    score -= 35;
+  }
+  if (!hasVisibleGermanWorkActionV17_37(cleaned) && key !== "anfahrt") score -= 35;
+  return score;
+}
+
+function forceExactLineLocalMeasuredNamesV17_53(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const candidates = [
+    ...extractLineLocalMeasuredNameCandidatesV17_52(originalText, finalCurrency),
+    ...extractStructuredGermanServiceItemsV17_43(originalText, finalCurrency),
+    ...extractExplicitServiceLineItems(originalText, finalCurrency),
+    ...extractLooseExplicitServiceLineItems(originalText, finalCurrency),
+  ].filter((candidate) => {
+    if (candidate.detectedCurrency !== finalCurrency) return false;
+    if (normalizeCompare(candidate.serviceName) === "anfahrt") return false;
+    if (normalizeCompare(candidate.serviceName) === "unbekannte leistung") return false;
+    if (Number(candidate.quantity || 0) <= 0 || Number(candidate.unitPrice || 0) <= 0) return false;
+    return true;
+  });
+
+  if (candidates.length === 0) return items;
+
+  return items.map((item) => {
+    if (normalizeCompare(item.serviceName) === "anfahrt") return item;
+
+    const currentScore = semanticLineLocalNameScoreV17_53(item.serviceName);
+    const best = candidates
+      .filter((candidate) => sameMeasuredSignatureV17_50(item, candidate))
+      .map((candidate) => ({
+        candidate,
+        score: semanticLineLocalNameScoreV17_53(candidate.serviceName),
+      }))
+      .filter(({ candidate, score }) => {
+        if (score < 60) return false;
+        const candidateName = cleanValidationServiceDisplayName(candidate.serviceName);
+        const candidateKey = normalizeCompare(candidateName);
+        const itemKey = normalizeCompare(item.serviceName);
+        if (!candidateKey || candidateKey === itemKey) return false;
+
+        const candidateTokens = meaningfulServiceTokens(candidateName);
+        const itemTokens = meaningfulServiceTokens(item.serviceName);
+        const addsSpecificToken = candidateTokens.some((token) => !itemTokens.includes(token));
+        if (!addsSpecificToken) return false;
+
+        return score >= currentScore - 10;
+      })
+      .sort((a, b) => b.score - a.score)[0]?.candidate;
+
+    if (!best) return item;
+
+    return {
+      ...item,
+      serviceName: cleanValidationServiceDisplayName(best.serviceName),
+      description: item.description || best.description,
+      sourceText: item.sourceText || best.sourceText,
+      evidence: item.evidence || best.evidence,
+    };
+  });
+}
+
 function repairLineLocalStandaloneFlatServiceNamesV17_51(
   originalText: string,
   items: ParsedOrderItemForValidation[],
@@ -8300,6 +8381,11 @@ export function validateAndRepairParsedOrderItems(
   items = preferLineLocalMeasuredServiceNamesV17_50(
     input.originalText,
     structuredGermanServiceSection.items,
+    finalCurrency,
+  );
+  items = forceExactLineLocalMeasuredNamesV17_53(
+    input.originalText,
+    items,
     finalCurrency,
   );
   items = repairLineLocalStandaloneFlatServiceNamesV17_51(

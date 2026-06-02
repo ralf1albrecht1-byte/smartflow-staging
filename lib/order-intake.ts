@@ -1718,7 +1718,7 @@ function extractExecutionBlockFromText(
   if (lines.length === 0) return null;
 
   const startRegex =
-    /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+    /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
@@ -2406,6 +2406,33 @@ const EMPTY_INTAKE_NORMALIZATION_V17_49: IntakeNormalizationResultV17_49 = {
   showTranslationInCustomerMessage: false,
 };
 
+function looksLikePlainGermanCustomerTextV17_53(value?: string | null): boolean {
+  const key = normalizeSemanticText(value || "");
+  if (!key) return false;
+
+  const foreignSentenceSignal =
+    /\b(?:facture|ex[eé]cution|fattura|esecuzione|merci|veuillez|venire|senza|avviso|contatto|pulizia|nettoyage|d[eé]placement|trasferta|cl[eé])\b/i.test(key);
+  if (foreignSentenceSignal) return false;
+
+  const germanSignals = [
+    /\brechnung\b/i,
+    /\bausf(?:u|ue|ü)hrung\b/i,
+    /\bbitte\b/i,
+    /\bnicht\b/i,
+    /\bkommen\b/i,
+    /\bkontakt\b/i,
+    /\bnur\b/i,
+    /\bper\b/i,
+    /\breinigen\b/i,
+    /\banfahrt\b/i,
+  ].filter((pattern) => pattern.test(key)).length;
+
+  // Display-only safety: foreign proper names inside otherwise normal German
+  // messages must not create a visible translation block. The internal
+  // normalised Arbeitsfassung may still be used for validation.
+  return germanSignals >= 4;
+}
+
 function shouldShowAutomaticTranslationBlockV17_49(args: {
   originalText: string;
   translationText: string;
@@ -2421,10 +2448,10 @@ function shouldShowAutomaticTranslationBlockV17_49(args: {
 
   const detectedClearlyTarget =
     (target.includes("deutsch") || target.includes("german")) &&
-    /(?:^|)(?:deutsch|standarddeutsch|german)(?:|$)/i.test(detected) &&
-    !/(?:schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|italien|italian|spanisch|spanish|portugies|portuguese)/i.test(detected);
+    /(?:^|\b)(?:deutsch|standarddeutsch|german)(?:\b|$)/i.test(detected) &&
+    !/(?:schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|francais|français|italien|italian|italiano|spanisch|spanish|portugies|portuguese|english|englisch|mixed|mischsprache)/i.test(detected);
 
-  if (detectedClearlyTarget) return false;
+  if (detectedClearlyTarget || looksLikePlainGermanCustomerTextV17_53(args.originalText)) return false;
 
   const detectedClearlyDifferentLanguage =
     /(schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|francais|français|italien|italian|italiano|spanisch|spanish|portugies|portuguese|english|englisch|mixed|mischsprache)/i.test(
