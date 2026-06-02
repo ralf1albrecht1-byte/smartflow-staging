@@ -662,8 +662,38 @@ const findCustomerTextLineForService = (
   return bestScore >= 4 ? bestLine : "";
 };
 
+
+const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
+  let text = compactText(value);
+  if (!text) return "";
+
+  // V17.60: purely grammatical cleanup for line-local labels. This is not a
+  // service mapping: it only removes punctuation before a final infinitive-like
+  // action and moves a trailing spatial modifier before the location phrase.
+  text = text
+    .replace(/\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu, " ")
+    .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
+    .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  text = text.replace(
+    /^(.*?)\s+((?:im|in\s+der|in\s+dem|am|an\s+der)\s+.+?)\s+(innen|aussen|außen|oben|unten|vorne|hinten)\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln))\s*$/iu,
+    (_match, prefix: string, locationPhrase: string, modifier: string, action: string) => {
+      const left = String(prefix || "").trim();
+      const location = String(locationPhrase || "").trim();
+      const mod = String(modifier || "").trim();
+      const verb = String(action || "").trim();
+      if (!left || !location || !mod || !verb) return text;
+      return `${left} ${mod} ${location} ${verb}`.replace(/\s+/g, " ").trim();
+    },
+  );
+
+  return compactText(text);
+};
+
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
-  const name = compactText(value);
+  const name = cleanLineLocalServiceLabelGrammarV17_60(value);
   const key = normalizeForMatch(name);
 
   // V17.59: preserve already line-local, explicit service labels from the
@@ -674,7 +704,7 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   const hasLineLocalWorkAction = /(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)/.test(key);
   const wordCount = key.split(/\s+/g).filter(Boolean).length;
   if (hasLineLocalWorkAction && wordCount >= 2 && name.length > 12) {
-    return name.replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen");
+    return cleanLineLocalServiceLabelGrammarV17_60(name);
   }
 
   const hasDescriptiveCleaningObject =
@@ -928,15 +958,15 @@ const isAddressOrWorkSiteDescriptionOnlyHint = (value?: string | null) => {
   if (!raw || !text) return false;
 
   const hasAddressEvidence =
-    /\d{4,5}/.test(raw) ||
-    /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?/i.test(raw);
+    /\b\d{4,5}\b/.test(raw) ||
+    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?\b/i.test(raw);
 
   const looksLikeWorkSiteDescription =
-    /(?:arbeiten|arbeit|ausfuehrung|ausführung|arbeitsort|einsatzort|objekt|gereinigt\s+wird|ort\s+ist)/.test(text) ||
-    /(?:mfh|haus|keller|eingang|praxis|restaurant|halle|tiefgarage|garage)/.test(text);
+    /\b(?:arbeiten|arbeit|ausfuehrung|ausführung|arbeitsort|einsatzort|objekt|gereinigt\s+wird|ort\s+ist)\b/.test(text) ||
+    /\b(?:mfh|haus|keller|eingang|praxis|restaurant|halle|tiefgarage|garage)\b/.test(text);
 
   const hasRealAccessAction =
-    /(?:schluessel|schlussel|schlüssel|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|hintereingang|seiteneingang|nebeneingang|rampe|klingeln|melden|anrufen|whatsapp|sms|nicht\s+einfach|vorher|erst\s+melden|briefkasten|empfang)/.test(text);
+    /\b(?:schluessel|schlussel|schlüssel|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|hintereingang|seiteneingang|nebeneingang|rampe|klingeln|melden|anrufen|whatsapp|sms|nicht\s+einfach|vorher|erst\s+melden|briefkasten|empfang)\b/.test(text);
 
   return hasAddressEvidence && looksLikeWorkSiteDescription && !hasRealAccessAction;
 };

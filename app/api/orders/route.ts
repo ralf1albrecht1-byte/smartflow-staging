@@ -259,8 +259,38 @@ function inferExplicitCurrencyFromPayload(data: any): "CHF" | "EUR" | undefined 
   return undefined;
 }
 
+
+function cleanLineLocalServiceLabelGrammarV17_60(value?: string | null) {
+  let text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  // V17.60: purely grammatical cleanup for line-local labels. This is not a
+  // service mapping: it only removes punctuation before a final infinitive-like
+  // action and moves a trailing spatial modifier before the location phrase.
+  text = text
+    .replace(/\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu, " ")
+    .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
+    .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  text = text.replace(
+    /^(.*?)\s+((?:im|in\s+der|in\s+dem|am|an\s+der)\s+.+?)\s+(innen|aussen|außen|oben|unten|vorne|hinten)\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln))\s*$/iu,
+    (_match, prefix: string, locationPhrase: string, modifier: string, action: string) => {
+      const left = String(prefix || "").trim();
+      const location = String(locationPhrase || "").trim();
+      const mod = String(modifier || "").trim();
+      const verb = String(action || "").trim();
+      if (!left || !location || !mod || !verb) return text;
+      return `${left} ${mod} ${location} ${verb}`.replace(/\s+/g, " ").trim();
+    },
+  );
+
+  return text.replace(/\s+/g, " ").trim();
+}
+
 function normalizeServiceNameForDisplay(value?: string | null) {
-  const name = String(value || "").replace(/\s+/g, " ").trim();
+  const name = cleanLineLocalServiceLabelGrammarV17_60(value);
   const key = normalizeSearchText(name);
   if (!name) return "";
 
@@ -273,11 +303,7 @@ function normalizeServiceNameForDisplay(value?: string | null) {
   const hasLineLocalWorkAction = /(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)/.test(key);
   const wordCount = key.split(/\s+/g).filter(Boolean).length;
   if (hasLineLocalWorkAction && wordCount >= 2 && name.length > 12) {
-    return name
-      .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
-      .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
-      .replace(/\s+/g, " ")
-      .trim();
+    return cleanLineLocalServiceLabelGrammarV17_60(name);
   }
 
   if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {

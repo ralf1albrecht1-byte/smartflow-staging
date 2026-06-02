@@ -2250,6 +2250,36 @@ function cleanGermanServiceNounArtifactsV17_48(value: string): string {
     .trim();
 }
 
+
+function cleanLineLocalServiceLabelGrammarV17_60(value?: string | null): string {
+  let text = normalizeText(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  // V17.60: purely grammatical cleanup for line-local labels. This is not a
+  // service mapping: it only removes punctuation before a final infinitive-like
+  // action and moves a trailing spatial modifier before the location phrase.
+  text = text
+    .replace(/\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu, " ")
+    .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
+    .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  text = text.replace(
+    /^(.*?)\s+((?:im|in\s+der|in\s+dem|am|an\s+der)\s+.+?)\s+(innen|aussen|außen|oben|unten|vorne|hinten)\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln))\s*$/iu,
+    (_match, prefix: string, locationPhrase: string, modifier: string, action: string) => {
+      const left = String(prefix || "").trim();
+      const location = String(locationPhrase || "").trim();
+      const mod = String(modifier || "").trim();
+      const verb = String(action || "").trim();
+      if (!left || !location || !mod || !verb) return text;
+      return `${left} ${mod} ${location} ${verb}`.replace(/\s+/g, " ").trim();
+    },
+  );
+
+  return text.replace(/\s+/g, " ").trim();
+}
+
 function cleanValidationServiceDisplayName(value?: string | null): string {
   if (isPriceAnchorOnlyServiceName(value)) return "Unbekannte Leistung";
 
@@ -2288,11 +2318,18 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
     ),
   );
 
-  const canonical = canonicalGermanServiceNameFromText(cleaned);
+  const grammarCleaned = cleanLineLocalServiceLabelGrammarV17_60(cleaned);
+
+  const hasSpecificLineLocalAction = hasVisibleGermanWorkActionV17_37(grammarCleaned) && meaningfulServiceTokens(grammarCleaned).length >= 3;
+  if (hasSpecificLineLocalAction) {
+    return grammarCleaned.replace(/^./, (char) => char.toUpperCase());
+  }
+
+  const canonical = canonicalGermanServiceNameFromText(grammarCleaned);
   if (canonical) return canonical;
 
-  const key = normalizeCompare(cleaned);
-  if (isPriceAnchorOnlyServiceName(cleaned)) return "Unbekannte Leistung";
+  const key = normalizeCompare(grammarCleaned);
+  if (isPriceAnchorOnlyServiceName(grammarCleaned)) return "Unbekannte Leistung";
   if (/\b(kueche|küche)\b/.test(key) && /\b(boden|floor|sol)\b/.test(key)) {
     return "Küchenboden reinigen";
   }
@@ -2300,13 +2337,13 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
     /\b(boden|floor|sol)\b/.test(key) &&
     !/\b(reinigen|reinigung|clean|nettoyage|pulizia|limpieza)\b/.test(key)
   ) {
-    return `${cleaned.replace(/^./, (char) => char.toUpperCase())} reinigen`;
+    return `${grammarCleaned.replace(/^./, (char) => char.toUpperCase())} reinigen`;
   }
   if (
     /\b(fenster|glas|glasflaechen|glasflächen)\b/.test(key) &&
     !hasVisibleGermanWorkActionV17_37(cleaned)
   ) {
-    return `${cleaned.replace(/^./, (char) => char.toUpperCase())} reinigen`;
+    return `${grammarCleaned.replace(/^./, (char) => char.toUpperCase())} reinigen`;
   }
 
   if (
@@ -2319,7 +2356,7 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
     return "Unbekannte Leistung";
   }
 
-  return cleaned.replace(/^./, (char) => char.toUpperCase());
+  return grammarCleaned.replace(/^./, (char) => char.toUpperCase());
 }
 
 function normalizeParsedServiceNames(
@@ -5439,6 +5476,8 @@ function cleanExactMeasuredLineServiceNameV17_56(
   // action "sauber machen" is already the work action; do not append
   // another generic "reinigen" behind it.
   name = name.replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen");
+
+  name = cleanLineLocalServiceLabelGrammarV17_60(name);
 
   return normalizeText(name).replace(/^./, (char) => char.toUpperCase());
 }
