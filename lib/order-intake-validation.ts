@@ -5434,6 +5434,12 @@ function cleanExactMeasuredLineServiceNameV17_56(
     name = `${name} reinigen`;
   }
 
+  // V17.57: avoid double action tails from exact measured lines such as
+  // "Dachrinne hinten 14 Meter à CHF 9 sauber machen". The line-local
+  // action "sauber machen" is already the work action; do not append
+  // another generic "reinigen" behind it.
+  name = name.replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen");
+
   return normalizeText(name).replace(/^./, (char) => char.toUpperCase());
 }
 
@@ -6106,7 +6112,7 @@ function normalizeTranslatedServicePrefixV17_35(prefix: string): string | null {
 function hasVisibleGermanWorkActionV17_37(value?: string | null): boolean {
   const key = normalizeCompare(value);
   if (!key) return false;
-  return /\b(?:reinigen|reinigung|putzen|saeubern|abstauben|entfernen|abstauben|abwischen|wischen|arbeiten|anfahrt|fahrtkosten|streichen|malen|schneiden|entsorgen|montieren|demontieren|reparieren|liefern|umstellen)\b/.test(key);
+  return /\b(?:reinigen|reinigung|putzen|saeubern|sauber\s+machen|saubermachen|abstauben|entfernen|abstauben|abwischen|wischen|arbeiten|anfahrt|fahrtkosten|streichen|malen|schneiden|entsorgen|montieren|demontieren|reparieren|liefern|umstellen)\b/.test(key);
 }
 
 function visibleServiceNameQualityScoreV17_37(value?: string | null): number {
