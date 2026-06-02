@@ -2905,8 +2905,27 @@ const formatCurrencyReviewTooltip = (
 };
 
 const cleanWorkSiteDisplayName = (value?: string | null) => {
-  let text = compactText(value);
+  const original = compactText(value);
+  let text = original;
   if (!text) return "";
+
+  const normalizeRoleLabel = (candidate: string) =>
+    normalizeForMatch(candidate)
+      .replace(/strasse/g, "str")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const isGenericAddressRoleLabel = (candidate: string) => {
+    const key = normalizeRoleLabel(candidate);
+    if (!key) return true;
+
+    // V17.63: role labels and broken role-label fragments are not real
+    // execution-site names. Do not persist/display fragments like "sadresse".
+    // This is deliberately structural UI cleanup, not a service-name mapping.
+    return /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(key);
+  };
+
+  if (isGenericAddressRoleLabel(text)) return "";
 
   // Remove generic source markers from the title. Keep the actual object name.
   text = text
@@ -2917,7 +2936,8 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
     .replace(/^[:\-–,\s]+/, "")
     .trim();
 
-  return text || compactText(value);
+  if (!text || isGenericAddressRoleLabel(text)) return "";
+  return text;
 };
 
 const formatCompactWorkSiteChipLabelV17_49 = (value?: string | null) => {
@@ -3004,7 +3024,7 @@ const formatExecutionAddressTooltip = (order: Order) => {
     siteNote?: string | null;
   }) =>
     [
-      compactText(site.siteName),
+      cleanWorkSiteDisplayName(site.siteName),
       compactText(site.siteAddress),
       [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
       compactText(site.siteNote),
@@ -3206,7 +3226,7 @@ const getSystemBadges = (
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
-  if (hasDifferentExecutionAddressForBadge(order)) {
+  if (hasDifferentExecutionAddressForBadge(order) && !hasAddressRoleReviewReasonV17_61(order)) {
     const workSiteCount = Array.isArray(order.workSites) ? order.workSites.length : 0;
     const primaryWorkSite = (order.workSites ?? [])[0] || null;
     const executionSiteTitle =
@@ -5754,6 +5774,30 @@ export default function AuftraegePage() {
       hasCompleteAddress,
     };
   })();
+
+  const isSameAddressPartsV17_63 = (
+    left: { siteAddress?: string | null; sitePlz?: string | null; siteCity?: string | null },
+    right: { siteAddress?: string | null; sitePlz?: string | null; siteCity?: string | null },
+  ) => {
+    const leftStreet = normalizeAddressPartForCompare(left.siteAddress);
+    const leftPlz = normalizeAddressPartForCompare(left.sitePlz);
+    const leftCity = normalizeAddressPartForCompare(left.siteCity);
+    const rightStreet = normalizeAddressPartForCompare(right.siteAddress);
+    const rightPlz = normalizeAddressPartForCompare(right.sitePlz);
+    const rightCity = normalizeAddressPartForCompare(right.siteCity);
+
+    return Boolean(
+      leftStreet &&
+        leftPlz &&
+        leftCity &&
+        rightStreet &&
+        rightPlz &&
+        rightCity &&
+        leftStreet === rightStreet &&
+        leftPlz === rightPlz &&
+        leftCity === rightCity,
+    );
+  };
   const shouldShowAddressRoleReviewBoxV17_62 = Boolean(
     currentEditOrder &&
       hasAddressRoleReviewReasonV17_61(currentEditOrder) &&
@@ -5800,6 +5844,43 @@ export default function AuftraegePage() {
       city: candidate.siteCity,
       country: currentCustomer?.country || "CH",
     });
+
+    const currentExecutionAddress = {
+      siteAddress: form.siteAddress,
+      sitePlz: form.sitePlz,
+      siteCity: form.siteCity,
+    };
+    const candidateAddress = {
+      siteAddress: candidate.siteAddress,
+      sitePlz: candidate.sitePlz,
+      siteCity: candidate.siteCity,
+    };
+    const clearDuplicateExecutionAddress = isSameAddressPartsV17_63(
+      currentExecutionAddress,
+      candidateAddress,
+    );
+
+    if (clearDuplicateExecutionAddress) {
+      setForm((prev) => ({
+        ...prev,
+        siteAddressDifferent: false,
+        siteName: "",
+        siteAddress: "",
+        sitePlz: "",
+        siteCity: "",
+        siteNote: "",
+      }));
+      setFormWorkSites([]);
+      setFormItems((prev) =>
+        prev.map((item) => ({
+          ...item,
+          workSiteId: null,
+        })),
+      );
+      setActiveWorkSiteId(null);
+      setExpandedWorkSiteIds([]);
+    }
+
     setEditingCustomer(Boolean(form.customerId));
     setShowNewCustomer(true);
     setDupCheckOpen(false);
@@ -5831,7 +5912,7 @@ export default function AuftraegePage() {
     const nextSite: OrderWorkSite = {
       ...(existingSite || {}),
       id: siteId,
-      siteName: candidate.siteName || "Ausführungsadresse",
+      siteName: cleanWorkSiteDisplayName(candidate.siteName) || null,
       siteAddress: candidate.siteAddress || null,
       sitePlz: candidate.sitePlz || null,
       siteCity: candidate.siteCity || null,
@@ -5843,7 +5924,7 @@ export default function AuftraegePage() {
     setForm((prev) => ({
       ...prev,
       siteAddressDifferent: true,
-      siteName: nextSite.siteName || "",
+      siteName: cleanWorkSiteDisplayName(nextSite.siteName) || "",
       siteAddress: nextSite.siteAddress || "",
       sitePlz: nextSite.sitePlz || "",
       siteCity: nextSite.siteCity || "",
