@@ -2171,11 +2171,27 @@ function stripServiceFieldLabelArtifactsV17_47(value: string): string {
   return text;
 }
 
+function cleanGermanServiceNounArtifactsV17_48(value: string): string {
+  return normalizeText(value || "")
+    // KI-Übersetzungen können Mengentypen als Substantiv in den Namen ziehen:
+    // "Gruppenraum Bodenfläche" meint nicht einen anderen Service, sondern
+    // dieselbe Boden-Leistung mit Flächenmenge. Nur diese strukturellen
+    // Messwort-Anhängsel werden entfernt; keine Service-Wortliste.
+    .replace(/\b(fussboden|fußboden|boden)\s*flaeche\b/gi, "$1")
+    .replace(/\b(fussboden|fußboden|boden)fläche\b/gi, "$1")
+    .replace(/\b(teppich)\s*flaeche\b/gi, "$1zone")
+    .replace(/\b(teppich)fläche\b/gi, "$1zone")
+    .replace(/\s+auf\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function cleanValidationServiceDisplayName(value?: string | null): string {
   if (isPriceAnchorOnlyServiceName(value)) return "Unbekannte Leistung";
 
-  const cleaned = stripServiceFieldLabelArtifactsV17_47(
-    normalizeText(value || "")
+  const cleaned = cleanGermanServiceNounArtifactsV17_48(
+    stripServiceFieldLabelArtifactsV17_47(
+      normalizeText(value || "")
       .replace(/^\s*(?:leistung|service|arbeit|position)\s*:?\s*/i, "")
     .replace(
       /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|usd|dollar|gbp|pfund)\s*\d+(?:[.,]\d{1,2})?\b/gi,
@@ -2205,6 +2221,7 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
     .replace(/^[\s,;:.\-–—+]+|[\s,;:.\-–—+]+$/g, "")
       .replace(/\s+/g, " ")
       .trim(),
+    ),
   );
 
   const canonical = canonicalGermanServiceNameFromText(cleaned);
@@ -3071,7 +3088,7 @@ function findExplicitUnitPriceInLine(
     // same line, so prices cannot leak from another service line.
     {
       re: new RegExp(
-        `\b${QUANTITY_NUMBER_OR_WORD}\s*${UNIT_WORDS}\s*(?:[,;:\-–—]|\s)+\s*(?:(?:zum\s+preis\s+von|zum\s+preis|preis\s+von|preis|einzelpreis)\s*)?(${CURRENCY_WORDS})\s*${PRICE_NUMBER}\b`,
+        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "i",
       ),
       currencyGroup: 1,
@@ -3079,7 +3096,7 @@ function findExplicitUnitPriceInLine(
     },
     {
       re: new RegExp(
-        `\b${QUANTITY_NUMBER_OR_WORD}\s*${UNIT_WORDS}\s*(?:[,;:\-–—]|\s)+\s*(?:(?:zum\s+preis\s+von|zum\s+preis|preis\s+von|preis|einzelpreis)\s*)?${PRICE_NUMBER}\s*(${CURRENCY_WORDS})\b`,
+        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "i",
       ),
       currencyGroup: 2,
@@ -3184,6 +3201,28 @@ function findExplicitUnitPriceInLine(
       priceGroup: 1,
       unitGroup: undefined,
     },
+    // V17.48: KI-Normalisierung schreibt teilweise "Preis pro m² CHF 7".
+    // Das ist derselbe line-lokale Einheitspreis wie "36 m² à CHF 7" und
+    // darf nicht zum Verlust der gesamten Leistungszeile führen.
+    {
+      re: new RegExp(
+        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        "i",
+      ),
+      unitGroup: 1,
+      currencyGroup: 2,
+      priceGroup: 3,
+    },
+    {
+      re: new RegExp(
+        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        "i",
+      ),
+      unitGroup: 1,
+      currencyGroup: 3,
+      priceGroup: 2,
+    },
+
     // 90 pro Stunde / 35 pro m2 / 11 pro Meter.
     // Currency is omitted by the customer; use the already resolved fallback currency.
     {
@@ -4525,7 +4564,9 @@ function cleanStructuredGermanServiceNameV17_43(
     .replace(/\s+/g, " ")
     .trim();
 
-  name = stripServiceFieldLabelArtifactsV17_47(name);
+  name = cleanGermanServiceNounArtifactsV17_48(
+    stripServiceFieldLabelArtifactsV17_47(name),
+  );
 
   const key = normalizeCompare(name);
   if (!key || isPriceAnchorOnlyServiceName(name)) return "Unbekannte Leistung";
@@ -4548,7 +4589,9 @@ function cleanStructuredGermanServiceNameV17_43(
     .replace(/\s+/g, " ")
     .trim();
 
-  name = stripServiceFieldLabelArtifactsV17_47(name);
+  name = cleanGermanServiceNounArtifactsV17_48(
+    stripServiceFieldLabelArtifactsV17_47(name),
+  );
 
   if (normalizeCompare(name) === "anfahrts") return "Anfahrt";
   return name.replace(/^./, (char) => char.toUpperCase());
@@ -4698,13 +4741,68 @@ function mergeSingleStructuredGermanServiceItemsV17_46(
   return nextItems;
 }
 
+function mergeStructuredWithMissingOriginalMeasuredItemsV17_48(
+  originalText: string,
+  structuredItems: ExplicitServiceLineItem[],
+  finalCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const originalItems = extractHardMeasuredLineItemsFromRawText(
+    originalText
+      .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+      .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, ""),
+    finalCurrency,
+  );
+  if (originalItems.length === 0) return structuredItems;
+
+  const next = structuredItems.slice();
+  for (const original of originalItems) {
+    const originalQuantity = roundMoney(Number(original.quantity || 0));
+    const originalPrice = roundMoney(Number(original.unitPrice || 0));
+    const originalUnitType = unitTypeFromDisplayUnit(original.unit);
+
+    const covered = next.some((item) => {
+      const sameQuantity =
+        Math.abs(roundMoney(Number(item.quantity || 0)) - originalQuantity) < 0.001;
+      const samePrice =
+        Math.abs(roundMoney(Number(item.unitPrice || 0)) - originalPrice) < 0.01;
+      const sameUnit = unitTypeFromDisplayUnit(item.unit) === originalUnitType;
+      return sameQuantity && samePrice && sameUnit;
+    });
+    if (covered) continue;
+
+    const cleanedOriginalName = cleanValidationServiceDisplayName(
+      original.serviceName,
+    );
+    if (
+      normalizeCompare(cleanedOriginalName) === "unbekannte leistung" ||
+      visibleServiceNameQualityScoreV17_37(cleanedOriginalName) < 50
+    ) {
+      continue;
+    }
+
+    next.push({
+      ...original,
+      serviceName: cleanedOriginalName,
+      totalPrice: calculateSafeLineTotal(original),
+      reviewReason: original.reviewReason || "service_added_from_original_line_v17_48",
+    });
+  }
+
+  return next;
+}
+
 function enforceStructuredGermanServiceSectionV17_43(
   originalText: string,
   items: ParsedOrderItemForValidation[],
   finalCurrency: IntakeCurrency,
 ): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
-  const structuredItems = extractStructuredGermanServiceItemsV17_43(
+  let structuredItems = extractStructuredGermanServiceItemsV17_43(
     originalText,
+    finalCurrency,
+  );
+  structuredItems = mergeStructuredWithMissingOriginalMeasuredItemsV17_48(
+    originalText,
+    structuredItems,
     finalCurrency,
   );
 

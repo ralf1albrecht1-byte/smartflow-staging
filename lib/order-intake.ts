@@ -1771,6 +1771,50 @@ function repairExecutionStreetFromText(args: {
 }
 
 
+function compactRepeatedExecutionSiteDescriptorsV17_48(
+  descriptors: string[],
+): string[] {
+  const uniqueDescriptors = Array.from(
+    new Map(descriptors.map((line) => [normalizeUnitText(line), line])).values(),
+  ).slice(0, 3);
+
+  if (uniqueDescriptors.length < 2) return uniqueDescriptors;
+
+  const splitDescriptors = uniqueDescriptors.map((line) => {
+    const parts = line
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return { original: line, head: parts[0] || "", tail: parts.slice(1).join(", ") };
+  });
+
+  const firstHeadKey = normalizeUnitText(splitDescriptors[0]?.head || "");
+  const allSameHead = Boolean(
+    firstHeadKey &&
+      splitDescriptors.every(
+        (entry) =>
+          normalizeUnitText(entry.head) === firstHeadKey && Boolean(entry.tail),
+      ),
+  );
+
+  if (!allSameHead) return uniqueDescriptors;
+
+  const tails = Array.from(
+    new Map(
+      splitDescriptors.map((entry) => [normalizeUnitText(entry.tail), entry.tail]),
+    ).values(),
+  );
+
+  if (tails.length < 2) return uniqueDescriptors;
+
+  const joinedTails =
+    tails.length === 2
+      ? `${tails[0]} und ${tails[1]}`
+      : `${tails.slice(0, -1).join(", ")} und ${tails[tails.length - 1]}`;
+
+  return [`${splitDescriptors[0].head}, ${joinedTails}`];
+}
+
 function translatedExecutionSiteNameCandidateFromTextV17_45(
   rawText: string | null | undefined,
 ): string | null {
@@ -1788,8 +1832,8 @@ function translatedExecutionSiteNameCandidateFromTextV17_45(
     if (candidate) descriptors.push(candidate);
   }
 
-  const uniqueDescriptors = Array.from(
-    new Map(descriptors.map((line) => [normalizeUnitText(line), line])).values(),
+  const uniqueDescriptors = compactRepeatedExecutionSiteDescriptorsV17_48(
+    descriptors,
   ).slice(0, 2);
 
   return uniqueDescriptors.length > 0 ? uniqueDescriptors.join(", ") : null;
@@ -1811,7 +1855,19 @@ function shouldReplaceExecutionSiteNameWithTranslatedV17_45(args: {
   // Replace raw-language site labels with the clean translated object label.
   // This is not a room-word mapping; the translated execution block itself is
   // used as evidence.
-  return !normalizeUnitText(translatedBlock).includes(current) || /\b(?:locale|ufficio|sala|room|staff|laundry|stairwell|work\s*site)\b/i.test(current);
+  const translatedIsMoreSpecific =
+    translated.length >= current.length + 4 &&
+    (translated.includes(current) ||
+      current
+        .split(/\s+/g)
+        .filter((token) => token.length >= 2)
+        .every((token) => translated.includes(token)));
+
+  return (
+    !normalizeUnitText(translatedBlock).includes(current) ||
+    translatedIsMoreSpecific ||
+    /\b(?:locale|ufficio|sala|room|staff|laundry|stairwell|work\s*site)\b/i.test(current)
+  );
 }
 
 function repairExecutionSiteNameFromText(args: {
@@ -2229,6 +2285,7 @@ Regeln:
 - Erhalte Struktur, Zeilenumbrüche, Adressblöcke, Telefonnummern, E-Mail, Mengen, Einheiten, Preise, Währungen, Codes und Reihenfolge exakt sinngemäß.
 - Leistungszeilen müssen in der Übersetzung als klare fachliche Standard-${targetLanguage}-Arbeitszeilen erscheinen, mit sauberem Verb, z.B. "... reinigen", "... abstauben", "... entfernen", "... streichen" usw., wenn die Handlung aus dem Text hervorgeht.
 - Ausführungsort-/Arbeitsort-Zeilen dürfen nur Objekt, Räume und Adresse enthalten. Kontaktwege, WhatsApp/SMS/Telefon, Zeitfenster, Zugang, Gefahren und Sonderhinweise bleiben eigene Hinweiszeilen und dürfen nicht an den Ortsnamen angehängt werden.
+- Ausführungsort-Namen müssen sichtbar in professionellem Standard-${targetLanguage} stehen. Fremdsprachige oder mundartliche Raum-/Objektbezeichnungen wie Keller/Gang/Technikraum/Büro/Sitzungszimmer/Gemeinschaftsraum sinngemäß übersetzen, aber Strasse, PLZ, Ort, Codes und Telefonnummern exakt behalten.
 - Keine neuen Leistungen erfinden. Keine Mengen/Preise ändern. Keine Zeilen zusammenmischen.
 - Wenn der Text bereits vollständig sauberes Standard-${targetLanguage} ist, needs_normalization=false und translation=null.`,
           },
@@ -5576,7 +5633,7 @@ export async function processIncomingMessage(
       ? [
           `Nachricht Original:\n"${messageText}"`,
           `--- Semantisch normalisierte Arbeitsfassung (${hauptsprache}) ---\n${translationText}`,
-          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes und Adressen. Die Arbeitsfassung ist maßgeblich für sichtbare professionelle ${hauptsprache}-Leistungsnamen, Ausführungsort-Namen und Hinweise. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert.`,
+          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes und Strasse/PLZ/Ort. Die Arbeitsfassung ist maßgeblich für sichtbare professionelle ${hauptsprache}-Leistungsnamen, Ausführungsort-Namen und Hinweise. Übersetze fremdsprachige/mundartliche Raum- und Objektbezeichnungen im Ausführungsort sichtbar nach ${hauptsprache}; kopiere dafür nicht die Rohsprache. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert.`,
         ].join("\n\n")
       : `Nachricht:\n"${messageText}"`;
 
