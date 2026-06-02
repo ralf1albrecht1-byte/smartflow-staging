@@ -3198,25 +3198,25 @@ const hasAddressRoleReviewReasonV17_61 = (order: Order) =>
   ) ?? false;
 
 const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
-  const lines = [
-    "Adresse im Kundentext erkannt, aber nicht sicher als Rechnungsadresse oder Ausführungsadresse zugeordnet.",
-  ];
+  const workSites = Array.isArray(order.workSites) ? order.workSites : [];
+  const primarySite = workSites.find((site) => Boolean(site.isPrimary)) || workSites[0] || null;
+  const siteTitle = cleanWorkSiteDisplayName(primarySite?.siteName || order.siteName);
+  const siteAddress = compactText(primarySite?.siteAddress || order.siteAddress);
+  const sitePlace = [primarySite?.sitePlz || order.sitePlz, primarySite?.siteCity || order.siteCity]
+    .map(compactText)
+    .filter(Boolean)
+    .join(" ");
 
-  const executionTooltip = compactText(formatExecutionAddressTooltip(order));
-  if (executionTooltip) {
-    lines.push("", "Aktuelle Ausführungsadresse:", executionTooltip);
+  const lines = ["Adresse prüfen"];
+  const addressLine = [siteTitle, siteAddress, sitePlace]
+    .filter(Boolean)
+    .join(" · ");
+
+  if (addressLine) {
+    lines.push(addressLine);
   }
 
-  const customerParts = [
-    order.customer?.name,
-    order.customer?.address,
-    [order.customer?.plz, order.customer?.city].filter(Boolean).join(" "),
-  ].map(compactText).filter(Boolean);
-  if (customerParts.length > 0) {
-    lines.push("", "Aktuelle Rechnungsadresse:", customerParts.join("\n"));
-  }
-
-  lines.push("", "Bitte im Auftrag prüfen und danach speichern.");
+  lines.push("Im Auftrag zuweisen.");
   return lines.join("\n");
 };
 
@@ -3435,9 +3435,11 @@ const getSystemBadges = (
     });
   }
 
+  const hasAddressRoleReviewForCustomerBadge = hasAddressRoleReviewReasonV17_61(order);
   const hasCustomerReview =
-    hasRealCustomerReviewReason(order) ||
-    isCustomerDataIncomplete(order.customer);
+    !hasAddressRoleReviewForCustomerBadge &&
+    (hasRealCustomerReviewReason(order) ||
+      isCustomerDataIncomplete(order.customer));
 
   if (hasCustomerReview) {
     pushUniqueBadge(badges, {
@@ -3991,7 +3993,7 @@ const renderReviewBadge = (
         options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
       }`}
       aria-label={compactText(badge.tooltip) || badge.label}
-      title={compactText(badge.tooltip) || badge.label}
+      title={badge.key === "address_review" ? undefined : compactText(badge.tooltip) || badge.label}
     >
       {CompactIcon ? (
         <CompactIcon className="h-5 w-5" />
@@ -4489,7 +4491,7 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
   // Preisabweichung oder Nicht-im-Katalog dürfen Angebot/Rechnung nicht
   // verhindern, solange Preis, Menge, Kunde und Währung verwertbar sind.
 
-  if (isCustomerDataIncomplete(order?.customer)) {
+  if (isCustomerDataIncomplete(order?.customer) && !hasAddressRoleReviewReasonV17_61(order)) {
     blockers.push("Kundendaten prüfen");
   }
 
@@ -4590,6 +4592,7 @@ export default function AuftraegePage() {
     country: "CH",
   });
   const [savingCust, setSavingCust] = useState(false);
+  const [pendingBillingAddressRoleAutoSaveV17_64, setPendingBillingAddressRoleAutoSaveV17_64] = useState(false);
 
   // Stage E (deterministic chip flow): pending customerId waiting for the dialog
   // to mount + form to be populated before the customer-edit section is opened.
@@ -5816,6 +5819,78 @@ export default function AuftraegePage() {
       item.serviceName,
     );
 
+  const isAddressRoleReviewReasonCurrentV17_64 = (reason: string) =>
+    reason === "address_role_uncertain" ||
+    reason === "customer_address_quarantined_ambiguous_role_v17_61" ||
+    reason === "execution_address_incomplete" ||
+    reason.startsWith("intake_address:");
+
+  const removeAddressRoleReviewReasonsV17_64 = (reasons: string[] = []) =>
+    reasons.filter((reason) => !isAddressRoleReviewReasonCurrentV17_64(reason));
+
+  const blankWorkSitesForClearedExecutionAddressV17_64 = (
+    sites: OrderWorkSite[],
+  ): OrderWorkSite[] =>
+    sites.map((site, index) => ({
+      ...site,
+      siteName: null,
+      siteAddress: null,
+      sitePlz: null,
+      siteCity: null,
+      siteNote: null,
+      isPrimary: index === 0,
+      sortOrder: index,
+    }));
+
+  const persistAddressReviewPatchV17_64 = async (
+    formPatch: Partial<typeof form>,
+    workSitesPatch?: OrderWorkSite[],
+  ): Promise<Order | null> => {
+    if (!editId) return null;
+
+    const nextReviewReasons = removeAddressRoleReviewReasonsV17_64(
+      currentEditReviewReasons,
+    );
+    const payload: any = {
+      ...formPatch,
+      reviewReasons: nextReviewReasons,
+      needsReview: nextReviewReasons.length > 0,
+    };
+
+    if (workSitesPatch) {
+      payload.workSites = workSitesPatch.map((site, index) => ({
+        id: site.id,
+        siteName: cleanWorkSiteDisplayName(site.siteName) || null,
+        siteAddress: site.siteAddress?.trim() || null,
+        sitePlz: site.sitePlz?.trim() || null,
+        siteCity: site.siteCity?.trim() || null,
+        siteNote: site.siteNote?.trim() || null,
+        isPrimary: Boolean(site.isPrimary) || index === 0,
+        sortOrder: Number.isFinite(Number(site.sortOrder))
+          ? Number(site.sortOrder)
+          : index,
+      }));
+    }
+
+    const res = await fetch(`/api/orders/${editId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      toast.error("Adressprüfung konnte nicht gespeichert werden");
+      return null;
+    }
+
+    const saved = await res.json();
+    setOrders((prev) =>
+      prev.map((order) => (order.id === saved.id ? { ...order, ...saved } : order)),
+    );
+    await load();
+    return saved;
+  };
+
   const applyAddressReviewAsBillingV17_62 = () => {
     const candidate = addressRoleReviewCandidateV17_62;
     if (!candidate.hasAny) {
@@ -5861,6 +5936,7 @@ export default function AuftraegePage() {
     );
 
     if (clearDuplicateExecutionAddress) {
+      const clearedWorkSites = blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
       setForm((prev) => ({
         ...prev,
         siteAddressDifferent: false,
@@ -5870,7 +5946,7 @@ export default function AuftraegePage() {
         siteCity: "",
         siteNote: "",
       }));
-      setFormWorkSites([]);
+      setFormWorkSites(clearedWorkSites);
       setFormItems((prev) =>
         prev.map((item) => ({
           ...item,
@@ -5880,6 +5956,7 @@ export default function AuftraegePage() {
       setActiveWorkSiteId(null);
       setExpandedWorkSiteIds([]);
     }
+    setPendingBillingAddressRoleAutoSaveV17_64(true);
 
     setEditingCustomer(Boolean(form.customerId));
     setShowNewCustomer(true);
@@ -5892,11 +5969,11 @@ export default function AuftraegePage() {
       });
     }, 40);
     toast.info(
-      "Adresse in die Rechnungsadresse übernommen. Kundennamen prüfen, Kunde speichern, danach Auftrag speichern.",
+      "Rechnungsadresse vorbereitet. Namen ergänzen und Kunde aktualisieren – der Auftrag wird danach automatisch gespeichert.",
     );
   };
 
-  const applyAddressReviewAsExecutionV17_62 = () => {
+  const applyAddressReviewAsExecutionV17_62 = async () => {
     const candidate = addressRoleReviewCandidateV17_62;
     if (!candidate.hasAny) {
       toast.error("Keine erkannte Adresse zum Übernehmen vorhanden.");
@@ -5920,26 +5997,27 @@ export default function AuftraegePage() {
       isPrimary: true,
       sortOrder: 0,
     };
-
-    setForm((prev) => ({
-      ...prev,
+    const nextWorkSites = existingSite
+      ? formWorkSites.map((site) =>
+          site.id === existingSite.id
+            ? nextSite
+            : { ...site, isPrimary: false },
+        )
+      : [nextSite];
+    const nextFormPatch = {
       siteAddressDifferent: true,
       siteName: cleanWorkSiteDisplayName(nextSite.siteName) || "",
       siteAddress: nextSite.siteAddress || "",
       sitePlz: nextSite.sitePlz || "",
       siteCity: nextSite.siteCity || "",
       siteNote: nextSite.siteNote || "",
+    };
+
+    setForm((prev) => ({
+      ...prev,
+      ...nextFormPatch,
     }));
-    setFormWorkSites((prev) => {
-      if (existingSite) {
-        return prev.map((site) =>
-          site.id === existingSite.id
-            ? nextSite
-            : { ...site, isPrimary: false },
-        );
-      }
-      return [nextSite];
-    });
+    setFormWorkSites(nextWorkSites);
     setFormItems((prev) =>
       prev.map((item) => ({
         ...item,
@@ -5951,7 +6029,16 @@ export default function AuftraegePage() {
       prev.includes(siteId) ? prev : [siteId, ...prev],
     );
     setSiteAddressEditing(false);
-    toast.info("Adresse als Ausführungsadresse übernommen. Danach Auftrag speichern.");
+
+    setSaving(true);
+    try {
+      const saved = await persistAddressReviewPatchV17_64(nextFormPatch, nextWorkSites);
+      if (saved) toast.success("Ausführungsadresse übernommen und gespeichert.");
+    } catch {
+      toast.error("Adressprüfung konnte nicht gespeichert werden");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const isBlockingCurrencyReviewText = (value?: string | null) => {
@@ -6555,7 +6642,29 @@ export default function AuftraegePage() {
               } catch {}
             }
           }
-          toast.success(`Kunde "${updated.name}" aktualisiert!`);
+          if (pendingBillingAddressRoleAutoSaveV17_64 && editId) {
+            const clearedWorkSites = blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
+            const savedOrder = await persistAddressReviewPatchV17_64(
+              {
+                customerId: updated.id,
+                siteAddressDifferent: false,
+                siteName: "",
+                siteAddress: "",
+                sitePlz: "",
+                siteCity: "",
+                siteNote: "",
+              },
+              clearedWorkSites,
+            );
+            setPendingBillingAddressRoleAutoSaveV17_64(false);
+            toast.success(
+              savedOrder
+                ? `Kunde "${updated.name}" aktualisiert und Auftrag gespeichert.`
+                : `Kunde "${updated.name}" aktualisiert.`,
+            );
+          } else {
+            toast.success(`Kunde "${updated.name}" aktualisiert!`);
+          }
         } else {
           const err = await res.json().catch(() => ({}) as any);
           if (err?.reason === "would_clear_existing_value")
@@ -6574,7 +6683,29 @@ export default function AuftraegePage() {
           const created = await res.json();
           setCustomers((prev) => [...prev, created]);
           setForm((f) => ({ ...f, customerId: created.id }));
-          toast.success("Neuer Kunde erstellt – eigene ID wurde vergeben");
+          if (pendingBillingAddressRoleAutoSaveV17_64 && editId) {
+            const clearedWorkSites = blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
+            const savedOrder = await persistAddressReviewPatchV17_64(
+              {
+                customerId: created.id,
+                siteAddressDifferent: false,
+                siteName: "",
+                siteAddress: "",
+                sitePlz: "",
+                siteCity: "",
+                siteNote: "",
+              },
+              clearedWorkSites,
+            );
+            setPendingBillingAddressRoleAutoSaveV17_64(false);
+            toast.success(
+              savedOrder
+                ? "Neuer Kunde erstellt und Auftrag gespeichert."
+                : "Neuer Kunde erstellt – eigene ID wurde vergeben",
+            );
+          } else {
+            toast.success("Neuer Kunde erstellt – eigene ID wurde vergeben");
+          }
         } else toast.error("Fehler beim Anlegen");
       }
       setShowNewCustomer(false);
@@ -8491,10 +8622,11 @@ export default function AuftraegePage() {
                   // Canonical rule — name/address/plz/city required; phone/email optional.
 
                   const missingData = !!cust && isCustomerDataIncomplete(cust);
-                  const hasCustomerReview = !!cur && missingData;
+                  const hasAddressRoleReviewInDialog = !!cur && hasAddressRoleReviewReasonV17_61(cur);
+                  const hasCustomerReview = !!cur && missingData && !hasAddressRoleReviewInDialog;
                   const hasImageOnly =
                     cur?.reviewReasons?.includes("image_only_no_text");
-                  if (!missingData && !hasImageOnly) return null;
+                  if ((!missingData || hasAddressRoleReviewInDialog) && !hasImageOnly) return null;
 
                   return (
                     <div className="flex items-center gap-2 flex-wrap">
@@ -9002,7 +9134,7 @@ export default function AuftraegePage() {
                         Adresse prüfen
                       </div>
                       <p className="text-xs text-red-700/90 dark:text-red-200/80">
-                        Diese Adresse wurde erkannt, ist aber noch nicht sicher als Rechnungsadresse oder Ausführungsadresse bestätigt.
+                        Erkannte Adresse bitte einmal zuweisen.
                       </p>
                     </div>
                   </div>
@@ -9039,7 +9171,7 @@ export default function AuftraegePage() {
                       onClick={applyAddressReviewAsBillingV17_62}
                       className="justify-center border-red-200 bg-white text-red-800 hover:bg-red-50 dark:bg-background dark:text-red-100"
                     >
-                      Als Rechnungsadresse verwenden
+                      Als Rechnungsadresse speichern
                     </Button>
                     <Button
                       type="button"
@@ -9047,11 +9179,11 @@ export default function AuftraegePage() {
                       onClick={applyAddressReviewAsExecutionV17_62}
                       className="justify-center"
                     >
-                      Als Ausführungsadresse verwenden
+                      Als Ausführungsadresse speichern
                     </Button>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Danach speichern. Angebot/Rechnung bleiben blockiert, bis die Adressprüfung erledigt ist.
+                    Der Klick speichert die Adressentscheidung direkt.
                   </p>
                 </div>
               )}
