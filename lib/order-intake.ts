@@ -1815,6 +1815,48 @@ function compactRepeatedExecutionSiteDescriptorsV17_48(
   return [`${splitDescriptors[0].head}, ${joinedTails}`];
 }
 
+function extractLikelyOriginalProperSitePhrasesV17_49(value: string | null | undefined): string[] {
+  const text = String(value || "");
+  if (!text.trim()) return [];
+
+  const phrases = new Set<string>();
+  const phrasePattern = /\b[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*){1,4}\b/gu;
+  for (const match of text.matchAll(phrasePattern)) {
+    const phrase = match[0].replace(/\s+/g, " ").trim();
+    if (phrase.length < 5) continue;
+    // Pure all-caps short tokens are usually IDs, not object names.
+    if (/^[A-Z0-9\s.-]{2,8}$/.test(phrase)) continue;
+    phrases.add(phrase);
+  }
+
+  return Array.from(phrases);
+}
+
+function translatedSiteNameWouldDropOriginalProperNameV17_49(args: {
+  currentSiteName: string | null | undefined;
+  translatedSiteName: string | null | undefined;
+  rawText: string | null | undefined;
+}): boolean {
+  const current = compactText(args.currentSiteName);
+  const translated = compactText(args.translatedSiteName);
+  if (!current || !translated) return false;
+
+  const originalPart = String(args.rawText || "")
+    .split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
+  const originalBlock = extractExecutionBlockFromText(originalPart) || originalPart;
+  const originalBlockKey = normalizeUnitText(originalBlock);
+  const translatedKey = normalizeUnitText(translated);
+
+  for (const phrase of extractLikelyOriginalProperSitePhrasesV17_49(current)) {
+    const phraseKey = normalizeUnitText(phrase);
+    if (!phraseKey || phraseKey.length < 5) continue;
+    if (!originalBlockKey.includes(phraseKey)) continue;
+    if (!translatedKey.includes(phraseKey)) return true;
+  }
+
+  return false;
+}
+
 function translatedExecutionSiteNameCandidateFromTextV17_45(
   rawText: string | null | undefined,
 ): string | null {
@@ -1851,6 +1893,14 @@ function shouldReplaceExecutionSiteNameWithTranslatedV17_45(args: {
   const translatedBlock = String(args.rawText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i).slice(1).join("\n");
   if (!translatedBlock) return false;
   if (!normalizeUnitText(translatedBlock).includes(translated)) return false;
+
+  if (translatedSiteNameWouldDropOriginalProperNameV17_49({
+    currentSiteName: args.currentSiteName,
+    translatedSiteName: args.translatedSiteName,
+    rawText: args.rawText,
+  })) {
+    return false;
+  }
 
   // Replace raw-language site labels with the clean translated object label.
   // This is not a room-word mapping; the translated execution block itself is
@@ -2251,14 +2301,60 @@ function stripInternalTitleLinesFromText(value?: string | null): string {
     .trim();
 }
 
+type IntakeNormalizationResultV17_49 = {
+  translationText: string;
+  detectedLanguage: string;
+  showTranslationInCustomerMessage: boolean;
+};
+
+const EMPTY_INTAKE_NORMALIZATION_V17_49: IntakeNormalizationResultV17_49 = {
+  translationText: "",
+  detectedLanguage: "",
+  showTranslationInCustomerMessage: false,
+};
+
+function shouldShowAutomaticTranslationBlockV17_49(args: {
+  originalText: string;
+  translationText: string;
+  detectedLanguage?: string | null;
+  targetLanguage: string;
+  modelWantsVisibleTranslation?: boolean;
+}): boolean {
+  const translationText = stripInternalTitleLinesFromText(args.translationText || "").trim();
+  if (!translationText) return false;
+
+  const detected = normalizeSemanticText(args.detectedLanguage || "");
+  const target = normalizeSemanticText(args.targetLanguage || "Deutsch");
+
+  const detectedClearlyTarget =
+    (target.includes("deutsch") || target.includes("german")) &&
+    /(?:^|)(?:deutsch|standarddeutsch|german)(?:|$)/i.test(detected) &&
+    !/(?:schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|italien|italian|spanisch|spanish|portugies|portuguese)/i.test(detected);
+
+  if (detectedClearlyTarget) return false;
+
+  const detectedClearlyDifferentLanguage =
+    /(schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|francais|français|italien|italian|italiano|spanisch|spanish|portugies|portuguese|english|englisch|mixed|mischsprache)/i.test(
+      detected,
+    );
+
+  if (detectedClearlyDifferentLanguage) return true;
+
+  // Fail closed for the UI: if the language detector is unsure, keep the
+  // normalised Arbeitsfassung internal. Customer messages should not be filled
+  // with a visible translation block unless the source was truly non-German or
+  // dialectal. This is a display gate, not a service/address word list.
+  return Boolean(args.modelWantsVisibleTranslation) && !detectedClearlyTarget;
+}
+
 async function createStandardGermanValidationTranslation(args: {
   text: string;
   targetLanguage: string;
   source: string;
-}): Promise<string> {
+}): Promise<IntakeNormalizationResultV17_49> {
   const rawText = stripInternalTitleLinesFromText(args.text || "").trim();
   const targetLanguage = (args.targetLanguage || "Deutsch").trim() || "Deutsch";
-  if (!rawText || !process.env.OPENAI_API_KEY) return "";
+  if (!rawText || !process.env.OPENAI_API_KEY) return EMPTY_INTAKE_NORMALIZATION_V17_49;
 
   try {
     const transRes = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -2276,18 +2372,21 @@ async function createStandardGermanValidationTranslation(args: {
 Ziel: Der nachfolgende Validator muss Leistungen, Ausführungsadresse und Hinweise strukturell korrekt lesen können.
 
 Gib NUR gültiges JSON zurück:
-{"detected_language":"...","needs_normalization":true/false,"translation":"..." oder null}
+{"detected_language":"...","needs_normalization":true/false,"show_customer_translation":true/false,"translation":"..." oder null}
 
 Regeln:
-- Wenn der Text nicht vollständig sauberes ${targetLanguage} ist, needs_normalization=true.
-- Schweizerdeutsch, Dialekt, Umgangssprache, Mischsprache, Französisch, Italienisch, Englisch, Spanisch usw. gelten als needs_normalization=true, auch wenn der Text teilweise deutsch ist.
-- Übersetze/normalisiere dann den kompletten Text nach professionellem Standard-${targetLanguage}.
+- needs_normalization=true nur, wenn der Text wirklich fremdsprachig, dialektal, deutlich gemischtsprachig oder fachlich so roh ist, dass der nachfolgende Validator ohne Arbeitsfassung Leistungen/Rollen verlieren würde.
+- show_customer_translation=true NUR, wenn der sichtbare Kundentext für einen deutschsprachigen Nutzer wirklich übersetzt werden muss, z.B. Französisch, Italienisch, Englisch, Spanisch, Schweizerdeutsch/Dialekt oder starke Mischsprache.
+- show_customer_translation=false bei normalem Standard-${targetLanguage}, auch wenn darin echte fremdsprachige Eigennamen, Raum-/Gebäudenamen, Firmennamen, Straßennamen oder Ortsnamen vorkommen. Beispiel: "Rue du Lac", "Bâtiment Lumière", "Sala Verde", "Route de Genève" sind Namen und lösen allein keinen sichtbaren Übersetzungsblock aus.
+- Übersetze/normalisiere bei needs_normalization=true den kompletten Text nach professionellem Standard-${targetLanguage}.
 - Erhalte Struktur, Zeilenumbrüche, Adressblöcke, Telefonnummern, E-Mail, Mengen, Einheiten, Preise, Währungen, Codes und Reihenfolge exakt sinngemäß.
-- Leistungszeilen müssen in der Übersetzung als klare fachliche Standard-${targetLanguage}-Arbeitszeilen erscheinen, mit sauberem Verb, z.B. "... reinigen", "... abstauben", "... entfernen", "... streichen" usw., wenn die Handlung aus dem Text hervorgeht.
+- Echte Eigennamen, Firmennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten, wenn sie als Namen gemeint sind. Nicht aus "Sala Verde" automatisch "Grüner Saal" machen, nicht aus "Bâtiment Les Cèdres" automatisch "Gebäude Les Cèdres" machen.
+- Nur frei beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie keine Eigennamen sind und die Bedeutung eindeutig ist. Im Zweifel Originalnamen behalten.
+- Leistungszeilen müssen in der Arbeitsfassung als klare fachliche Standard-${targetLanguage}-Arbeitszeilen erscheinen, mit sauberem Verb, z.B. "... reinigen", "... abstauben", "... entfernen", "... streichen" usw., wenn die Handlung aus dem Text hervorgeht.
+- Arbeitsobjekt und Kontext dürfen nicht vertauscht werden: Wenn die Zeile Fenster/Tische/Vitrinen im Gang/Sitzungszimmer nennt, muss der sichtbare Leistungsname das Arbeitsobjekt behalten und darf nicht zu einem allgemeinen Bereich wie "Gangbereich reinigen" oder "Besprechungsbereich reinigen" verflachen.
 - Ausführungsort-/Arbeitsort-Zeilen dürfen nur Objekt, Räume und Adresse enthalten. Kontaktwege, WhatsApp/SMS/Telefon, Zeitfenster, Zugang, Gefahren und Sonderhinweise bleiben eigene Hinweiszeilen und dürfen nicht an den Ortsnamen angehängt werden.
-- Ausführungsort-Namen müssen sichtbar in professionellem Standard-${targetLanguage} stehen. Fremdsprachige oder mundartliche Raum-/Objektbezeichnungen wie Keller/Gang/Technikraum/Büro/Sitzungszimmer/Gemeinschaftsraum sinngemäß übersetzen, aber Strasse, PLZ, Ort, Codes und Telefonnummern exakt behalten.
 - Keine neuen Leistungen erfinden. Keine Mengen/Preise ändern. Keine Zeilen zusammenmischen.
-- Wenn der Text bereits vollständig sauberes Standard-${targetLanguage} ist, needs_normalization=false und translation=null.`,
+- Wenn der Text bereits vollständig sauberes Standard-${targetLanguage} ist, needs_normalization=false, show_customer_translation=false und translation=null.`,
           },
           { role: "user", content: rawText },
         ],
@@ -2303,15 +2402,35 @@ Regeln:
 
     const transData = JSON.parse(transContent);
     const translation = String(transData?.translation || "").trim();
-    if (!transData?.needs_normalization || !translation) return "";
+    if (!transData?.needs_normalization || !translation) {
+      return {
+        ...EMPTY_INTAKE_NORMALIZATION_V17_49,
+        detectedLanguage: String(transData?.detected_language || ""),
+      };
+    }
+
+    const cleanTranslation = stripInternalTitleLinesFromText(translation);
+    const detectedLanguage = String(transData?.detected_language || "");
+    const showTranslationInCustomerMessage =
+      shouldShowAutomaticTranslationBlockV17_49({
+        originalText: rawText,
+        translationText: cleanTranslation,
+        detectedLanguage,
+        targetLanguage,
+        modelWantsVisibleTranslation: Boolean(transData?.show_customer_translation),
+      });
 
     console.log(
-      `[${args.source}] Intake text normalized from ${transData.detected_language || "unknown"} to ${targetLanguage}`,
+      `[${args.source}] Intake text normalized from ${detectedLanguage || "unknown"} to ${targetLanguage} (visibleTranslation=${showTranslationInCustomerMessage ? "yes" : "no"})`,
     );
-    return stripInternalTitleLinesFromText(translation);
+    return {
+      translationText: cleanTranslation,
+      detectedLanguage,
+      showTranslationInCustomerMessage,
+    };
   } catch (error) {
     console.error(`[${args.source}] Intake normalization failed:`, error);
-    return "";
+    return EMPTY_INTAKE_NORMALIZATION_V17_49;
   }
 }
 
@@ -5154,6 +5273,8 @@ LEISTUNGSNAMEN / SICHTBARE ARBEITEN:
   Beispiele: "spachteln" / "Spachtel" / sinngleiche Formulierungen → "Spachtelarbeiten"; "abdecken" / Schutz abdecken → "Abdeckarbeiten"; "schleifen" → "Schleifarbeiten"; "vorbereiten" → "Vorbereitungsarbeiten".
 - Bei bekannten Standardarbeiten kurze deutsche Fachnamen verwenden: "Nettoyer le sol" → "Boden reinigen", "Déplacement" → "Anfahrt", "Nettoyage des vitres"/"Nettoyage des vitrines" → "Fenster reinigen".
 - Der Originaltext gehört nur in raw/evidence/sourceText, nicht als sichtbarer Leistungsname.
+- Arbeitsobjekt und Ort/Kontext dürfen nicht vertauscht werden. Wenn der Text z.B. Fenster, Tische, Vitrinen, Geländer oder Haken IN einem Raum/Bereich nennt, bleibt dieses Objekt Teil des sichtbaren Leistungsnamens. Der Name darf nicht zu einem allgemeinen Bereich verflachen.
+- Beispiele semantisch: "Fenêtres couloir intérieur" = Fenster im Gang innen reinigen, nicht Gangbereich reinigen. "Tische im Sitzungszimmer reinigen" = Tische im Sitzungszimmer reinigen, nicht Besprechungsbereich reinigen.
 
 WICHTIG:
 Ein Ort oder Kontext ist nicht automatisch die Leistung.
@@ -5596,11 +5717,14 @@ export async function processIncomingMessage(
   // Ausführungsort oder Hinweis in die Haupt-KI laufen. Die Normalisierung
   // bleibt beweisführend getrennt: Originaltext für Zahlen/Preise,
   // Arbeitsfassung für professionelle deutsche Namen und Rollen.
-  const translationText = await createStandardGermanValidationTranslation({
+  const intakeNormalization = await createStandardGermanValidationTranslation({
     text: messageText,
     targetLanguage: hauptsprache,
     source,
   });
+  const translationText = intakeNormalization.translationText;
+  const showTranslationInCustomerMessage =
+    intakeNormalization.showTranslationInCustomerMessage;
 
   // Resolve default VAT rate from CompanySettings.
   // If MwSt is active and a rate is configured → use that rate.
@@ -5633,7 +5757,7 @@ export async function processIncomingMessage(
       ? [
           `Nachricht Original:\n"${messageText}"`,
           `--- Semantisch normalisierte Arbeitsfassung (${hauptsprache}) ---\n${translationText}`,
-          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes und Strasse/PLZ/Ort. Die Arbeitsfassung ist maßgeblich für sichtbare professionelle ${hauptsprache}-Leistungsnamen, Ausführungsort-Namen und Hinweise. Übersetze fremdsprachige/mundartliche Raum- und Objektbezeichnungen im Ausführungsort sichtbar nach ${hauptsprache}; kopiere dafür nicht die Rohsprache. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert.`,
+          `Pflicht: Originaltext bleibt maßgeblich für Zahlen, Preise, Währungen, Codes und Strasse/PLZ/Ort. Die Arbeitsfassung ist maßgeblich für sichtbare professionelle ${hauptsprache}-Leistungsnamen und Hinweise. Für Ausführungsort-Namen gilt: echte Eigennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten; nur beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie eindeutig keine Eigennamen sind. Speichere niemals Rohsprache/Dialekt als serviceName/name/action_name, wenn die Arbeitsfassung eine saubere ${hauptsprache}-Form liefert. Arbeitsobjekte nicht verflachen: Fenster/Tische/Vitrinen im Raum bleiben Fenster/Tische/Vitrinen, nicht nur der Raum.`,
         ].join("\n\n")
       : `Nachricht:\n"${messageText}"`;
 
@@ -7553,7 +7677,7 @@ export async function processIncomingMessage(
   const notesParts: string[] = [`${source}:\n${cleanMessageTextForNotes}`];
   if (parsed.system?.prioritaet === "hoch")
     notesParts.push(`[Priorität: hoch]`);
-  if (translationText)
+  if (showTranslationInCustomerMessage)
     notesParts.push(`\n--- Übersetzung (automatisch) ---\n${translationText}`);
   if (reviewNote?.trim())
     notesParts.push(`\n[Review-Hinweis]\n${reviewNote.trim()}`);

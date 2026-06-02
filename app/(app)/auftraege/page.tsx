@@ -2878,6 +2878,18 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
   return text || compactText(value);
 };
 
+const formatCompactWorkSiteChipLabelV17_49 = (value?: string | null) => {
+  const cleaned = cleanWorkSiteDisplayName(value);
+  if (!cleaned) return "";
+
+  const firstSegment = cleaned
+    .split(/\s*,\s*|\s+und\s+|\s+and\s+|\s+et\s+/i)
+    .map((part) => compactText(part))
+    .find(Boolean);
+
+  return compactText(firstSegment || cleaned).slice(0, 42);
+};
+
 const looksLikeExecutionAddressLine = (value?: string | null) => {
   const text = compactText(value);
   if (!text) return false;
@@ -2934,43 +2946,43 @@ const inferOrderExecutionSiteName = (order?: Order | null) =>
   );
 
 const formatExecutionAddressTooltip = (order: Order) => {
-  const workSiteLines = (order.workSites ?? [])
+  const workSites = (order.workSites ?? [])
     .slice()
     .sort(
       (a, b) =>
         Number(b.isPrimary ? 1 : 0) - Number(a.isPrimary ? 1 : 0) ||
         Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
-    )
-    .map((site, index) => {
-      const title =
-        cleanWorkSiteDisplayName(site.siteName) ||
-        (index === 0 ? inferOrderExecutionSiteName(order) : "") ||
-        compactText(site.siteAddress) ||
-        `Arbeitsort ${index + 1}`;
-      const address = [
-        compactText(site.siteAddress),
-        [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
-      ]
-        .filter(Boolean)
-        .join(" · ");
+    );
 
-      return [
-        `${index + 1}. ${title}`,
-        address ? `   ${address}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-    })
-    .filter(Boolean);
+  const formatStoredWorkSiteLines = (site: {
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+    siteNote?: string | null;
+  }) =>
+    [
+      compactText(site.siteName),
+      compactText(site.siteAddress),
+      [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
+      compactText(site.siteNote),
+    ].filter(Boolean);
 
-  if (workSiteLines.length > 0) {
-    const visibleLines = workSiteLines.slice(0, 8);
-    const hiddenCount = Math.max(0, workSiteLines.length - visibleLines.length);
+  if (workSites.length > 0) {
+    const siteBlocks = workSites.slice(0, 8).map((site, index) => {
+      const lines = formatStoredWorkSiteLines(site);
+      if (lines.length === 0) return `Arbeitsort ${index + 1}`;
+      return workSites.length > 1
+        ? [`${index + 1}. ${lines[0]}`, ...lines.slice(1)].join("\n")
+        : lines.join("\n");
+    });
+
+    const hiddenCount = Math.max(0, workSites.length - siteBlocks.length);
     return [
-      workSiteLines.length > 1
-        ? `Ausführungsorte (${workSiteLines.length}):`
+      workSites.length > 1
+        ? `Ausführungsorte (${workSites.length}):`
         : "Ausführungsadresse:",
-      ...visibleLines,
+      ...siteBlocks,
       hiddenCount > 0 ? `+${hiddenCount} weitere Arbeitsorte` : "",
     ]
       .filter(Boolean)
@@ -3126,11 +3138,14 @@ const getSystemBadges = (
       cleanWorkSiteDisplayName(primaryWorkSite?.siteName) ||
       cleanWorkSiteDisplayName(order.siteName) ||
       inferOrderExecutionSiteName(order);
+    const executionSiteChipLabel =
+      formatCompactWorkSiteChipLabelV17_49(executionSiteTitle) ||
+      executionSiteTitle;
     pushUniqueBadge(badges, {
       key: "site_address",
       label: workSiteCount > 1
         ? `Ausführungsorte · ${workSiteCount}`
-        : executionSiteTitle || "Ausführungsadresse",
+        : executionSiteChipLabel || "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
       tooltip: formatExecutionAddressTooltip(order),
     });
