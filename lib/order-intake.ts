@@ -7794,6 +7794,39 @@ export async function processIncomingMessage(
     finalCurrency: intakeValidation.finalCurrency,
   });
 
+  // V17.80: absolute letzte Absicherung nach allen Repair-/Validator-Pässen.
+  // Wenn eine Einheit offen ist, bleibt Menge/Preis als Hinweis sichtbar, aber
+  // die Position darf nicht in Netto/MwSt./Total laufen. Das verhindert Fälle
+  // wie "Lagerraum Boden 42 à CHF 7" -> Total CHF 294 trotz Einheit prüfen.
+  finalOrderItems = finalOrderItems.map((item) => {
+    const unitKey = normalizeUnitText(item.unit || "");
+    const reviewKey = normalizeUnitText(
+      [item.unit, item.description, item.sourceText, item.evidence, item.reviewReason]
+        .filter(Boolean)
+        .join(" "),
+    );
+    const serviceName = String(item.serviceName || "Unbekannte Leistung").trim() || "Unbekannte Leistung";
+    const unitStillOpen =
+      unitKey === "pruefen" ||
+      unitKey === "prufen" ||
+      unitKey.includes("einheit pruefen") ||
+      unitKey.includes("einheit prufen") ||
+      reviewKey.includes("einheit fehlt") ||
+      reviewKey.includes("unit missing") ||
+      String(item.reviewReason || "").startsWith("unit_missing_in_text:") ||
+      String(item.reviewReason || "").startsWith("unit_mismatch:");
+
+    if (!unitStillOpen) return item;
+
+    return {
+      ...item,
+      unit: unitKey === "pruefen" || unitKey === "prufen" ? "Einheit prüfen" : item.unit || "Einheit prüfen",
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: item.reviewReason || `unit_missing_in_text:${serviceName}`,
+    };
+  });
+
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {
     customerAddress: addr.street,

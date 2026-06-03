@@ -1859,14 +1859,11 @@ function calculateVatTotals(netValue: number, vatRateValue: number) {
   };
 }
 
-function isExplicitZeroTotalReviewItem(item: any): boolean {
-  const storedTotal = Number(item?.totalPrice ?? 0);
-  if (storedTotal > 0) return false;
-  return isBlockedAmountReviewItemForPersist(item, {});
-}
-
 function getItemNetTotalForOrder(item: any): number {
-  if (isExplicitZeroTotalReviewItem(item)) return 0;
+  // V17.80: Harte Prüfpositionen (Einheit/Preis/Menge/Währung offen) dürfen
+  // niemals über ein altes stored total oder quantity × price in Netto/MwSt./Total
+  // zurücklaufen. Das gilt auch dann, wenn item.totalPrice fälschlich > 0 ist.
+  if (isBlockedAmountReviewItemForPersist(item, {})) return 0;
 
   const quantity = Number(item?.quantity ?? 0);
   const unitPrice = Number(item?.unitPrice ?? 0);
@@ -2118,10 +2115,7 @@ export async function POST(request: Request) {
                   quantity: Number(item.quantity ?? 1),
                   unit: item.unit ?? "Stunde",
                   unitPrice: Number(item.unitPrice ?? 0),
-                  totalPrice: Number(
-                    item.totalPrice ??
-                      Number(item.unitPrice ?? 0) * Number(item.quantity ?? 1),
-                  ),
+                  totalPrice: getItemNetTotalForOrder(item),
                 })),
               },
             }

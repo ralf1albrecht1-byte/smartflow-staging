@@ -4341,7 +4341,7 @@ const renderBadgeTooltip = (
 
   const tooltipLines = tooltip.split("\n");
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
 
   return (
     <span
@@ -6670,11 +6670,16 @@ export default function AuftraegePage() {
       return true;
     }
 
+    const unitReviewValue = normalizeForMatch(item.unit || "");
     const reviewText = normalizeForMatch(
       [item.unit, item.aiWarning].filter(Boolean).join(" "),
     );
 
     return (
+      unitReviewValue === "pruefen" ||
+      unitReviewValue === "prufen" ||
+      unitReviewValue.includes("einheit pruefen") ||
+      unitReviewValue.includes("einheit prufen") ||
       reviewText.includes("einheit pruefen") ||
       reviewText.includes("einheit prufen") ||
       reviewText.includes("einheit fehlt") ||
@@ -8503,6 +8508,7 @@ export default function AuftraegePage() {
   // Display items summary for list
 
   const isBlockedOrderItemForTotal = (item: OrderItem) => {
+    const unitReviewValue = normalizeForMatch(item.unit || "");
     const reviewText = normalizeForMatch(
       [item.unit, item.description, (item as any).reviewReason]
         .filter(Boolean)
@@ -8510,6 +8516,10 @@ export default function AuftraegePage() {
     );
 
     return (
+      unitReviewValue === "pruefen" ||
+      unitReviewValue === "prufen" ||
+      unitReviewValue.includes("einheit pruefen") ||
+      unitReviewValue.includes("einheit prufen") ||
       reviewText.includes("einheit pruefen") ||
       reviewText.includes("einheit prufen") ||
       reviewText.includes("einheit fehlt") ||
@@ -8931,28 +8941,10 @@ export default function AuftraegePage() {
               const title = compactText(badge.tooltip) || badge.label;
               const tooltipSlot = "mobile_action";
 
-              if (
-                badge.focusTarget === "specialNotes" ||
-                badge.focusTarget === "customer"
-              ) {
-                return (
-                  <button
-                    key={badge.key}
-                    type="button"
-                    aria-label={title}
-                    onClick={
-                      badge.focusTarget === "customer"
-                        ? openOrderAtCustomer
-                        : openOrderAtSpecialNotes
-                    }
-                    className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
-                  >
-                    <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-                    {renderMobileChipTooltip(badge, tooltipSlot, "left")}
-                  </button>
-                );
-              }
-
+              // V17.80: Auf Handy sollen Besonderheiten-Chips (Hund, Schlüssel,
+              // Leiter, Zugang, Nicht-einfach-kommen usw.) beim Antippen die
+              // gleiche Info zeigen wie Desktop-Hover. Sie öffnen NICHT mehr
+              // direkt den Auftrag. Die Karte selbst bleibt der Öffnen-Tap.
               return (
                 <button
                   key={badge.key}
@@ -11323,7 +11315,7 @@ export default function AuftraegePage() {
                                         >
                                           {priceTypes.map((pt) => (
                                             <option key={pt} value={pt}>
-                                              {pt}
+                                              {pt === "Einheit prüfen" ? "prüfen" : pt}
                                             </option>
                                           ))}
                                         </select>

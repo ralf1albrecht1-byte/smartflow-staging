@@ -9115,6 +9115,13 @@ export function validateAndRepairParsedOrderItems(
     finalCurrency,
   );
 
+  // V17.80: Wenn eine Position nach der semantischen Reparatur vollständig ist
+  // (Menge + Einheit + Preis + Total), darf kein alter price_unclear-Hinweis
+  // als sichtbarer falscher Text stehen bleiben. Beispiel: "Window inside
+  // 4 pcs at CHF 9" wird korrekt 4 Stück × CHF 9; der Preis ist dann nicht
+  // mehr unklar.
+  items = items.map(clearResolvedNumericReview);
+
   const unitlessTrailingFailClosed = applyUnitlessTrailingQuantityPriceFailClosedV17_79(
     items,
     input.originalText,
