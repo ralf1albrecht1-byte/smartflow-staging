@@ -1089,6 +1089,26 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
       ))
   );
 }
+
+function hasUnitMissingReviewForItem(data: any, item: any): boolean {
+  const reasons = Array.isArray(data?.reviewReasons) ? data.reviewReasons : [];
+  return reasons.some((reason: any) => {
+    const key = String(reason || "");
+    return key.startsWith("unit_missing_in_text:") && reviewReasonAppliesToItem(reason, item, data);
+  });
+}
+
+function getDisplaySafeItemForOrder(item: any, orderLike: any) {
+  const unitMissing = hasUnitMissingReviewForItem(orderLike || {}, item);
+  return {
+    ...item,
+    unit: unitMissing ? "Einheit prüfen" : item?.unit,
+    unitPrice: Number(item?.unitPrice ?? 0),
+    quantity: Number(item?.quantity ?? 0),
+    totalPrice: getItemNetTotalForOrder(item, orderLike || {}),
+  };
+}
+
 function hasCompleteManualItemsForPersist(data: any): boolean {
   if (hasCurrencyConflictReviewOnOrderLike(data || {})) return false;
 
@@ -1859,11 +1879,11 @@ function calculateVatTotals(netValue: number, vatRateValue: number) {
   };
 }
 
-function getItemNetTotalForOrder(item: any): number {
+function getItemNetTotalForOrder(item: any, orderLike?: any): number {
   // V17.80: Harte Prüfpositionen (Einheit/Preis/Menge/Währung offen) dürfen
   // niemals über ein altes stored total oder quantity × price in Netto/MwSt./Total
   // zurücklaufen. Das gilt auch dann, wenn item.totalPrice fälschlich > 0 ist.
-  if (isBlockedAmountReviewItemForPersist(item, {})) return 0;
+  if (isBlockedAmountReviewItemForPersist(item, orderLike || {})) return 0;
 
   const quantity = Number(item?.quantity ?? 0);
   const unitPrice = Number(item?.unitPrice ?? 0);
@@ -1883,7 +1903,7 @@ function calculateItemsNetTotal(o: any): number | null {
   // unitPrice/totalPrice 0 persistiert; manuell bestätigte Positionen sollen
   // sofort in Außenkarte und API-Response zählen.
   const net = items.reduce(
-    (sum: number, item: any) => sum + getItemNetTotalForOrder(item),
+    (sum: number, item: any) => sum + getItemNetTotalForOrder(item, o),
     0,
   );
 
@@ -1970,12 +1990,9 @@ export async function GET(request: Request) {
         unitPrice: Number(o?.unitPrice ?? 0),
         quantity: Number(o?.quantity ?? 0),
         ...normalizeOrderVat(o),
-        items: (o?.items ?? []).map((item: any) => ({
-          ...item,
-          unitPrice: Number(item?.unitPrice ?? 0),
-          quantity: Number(item?.quantity ?? 0),
-          totalPrice: Number(item?.totalPrice ?? 0),
-        })),
+        items: (o?.items ?? []).map((item: any) =>
+          getDisplaySafeItemForOrder(item, o),
+        ),
       })) ?? [],
     );
   } catch (error: any) {
@@ -2030,7 +2047,7 @@ export async function POST(request: Request) {
     let primaryQuantity = Number(data?.quantity ?? 1);
     if (items && items.length > 0) {
       totalPrice = items.reduce(
-        (sum: number, item: any) => sum + getItemNetTotalForOrder(item),
+        (sum: number, item: any) => sum + getItemNetTotalForOrder(item, o),
         0,
       );
       primaryServiceName = normalizeServiceNameForDisplay(
@@ -2115,7 +2132,7 @@ export async function POST(request: Request) {
                   quantity: Number(item.quantity ?? 1),
                   unit: item.unit ?? "Stunde",
                   unitPrice: Number(item.unitPrice ?? 0),
-                  totalPrice: getItemNetTotalForOrder(item),
+                  totalPrice: getItemNetTotalForOrder(item, { ...data, reviewReasons: normalizedReviewReasonsForRequest ?? data?.reviewReasons }),
                 })),
               },
             }

@@ -8950,6 +8950,8 @@ export default function AuftraegePage() {
                   key={badge.key}
                   type="button"
                   aria-label={title}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) =>
                     toggleMobileTooltip(badge, tooltipSlot, event)
                   }
@@ -8972,6 +8974,8 @@ export default function AuftraegePage() {
                   key={`${slot}_${badge.key}`}
                   type="button"
                   aria-label={title}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) => toggleMobileTooltip(badge, slot, event)}
                   className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
@@ -8990,6 +8994,8 @@ export default function AuftraegePage() {
                   key={`mobile_right_${badge.key}`}
                   type="button"
                   aria-label={title}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) =>
                     toggleMobileTooltip(badge, "mobile_right", event)
                   }
@@ -9190,7 +9196,12 @@ export default function AuftraegePage() {
                             </select>
 
                             {!hasMultipleMergedData && (
-                              <div className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]">
+                              <div
+                                className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onTouchStart={(event) => event.stopPropagation()}
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 <CommunicationChips
                                   compact
                                   data={buildCommunicationChipDataV17_52(o)}
@@ -9336,7 +9347,12 @@ export default function AuftraegePage() {
                             </select>
 
                             {!hasMultipleMergedData && (
-                              <div className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]">
+                              <div
+                                className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onTouchStart={(event) => event.stopPropagation()}
+                                onClick={(event) => event.stopPropagation()}
+                              >
                                 <CommunicationChips
                                   compact
                                   data={buildCommunicationChipDataV17_52(o)}
@@ -10572,7 +10588,9 @@ export default function AuftraegePage() {
                             !unresolvedCurrencyItem &&
                             Boolean(item.manualCurrencyConfirmed);
 
-                          const itemTotal = getSafeFormItemTotal(item);
+                          const itemTotal = unitMissingInTextReason
+                            ? 0
+                            : getSafeFormItemTotal(item);
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
                             item.unit?.trim() &&
@@ -10584,7 +10602,7 @@ export default function AuftraegePage() {
                             Boolean(item.serviceName?.trim()) &&
                             !isServiceInCatalog(item.serviceName);
                           const showManualServiceReview =
-                            !unresolvedCurrencyItem && isManualService;
+                            !unresolvedCurrencyItem && isManualService && !isCompleteItemForCatalogAction;
                           const sourceLineForItem =
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
@@ -10832,18 +10850,10 @@ export default function AuftraegePage() {
                                   }),
                                 );
                               }
-                              if (groupCatalogMissing) {
-                                addBadge(
-                                  "catalog_missing",
-                                  "Nicht im Katalog",
-                                  "bg-yellow-100 text-yellow-900 ring-1 ring-yellow-300",
-                                  formatCatalogReviewTooltip({
-                                    title: "Nicht im Katalog.",
-                                    item: groupItem as any,
-                                    currency,
-                                  }),
-                                );
-                              }
+                              // V17.81: Nicht-im-Katalog ist kein eigener Außen-Chip mehr,
+                              // wenn Menge/Einheit/Preis aus dem Text klar sind. Der Nutzer
+                              // sieht die konkrete Position innen und kann sie bei Bedarf über
+                              // das Menü in den Katalog übernehmen.
                             }
 
                             return combineCatalogReviewBadges(badges);
@@ -11304,7 +11314,7 @@ export default function AuftraegePage() {
                                         </Label>
                                         <select
                                           className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                          value={item.unit}
+                                          value={unitMissingInTextReason ? "Einheit prüfen" : item.unit}
                                           onChange={(e: any) =>
                                             updateItem(
                                               index,

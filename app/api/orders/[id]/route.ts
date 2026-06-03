@@ -1172,14 +1172,32 @@ function roundMoney(value: number): number {
   return Number((Math.round((value + Number.EPSILON) * 100) / 100).toFixed(2));
 }
 
-function isExplicitZeroTotalReviewItem(item: any): boolean {
-  const storedTotal = Number(item?.totalPrice ?? 0);
-  if (storedTotal > 0) return false;
-  return isBlockedAmountReviewItemForPersist(item, {});
+function isExplicitZeroTotalReviewItem(item: any, orderLike?: any): boolean {
+  return isBlockedAmountReviewItemForPersist(item, orderLike || {});
 }
 
-function getItemNetTotalForOrder(item: any): number {
-  if (isExplicitZeroTotalReviewItem(item)) return 0;
+
+function hasUnitMissingReviewForItem(data: any, item: any): boolean {
+  const reasons = Array.isArray(data?.reviewReasons) ? data.reviewReasons : [];
+  return reasons.some((reason: any) => {
+    const key = String(reason || "");
+    return key.startsWith("unit_missing_in_text:") && reviewReasonAppliesToItem(reason, item, data);
+  });
+}
+
+function getDisplaySafeItemForOrder(item: any, orderLike: any) {
+  const unitMissing = hasUnitMissingReviewForItem(orderLike || {}, item);
+  return {
+    ...item,
+    unit: unitMissing ? "Einheit prüfen" : item?.unit,
+    unitPrice: Number(item?.unitPrice ?? 0),
+    quantity: Number(item?.quantity ?? 0),
+    totalPrice: getItemNetTotalForOrder(item, orderLike || {}),
+  };
+}
+
+function getItemNetTotalForOrder(item: any, orderLike?: any): number {
+  if (isExplicitZeroTotalReviewItem(item, orderLike)) return 0;
 
   const quantity = Number(item?.quantity ?? 0);
   const unitPrice = Number(item?.unitPrice ?? 0);
@@ -1198,7 +1216,7 @@ function calculateItemsNetTotal(o: any): number | null {
   // pauschal 0 zurückgeben. Unbestätigte Positionen werden schon mit
   // unitPrice/totalPrice 0 persistiert; manuell bestätigte Positionen sollen
   // sofort in Außenkarte und API-Response zählen.
-  const net = items.reduce((sum: number, item: any) => sum + getItemNetTotalForOrder(item), 0);
+  const net = items.reduce((sum: number, item: any) => sum + getItemNetTotalForOrder(item, o), 0);
 
   // Wenn Positionen vorhanden sind, sind sie Source of Truth. Auch 0 ist dann
   // ein gültiges Ergebnis, damit rote Prüfpositionen nicht über stale
@@ -1269,12 +1287,9 @@ export async function GET(
       quantity: Number(safeOrder?.quantity ?? 0),
       currency: safeOrder?.currency === "EUR" ? "EUR" : "CHF",
       ...normalizeOrderVat(safeOrder),
-      items: (safeOrder?.items ?? []).map((item: any) => ({
-        ...item,
-        unitPrice: Number(item?.unitPrice ?? 0),
-        quantity: Number(item?.quantity ?? 0),
-        totalPrice: Number(item?.totalPrice ?? 0),
-      })),
+      items: (safeOrder?.items ?? []).map((item: any) =>
+        getDisplaySafeItemForOrder(item, safeOrder),
+      ),
     });
   } catch (error: any) {
     console.error(error);
@@ -1352,7 +1367,7 @@ export async function PUT(
       data?.quantity !== undefined ? Number(data.quantity) : undefined;
     if (items && items.length > 0) {
       totalPrice = items.reduce(
-        (sum: number, item: any) => sum + getItemNetTotalForOrder(item),
+        (sum: number, item: any) => sum + getItemNetTotalForOrder(item, data),
         0,
       );
       primaryServiceName = normalizeServiceNameForDisplay(items[0].serviceName ?? primaryServiceName);
@@ -1692,12 +1707,9 @@ export async function PUT(
       vatAmount: Number(finalOrder?.vatAmount ?? 0),
       total: Number(finalOrder?.total ?? 0),
       currency: finalOrder?.currency === "EUR" ? "EUR" : "CHF",
-      items: (finalOrder?.items ?? []).map((item: any) => ({
-        ...item,
-        unitPrice: Number(item?.unitPrice ?? 0),
-        quantity: Number(item?.quantity ?? 0),
-        totalPrice: Number(item?.totalPrice ?? 0),
-      })),
+      items: (finalOrder?.items ?? []).map((item: any) =>
+        getDisplaySafeItemForOrder(item, finalOrder),
+      ),
     });
   } catch (error: any) {
     if (error instanceof CustomerArchivedError) {
