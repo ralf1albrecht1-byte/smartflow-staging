@@ -2374,6 +2374,181 @@ function normalizeParsedServiceNames(
   });
 }
 
+
+// V17.90: Fail-closed service-name safety guard.
+// Zweck: Die KI darf Leistungsnamen vorschlagen, aber sichtbare Satzreste,
+// Termin-/Kontakt-/Zugangshinweise oder Rohsprache dürfen nicht gespeichert
+// werden. Wenn ein sauberer line-local Name aus derselben Mengen-/Preis-Evidence
+// ableitbar ist, wird repariert. Wenn nicht, wird hart auf "Leistung prüfen"
+// blockiert. Keine Service-Wortliste: geprüft wird Struktur/Evidence/Sprache.
+function automaticTranslationBlockV17_90(originalText: string): string {
+  const source = String(originalText || "");
+  const marker = source.match(/\n+---\s*(?:Übersetzung \(automatisch\)|Uebersetzung \(automatisch\)|Automatic translation)\s*---\s*\n/i);
+  if (!marker || marker.index == null) return "";
+  return source.slice(marker.index + marker[0].length).trim();
+}
+
+function serviceNameSafetyKeyV17_90(value?: string | null): string {
+  return normalizeCompare(value || "")
+    .replace(/\b(?:chf|eur|franken|euro|stutz)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function serviceNameHasForbiddenSentencePartsV17_90(value?: string | null): boolean {
+  const raw = normalizeText(value || "");
+  const key = serviceNameSafetyKeyV17_90(raw);
+  if (!key) return true;
+
+  if (/\b(?:menge|anzahl|preis|einheit)\s*:/i.test(raw)) return true;
+  if (/\b(?:pro|je|per|par|à|a)\s*(?:m2|m²|qm|quadratmeter|stk|stück|stueck|pcs|pauschal)\b/i.test(raw)) return true;
+  if (raw.length > 90 || key.split(/\s+/g).filter(Boolean).length > 10) return true;
+
+  // Meta-/Hinweis-/Termin-/Kontakt-/Zugangssprache. Das ist keine Service-
+  // Wortliste, sondern verbietet Kategorien, die nie sichtbare Leistung sind.
+  if (
+    /\b(?:bitte|merci|please|morgen|heute|vormittag|nachmittag|abend|uhr|termin|erledigen|ausfuehren|ausführen|kommen|vorbeikommen|vorher|vorankündigung|vorankuendigung|melden|anrufen|schreiben|sms|whatsapp|telefon|e\s*mail|email|mail|torcode|zugang|schluessel|schlüssel|code|rechnung|facture|factura|fattura|adresse|ausfuehrung|ausführung|chantier|exécution|execution)\b/.test(key)
+  ) {
+    return true;
+  }
+
+  // Ein sichtbarer Name darf nicht wie ein ganzer Kundensatz aussehen.
+  if (/[.!?]\s+/.test(raw) || /,\s*(?:menge|preis|pro|je|à|a)\b/i.test(raw)) return true;
+
+  return false;
+}
+
+function serviceNameLooksLikeUntranslatedRawV17_90(value?: string | null): boolean {
+  const key = serviceNameSafetyKeyV17_90(value || "");
+  if (!key) return true;
+  // Sprach-/Rohmarker, keine fachliche Service-Wortliste. Wenn eine deutsche
+  // Arbeitsfassung existiert, sollen diese Rohformen nicht sichtbar bleiben.
+  return /\b(?:cave|vitres?|fenetres?|fenêtres?|couloir|sol|nettoyage|deplacement|déplacement|local\s+technique|immeuble|chantier|pcs|piece|pieces|pi[eè]ces)\b/.test(key);
+}
+
+function lineHasSameQuantityAndPriceV17_90(
+  line: string,
+  item: ParsedOrderItemForValidation,
+): boolean {
+  const quantity = Number(item.quantity || 0);
+  const price = Number(item.unitPrice || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price <= 0) {
+    return false;
+  }
+
+  const normalized = normalizeCompare(line);
+  if (!normalized) return false;
+
+  const quantityPatterns = [
+    new RegExp(`\\b${String(quantity).replace('.', '[.,]')}\\b`),
+    new RegExp(`\\b${Math.trunc(quantity)}\\b`),
+  ];
+  const pricePatterns = [
+    new RegExp(`\\b${String(price).replace('.', '[.,]')}\\b`),
+    new RegExp(`\\b${Math.trunc(price)}(?:[.,]00)?\\b`),
+  ];
+
+  return quantityPatterns.some((pattern) => pattern.test(normalized)) &&
+    pricePatterns.some((pattern) => pattern.test(normalized));
+}
+
+function candidateServiceNameFromLineV17_90(line: string): string {
+  const candidate = cleanValidationServiceDisplayName(line);
+  if (!candidate || normalizeCompare(candidate) === "unbekannte leistung") return "";
+  if (serviceNameHasForbiddenSentencePartsV17_90(candidate)) return "";
+  return candidate;
+}
+
+function safeServiceNameFromOwnEvidenceV17_90(
+  item: ParsedOrderItemForValidation,
+): string {
+  const source = [item.sourceText, item.evidence, item.description]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join("\n");
+  if (!source) return "";
+
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => lineHasSameQuantityAndPriceV17_90(line, item));
+
+  for (const line of lines) {
+    const candidate = candidateServiceNameFromLineV17_90(line);
+    if (candidate) return candidate;
+  }
+
+  return "";
+}
+
+function safeServiceNameFromTranslatedEvidenceV17_90(
+  originalText: string,
+  item: ParsedOrderItemForValidation,
+): string {
+  const translated = automaticTranslationBlockV17_90(originalText);
+  if (!translated) return "";
+
+  const lines = translated
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => lineHasSameQuantityAndPriceV17_90(line, item));
+
+  for (const line of lines) {
+    const candidate = candidateServiceNameFromLineV17_90(line);
+    if (candidate) return candidate;
+  }
+
+  return "";
+}
+
+function applyFailClosedServiceNameSafetyGuardV17_90(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const reviewReasons: string[] = [];
+  const hasTranslation = Boolean(automaticTranslationBlockV17_90(originalText));
+
+  const guarded = items.map((item) => {
+    const cleanedCurrent = cleanValidationServiceDisplayName(item.serviceName);
+    const translatedCandidate = safeServiceNameFromTranslatedEvidenceV17_90(originalText, item);
+    const ownCandidate = safeServiceNameFromOwnEvidenceV17_90(item);
+
+    const currentUnsafe =
+      serviceNameHasForbiddenSentencePartsV17_90(cleanedCurrent) ||
+      normalizeCompare(cleanedCurrent) === "unbekannte leistung" ||
+      (hasTranslation && serviceNameLooksLikeUntranslatedRawV17_90(cleanedCurrent));
+
+    if (!currentUnsafe) {
+      return { ...item, serviceName: cleanedCurrent };
+    }
+
+    const repairedName = translatedCandidate || ownCandidate;
+    if (repairedName) {
+      return {
+        ...item,
+        serviceName: repairedName,
+        reviewReason: item.reviewReason?.startsWith("price_unclear:")
+          ? `price_unclear:${repairedName}`
+          : item.reviewReason,
+      };
+    }
+
+    const blockedReason = `service_name_review:${cleanedCurrent || "unknown"}`;
+    reviewReasons.push(blockedReason, "service_name_review");
+    return {
+      ...item,
+      serviceName: "Leistung prüfen",
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: blockedReason,
+    };
+  });
+
+  return { items: guarded, reviewReasons: unique(reviewReasons) };
+}
+
 function serviceDomainTopics(value?: string | null): string[] {
   const source = normalizeCompare(value);
   const topics: string[] = [];
@@ -9121,6 +9296,13 @@ export function validateAndRepairParsedOrderItems(
   // 4 pcs at CHF 9" wird korrekt 4 Stück × CHF 9; der Preis ist dann nicht
   // mehr unklar.
   items = items.map(clearResolvedNumericReview);
+
+  const serviceNameSafetyGuard = applyFailClosedServiceNameSafetyGuardV17_90(
+    input.originalText,
+    items,
+  );
+  items = serviceNameSafetyGuard.items;
+  reviewReasons.push(...serviceNameSafetyGuard.reviewReasons);
 
   const unitlessTrailingFailClosed = applyUnitlessTrailingQuantityPriceFailClosedV17_79(
     items,

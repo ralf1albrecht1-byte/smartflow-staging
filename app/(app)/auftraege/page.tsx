@@ -10821,6 +10821,12 @@ export default function AuftraegePage() {
                               curOrder?.reviewReasons,
                               item.serviceName,
                             );
+                          const unitMissingStillOpen =
+                            Boolean(unitMissingInTextReason) &&
+                            (!item.unit?.trim() ||
+                              normalizePriceUnitForCompare(item.unit) ===
+                                normalizePriceUnitForCompare("Einheit prüfen") ||
+                              normalizeForMatch(item.unit) === "pruefen");
 
                           const priceOverrideReason = curOrder?.reviewReasons
                             ?.filter((r: string) =>
@@ -10901,7 +10907,7 @@ export default function AuftraegePage() {
                             Boolean(
                               item.aiWarning?.trim() ||
                               unitMismatchReason ||
-                              unitMissingInTextReason,
+                              unitMissingStillOpen,
                             );
                           const showPriceOverride =
                             !unresolvedCurrencyItem &&
@@ -10925,7 +10931,7 @@ export default function AuftraegePage() {
                             !unresolvedCurrencyItem &&
                             Boolean(item.manualCurrencyConfirmed);
 
-                          const itemTotal = unitMissingInTextReason
+                          const itemTotal = unitMissingStillOpen
                             ? 0
                             : getSafeFormItemTotal(item);
                           const isCompleteItemForCatalogAction = Boolean(
@@ -11653,11 +11659,7 @@ export default function AuftraegePage() {
                                         </Label>
                                         <select
                                           className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                          value={
-                                            unitMissingInTextReason
-                                              ? "Einheit prüfen"
-                                              : item.unit
-                                          }
+                                          value={item.unit || "Einheit prüfen"}
                                           onChange={(e: any) =>
                                             updateItem(
                                               index,
