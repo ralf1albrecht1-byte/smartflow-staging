@@ -1439,28 +1439,11 @@ const storedValue = finalUrl;
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         {form.testModus
-                          ? 'Du testest aktuell mit TEST-Nummern. Echte Daten bleiben geschützt.'
+                          ? 'Du testest aktuell mit TEST-Nummern. Der Livebetrieb wird nicht verändert.'
                           : 'Neue Angebote und Rechnungen erhalten echte Nummern.'}
                       </p>
                     </div>
                   </div>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => {
-                      if (form.testModus) {
-                        if (!confirm('Testmodus deaktivieren?\n\nNeue Angebote und Rechnungen erhalten danach echte Nummern. Bestehende TEST-Dokumente bleiben erhalten.')) return;
-                      } else {
-                        if (!confirm('Testmodus aktivieren?\n\nNeue Angebote und Rechnungen erhalten danach wieder TEST-Nummern.')) return;
-                      }
-                      updateField('testModus', !form.testModus);
-                    }}
-                  >
-                    {form.testModus ? 'Testmodus deaktivieren' : 'Testmodus aktivieren'}
-                  </Button>
                 </div>
               </div>
 
@@ -1495,12 +1478,6 @@ const storedValue = finalUrl;
 
                     {livePrepPreview && (
                       <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
-                        {livePrepPreview.warnings.length > 0 && (
-                          <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 space-y-1">
-                            {livePrepPreview.warnings.map((warning, index) => <p key={index}>⚠ {warning}</p>)}
-                          </div>
-                        )}
-
                         {livePrepPreview.liveStarted ? (
                           <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs text-green-800 space-y-1">
                             <p className="font-semibold">Livebetrieb wurde bereits gestartet.</p>
@@ -1604,7 +1581,7 @@ const storedValue = finalUrl;
                           <div className="space-y-1">
                             <p className="font-semibold">Letzte Bestätigung</p>
                             <p>Übernommen werden nur die ausgewählten Kunden: {livePrepKeepIds.length} Kunde(n).</p>
-                            <p>Nicht ausgewählte Kunden und Testdaten werden beim Echtstart entfernt/bereinigt.</p>
+                            <p>In den Livebetrieb kommen nur die ausgewählten Kunden. Testdaten werden bereinigt.</p>
                           </div>
                         </div>
 
@@ -1648,7 +1625,7 @@ const storedValue = finalUrl;
                             <Database className="w-4 h-4 text-muted-foreground" />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold">Testdaten verwalten</p>
+                            <p className="text-sm font-semibold">Testmodus &amp; Testdaten verwalten</p>
                             <p className="text-xs text-muted-foreground mt-1">Optional — nicht nötig für den Livebetrieb.</p>
                           </div>
                         </div>
@@ -1659,9 +1636,9 @@ const storedValue = finalUrl;
                         <div className="border-t p-4">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
                             <div className="min-w-0">
-                              <p className="text-sm font-semibold">Testdaten bereinigen</p>
+                              <p className="text-sm font-semibold">Testdaten in Papierkorb verschieben</p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                Verschiebt TEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge in den Papierkorb. Kunden und echte Daten bleiben erhalten.
+                                Verschiebt TEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge in den Papierkorb. Der Livebetrieb wird nicht verändert.
                               </p>
                             </div>
                             <Button
@@ -1670,13 +1647,13 @@ const storedValue = finalUrl;
                               className="text-amber-700 border-amber-300 hover:bg-amber-100 shrink-0 gap-2"
                               disabled={resetting}
                               onClick={async () => {
-                                if (!confirm('Testdaten bereinigen?\n\nTEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge werden in den Papierkorb verschoben. Kunden und echte Daten bleiben erhalten.')) return;
+                                if (!confirm('Testdaten in Papierkorb verschieben?\n\nTEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge werden in den Papierkorb verschoben.\n\nDer Livebetrieb wird nicht verändert.')) return;
                                 setResetting(true);
                                 try {
                                   const res = await fetch('/api/settings/reset-test', { method: 'POST' });
                                   if (res.ok) {
                                     const data = await res.json();
-                                    toast({ title: 'Testdaten bereinigt', description: data.message });
+                                    toast({ title: 'Testdaten in Papierkorb verschoben', description: data.message });
                                   } else {
                                     const err = await res.json();
                                     toast({ title: 'Fehler', description: err.error || 'Fehler', variant: 'destructive' });
@@ -1689,7 +1666,7 @@ const storedValue = finalUrl;
                               }}
                             >
                               {resetting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                              Testdaten bereinigen
+                              In Papierkorb verschieben
                             </Button>
                           </div>
                         </div>
@@ -1698,12 +1675,97 @@ const storedValue = finalUrl;
                   </div>
                 </>
               ) : (
-                <div className="rounded-xl border border-green-200 bg-green-50/70 dark:bg-green-900/10 dark:border-green-900 p-4">
-                  <p className="text-sm font-semibold text-green-800 dark:text-green-200">Livebetrieb läuft.</p>
-                  <p className="text-xs text-green-700/90 dark:text-green-300/90 mt-1">
-                    Neue Angebote und Rechnungen erhalten echte Nummern. Testmodus kann weiterhin zum Ausprobieren wieder aktiviert werden.
-                  </p>
-                </div>
+                <>
+                  <div className="rounded-xl border border-green-200 bg-green-50/70 dark:bg-green-900/10 dark:border-green-900 p-4">
+                    <p className="text-sm font-semibold text-green-800 dark:text-green-200">Livebetrieb läuft.</p>
+                    <p className="text-xs text-green-700/90 dark:text-green-300/90 mt-1">
+                      Neue Angebote und Rechnungen erhalten echte Nummern. Kundenübernahme ist abgeschlossen.
+                    </p>
+                  </div>
+
+                  <div className="pt-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Weitere Optionen</p>
+                    <div className="rounded-xl border bg-card overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setShowTestDataTools(prev => !prev)}
+                        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-muted/30"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                            <Database className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold">Testmodus &amp; Testdaten verwalten</p>
+                            <p className="text-xs text-muted-foreground mt-1">Zum Ausprobieren oder zum Aufräumen von TEST-Daten.</p>
+                          </div>
+                        </div>
+                        {showTestDataTools ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+                      </button>
+
+                      {showTestDataTools && (
+                        <div className="border-t p-4 space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold">In Testmodus wechseln</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Neue Angebote und Rechnungen erhalten danach TEST-Nummern. Der Livebetrieb bleibt erhalten.
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0 gap-2"
+                              onClick={() => {
+                                if (!confirm('In Testmodus wechseln?\n\nNeue Angebote und Rechnungen erhalten danach TEST-Nummern.\n\nDer Livebetrieb bleibt erhalten.')) return;
+                                updateField('testModus', true);
+                              }}
+                            >
+                              <FlaskConical className="w-4 h-4" />
+                              In Testmodus wechseln
+                            </Button>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold">Testdaten in Papierkorb verschieben</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Verschiebt TEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge in den Papierkorb. Der Livebetrieb wird nicht verändert.
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-amber-700 border-amber-300 hover:bg-amber-100 shrink-0 gap-2"
+                              disabled={resetting}
+                              onClick={async () => {
+                                if (!confirm('Testdaten in Papierkorb verschieben?\n\nTEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge werden in den Papierkorb verschoben.\n\nDer Livebetrieb wird nicht verändert.')) return;
+                                setResetting(true);
+                                try {
+                                  const res = await fetch('/api/settings/reset-test', { method: 'POST' });
+                                  if (res.ok) {
+                                    const data = await res.json();
+                                    toast({ title: 'Testdaten in Papierkorb verschoben', description: data.message });
+                                  } else {
+                                    const err = await res.json();
+                                    toast({ title: 'Fehler', description: err.error || 'Fehler', variant: 'destructive' });
+                                  }
+                                } catch {
+                                  toast({ title: 'Fehler', description: 'Netzwerkfehler', variant: 'destructive' });
+                                } finally {
+                                  setResetting(false);
+                                }
+                              }}
+                            >
+                              {resetting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              In Papierkorb verschieben
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </SectionShell>
