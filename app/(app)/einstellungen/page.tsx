@@ -167,6 +167,8 @@ export default function EinstellungenPage() {
   const [livePrepPreview, setLivePrepPreview] = useState<LivePrepPreview | null>(null);
   const [livePrepKeepIds, setLivePrepKeepIds] = useState<string[]>([]);
   const [showTestDataTools, setShowTestDataTools] = useState(false);
+  const [showLiveConfirm, setShowLiveConfirm] = useState(false);
+  const [liveConfirmText, setLiveConfirmText] = useState('');
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [showDeleteSection, setShowDeleteSection] = useState(false);
@@ -220,6 +222,8 @@ export default function EinstellungenPage() {
       }
       setLivePrepPreview(data);
       setLivePrepKeepIds([]);
+      setShowLiveConfirm(false);
+      setLiveConfirmText('');
     } catch {
       toast({ title: 'Fehler', description: 'Netzwerkfehler beim Laden der Vorschau.', variant: 'destructive' });
     } finally {
@@ -229,6 +233,8 @@ export default function EinstellungenPage() {
 
   function toggleLivePrepCustomer(customerId: string) {
     setLivePrepKeepIds(prev => prev.includes(customerId) ? prev.filter(id => id !== customerId) : [...prev, customerId]);
+    setShowLiveConfirm(false);
+    setLiveConfirmText('');
   }
 
   function toggleAllLivePrepCustomers() {
@@ -240,6 +246,8 @@ export default function EinstellungenPage() {
     setLivePrepKeepIds(prev =>
       selectableIds.length > 0 && prev.length === selectableIds.length ? [] : selectableIds,
     );
+    setShowLiveConfirm(false);
+    setLiveConfirmText('');
   }
 
   async function executeLivePreparation() {
@@ -255,8 +263,14 @@ export default function EinstellungenPage() {
       });
       return;
     }
-    const confirmed = window.prompt('Livebetrieb wirklich starten?\n\nErst nach dieser Bestätigung werden nicht ausgewählte Kunden entfernt, Testbelege bereinigt und die ausgewählten Kunden in den Livebetrieb übernommen.\n\nZum Bestätigen exakt ECHTSTART eingeben:');
-    if (confirmed !== 'ECHTSTART') return;
+    if (liveConfirmText.trim() !== 'ECHTSTART') {
+      toast({
+        title: 'Bestätigung fehlt',
+        description: 'Bitte ECHTSTART eingeben, wenn der Livebetrieb wirklich gestartet werden soll.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setLivePrepExecuting(true);
     try {
       const res = await fetch('/api/settings/prepare-live', {
@@ -272,6 +286,8 @@ export default function EinstellungenPage() {
       toast({ title: 'Echter Betrieb vorbereitet', description: data?.message || 'Vorbereitung abgeschlossen.' });
       setLivePrepPreview(null);
       setLivePrepKeepIds([]);
+      setShowLiveConfirm(false);
+      setLiveConfirmText('');
       setForm(prev => ({ ...prev, testModus: false }));
       setSavedData(prev => ({ ...prev, testModus: false }));
       setHasChanges(false);
@@ -1494,8 +1510,11 @@ const storedValue = finalUrl;
                           <>
                             <div>
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                                <p className="text-xs font-semibold">Echte Kunden auswählen</p>
-                                <label className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                                <div>
+                                  <p className="text-xs font-semibold">Echte Kunden auswählen</p>
+                                  <p className="text-[11px] text-muted-foreground">{livePrepKeepIds.length} ausgewählt</p>
+                                </div>
+                                <label className="inline-flex items-center gap-2 text-xs cursor-pointer select-none rounded-md border px-2 py-1 bg-background hover:bg-muted/40">
                                   <input
                                     type="checkbox"
                                     checked={
@@ -1505,11 +1524,11 @@ const storedValue = finalUrl;
                                     disabled={livePrepExecuting || livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length === 0}
                                     onChange={toggleAllLivePrepCustomers}
                                   />
-                                  Alle Kunden auswählen
+                                  Alle auswählen
                                 </label>
                               </div>
 
-                              <div className="max-h-56 overflow-auto rounded border divide-y bg-background">
+                              <div className="max-h-64 overflow-auto rounded border divide-y bg-background">
                                 {livePrepPreview.customers.length === 0 ? (
                                   <p className="text-xs text-muted-foreground p-3">Keine aktiven Kunden mit Kundennummer vorhanden.</p>
                                 ) : livePrepPreview.customers.map(customer => (
@@ -1542,7 +1561,7 @@ const storedValue = finalUrl;
                   </div>
 
                   {/* Step 2 */}
-                  <div className="rounded-xl border bg-card p-4">
+                  <div className="rounded-xl border bg-card p-4 space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-start gap-3 min-w-0">
                         <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -1551,7 +1570,7 @@ const storedValue = finalUrl;
                         <div className="min-w-0">
                           <p className="text-sm font-semibold">Livebetrieb starten</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Öffnet zuerst eine Sicherheitsbestätigung.
+                            Erst nach Kunden-Auswahl und Sicherheitswort.
                           </p>
                         </div>
                       </div>
@@ -1561,16 +1580,58 @@ const storedValue = finalUrl;
                         size="sm"
                         variant={livePrepPreview && !livePrepPreview.liveStarted ? 'default' : 'outline'}
                         disabled={!livePrepPreview || livePrepPreview.liveStarted || livePrepExecuting || livePrepLoading}
-                        onClick={executeLivePreparation}
+                        onClick={() => {
+                          setShowLiveConfirm(prev => !prev);
+                          setLiveConfirmText('');
+                        }}
                         className="shrink-0 gap-2"
                       >
-                        {livePrepExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-                        {livePrepPreview && !livePrepPreview.liveStarted ? 'Bestätigung öffnen' : 'Noch nicht bereit'}
+                        <Rocket className="w-4 h-4" />
+                        {showLiveConfirm ? 'Bestätigung schließen' : livePrepPreview && !livePrepPreview.liveStarted ? 'Weiter zur Bestätigung' : 'Noch nicht bereit'}
                       </Button>
                     </div>
-                    <p className="text-[11px] text-muted-foreground mt-3">
-                      Beim Klick passiert noch nichts sofort. Der Livebetrieb startet erst nach Eingabe von „ECHTSTART“.
-                    </p>
+
+                    {!livePrepPreview && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Zuerst oben „Kunden auswählen" öffnen.
+                      </p>
+                    )}
+
+                    {livePrepPreview && !livePrepPreview.liveStarted && showLiveConfirm && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-3">
+                        <div className="flex items-start gap-2 text-xs text-red-800">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <p className="font-semibold">Letzte Bestätigung</p>
+                            <p>Übernommen werden nur die ausgewählten Kunden: {livePrepKeepIds.length} Kunde(n).</p>
+                            <p>Nicht ausgewählte Kunden und Testdaten werden beim Echtstart entfernt/bereinigt.</p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label className="text-xs">Zum Start exakt ECHTSTART eingeben</Label>
+                          <Input
+                            value={liveConfirmText}
+                            onChange={e => setLiveConfirmText(e.target.value)}
+                            placeholder="ECHTSTART"
+                            disabled={livePrepExecuting}
+                            className="mt-1 bg-background"
+                          />
+                        </div>
+
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          disabled={livePrepExecuting || liveConfirmText.trim() !== 'ECHTSTART'}
+                          onClick={executeLivePreparation}
+                          className="gap-2"
+                        >
+                          {livePrepExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                          Livebetrieb endgültig starten
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Optional tools */}
