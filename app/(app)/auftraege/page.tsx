@@ -363,6 +363,7 @@ interface FormItem {
   aiWarning?: string;
   catalogReviewConfirmed?: boolean;
   manualCurrencyConfirmed?: boolean;
+  manualUnitConfirmed?: boolean;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
 }
@@ -375,12 +376,14 @@ const createEmptyItem = (): FormItem => ({
   quantity: "",
   catalogReviewConfirmed: false,
   manualCurrencyConfirmed: false,
+  manualUnitConfirmed: false,
   workSiteId: null,
 });
 
 const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
 const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
+const MANUAL_UNIT_CONFIRMED_PREFIX = "[MANUAL_UNIT_CONFIRMED]";
 
 const isCatalogReviewConfirmedDescription = (description?: string | null) =>
   compactText(description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
@@ -395,6 +398,23 @@ const isManualCurrencyConfirmedDescription = (description?: string | null) =>
 const getManualCurrencyConfirmedFromItemDescription = (
   description?: string | null,
 ) => isManualCurrencyConfirmedDescription(description);
+
+const isManualUnitConfirmedDescription = (description?: string | null) =>
+  compactText(description).startsWith(MANUAL_UNIT_CONFIRMED_PREFIX);
+
+const getManualUnitConfirmedFromItemDescription = (
+  description?: string | null,
+) => isManualUnitConfirmedDescription(description);
+
+const getManualUnitConfirmedUnitFromItemDescription = (
+  description?: string | null,
+) => {
+  const value = compactText(description);
+  if (!value.startsWith(MANUAL_UNIT_CONFIRMED_PREFIX)) return "";
+  const rest = value.replace(MANUAL_UNIT_CONFIRMED_PREFIX, "").trim();
+  const match = rest.match(/^([^:]+):/);
+  return compactText(match?.[1] || "");
+};
 
 const stripInternalItemDescriptionMarkers = (description?: string | null) => {
   const value = compactText(description);
@@ -465,6 +485,10 @@ const buildItemDescription = (item: FormItem) => {
 
   if (item.manualCurrencyConfirmed) {
     return `${MANUAL_CURRENCY_CONFIRMED_PREFIX} ${item.serviceName}`.trim();
+  }
+
+  if (item.manualUnitConfirmed) {
+    return `${MANUAL_UNIT_CONFIRMED_PREFIX} ${item.unit}: ${item.serviceName}`.trim();
   }
 
   if (item.catalogReviewConfirmed) {
@@ -862,7 +886,9 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
     const warningKey = normalizeForMatch(normalizedItem.aiWarning);
     const confirmedKey = normalizedItem.catalogReviewConfirmed
       ? "catalog_review_confirmed"
-      : "";
+      : normalizedItem.manualUnitConfirmed
+        ? `manual_unit_confirmed:${normalizeForMatch(normalizedItem.unit)}`
+        : "";
     const mergeKey = [
       normalizeForMatch(serviceName),
       unitKey,
@@ -903,6 +929,9 @@ const mergeEquivalentOrderItems = (items: any[]) =>
       quantity: String(item.quantity ?? 0),
       aiWarning: getAiWarningFromItemDescription(item.description),
       catalogReviewConfirmed: getCatalogReviewConfirmedFromItemDescription(
+        item.description,
+      ),
+      manualUnitConfirmed: getManualUnitConfirmedFromItemDescription(
         item.description,
       ),
       workSiteId: item.workSiteId || null,
@@ -2553,6 +2582,24 @@ const normalizePriceUnitForCompare = (value?: string | null) => {
   return unit;
 };
 
+const isInternalReviewServiceName = (value?: string | null) => {
+  const key = normalizeForMatch(value);
+  if (!key) return true;
+  return new Set([
+    "leistung pruefen",
+    "leistung prufen",
+    "pruefen",
+    "prufen",
+    "unklare leistung",
+    "bitte pruefen",
+    "bitte prufen",
+    "einheit pruefen",
+    "einheit prufen",
+    "betrag pruefen",
+    "betrag prufen",
+  ]).has(key);
+};
+
 const hasUnitMismatchReviewForService = (
   reviewReasons: string[] | null | undefined,
   serviceName?: string | null,
@@ -2818,6 +2865,7 @@ const getCatalogMissingItems = (order: Order, services: ServiceDef[]) => {
 
   return items.filter((item) => {
     if (!item?.serviceName?.trim()) return false;
+    if (isInternalReviewServiceName(item.serviceName)) return false;
     if ((item as any).catalogReviewConfirmed) return false;
     return !findCatalogServiceForName(services, item.serviceName);
   });
@@ -2991,6 +3039,16 @@ const formatCatalogMissingTooltip = (
   return lines.filter(Boolean).join("\n");
 };
 
+const isManualUnitConfirmedItem = (item?: Partial<OrderItem> | null) =>
+  Boolean((item as any)?.manualUnitConfirmed) ||
+  isManualUnitConfirmedDescription((item as any)?.description);
+
+const getManualUnitConfirmedUnitForItem = (
+  item?: Partial<OrderItem> | null,
+) =>
+  getManualUnitConfirmedUnitFromItemDescription((item as any)?.description) ||
+  compactText((item as any)?.unit || "");
+
 const SERVICE_REVIEW_TOOLTIP_SEPARATOR = "────────────";
 
 const formatServiceReviewCalculation = (
@@ -3053,6 +3111,12 @@ const formatServiceReviewSummaryTooltip = (input: {
     Pick<
       OrderItem,
       "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+    >
+  >;
+  manualUnitItems?: Array<
+    Pick<
+      OrderItem,
+      "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice" | "description"
     >
   >;
   items?: Array<
@@ -3118,6 +3182,27 @@ const formatServiceReviewSummaryTooltip = (input: {
     if (unitServices.length > 6)
       lines.push(`+${unitServices.length - 6} weitere`);
     sections.push(lines.join("\n"));
+  }
+
+  const manualUnitItems = uniqueCatalogReviewItems(input.manualUnitItems || []).filter(
+    (item) => compactText(item.serviceName),
+  );
+  if (manualUnitItems.length > 0) {
+    const lines = ["Einheit ergänzt"];
+    manualUnitItems.slice(0, 6).forEach((item) => {
+      const unitLabel = formatReviewUnitLabel(
+        getManualUnitConfirmedUnitForItem(item) || item.unit || "",
+      );
+      const calculation = formatServiceReviewCalculation(item, input.currency);
+      lines.push(
+        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — manuell eingetragen: ${unitLabel || "prüfen"}`,
+      );
+      if (calculation) lines.push(`  Berechnung: ${calculation}`);
+    });
+    if (manualUnitItems.length > 6)
+      lines.push(`+${manualUnitItems.length - 6} weitere`);
+    sections.push(lines.join("
+"));
   }
 
   const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter(
@@ -3854,6 +3939,26 @@ const getSystemBadges = (
     });
   }
 
+  const manualUnitItems = uniqueCatalogReviewItems(
+    (order.items || []).filter((item) => isManualUnitConfirmedItem(item)),
+  );
+
+  if (manualUnitItems.length > 0) {
+    pushUniqueBadge(badges, {
+      key: "manual_unit_confirmed",
+      label: "Einheit ergänzt",
+      className:
+        "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
+      tooltip:
+        formatServiceReviewSummaryTooltip({
+          manualUnitItems,
+          items: order.items || [],
+          services,
+          currency: order.currency,
+        }) || "Einheit manuell eingetragen.",
+    });
+  }
+
   const priceDeviationItems = getCatalogPriceDeviationItems(order, services);
   const flatOverrideItems = getCatalogTextFlatOverrideItems(order, services);
   const priceReviewItems = uniqueCatalogReviewItems([
@@ -3930,6 +4035,7 @@ const getSystemBadges = (
 
   const compactServiceReviewKeys = new Set([
     "unit_conflict",
+    "manual_unit_confirmed",
     "price_deviation",
     "catalog_missing",
   ]);
@@ -3940,6 +4046,7 @@ const getSystemBadges = (
   if (compactServiceReviewBadges.length >= 2) {
     const serviceReviewTooltip = formatServiceReviewSummaryTooltip({
       unitConflictServices,
+      manualUnitItems,
       priceItems: priceReviewItems,
       missingItems: catalogMissingItems,
       items: order.items || [],
@@ -4965,7 +5072,9 @@ const getOrderCardServiceSummary = (order: Order) => {
       ? itemLabels
       : [cleanCardServiceLabelV17_34(order.serviceName) || ""];
   const usableStructuredLabels = structuredLabels.filter(
-    (label) => normalizeForMatch(label) !== "sonstiges",
+    (label) =>
+      normalizeForMatch(label) !== "sonstiges" &&
+      !isInternalReviewServiceName(label),
   );
 
   const structuredSummary = formatServiceSummary(usableStructuredLabels);
@@ -4974,7 +5083,7 @@ const getOrderCardServiceSummary = (order: Order) => {
   const fallbackSummary = formatServiceSummary(
     extractFallbackServiceLabels(order),
   );
-  return fallbackSummary || "Leistung prüfen";
+  return fallbackSummary || "Unklare Leistung";
 };
 
 const formatMobileServiceSummary = (labels: string[]) => {
@@ -5028,7 +5137,6 @@ const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^unit_price_review$/,
   /^quantity_review$/,
   /^price_unclear:/,
-  /^service_name_review(?::|$)/,
   /^stunden_arbeitsposition_pruefen$/,
   /^total_unrealistic_check$/,
   /^currency_unsupported$/,
@@ -5775,6 +5883,8 @@ export default function AuftraegePage() {
               getCatalogReviewConfirmedFromItemDescription(item.description);
             const isManualCurrencyConfirmed =
               getManualCurrencyConfirmedFromItemDescription(item.description);
+            const isManualUnitConfirmed =
+              getManualUnitConfirmedFromItemDescription(item.description);
             const hasItemCurrencyMismatch = hasCurrencyMismatchReviewForService(
               o.reviewReasons,
               item.serviceName,
@@ -5809,6 +5919,7 @@ export default function AuftraegePage() {
               aiWarning: isManualCurrencyConfirmed ? "" : rawAiWarning,
               catalogReviewConfirmed: isCatalogConfirmed,
               manualCurrencyConfirmed: isManualCurrencyConfirmed,
+              manualUnitConfirmed: isManualUnitConfirmed,
               workSiteId: item.workSiteId || null,
             };
           }),
@@ -5827,6 +5938,7 @@ export default function AuftraegePage() {
             aiWarning: "",
             catalogReviewConfirmed: false,
             manualCurrencyConfirmed: false,
+            manualUnitConfirmed: false,
             workSiteId: null,
           },
         ]),
@@ -6443,6 +6555,32 @@ export default function AuftraegePage() {
             !unitText.includes("prufen") &&
             Number(nextItem.unitPrice || 0) > 0 &&
             Number(nextItem.quantity || 0) > 0;
+
+          const currentEditOrder = editId
+            ? orders.find((order) => order.id === editId)
+            : null;
+          const previousUnitText = normalizeForMatch(item.unit);
+          const nextUnitText = normalizeForMatch(nextItem.unit);
+          const hadUnitMissingReview = Boolean(
+            findUnitMissingInTextReviewForService(
+              currentEditOrder?.reviewReasons,
+              item.serviceName,
+            ),
+          );
+          const changedFromUnitReviewToConcreteUnit =
+            field === "unit" &&
+            isResolvedInput &&
+            nextUnitText.length > 0 &&
+            !nextUnitText.includes("pruefen") &&
+            !nextUnitText.includes("prufen") &&
+            (hadUnitMissingReview ||
+              previousUnitText.includes("pruefen") ||
+              previousUnitText.includes("prufen"));
+
+          if (changedFromUnitReviewToConcreteUnit) {
+            nextItem.aiWarning = "";
+            nextItem.manualUnitConfirmed = true;
+          }
 
           // V17.19: Währungs-/Preisblocker pro Position bestätigen,
           // ohne die Position künstlich als Katalogprüfung-erledigt zu markieren.
@@ -7902,6 +8040,24 @@ export default function AuftraegePage() {
         .filter(Boolean),
     );
 
+    const manuallyUnitConfirmedServiceNames = new Set(
+      validItems
+        .filter((item) => Boolean(item.manualUnitConfirmed))
+        .map((item) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)),
+        )
+        .filter(Boolean),
+    );
+
+    const isReviewReasonResolvedByManualUnit = (reason: string) => {
+      const key = String(reason || "");
+      if (!key.startsWith("unit_missing_in_text:")) return false;
+      const serviceName = normalizeForMatch(
+        canonicalServiceNameForOrderItem(key.split(":").slice(1).join(":")),
+      );
+      return Boolean(serviceName && manuallyUnitConfirmedServiceNames.has(serviceName));
+    };
+
     const isReviewReasonResolvedByConfirmedItem = (reason: string) => {
       const key = String(reason || "");
       const parts = key.split(":");
@@ -7922,18 +8078,10 @@ export default function AuftraegePage() {
       orders
         .find((o) => o.id === editId)
         ?.reviewReasons?.filter((reason) => {
-          if (reason.startsWith("unit_mismatch:") || reason.startsWith("unit_missing_in_text:")) {
+          if (reason.startsWith("unit_mismatch:")) {
             const [, reasonService] = reason.split(":");
-            const reasonName = normalizeForMatch(canonicalServiceNameForOrderItem(reasonService));
-            if (allItemsComplete) return false;
+            const reasonName = normalizeForMatch(reasonService);
             return !validServiceNames.has(reasonName);
-          }
-
-          if (reason.startsWith("service_name_review")) {
-            const stillHasUnsafeName = validItems.some((item) =>
-              normalizeForMatch(item.serviceName) === "leistung pruefen",
-            );
-            return stillHasUnsafeName;
           }
 
           if (reason.startsWith("price_override:")) {
@@ -7942,7 +8090,10 @@ export default function AuftraegePage() {
             return !confirmedCatalogReviewServiceNames.has(reasonName);
           }
 
-          if (isReviewReasonResolvedByConfirmedItem(reason)) {
+          if (
+            isReviewReasonResolvedByConfirmedItem(reason) ||
+            isReviewReasonResolvedByManualUnit(reason)
+          ) {
             return false;
           }
 
@@ -10830,12 +10981,9 @@ export default function AuftraegePage() {
                               curOrder?.reviewReasons,
                               item.serviceName,
                             );
-                          const unitMissingStillOpen =
-                            Boolean(unitMissingInTextReason) &&
-                            (!item.unit?.trim() ||
-                              normalizePriceUnitForCompare(item.unit) ===
-                                normalizePriceUnitForCompare("Einheit prüfen") ||
-                              normalizeForMatch(item.unit) === "pruefen");
+                          const manualUnitConfirmed = Boolean(
+                            item.manualUnitConfirmed,
+                          );
 
                           const priceOverrideReason = curOrder?.reviewReasons
                             ?.filter((r: string) =>
@@ -10894,6 +11042,14 @@ export default function AuftraegePage() {
                             Number.isFinite(itemPriceNumber) &&
                             itemPriceNumber > 0 &&
                             Number(item.quantity || 0) === 1;
+                          const hasFrontendCatalogUnitDeviation =
+                            Boolean(catalogService) &&
+                            !item.catalogReviewConfirmed &&
+                            !unitMismatchReason &&
+                            normalizePriceUnitForCompare(
+                              catalogService?.unit,
+                            ) !== normalizePriceUnitForCompare(item.unit) &&
+                            normalizePriceUnitForCompare(item.unit) !== "flat";
 
                           const hasCurrencyConflict = hasEditCurrencyReview;
                           // V17.22: Rot ist pro Position, nicht global. Eine
@@ -10916,7 +11072,8 @@ export default function AuftraegePage() {
                             Boolean(
                               item.aiWarning?.trim() ||
                               unitMismatchReason ||
-                              unitMissingStillOpen,
+                              unitMissingInTextReason ||
+                              manualUnitConfirmed,
                             );
                           const showPriceOverride =
                             !unresolvedCurrencyItem &&
@@ -10925,7 +11082,8 @@ export default function AuftraegePage() {
                               (!item.catalogReviewConfirmed &&
                                 priceOverrideReason) ||
                               hasFrontendCatalogPriceDeviation ||
-                              hasFrontendCatalogTextFlatOverride,
+                              hasFrontendCatalogTextFlatOverride ||
+                              hasFrontendCatalogUnitDeviation,
                             );
                           const showPriceReferenceReview =
                             !unresolvedCurrencyItem &&
@@ -10940,7 +11098,7 @@ export default function AuftraegePage() {
                             !unresolvedCurrencyItem &&
                             Boolean(item.manualCurrencyConfirmed);
 
-                          const itemTotal = unitMissingStillOpen
+                          const itemTotal = unitMissingInTextReason && !manualUnitConfirmed
                             ? 0
                             : getSafeFormItemTotal(item);
                           const isCompleteItemForCatalogAction = Boolean(
@@ -10952,11 +11110,10 @@ export default function AuftraegePage() {
 
                           const isManualService =
                             Boolean(item.serviceName?.trim()) &&
+                            !isInternalReviewServiceName(item.serviceName) &&
                             !isServiceInCatalog(item.serviceName);
                           const showManualServiceReview =
-                            !unresolvedCurrencyItem &&
-                            isManualService &&
-                            !isCompleteItemForCatalogAction;
+                            !unresolvedCurrencyItem && isManualService;
                           const sourceLineForItem =
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
@@ -10998,7 +11155,7 @@ export default function AuftraegePage() {
                           const isBlockingItemReview =
                             unresolvedCurrencyItem ||
                             hasMissingItemInput ||
-                            Boolean(unitMissingInTextReason) ||
+                            Boolean(unitMissingInTextReason && !manualUnitConfirmed) ||
                             (showPriceReferenceReview &&
                               !isCompleteItemForCatalogAction) ||
                             (showUnitConflict &&
@@ -11033,6 +11190,7 @@ export default function AuftraegePage() {
                           );
                           const hasCatalogActionMenu =
                             isCompleteItemForCatalogAction &&
+                            !isInternalReviewServiceName(item.serviceName) &&
                             !priceInputReview &&
                             !quantityInputReview &&
                             (showManualServiceReview ||
@@ -11668,7 +11826,13 @@ export default function AuftraegePage() {
                                         </Label>
                                         <select
                                           className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                          value={item.unit || "Einheit prüfen"}
+                                          value={
+                                            unitMissingInTextReason &&
+                                            !manualUnitConfirmed &&
+                                            normalizeForMatch(item.unit).includes("pruefen")
+                                              ? "Einheit prüfen"
+                                              : item.unit
+                                          }
                                           onChange={(e: any) =>
                                             updateItem(
                                               index,
@@ -11838,7 +12002,22 @@ export default function AuftraegePage() {
 
                                           {showUnitConflict && (
                                             <div className="space-y-0.5">
-                                              {unitMissingInTextReason ? (
+                                              {manualUnitConfirmed ? (
+                                                <>
+                                                  <div className="font-semibold">
+                                                    Einheit ergänzt
+                                                  </div>
+                                                  <div>
+                                                    Manuell eingetragen: {" "}
+                                                    <span className="font-medium">
+                                                      {formatReviewUnitLabel(item.unit)}
+                                                    </span>
+                                                  </div>
+                                                  <div>
+                                                    Bitte prüfen, ob diese Einheit zur Leistung passt.
+                                                  </div>
+                                                </>
+                                              ) : unitMissingInTextReason ? (
                                                 <>
                                                   <div>
                                                     Einheit fehlt im Kundentext.
@@ -11887,7 +12066,18 @@ export default function AuftraegePage() {
                                             showPriceOverride &&
                                             catalogService && (
                                               <div className="space-y-0.5">
-                                                {sourceLineForItem ? (
+                                                {hasFrontendCatalogUnitDeviation ? (
+                                                  <>
+                                                    <div>
+                                                      Einheit manuell eingetragen
+                                                      oder vom Katalog
+                                                      abweichend.
+                                                    </div>
+                                                    <div>
+                                                      Auftrag: {unitShortLabel(item.unit)} · {formatCurrency(itemPriceNumber, currency)}
+                                                    </div>
+                                                  </>
+                                                ) : sourceLineForItem ? (
                                                   <div>
                                                     Text:{" "}
                                                     <span className="font-medium">

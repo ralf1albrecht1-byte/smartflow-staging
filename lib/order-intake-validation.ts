@@ -7365,8 +7365,14 @@ export function applyUnitlessQuantityPriceLineGuard(
     );
     if (covered) continue;
 
-    const serviceName = cleanValidationServiceDisplayName(candidate.serviceName);
-    if (!serviceName || normalizeCompare(serviceName) === "unbekannte leistung") continue;
+    const cleanedServiceName = cleanValidationServiceDisplayName(candidate.serviceName);
+    if (!cleanedServiceName || normalizeCompare(cleanedServiceName) === "unbekannte leistung") continue;
+    const serviceName = isUnsafeGenericAreaMakeLineV17_90F(
+      cleanedServiceName,
+      candidate.raw,
+    )
+      ? "Leistung prüfen"
+      : cleanedServiceName;
 
     completedItems.push({
       serviceName,
@@ -7526,6 +7532,29 @@ function unitlessTrailingCandidateMatchesItemV17_79(
   return sharedTokens.length > 0;
 }
 
+function isUnsafeGenericAreaMakeLineV17_90F(
+  serviceName?: string | null,
+  rawLine?: string | null,
+): boolean {
+  const serviceKey = normalizeCompare(serviceName || "");
+  const rawKey = normalizeCompare(rawLine || "");
+  const combined = normalizeCompare([serviceName, rawLine].filter(Boolean).join(" "));
+
+  if (!combined) return false;
+
+  const hasGenericAreaOnly =
+    /\b(?:bereich|zone|stelle|ecke|teil|ort|dort|da|hinten|vorne|links|rechts|nebenraum)\b/.test(combined);
+  const rawOnlySaysMake =
+    /\b(?:machen|gemacht|erledigen|tun|zu\s+machen)\b/.test(rawKey);
+  const hasConcreteWorkObject =
+    /\b(?:boden|fenster|tuere|tuer|tür|glas|regal|tisch|stuhl|teppich|matte|gel[aä]nder|dunstabzug|maschine|fassade|wand|decke|kueche|küche|lagerraum|archiv|serverraum|technikraum)\b/.test(combined);
+  const serviceNameOnlyGenericCleaning =
+    /^bereich(?:\s+(?:hinten|vorne|links|rechts|dort|da))*\s+reinigen$/.test(serviceKey) ||
+    /^nebenraum(?:\s+.+)?\s+reinigen$/.test(serviceKey);
+
+  return (hasGenericAreaOnly && rawOnlySaysMake && !hasConcreteWorkObject) || serviceNameOnlyGenericCleaning;
+}
+
 function applyUnitlessTrailingQuantityPriceFailClosedV17_79(
   items: ParsedOrderItemForValidation[],
   originalText: string,
@@ -7542,9 +7571,15 @@ function applyUnitlessTrailingQuantityPriceFailClosedV17_79(
     );
     if (!candidate) return item;
 
-    const serviceName =
+    const proposedServiceName =
       String(item.serviceName || candidate.serviceName || "Leistung prüfen").trim() ||
       "Leistung prüfen";
+    const serviceName = isUnsafeGenericAreaMakeLineV17_90F(
+      proposedServiceName,
+      candidate.raw,
+    )
+      ? "Leistung prüfen"
+      : proposedServiceName;
     const reason = `unit_missing_in_text:${serviceName}`;
     reviewReasons.push(reason, `unit_mismatch:${serviceName}:Unklar:${item.unit || "Unklar"}:0`);
 
