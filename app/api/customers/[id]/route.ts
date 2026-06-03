@@ -134,6 +134,80 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         String(nextCity || '').trim(),
     );
     if (completesDraftCustomer) {
+      const canonicalCustomerKeyPart = (value: unknown) =>
+        String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('de-CH');
+
+      const nextKey = {
+        name: canonicalCustomerKeyPart(nextName),
+        address: canonicalCustomerKeyPart(nextAddress),
+        plz: canonicalCustomerKeyPart(nextPlz),
+        city: canonicalCustomerKeyPart(nextCity),
+      };
+
+      // V17.87f: Wenn ein Kundenentwurf beim manuellen Ergänzen exakt zu
+      // einem bereits echten Kunden passt, darf KEINE neue Kundennummer
+      // entstehen. Stattdessen werden die Entwurfs-Aufträge auf den bestehenden
+      // Kunden umgehängt und der Entwurf ausgeblendet. Die bewährte strenge
+      // Hauptdaten-Regel bleibt unverändert: Name, Strasse/Hausnummer, PLZ, Ort.
+      const existingRealCustomers = await prisma.customer.findMany({
+        where: {
+          userId,
+          deletedAt: null,
+          id: { not: params?.id },
+          customerNumber: { not: null },
+        },
+        select: {
+          id: true,
+          customerNumber: true,
+          name: true,
+          address: true,
+          plz: true,
+          city: true,
+          country: true,
+          phone: true,
+          email: true,
+          notes: true,
+        },
+      });
+
+      const matchingExistingCustomer = existingRealCustomers.find((candidate) =>
+        canonicalCustomerKeyPart(candidate.name) === nextKey.name &&
+        canonicalCustomerKeyPart(candidate.address) === nextKey.address &&
+        canonicalCustomerKeyPart(candidate.plz) === nextKey.plz &&
+        canonicalCustomerKeyPart(candidate.city) === nextKey.city,
+      );
+
+      if (matchingExistingCustomer) {
+        const reassignedCustomer = await prisma.$transaction(async (tx) => {
+          await tx.order.updateMany({
+            where: { customerId: params?.id, deletedAt: null },
+            data: { customerId: matchingExistingCustomer.id },
+          });
+
+          await tx.customer.update({
+            where: { id: params?.id },
+            data: { deletedAt: new Date() },
+          });
+
+          return tx.customer.findUnique({ where: { id: matchingExistingCustomer.id } });
+        });
+
+        const suMerge = await getSessionUser();
+        logAuditAsync({
+          userId: suMerge?.id,
+          userEmail: suMerge?.email,
+          userRole: suMerge?.role,
+          action: 'CUSTOMER_DRAFT_REASSIGN_TO_EXISTING',
+          area: 'CUSTOMERS',
+          targetType: 'Customer',
+          targetId: matchingExistingCustomer.id,
+          details: { draftCustomerId: params?.id, matchedCustomerNumber: matchingExistingCustomer.customerNumber },
+          request,
+        });
+
+        return NextResponse.json(reassignedCustomer ?? matchingExistingCustomer);
+      }
+
       updateData.customerNumber = await generateCustomerNumber();
     }
 

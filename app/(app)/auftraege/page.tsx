@@ -7632,21 +7632,34 @@ export default function AuftraegePage() {
           });
         }
         // Update existing customer
-        const res = await fetch(`/api/customers/${form.customerId}`, {
+        const previousCustomerId = form.customerId;
+        const res = await fetch(`/api/customers/${previousCustomerId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...newCust, fieldsToClear }),
         });
         if (res.ok) {
           const updated = await res.json();
-          setCustomers((prev) =>
-            prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
-          );
-          // Also update nested customer in orders so list/cards refresh immediately
+          setCustomers((prev) => {
+            const withoutReplacedDraft = prev.filter(
+              (c) => c.id !== previousCustomerId || c.id === updated.id,
+            );
+            const hasUpdated = withoutReplacedDraft.some((c) => c.id === updated.id);
+            if (hasUpdated) {
+              return withoutReplacedDraft.map((c) =>
+                c.id === updated.id ? { ...c, ...updated } : c,
+              );
+            }
+            return [...withoutReplacedDraft, updated];
+          });
+          // Also update nested customer in orders so list/cards refresh immediately.
+          // V17.87f: when a draft customer is completed with the same main data
+          // as an existing customer, the API returns the existing customer and
+          // moves the order server-side. Reflect that local customerId switch too.
           setOrders((prev) =>
             prev.map((o) =>
-              o.customerId === updated.id
-                ? { ...o, customer: { ...o.customer, ...updated } }
+              o.customerId === previousCustomerId || o.customerId === updated.id || o.id === editId
+                ? { ...o, customerId: updated.id, customer: { ...o.customer, ...updated } }
                 : o,
             ),
           );
