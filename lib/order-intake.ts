@@ -6709,7 +6709,7 @@ export async function processIncomingMessage(
 
     if (keepNewCustomerMasterEmpty) {
       console.log(
-        `[${source}] 🛡️ missing safe billing customer name/block → new customer master name/address/phone/email kept empty`,
+        `[${source}] 🛡️ missing safe billing customer name/block → customer kept unassigned; no customer number burned`,
       );
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
@@ -6724,7 +6724,7 @@ export async function processIncomingMessage(
       }
     } else if (hasNamelessBillingAddress) {
       console.log(
-        `[${source}] 🛡️ labeled billing address without name → persisted partial customer data with needsReview=true`,
+        `[${source}] 🛡️ labeled billing address without name → customer kept unassigned; no customer number burned`,
       );
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
@@ -6739,33 +6739,66 @@ export async function processIncomingMessage(
       }
     }
 
-    const { generateCustomerNumber } = await import("@/lib/customer-number");
-    const customerNumber = await generateCustomerNumber();
-    const customer = await prisma.customer.create({
-      data: {
-        customerNumber,
-        name: safeNewCustomerName,
-        // New customer master data is stored only after the AI-structured billing
-        // evidence passed the customer guard. Execution-site data must never be
-        // copied into the billing customer card.
-        phone: safeNewCustomerFields.phone,
-        email: safeNewCustomerFields.email,
-        address: safeNewCustomerFields.street,
-        plz: safeNewCustomerFields.plz,
-        city:
-          normalizeUnitText(safeNewCustomerFields.city) === "form"
-            ? null
-            : safeNewCustomerFields.city,
-        notes: `${source}-Kunde`,
-        ...(userId ? { userId } : {}),
-      },
-    });
+    const normalizedSafeCity =
+      normalizeUnitText(safeNewCustomerFields.city) === "form"
+        ? null
+        : safeNewCustomerFields.city;
 
-    // V16.39: No post-create raw-text rescue. Customer master fields were already
-    // decided by the AI-structured billing evidence above.
+    const hasCompleteNewCustomerForCreate = Boolean(
+      safeNewCustomerName.trim() &&
+        String(safeNewCustomerFields.street || "").trim() &&
+        String(safeNewCustomerFields.plz || "").trim() &&
+        String(normalizedSafeCity || "").trim(),
+    );
 
-    customerId = customer.id;
-    customerWasNewlyCreated = true;
+    if (!hasCompleteNewCustomerForCreate) {
+      // V17.87 Customer-ID Guard:
+      // Unsichere WhatsApp-/KI-Kunden dürfen keine echte Kundennummer verbrauchen.
+      // Der Auftrag bleibt erhalten und wird mit "Kunde prüfen" markiert, aber ohne
+      // Customer-Record gespeichert. Eine echte K-Nummer entsteht erst bei
+      // vollständigem Rechnungskunden oder manueller Kundenzuordnung/-anlage.
+      customerId = null;
+      customerWasNewlyCreated = false;
+      parsed.system = parsed.system || {};
+      parsed.system.needs_review = true;
+      if (
+        !customerGuardReviewReasons.includes(
+          "customer_incomplete_no_customer_created_v17_87",
+        )
+      ) {
+        customerGuardReviewReasons.push(
+          "customer_incomplete_no_customer_created_v17_87",
+        );
+      }
+      console.log(
+        `[${source}] 🛡️ incomplete new customer (${safeNewCustomerName || "no name"}) → order unassigned, no K-number generated`,
+      );
+    } else {
+      const { generateCustomerNumber } = await import("@/lib/customer-number");
+      const customerNumber = await generateCustomerNumber();
+      const customer = await prisma.customer.create({
+        data: {
+          customerNumber,
+          name: safeNewCustomerName,
+          // New customer master data is stored only after the AI-structured billing
+          // evidence passed the customer guard. Execution-site data must never be
+          // copied into the billing customer card.
+          phone: safeNewCustomerFields.phone,
+          email: safeNewCustomerFields.email,
+          address: safeNewCustomerFields.street,
+          plz: safeNewCustomerFields.plz,
+          city: normalizedSafeCity,
+          notes: `${source}-Kunde`,
+          ...(userId ? { userId } : {}),
+        },
+      });
+
+      // V16.39: No post-create raw-text rescue. Customer master fields were already
+      // decided by the AI-structured billing evidence above.
+
+      customerId = customer.id;
+      customerWasNewlyCreated = true;
+    }
   } else {
     // V16.18: Existing customer master data is not changed by webhook/AI intake.
     // Corrections must happen manually via customer edit or customer merge.
