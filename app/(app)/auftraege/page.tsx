@@ -3605,6 +3605,25 @@ const getSystemBadges = (
     });
   }
 
+  const unitMissingServiceNames = Array.from(
+    new Set(
+      (order.reviewReasons ?? [])
+        .filter((reason) => reason.startsWith("unit_missing_in_text:"))
+        .map((reason) => reason.split(":").slice(1).join(":"))
+        .map(compactText)
+        .map(canonicalServiceNameForOrderItem)
+        .filter(Boolean),
+    ),
+  );
+
+  const isUnitMissingServiceName = (value?: string | null) => {
+    const key = normalizeForMatch(canonicalServiceNameForOrderItem(value));
+    if (!key) return false;
+    return unitMissingServiceNames.some(
+      (serviceName) => normalizeForMatch(serviceName) === key,
+    );
+  };
+
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
       ? order.items.some((it) => {
@@ -3646,13 +3665,14 @@ const getSystemBadges = (
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
       tooltip: (() => {
-        const unitMissingServices = (order.reviewReasons ?? [])
-          .filter((reason) => reason.startsWith("unit_missing_in_text:"))
-          .map((reason) => reason.split(":")[1])
-          .map(compactText)
-          .filter(Boolean);
-        if (unitMissingServices.length > 0) {
-          return `Einheit fehlt im Kundentext: ${unitMissingServices.join(", ")}. Bitte innen rot markierte Leistung prüfen.`;
+        if (unitMissingServiceNames.length > 0) {
+          return [
+            "Einheit fehlt im Kundentext",
+            ...unitMissingServiceNames.map(
+              (serviceName) =>
+                `• ${serviceName}: Menge und Preis erkannt, aber die Einheit fehlt. Diese Position wird nicht berechnet, bis die Einheit bestätigt ist.`,
+            ),
+          ].join("\n");
         }
         return "Preis oder Menge fehlt/ist unsicher. Bitte vor Angebot/Rechnung korrigieren.";
       })(),
@@ -3672,6 +3692,8 @@ const getSystemBadges = (
           const rawService = parts[0] || "";
           const serviceName = canonicalServiceNameForOrderItem(rawService);
           if (!serviceName) return "";
+
+          if (isUnitMissingServiceName(serviceName)) return "";
 
           const matchingItem = (order.items || []).find(
             (item) =>
@@ -3738,7 +3760,9 @@ const getSystemBadges = (
     ...priceDeviationItems,
     ...flatOverrideItems,
   ]);
-  const catalogMissingItems = getCatalogMissingItems(order, services);
+  const catalogMissingItems = getCatalogMissingItems(order, services).filter(
+    (item) => !isUnitMissingServiceName(item.serviceName),
+  );
   const hasPriceDeviationReview =
     (order.reviewReasons?.some((reason) =>
       reason.startsWith("price_override:"),
