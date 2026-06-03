@@ -8116,7 +8116,7 @@ export async function processIncomingMessage(
   // --- Create order ---
   const order = await prisma.order.create({
     data: {
-      customerId,
+      ...(customerId ? { customerId } : {}),
       ...(userId ? { userId } : {}),
       description,
       serviceName,
