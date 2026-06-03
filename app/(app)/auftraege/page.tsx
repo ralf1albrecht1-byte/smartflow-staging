@@ -8998,7 +8998,9 @@ export default function AuftraegePage() {
                   key={`mobile_right_${badge.key}`}
                   type="button"
                   aria-label={title}
-                  onClick={openOrderAtItems}
+                  onClick={(event) =>
+                    toggleMobileTooltip(badge, "mobile_right", event)
+                  }
                   className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   <span className="truncate">{badge.label}</span>
