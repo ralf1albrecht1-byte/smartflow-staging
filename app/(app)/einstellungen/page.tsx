@@ -102,6 +102,45 @@ const SECTIONS = [
 
 type SectionKey = typeof SECTIONS[number]['key'];
 
+type LivePrepCustomer = {
+  id: string;
+  customerNumber: string | null;
+  name: string;
+  address: string | null;
+  plz: string | null;
+  city: string | null;
+  phone?: string | null;
+  email?: string | null;
+  canKeep: boolean;
+  counts: {
+    orders: number;
+    offers: number;
+    invoices: number;
+    executionAddresses: number;
+  };
+};
+
+type LivePrepPreview = {
+  testModus: boolean;
+  counts: {
+    activeOrders: number;
+    trashedOrders: number;
+    activeOffers: number;
+    trashedOffers: number;
+    activeInvoices: number;
+    trashedInvoices: number;
+    activeCustomers: number;
+    draftCustomers: number;
+    trashedCustomers: number;
+    testOffers: number;
+    testInvoices: number;
+    liveOffers: number;
+    liveInvoices: number;
+  };
+  customers: LivePrepCustomer[];
+  warnings: string[];
+};
+
 /**
  * Paket A: UI-side normalization is a THIN wrapper around the shared
  * `normalizePhoneE164` (single source of truth in `lib/normalize.ts`).
@@ -121,6 +160,11 @@ export default function EinstellungenPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [savedData, setSavedData] = useState<CompanyData>(emptyData);
   const [resetting, setResetting] = useState(false);
+
+  const [livePrepLoading, setLivePrepLoading] = useState(false);
+  const [livePrepExecuting, setLivePrepExecuting] = useState(false);
+  const [livePrepPreview, setLivePrepPreview] = useState<LivePrepPreview | null>(null);
+  const [livePrepKeepIds, setLivePrepKeepIds] = useState<string[]>([]);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [showDeleteSection, setShowDeleteSection] = useState(false);
@@ -161,6 +205,62 @@ export default function EinstellungenPage() {
     loadSettings();
     loadCompliance();
   }, []);
+
+
+  async function loadLivePrepPreview() {
+    setLivePrepLoading(true);
+    try {
+      const res = await fetch('/api/settings/prepare-live', { method: 'GET' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast({ title: 'Fehler', description: data?.error || 'Vorschau konnte nicht geladen werden.', variant: 'destructive' });
+        return;
+      }
+      setLivePrepPreview(data);
+      setLivePrepKeepIds((data?.customers || []).filter((customer: LivePrepCustomer) => customer.canKeep).map((customer: LivePrepCustomer) => customer.id));
+    } catch {
+      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Laden der Vorschau.', variant: 'destructive' });
+    } finally {
+      setLivePrepLoading(false);
+    }
+  }
+
+  function toggleLivePrepCustomer(customerId: string) {
+    setLivePrepKeepIds(prev => prev.includes(customerId) ? prev.filter(id => id !== customerId) : [...prev, customerId]);
+  }
+
+  async function executeLivePreparation() {
+    if (!livePrepPreview) {
+      toast({ title: 'Zuerst Vorschau laden', description: 'Bitte lade zuerst die Vorschau, damit klar ist, was übernommen und gelöscht wird.' });
+      return;
+    }
+    const confirmed = window.prompt('Diese Aktion bereitet den echten Betrieb vor.\n\nSie löscht Aufträge, Angebote, Rechnungen und nicht ausgewählte Kunden dieses TEST-Bestands endgültig, nummeriert die ausgewählten Kunden ab K-001 neu und schaltet auf Live-Betrieb.\n\nZum Bestätigen exakt ECHTSTART eingeben:');
+    if (confirmed !== 'ECHTSTART') return;
+    setLivePrepExecuting(true);
+    try {
+      const res = await fetch('/api/settings/prepare-live', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmText: 'ECHTSTART', keepCustomerIds: livePrepKeepIds }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast({ title: 'Fehler', description: data?.error || 'Echter Betrieb konnte nicht vorbereitet werden.', variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Echter Betrieb vorbereitet', description: data?.message || 'Vorbereitung abgeschlossen.' });
+      setLivePrepPreview(null);
+      setLivePrepKeepIds([]);
+      setForm(prev => ({ ...prev, testModus: false }));
+      setSavedData(prev => ({ ...prev, testModus: false }));
+      setHasChanges(false);
+      loadSettings();
+    } catch {
+      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Vorbereiten des echten Betriebs.', variant: 'destructive' });
+    } finally {
+      setLivePrepExecuting(false);
+    }
+  }
 
   async function loadCompliance() {
     try {
@@ -1362,6 +1462,96 @@ const storedValue = finalUrl;
                       {resetting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}
                       In Papierkorb
                     </Button>
+                  </div>
+                </div>
+              )}
+
+              {form.testModus && (
+                <div className="pt-4 mt-4 border-t">
+                  <div className="rounded-lg border border-red-200 bg-red-50/60 dark:bg-red-900/10 dark:border-red-900 p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-red-800 dark:text-red-300">Echten Betrieb vorbereiten</p>
+                        <p className="text-xs text-red-700/90 dark:text-red-300/90 mt-1">
+                          Finaler Start: übernimmt nur ausgewählte Kunden, löscht Test-Aufträge/Dokumente endgültig, vergibt Kundennummern neu ab K-001 und schaltet auf Live-Betrieb. Nur im TEST-Bestand verwenden.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 border-red-300 text-red-700 hover:bg-red-100"
+                        disabled={livePrepLoading || livePrepExecuting}
+                        onClick={loadLivePrepPreview}
+                      >
+                        {livePrepLoading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Database className="w-3 h-3 mr-1" />}
+                        Vorschau laden
+                      </Button>
+                    </div>
+
+                    {livePrepPreview && (
+                      <div className="space-y-3 rounded-md border bg-white/70 dark:bg-background/60 p-3">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                          <div className="rounded border p-2"><div className="text-muted-foreground">Kunden</div><div className="font-semibold">{livePrepPreview.counts.activeCustomers}</div></div>
+                          <div className="rounded border p-2"><div className="text-muted-foreground">Kundenentwürfe</div><div className="font-semibold">{livePrepPreview.counts.draftCustomers}</div></div>
+                          <div className="rounded border p-2"><div className="text-muted-foreground">Aufträge</div><div className="font-semibold">{livePrepPreview.counts.activeOrders} aktiv · {livePrepPreview.counts.trashedOrders} Papierkorb</div></div>
+                          <div className="rounded border p-2"><div className="text-muted-foreground">Dokumente</div><div className="font-semibold">{livePrepPreview.counts.activeOffers + livePrepPreview.counts.activeInvoices} aktiv · {livePrepPreview.counts.trashedOffers + livePrepPreview.counts.trashedInvoices} Papierkorb</div></div>
+                        </div>
+
+                        {livePrepPreview.warnings.length > 0 && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 space-y-1">
+                            {livePrepPreview.warnings.map((warning, index) => <p key={index}>⚠ {warning}</p>)}
+                          </div>
+                        )}
+
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <p className="text-xs font-semibold">Kunden übernehmen</p>
+                            <p className="text-[11px] text-muted-foreground">{livePrepKeepIds.length} ausgewählt</p>
+                          </div>
+                          <div className="max-h-56 overflow-auto rounded border divide-y bg-background">
+                            {livePrepPreview.customers.length === 0 ? (
+                              <p className="text-xs text-muted-foreground p-3">Keine aktiven Kunden mit Kundennummer vorhanden.</p>
+                            ) : livePrepPreview.customers.map(customer => (
+                              <label key={customer.id} className={`flex items-start gap-3 p-3 text-xs ${customer.canKeep ? 'cursor-pointer hover:bg-muted/40' : 'opacity-60'}`}>
+                                <input
+                                  type="checkbox"
+                                  className="mt-1"
+                                  checked={livePrepKeepIds.includes(customer.id)}
+                                  disabled={!customer.canKeep || livePrepExecuting}
+                                  onChange={() => toggleLivePrepCustomer(customer.id)}
+                                />
+                                <span className="flex-1 min-w-0">
+                                  <span className="block font-semibold text-sm">{customer.customerNumber || 'ohne Nummer'} · {customer.name || 'Ohne Name'}</span>
+                                  <span className="block text-muted-foreground">{[customer.address, customer.plz, customer.city].filter(Boolean).join(' · ') || 'Adresse unvollständig'}</span>
+                                  <span className="block text-[11px] text-muted-foreground mt-1">
+                                    {customer.counts.executionAddresses} Ausführungsort(e) · {customer.counts.orders} Auftrag(e) · {customer.counts.offers} Angebot(e) · {customer.counts.invoices} Rechnung(en)
+                                  </span>
+                                  {!customer.canKeep && <span className="block text-red-700 mt-1">Unvollständig — zuerst Kundendaten ergänzen.</span>}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+                          Beim Start werden alle Aufträge, Angebote und Rechnungen dieses TEST-Bestands endgültig entfernt. Nicht ausgewählte Kunden werden gelöscht. Ausgewählte Kunden werden ab K-001 neu nummeriert.
+                        </div>
+
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={livePrepExecuting || livePrepLoading}
+                          onClick={executeLivePreparation}
+                          className="w-full sm:w-auto"
+                        >
+                          {livePrepExecuting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                          Echten Betrieb jetzt vorbereiten
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
