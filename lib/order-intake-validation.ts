@@ -7542,17 +7542,49 @@ function isUnsafeGenericAreaMakeLineV17_90F(
 
   if (!combined) return false;
 
-  const hasGenericAreaOnly =
-    /\b(?:bereich|zone|stelle|ecke|teil|ort|dort|da|hinten|vorne|links|rechts|nebenraum)\b/.test(combined);
+  // Strukturregel, keine Service-Wortliste: Zeilen wie
+  // "Dort hinten alles sauber machen 15 à CHF 6" oder
+  // "Kleine Sachen beim Eingang 4 à CHF 9" nennen keinen konkreten
+  // Arbeitsgegenstand. Die KI darf daraus nicht nachträglich
+  // "Boden reinigen" oder eine andere Leistung erfinden.
+  const rawHasGenericOnlyObject =
+    /\b(?:bereich|zone|stelle|ecke|teil|ort|dort|da|hinten|vorne|links|rechts|nebenraum|alles|sachen|kleine\s+sachen|kleinigkeiten|zeug)\b/.test(rawKey);
   const rawOnlySaysMake =
-    /\b(?:machen|gemacht|erledigen|tun|zu\s+machen)\b/.test(rawKey);
-  const hasConcreteWorkObject =
-    /\b(?:boden|fenster|tuere|tuer|tür|glas|regal|tisch|stuhl|teppich|matte|gel[aä]nder|dunstabzug|maschine|fassade|wand|decke|kueche|küche|lagerraum|archiv|serverraum|technikraum)\b/.test(combined);
+    /\b(?:machen|gemacht|erledigen|tun|zu\s+machen|sauber\s+machen|putzen)\b/.test(rawKey);
+  const rawHasConcreteWorkObject =
+    /\b(?:boden|fenster|tuere|tuer|tür|glas|regal|tisch|stuhl|teppich|matte|gel[aä]nder|dunstabzug|maschine|fassade|wand|decke|kueche|küche|lagerraum|archiv|serverraum|technikraum|schrank|schraenke|schränke|oelmatte|ölmatte|kabelgestell|parkdeck|treppenhaus|veloraum)\b/.test(rawKey);
+
+  const hasGenericAreaOnly =
+    /\b(?:bereich|zone|stelle|ecke|teil|ort|dort|da|hinten|vorne|links|rechts|nebenraum|alles|sachen|kleine\s+sachen|kleinigkeiten|zeug)\b/.test(combined);
   const serviceNameOnlyGenericCleaning =
     /^bereich(?:\s+(?:hinten|vorne|links|rechts|dort|da))*\s+reinigen$/.test(serviceKey) ||
-    /^nebenraum(?:\s+.+)?\s+reinigen$/.test(serviceKey);
+    /^nebenraum(?:\s+.+)?\s+reinigen$/.test(serviceKey) ||
+    /^boden\s+reinigen$/.test(serviceKey) && rawHasGenericOnlyObject && !rawHasConcreteWorkObject;
 
-  return (hasGenericAreaOnly && rawOnlySaysMake && !hasConcreteWorkObject) || serviceNameOnlyGenericCleaning;
+  return (
+    (rawHasGenericOnlyObject && (rawOnlySaysMake || /\b(?:à|a|zu|je|pro|per|at|\/)\b/.test(rawKey)) && !rawHasConcreteWorkObject) ||
+    (hasGenericAreaOnly && rawOnlySaysMake && !rawHasConcreteWorkObject) ||
+    serviceNameOnlyGenericCleaning
+  );
+}
+
+function blockedUnitlessReviewItemFromCandidateV17_90G(
+  candidate: UnitlessTrailingQuantityPriceCandidateV17_79,
+): ParsedOrderItemForValidation {
+  const reason = "service_name_review:unitless_unclear_line";
+  return {
+    serviceName: "Leistung prüfen",
+    description: candidate.raw,
+    quantity: candidate.quantity,
+    unit: "prüfen",
+    unitPrice: candidate.unitPrice,
+    totalPrice: 0,
+    needsReview: true,
+    reviewReason: reason,
+    sourceText: candidate.raw,
+    evidence: candidate.raw,
+    detectedCurrency: candidate.currency || null,
+  };
 }
 
 function applyUnitlessTrailingQuantityPriceFailClosedV17_79(
@@ -7563,6 +7595,8 @@ function applyUnitlessTrailingQuantityPriceFailClosedV17_79(
   if (candidates.length === 0) return { items, reviewReasons: [] };
 
   const reviewReasons: string[] = [];
+  const usedCandidateKeys = new Set<string>();
+
   const nextItems = items.map((item) => {
     if (isFlatUnit(item.unit)) return item;
 
@@ -7574,14 +7608,20 @@ function applyUnitlessTrailingQuantityPriceFailClosedV17_79(
     const proposedServiceName =
       String(item.serviceName || candidate.serviceName || "Leistung prüfen").trim() ||
       "Leistung prüfen";
-    const serviceName = isUnsafeGenericAreaMakeLineV17_90F(
+    const unsafe = isUnsafeGenericAreaMakeLineV17_90F(
       proposedServiceName,
       candidate.raw,
-    )
-      ? "Leistung prüfen"
-      : proposedServiceName;
-    const reason = `unit_missing_in_text:${serviceName}`;
-    reviewReasons.push(reason, `unit_mismatch:${serviceName}:Unklar:${item.unit || "Unklar"}:0`);
+    );
+    const serviceName = unsafe ? "Leistung prüfen" : proposedServiceName;
+    const reason = unsafe
+      ? "service_name_review:unitless_unclear_line"
+      : `unit_missing_in_text:${serviceName}`;
+    reviewReasons.push(
+      reason,
+      "service_name_review",
+      `unit_mismatch:${serviceName}:Unklar:${item.unit || "Unklar"}:0`,
+    );
+    usedCandidateKeys.add(`${normalizeCompare(candidate.raw)}|${candidate.quantity}|${roundMoney(candidate.unitPrice)}`);
 
     return {
       ...item,
@@ -7598,6 +7638,24 @@ function applyUnitlessTrailingQuantityPriceFailClosedV17_79(
       detectedCurrency: candidate.currency || item.detectedCurrency || null,
     };
   });
+
+  // V17.90G: Wenn der erste KI-Pass eine zweite unsichere Zeile komplett
+  // verschluckt hat, wird sie hier als eigene Prüfposition ergänzt. So gehen
+  // Menge/Preis nicht verloren, aber es wird keine Fantasie-Leistung gespeichert.
+  for (const candidate of candidates) {
+    const key = `${normalizeCompare(candidate.raw)}|${candidate.quantity}|${roundMoney(candidate.unitPrice)}`;
+    if (usedCandidateKeys.has(key)) continue;
+    if (!isUnsafeGenericAreaMakeLineV17_90F(candidate.serviceName, candidate.raw)) continue;
+
+    const alreadyCovered = nextItems.some((item) => {
+      const itemKey = normalizeCompare([item.sourceText, item.evidence, item.description].filter(Boolean).join(" "));
+      return itemKey && (itemKey.includes(normalizeCompare(candidate.raw)) || normalizeCompare(candidate.raw).includes(itemKey));
+    });
+    if (alreadyCovered) continue;
+
+    nextItems.push(blockedUnitlessReviewItemFromCandidateV17_90G(candidate));
+    reviewReasons.push("service_name_review:unitless_unclear_line", "service_name_review", "unit_price_review", "quantity_review");
+  }
 
   return { items: nextItems, reviewReasons: unique(reviewReasons) };
 }
