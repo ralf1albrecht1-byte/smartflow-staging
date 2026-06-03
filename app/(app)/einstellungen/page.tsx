@@ -122,6 +122,7 @@ type LivePrepCustomer = {
 
 type LivePrepPreview = {
   testModus: boolean;
+  liveStarted: boolean;
   counts: {
     activeOrders: number;
     trashedOrders: number;
@@ -217,7 +218,11 @@ export default function EinstellungenPage() {
         return;
       }
       setLivePrepPreview(data);
-      setLivePrepKeepIds((data?.customers || []).filter((customer: LivePrepCustomer) => customer.canKeep).map((customer: LivePrepCustomer) => customer.id));
+      if (data?.liveStarted) {
+        setLivePrepKeepIds([]);
+      } else {
+        setLivePrepKeepIds((data?.customers || []).filter((customer: LivePrepCustomer) => customer.canKeep).map((customer: LivePrepCustomer) => customer.id));
+      }
     } catch {
       toast({ title: 'Fehler', description: 'Netzwerkfehler beim Laden der Vorschau.', variant: 'destructive' });
     } finally {
@@ -232,6 +237,14 @@ export default function EinstellungenPage() {
   async function executeLivePreparation() {
     if (!livePrepPreview) {
       toast({ title: 'Zuerst Vorschau laden', description: 'Bitte lade zuerst die Vorschau, damit klar ist, was übernommen und gelöscht wird.' });
+      return;
+    }
+    if (livePrepPreview.liveStarted) {
+      toast({
+        title: 'Gesperrt',
+        description: 'Echter Betrieb wurde bereits gestartet. Kundenübernahme und Nummernkreis-Reset sind gesperrt.',
+        variant: 'destructive',
+      });
       return;
     }
     const confirmed = window.prompt('Diese Aktion bereitet den echten Betrieb vor.\n\nSie löscht Aufträge, Angebote, Rechnungen und nicht ausgewählte Kunden dieses TEST-Bestands endgültig, nummeriert die ausgewählten Kunden ab K-001 neu und schaltet auf Live-Betrieb.\n\nZum Bestätigen exakt ECHTSTART eingeben:');
@@ -1505,51 +1518,61 @@ const storedValue = finalUrl;
                           </div>
                         )}
 
-                        <div>
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <p className="text-xs font-semibold">Kunden übernehmen</p>
-                            <p className="text-[11px] text-muted-foreground">{livePrepKeepIds.length} ausgewählt</p>
+                        {livePrepPreview.liveStarted ? (
+                          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 space-y-1">
+                            <p className="font-semibold">Echter Betrieb wurde bereits gestartet.</p>
+                            <p>Kundenübernahme und Nummernkreis-Reset sind dauerhaft gesperrt.</p>
+                            <p>Der Testmodus darf weiterhin zum Ausprobieren verwendet werden. Testdaten können danach über die Testdaten-Bereinigung entfernt werden.</p>
                           </div>
-                          <div className="max-h-56 overflow-auto rounded border divide-y bg-background">
-                            {livePrepPreview.customers.length === 0 ? (
-                              <p className="text-xs text-muted-foreground p-3">Keine aktiven Kunden mit Kundennummer vorhanden.</p>
-                            ) : livePrepPreview.customers.map(customer => (
-                              <label key={customer.id} className={`flex items-start gap-3 p-3 text-xs ${customer.canKeep ? 'cursor-pointer hover:bg-muted/40' : 'opacity-60'}`}>
-                                <input
-                                  type="checkbox"
-                                  className="mt-1"
-                                  checked={livePrepKeepIds.includes(customer.id)}
-                                  disabled={!customer.canKeep || livePrepExecuting}
-                                  onChange={() => toggleLivePrepCustomer(customer.id)}
-                                />
-                                <span className="flex-1 min-w-0">
-                                  <span className="block font-semibold text-sm">{customer.customerNumber || 'ohne Nummer'} · {customer.name || 'Ohne Name'}</span>
-                                  <span className="block text-muted-foreground">{[customer.address, customer.plz, customer.city].filter(Boolean).join(' · ') || 'Adresse unvollständig'}</span>
-                                  <span className="block text-[11px] text-muted-foreground mt-1">
-                                    {customer.counts.executionAddresses} Ausführungsort(e) · {customer.counts.orders} Auftrag(e) · {customer.counts.offers} Angebot(e) · {customer.counts.invoices} Rechnung(en)
-                                  </span>
-                                  {!customer.canKeep && <span className="block text-red-700 mt-1">Unvollständig — zuerst Kundendaten ergänzen.</span>}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
+                        ) : (
+                          <>
+                            <div>
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <p className="text-xs font-semibold">Kunden übernehmen</p>
+                                <p className="text-[11px] text-muted-foreground">{livePrepKeepIds.length} ausgewählt</p>
+                              </div>
+                              <div className="max-h-56 overflow-auto rounded border divide-y bg-background">
+                                {livePrepPreview.customers.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground p-3">Keine aktiven Kunden mit Kundennummer vorhanden.</p>
+                                ) : livePrepPreview.customers.map(customer => (
+                                  <label key={customer.id} className={`flex items-start gap-3 p-3 text-xs ${customer.canKeep ? 'cursor-pointer hover:bg-muted/40' : 'opacity-60'}`}>
+                                    <input
+                                      type="checkbox"
+                                      className="mt-1"
+                                      checked={livePrepKeepIds.includes(customer.id)}
+                                      disabled={!customer.canKeep || livePrepExecuting}
+                                      onChange={() => toggleLivePrepCustomer(customer.id)}
+                                    />
+                                    <span className="flex-1 min-w-0">
+                                      <span className="block font-semibold text-sm">{customer.customerNumber || 'ohne Nummer'} · {customer.name || 'Ohne Name'}</span>
+                                      <span className="block text-muted-foreground">{[customer.address, customer.plz, customer.city].filter(Boolean).join(' · ') || 'Adresse unvollständig'}</span>
+                                      <span className="block text-[11px] text-muted-foreground mt-1">
+                                        {customer.counts.executionAddresses} Ausführungsort(e) · {customer.counts.orders} Auftrag(e) · {customer.counts.offers} Angebot(e) · {customer.counts.invoices} Rechnung(en)
+                                      </span>
+                                      {!customer.canKeep && <span className="block text-red-700 mt-1">Unvollständig — zuerst Kundendaten ergänzen.</span>}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
 
-                        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
-                          Beim Start werden alle Aufträge, Angebote und Rechnungen dieses TEST-Bestands endgültig entfernt. Nicht ausgewählte Kunden werden gelöscht. Ausgewählte Kunden werden ab K-001 neu nummeriert.
-                        </div>
+                            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+                              Beim Start werden alle Aufträge, Angebote und Rechnungen dieses TEST-Bestands endgültig entfernt. Nicht ausgewählte Kunden werden gelöscht. Ausgewählte Kunden werden ab K-001 neu nummeriert.
+                            </div>
 
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          disabled={livePrepExecuting || livePrepLoading}
-                          onClick={executeLivePreparation}
-                          className="w-full sm:w-auto"
-                        >
-                          {livePrepExecuting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
-                          Echten Betrieb jetzt vorbereiten
-                        </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              disabled={livePrepExecuting || livePrepLoading}
+                              onClick={executeLivePreparation}
+                              className="w-full sm:w-auto"
+                            >
+                              {livePrepExecuting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                              Echten Betrieb jetzt vorbereiten
+                            </Button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

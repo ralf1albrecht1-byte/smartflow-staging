@@ -7,6 +7,7 @@ import { logAuditAsync } from '@/lib/audit';
 
 const CONFIRM_TEXT = 'ECHTSTART';
 const CUSTOMER_COUNTER_NAME = 'customer:global';
+const LIVE_STARTED_COUNTER_PREFIX = 'live-started:';
 
 function isCompleteCustomer(customer: any): boolean {
   return Boolean(
@@ -28,8 +29,21 @@ async function getSettings(userId: string) {
   return prisma.companySettings.findFirst({ where: { userId } });
 }
 
+function liveStartedCounterName(userId: string): string {
+  return `${LIVE_STARTED_COUNTER_PREFIX}${userId}`;
+}
+
+async function hasLiveStarted(userId: string): Promise<boolean> {
+  const marker = await prisma.counter.findUnique({
+    where: { name: liveStartedCounterName(userId) },
+    select: { id: true },
+  });
+  return Boolean(marker);
+}
+
 async function buildPreview(userId: string) {
   const settings = await getSettings(userId);
+  const liveStarted = await hasLiveStarted(userId);
 
   const [
     activeOrders,
@@ -95,6 +109,7 @@ async function buildPreview(userId: string) {
   }));
 
   const warnings: string[] = [];
+  if (liveStarted) warnings.push('Echter Betrieb wurde bereits gestartet. Kundenübernahme und Nummernkreis-Reset sind dauerhaft gesperrt. Testmodus darf weiter zum Ausprobieren verwendet werden.');
   if (!settings?.testModus) warnings.push('Echter Betrieb ist bereits aktiv. Vorbereitung ist nur im Testmodus möglich.');
   if (liveOffers > 0 || liveInvoices > 0) {
     warnings.push('Es existieren bereits Dokumente ohne TEST-Prefix. Vor dem Neu-Start bitte prüfen, ob das echte Daten sind.');
@@ -103,6 +118,7 @@ async function buildPreview(userId: string) {
 
   return {
     testModus: settings?.testModus ?? true,
+    liveStarted,
     counts: {
       activeOrders,
       trashedOrders,
@@ -167,6 +183,10 @@ export async function POST(request: Request) {
     }
 
     const settings = await getSettings(userId);
+    const liveStarted = await hasLiveStarted(userId);
+    if (liveStarted) {
+      return NextResponse.json({ error: 'Echter Betrieb wurde bereits gestartet. Kundenübernahme und Nummernkreis-Reset sind gesperrt. Testmodus kann weiter zum Ausprobieren verwendet werden.' }, { status: 409 });
+    }
     if (!settings?.testModus) {
       return NextResponse.json({ error: 'Echter Betrieb ist bereits aktiv.' }, { status: 409 });
     }
@@ -268,6 +288,12 @@ export async function POST(request: Request) {
       });
 
       await tx.companySettings.updateMany({ where: { userId }, data: { testModus: false } });
+
+      await tx.counter.upsert({
+        where: { name: liveStartedCounterName(userId) },
+        update: { value: 1 },
+        create: { name: liveStartedCounterName(userId), value: 1 },
+      });
 
       return {
         keptCustomers: keepCustomers.length,
