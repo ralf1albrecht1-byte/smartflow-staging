@@ -88,6 +88,9 @@ interface MergeOrdersDialogProps {
   currency: Currency;
 }
 
+const CUSTOMER_DRAFT_LABEL = "Kunde noch nicht zugeordnet";
+const MISSING_EXECUTION_ADDRESS_LABEL = "nicht vergeben";
+
 const shortText = (value?: string | null, max = 340) => {
   const text = (value || "").replace(/\s+/g, " ").trim();
   if (!text) return "";
@@ -170,6 +173,7 @@ const isRealCustomerName = (name?: string | null) => {
   const lower = value.toLowerCase();
 
   if (lower.includes("nicht zugeordnet")) return false;
+  if (lower.includes("kunde noch nicht zugeordnet")) return false;
   if (lower.includes("ohne kundenzuordnung")) return false;
   if (lower.startsWith("#k-")) return false;
   if (lower.startsWith("k-")) return false;
@@ -320,7 +324,7 @@ const getReviewCustomerLines = (order?: MergeOrder | null) => {
 };
 
 const getExecutionAddressLines = (order?: MergeOrder | null) => {
-  if (!order) return ["—"];
+  if (!order) return [MISSING_EXECUTION_ADDRESS_LABEL];
 
   const lines = [
     order.siteName,
@@ -341,11 +345,11 @@ const getExecutionAddressLines = (order?: MergeOrder | null) => {
     .map((line) => (line || "").trim())
     .filter(Boolean);
 
-  return fallback.length > 0 ? fallback : ["—"];
+  return fallback.length > 0 ? fallback : [MISSING_EXECUTION_ADDRESS_LABEL];
 };
 
 const getExecutionSiteEntries = (order?: MergeOrder | null) => {
-  if (!order) return [{ key: "empty", lines: ["—"] }];
+  if (!order) return [{ key: "empty", lines: [MISSING_EXECUTION_ADDRESS_LABEL] }];
 
   const siteEntries = Array.isArray(order.workSites)
     ? order.workSites
@@ -367,8 +371,10 @@ const getExecutionSiteEntries = (order?: MergeOrder | null) => {
 
           return {
             key:
-              lines.join("|").toLowerCase() || `worksite-${site.id || index}`,
-            lines: lines.length > 0 ? lines : ["—"],
+              lines.length > 0
+                ? lines.join("|").toLowerCase()
+                : MISSING_EXECUTION_ADDRESS_LABEL,
+            lines: lines.length > 0 ? lines : [MISSING_EXECUTION_ADDRESS_LABEL],
           };
         })
     : [];
@@ -379,8 +385,22 @@ const getExecutionSiteEntries = (order?: MergeOrder | null) => {
   return [{ key: lines.join("|").toLowerCase(), lines }];
 };
 
+const isMissingExecutionAddressLines = (lines: string[]) => {
+  const normalized = lines
+    .map((line) => (line || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  return (
+    normalized.length === 0 ||
+    normalized.every((line) => line === MISSING_EXECUTION_ADDRESS_LABEL)
+  );
+};
+
 const getExecutionAddressCompareValue = (order: MergeOrder) => {
-  return getExecutionAddressLines(order)
+  const lines = getExecutionAddressLines(order);
+  if (isMissingExecutionAddressLines(lines)) return "";
+
+  return lines
     .join(" | ")
     .toLowerCase()
     .replace(/\s+/g, " ")
@@ -460,9 +480,8 @@ const getCustomerLabel = (order: MergeOrder) => {
 
   if (isRealCustomerName(name)) return name;
   if (customerNumber) return `#${customerNumber.replace(/^#/, "")}`;
-  if (order.customerId) return `#${order.customerId.replace(/^#/, "")}`;
 
-  return "Ohne Kundenzuordnung";
+  return CUSTOMER_DRAFT_LABEL;
 };
 
 const looksLikeProblemAiHint = (text?: string | null) => {
@@ -683,7 +702,12 @@ export default function MergeOrdersDialog({
   );
   const reviewSiteEntries = reviewOrders
     .flatMap((order) => getExecutionSiteEntries(order))
-    .filter((entry) => entry.key && entry.key !== "—");
+    .filter(
+      (entry) =>
+        entry.key &&
+        entry.key !== "—" &&
+        entry.key !== MISSING_EXECUTION_ADDRESS_LABEL,
+    );
   const uniqueReviewSiteEntries = reviewSiteEntries.filter(
     (entry, index, entries) =>
       entries.findIndex((candidate) => candidate.key === entry.key) === index,
