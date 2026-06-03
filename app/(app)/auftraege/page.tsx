@@ -1,6 +1,12 @@
 "use client";
 // CARD_BADGE_SPLIT_FINAL_V8
-import { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ComponentType,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
 import {
@@ -73,8 +79,10 @@ import { AutoReuseBanner } from "@/components/auto-reuse-banner";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
 import { MobileListShortcut } from "@/components/mobile-list-shortcut";
 
-const NORMAL_DOG_ICON_DATA_URI = "data:image/webp;base64,UklGRp4FAABXRUJQVlA4IJIFAABwIwCdASqyALQAPp1OokylpKMiJPRo2LATiWVu3/mx/91/W/7VMEy/hqD4e03G3hN6maJwa0tDSAqV+WKL8sWDC/ovT3RzgsGbS1gsOrAzRo/IqfkFJWrJKh0jj8YAah0glBAjsNbH42Q5JZX5G7cNdLzIlhg923q5PxxZrKv7bcotpS2sXv7FA75LQt07jQu/nukNC828w9w1OHrFSVqIVPxQI0RsA8P83rY/HxHvxauFyifoT9x1ka06q9oxcXBv8IeJ+Mt7IwnFJ+ZiIGsyAqwvc3MvXk9+d6tNYJ3dlzMQJhIUC451NKSxQwTqGtGx/f8a9ur0Hd//Wc3jB70PEedjnDA35tF4tZNblppkHd8EVQgU98Z7I0su5Nblsx1oisCgAP749EAABIoD/cGOkADimWmQwB51m3A5e/sk3ic7U09skMzjzSwyRGvG3gfUW14xUGUKBfI+I7d6xJ8IWWhppMwiErdLAyk++GDDcmt9Dx+V9lOak0MCJvy+MHmLx8tE22W6hZR3R71K9QRCU9spfDylb+Iq57qTnp8vWSOxRvT9joZu98v8PLF8uJlbWivbRjuTSOMnqof4fjGC5Ub0Bw4/W1A14DWb5QMe/L72TM9vT3gflzMBWV0rPc8pyUDduoXdr0P88x13+r3lEMztc3L2I6b6AvCsIFTtFWSPemIcUR0e4C9/zDdHWSfOVCBYzcjO74E01JJcnv4XmnWahfIdEASTUxCjAp7W90dMJXheRcQMMxxTh2CWY1bv+pGUlSixn1maVqWGbDrGmBRgOJ69kT/rBdXDkkJRDBH6IIZ/X8mN7dnLo5FiuazA72z1qhdvVyjODTylJDuCfOLq4RyPZTI6yzzHU0OOsfqsu59agUFCy2fVh34AYCy6m7XIGjyEIqmjRxT4kC35jgmW5ai49A2Q3pF2EeHblIftDK/4Jop7AHD2avKldxjZcXdGLPzua0alwnR2CeOIWaI1ulEr9ZHbtnKva+oym4HObjV5CL52bdMgo3RObPyPtoWb0ehLkgmQ+vCHzsi+NP5vq18TARiV84Tr66VtDf1p47dbOW0ZHd4IBwU46n8BUvTHsQE5VIto3js7T8Ub2yPf1JQssqktwN+sA5IxNCf4FyZBcoCEHh7ZZNNuC1VbKTeweAaP01gooB7Bb8AOJ72wCqZfn5AoR+R+Sr9QyUIkziQdi9d21OVYUrJe1gprpu3Gvi/4ay/av3WLOIihizzvicQjTvruzsNuM6iokXi5mfKpS7A2W+NmT6rBU163I1aIQyHvGCJPGk8YaXZB7bJ2ExrNf6nFs3RMHaL4w7GHbaEjcUX/Qw+ONfYotG9toGCb3kcrjl5/zgJTnha2R79xQ0RYqRA3snEr8rd4+due22TZfa4947vj2A14yDYFMFdiTor9+jTxix8CabNUdwbClB33KEPJMGjMopLnbAmH8aprvro21A9PhkypZShHBdAlIimm0OMXNb+/ll7JHzTSP8rx8yv+dDzAoh2bAR0dkNytRmTSlgO+t5e0z65oiZ8xQwuUgMJzdRplkonAQONltuD/YSWTUAYP0ntWVeeweOxDAf+PPS3K9YDRdMopInq+USzBLlB5FIeZKeomYs1mk5tHjqMPbvceEMW8KlzGY+8eIuya1VlKn1DbWIpavUOkPZN5irm0i4xd4X9bW+gmRylnYtzFUlERRHu2JPeGuHaXMz6dDU5o+i5djtxcnGnRyyytRdoyBaO5ptndzJmYpqSDTgiJAhiL9mf6sVU6WyJ41lJ6602oDci+cxu1S5h8qWJyoGl+treWjYPmJm7UGSkMrApZyzSlAxnDB85iB0YW+E2UpuvGDyf6IZCN+vZwXblYr17dXoAa4YBz0WTXTh8VHn4zIYSYAAAAAAAA";
-const DANGEROUS_DOG_ICON_DATA_URI = "data:image/webp;base64,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";
+const NORMAL_DOG_ICON_DATA_URI =
+  "data:image/webp;base64,UklGRp4FAABXRUJQVlA4IJIFAABwIwCdASqyALQAPp1OokylpKMiJPRo2LATiWVu3/mx/91/W/7VMEy/hqD4e03G3hN6maJwa0tDSAqV+WKL8sWDC/ovT3RzgsGbS1gsOrAzRo/IqfkFJWrJKh0jj8YAah0glBAjsNbH42Q5JZX5G7cNdLzIlhg923q5PxxZrKv7bcotpS2sXv7FA75LQt07jQu/nukNC828w9w1OHrFSVqIVPxQI0RsA8P83rY/HxHvxauFyifoT9x1ka06q9oxcXBv8IeJ+Mt7IwnFJ+ZiIGsyAqwvc3MvXk9+d6tNYJ3dlzMQJhIUC451NKSxQwTqGtGx/f8a9ur0Hd//Wc3jB70PEedjnDA35tF4tZNblppkHd8EVQgU98Z7I0su5Nblsx1oisCgAP749EAABIoD/cGOkADimWmQwB51m3A5e/sk3ic7U09skMzjzSwyRGvG3gfUW14xUGUKBfI+I7d6xJ8IWWhppMwiErdLAyk++GDDcmt9Dx+V9lOak0MCJvy+MHmLx8tE22W6hZR3R71K9QRCU9spfDylb+Iq57qTnp8vWSOxRvT9joZu98v8PLF8uJlbWivbRjuTSOMnqof4fjGC5Ub0Bw4/W1A14DWb5QMe/L72TM9vT3gflzMBWV0rPc8pyUDduoXdr0P88x13+r3lEMztc3L2I6b6AvCsIFTtFWSPemIcUR0e4C9/zDdHWSfOVCBYzcjO74E01JJcnv4XmnWahfIdEASTUxCjAp7W90dMJXheRcQMMxxTh2CWY1bv+pGUlSixn1maVqWGbDrGmBRgOJ69kT/rBdXDkkJRDBH6IIZ/X8mN7dnLo5FiuazA72z1qhdvVyjODTylJDuCfOLq4RyPZTI6yzzHU0OOsfqsu59agUFCy2fVh34AYCy6m7XIGjyEIqmjRxT4kC35jgmW5ai49A2Q3pF2EeHblIftDK/4Jop7AHD2avKldxjZcXdGLPzua0alwnR2CeOIWaI1ulEr9ZHbtnKva+oym4HObjV5CL52bdMgo3RObPyPtoWb0ehLkgmQ+vCHzsi+NP5vq18TARiV84Tr66VtDf1p47dbOW0ZHd4IBwU46n8BUvTHsQE5VIto3js7T8Ub2yPf1JQssqktwN+sA5IxNCf4FyZBcoCEHh7ZZNNuC1VbKTeweAaP01gooB7Bb8AOJ72wCqZfn5AoR+R+Sr9QyUIkziQdi9d21OVYUrJe1gprpu3Gvi/4ay/av3WLOIihizzvicQjTvruzsNuM6iokXi5mfKpS7A2W+NmT6rBU163I1aIQyHvGCJPGk8YaXZB7bJ2ExrNf6nFs3RMHaL4w7GHbaEjcUX/Qw+ONfYotG9toGCb3kcrjl5/zgJTnha2R79xQ0RYqRA3snEr8rd4+due22TZfa4947vj2A14yDYFMFdiTor9+jTxix8CabNUdwbClB33KEPJMGjMopLnbAmH8aprvro21A9PhkypZShHBdAlIimm0OMXNb+/ll7JHzTSP8rx8yv+dDzAoh2bAR0dkNytRmTSlgO+t5e0z65oiZ8xQwuUgMJzdRplkonAQONltuD/YSWTUAYP0ntWVeeweOxDAf+PPS3K9YDRdMopInq+USzBLlB5FIeZKeomYs1mk5tHjqMPbvceEMW8KlzGY+8eIuya1VlKn1DbWIpavUOkPZN5irm0i4xd4X9bW+gmRylnYtzFUlERRHu2JPeGuHaXMz6dDU5o+i5djtxcnGnRyyytRdoyBaO5ptndzJmYpqSDTgiJAhiL9mf6sVU6WyJ41lJ6602oDci+cxu1S5h8qWJyoGl+treWjYPmJm7UGSkMrApZyzSlAxnDB85iB0YW+E2UpuvGDyf6IZCN+vZwXblYr17dXoAa4YBz0WTXTh8VHn4zIYSYAAAAAAAA";
+const DANGEROUS_DOG_ICON_DATA_URI =
+  "data:image/webp;base64,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";
 
 function LadderIcon({
   className = "h-4 w-4",
@@ -147,7 +155,6 @@ function OpenDoorIcon({
     </svg>
   );
 }
-
 
 function WhatsAppIcon({
   className = "h-4 w-4",
@@ -374,17 +381,15 @@ const AI_WARNING_PREFIX = "[AI_WARNING]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
 const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
 
-const isCatalogReviewConfirmedDescription = (
-  description?: string | null,
-) => compactText(description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
+const isCatalogReviewConfirmedDescription = (description?: string | null) =>
+  compactText(description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
 
 const getCatalogReviewConfirmedFromItemDescription = (
   description?: string | null,
 ) => isCatalogReviewConfirmedDescription(description);
 
-const isManualCurrencyConfirmedDescription = (
-  description?: string | null,
-) => compactText(description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX);
+const isManualCurrencyConfirmedDescription = (description?: string | null) =>
+  compactText(description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX);
 
 const getManualCurrencyConfirmedFromItemDescription = (
   description?: string | null,
@@ -402,7 +407,8 @@ const stripInternalItemDescriptionMarkers = (description?: string | null) => {
 const isCatalogReviewConfirmedItem = (item?: {
   description?: string | null;
   catalogReviewConfirmed?: boolean | null;
-}) => Boolean(item?.catalogReviewConfirmed) ||
+}) =>
+  Boolean(item?.catalogReviewConfirmed) ||
   isCatalogReviewConfirmedDescription(item?.description);
 
 const shouldCollapseCustomerMessagesForOrder = (order?: Order | null) => {
@@ -497,7 +503,12 @@ const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
 
 const stripVisibleNoteMarkerV17_35 = (value?: string | null) =>
-  compactText(value).replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, "").trim();
+  compactText(value)
+    .replace(
+      /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i,
+      "",
+    )
+    .trim();
 
 const cleanVisibleTooltipTextV17_35 = (value?: string | null) =>
   String(value || "")
@@ -535,7 +546,7 @@ const isPreArrivalInstructionLine = (value?: string | null) => {
       `(?:nicht\\s+vor|nicht\\s+vorher\\s+als|erst\\s+ab|fruehestens|frühestens)\\s+\\d{1,2}(?:[:.]\\d{2})?\\s*(?:uhr|h)?\\s*(?:kommen|erscheinen|starten|beginnen|da\\s+sein|vor\\s+ort)?|` +
       `vor\\s+\\d{1,2}(?:[:.]\\d{2})?\\s*(?:uhr|h)?\\s+(?:nicht|${SWISS_NEGATION_PATTERN})\\s+(?:kommen|erscheinen|starten|beginnen|vorbeikommen|cho)|` +
       `vor\\s+(?:start|arbeitsbeginn|ankunft)\\s+(?:kurz\\s+)?(?:telefonisch\\s+)?(?:melden|anrufen|kontaktieren)|` +
-      `erst\\s+nach\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)`
+      `erst\\s+nach\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)`,
   ).test(text);
 };
 
@@ -545,7 +556,7 @@ const isNegativeWhatsAppInstructionLine = (value?: string | null) => {
 
   return new RegExp(
     `\\b(?:keine?|kein|ohne|nicht|${SWISS_NEGATION_PATTERN})\\s+(?:per\\s+|via\\s+)?whats\\s*app\\b|` +
-      `\\bwhats\\s*app\\s+(?:bitte\\s+)?(?:nein|keine?|kein|${SWISS_NEGATION_PATTERN}|nicht(?!\\s+(?:telefon|telefonisch|anrufen|zurueckrufen|zuruckrufen)))\\b`
+      `\\bwhats\\s*app\\s+(?:bitte\\s+)?(?:nein|keine?|kein|${SWISS_NEGATION_PATTERN}|nicht(?!\\s+(?:telefon|telefonisch|anrufen|zurueckrufen|zuruckrufen)))\\b`,
   ).test(text);
 };
 
@@ -576,29 +587,57 @@ const sourceLineServiceTokens = (serviceName?: string | null) => {
     .filter((token) => !SOURCE_LINE_GENERIC_TOKENS.has(token));
 
   if (/fenster|vitrin|vitre|window|fenetre|finestr|ventan/.test(serviceKey)) {
-    tokens.push("fenster", "vitrin", "vitre", "window", "fenetre", "finestr", "ventan");
+    tokens.push(
+      "fenster",
+      "vitrin",
+      "vitre",
+      "window",
+      "fenetre",
+      "finestr",
+      "ventan",
+    );
   }
 
   if (/boden|floor|sol|paviment|suelo/.test(serviceKey)) {
     tokens.push("boden", "floor", "sol", "paviment", "suelo");
   }
 
-  if (/anfahrt|fahrt|weg|deplacement|deplacement|travel|trip|transport|trasfert|viaje/.test(serviceKey)) {
-    tokens.push("anfahrt", "fahrt", "deplacement", "travel", "trip", "transport", "trasfert", "viaje");
+  if (
+    /anfahrt|fahrt|weg|deplacement|deplacement|travel|trip|transport|trasfert|viaje/.test(
+      serviceKey,
+    )
+  ) {
+    tokens.push(
+      "anfahrt",
+      "fahrt",
+      "deplacement",
+      "travel",
+      "trip",
+      "transport",
+      "trasfert",
+      "viaje",
+    );
   }
 
   return Array.from(new Set(tokens));
 };
 
 const normalizeSourceNumber = (value?: string | number | null) => {
-  const numeric = Number(String(value ?? "").replace("'", "").replace(",", "."));
+  const numeric = Number(
+    String(value ?? "")
+      .replace("'", "")
+      .replace(",", "."),
+  );
   if (!Number.isFinite(numeric) || numeric <= 0) return "";
   return Number.isInteger(numeric)
     ? String(numeric)
     : String(Number(numeric.toFixed(2))).replace(".", "[.,]");
 };
 
-const sourceLineContainsNumber = (line: string, value?: string | number | null) => {
+const sourceLineContainsNumber = (
+  line: string,
+  value?: string | number | null,
+) => {
   const numberPattern = normalizeSourceNumber(value);
   if (!numberPattern) return false;
   return new RegExp(`(^|[^0-9])${numberPattern}([^0-9]|$)`).test(line);
@@ -610,7 +649,17 @@ const sourceLineUnitTokens = (unit?: string | null) => {
   if (key === "quadratmeter") return ["quadratmeter", "qm", "m2", "m²", "sqm"];
   if (key === "kubikmeter") return ["kubikmeter", "cbm", "m3", "m³"];
   if (key === "meter") return ["meter", "laufmeter", "lfm"];
-  if (key === "stueck" || key === "stuck") return ["stueck", "stuck", "stück", "stk", "piece", "pieces", "vitrine", "vitrines"];
+  if (key === "stueck" || key === "stuck")
+    return [
+      "stueck",
+      "stuck",
+      "stück",
+      "stk",
+      "piece",
+      "pieces",
+      "vitrine",
+      "vitrines",
+    ];
   if (key === "stunde") return ["stunde", "stunden", "std", "hour", "hours"];
   if (key === "tag") return ["tag", "tage", "day", "days"];
   if (key === "pauschal") return ["pauschal", "pauschale", "flat", "forfait"];
@@ -623,7 +672,11 @@ const sourceLineUnitTokens = (unit?: string | null) => {
 const findCustomerTextLineForService = (
   sourceText?: string | null,
   serviceName?: string | null,
-  item?: { quantity?: string | number | null; unit?: string | null; unitPrice?: string | number | null },
+  item?: {
+    quantity?: string | number | null;
+    unit?: string | null;
+    unitPrice?: string | number | null;
+  },
 ) => {
   const source = String(sourceText || "").trim();
   const serviceKey = normalizeForMatch(serviceName);
@@ -661,7 +714,9 @@ const findCustomerTextLineForService = (
     if (sourceLineContainsNumber(lineKey, item?.unitPrice)) score += 3;
 
     const unitTokens = sourceLineUnitTokens(item?.unit);
-    if (unitTokens.some((token) => lineKey.includes(normalizeForMatch(token)))) {
+    if (
+      unitTokens.some((token) => lineKey.includes(normalizeForMatch(token)))
+    ) {
       score += 1;
     }
 
@@ -674,7 +729,6 @@ const findCustomerTextLineForService = (
   return bestScore >= 4 ? bestLine : "";
 };
 
-
 const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
   let text = compactText(value);
   if (!text) return "";
@@ -683,7 +737,10 @@ const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
   // service mapping: it only removes punctuation before a final infinitive-like
   // action and moves a trailing spatial modifier before the location phrase.
   text = text
-    .replace(/\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu, " ")
+    .replace(
+      /\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu,
+      " ",
+    )
     .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
     .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
     .replace(/\s+/g, " ")
@@ -691,7 +748,13 @@ const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
 
   text = text.replace(
     /^(.*?)\s+((?:im|in\s+der|in\s+dem|am|an\s+der)\s+.+?)\s+(innen|aussen|außen|oben|unten|vorne|hinten)\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln))\s*$/iu,
-    (_match, prefix: string, locationPhrase: string, modifier: string, action: string) => {
+    (
+      _match,
+      prefix: string,
+      locationPhrase: string,
+      modifier: string,
+      action: string,
+    ) => {
       const left = String(prefix || "").trim();
       const location = String(locationPhrase || "").trim();
       const mod = String(modifier || "").trim();
@@ -713,15 +776,22 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   // such as "Tische im Sitzungszimmer reinigen" into broad area labels such
   // as "Besprechungsbereich reinigen". This is action-based, not a fixed
   // service-word mapping.
-  const hasLineLocalWorkAction = /(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)/.test(key);
+  const hasLineLocalWorkAction =
+    /(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)/.test(
+      key,
+    );
   const wordCount = key.split(/\s+/g).filter(Boolean).length;
   if (hasLineLocalWorkAction && wordCount >= 2 && name.length > 12) {
     return cleanLineLocalServiceLabelGrammarV17_60(name);
   }
 
   const hasDescriptiveCleaningObject =
-    /boden|floor|sol|paviment|suelo|fenster|vitrin|vitre|window|fenetre|finestr|glastuer|glastur|glastür|glas|schreibtisch|regal|theke|maschine|geländer|gelaender/.test(key) &&
-    /reinig|putz|saeuber|säuber|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug/.test(key);
+    /boden|floor|sol|paviment|suelo|fenster|vitrin|vitre|window|fenetre|finestr|glastuer|glastur|glastür|glas|schreibtisch|regal|theke|maschine|geländer|gelaender/.test(
+      key,
+    ) &&
+    /reinig|putz|saeuber|säuber|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug/.test(
+      key,
+    );
   if (hasDescriptiveCleaningObject && name.length > 12) {
     return name;
   }
@@ -729,13 +799,19 @@ const canonicalServiceNameForOrderItem = (value?: string | null) => {
   if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
     return "Archivraum reinigen";
   }
-  if (/glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)) {
+  if (
+    /glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)
+  ) {
     return "Glastür reinigen";
   }
   if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
     return "Technikraum reinigen";
   }
-  if (/meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(key)) {
+  if (
+    /meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(
+      key,
+    )
+  ) {
     return "Besprechungsbereich reinigen";
   }
   if (/kontrollgang/.test(key)) {
@@ -865,34 +941,70 @@ const isServiceLikeOperationalHintForBadges = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!raw || !text) return false;
 
-  const hasWorkAction = /(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/.test(text);
+  const hasWorkAction =
+    /(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/.test(
+      text,
+    );
   const hasMeasureOrPrice =
-    /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|stunden?|std|stueck|stück|stk|pcs?|chf|eur|euro|franken|stutz)\b/i.test(raw) ||
-    /\(\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|stueck|stück|stk)\s*\)/i.test(raw) ||
+    /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|stunden?|std|stueck|stück|stk|pcs?|chf|eur|euro|franken|stutz)\b/i.test(
+      raw,
+    ) ||
+    /\(\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|stueck|stück|stk)\s*\)/i.test(
+      raw,
+    ) ||
     /\b(?:chf|eur|euro|franken|stutz)\s*\d/i.test(raw);
 
-  const actionCount = (text.match(/(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
+  const actionCount = (
+    text.match(
+      /(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g,
+    ) || []
+  ).length;
   const hasListSeparator = /[,;+]/.test(raw);
-  const hasOperationalSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
+  const hasOperationalSignal =
+    /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(
+      text,
+    );
 
-  const hasServiceListSummary = hasListSeparator && actionCount >= 1 && /\b(?:anfahrt|fahrtkosten|fahrt|pauschale)\b/.test(text);
+  const hasServiceListSummary =
+    hasListSeparator &&
+    actionCount >= 1 &&
+    /\b(?:anfahrt|fahrtkosten|fahrt|pauschale)\b/.test(text);
 
-  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2) || hasServiceListSummary);
+  return (
+    hasWorkAction &&
+    !hasOperationalSignal &&
+    (hasMeasureOrPrice ||
+      (hasListSeparator && actionCount >= 2) ||
+      hasServiceListSummary)
+  );
 };
 
 const isNegatedDogHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
-  if (!text || !/\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text)) return false;
+  if (
+    !text ||
+    !/\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(
+      text,
+    )
+  )
+    return false;
 
   // Nur echte Abwesenheit unterdrückt den Hund-Chip. Hinweise wie
   // "Hund ist nicht gefährlich" bedeuten weiterhin: Hund vorhanden -> roter Hund-Chip.
   return (
-    /\b(?:kein|keine|keinen|keinem|keiner|ohne|no|without|pas|sans|aucun|aucune|nessun|nessuna|sin)\b.{0,36}\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(text) ||
-    /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b.{0,36}\b(?:none|absent|abwesend|nicht\s+(?:vorhanden|da|anwesend)|kein\s+thema|no\s+issue)\b/.test(text)
+    /\b(?:kein|keine|keinen|keinem|keiner|ohne|no|without|pas|sans|aucun|aucune|nessun|nessuna|sin)\b.{0,36}\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b/.test(
+      text,
+    ) ||
+    /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros|cao|caes)\b.{0,36}\b(?:none|absent|abwesend|nicht\s+(?:vorhanden|da|anwesend)|kein\s+thema|no\s+issue)\b/.test(
+      text,
+    )
   );
 };
 
-const normalizeOperationalHintDisplay = (kind: string, value?: string | null) => {
+const normalizeOperationalHintDisplay = (
+  kind: string,
+  value?: string | null,
+) => {
   const raw = compactText(value);
   const text = normalizeForMatch(value);
   if (!raw || !text) return "";
@@ -901,7 +1013,11 @@ const normalizeOperationalHintDisplay = (kind: string, value?: string | null) =>
     if (/holzspielzeug|holz|nicht nass|nicht feucht|trocken|dry/.test(text)) {
       return "Schonend reinigen, nicht nass reinigen";
     }
-    if (/pavimento delicat|detergente neutro|detergent neutre|delicate floor|sensitive floor|empfindlich|delikat|heikel|schonend|neutral/.test(text)) {
+    if (
+      /pavimento delicat|detergente neutro|detergent neutre|delicate floor|sensitive floor|empfindlich|delikat|heikel|schonend|neutral/.test(
+        text,
+      )
+    ) {
       return "Empfindlicher Boden, neutrales Reinigungsmittel verwenden";
     }
   }
@@ -951,9 +1067,14 @@ const getSemanticBadgeKind = (value?: string | null) => {
     return "ladder";
   if (/park|parking|parkplatz|parken|parkieren/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
-  if (/zugang|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|seiteneingang|hintereingang|nebeneingang|rampe|klingeln|lift/.test(text))
+  if (
+    /zugang|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|seiteneingang|hintereingang|nebeneingang|rampe|klingeln|lift/.test(
+      text,
+    )
+  )
     return "access";
-  if (isPreArrivalInstructionLine(value) || isAppointmentContactTimeLine(value)) return null;
+  if (isPreArrivalInstructionLine(value) || isAppointmentContactTimeLine(value))
+    return null;
   if (/termin|datum|uhr|morgen|vormittag|nachmittag/.test(text))
     return "appointment";
   if (/schubkarre/.test(text)) return "wheelbarrow";
@@ -971,16 +1092,26 @@ const isAddressOrWorkSiteDescriptionOnlyHint = (value?: string | null) => {
 
   const hasAddressEvidence =
     /\b\d{4,5}\b/.test(raw) ||
-    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?\b/i.test(raw);
+    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?\b/i.test(
+      raw,
+    );
 
   const looksLikeWorkSiteDescription =
-    /\b(?:arbeiten|arbeit|ausfuehrung|ausführung|arbeitsort|einsatzort|objekt|gereinigt\s+wird|ort\s+ist)\b/.test(text) ||
-    /\b(?:mfh|haus|keller|eingang|praxis|restaurant|halle|tiefgarage|garage)\b/.test(text);
+    /\b(?:arbeiten|arbeit|ausfuehrung|ausführung|arbeitsort|einsatzort|objekt|gereinigt\s+wird|ort\s+ist)\b/.test(
+      text,
+    ) ||
+    /\b(?:mfh|haus|keller|eingang|praxis|restaurant|halle|tiefgarage|garage)\b/.test(
+      text,
+    );
 
   const hasRealAccessAction =
-    /\b(?:schluessel|schlussel|schlüssel|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|hintereingang|seiteneingang|nebeneingang|rampe|klingeln|melden|anrufen|whatsapp|sms|nicht\s+einfach|vorher|erst\s+melden|briefkasten|empfang)\b/.test(text);
+    /\b(?:schluessel|schlussel|schlüssel|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|hintereingang|seiteneingang|nebeneingang|rampe|klingeln|melden|anrufen|whatsapp|sms|nicht\s+einfach|vorher|erst\s+melden|briefkasten|empfang)\b/.test(
+      text,
+    );
 
-  return hasAddressEvidence && looksLikeWorkSiteDescription && !hasRealAccessAction;
+  return (
+    hasAddressEvidence && looksLikeWorkSiteDescription && !hasRealAccessAction
+  );
 };
 
 const isNonActionableSemanticHint = (
@@ -1057,9 +1188,7 @@ const PARKING_DIFFICULT_PATTERN =
   /parkplatz schwierig|parken schwierig|parkieren schwierig|nur kurz(?:zeitig)? halten|kurzhalten|an der strasse|an der straße|strasse abgestellt|straße abgestellt|fahrzeug muss .*strasse|fahrzeug muss .*straße|ausladen.*strasse|ausladen.*straße/;
 
 const hasParkingReference = (value?: string | null) =>
-  /park|parking|parkplatz|parken|parkieren/.test(
-    normalizeForMatch(value),
-  );
+  /park|parking|parkplatz|parken|parkieren/.test(normalizeForMatch(value));
 
 const getParkingSignal = (value?: string | null) => {
   const text = normalizeForMatch(value);
@@ -1080,12 +1209,11 @@ const getParkingSignal = (value?: string | null) => {
   };
 };
 
-
 const isMergedOrderForCard = (order: Order) =>
   Boolean(
     order.reviewReasons?.includes("manual_order_merge") ||
-      order.reviewReasons?.includes("double_merge") ||
-      (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1),
+    order.reviewReasons?.includes("double_merge") ||
+    (Array.isArray(order.originOrderIds) && order.originOrderIds.length > 1),
   );
 
 const formatWorkSiteLabelForHint = (site: {
@@ -1094,7 +1222,8 @@ const formatWorkSiteLabelForHint = (site: {
   sitePlz?: string | null;
   siteCity?: string | null;
 }) => {
-  const title = cleanWorkSiteDisplayName(site.siteName) || compactText(site.siteAddress);
+  const title =
+    cleanWorkSiteDisplayName(site.siteName) || compactText(site.siteAddress);
   const address = [
     compactText(site.siteAddress),
     [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
@@ -1109,12 +1238,19 @@ const looksLikeWorkSitePrefix = (value?: string | null) => {
   const text = compactText(value);
   if (!text) return false;
   if (/\b\d{4,5}\b/.test(text)) return true;
-  if (/\b(?:haus|gebäude|gebaeude|restaurant|küche|kueche|entrée|entree|technopark|limmatweg|chemin|strasse|straße|weg|gasse|platz|adresse|arbeitsort)\b/i.test(text)) return true;
+  if (
+    /\b(?:haus|gebäude|gebaeude|restaurant|küche|kueche|entrée|entree|technopark|limmatweg|chemin|strasse|straße|weg|gasse|platz|adresse|arbeitsort)\b/i.test(
+      text,
+    )
+  )
+    return true;
   return /\s·\s/.test(text);
 };
 
 const splitLocationPrefixedHint = (value?: string | null) => {
-  let text = compactText(value).replace(/^\[HINWEIS\]\s*/i, "").replace(/^[-•]\s*/, "");
+  let text = compactText(value)
+    .replace(/^\[HINWEIS\]\s*/i, "")
+    .replace(/^[-•]\s*/, "");
   let location = "";
 
   for (let pass = 0; pass < 4; pass += 1) {
@@ -1213,12 +1349,19 @@ const structuredSpecialNoteHints = (order: Order) => {
       continue;
     }
 
-    if (/^\s*(?:Arbeitsort|Ausführungsort|Ausfuehrungsort|Einsatzort|Objekt)\s*:?\s*$/i.test(line)) {
+    if (
+      /^\s*(?:Arbeitsort|Ausführungsort|Ausfuehrungsort|Einsatzort|Objekt)\s*:?\s*$/i.test(
+        line,
+      )
+    ) {
       currentLocation = "";
       continue;
     }
 
-    if (/^[^:]{2,190}:$/.test(line) && looksLikeWorkSitePrefix(line.replace(/:$/, ""))) {
+    if (
+      /^[^:]{2,190}:$/.test(line) &&
+      looksLikeWorkSitePrefix(line.replace(/:$/, ""))
+    ) {
       currentLocation = compactText(line.replace(/:$/, ""));
       continue;
     }
@@ -1238,7 +1381,10 @@ const operationalHintMatchesKind = (
   contextText: string,
 ) => {
   if (kind === "parking") {
-    return Boolean(getParkingBadge(line, contextText)) || getParkingSignal(line).hasParking;
+    return (
+      Boolean(getParkingBadge(line, contextText)) ||
+      getParkingSignal(line).hasParking
+    );
   }
   return getSemanticBadgeKind(line) === kind;
 };
@@ -1255,14 +1401,22 @@ const formatOperationalHintTooltip = (
     ...parsedNotes.jobHints.map((line) => splitLocationPrefixedHint(line)),
   ]
     .map((entry) => {
-      const cleanHint = compactText(stripVisibleNoteMarkerV17_35(stripRepeatedLocationPrefix(entry.hint, entry.location)));
+      const cleanHint = compactText(
+        stripVisibleNoteMarkerV17_35(
+          stripRepeatedLocationPrefix(entry.hint, entry.location),
+        ),
+      );
       return {
         location: compactText(stripVisibleNoteMarkerV17_35(entry.location)),
         hint: normalizeOperationalHintDisplay(kind, cleanHint),
         matchHint: cleanHint,
       };
     })
-    .filter((entry) => entry.matchHint && operationalHintMatchesKind(kind, entry.matchHint, contextText));
+    .filter(
+      (entry) =>
+        entry.matchHint &&
+        operationalHintMatchesKind(kind, entry.matchHint, contextText),
+    );
 
   const seen = new Set<string>();
   const seenHint = new Set<string>();
@@ -1276,9 +1430,7 @@ const formatOperationalHintTooltip = (
     seenHint.add(hintKey);
 
     formatted.push(
-      entry.location
-        ? `${entry.location}:\n${entry.hint}`
-        : entry.hint,
+      entry.location ? `${entry.location}:\n${entry.hint}` : entry.hint,
     );
   }
 
@@ -1630,7 +1782,8 @@ const extractAppointmentBadge = (
     isPreArrivalInstructionLine(raw) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw) ||
-    (hasExplicitPriceContextForAppointment(raw) && !hasAppointmentIntentWord(raw))
+    (hasExplicitPriceContextForAppointment(raw) &&
+      !hasAppointmentIntentWord(raw))
   ) {
     return null;
   }
@@ -1695,17 +1848,18 @@ const extractAppointmentBadge = (
 
   const dateMatch = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   const baseDate = parseAppointmentBaseDate(baseDateInput);
-  const explicitDateObject = dateMatch && hasValidAppointmentDateParts(dateMatch[1], dateMatch[2])
-    ? new Date(
-        dateMatch[3]
-          ? Number(
-              dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3],
-            )
-          : baseDate.getFullYear(),
-        Number(dateMatch[2]) - 1,
-        Number(dateMatch[1]),
-      )
-    : null;
+  const explicitDateObject =
+    dateMatch && hasValidAppointmentDateParts(dateMatch[1], dateMatch[2])
+      ? new Date(
+          dateMatch[3]
+            ? Number(
+                dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3],
+              )
+            : baseDate.getFullYear(),
+          Number(dateMatch[2]) - 1,
+          Number(dateMatch[1]),
+        )
+      : null;
 
   const computedAppointmentDate =
     explicitDateObject ||
@@ -1775,7 +1929,9 @@ const looksLikeAddressLine = (value?: string | null) => {
 
   return (
     /\b\d{4,5}\b/.test(raw) ||
-    /\b(strasse|straße|weg|platz|gasse|allee|ring|chemin|route|rue|road|street|avenue|av\.|hauptstrasse|aarauerstrasse|limmatweg|technoparkstrasse)\b/.test(text)
+    /\b(strasse|straße|weg|platz|gasse|allee|ring|chemin|route|rue|road|street|avenue|av\.|hauptstrasse|aarauerstrasse|limmatweg|technoparkstrasse)\b/.test(
+      text,
+    )
   );
 };
 
@@ -1784,14 +1940,17 @@ const isAppointmentContactTimeLine = (value?: string | null) => {
   const text = normalizeForMatch(raw);
   if (!text) return false;
 
-  if (CONTACT_TIME_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
+  if (CONTACT_TIME_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text))
+    return true;
 
   // Contact availability like "SMS erst ab 14:00 Uhr", "Mail erst nach 11:30"
   // or "telefonisch nur zwischen 15:00 und 16:00" is a contact window,
   // not an execution appointment.
   return (
     CONTACT_TIME_WORD_PATTERN.test(text) &&
-    /(?:zwischen|von)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?/.test(raw.toLowerCase())
+    /(?:zwischen|von)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?\s+(?:und|bis)\s+\d{1,2}(?::|\.)\d{2}\s*(?:uhr|h)?/.test(
+      raw.toLowerCase(),
+    )
   );
 };
 
@@ -1799,8 +1958,12 @@ const hasExplicitPriceContextForAppointment = (value?: string | null) => {
   const raw = compactText(value);
   if (!raw) return false;
   return (
-    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\s*\d+(?:[.,]\d{1,2})?\b/i.test(raw) ||
-    /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\b/i.test(raw)
+    /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\s*\d+(?:[.,]\d{1,2})?\b/i.test(
+      raw,
+    ) ||
+    /\b\d+(?:[.,]\d{1,2})?\s*(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro)\b/i.test(
+      raw,
+    )
   );
 };
 
@@ -1812,7 +1975,14 @@ const hasAppointmentIntentWord = (value?: string | null) =>
 const hasValidAppointmentDateParts = (day?: string, month?: string) => {
   const d = Number(day);
   const m = Number(month);
-  return Number.isInteger(d) && Number.isInteger(m) && d >= 1 && d <= 31 && m >= 1 && m <= 12;
+  return (
+    Number.isInteger(d) &&
+    Number.isInteger(m) &&
+    d >= 1 &&
+    d <= 31 &&
+    m >= 1 &&
+    m <= 12
+  );
 };
 
 const normalizeAppointmentDateLabel = (value: string) => {
@@ -1844,8 +2014,17 @@ const normalizeAppointmentTimeLabel = (value: string) => {
 
 const extractAppointmentDetailLabel = (value: string) => {
   const raw = compactText(value);
-  if (!raw || isAppointmentContactTimeLine(raw) || isPreArrivalInstructionLine(raw)) return "";
-  if (hasExplicitPriceContextForAppointment(raw) && !hasAppointmentIntentWord(raw)) return "";
+  if (
+    !raw ||
+    isAppointmentContactTimeLine(raw) ||
+    isPreArrivalInstructionLine(raw)
+  )
+    return "";
+  if (
+    hasExplicitPriceContextForAppointment(raw) &&
+    !hasAppointmentIntentWord(raw)
+  )
+    return "";
 
   const date = normalizeAppointmentDateLabel(raw);
   const time = normalizeAppointmentTimeLabel(raw);
@@ -1904,7 +2083,11 @@ const extractAppointmentDetailsFromRawText = (
       label,
     };
     const key = appointmentDetailKey(detail);
-    if (!key || details.some((existing) => appointmentDetailKey(existing) === key)) return;
+    if (
+      !key ||
+      details.some((existing) => appointmentDetailKey(existing) === key)
+    )
+      return;
 
     details.push(detail);
     lastDetailIndex = details.length - 1;
@@ -1915,7 +2098,9 @@ const extractAppointmentDetailsFromRawText = (
     const normalized = normalizeForMatch(line);
     if (!line || !normalized) continue;
 
-    const worksiteMatch = line.match(/^(?:Arbeitsort|Ausführung|Ausfuehrung|Adresse\s+travaux|Arbeitsadresse)\s*\d*\s*[:\-–—]\s*(.*)$/i);
+    const worksiteMatch = line.match(
+      /^(?:Arbeitsort|Ausführung|Ausfuehrung|Adresse\s+travaux|Arbeitsadresse)\s*\d*\s*[:\-–—]\s*(.*)$/i,
+    );
     if (worksiteMatch) {
       const site = compactText(worksiteMatch[1]);
       currentSite = site || currentSite;
@@ -1943,7 +2128,8 @@ const extractAppointmentDetailsFromRawText = (
 
     if (/^Grund\s*[:\-–—]/i.test(line) && lastDetailIndex >= 0) {
       const reason = cleanAppointmentReason(line);
-      if (reason) details[lastDetailIndex] = { ...details[lastDetailIndex], reason };
+      if (reason)
+        details[lastDetailIndex] = { ...details[lastDetailIndex], reason };
       continue;
     }
   }
@@ -1973,10 +2159,15 @@ const extractAppointmentDetailsFromGroupedNotes = (
       site,
       address: "",
       label,
-      reason: cleanAppointmentReason(value.replace(/^(?:Termin|Zeitfenster)\s*[:\-–—]?\s*/i, "")),
+      reason: cleanAppointmentReason(
+        value.replace(/^(?:Termin|Zeitfenster)\s*[:\-–—]?\s*/i, ""),
+      ),
     };
     const key = appointmentDetailKey(detail);
-    if (key && !details.some((existing) => appointmentDetailKey(existing) === key)) {
+    if (
+      key &&
+      !details.some((existing) => appointmentDetailKey(existing) === key)
+    ) {
       details.push(detail);
     }
   });
@@ -2100,7 +2291,10 @@ const getMultipleAppointmentBadge = (
     // Parser/LLM sometimes writes "Termin 13:00" next to a callback note.
     // If there is no date and the overall source contains a callback/contact
     // instruction for that time, keep it out of the Termine chip.
-    if (!/\d{1,2}[./-]\d{1,2}/.test(detail.label) && isAppointmentContactTimeLine(callbackSource)) {
+    if (
+      !/\d{1,2}[./-]\d{1,2}/.test(detail.label) &&
+      isAppointmentContactTimeLine(callbackSource)
+    ) {
       return false;
     }
 
@@ -2168,7 +2362,13 @@ const getOperationalBadges = (
         `hint_${kind}_${normalizeForMatch(line).slice(0, 48)}`,
         label,
         amberHintClass,
-        formatOperationalHintTooltip(order, kind, parsedNotes, line, orderBadgeContext),
+        formatOperationalHintTooltip(
+          order,
+          kind,
+          parsedNotes,
+          line,
+          orderBadgeContext,
+        ),
       );
       return;
     }
@@ -2198,7 +2398,13 @@ const getOperationalBadges = (
         `hint_parking_${normalizeForMatch(parkingBadge.label)}`,
         parkingBadge.label,
         parkingBadge.className,
-        formatOperationalHintTooltip(order, "parking", parsedNotes, line, orderBadgeContext),
+        formatOperationalHintTooltip(
+          order,
+          "parking",
+          parsedNotes,
+          line,
+          orderBadgeContext,
+        ),
       );
       return;
     }
@@ -2210,7 +2416,13 @@ const getOperationalBadges = (
       addDanger(
         `danger_${normalizeForMatch(label)}`,
         label,
-        formatOperationalHintTooltip(order, kind, parsedNotes, line, orderBadgeContext),
+        formatOperationalHintTooltip(
+          order,
+          kind,
+          parsedNotes,
+          line,
+          orderBadgeContext,
+        ),
       );
       return;
     }
@@ -2230,7 +2442,13 @@ const getOperationalBadges = (
       `hint_${kind}`,
       label,
       isPositiveSemanticHint(line) ? greenInfoClass : amberHintClass,
-      formatOperationalHintTooltip(order, kind, parsedNotes, line, orderBadgeContext),
+      formatOperationalHintTooltip(
+        order,
+        kind,
+        parsedNotes,
+        line,
+        orderBadgeContext,
+      ),
     );
   });
 
@@ -2334,7 +2552,6 @@ const hasUnitMismatchReviewForService = (
   );
 };
 
-
 type CurrencyMismatchDetail = {
   serviceName: string;
   textCurrency: string;
@@ -2395,9 +2612,8 @@ const getCurrencyMismatchReviewDetails = (
   return details;
 };
 
-const hasItemLevelCurrencyReviewReasons = (
-  reviewReasons?: string[] | null,
-) => getCurrencyMismatchReviewDetails(reviewReasons).length > 0;
+const hasItemLevelCurrencyReviewReasons = (reviewReasons?: string[] | null) =>
+  getCurrencyMismatchReviewDetails(reviewReasons).length > 0;
 
 const hasAnyCurrencyReviewReason = (reviewReasons?: string[] | null) =>
   (reviewReasons || []).some(
@@ -2411,7 +2627,9 @@ const hasCurrencyMismatchReviewForService = (
   reviewReasons?: string[] | null,
   serviceName?: string | null,
 ) => {
-  const serviceKey = normalizeForMatch(canonicalServiceNameForOrderItem(serviceName));
+  const serviceKey = normalizeForMatch(
+    canonicalServiceNameForOrderItem(serviceName),
+  );
   if (!serviceKey) return false;
 
   return getCurrencyMismatchReviewDetails(reviewReasons).some(
@@ -2590,7 +2808,10 @@ const getCatalogMissingItems = (order: Order, services: ServiceDef[]) => {
 
 const formatCatalogReviewTooltip = (input: {
   title: string;
-  item?: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity"> | null;
+  item?: Pick<
+    OrderItem,
+    "serviceName" | "unit" | "unitPrice" | "quantity"
+  > | null;
   catalog?: ServiceDef | null;
   currency?: "CHF" | "EUR" | null;
   sourceLine?: string | null;
@@ -2635,7 +2856,9 @@ const formatCatalogReviewTooltip = (input: {
   return lines.filter(Boolean).join("\n");
 };
 
-const uniqueCatalogReviewItems = <T extends Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>(
+const uniqueCatalogReviewItems = <
+  T extends Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+>(
   items: T[],
 ) => {
   const seen = new Set<string>();
@@ -2657,7 +2880,9 @@ const uniqueCatalogReviewItems = <T extends Pick<OrderItem, "serviceName" | "uni
 };
 
 const formatCatalogPriceDeviationTooltip = (
-  items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
+  items: Array<
+    Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">
+  >,
   services: ServiceDef[],
   currency?: "CHF" | "EUR" | null,
 ) => {
@@ -2686,8 +2911,10 @@ const formatCatalogPriceDeviationTooltip = (
     const catalog = findCatalogServiceForName(services, item.serviceName);
     const itemQuantity = Number(item.quantity || 0);
     const itemPrice = Number(item.unitPrice || 0);
-    const itemQuantityLabel = itemQuantity > 0 ? String(item.quantity) : "Menge prüfen";
-    const itemPriceLabel = itemPrice > 0 ? formatCurrency(itemPrice, safeCurrency) : "Preis prüfen";
+    const itemQuantityLabel =
+      itemQuantity > 0 ? String(item.quantity) : "Menge prüfen";
+    const itemPriceLabel =
+      itemPrice > 0 ? formatCurrency(itemPrice, safeCurrency) : "Preis prüfen";
 
     lines.push(`${index + 1}. ${compactText(item.serviceName) || "Leistung"}`);
     lines.push(
@@ -2713,7 +2940,9 @@ const formatCatalogPriceDeviationTooltip = (
 };
 
 const formatCatalogMissingTooltip = (
-  items: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">>,
+  items: Array<
+    Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">
+  >,
   currency?: "CHF" | "EUR" | null,
 ) => {
   const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
@@ -2726,12 +2955,14 @@ const formatCatalogMissingTooltip = (
     ...items.slice(0, 5).map((item) => {
       const quantity = Number(item.quantity || 0);
       const unitPrice = Number(item.unitPrice || 0);
-      const quantityLabel = quantity > 0
-        ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`
-        : formatReviewUnitLabel(item.unit || "");
-      const priceLabel = unitPrice > 0
-        ? formatCurrency(unitPrice, safeCurrency)
-        : "Preis prüfen";
+      const quantityLabel =
+        quantity > 0
+          ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`
+          : formatReviewUnitLabel(item.unit || "");
+      const priceLabel =
+        unitPrice > 0
+          ? formatCurrency(unitPrice, safeCurrency)
+          : "Preis prüfen";
       return `${item.serviceName || "Leistung"} · ${quantityLabel} · ${priceLabel}`;
     }),
   ];
@@ -2757,27 +2988,36 @@ const formatServiceReviewCalculation = (
       (quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0),
   );
 
-  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) {
+  if (
+    !Number.isFinite(quantity) ||
+    quantity <= 0 ||
+    !Number.isFinite(unitPrice) ||
+    unitPrice <= 0
+  ) {
     return "";
   }
 
-  const quantityLabel = `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim();
+  const quantityLabel =
+    `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim();
   return `${quantityLabel} × ${formatCurrency(unitPrice, safeCurrency)} = ${formatCurrency(totalPrice, safeCurrency)}`;
 };
 
 const formatServiceReviewItemLine = (
-  item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">,
+  item: Pick<
+    OrderItem,
+    "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+  >,
   currency?: "CHF" | "EUR" | null,
 ) => {
   const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
   const quantity = Number(item.quantity || 0);
   const unitPrice = Number(item.unitPrice || 0);
-  const quantityLabel = quantity > 0
-    ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim()
-    : "Menge prüfen";
-  const priceLabel = unitPrice > 0
-    ? formatCurrency(unitPrice, safeCurrency)
-    : "Preis prüfen";
+  const quantityLabel =
+    quantity > 0
+      ? `${item.quantity} ${formatReviewUnitLabel(item.unit || "")}`.trim()
+      : "Menge prüfen";
+  const priceLabel =
+    unitPrice > 0 ? formatCurrency(unitPrice, safeCurrency) : "Preis prüfen";
   const calculation = formatServiceReviewCalculation(item, currency);
   const baseLine = `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
 
@@ -2786,9 +3026,24 @@ const formatServiceReviewItemLine = (
 
 const formatServiceReviewSummaryTooltip = (input: {
   unitConflictServices?: string[];
-  priceItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
-  missingItems?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
-  items?: Array<Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice">>;
+  priceItems?: Array<
+    Pick<
+      OrderItem,
+      "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+    >
+  >;
+  missingItems?: Array<
+    Pick<
+      OrderItem,
+      "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+    >
+  >;
+  items?: Array<
+    Pick<
+      OrderItem,
+      "serviceName" | "unit" | "unitPrice" | "quantity" | "totalPrice"
+    >
+  >;
   services: ServiceDef[];
   currency?: "CHF" | "EUR" | null;
 }) => {
@@ -2796,7 +3051,9 @@ const formatServiceReviewSummaryTooltip = (input: {
   const sections: string[] = [];
 
   const unitServices = Array.from(
-    new Set((input.unitConflictServices || []).map(compactText).filter(Boolean)),
+    new Set(
+      (input.unitConflictServices || []).map(compactText).filter(Boolean),
+    ),
   );
   if (unitServices.length > 0) {
     const lines = ["Einheit abweichend · Einheit aus Text übernommen"];
@@ -2807,66 +3064,73 @@ const formatServiceReviewSummaryTooltip = (input: {
       const catalogUnit = parts[2] ? formatReviewUnitLabel(parts[2]) : "";
       const matchingItem = (input.items || []).find(
         (item) =>
-          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
-          normalizeForMatch(serviceName),
+          normalizeForMatch(
+            canonicalServiceNameForOrderItem(item.serviceName),
+          ) === normalizeForMatch(serviceName),
       );
       const calculation = matchingItem
         ? formatServiceReviewCalculation(matchingItem, input.currency)
         : "";
       if (textUnit || catalogUnit) {
-        lines.push(`• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}`);
+        lines.push(
+          `• ${serviceName || "Leistung"} — Kundentext: ${textUnit || "prüfen"}, Katalog: ${catalogUnit || "prüfen"}`,
+        );
         if (calculation) lines.push(`  Berechnung: ${calculation}`);
       } else {
         lines.push(`• ${serviceName || "Leistung"}`);
         if (calculation) lines.push(`  Berechnung: ${calculation}`);
       }
     });
-    if (unitServices.length > 6) lines.push(`+${unitServices.length - 6} weitere`);
+    if (unitServices.length > 6)
+      lines.push(`+${unitServices.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
-  const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter((item) =>
-    compactText(item.serviceName),
+  const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter(
+    (item) => compactText(item.serviceName),
   );
   if (priceItems.length > 0) {
     const lines = ["Preis abweichend · Preis aus Text übernommen"];
     priceItems.slice(0, 6).forEach((item) => {
-      const catalog = findCatalogServiceForName(input.services, item.serviceName);
+      const catalog = findCatalogServiceForName(
+        input.services,
+        item.serviceName,
+      );
       const itemPrice = Number(item.unitPrice || 0);
-      const itemPriceLabel = itemPrice > 0
-        ? formatCurrency(itemPrice, safeCurrency)
-        : "Preis prüfen";
+      const itemPriceLabel =
+        itemPrice > 0
+          ? formatCurrency(itemPrice, safeCurrency)
+          : "Preis prüfen";
       const catalogLabel = catalog
         ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
         : "kein Katalogpreis";
       const calculation = formatServiceReviewCalculation(item, input.currency);
-      lines.push(`• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Text ${itemPriceLabel}, Katalog ${catalogLabel}`);
+      lines.push(
+        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Text ${itemPriceLabel}, Katalog ${catalogLabel}`,
+      );
       if (calculation) lines.push(`  Berechnung: ${calculation}`);
     });
     if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
-  const missingItems = uniqueCatalogReviewItems(input.missingItems || []).filter((item) =>
-    compactText(item.serviceName),
-  );
+  const missingItems = uniqueCatalogReviewItems(
+    input.missingItems || [],
+  ).filter((item) => compactText(item.serviceName));
   if (missingItems.length > 0) {
     const lines = ["Nicht im Katalog"];
     missingItems.slice(0, 6).forEach((item) => {
       lines.push(formatServiceReviewItemLine(item, input.currency));
     });
-    if (missingItems.length > 6) lines.push(`+${missingItems.length - 6} weitere`);
+    if (missingItems.length > 6)
+      lines.push(`+${missingItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
   return sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
 };
 
-
-const formatCurrencyReviewTooltip = (
-  order: Order,
-  services: ServiceDef[],
-) => {
+const formatCurrencyReviewTooltip = (order: Order, services: ServiceDef[]) => {
   const orderCurrency = order.currency === "EUR" ? "EUR" : "CHF";
   const sourceText = [order.notes, order.description, order.audioTranscript]
     .filter(Boolean)
@@ -2883,8 +3147,9 @@ const formatCurrencyReviewTooltip = (
     mismatchDetails.slice(0, 8).forEach((detail) => {
       const matchingItem = (order.items || []).find(
         (item) =>
-          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
-          normalizeForMatch(detail.serviceName),
+          normalizeForMatch(
+            canonicalServiceNameForOrderItem(item.serviceName),
+          ) === normalizeForMatch(detail.serviceName),
       );
       const sourceLine = findCustomerTextLineForService(
         sourceText,
@@ -2905,10 +3170,14 @@ const formatCurrencyReviewTooltip = (
     });
 
     if (mismatchDetails.length > 8) {
-      currencyLines.push(`+${mismatchDetails.length - 8} weitere Währungsprobleme`);
+      currencyLines.push(
+        `+${mismatchDetails.length - 8} weitere Währungsprobleme`,
+      );
     }
   } else {
-    currencyLines.push("• Währung im Auftrag oder Kundentext ist unklar. Auftrag öffnen und Positionen prüfen.");
+    currencyLines.push(
+      "• Währung im Auftrag oder Kundentext ist unklar. Auftrag öffnen und Positionen prüfen.",
+    );
   }
 
   sections.push(currencyLines.join("\n"));
@@ -2934,16 +3203,27 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
     // V17.63: role labels and broken role-label fragments are not real
     // execution-site names. Do not persist/display fragments like "sadresse".
     // This is deliberately structural UI cleanup, not a service-name mapping.
-    return /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(key);
+    return /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(
+      key,
+    );
   };
 
   if (isGenericAddressRoleLabel(text)) return "";
 
   // Remove generic source markers from the title. Keep the actual object name.
   text = text
-    .replace(/^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i, "")
-    .replace(/^(?:wo\s+gemacht\s+werden\s+muss|wo\s+arbeiten\s+sind|wo\s+es\s+gemacht\s+wird)\s*:?\s*/i, "")
-    .replace(/^(?:ist|isch|is)\s+(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
+    .replace(
+      /^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i,
+      "",
+    )
+    .replace(
+      /^(?:wo\s+gemacht\s+werden\s+muss|wo\s+arbeiten\s+sind|wo\s+es\s+gemacht\s+wird)\s*:?\s*/i,
+      "",
+    )
+    .replace(
+      /^(?:ist|isch|is)\s+(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i,
+      "",
+    )
     .replace(/^(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
     .replace(/^[:\-–,\s]+/, "")
     .trim();
@@ -2970,13 +3250,17 @@ const looksLikeExecutionAddressLine = (value?: string | null) => {
 
   return (
     /\b\d{4,5}\b/.test(text) ||
-    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|route|rue|chemin|avenue|av\.?|parkstrasse|badenerstrasse|rue\s+du|industrieweg|werkstrasse)\b/i.test(text) ||
+    /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|route|rue|chemin|avenue|av\.?|parkstrasse|badenerstrasse|rue\s+du|industrieweg|werkstrasse)\b/i.test(
+      text,
+    ) ||
     /@/.test(text) ||
     /\b(?:tel\.?|telefon|phone|mobile|handy|email|e-mail)\b/i.test(text)
   );
 };
 
-const inferExecutionSiteNameFromText = (...values: Array<string | null | undefined>) => {
+const inferExecutionSiteNameFromText = (
+  ...values: Array<string | null | undefined>
+) => {
   const source = values
     .filter(Boolean)
     .join("\n")
@@ -2989,8 +3273,10 @@ const inferExecutionSiteNameFromText = (...values: Array<string | null | undefin
     .map((line) => compactText(line))
     .filter(Boolean);
 
-  const markerPattern = /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
-  const stopPattern = /^(?:rechnung|facture|invoice|leistungen|leistung|besonderheiten|bemerkungen|hinweise|termin|datum|bitte|merci|please|kontakt|rückfragen|rueckfragen)\b/i;
+  const markerPattern =
+    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
+  const stopPattern =
+    /^(?:rechnung|facture|invoice|leistungen|leistung|besonderheiten|bemerkungen|hinweise|termin|datum|bitte|merci|please|kontakt|rückfragen|rueckfragen)\b/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(markerPattern);
@@ -3085,7 +3371,9 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
   const catalogBadges = combineCatalogReviewBadges(
     badges.filter((badge) =>
-      ["price_deviation", "catalog_missing", "service_review_summary"].includes(badge.key),
+      ["price_deviation", "catalog_missing", "service_review_summary"].includes(
+        badge.key,
+      ),
     ),
   );
 
@@ -3120,7 +3408,8 @@ const hasMergedMultipleContactData = (
   order: Order,
   parsedNotes?: ReturnType<typeof splitSpecialNotes>,
 ) => {
-  if (order.reviewReasons?.includes("merged_multiple_contact_data")) return true;
+  if (order.reviewReasons?.includes("merged_multiple_contact_data"))
+    return true;
 
   const isMergedOrder =
     order.reviewReasons?.includes("manual_order_merge") ||
@@ -3132,18 +3421,21 @@ const hasMergedMultipleContactData = (
   const notes = parsedNotes || splitSpecialNotes(order.specialNotes || "");
   const groupedContactLines = notes.jobHints.filter((line) => {
     const value = compactText(line);
-    return /^[^:]{2,120}:\s+/.test(value) && MERGED_CONTACT_DATA_PATTERN.test(value);
+    return (
+      /^[^:]{2,120}:\s+/.test(value) && MERGED_CONTACT_DATA_PATTERN.test(value)
+    );
   });
 
-  const phoneCandidates = [
-    order.customer?.phone,
-    order.notes,
-    order.specialNotes,
-    order.audioTranscript,
-  ]
-    .filter(Boolean)
-    .join("\n")
-    .match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
+  const phoneCandidates =
+    [
+      order.customer?.phone,
+      order.notes,
+      order.specialNotes,
+      order.audioTranscript,
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .match(/\+?\d[\d\s()./-]{6,}\d/g) || [];
 
   const uniquePhones = new Set(
     phoneCandidates
@@ -3153,7 +3445,6 @@ const hasMergedMultipleContactData = (
 
   return groupedContactLines.length > 1 || uniquePhones.size > 1;
 };
-
 
 const normalizeAddressPartForCompare = (value?: string | null) =>
   normalizeForMatch(value)
@@ -3168,23 +3459,31 @@ const hasDifferentExecutionAddressForBadge = (order: Order) => {
   if (workSites.length > 1) return true;
 
   const firstSite = workSites[0] || null;
-  const siteStreet = normalizeAddressPartForCompare(firstSite?.siteAddress || order.siteAddress);
-  const sitePlz = normalizeAddressPartForCompare(firstSite?.sitePlz || order.sitePlz);
-  const siteCity = normalizeAddressPartForCompare(firstSite?.siteCity || order.siteCity);
+  const siteStreet = normalizeAddressPartForCompare(
+    firstSite?.siteAddress || order.siteAddress,
+  );
+  const sitePlz = normalizeAddressPartForCompare(
+    firstSite?.sitePlz || order.sitePlz,
+  );
+  const siteCity = normalizeAddressPartForCompare(
+    firstSite?.siteCity || order.siteCity,
+  );
 
   if (!siteStreet && !sitePlz && !siteCity) return false;
 
-  const customerStreet = normalizeAddressPartForCompare(order.customer?.address);
+  const customerStreet = normalizeAddressPartForCompare(
+    order.customer?.address,
+  );
   const customerPlz = normalizeAddressPartForCompare(order.customer?.plz);
   const customerCity = normalizeAddressPartForCompare(order.customer?.city);
 
   const hasCompleteComparableAddress = Boolean(
     siteStreet &&
-      sitePlz &&
-      siteCity &&
-      customerStreet &&
-      customerPlz &&
-      customerCity,
+    sitePlz &&
+    siteCity &&
+    customerStreet &&
+    customerPlz &&
+    customerCity,
   );
 
   if (
@@ -3199,7 +3498,6 @@ const hasDifferentExecutionAddressForBadge = (order: Order) => {
   return true;
 };
 
-
 const hasAddressRoleReviewReasonV17_61 = (order: Order) =>
   order.reviewReasons?.some(
     (reason) =>
@@ -3211,10 +3509,18 @@ const hasAddressRoleReviewReasonV17_61 = (order: Order) =>
 
 const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
   const workSites = Array.isArray(order.workSites) ? order.workSites : [];
-  const primarySite = workSites.find((site) => Boolean(site.isPrimary)) || workSites[0] || null;
-  const siteTitle = cleanWorkSiteDisplayName(primarySite?.siteName || order.siteName);
-  const siteAddress = compactText(primarySite?.siteAddress || order.siteAddress);
-  const sitePlace = [primarySite?.sitePlz || order.sitePlz, primarySite?.siteCity || order.siteCity]
+  const primarySite =
+    workSites.find((site) => Boolean(site.isPrimary)) || workSites[0] || null;
+  const siteTitle = cleanWorkSiteDisplayName(
+    primarySite?.siteName || order.siteName,
+  );
+  const siteAddress = compactText(
+    primarySite?.siteAddress || order.siteAddress,
+  );
+  const sitePlace = [
+    primarySite?.sitePlz || order.sitePlz,
+    primarySite?.siteCity || order.siteCity,
+  ]
     .map(compactText)
     .filter(Boolean)
     .join(" ");
@@ -3238,8 +3544,13 @@ const getSystemBadges = (
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
-  if (hasDifferentExecutionAddressForBadge(order) && !hasAddressRoleReviewReasonV17_61(order)) {
-    const workSiteCount = Array.isArray(order.workSites) ? order.workSites.length : 0;
+  if (
+    hasDifferentExecutionAddressForBadge(order) &&
+    !hasAddressRoleReviewReasonV17_61(order)
+  ) {
+    const workSiteCount = Array.isArray(order.workSites)
+      ? order.workSites.length
+      : 0;
     const primaryWorkSite = (order.workSites ?? [])[0] || null;
     const executionSiteTitle =
       cleanWorkSiteDisplayName(primaryWorkSite?.siteName) ||
@@ -3250,9 +3561,10 @@ const getSystemBadges = (
       executionSiteTitle;
     pushUniqueBadge(badges, {
       key: "site_address",
-      label: workSiteCount > 1
-        ? `Ausführungsorte · ${workSiteCount}`
-        : executionSiteChipLabel || "Ausführungsadresse",
+      label:
+        workSiteCount > 1
+          ? `Ausführungsorte · ${workSiteCount}`
+          : executionSiteChipLabel || "Ausführungsadresse",
       className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
       tooltip: formatExecutionAddressTooltip(order),
     });
@@ -3280,7 +3592,10 @@ const getSystemBadges = (
     const mergedCount = originCount > 1 ? originCount : 0;
     pushUniqueBadge(badges, {
       key: "merged",
-      label: mergedCount > 0 ? `Zusammengeführt · ${mergedCount}` : "Zusammengeführt",
+      label:
+        mergedCount > 0
+          ? `Zusammengeführt · ${mergedCount}`
+          : "Zusammengeführt",
       className: "bg-blue-100 text-blue-700 border border-blue-300",
       tooltip:
         mergedCount > 0
@@ -3295,7 +3610,12 @@ const getSystemBadges = (
           const quantity = Number(it.quantity || 0);
           const unitPrice = Number(it.unitPrice || 0);
           const totalPrice = Number((it as any).totalPrice || 0);
-          const text = [it.unit, it.description, (it as any).sourceText, (it as any).evidence]
+          const text = [
+            it.unit,
+            it.description,
+            (it as any).sourceText,
+            (it as any).evidence,
+          ]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
@@ -3307,7 +3627,10 @@ const getSystemBadges = (
             quantity <= 0 ||
             unitPrice <= 0 ||
             explicitReviewZeroTotal ||
-            hasCurrencyMismatchReviewForService(order.reviewReasons, it.serviceName)
+            hasCurrencyMismatchReviewForService(
+              order.reviewReasons,
+              it.serviceName,
+            )
           );
         })
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
@@ -3340,15 +3663,20 @@ const getSystemBadges = (
       (order.reviewReasons ?? [])
         .filter((reason) => reason.startsWith("unit_mismatch:"))
         .map((reason) => {
-          const parts = reason.split(":").slice(1).map(compactText).filter(Boolean);
+          const parts = reason
+            .split(":")
+            .slice(1)
+            .map(compactText)
+            .filter(Boolean);
           const rawService = parts[0] || "";
           const serviceName = canonicalServiceNameForOrderItem(rawService);
           if (!serviceName) return "";
 
           const matchingItem = (order.items || []).find(
             (item) =>
-              normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
-              normalizeForMatch(serviceName),
+              normalizeForMatch(
+                canonicalServiceNameForOrderItem(item.serviceName),
+              ) === normalizeForMatch(serviceName),
           );
           const catalog = findCatalogServiceForName(services, serviceName);
           const itemUnit = matchingItem?.unit || parts[1] || "";
@@ -3360,7 +3688,11 @@ const getSystemBadges = (
             return "";
           }
 
-          return [serviceName, itemUnit || "Einheit prüfen", catalogUnit || "Katalog prüfen"].join(":");
+          return [
+            serviceName,
+            itemUnit || "Einheit prüfen",
+            catalogUnit || "Katalog prüfen",
+          ].join(":");
         })
         .filter(Boolean),
     ),
@@ -3375,12 +3707,13 @@ const getSystemBadges = (
       className: unitConflictIsBlocking
         ? "bg-red-100 text-red-700 border border-red-300"
         : "bg-amber-100 text-amber-800 border border-amber-300",
-      tooltip: formatServiceReviewSummaryTooltip({
-        unitConflictServices,
-        items: order.items || [],
-        services,
-        currency: order.currency,
-      }) || "Einheit abweichend.",
+      tooltip:
+        formatServiceReviewSummaryTooltip({
+          unitConflictServices,
+          items: order.items || [],
+          services,
+          currency: order.currency,
+        }) || "Einheit abweichend.",
     });
   }
 
@@ -3419,16 +3752,18 @@ const getSystemBadges = (
       label: "Preis abweichend",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatServiceReviewSummaryTooltip({
-        priceItems: priceReviewItems,
-        items: order.items || [],
-        services,
-        currency: order.currency,
-      }) || formatCatalogPriceDeviationTooltip(
-        priceReviewItems,
-        services,
-        order.currency,
-      ),
+      tooltip:
+        formatServiceReviewSummaryTooltip({
+          priceItems: priceReviewItems,
+          items: order.items || [],
+          services,
+          currency: order.currency,
+        }) ||
+        formatCatalogPriceDeviationTooltip(
+          priceReviewItems,
+          services,
+          order.currency,
+        ),
     });
   }
 
@@ -3438,16 +3773,18 @@ const getSystemBadges = (
       label: "Nicht im Katalog",
       className:
         "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
-      tooltip: formatServiceReviewSummaryTooltip({
-        missingItems: catalogMissingItems,
-        items: order.items || [],
-        services,
-        currency: order.currency,
-      }) || formatCatalogMissingTooltip(catalogMissingItems, order.currency),
+      tooltip:
+        formatServiceReviewSummaryTooltip({
+          missingItems: catalogMissingItems,
+          items: order.items || [],
+          services,
+          currency: order.currency,
+        }) || formatCatalogMissingTooltip(catalogMissingItems, order.currency),
     });
   }
 
-  const hasAddressRoleReviewForCustomerBadge = hasAddressRoleReviewReasonV17_61(order);
+  const hasAddressRoleReviewForCustomerBadge =
+    hasAddressRoleReviewReasonV17_61(order);
   const hasCustomerReview =
     !hasAddressRoleReviewForCustomerBadge &&
     (hasRealCustomerReviewReason(order) ||
@@ -3458,7 +3795,8 @@ const getSystemBadges = (
       key: "customer_review",
       label: "Kunde prüfen",
       className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
-      tooltip: "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
+      tooltip:
+        "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
       focusTarget: "customer",
     });
   }
@@ -3497,35 +3835,44 @@ const getSystemBadges = (
   return badges;
 };
 
-const detectAppointmentClarificationHint = (...values: Array<string | null | undefined>) => {
+const detectAppointmentClarificationHint = (
+  ...values: Array<string | null | undefined>
+) => {
   const lines = values
     .filter(Boolean)
     .flatMap((value) => String(value).split(/\n+/g))
     .map((line) => compactText(line))
     .filter(Boolean);
 
-  return lines.find((line) => {
-    const text = normalizeForMatch(line);
-    if (!text) return false;
+  return (
+    lines.find((line) => {
+      const text = normalizeForMatch(line);
+      if (!text) return false;
 
-    const wantsSchedulingContact =
-      /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|melden|kontaktieren|vereinbaren|ausmachen|besprechen|offen|vorschlag|vorschlaege|vorschläge|senden|schicken)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)|(?:termin|datum|zeitfenster|zeitpunkt)\s+(?:ist\s+)?offen|(?:zwei|2)\s+(?:termin)?vorschlaege\s+senden|(?:zwei|2)\s+(?:termin)?vorschläge\s+senden/.test(text);
-    if (!wantsSchedulingContact) return false;
+      const wantsSchedulingContact =
+        /(?:termin|datum|zeitfenster|zeitpunkt).*(?:klaeren|klaren|abstimmen|abgestimmt|abstimmung|koordinieren|melden|kontaktieren|vereinbaren|ausmachen|besprechen|offen|vorschlag|vorschlaege|vorschläge|senden|schicken)|(?:melden|kontaktieren|anrufen|schreiben).*(?:termin|datum|zeitfenster|zeitpunkt)|(?:termin|datum|zeitfenster|zeitpunkt)\s+(?:ist\s+)?offen|(?:zwei|2)\s+(?:termin)?vorschlaege\s+senden|(?:zwei|2)\s+(?:termin)?vorschläge\s+senden/.test(
+          text,
+        );
+      if (!wantsSchedulingContact) return false;
 
-    // Fixed appointments stay normal violet appointment chips.
-    const hasConcreteDateOrTime =
-      /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(line) ||
-      /\b(?:heute|morgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/.test(text) ||
-      /\b(?:vormittag|nachmittag|abend)\b/.test(text) ||
-      /\b\d{1,2}(?::|\.)\d{2}\b/.test(line) ||
-      /\b\d{1,2}\s*(?:uhr|h)\b/.test(text);
+      // Fixed appointments stay normal violet appointment chips.
+      const hasConcreteDateOrTime =
+        /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(line) ||
+        /\b(?:heute|morgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/.test(
+          text,
+        ) ||
+        /\b(?:vormittag|nachmittag|abend)\b/.test(text) ||
+        /\b\d{1,2}(?::|\.)\d{2}\b/.test(line) ||
+        /\b\d{1,2}\s*(?:uhr|h)\b/.test(text);
 
-    return !hasConcreteDateOrTime;
-  }) || null;
+      return !hasConcreteDateOrTime;
+    }) || null
+  );
 };
 
-
-const extractCallbackTimeHint = (...values: Array<string | null | undefined>) => {
+const extractCallbackTimeHint = (
+  ...values: Array<string | null | undefined>
+) => {
   const source = values
     .filter(Boolean)
     .join("\n")
@@ -3579,7 +3926,6 @@ const isCallbackTimeLine = (value?: string | null) => {
   return isAppointmentContactTimeLine(value);
 };
 
-
 const detectPreArrivalInstructionHint = (
   ...values: Array<string | null | undefined>
 ) => {
@@ -3593,25 +3939,33 @@ const detectPreArrivalInstructionHint = (
   const direct = lines.find((line) => {
     const text = normalizeForMatch(line);
     if (!text) return false;
-    return (
-      isPreArrivalInstructionLine(line)
-    );
+    return isPreArrivalInstructionLine(line);
   });
 
   if (!direct) return null;
 
   const callbackTime = extractCallbackTimeHint(...values);
   const cleanedDirect = compactText(stripVisibleNoteMarkerV17_35(direct))
-    .replace(/\b(?:keine?|kein|ohne|nicht)\s+(?:per\s+|via\s+)?whats\s*app\.?/gi, "")
-    .replace(/[;,.]?\s*(?:bitte\s+)?(?:nicht|nid|ned|noed|nöd)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)\.?/gi, "")
-    .replace(/^(?:bitte\s+)?(?:nicht|nid|ned|noed|nöd)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)\.?$/gi, "")
+    .replace(
+      /\b(?:keine?|kein|ohne|nicht)\s+(?:per\s+|via\s+)?whats\s*app\.?/gi,
+      "",
+    )
+    .replace(
+      /[;,.]?\s*(?:bitte\s+)?(?:nicht|nid|ned|noed|nöd)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)\.?/gi,
+      "",
+    )
+    .replace(
+      /^(?:bitte\s+)?(?:nicht|nid|ned|noed|nöd)\s+einfach\s+(?:kommen|vorbeikommen|cho|verbi\s+cho)\.?$/gi,
+      "",
+    )
     .replace(/\s{2,}/g, " ")
     .replace(/\s*[;,.]\s*$/g, "")
     .trim();
 
-  let detailLine = cleanedDirect && normalizeForMatch(cleanedDirect) !== "nicht einfach kommen"
-    ? cleanedDirect
-    : "Vorher melden, nicht direkt erscheinen.";
+  let detailLine =
+    cleanedDirect && normalizeForMatch(cleanedDirect) !== "nicht einfach kommen"
+      ? cleanedDirect
+      : "Vorher melden, nicht direkt erscheinen.";
 
   if (/^\s*[,;:.\-–—]+\s*/.test(detailLine)) {
     detailLine = detailLine.replace(/^\s*[,;:.\-–—]+\s*/, "").trim();
@@ -3621,21 +3975,19 @@ const detectPreArrivalInstructionHint = (
     detailLine = "Vorher melden, nicht direkt erscheinen.";
   }
 
-  return [
-    detailLine,
-    callbackTime ? `Zeit: ${callbackTime}` : "",
-  ]
+  return [detailLine, callbackTime ? `Zeit: ${callbackTime}` : ""]
     .filter(Boolean)
     .join("\n");
 };
-
 
 const isEmailOnlyContactInstructionLine = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
   return (
-    /(?:nur|only|uniquement|solo|solamente)\s+(?:per\s+|via\s+)?(?:e\s*mail|email|mail)/.test(text) ||
+    /(?:nur|only|uniquement|solo|solamente)\s+(?:per\s+|via\s+)?(?:e\s*mail|email|mail)/.test(
+      text,
+    ) ||
     /(?:e\s*mail|email|mail)\s+(?:reicht|only|uniquement)/.test(text) ||
     /kontakt\s+nur\s+(?:per\s+)?(?:e\s*mail|email|mail)/.test(text) ||
     /contact\s+us\s+by\s+email\s+only/.test(text)
@@ -3643,14 +3995,18 @@ const isEmailOnlyContactInstructionLine = (value?: string | null) => {
 };
 
 const shouldSuppressCallbackBecauseEmailOnly = (lines: string[]) => {
-  const hasEmailOnly = lines.some((line) => isEmailOnlyContactInstructionLine(line));
+  const hasEmailOnly = lines.some((line) =>
+    isEmailOnlyContactInstructionLine(line),
+  );
   if (!hasEmailOnly) return false;
 
   const hasRealPhoneCallback = lines.some((line) => {
     const text = normalizeForMatch(line);
     if (!text) return false;
     if (isEmailOnlyContactInstructionLine(line)) return false;
-    return /(?:rueckruf|ruckruf|zurueckrufen|zuruckrufen|anrufen|telefonisch\s+melden|telefonisch\s+kontaktieren|call\s+back|phone\s+call|please\s+call|call\s+us)/.test(text);
+    return /(?:rueckruf|ruckruf|zurueckrufen|zuruckrufen|anrufen|telefonisch\s+melden|telefonisch\s+kontaktieren|call\s+back|phone\s+call|please\s+call|call\s+us)/.test(
+      text,
+    );
   });
 
   return !hasRealPhoneCallback;
@@ -3699,7 +4055,7 @@ const getBottomBadges = (
 
   const hasCallbackBadge = Boolean(
     !suppressCallbackBecauseEmailOnly &&
-      (directCallbackHint || detectCallbackRequest(callbackDetectionSource)),
+    (directCallbackHint || detectCallbackRequest(callbackDetectionSource)),
   );
   const callbackTimeHint = hasCallbackBadge
     ? extractCallbackTimeHint(
@@ -3782,11 +4138,17 @@ const getBottomBadges = (
     order.specialNotes,
     order.notes,
     order.audioTranscript,
-  ).filter((line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line));
+  ).filter(
+    (line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line),
+  );
 
-  const multipleAppointmentBadge = getMultipleAppointmentBadge(order, parsedNotes);
+  const multipleAppointmentBadge = getMultipleAppointmentBadge(
+    order,
+    parsedNotes,
+  );
 
-  const appointmentBadge = multipleAppointmentBadge ||
+  const appointmentBadge =
+    multipleAppointmentBadge ||
     appointmentSourceLines
       .map((line) =>
         extractAppointmentBadge(line, appointmentBaseDate, order.status),
@@ -3799,7 +4161,9 @@ const getBottomBadges = (
       label: appointmentBadge.label,
       className: appointmentBadge.className,
       icon: appointmentBadge.icon,
-      tooltip: multipleAppointmentBadge ? multipleAppointmentBadge.tooltip : undefined,
+      tooltip: multipleAppointmentBadge
+        ? multipleAppointmentBadge.tooltip
+        : undefined,
     });
   } else {
     const appointmentClarification = detectAppointmentClarificationHint(
@@ -3834,7 +4198,11 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
 
   if (negative) return false;
 
-  if (CALLBACK_CONTACT_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text)) return true;
+  if (
+    CALLBACK_CONTACT_WORD_PATTERN.test(text) &&
+    CALLBACK_TIME_PATTERN.test(text)
+  )
+    return true;
 
   return /(?:rueckruf|ruckruf)\s+(?:gewuenscht|erwuenscht|bitte|vor|arbeitsbeginn|ankunft)|bitte\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|aaluete|anluete|klingeln)|vorher\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen|aaluete|anluete|klingeln)|vor\s+ankunft\s+(?:kurz\s+)?(?:zurueckrufen|zuruckrufen|anrufen|telefonieren|kontaktieren)|vor\s+arbeitsbeginn\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:kontaktieren|melden|anrufen|telefonieren|aaluete|anluete|klingeln)|vor\s+ort\s+(?:kurz\s+)?(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)|telefonischer\s+(?:rueckruf|ruckruf)|telefonisch\s+(?:abklaeren|kontaktieren|melden)|\b\d+\s*minuten\s+(?:vorher|vor\s+arbeitsbeginn|vor\s+ankunft)\s+(?:anrufen|telefonieren|kontaktieren|zurueckrufen|zuruckrufen)/.test(
     text,
@@ -3843,22 +4211,37 @@ const isPositiveCallbackChipLine = (value?: string | null) => {
 
 const COMMUNICATION_CHIP_PHONE_NUMBER_PATTERN = /\+?\d[\d\s()./-]{6,}\d/g;
 
-const isChannelOnlyContactLineForCommunicationChips = (value?: string | null) => {
+const isChannelOnlyContactLineForCommunicationChips = (
+  value?: string | null,
+) => {
   const text = normalizeForMatch(value);
   if (!text || isPositiveCallbackChipLine(value)) return false;
 
-  const mentionsChannel = /\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(text);
+  const mentionsChannel =
+    /\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(text);
   if (!mentionsChannel) return false;
 
   const saysChannelOnlyOrPreferred =
-    /\b(?:nur|only|uniquement|solo|solamente)\b.{0,28}\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(text) ||
-    /\b(?:kontakt|contact)\b.{0,28}\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(text) ||
-    /\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b.{0,32}\b(?:bevorzugt|reicht|preferred|only)\b/.test(text) ||
-    /\b(?:vorher|zuerst|erst)\b.{0,24}\b(?:sms|whats\s*app|whatsapp|schreiben|message|nachricht)\b/.test(text);
+    /\b(?:nur|only|uniquement|solo|solamente)\b.{0,28}\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(
+      text,
+    ) ||
+    /\b(?:kontakt|contact)\b.{0,28}\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b/.test(
+      text,
+    ) ||
+    /\b(?:sms|whats\s*app|whatsapp|e\s*mail|email|mail)\b.{0,32}\b(?:bevorzugt|reicht|preferred|only)\b/.test(
+      text,
+    ) ||
+    /\b(?:vorher|zuerst|erst)\b.{0,24}\b(?:sms|whats\s*app|whatsapp|schreiben|message|nachricht)\b/.test(
+      text,
+    );
 
   const forbidsPhone =
-    /\b(?:nicht|keine?|kein|ohne|no|not|without)\b.{0,32}\b(?:telefon|anruf|anrufen|rueckruf|ruckruf|zurueckrufen|zuruckrufen|call)\b/.test(text) ||
-    /\b(?:telefon|anruf|anrufen|rueckruf|ruckruf|zurueckrufen|zuruckrufen|call)\b.{0,32}\b(?:nicht|keine?|kein|ohne|no|not|without)\b/.test(text);
+    /\b(?:nicht|keine?|kein|ohne|no|not|without)\b.{0,32}\b(?:telefon|anruf|anrufen|rueckruf|ruckruf|zurueckrufen|zuruckrufen|call)\b/.test(
+      text,
+    ) ||
+    /\b(?:telefon|anruf|anrufen|rueckruf|ruckruf|zurueckrufen|zuruckrufen|call)\b.{0,32}\b(?:nicht|keine?|kein|ohne|no|not|without)\b/.test(
+      text,
+    );
 
   return saysChannelOnlyOrPreferred || forbidsPhone;
 };
@@ -3869,7 +4252,10 @@ const sanitizeCommunicationChipLineForCommunicationChips = (line: string) => {
   return compactText(
     line
       .replace(COMMUNICATION_CHIP_PHONE_NUMBER_PATTERN, "")
-      .replace(/\ban\s+(?=schreiben|senden|melden|kontaktieren|message|nachricht)/i, "")
+      .replace(
+        /\ban\s+(?=schreiben|senden|melden|kontaktieren|message|nachricht)/i,
+        "",
+      )
       .replace(/\b(?:an|unter|auf|via)\s*[.,;:!?-]*$/i, "")
       .replace(/\s{2,}/g, " "),
   );
@@ -3879,17 +4265,15 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
   String(value || "")
     .split(/\n+/g)
     .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line &&
-        !isPositiveCallbackChipLine(line),
-    )
+    .filter((line) => line && !isPositiveCallbackChipLine(line))
     .map((line) => sanitizeCommunicationChipLineForCommunicationChips(line))
     .filter(Boolean)
     .join("\n");
 
 const buildCommunicationChipDataV17_52 = (order: Order): any => {
-  const cleanedSpecialNotes = removeCallbackLinesForCommunicationChips(order.specialNotes);
+  const cleanedSpecialNotes = removeCallbackLinesForCommunicationChips(
+    order.specialNotes,
+  );
   const cleanedNotes = [
     removeCallbackLinesForCommunicationChips(order.notes),
     cleanedSpecialNotes,
@@ -3897,7 +4281,9 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
   ]
     .filter(Boolean)
     .join("\n");
-  const cleanedAudioTranscript = removeCallbackLinesForCommunicationChips(order.audioTranscript);
+  const cleanedAudioTranscript = removeCallbackLinesForCommunicationChips(
+    order.audioTranscript,
+  );
 
   // Card-level communication chips must not create a generic red phone chip
   // from SMS/WhatsApp-only contact data. Rückruf is handled by its own badge.
@@ -3906,7 +4292,9 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
     phone: "",
     customerPhone: "",
     contactPhone: "",
-    customer: order.customer ? { ...order.customer, phone: "" } : order.customer,
+    customer: order.customer
+      ? { ...order.customer, phone: "" }
+      : order.customer,
     specialNotes: cleanedSpecialNotes,
     notes: cleanedNotes,
     audioTranscript: cleanedAudioTranscript,
@@ -3918,14 +4306,23 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
     .replace(/\bborder\s+border-/g, "border-2 border-")
     .replace(/\bborder\s+border\b/g, "border-2 border");
 
-const compactIconForBadge = (badge: ReviewBadge): ComponentType<{ className?: string }> | null => {
+const compactIconForBadge = (
+  badge: ReviewBadge,
+): ComponentType<{ className?: string }> | null => {
   const label = normalizeForMatch(badge.label);
   if (label.includes("hund")) {
     return DangerousDogIcon;
   }
   if (label.includes("leiter")) return LadderIcon;
-  if (label.includes("schluessel") || label.includes("schlussel")) return KeyRound;
-  if (label === "zugang" || label.includes("zugang") || label.includes("seiteneingang") || label.includes("hintereingang")) return OpenDoorIcon;
+  if (label.includes("schluessel") || label.includes("schlussel"))
+    return KeyRound;
+  if (
+    label === "zugang" ||
+    label.includes("zugang") ||
+    label.includes("seiteneingang") ||
+    label.includes("hintereingang")
+  )
+    return OpenDoorIcon;
   return null;
 };
 
@@ -3942,7 +4339,8 @@ const renderBadgeTooltip = (
   const alignClass = align === "right" ? "right-0" : "left-0";
 
   const tooltipLines = tooltip.split("\n");
-  const headingPattern = /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
+  const headingPattern =
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen)$/;
 
   return (
     <span
@@ -3959,7 +4357,8 @@ const renderBadgeTooltip = (
           );
         }
 
-        const emphasizeLine = headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed);
+        const emphasizeLine =
+          headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed);
 
         return (
           <span
@@ -4002,14 +4401,18 @@ const renderReviewBadge = (
         }
       }}
       className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "rounded-lg" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${visualClassName} ${
-        options.strong ? getStrongerCardBadgeClassName(badge.className) : badge.className
+        options.strong
+          ? getStrongerCardBadgeClassName(badge.className)
+          : badge.className
       }`}
       aria-label={compactText(badge.tooltip) || badge.label}
     >
       {CompactIcon ? (
         <CompactIcon className="h-5 w-5" />
       ) : compactSymbol ? (
-        <span aria-hidden="true" className="leading-none">{compactSymbol}</span>
+        <span aria-hidden="true" className="leading-none">
+          {compactSymbol}
+        </span>
       ) : (
         <>
           {badge.key === "callback_request" && (
@@ -4053,7 +4456,8 @@ const mobileIconForBadge = (badge: ReviewBadge) => {
   const label = normalizeForMatch(badge.label);
   if (badge.key === "site_address") return MapPin;
   if (badge.key === "callback_request") return Phone;
-  if (badge.key === "appointment" || badge.key === "appointment_clarify") return CalendarDays;
+  if (badge.key === "appointment" || badge.key === "appointment_clarify")
+    return CalendarDays;
   if (label.includes("park")) return ParkingCircle;
   if (label.includes("mail")) return Mail;
   if (label.includes("whatsapp")) return WhatsAppIcon;
@@ -4067,9 +4471,12 @@ const mobileIconBadgeClass = (badge: ReviewBadge) => {
   if (/red/.test(className)) return "bg-red-50 text-red-700 border-red-300";
   if (/blue/.test(className)) return "bg-blue-50 text-blue-700 border-blue-300";
   if (/cyan/.test(className)) return "bg-cyan-50 text-cyan-700 border-cyan-300";
-  if (/emerald|green/.test(className)) return "bg-emerald-50 text-emerald-700 border-emerald-300";
-  if (/violet|purple/.test(className)) return "bg-violet-50 text-violet-700 border-violet-300";
-  if (/yellow|amber|orange/.test(className)) return "bg-amber-50 text-amber-700 border-amber-300";
+  if (/emerald|green/.test(className))
+    return "bg-emerald-50 text-emerald-700 border-emerald-300";
+  if (/violet|purple/.test(className))
+    return "bg-violet-50 text-violet-700 border-violet-300";
+  if (/yellow|amber|orange/.test(className))
+    return "bg-amber-50 text-amber-700 border-amber-300";
   return "bg-slate-50 text-slate-700 border-slate-300";
 };
 
@@ -4093,7 +4500,11 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       }}
       className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
     >
-      {Icon ? <Icon className="h-3.5 w-3.5" strokeWidth={2.2} /> : badge.label.slice(0, 1)}
+      {Icon ? (
+        <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+      ) : (
+        badge.label.slice(0, 1)
+      )}
       {renderBadgeTooltip(badge, "left")}
     </button>
   );
@@ -4139,7 +4550,10 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
   );
 };
 
-const renderMobileTextBadge = (badge: ReviewBadge, align: "left" | "right" = "right") =>
+const renderMobileTextBadge = (
+  badge: ReviewBadge,
+  align: "left" | "right" = "right",
+) =>
   renderReviewBadge(
     badge,
     "max-w-full truncate text-[10px] px-1.5 py-0.5 font-semibold",
@@ -4184,8 +4598,12 @@ const mobileOverflowBadge = (count: number) =>
 const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
   const source = values.filter(Boolean).join("\n");
   const explicitPhone =
-    source.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
-    source.match(/(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    source.match(
+      /(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i,
+    )?.[1] ||
+    source.match(
+      /(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i,
+    )?.[1] ||
     source.match(/(\+\d[\d\s()./-]{7,}\d)/)?.[1] ||
     "";
   const normalized = explicitPhone.replace(/[^+0-9]/g, "");
@@ -4210,7 +4628,8 @@ const renderCallbackCardBadge = (
     return renderOrderCardBadge(
       {
         ...badge,
-        tooltip: compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt",
+        tooltip:
+          compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt",
       },
       tooltipAlign,
     );
@@ -4354,7 +4773,10 @@ const extractFallbackServiceLabels = (order: Order) => {
 
 const cleanCardServiceLabelV17_34 = (value?: string | null) =>
   compactText(value)
-    .replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, "")
+    .replace(
+      /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i,
+      "",
+    )
     .trim();
 
 const getOrderCardServiceSummary = (order: Order) => {
@@ -4364,7 +4786,9 @@ const getOrderCardServiceSummary = (order: Order) => {
       : [];
 
   const structuredLabels =
-    itemLabels.length > 0 ? itemLabels : [cleanCardServiceLabelV17_34(order.serviceName) || ""];
+    itemLabels.length > 0
+      ? itemLabels
+      : [cleanCardServiceLabelV17_34(order.serviceName) || ""];
   const usableStructuredLabels = structuredLabels.filter(
     (label) => normalizeForMatch(label) !== "sonstiges",
   );
@@ -4392,12 +4816,15 @@ const getMobileOrderCardServiceSummary = (order: Order) => {
       ? order.items.map((item) => cleanCardServiceLabelV17_34(item.serviceName))
       : [];
   const structuredLabels =
-    itemLabels.length > 0 ? itemLabels : [cleanCardServiceLabelV17_34(order.serviceName) || ""];
+    itemLabels.length > 0
+      ? itemLabels
+      : [cleanCardServiceLabelV17_34(order.serviceName) || ""];
   const usableStructuredLabels = structuredLabels.filter(
     (label) => normalizeForMatch(label) !== "sonstiges",
   );
   const structuredSummary = formatMobileServiceSummary(usableStructuredLabels);
-  if (structuredSummary && structuredSummary !== "Leistung prüfen") return structuredSummary;
+  if (structuredSummary && structuredSummary !== "Leistung prüfen")
+    return structuredSummary;
   return formatMobileServiceSummary(extractFallbackServiceLabels(order));
 };
 
@@ -4492,7 +4919,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
       // V17.19: Alte KI-/Währungs-ReviewReasons dürfen Angebot/Rechnung nicht
       // mehr blockieren, wenn alle Positionen inzwischen manuell verwertbare
       // Preise/Mengen/Totale haben. Harte Mengen-/Einheitsfehler bleiben Blocker.
-      return !(allItemsResolvedForConversion && isResolvableConversionReviewReason(reason));
+      return !(
+        allItemsResolvedForConversion &&
+        isResolvableConversionReviewReason(reason)
+      );
     })
   ) {
     blockers.push("Offene Prüfhinweise im Auftrag");
@@ -4502,7 +4932,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
   // Preisabweichung oder Nicht-im-Katalog dürfen Angebot/Rechnung nicht
   // verhindern, solange Preis, Menge, Kunde und Währung verwertbar sind.
 
-  if (isCustomerDataIncomplete(order?.customer) && !hasAddressRoleReviewReasonV17_61(order)) {
+  if (
+    isCustomerDataIncomplete(order?.customer) &&
+    !hasAddressRoleReviewReasonV17_61(order)
+  ) {
     blockers.push("Kundendaten prüfen");
   }
 
@@ -4580,8 +5013,7 @@ export default function AuftraegePage() {
   const [expandedWorkSiteIds, setExpandedWorkSiteIds] = useState<string[]>([]);
   const [customerMessagesExpanded, setCustomerMessagesExpanded] =
     useState(false);
-  const [serviceOverviewExpanded, setServiceOverviewExpanded] =
-    useState(false);
+  const [serviceOverviewExpanded, setServiceOverviewExpanded] = useState(false);
   const [movingItemKey, setMovingItemKey] = useState<string | null>(null);
   // Persisted MwSt on Auftrag — saved on the Order itself (see app/api/orders)
   // and forwarded to the derived Offer/Invoice when converting.
@@ -4603,7 +5035,10 @@ export default function AuftraegePage() {
     country: "CH",
   });
   const [savingCust, setSavingCust] = useState(false);
-  const [pendingBillingAddressRoleAutoSaveV17_64, setPendingBillingAddressRoleAutoSaveV17_64] = useState(false);
+  const [
+    pendingBillingAddressRoleAutoSaveV17_64,
+    setPendingBillingAddressRoleAutoSaveV17_64,
+  ] = useState(false);
 
   // Stage E (deterministic chip flow): pending customerId waiting for the dialog
   // to mount + form to be populated before the customer-edit section is opened.
@@ -4719,7 +5154,9 @@ export default function AuftraegePage() {
 
   // Dropdown menu for create offer/invoice
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
-  const [activeMobileTooltipKey, setActiveMobileTooltipKey] = useState<string | null>(null);
+  const [activeMobileTooltipKey, setActiveMobileTooltipKey] = useState<
+    string | null
+  >(null);
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
@@ -4732,7 +5169,6 @@ export default function AuftraegePage() {
     unit: string;
   }>(null);
   const [catalogDecisionSaving, setCatalogDecisionSaving] = useState(false);
-  const executionAddressCustomerFetchRef = useRef<Set<string>>(new Set());
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -4798,19 +5234,15 @@ export default function AuftraegePage() {
     load();
   }, []);
 
-  // V17.69: Beim Öffnen/Bearbeiten eines Auftrags den aktuell zugeordneten
-  // Kunden bei Bedarf nachladen, damit die persistenten Ausführungsorte sicher
-  // im Vorschlagskasten erscheinen. Die normale Kundenliste kann aus
-  // Performance-Gründen gekürzt sein; die Einzelkunden-API liefert die Relation.
+  // V17.70: Beim Öffnen des Ausführungsadresse-Editors den Kunden IMMER
+  // frisch nachladen. Die Kundenliste kann eine ältere executionAddresses-Liste
+  // enthalten; dann würden neu gespeicherte Orte wie "Lager Ost" im Vorschlag
+  // fehlen, obwohl sie in der DB stehen. Deshalb nicht mehr abbrechen, nur weil
+  // bereits ein Array vorhanden ist.
   useEffect(() => {
     const customerId = String(form.customerId || "").trim();
-    if (!customerId) return;
+    if (!dialogOpen || !siteAddressEditing || !customerId) return;
 
-    const currentCustomer = customers.find((entry) => entry.id === customerId);
-    if (Array.isArray(currentCustomer?.executionAddresses)) return;
-    if (executionAddressCustomerFetchRef.current.has(customerId)) return;
-
-    executionAddressCustomerFetchRef.current.add(customerId);
     let cancelled = false;
 
     (async () => {
@@ -4829,14 +5261,14 @@ export default function AuftraegePage() {
           );
         });
       } catch {
-        executionAddressCustomerFetchRef.current.delete(customerId);
+        // Kein Toast: Der Nutzer kann die Adresse weiterhin manuell erfassen.
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [form.customerId, customers]);
+  }, [dialogOpen, siteAddressEditing, form.customerId]);
 
   // Auto-refresh on tab/window focus removed:
   // it caused visible reload flicker and scroll loss while editing orders.
@@ -4986,7 +5418,10 @@ export default function AuftraegePage() {
    */
   const openEdit = (
     o: Order,
-    opts?: { openCustomerSection?: boolean; focusSection?: "specialNotes" | "items" },
+    opts?: {
+      openCustomerSection?: boolean;
+      focusSection?: "specialNotes" | "items";
+    },
   ) => {
     setEditId(o.id);
     setServiceActionMenuKey(null);
@@ -5029,7 +5464,9 @@ export default function AuftraegePage() {
     });
     const nextWorkSites = (o.workSites ?? [])
       .map((site, index) =>
-        index === 0 && !cleanWorkSiteDisplayName(site.siteName) && inferredSiteName
+        index === 0 &&
+        !cleanWorkSiteDisplayName(site.siteName) &&
+        inferredSiteName
           ? { ...site, siteName: inferredSiteName }
           : site,
       )
@@ -5063,11 +5500,13 @@ export default function AuftraegePage() {
               item.serviceName,
             );
             const quantityNumber = Number(item.quantity || 0);
-            const hasValidQuantity = Number.isFinite(quantityNumber) && quantityNumber > 0;
-            const rawAiWarning = getAiWarningFromItemDescription(item.description);
-            const isCatalogConfirmed = getCatalogReviewConfirmedFromItemDescription(
+            const hasValidQuantity =
+              Number.isFinite(quantityNumber) && quantityNumber > 0;
+            const rawAiWarning = getAiWarningFromItemDescription(
               item.description,
             );
+            const isCatalogConfirmed =
+              getCatalogReviewConfirmedFromItemDescription(item.description);
             const isManualCurrencyConfirmed =
               getManualCurrencyConfirmedFromItemDescription(item.description);
             const hasItemCurrencyMismatch = hasCurrencyMismatchReviewForService(
@@ -5083,7 +5522,9 @@ export default function AuftraegePage() {
 
             return {
               key: Math.random().toString(36).slice(2),
-              serviceName: canonicalServiceNameForOrderItem(item.serviceName ?? ""),
+              serviceName: canonicalServiceNameForOrderItem(
+                item.serviceName ?? "",
+              ),
               unit: item.unit ?? "Stunde",
               // V17.16: Bei ungelöster Mischwährung auch Anfahrt nicht mit dem
               // alten Textpreis vorbefüllen. Der Benutzer soll einen frischen
@@ -5502,7 +5943,7 @@ export default function AuftraegePage() {
     const existingPrice = Number(existing?.defaultPrice || 0);
     const existingNeedsUpdate = Boolean(
       existing &&
-        (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
+      (existingUnit !== itemUnit || Math.abs(existingPrice - price) >= 0.01),
     );
 
     if (existing && existingNeedsUpdate) {
@@ -5542,7 +5983,9 @@ export default function AuftraegePage() {
       }
 
       setServiceActionMenuKey(null);
-      toast.success("Leistung ist im Katalog und wurde im Auftrag gespeichert ✓");
+      toast.success(
+        "Leistung ist im Katalog und wurde im Auftrag gespeichert ✓",
+      );
       return;
     }
 
@@ -5585,7 +6028,9 @@ export default function AuftraegePage() {
       }
 
       setServiceActionMenuKey(null);
-      toast.success("Leistung wurde in Leistungen übernommen und Auftrag gespeichert ✓");
+      toast.success(
+        "Leistung wurde in Leistungen übernommen und Auftrag gespeichert ✓",
+      );
     } catch {
       toast.error("Leistung konnte nicht übernommen werden");
     }
@@ -5603,7 +6048,8 @@ export default function AuftraegePage() {
     }
 
     const nextItems = getCatalogResolvedFormItems(formItems, index, {
-      serviceName: catalogDecision.existing.name || catalogDecision.normalizedName,
+      serviceName:
+        catalogDecision.existing.name || catalogDecision.normalizedName,
       catalogReviewConfirmed: true,
     });
 
@@ -5625,7 +6071,9 @@ export default function AuftraegePage() {
 
       setCatalogDecision(null);
       setServiceActionMenuKey(null);
-      toast.success("Nur dieser Auftrag wurde dauerhaft als geprüft gespeichert ✓");
+      toast.success(
+        "Nur dieser Auftrag wurde dauerhaft als geprüft gespeichert ✓",
+      );
     } catch {
       toast.error("Prüfung konnte nicht gespeichert werden");
     } finally {
@@ -5689,7 +6137,9 @@ export default function AuftraegePage() {
 
       setCatalogDecision(null);
       setServiceActionMenuKey(null);
-      toast.success("Katalogpreis wurde global aktualisiert und Auftrag gespeichert ✓");
+      toast.success(
+        "Katalogpreis wurde global aktualisiert und Auftrag gespeichert ✓",
+      );
     } catch {
       toast.error("Katalogpreis konnte nicht aktualisiert werden");
     } finally {
@@ -5816,7 +6266,9 @@ export default function AuftraegePage() {
       compactText(primarySite?.siteCity) || compactText(form.siteCity);
     const siteNote =
       compactText(primarySite?.siteNote) || compactText(form.siteNote);
-    const hasAny = Boolean(siteName || siteAddress || sitePlz || siteCity || siteNote);
+    const hasAny = Boolean(
+      siteName || siteAddress || sitePlz || siteCity || siteNote,
+    );
     const hasCompleteAddress = Boolean(siteAddress && sitePlz && siteCity);
 
     return {
@@ -5831,8 +6283,16 @@ export default function AuftraegePage() {
   })();
 
   const isSameAddressPartsV17_63 = (
-    left: { siteAddress?: string | null; sitePlz?: string | null; siteCity?: string | null },
-    right: { siteAddress?: string | null; sitePlz?: string | null; siteCity?: string | null },
+    left: {
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+    },
+    right: {
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+    },
   ) => {
     const leftStreet = normalizeAddressPartForCompare(left.siteAddress);
     const leftPlz = normalizeAddressPartForCompare(left.sitePlz);
@@ -5843,25 +6303,27 @@ export default function AuftraegePage() {
 
     return Boolean(
       leftStreet &&
-        leftPlz &&
-        leftCity &&
-        rightStreet &&
-        rightPlz &&
-        rightCity &&
-        leftStreet === rightStreet &&
-        leftPlz === rightPlz &&
-        leftCity === rightCity,
+      leftPlz &&
+      leftCity &&
+      rightStreet &&
+      rightPlz &&
+      rightCity &&
+      leftStreet === rightStreet &&
+      leftPlz === rightPlz &&
+      leftCity === rightCity,
     );
   };
   const shouldShowAddressRoleReviewBoxV17_62 = Boolean(
     currentEditOrder &&
-      hasAddressRoleReviewReasonV17_61(currentEditOrder) &&
-      addressRoleReviewCandidateV17_62.hasAny,
+    hasAddressRoleReviewReasonV17_61(currentEditOrder) &&
+    addressRoleReviewCandidateV17_62.hasAny,
   );
-  const hasCurrentEditCurrencyReview =
-    hasAnyCurrencyReviewReason(currentEditReviewReasons);
-  const hasCurrentEditItemCurrencyMismatch =
-    hasItemLevelCurrencyReviewReasons(currentEditReviewReasons);
+  const hasCurrentEditCurrencyReview = hasAnyCurrencyReviewReason(
+    currentEditReviewReasons,
+  );
+  const hasCurrentEditItemCurrencyMismatch = hasItemLevelCurrencyReviewReasons(
+    currentEditReviewReasons,
+  );
   const hasOnlyGlobalCurrentEditCurrencyReview =
     hasGlobalCurrencyReviewWithoutItemDetails(currentEditReviewReasons);
 
@@ -5937,7 +6399,9 @@ export default function AuftraegePage() {
 
     const saved = await res.json();
     setOrders((prev) =>
-      prev.map((order) => (order.id === saved.id ? { ...order, ...saved } : order)),
+      prev.map((order) =>
+        order.id === saved.id ? { ...order, ...saved } : order,
+      ),
     );
     await load();
     return saved;
@@ -5988,7 +6452,8 @@ export default function AuftraegePage() {
     );
 
     if (clearDuplicateExecutionAddress) {
-      const clearedWorkSites = blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
+      const clearedWorkSites =
+        blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
       setForm((prev) => ({
         ...prev,
         siteAddressDifferent: false,
@@ -6036,8 +6501,7 @@ export default function AuftraegePage() {
       formWorkSites.find((site) => Boolean(site.isPrimary)) ||
       formWorkSites[0] ||
       null;
-    const siteId =
-      existingSite?.id || `local-site-${Date.now().toString(36)}`;
+    const siteId = existingSite?.id || `local-site-${Date.now().toString(36)}`;
     const nextSite: OrderWorkSite = {
       ...(existingSite || {}),
       id: siteId,
@@ -6084,8 +6548,12 @@ export default function AuftraegePage() {
 
     setSaving(true);
     try {
-      const saved = await persistAddressReviewPatchV17_64(nextFormPatch, nextWorkSites);
-      if (saved) toast.success("Ausführungsadresse übernommen und gespeichert.");
+      const saved = await persistAddressReviewPatchV17_64(
+        nextFormPatch,
+        nextWorkSites,
+      );
+      if (saved)
+        toast.success("Ausführungsadresse übernommen und gespeichert.");
     } catch {
       toast.error("Adressprüfung konnte nicht gespeichert werden");
     } finally {
@@ -6130,7 +6598,10 @@ export default function AuftraegePage() {
   const isManuallyConfirmedCurrencyItem = (item: FormItem) => {
     if (!isCompleteResolvedFormItem(item)) return false;
 
-    if (Boolean(item.manualCurrencyConfirmed) || Boolean(item.catalogReviewConfirmed)) {
+    if (
+      Boolean(item.manualCurrencyConfirmed) ||
+      Boolean(item.catalogReviewConfirmed)
+    ) {
       return true;
     }
 
@@ -6164,7 +6635,10 @@ export default function AuftraegePage() {
   };
 
   const isBlockedFormItemForTotal = (
-    item: Pick<FormItem, "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed"> & {
+    item: Pick<
+      FormItem,
+      "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed"
+    > & {
       serviceName?: string | null;
     },
     forceCurrencyConflict = false,
@@ -6195,7 +6669,15 @@ export default function AuftraegePage() {
   };
 
   const getSafeFormItemTotal = (
-    item: Pick<FormItem, "serviceName" | "unit" | "unitPrice" | "quantity" | "aiWarning" | "catalogReviewConfirmed">,
+    item: Pick<
+      FormItem,
+      | "serviceName"
+      | "unit"
+      | "unitPrice"
+      | "quantity"
+      | "aiWarning"
+      | "catalogReviewConfirmed"
+    >,
     forceCurrencyConflict = false,
   ) => {
     if (isBlockedFormItemForTotal(item, forceCurrencyConflict)) return 0;
@@ -6214,10 +6696,10 @@ export default function AuftraegePage() {
   const hasWorkSiteContent = (site?: OrderWorkSite | null) =>
     Boolean(
       compactText(site?.siteName) ||
-        compactText(site?.siteAddress) ||
-        compactText(site?.sitePlz) ||
-        compactText(site?.siteCity) ||
-        compactText(site?.siteNote),
+      compactText(site?.siteAddress) ||
+      compactText(site?.sitePlz) ||
+      compactText(site?.siteCity) ||
+      compactText(site?.siteNote),
     );
 
   const hasItemsAssignedToWorkSite = (siteId?: string | null) =>
@@ -6312,7 +6794,8 @@ export default function AuftraegePage() {
 
   const addFormWorkSite = () => {
     const openDraft = formWorkSites.find(
-      (site) => !hasWorkSiteContent(site) && !hasItemsAssignedToWorkSite(site.id),
+      (site) =>
+        !hasWorkSiteContent(site) && !hasItemsAssignedToWorkSite(site.id),
     );
 
     if (openDraft) {
@@ -6371,19 +6854,21 @@ export default function AuftraegePage() {
     siteAddress?: string | null;
     sitePlz?: string | null;
     siteCity?: string | null;
-  }) => [
-    normalizeAddressPartForCompare(site.siteAddress),
-    normalizeAddressPartForCompare(site.sitePlz),
-    normalizeAddressPartForCompare(site.siteCity),
-  ].join("|");
+  }) =>
+    [
+      normalizeAddressPartForCompare(site.siteAddress),
+      normalizeAddressPartForCompare(site.sitePlz),
+      normalizeAddressPartForCompare(site.siteCity),
+    ].join("|");
 
   const previousExecutionAddressSuggestionsV17_68 = useMemo(() => {
     if (!form.customerId) return [] as OrderWorkSite[];
 
     const customer = customers.find((entry) => entry.id === form.customerId);
-    const storedAddresses = customer && Array.isArray(customer.executionAddresses)
-      ? customer.executionAddresses
-      : [];
+    const storedAddresses =
+      customer && Array.isArray(customer.executionAddresses)
+        ? customer.executionAddresses
+        : [];
 
     const seen = new Set<string>();
     const suggestions: OrderWorkSite[] = [];
@@ -6424,7 +6909,8 @@ export default function AuftraegePage() {
 
         if (isSameAddressPartsV17_63(normalizedSite, currentAddress)) return;
 
-        const key = normalizePersistentExecutionAddressKeyV17_68(normalizedSite);
+        const key =
+          normalizePersistentExecutionAddressKeyV17_68(normalizedSite);
         if (!key || key === "||" || seen.has(key)) return;
         seen.add(key);
         suggestions.push(normalizedSite);
@@ -6439,7 +6925,9 @@ export default function AuftraegePage() {
     form.siteCity,
   ]);
 
-  const applyPersistentExecutionAddressSuggestionV17_68 = (site: OrderWorkSite) => {
+  const applyPersistentExecutionAddressSuggestionV17_68 = (
+    site: OrderWorkSite,
+  ) => {
     const existingSite =
       formWorkSites.find((entry) => Boolean(entry.isPrimary)) ||
       formWorkSites[0] ||
@@ -6486,7 +6974,7 @@ export default function AuftraegePage() {
       prev.includes(siteId) ? prev : [siteId, ...prev],
     );
     setSiteAddressEditing(true);
-    toast.success("Ausführungsadresse übernommen – Auftrag speichern.");
+    toast.success("Ausführungsadresse ausgewählt – Adresse speichern.");
   };
 
   const getWorkSiteShortLabel = (site?: OrderWorkSite | null) => {
@@ -6605,7 +7093,8 @@ export default function AuftraegePage() {
     if (normalized === "kilogramm") return "kg";
     if (normalized === "tonne") return "t";
     if (normalized === "liter") return "l";
-    if (normalized.includes("prüfen") || normalized.includes("pruefen")) return "prüfen";
+    if (normalized.includes("prüfen") || normalized.includes("pruefen"))
+      return "prüfen";
     return unit || "–";
   };
 
@@ -6683,7 +7172,9 @@ export default function AuftraegePage() {
         const trimmed = line.trim();
         return (
           !/^\[\s*(?:titel|title)\s*[:：][^\]]*\]\s*$/i.test(trimmed) &&
-          !/^\[\s*(?:priorität|prioritaet|priority)\s*[:：][^\]]*\]\s*$/i.test(trimmed)
+          !/^\[\s*(?:priorität|prioritaet|priority)\s*[:：][^\]]*\]\s*$/i.test(
+            trimmed,
+          )
         );
       })
       .join("\n")
@@ -6817,7 +7308,8 @@ export default function AuftraegePage() {
             }
           }
           if (pendingBillingAddressRoleAutoSaveV17_64 && editId) {
-            const clearedWorkSites = blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
+            const clearedWorkSites =
+              blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
             const savedOrder = await persistAddressReviewPatchV17_64(
               {
                 customerId: updated.id,
@@ -6858,7 +7350,8 @@ export default function AuftraegePage() {
           setCustomers((prev) => [...prev, created]);
           setForm((f) => ({ ...f, customerId: created.id }));
           if (pendingBillingAddressRoleAutoSaveV17_64 && editId) {
-            const clearedWorkSites = blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
+            const clearedWorkSites =
+              blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
             const savedOrder = await persistAddressReviewPatchV17_64(
               {
                 customerId: created.id,
@@ -6934,7 +7427,8 @@ export default function AuftraegePage() {
     const siteFieldsForPayload = primaryWorkSiteForPayload
       ? {
           siteAddressDifferent: true,
-          siteName: cleanWorkSiteDisplayName(primaryWorkSiteForPayload.siteName) || "",
+          siteName:
+            cleanWorkSiteDisplayName(primaryWorkSiteForPayload.siteName) || "",
           siteAddress: primaryWorkSiteForPayload.siteAddress?.trim() || "",
           sitePlz: primaryWorkSiteForPayload.sitePlz?.trim() || "",
           siteCity: primaryWorkSiteForPayload.siteCity?.trim() || "",
@@ -6995,13 +7489,15 @@ export default function AuftraegePage() {
     );
     const hasResolvedBillingAddressForReview = Boolean(
       currentCustomerForAddressReview?.name?.trim() &&
-        currentCustomerForAddressReview?.address?.trim() &&
-        currentCustomerForAddressReview?.plz?.trim() &&
-        currentCustomerForAddressReview?.city?.trim(),
+      currentCustomerForAddressReview?.address?.trim() &&
+      currentCustomerForAddressReview?.plz?.trim() &&
+      currentCustomerForAddressReview?.city?.trim(),
     );
     const hasResolvedExecutionAddressForReview = cleanWorkSites.some(
       (site) =>
-        site.siteAddress?.trim() && site.sitePlz?.trim() && site.siteCity?.trim(),
+        site.siteAddress?.trim() &&
+        site.sitePlz?.trim() &&
+        site.siteCity?.trim(),
     );
     const isAddressRoleReviewReasonV17_61 = (reason: string) =>
       reason === "address_role_uncertain" ||
@@ -7015,15 +7511,20 @@ export default function AuftraegePage() {
     const manuallyConfirmedServiceNames = new Set(
       validItems
         .filter((item) => isManuallyConfirmedCurrencyItem(item))
-        .map((item) => normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)))
+        .map((item) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)),
+        )
         .filter(Boolean),
     );
 
     const isReviewReasonResolvedByConfirmedItem = (reason: string) => {
       const key = String(reason || "");
       const parts = key.split(":");
-      const serviceName = normalizeForMatch(canonicalServiceNameForOrderItem(parts[1] || ""));
-      if (!serviceName || !manuallyConfirmedServiceNames.has(serviceName)) return false;
+      const serviceName = normalizeForMatch(
+        canonicalServiceNameForOrderItem(parts[1] || ""),
+      );
+      if (!serviceName || !manuallyConfirmedServiceNames.has(serviceName))
+        return false;
       return (
         key.startsWith("price_unclear:") ||
         key.startsWith("item_currency_mismatch:") ||
@@ -7075,7 +7576,8 @@ export default function AuftraegePage() {
 
           if (
             isAddressRoleReviewReasonV17_61(reason) &&
-            (hasResolvedBillingAddressForReview || hasResolvedExecutionAddressForReview)
+            (hasResolvedBillingAddressForReview ||
+              hasResolvedExecutionAddressForReview)
           ) {
             return false;
           }
@@ -7134,7 +7636,9 @@ export default function AuftraegePage() {
                 : buildItemDescription(item),
           quantity: Number(item.quantity || 0),
           unit: item.unit,
-          unitPrice: itemIsStillBlockedByCurrency ? 0 : Number(item.unitPrice || 0),
+          unitPrice: itemIsStillBlockedByCurrency
+            ? 0
+            : Number(item.unitPrice || 0),
           totalPrice: getSafeFormItemTotal(item),
           workSiteId: item.workSiteId || null,
         };
@@ -7151,6 +7655,48 @@ export default function AuftraegePage() {
     }
     toast.error("Fehler beim Speichern");
     return null;
+  };
+
+  const saveExecutionAddressFromEditorV17_70 = async () => {
+    if (!form.siteAddressDifferent) {
+      toast.error("Ausführungsadresse ist nicht aktiviert.");
+      return;
+    }
+
+    const hasCompleteExecutionAddress = Boolean(
+      form.siteAddress?.trim() && form.sitePlz?.trim() && form.siteCity?.trim(),
+    );
+
+    if (!hasCompleteExecutionAddress) {
+      toast.error(
+        "Bitte Strasse, PLZ und Ort der Ausführungsadresse ausfüllen.",
+      );
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const saved = await saveOrder();
+      if (!saved) return;
+
+      setOrders((prev) => {
+        const exists = prev.some((order) => order.id === saved.id);
+        if (exists) {
+          return prev.map((order) =>
+            order.id === saved.id ? { ...order, ...saved } : order,
+          );
+        }
+        return [saved, ...prev];
+      });
+
+      setSiteAddressEditing(false);
+      await load();
+      toast.success("Ausführungsadresse gespeichert.");
+    } catch {
+      toast.error("Ausführungsadresse konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const save = async (options?: { closeAfter?: boolean }) => {
@@ -7692,7 +8238,9 @@ export default function AuftraegePage() {
     let cancelled = false;
 
     (async () => {
-      const resolved = await Promise.all(imagePaths.map((path) => resolveS3Url(path)));
+      const resolved = await Promise.all(
+        imagePaths.map((path) => resolveS3Url(path)),
+      );
       if (!cancelled) {
         setCustomerMessageImagePreviewUrls(resolved);
       }
@@ -7701,7 +8249,13 @@ export default function AuftraegePage() {
     return () => {
       cancelled = true;
     };
-  }, [dialogOpen, currentEditOrder?.id, currentEditOrder?.imageUrls?.join("|"), currentEditOrder?.mediaUrl, currentEditOrder?.mediaType]);
+  }, [
+    dialogOpen,
+    currentEditOrder?.id,
+    currentEditOrder?.imageUrls?.join("|"),
+    currentEditOrder?.mediaUrl,
+    currentEditOrder?.mediaType,
+  ]);
 
   const createOffer = async (o: Order) => {
     if (blockConversionIfUnsafe(o, "Angebot")) {
@@ -7862,7 +8416,9 @@ export default function AuftraegePage() {
     if (o.items && o.items.length > 0) {
       return o.items.reduce((sum, item) => {
         if (isBlockedOrderItemForTotal(item)) return sum;
-        if (hasCurrencyMismatchReviewForService(o.reviewReasons, item.serviceName)) {
+        if (
+          hasCurrencyMismatchReviewForService(o.reviewReasons, item.serviceName)
+        ) {
           return sum;
         }
         if (
@@ -7876,9 +8432,12 @@ export default function AuftraegePage() {
         const price = Number(item.unitPrice || 0);
         const storedLineTotal = Number(item.totalPrice || 0);
         const calculatedLineTotal = qty > 0 && price > 0 ? qty * price : 0;
-        const lineTotal = storedLineTotal > 0 ? storedLineTotal : calculatedLineTotal;
+        const lineTotal =
+          storedLineTotal > 0 ? storedLineTotal : calculatedLineTotal;
 
-        return sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0);
+        return (
+          sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0)
+        );
       }, 0);
     }
 
@@ -8067,24 +8626,33 @@ export default function AuftraegePage() {
             const appointmentBadges = bottomBadges.filter((badge) =>
               hasMultipleMergedData
                 ? badge.key === "appointments_multiple"
-                : badge.key === "appointment" || badge.key === "appointments_multiple",
+                : badge.key === "appointment" ||
+                  badge.key === "appointments_multiple",
             );
             const callbackBadges = hasMultipleMergedData
               ? []
-              : bottomBadges.filter((badge) => badge.key === "callback_request");
+              : bottomBadges.filter(
+                  (badge) => badge.key === "callback_request",
+                );
             const messageBadges = hasMultipleMergedData
               ? []
               : bottomBadges.filter((badge) => badge.key === "sms_request");
             const otherFooterBadges = bottomBadges.filter((badge) =>
               hasMultipleMergedData
                 ? !hiddenMergedDataBadgeKeys.includes(badge.key)
-                : !["appointment", "appointments_multiple", "callback_request", "sms_request"].includes(
-                    badge.key,
-                  ),
+                : ![
+                    "appointment",
+                    "appointments_multiple",
+                    "callback_request",
+                    "sms_request",
+                  ].includes(badge.key),
             );
             const rightSideBadges = amountReviewBadges;
             const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
-            const mobileRightHiddenCount = Math.max(0, rightSideBadges.length - mobilePrimaryRightBadges.length);
+            const mobileRightHiddenCount = Math.max(
+              0,
+              rightSideBadges.length - mobilePrimaryRightBadges.length,
+            );
             // Mobile: customer/address-state chips belong in the card header near
             // customer number, not in the lower action icon row. On touch they
             // only open the small tooltip; tapping the card itself still opens
@@ -8097,7 +8665,8 @@ export default function AuftraegePage() {
             const mobileFocusBadges = leftSystemBadges.filter(
               (badge) =>
                 !mobileHeaderBadgeKeys.has(badge.key) &&
-                (badge.focusTarget === "specialNotes" || badge.focusTarget === "customer"),
+                (badge.focusTarget === "specialNotes" ||
+                  badge.focusTarget === "customer"),
             );
             const mobileSystemBadges = leftSystemBadges.filter(
               (badge) =>
@@ -8115,7 +8684,10 @@ export default function AuftraegePage() {
               ...otherFooterBadges,
             ];
             const mobileVisibleActionBadges = mobileActionBadges.slice(0, 4);
-            const mobileHiddenActionCount = Math.max(0, mobileActionBadges.length - mobileVisibleActionBadges.length);
+            const mobileHiddenActionCount = Math.max(
+              0,
+              mobileActionBadges.length - mobileVisibleActionBadges.length,
+            );
 
             const openOrderAtSpecialNotes = (event: any) => {
               event.stopPropagation();
@@ -8155,7 +8727,8 @@ export default function AuftraegePage() {
               // Mobile tooltips must be controlled only by tap state.
               // Do not render the hidden group-focus/group-hover tooltip when inactive,
               // because a touched button can keep focus and make the tooltip look stuck.
-              if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot)) return null;
+              if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot))
+                return null;
               return renderBadgeTooltip(badge, align, true);
             };
 
@@ -8170,10 +8743,15 @@ export default function AuftraegePage() {
               tooltipAlign: "left" | "right" = "left",
             ) => {
               const shouldOpenItems = isAmountReviewBadge(badge);
-              const shouldOpenSpecialNotes = badge.focusTarget === "specialNotes";
+              const shouldOpenSpecialNotes =
+                badge.focusTarget === "specialNotes";
               const shouldOpenCustomer = badge.focusTarget === "customer";
 
-              if (!shouldOpenItems && !shouldOpenSpecialNotes && !shouldOpenCustomer) {
+              if (
+                !shouldOpenItems &&
+                !shouldOpenSpecialNotes &&
+                !shouldOpenCustomer
+              ) {
                 return renderOrderCardBadge(badge, tooltipAlign);
               }
 
@@ -8195,7 +8773,13 @@ export default function AuftraegePage() {
                   key={badge.key}
                   type="button"
                   aria-label={title}
-                  onClick={shouldOpenItems ? openOrderAtItems : shouldOpenCustomer ? openOrderAtCustomer : openOrderAtSpecialNotes}
+                  onClick={
+                    shouldOpenItems
+                      ? openOrderAtItems
+                      : shouldOpenCustomer
+                        ? openOrderAtCustomer
+                        : openOrderAtSpecialNotes
+                  }
                   className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                     isCompactIcon
                       ? "font-semibold"
@@ -8207,7 +8791,9 @@ export default function AuftraegePage() {
                   {CompactIcon ? (
                     <CompactIcon className="h-5 w-5" />
                   ) : compactSymbol ? (
-                    <span aria-hidden="true" className="leading-none">{compactSymbol}</span>
+                    <span aria-hidden="true" className="leading-none">
+                      {compactSymbol}
+                    </span>
                   ) : (
                     <>
                       {badge.icon && badge.key !== "callback_request" && (
@@ -8230,13 +8816,20 @@ export default function AuftraegePage() {
               const title = compactText(badge.tooltip) || badge.label;
               const tooltipSlot = "mobile_action";
 
-              if (badge.focusTarget === "specialNotes" || badge.focusTarget === "customer") {
+              if (
+                badge.focusTarget === "specialNotes" ||
+                badge.focusTarget === "customer"
+              ) {
                 return (
                   <button
                     key={badge.key}
                     type="button"
                     aria-label={title}
-                    onClick={badge.focusTarget === "customer" ? openOrderAtCustomer : openOrderAtSpecialNotes}
+                    onClick={
+                      badge.focusTarget === "customer"
+                        ? openOrderAtCustomer
+                        : openOrderAtSpecialNotes
+                    }
                     className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
                   >
                     <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -8250,7 +8843,9 @@ export default function AuftraegePage() {
                   key={badge.key}
                   type="button"
                   aria-label={title}
-                  onClick={(event) => toggleMobileTooltip(badge, tooltipSlot, event)}
+                  onClick={(event) =>
+                    toggleMobileTooltip(badge, tooltipSlot, event)
+                  }
                   className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
                 >
                   <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -8279,7 +8874,9 @@ export default function AuftraegePage() {
               );
             };
 
-            const renderInteractiveMobileRightReviewBadge = (badge: ReviewBadge) => {
+            const renderInteractiveMobileRightReviewBadge = (
+              badge: ReviewBadge,
+            ) => {
               const title = compactText(badge.tooltip) || badge.label;
               return (
                 <button
@@ -8434,9 +9031,15 @@ export default function AuftraegePage() {
                                   ({o.customer.customerNumber})
                                 </span>
                               )}
-                            {mobileSystemBadges.slice(0, 3).map((badge) =>
-                              renderInteractiveMobileTextBadge(badge, "mobile_system", "left"),
-                            )}
+                            {mobileSystemBadges
+                              .slice(0, 3)
+                              .map((badge) =>
+                                renderInteractiveMobileTextBadge(
+                                  badge,
+                                  "mobile_system",
+                                  "left",
+                                ),
+                              )}
                           </div>
 
                           <p
@@ -8482,7 +9085,7 @@ export default function AuftraegePage() {
                                 <CommunicationChips
                                   compact
                                   data={buildCommunicationChipDataV17_52(o)}
-                                onAudioClick={() => openMedia(o)}
+                                  onAudioClick={() => openMedia(o)}
                                   onImageClick={() => openMedia(o)}
                                 />
                               </div>
@@ -8497,9 +9100,15 @@ export default function AuftraegePage() {
 
                         <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
                           <div className="flex w-full flex-col items-end gap-1">
-                            {appointmentBadges.slice(0, 1).map((badge) =>
-                              renderInteractiveMobileTextBadge(badge, "mobile_appointment", "right"),
-                            )}
+                            {appointmentBadges
+                              .slice(0, 1)
+                              .map((badge) =>
+                                renderInteractiveMobileTextBadge(
+                                  badge,
+                                  "mobile_appointment",
+                                  "right",
+                                ),
+                              )}
                             {mobilePrimaryRightBadges.map((badge) =>
                               renderInteractiveMobileRightReviewBadge(badge),
                             )}
@@ -8575,7 +9184,6 @@ export default function AuftraegePage() {
                                 ⚠️ Audio zu lang
                               </span>
                             )}
-
                           </div>
 
                           {/* Row 2: compact service-only preview */}
@@ -8623,7 +9231,7 @@ export default function AuftraegePage() {
                                 <CommunicationChips
                                   compact
                                   data={buildCommunicationChipDataV17_52(o)}
-                                onAudioClick={() => openMedia(o)}
+                                  onAudioClick={() => openMedia(o)}
                                   onImageClick={() => openMedia(o)}
                                 />
                               </div>
@@ -8803,11 +9411,17 @@ export default function AuftraegePage() {
                   // Canonical rule — name/address/plz/city required; phone/email optional.
 
                   const missingData = !!cust && isCustomerDataIncomplete(cust);
-                  const hasAddressRoleReviewInDialog = !!cur && hasAddressRoleReviewReasonV17_61(cur);
-                  const hasCustomerReview = !!cur && missingData && !hasAddressRoleReviewInDialog;
+                  const hasAddressRoleReviewInDialog =
+                    !!cur && hasAddressRoleReviewReasonV17_61(cur);
+                  const hasCustomerReview =
+                    !!cur && missingData && !hasAddressRoleReviewInDialog;
                   const hasImageOnly =
                     cur?.reviewReasons?.includes("image_only_no_text");
-                  if ((!missingData || hasAddressRoleReviewInDialog) && !hasImageOnly) return null;
+                  if (
+                    (!missingData || hasAddressRoleReviewInDialog) &&
+                    !hasImageOnly
+                  )
+                    return null;
 
                   return (
                     <div className="flex items-center gap-2 flex-wrap">
@@ -9330,10 +9944,14 @@ export default function AuftraegePage() {
                       </div>
                     )}
                     <div>
-                      {addressRoleReviewCandidateV17_62.siteAddress || "Strasse fehlt"}
+                      {addressRoleReviewCandidateV17_62.siteAddress ||
+                        "Strasse fehlt"}
                     </div>
                     <div>
-                      {[addressRoleReviewCandidateV17_62.sitePlz, addressRoleReviewCandidateV17_62.siteCity]
+                      {[
+                        addressRoleReviewCandidateV17_62.sitePlz,
+                        addressRoleReviewCandidateV17_62.siteCity,
+                      ]
                         .filter(Boolean)
                         .join(" ") || "PLZ / Ort fehlt"}
                     </div>
@@ -9476,41 +10094,47 @@ export default function AuftraegePage() {
                             </div>
                           </div>
                           <div className="grid gap-1.5">
-                            {previousExecutionAddressSuggestionsV17_68.map((site) => {
-                              const title = formatWorkSiteTitle(site);
-                              const address = [
-                                compactText(site.siteAddress),
-                                [site.sitePlz, site.siteCity]
-                                  .map(compactText)
+                            {previousExecutionAddressSuggestionsV17_68.map(
+                              (site) => {
+                                const title = formatWorkSiteTitle(site);
+                                const address = [
+                                  compactText(site.siteAddress),
+                                  [site.sitePlz, site.siteCity]
+                                    .map(compactText)
+                                    .filter(Boolean)
+                                    .join(" "),
+                                ]
                                   .filter(Boolean)
-                                  .join(" "),
-                              ]
-                                .filter(Boolean)
-                                .join(" · ");
+                                  .join(" · ");
 
-                              return (
-                                <button
-                                  key={normalizePersistentExecutionAddressKeyV17_68(site)}
-                                  type="button"
-                                  onClick={() =>
-                                    applyPersistentExecutionAddressSuggestionV17_68(site)
-                                  }
-                                  className="w-full rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
-                                >
-                                  <div className="font-semibold text-slate-900 dark:text-slate-100">
-                                    {title}
-                                  </div>
-                                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                    {address}
-                                  </div>
-                                  {site.siteNote && (
-                                    <div className="mt-0.5 truncate text-[11px] text-cyan-800 dark:text-cyan-200">
-                                      {site.siteNote}
+                                return (
+                                  <button
+                                    key={normalizePersistentExecutionAddressKeyV17_68(
+                                      site,
+                                    )}
+                                    type="button"
+                                    onClick={() =>
+                                      applyPersistentExecutionAddressSuggestionV17_68(
+                                        site,
+                                      )
+                                    }
+                                    className="w-full rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
+                                  >
+                                    <div className="font-semibold text-slate-900 dark:text-slate-100">
+                                      {title}
                                     </div>
-                                  )}
-                                </button>
-                              );
-                            })}
+                                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                      {address}
+                                    </div>
+                                    {site.siteNote && (
+                                      <div className="mt-0.5 truncate text-[11px] text-cyan-800 dark:text-cyan-200">
+                                        {site.siteNote}
+                                      </div>
+                                    )}
+                                  </button>
+                                );
+                              },
+                            )}
                           </div>
                         </div>
                       )}
@@ -9575,14 +10199,15 @@ export default function AuftraegePage() {
                       <div className="flex justify-end">
                         <div className="flex items-center gap-2 sm:justify-end">
                           <span className="hidden sm:inline text-xs text-muted-foreground">
-                            Wird mit dem Auftrag gespeichert.
+                            Speichert die Ausführungsadresse direkt am Auftrag.
                           </span>
                           <Button
                             type="button"
                             size="sm"
-                            onClick={() => setSiteAddressEditing(false)}
+                            onClick={saveExecutionAddressFromEditorV17_70}
+                            disabled={saving}
                           >
-                            Adresse übernehmen
+                            {saving ? "Speichern..." : "Adresse speichern"}
                           </Button>
                         </div>
                       </div>
@@ -9605,7 +10230,11 @@ export default function AuftraegePage() {
                 </div>
               ) : (
                 <>
-                  <div ref={serviceItemsRef} tabIndex={-1} className="scroll-mt-24 rounded-xl border bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60">
+                  <div
+                    ref={serviceItemsRef}
+                    tabIndex={-1}
+                    className="scroll-mt-24 rounded-xl border bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60"
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="text-base font-semibold">
@@ -9630,7 +10259,9 @@ export default function AuftraegePage() {
                                 onClick={toggleWorkSiteOverview}
                                 className="h-7 px-2 text-xs"
                               >
-                                {expandedWorkSiteIds.length > 0 ? "Übersicht" : "Alle öffnen"}
+                                {expandedWorkSiteIds.length > 0
+                                  ? "Übersicht"
+                                  : "Alle öffnen"}
                               </Button>
                               <Button
                                 type="button"
@@ -9656,7 +10287,8 @@ export default function AuftraegePage() {
                         </div>
                         {hasMultipleEditWorkSites && (
                           <span className="text-[10px] text-muted-foreground">
-                            Ein Block: Arbeitsort aufklappen, dort Leistungen bearbeiten.
+                            Ein Block: Arbeitsort aufklappen, dort Leistungen
+                            bearbeiten.
                           </span>
                         )}
                       </div>
@@ -9769,7 +10401,8 @@ export default function AuftraegePage() {
                           // Katalogabweichung gelb markiert.
                           const unresolvedCurrencyItem =
                             isFormItemBlockedByCurrencyReview(item);
-                          const showCurrencyConflictItemReview = unresolvedCurrencyItem;
+                          const showCurrencyConflictItemReview =
+                            unresolvedCurrencyItem;
                           const priceInputReview =
                             unresolvedCurrencyItem ||
                             Number(item.unitPrice || 0) === 0;
@@ -9781,14 +10414,15 @@ export default function AuftraegePage() {
                             !unresolvedCurrencyItem &&
                             Boolean(
                               item.aiWarning?.trim() ||
-                                unitMismatchReason ||
-                                unitMissingInTextReason,
+                              unitMismatchReason ||
+                              unitMissingInTextReason,
                             );
                           const showPriceOverride =
                             !unresolvedCurrencyItem &&
                             !showUnitConflict &&
                             Boolean(
-                              (!item.catalogReviewConfirmed && priceOverrideReason) ||
+                              (!item.catalogReviewConfirmed &&
+                                priceOverrideReason) ||
                               hasFrontendCatalogPriceDeviation ||
                               hasFrontendCatalogTextFlatOverride,
                             );
@@ -9933,10 +10567,8 @@ export default function AuftraegePage() {
                             for (const groupItem of groupItems) {
                               const itemName = groupItem.serviceName || "";
                               const itemKey = normalizeForMatch(itemName);
-                              const groupCatalogService = findCatalogServiceForName(
-                                services,
-                                itemName,
-                              );
+                              const groupCatalogService =
+                                findCatalogServiceForName(services, itemName);
                               const groupCatalogPrice = Number(
                                 groupCatalogService?.defaultPrice || 0,
                               );
@@ -9946,69 +10578,82 @@ export default function AuftraegePage() {
                               const groupItemQuantity = Number(
                                 groupItem.quantity || 0,
                               );
-                              const groupUnitMismatchReason = curOrder?.reviewReasons
-                                ?.filter((reason: string) =>
-                                  reason.startsWith("unit_mismatch:"),
-                                )
-                                .find((reason: string) => {
-                                  const [, serviceName] = reason.split(":");
-                                  return (
-                                    normalizeForMatch(serviceName) === itemKey
-                                  );
-                                });
-                              const groupPriceOverrideReason = curOrder?.reviewReasons
-                                ?.filter((reason: string) =>
-                                  reason.startsWith("price_override:"),
-                                )
-                                .find((reason: string) => {
-                                  const [, serviceName] = reason.split(":");
-                                  return (
-                                    normalizeForMatch(serviceName) === itemKey
-                                  );
-                                });
-                              const groupPriceUnclearReason = curOrder?.reviewReasons
-                                ?.filter((reason: string) =>
-                                  reason.startsWith("price_unclear:"),
-                                )
-                                .find((reason: string) => {
-                                  const [, serviceName] = reason.split(":");
-                                  return (
-                                    !serviceName ||
-                                    normalizeForMatch(serviceName) === itemKey
-                                  );
-                                });
+                              const groupUnitMismatchReason =
+                                curOrder?.reviewReasons
+                                  ?.filter((reason: string) =>
+                                    reason.startsWith("unit_mismatch:"),
+                                  )
+                                  .find((reason: string) => {
+                                    const [, serviceName] = reason.split(":");
+                                    return (
+                                      normalizeForMatch(serviceName) === itemKey
+                                    );
+                                  });
+                              const groupPriceOverrideReason =
+                                curOrder?.reviewReasons
+                                  ?.filter((reason: string) =>
+                                    reason.startsWith("price_override:"),
+                                  )
+                                  .find((reason: string) => {
+                                    const [, serviceName] = reason.split(":");
+                                    return (
+                                      normalizeForMatch(serviceName) === itemKey
+                                    );
+                                  });
+                              const groupPriceUnclearReason =
+                                curOrder?.reviewReasons
+                                  ?.filter((reason: string) =>
+                                    reason.startsWith("price_unclear:"),
+                                  )
+                                  .find((reason: string) => {
+                                    const [, serviceName] = reason.split(":");
+                                    return (
+                                      !serviceName ||
+                                      normalizeForMatch(serviceName) === itemKey
+                                    );
+                                  });
                               const groupCatalogPriceDeviation = Boolean(
                                 groupCatalogService &&
-                                  !groupItem.catalogReviewConfirmed &&
-                                  !groupUnitMismatchReason &&
+                                !groupItem.catalogReviewConfirmed &&
+                                !groupUnitMismatchReason &&
+                                normalizePriceUnitForCompare(
+                                  groupCatalogService.unit,
+                                ) ===
                                   normalizePriceUnitForCompare(
-                                    groupCatalogService.unit,
-                                  ) === normalizePriceUnitForCompare(groupItem.unit) &&
-                                  Number.isFinite(groupCatalogPrice) &&
-                                  Number.isFinite(groupItemPrice) &&
-                                  groupCatalogPrice > 0 &&
-                                  groupItemPrice > 0 &&
-                                  Math.abs(groupCatalogPrice - groupItemPrice) >= 0.01,
+                                    groupItem.unit,
+                                  ) &&
+                                Number.isFinite(groupCatalogPrice) &&
+                                Number.isFinite(groupItemPrice) &&
+                                groupCatalogPrice > 0 &&
+                                groupItemPrice > 0 &&
+                                Math.abs(groupCatalogPrice - groupItemPrice) >=
+                                  0.01,
                               );
                               const groupTextFlatOverride = Boolean(
                                 groupCatalogService &&
-                                  !groupItem.catalogReviewConfirmed &&
-                                  !groupUnitMismatchReason &&
+                                !groupItem.catalogReviewConfirmed &&
+                                !groupUnitMismatchReason &&
+                                normalizePriceUnitForCompare(
+                                  groupCatalogService.unit,
+                                ) !==
                                   normalizePriceUnitForCompare(
-                                    groupCatalogService.unit,
-                                  ) !== normalizePriceUnitForCompare(groupItem.unit) &&
-                                  normalizePriceUnitForCompare(groupItem.unit) ===
-                                    "flat" &&
-                                  groupItemPrice > 0 &&
-                                  groupItemQuantity === 1,
+                                    groupItem.unit,
+                                  ) &&
+                                normalizePriceUnitForCompare(groupItem.unit) ===
+                                  "flat" &&
+                                groupItemPrice > 0 &&
+                                groupItemQuantity === 1,
                               );
                               const groupCatalogMissing = Boolean(
                                 itemName.trim() &&
-                                  !groupItem.catalogReviewConfirmed &&
-                                  !groupCatalogService,
+                                !groupItem.catalogReviewConfirmed &&
+                                !groupCatalogService,
                               );
 
-                              if (groupItemPrice <= 0 || groupItemQuantity <= 0) {
+                              if (
+                                groupItemPrice <= 0 ||
+                                groupItemQuantity <= 0
+                              ) {
                                 addBadge(
                                   "amount",
                                   "Preis/Menge prüfen",
@@ -10017,7 +10662,10 @@ export default function AuftraegePage() {
                                 );
                                 continue;
                               }
-                              if (groupUnitMismatchReason || groupItem.aiWarning?.trim()) {
+                              if (
+                                groupUnitMismatchReason ||
+                                groupItem.aiWarning?.trim()
+                              ) {
                                 addBadge(
                                   "unit",
                                   "Einheit prüfen",
@@ -10034,7 +10682,8 @@ export default function AuftraegePage() {
                                 );
                               }
                               if (
-                                (!groupItem.catalogReviewConfirmed && groupPriceOverrideReason) ||
+                                (!groupItem.catalogReviewConfirmed &&
+                                  groupPriceOverrideReason) ||
                                 groupCatalogPriceDeviation ||
                                 groupTextFlatOverride
                               ) {
@@ -10217,7 +10866,9 @@ export default function AuftraegePage() {
 
                                   {site && isEditingSite && (
                                     <div
-                                      onClick={(event) => event.stopPropagation()}
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
                                       className="mt-2 rounded-md border bg-background/80 p-2 space-y-2"
                                     >
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -10258,7 +10909,9 @@ export default function AuftraegePage() {
                                       </div>
                                       <div className="grid grid-cols-1 sm:grid-cols-[110px_1fr] gap-2">
                                         <div>
-                                          <Label className="text-[10px]">PLZ</Label>
+                                          <Label className="text-[10px]">
+                                            PLZ
+                                          </Label>
                                           <Input
                                             className="h-8 text-xs"
                                             value={site.sitePlz || ""}
@@ -10273,7 +10926,9 @@ export default function AuftraegePage() {
                                           />
                                         </div>
                                         <div>
-                                          <Label className="text-[10px]">Ort</Label>
+                                          <Label className="text-[10px]">
+                                            Ort
+                                          </Label>
                                           <Input
                                             className="h-8 text-xs"
                                             value={site.siteCity || ""}
@@ -10289,7 +10944,9 @@ export default function AuftraegePage() {
                                         </div>
                                       </div>
                                       <div>
-                                        <Label className="text-[10px]">Hinweis</Label>
+                                        <Label className="text-[10px]">
+                                          Hinweis
+                                        </Label>
                                         <Input
                                           className="h-8 text-xs"
                                           value={site.siteNote || ""}
@@ -10305,14 +10962,17 @@ export default function AuftraegePage() {
                                       </div>
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="text-[11px] text-muted-foreground">
-                                          Zugeordnet: {groupItemCount} Leistung(en)
+                                          Zugeordnet: {groupItemCount}{" "}
+                                          Leistung(en)
                                         </div>
                                         <Button
                                           type="button"
                                           size="sm"
                                           variant="ghost"
                                           className="text-red-600 hover:text-red-700"
-                                          onClick={() => removeFormWorkSite(site.id)}
+                                          onClick={() =>
+                                            removeFormWorkSite(site.id)
+                                          }
                                         >
                                           Löschen
                                         </Button>
@@ -10336,7 +10996,8 @@ export default function AuftraegePage() {
                                       : "Noch keine Leistungen in diesem Arbeitsort."}
                                   </div>
                                   <div className="mt-0.5 text-muted-foreground">
-                                    Arbeitsort bearbeiten oder löschen. Leistung erst hinzufügen, wenn der Ort stimmt.
+                                    Arbeitsort bearbeiten oder löschen. Leistung
+                                    erst hinzufügen, wenn der Ort stimmt.
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     {site && (
@@ -10359,321 +11020,427 @@ export default function AuftraegePage() {
                                         size="sm"
                                         variant="outline"
                                         className="h-7 px-2 text-xs"
-                                        onClick={() => addItemToWorkSite(site.id)}
+                                        onClick={() =>
+                                          addItemToWorkSite(site.id)
+                                        }
                                       >
                                         + Leistung hier hinzufügen
                                       </Button>
                                     )}
                                   </div>
                                 </div>
-                              ) : groupExpanded && (
-                                <div
-                                  className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
-                                    hasMultipleEditWorkSites
-                                      ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
-                                      : "rounded-lg"
-                                  } ${
-                                    hasCriticalItemReview
-                                      ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
-                                      : hasAnyItemReview
-                                        ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                        : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
-                                  }`}
-                                  onClick={() =>
-                                    site && setActiveWorkSiteId(site.id)
-                                  }
-                                >
-                                  <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
-                                    <div className="min-w-0 space-y-1">
-                                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
-                                        <div className="group min-w-0">
-                                          <ServiceCombobox
-                                            value={item.serviceName}
-                                            services={
-                                              services as ServiceOption[]
-                                            }
-                                            onChange={(name, svc) =>
-                                              onItemServiceSelect(
-                                                index,
-                                                name,
-                                                svc,
-                                              )
-                                            }
-                                            onServiceCreated={
-                                              handleServiceCreated
-                                            }
-                                            currentPrice={item.unitPrice}
-                                            currentUnit={item.unit}
-                                            showManualHint={false}
-                                            saveButtonPlacement="none"
-                                          />
-                                          {item.serviceName.trim().length >
-                                            28 && (
-                                            <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
-                                              {item.serviceName.trim()}
-                                            </p>
-                                          )}
-                                        </div>
+                              ) : (
+                                groupExpanded && (
+                                  <div
+                                    className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
+                                      hasMultipleEditWorkSites
+                                        ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
+                                        : "rounded-lg"
+                                    } ${
+                                      hasCriticalItemReview
+                                        ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                        : hasAnyItemReview
+                                          ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                          : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                                    }`}
+                                    onClick={() =>
+                                      site && setActiveWorkSiteId(site.id)
+                                    }
+                                  >
+                                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
+                                      <div className="min-w-0 space-y-1">
+                                        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
+                                          <div className="group min-w-0">
+                                            <ServiceCombobox
+                                              value={item.serviceName}
+                                              services={
+                                                services as ServiceOption[]
+                                              }
+                                              onChange={(name, svc) =>
+                                                onItemServiceSelect(
+                                                  index,
+                                                  name,
+                                                  svc,
+                                                )
+                                              }
+                                              onServiceCreated={
+                                                handleServiceCreated
+                                              }
+                                              currentPrice={item.unitPrice}
+                                              currentUnit={item.unit}
+                                              showManualHint={false}
+                                              saveButtonPlacement="none"
+                                            />
+                                            {item.serviceName.trim().length >
+                                              28 && (
+                                              <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
+                                                {item.serviceName.trim()}
+                                              </p>
+                                            )}
+                                          </div>
 
-                                        <div
-                                          className="h-1"
-                                          aria-hidden="true"
+                                          <div
+                                            className="h-1"
+                                            aria-hidden="true"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
+                                        <div>Total</div>
+                                        <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
+                                          {formatCurrency(itemTotal, currency)}
+                                        </div>
+                                      </div>
+
+                                      <div className="relative shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setServiceActionMenuKey((prev) =>
+                                              prev === item.key
+                                                ? null
+                                                : item.key,
+                                            );
+                                          }}
+                                          className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                          title="Aktionen"
+                                        >
+                                          <MoreVertical className="w-3.5 h-3.5" />
+                                        </button>
+
+                                        {isMenuOpen && (
+                                          <div
+                                            onClick={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                          >
+                                            {hasMultipleEditWorkSites && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setMovingItemKey(item.key);
+                                                  setActiveWorkSiteId(
+                                                    item.workSiteId ||
+                                                      activeWorkSiteId,
+                                                  );
+                                                  setServiceActionMenuKey(null);
+                                                }}
+                                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                              >
+                                                📍 Arbeitsort ändern
+                                              </button>
+                                            )}
+
+                                            {hasCatalogActionMenu && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  saveItemToServices(index);
+                                                  setServiceActionMenuKey(null);
+                                                }}
+                                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                              >
+                                                <Plus className="h-3.5 w-3.5" />
+                                                In Leistungskatalog übernehmen
+                                              </button>
+                                            )}
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                removeItem(index);
+                                                setServiceActionMenuKey(null);
+                                              }}
+                                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                              Löschen
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                      <div>
+                                        <Label className="text-[10px] leading-none">
+                                          Einheit
+                                        </Label>
+                                        <select
+                                          className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                          value={item.unit}
+                                          onChange={(e: any) =>
+                                            updateItem(
+                                              index,
+                                              "unit",
+                                              e?.target?.value ?? "Stunde",
+                                            )
+                                          }
+                                        >
+                                          {priceTypes.map((pt) => (
+                                            <option key={pt} value={pt}>
+                                              {pt}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+
+                                      <div>
+                                        <Label className="text-[10px] leading-none">
+                                          Preis ({currency})
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.05"
+                                          className={`h-8 text-xs ${
+                                            priceInputCritical
+                                              ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                              : ""
+                                          }`}
+                                          value={item.unitPrice}
+                                          placeholder={
+                                            priceInputReview ? "prüfen" : "0"
+                                          }
+                                          onFocus={(e) =>
+                                            e.currentTarget.select()
+                                          }
+                                          onChange={(e: any) =>
+                                            updateItem(
+                                              index,
+                                              "unitPrice",
+                                              e?.target?.value ?? "",
+                                            )
+                                          }
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <Label className="text-[10px] leading-none">
+                                          Menge
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.25"
+                                          className={`h-8 text-xs ${
+                                            quantityInputCritical
+                                              ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                              : ""
+                                          }`}
+                                          value={item.quantity}
+                                          placeholder={
+                                            quantityInputReview ? "prüfen" : "0"
+                                          }
+                                          onFocus={(e) =>
+                                            e.currentTarget.select()
+                                          }
+                                          onChange={(e: any) =>
+                                            updateItem(
+                                              index,
+                                              "quantity",
+                                              e?.target?.value ?? "",
+                                            )
+                                          }
                                         />
                                       </div>
                                     </div>
 
-                                    <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
-                                      <div>Total</div>
-                                      <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
-                                        {formatCurrency(itemTotal, currency)}
-                                      </div>
-                                    </div>
-
-                                    <div className="relative shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setServiceActionMenuKey((prev) =>
-                                            prev === item.key ? null : item.key,
-                                          );
-                                        }}
-                                        className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                        title="Aktionen"
-                                      >
-                                        <MoreVertical className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {isMenuOpen && (
-                                        <div
-                                          onClick={(event) =>
-                                            event.stopPropagation()
-                                          }
-                                          className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
-                                        >
-                                          {hasMultipleEditWorkSites && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setMovingItemKey(item.key);
-                                                setActiveWorkSiteId(
-                                                  item.workSiteId ||
-                                                    activeWorkSiteId,
-                                                );
-                                                setServiceActionMenuKey(null);
-                                              }}
-                                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                            >
-                                              📍 Arbeitsort ändern
-                                            </button>
-                                          )}
-
-                                          {hasCatalogActionMenu && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                saveItemToServices(index);
-                                                setServiceActionMenuKey(null);
-                                              }}
-                                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                            >
-                                              <Plus className="h-3.5 w-3.5" />
-                                              In Leistungskatalog übernehmen
-                                            </button>
-                                          )}
-
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              removeItem(index);
-                                              setServiceActionMenuKey(null);
-                                            }}
-                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                                          >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                            Löschen
-                                          </button>
+                                    {hasMultipleEditWorkSites &&
+                                      (movingItemKey === item.key ||
+                                        !item.workSiteId) && (
+                                        <div className="flex justify-end">
+                                          <div className="flex w-full items-end gap-2 sm:w-auto">
+                                            <div className="min-w-0 flex-1 sm:w-72">
+                                              <Label className="text-[10px] leading-none">
+                                                Arbeitsort ändern
+                                              </Label>
+                                              <select
+                                                className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                                value={item.workSiteId || ""}
+                                                onChange={(e: any) => {
+                                                  updateItem(
+                                                    index,
+                                                    "workSiteId",
+                                                    e?.target?.value ?? "",
+                                                  );
+                                                  setMovingItemKey(null);
+                                                }}
+                                              >
+                                                <option value="">
+                                                  Arbeitsort wählen
+                                                </option>
+                                                {currentEditWorkSites.map(
+                                                  (siteOption) => (
+                                                    <option
+                                                      key={siteOption.id}
+                                                      value={siteOption.id}
+                                                    >
+                                                      {getWorkSiteSelectLabel(
+                                                        siteOption,
+                                                      )}
+                                                    </option>
+                                                  ),
+                                                )}
+                                              </select>
+                                            </div>
+                                            {item.workSiteId && (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setMovingItemKey(null)
+                                                }
+                                                className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
+                                              >
+                                                Fertig
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
                                       )}
-                                    </div>
-                                  </div>
 
-                                  <div className="grid grid-cols-3 gap-1.5">
-                                    <div>
-                                      <Label className="text-[10px] leading-none">
-                                        Einheit
-                                      </Label>
-                                      <select
-                                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                        value={item.unit}
-                                        onChange={(e: any) =>
-                                          updateItem(
-                                            index,
-                                            "unit",
-                                            e?.target?.value ?? "Stunde",
-                                          )
-                                        }
+                                    {showItemReviewBlock && (
+                                      <div
+                                        className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
+                                          isBlockingItemReview
+                                            ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
+                                            : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
+                                        }`}
                                       >
-                                        {priceTypes.map((pt) => (
-                                          <option key={pt} value={pt}>
-                                            {pt}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-
-                                    <div>
-                                      <Label className="text-[10px] leading-none">
-                                        Preis ({currency})
-                                      </Label>
-                                      <Input
-                                        type="number"
-                                        step="0.05"
-                                        className={`h-8 text-xs ${
-                                          priceInputCritical
-                                            ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                            : ""
-                                        }`}
-                                        value={item.unitPrice}
-                                        placeholder={
-                                          priceInputReview ? "prüfen" : "0"
-                                        }
-                                        onFocus={(e) =>
-                                          e.currentTarget.select()
-                                        }
-                                        onChange={(e: any) =>
-                                          updateItem(
-                                            index,
-                                            "unitPrice",
-                                            e?.target?.value ?? "",
-                                          )
-                                        }
-                                      />
-                                    </div>
-
-                                    <div>
-                                      <Label className="text-[10px] leading-none">
-                                        Menge
-                                      </Label>
-                                      <Input
-                                        type="number"
-                                        step="0.25"
-                                        className={`h-8 text-xs ${
-                                          quantityInputCritical
-                                            ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                            : ""
-                                        }`}
-                                        value={item.quantity}
-                                        placeholder={
-                                          quantityInputReview ? "prüfen" : "0"
-                                        }
-                                        onFocus={(e) =>
-                                          e.currentTarget.select()
-                                        }
-                                        onChange={(e: any) =>
-                                          updateItem(
-                                            index,
-                                            "quantity",
-                                            e?.target?.value ?? "",
-                                          )
-                                        }
-                                      />
-                                    </div>
-                                  </div>
-
-                                  {hasMultipleEditWorkSites &&
-                                    (movingItemKey === item.key ||
-                                      !item.workSiteId) && (
-                                      <div className="flex justify-end">
-                                        <div className="flex w-full items-end gap-2 sm:w-auto">
-                                          <div className="min-w-0 flex-1 sm:w-72">
-                                            <Label className="text-[10px] leading-none">
-                                              Arbeitsort ändern
-                                            </Label>
-                                            <select
-                                              className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                              value={item.workSiteId || ""}
-                                              onChange={(e: any) => {
-                                                updateItem(
-                                                  index,
-                                                  "workSiteId",
-                                                  e?.target?.value ?? "",
-                                                );
-                                                setMovingItemKey(null);
-                                              }}
-                                            >
-                                              <option value="">
-                                                Arbeitsort wählen
-                                              </option>
-                                              {currentEditWorkSites.map(
-                                                (siteOption) => (
-                                                  <option
-                                                    key={siteOption.id}
-                                                    value={siteOption.id}
-                                                  >
-                                                    {getWorkSiteSelectLabel(
-                                                      siteOption,
-                                                    )}
-                                                  </option>
-                                                ),
-                                              )}
-                                            </select>
-                                          </div>
-                                          {item.workSiteId && (
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setMovingItemKey(null)
-                                              }
-                                              className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
-                                            >
-                                              Fertig
-                                            </button>
-                                          )}
+                                        <div className="mb-0.5 flex items-center gap-1 font-semibold">
+                                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                                          Manuell prüfen
                                         </div>
-                                      </div>
-                                    )}
 
-                                  {showItemReviewBlock && (
-                                    <div
-                                      className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
-                                        isBlockingItemReview
-                                          ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
-                                          : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
-                                      }`}
-                                    >
-                                      <div className="mb-0.5 flex items-center gap-1 font-semibold">
-                                        <AlertTriangle className="h-3 w-3 shrink-0" />
-                                        Manuell prüfen
-                                      </div>
-
-                                      <div className="space-y-0.5">
-                                        {showCurrencyConflictItemReview && (
-                                          <div className="space-y-0.5">
-                                            <div>
-                                              Währung/Preis noch nicht bestätigt.
-                                            </div>
-                                            {sourceLineForItem && (
+                                        <div className="space-y-0.5">
+                                          {showCurrencyConflictItemReview && (
+                                            <div className="space-y-0.5">
                                               <div>
-                                                Text: {" "}
-                                                <span className="font-medium">
-                                                  {sourceLineForItem}
-                                                </span>
+                                                Währung/Preis noch nicht
+                                                bestätigt.
+                                              </div>
+                                              {sourceLineForItem && (
+                                                <div>
+                                                  Text:{" "}
+                                                  <span className="font-medium">
+                                                    {sourceLineForItem}
+                                                  </span>
+                                                </div>
+                                              )}
+                                              <div>
+                                                Diese Position wird nicht in
+                                                Netto/MwSt./Total gerechnet, bis
+                                                die Währung und der Preis
+                                                eindeutig bestätigt sind.
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {showUnitConflict && (
+                                            <div className="space-y-0.5">
+                                              {unitMissingInTextReason ? (
+                                                <>
+                                                  <div>
+                                                    Einheit fehlt im Kundentext.
+                                                  </div>
+                                                  {sourceLineForItem && (
+                                                    <div>
+                                                      Text:{" "}
+                                                      <span className="font-medium">
+                                                        {sourceLineForItem}
+                                                      </span>
+                                                    </div>
+                                                  )}
+                                                  <div>
+                                                    Bitte Einheit bestätigen,
+                                                    bevor Angebot oder Rechnung
+                                                    erstellt wird.
+                                                  </div>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <div>
+                                                    Text:{" "}
+                                                    <span className="font-medium">
+                                                      {orderSummary}
+                                                    </span>
+                                                  </div>
+                                                  {catalogSummary && (
+                                                    <div>
+                                                      Katalog:{" "}
+                                                      <span className="font-medium">
+                                                        {catalogSummary}
+                                                      </span>
+                                                    </div>
+                                                  )}
+                                                  <div>
+                                                    Einheit prüfen:{" "}
+                                                    {item.serviceName ||
+                                                      "Leistung"}
+                                                  </div>
+                                                </>
+                                              )}
+                                            </div>
+                                          )}
+
+                                          {!showUnitConflict &&
+                                            showPriceOverride &&
+                                            catalogService && (
+                                              <div className="space-y-0.5">
+                                                {sourceLineForItem ? (
+                                                  <div>
+                                                    Text:{" "}
+                                                    <span className="font-medium">
+                                                      {sourceLineForItem}
+                                                    </span>
+                                                    <span className="font-semibold">
+                                                      {" "}
+                                                      — Textpreis übernommen.
+                                                    </span>
+                                                  </div>
+                                                ) : (
+                                                  <div>
+                                                    Textpreis übernommen: Preis
+                                                    stammt aus dem Kundentext.
+                                                    Genaue Textzeile bitte bei
+                                                    Bedarf unten prüfen.
+                                                  </div>
+                                                )}
+                                                <div className="text-amber-700/75 dark:text-amber-200/75">
+                                                  Katalog: {catalogService.unit}{" "}
+                                                  ·{" "}
+                                                  {formatCurrency(
+                                                    catalogPrice,
+                                                    currency,
+                                                  )}
+                                                </div>
                                               </div>
                                             )}
-                                            <div>
-                                              Diese Position wird nicht in Netto/MwSt./Total gerechnet, bis die Währung und der Preis eindeutig bestätigt sind.
-                                            </div>
-                                          </div>
-                                        )}
 
-                                        {showUnitConflict && (
-                                          <div className="space-y-0.5">
-                                            {unitMissingInTextReason ? (
-                                              <>
+                                          {!showUnitConflict &&
+                                            !showPriceOverride &&
+                                            showManualCurrencyConfirmedReview && (
+                                              <div className="space-y-0.5">
                                                 <div>
-                                                  Einheit fehlt im Kundentext.
+                                                  Preis/Währung manuell
+                                                  bestätigt.
                                                 </div>
+                                                {sourceLineForItem && (
+                                                  <div>
+                                                    Ausgangstext:{" "}
+                                                    <span className="font-medium">
+                                                      {sourceLineForItem}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+
+                                          {!showUnitConflict &&
+                                            showPriceReferenceReview && (
+                                              <div className="space-y-0.5">
+                                                <div>Preis im Text unklar.</div>
                                                 {sourceLineForItem && (
                                                   <div>
                                                     Text:{" "}
@@ -10683,129 +11450,44 @@ export default function AuftraegePage() {
                                                   </div>
                                                 )}
                                                 <div>
-                                                  Bitte Einheit bestätigen, bevor
-                                                  Angebot oder Rechnung erstellt wird.
+                                                  Bitte Preis bestätigen.
                                                 </div>
-                                              </>
-                                            ) : (
-                                              <>
-                                                <div>
-                                                  Text:{" "}
-                                                  <span className="font-medium">
-                                                    {orderSummary}
-                                                  </span>
-                                                </div>
-                                                {catalogSummary && (
+                                              </div>
+                                            )}
+
+                                          {!showUnitConflict &&
+                                            (priceInputReview ||
+                                              quantityInputReview) && (
+                                              <div className="space-y-0.5">
+                                                {priceInputReview && (
                                                   <div>
-                                                    Katalog:{" "}
-                                                    <span className="font-medium">
-                                                      {catalogSummary}
-                                                    </span>
+                                                    Preis fehlt oder ist
+                                                    unsicher.
+                                                  </div>
+                                                )}
+                                                {quantityInputReview && (
+                                                  <div>
+                                                    Menge fehlt oder ist
+                                                    unsicher.
                                                   </div>
                                                 )}
                                                 <div>
-                                                  Einheit prüfen: {item.serviceName || "Leistung"}
+                                                  Vor Angebot/Rechnung ergänzen.
                                                 </div>
-                                              </>
+                                              </div>
                                             )}
-                                          </div>
-                                        )}
 
-                                        {!showUnitConflict &&
-                                          showPriceOverride &&
-                                          catalogService && (
-                                            <div className="space-y-0.5">
-                                              {sourceLineForItem ? (
-                                                <div>
-                                                  Text:{" "}
-                                                  <span className="font-medium">
-                                                    {sourceLineForItem}
-                                                  </span>
-                                                  <span className="font-semibold">
-                                                    {" "}
-                                                    — Textpreis übernommen.
-                                                  </span>
-                                                </div>
-                                              ) : (
-                                                <div>
-                                                  Textpreis übernommen: Preis
-                                                  stammt aus dem Kundentext.
-                                                  Genaue Textzeile bitte bei
-                                                  Bedarf unten prüfen.
-                                                </div>
-                                              )}
-                                              <div className="text-amber-700/75 dark:text-amber-200/75">
-                                                Katalog: {catalogService.unit} ·{" "}
-                                                {formatCurrency(
-                                                  catalogPrice,
-                                                  currency,
-                                                )}
-                                              </div>
+                                          {showManualServiceReview && (
+                                            <div>
+                                              Nicht im Leistungskatalog.
+                                              Optional über Menü übernehmen.
                                             </div>
                                           )}
-
-                                        {!showUnitConflict &&
-                                          !showPriceOverride &&
-                                          showManualCurrencyConfirmedReview && (
-                                            <div className="space-y-0.5">
-                                              <div>Preis/Währung manuell bestätigt.</div>
-                                              {sourceLineForItem && (
-                                                <div>
-                                                  Ausgangstext:{" "}
-                                                  <span className="font-medium">
-                                                    {sourceLineForItem}
-                                                  </span>
-                                                </div>
-                                              )}
-                                            </div>
-                                          )}
-
-                                        {!showUnitConflict &&
-                                          showPriceReferenceReview && (
-                                            <div className="space-y-0.5">
-                                              <div>Preis im Text unklar.</div>
-                                              {sourceLineForItem && (
-                                                <div>
-                                                  Text:{" "}
-                                                  <span className="font-medium">
-                                                    {sourceLineForItem}
-                                                  </span>
-                                                </div>
-                                              )}
-                                              <div>Bitte Preis bestätigen.</div>
-                                            </div>
-                                          )}
-
-                                        {!showUnitConflict &&
-                                          (priceInputReview ||
-                                            quantityInputReview) && (
-                                            <div className="space-y-0.5">
-                                              {priceInputReview && (
-                                                <div>
-                                                  Preis fehlt oder ist unsicher.
-                                                </div>
-                                              )}
-                                              {quantityInputReview && (
-                                                <div>
-                                                  Menge fehlt oder ist unsicher.
-                                                </div>
-                                              )}
-                                              <div>
-                                                Vor Angebot/Rechnung ergänzen.
-                                              </div>
-                                            </div>
-                                          )}
-
-                                        {showManualServiceReview && (
-                                          <div>
-                                            Nicht im Leistungskatalog. Optional
-                                            über Menü übernehmen.
-                                          </div>
-                                        )}
+                                        </div>
                                       </div>
-                                    </div>
-                                  )}
-                                </div>
+                                    )}
+                                  </div>
+                                )
                               )}
                             </div>
                           );
@@ -11007,7 +11689,9 @@ export default function AuftraegePage() {
                             0,
                           ),
                       )}
-                      style={{ fieldSizing: "content", overflow: "hidden" } as any}
+                      style={
+                        { fieldSizing: "content", overflow: "hidden" } as any
+                      }
                       placeholder="z.B. Rückruf, Zugang, Parkplatz, Leiter nötig, Terminwunsch..."
                       value={normalSpecialNotesText}
                       onChange={(e) => updateNormalSpecialNotes(e.target.value)}
@@ -11243,7 +11927,10 @@ export default function AuftraegePage() {
                                   ? "Mediendatei vorhanden"
                                   : "Keine Kundennachricht gespeichert"}
                           </span>
-                          <span>Zusammenführung: bei Bedarf Original öffnen und prüfen.</span>
+                          <span>
+                            Zusammenführung: bei Bedarf Original öffnen und
+                            prüfen.
+                          </span>
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -11269,32 +11956,42 @@ export default function AuftraegePage() {
                                       Bildvorschau
                                     </div>
                                     <div className="text-xs text-muted-foreground">
-                                      {customerMessageImagePreviewUrls.length} Bild{customerMessageImagePreviewUrls.length === 1 ? "" : "er"} · Miniatur anklicken
+                                      {customerMessageImagePreviewUrls.length}{" "}
+                                      Bild
+                                      {customerMessageImagePreviewUrls.length ===
+                                      1
+                                        ? ""
+                                        : "er"}{" "}
+                                      · Miniatur anklicken
                                     </div>
                                   </div>
                                   <ImageIcon className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <div className="flex flex-wrap gap-2">
-                                  {customerMessageImagePreviewUrls.map((url, index) => (
-                                    <button
-                                      key={`${url}-${index}`}
-                                      type="button"
-                                      className="group flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted hover:ring-2 hover:ring-primary"
-                                      onClick={() => {
-                                        setGalleryUrls(customerMessageImagePreviewUrls);
-                                        setGalleryIdx(index);
-                                        setMediaType("image");
-                                        setMediaUrl(null);
-                                        setMediaDialogOpen(true);
-                                      }}
-                                    >
-                                      <img
-                                        src={url}
-                                        alt={`Kundenbild ${index + 1}`}
-                                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                                      />
-                                    </button>
-                                  ))}
+                                  {customerMessageImagePreviewUrls.map(
+                                    (url, index) => (
+                                      <button
+                                        key={`${url}-${index}`}
+                                        type="button"
+                                        className="group flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted hover:ring-2 hover:ring-primary"
+                                        onClick={() => {
+                                          setGalleryUrls(
+                                            customerMessageImagePreviewUrls,
+                                          );
+                                          setGalleryIdx(index);
+                                          setMediaType("image");
+                                          setMediaUrl(null);
+                                          setMediaDialogOpen(true);
+                                        }}
+                                      >
+                                        <img
+                                          src={url}
+                                          alt={`Kundenbild ${index + 1}`}
+                                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                                        />
+                                      </button>
+                                    ),
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -11325,7 +12022,6 @@ export default function AuftraegePage() {
                       )}
                     </div>
                   </div>
-
                 </>
               )}
             </div>
