@@ -4374,7 +4374,10 @@ const renderBadgeTooltip = (
   );
 };
 
-const renderMobileSafeBadgeTooltip = (badge: ReviewBadge) => {
+const renderMobileSafeBadgeTooltip = (
+  badge: ReviewBadge,
+  forceVisible = false,
+) => {
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
   if (!tooltip) return null;
 
@@ -4383,7 +4386,9 @@ const renderMobileSafeBadgeTooltip = (badge: ReviewBadge) => {
     /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
 
   return (
-    <span className="pointer-events-auto fixed left-3 right-3 top-1/2 z-[10000] hidden max-h-[62vh] -translate-y-1/2 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl group-focus:block group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+    <span
+      className={`pointer-events-auto fixed left-3 right-3 top-1/2 z-[10000] max-h-[62vh] max-w-[calc(100vw-1.5rem)] -translate-y-1/2 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-focus:block group-hover:block"}`}
+    >
       {tooltipLines.map((line, index) => {
         const trimmed = line.trim();
         if (/^[-─—–_]{6,}$/.test(trimmed)) {
@@ -8884,14 +8889,15 @@ export default function AuftraegePage() {
             const renderMobileChipTooltip = (
               badge: ReviewBadge,
               slot: string,
-              align: "left" | "right" = "left",
+              _align: "left" | "right" = "left",
             ) => {
-              // Mobile tooltips must be controlled only by tap state.
-              // Do not render the hidden group-focus/group-hover tooltip when inactive,
-              // because a touched button can keep focus and make the tooltip look stuck.
+              // V17.83: Mobile chip tooltips must be viewport-fixed.
+              // The desktop absolute tooltip is anchored to the chip and can run
+              // out of the screen on narrow phones. For touch we render the same
+              // content as a centered, width-bounded mobile sheet instead.
               if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot))
                 return null;
-              return renderBadgeTooltip(badge, align, true);
+              return renderMobileSafeBadgeTooltip(badge, true);
             };
 
             const openOrderAtItems = (event: any) => {
