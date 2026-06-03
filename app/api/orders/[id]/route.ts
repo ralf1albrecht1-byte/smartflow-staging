@@ -540,32 +540,60 @@ function isReviewReasonResolvedByConfirmedItemForPersist(reason: string, data: a
 // nicht wieder die gespeicherte Einheit auf „prüfen" zurückdrehen.
 // Das ist kein KI-/Wortlisten-Fix, sondern eine Persistenzregel:
 // vollständige manuelle Positionswerte gewinnen gegen alte Unit-Review-Marker.
+function isCompleteClientItemForPersist(item: any): boolean {
+  const unit = normalizeSearchText(item?.unit);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const quantity = Number(item?.quantity ?? 0);
+  const serviceName = normalizeSearchText(normalizeServiceNameForDisplay(item?.serviceName));
+
+  return (
+    serviceName.length > 0 &&
+    serviceName !== "leistung pruefen" &&
+    unit.length > 0 &&
+    !unit.includes("pruefen") &&
+    !unit.includes("prufen") &&
+    unitPrice > 0 &&
+    quantity > 0
+  );
+}
+
+function serviceKeysLikelyReferToSameItemForPersist(left?: string | null, right?: string | null): boolean {
+  const a = normalizeSearchText(normalizeServiceNameForDisplay(left || ""));
+  const b = normalizeSearchText(normalizeServiceNameForDisplay(right || ""));
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // Structural fallback only: after the user manually confirms a complete item,
+  // stale review labels may still use an older KI name variant such as
+  // "Lagerraumboden reinigen" while the editor now shows "Boden reinigen".
+  // Do not keep a hard red blocker just because the stale label wording differs.
+  return (a.length >= 5 && b.includes(a)) || (b.length >= 5 && a.includes(b));
+}
+
 function isUnitReviewResolvedByCompleteClientItemForPersist(reason: string, data: any): boolean {
   const key = String(reason || "");
   if (!key.startsWith("unit_missing_in_text:") && !key.startsWith("unit_mismatch:")) {
     return false;
   }
 
-  const parts = key.split(":");
-  const reasonService = normalizeSearchText(normalizeServiceNameForDisplay(parts[1] || ""));
-  if (!reasonService) return false;
-
   const items = Array.isArray(data?.items) ? data.items : [];
-  return items.some((item: any) => {
-    const serviceName = normalizeSearchText(normalizeServiceNameForDisplay(item?.serviceName));
-    const unit = normalizeSearchText(item?.unit);
-    const unitPrice = Number(item?.unitPrice ?? 0);
-    const quantity = Number(item?.quantity ?? 0);
+  const completeItems = items.filter((item: any) => isCompleteClientItemForPersist(item));
+  if (completeItems.length === 0) return false;
 
-    return (
-      serviceName === reasonService &&
-      unit.length > 0 &&
-      !unit.includes("pruefen") &&
-      !unit.includes("prufen") &&
-      unitPrice > 0 &&
-      quantity > 0
-    );
-  });
+  const parts = key.split(":");
+  const reasonService = normalizeServiceNameForDisplay(parts[1] || "");
+
+  if (!reasonService) {
+    return items.length > 0 && completeItems.length === items.length;
+  }
+
+  if (completeItems.some((item: any) => serviceKeysLikelyReferToSameItemForPersist(reasonService, item?.serviceName))) {
+    return true;
+  }
+
+  // If every posted item is now complete, a stale unit_missing/unit_mismatch marker
+  // is resolved by the explicit editor save even when the old service label no
+  // longer exactly matches the cleaned visible label.
+  return items.length > 0 && completeItems.length === items.length;
 }
 
 function hasCompleteManualItemsIgnoringCurrencyForPersist(data: any): boolean {
@@ -1210,6 +1238,7 @@ function roundMoney(value: number): number {
 }
 
 function isExplicitZeroTotalReviewItem(item: any, orderLike?: any): boolean {
+  if (isCompleteClientItemForPersist(item)) return false;
   return isBlockedAmountReviewItemForPersist(item, orderLike || {});
 }
 
@@ -1223,7 +1252,8 @@ function hasUnitMissingReviewForItem(data: any, item: any): boolean {
 }
 
 function getDisplaySafeItemForOrder(item: any, orderLike: any) {
-  const unitMissing = hasUnitMissingReviewForItem(orderLike || {}, item);
+  const itemComplete = isCompleteClientItemForPersist(item);
+  const unitMissing = !itemComplete && hasUnitMissingReviewForItem(orderLike || {}, item);
   return {
     ...item,
     unit: unitMissing ? "Einheit prüfen" : item?.unit,

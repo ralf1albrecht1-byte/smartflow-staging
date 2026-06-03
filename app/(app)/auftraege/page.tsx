@@ -5028,6 +5028,7 @@ const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^unit_price_review$/,
   /^quantity_review$/,
   /^price_unclear:/,
+  /^service_name_review(?::|$)/,
   /^stunden_arbeitsposition_pruefen$/,
   /^total_unrealistic_check$/,
   /^currency_unsupported$/,
@@ -7921,10 +7922,18 @@ export default function AuftraegePage() {
       orders
         .find((o) => o.id === editId)
         ?.reviewReasons?.filter((reason) => {
-          if (reason.startsWith("unit_mismatch:")) {
+          if (reason.startsWith("unit_mismatch:") || reason.startsWith("unit_missing_in_text:")) {
             const [, reasonService] = reason.split(":");
-            const reasonName = normalizeForMatch(reasonService);
+            const reasonName = normalizeForMatch(canonicalServiceNameForOrderItem(reasonService));
+            if (allItemsComplete) return false;
             return !validServiceNames.has(reasonName);
+          }
+
+          if (reason.startsWith("service_name_review")) {
+            const stillHasUnsafeName = validItems.some((item) =>
+              normalizeForMatch(item.serviceName) === "leistung pruefen",
+            );
+            return stillHasUnsafeName;
           }
 
           if (reason.startsWith("price_override:")) {

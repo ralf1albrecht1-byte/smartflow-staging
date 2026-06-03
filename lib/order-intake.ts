@@ -2624,6 +2624,7 @@ Regeln:
           { role: "user", content: rawText },
         ],
         response_format: { type: "json_object" },
+        temperature: 0,
         max_tokens: 3600,
       }),
     });
@@ -6084,6 +6085,7 @@ export async function processIncomingMessage(
           },
         ],
         response_format: { type: "json_object" },
+        temperature: 0,
         max_tokens: 2600,
       }),
     });
