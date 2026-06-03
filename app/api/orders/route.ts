@@ -2047,7 +2047,7 @@ export async function POST(request: Request) {
     let primaryQuantity = Number(data?.quantity ?? 1);
     if (items && items.length > 0) {
       totalPrice = items.reduce(
-        (sum: number, item: any) => sum + getItemNetTotalForOrder(item, o),
+        (sum: number, item: any) => sum + getItemNetTotalForOrder(item, dataForPersist),
         0,
       );
       primaryServiceName = normalizeServiceNameForDisplay(
