@@ -789,7 +789,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
   }> = [
     {
       re: new RegExp(
-        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`,
+        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\b`,
         "gi",
       ),
       currencyGroup: 1,
@@ -798,7 +798,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     },
     {
       re: new RegExp(
-        `${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`,
+        `${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\b`,
         "gi",
       ),
       currencyGroup: 2,
@@ -860,7 +860,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     },
     {
       re: new RegExp(
-        `(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`,
+        `(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\b`,
         "gi",
       ),
       currencyGroup: 1,
@@ -869,7 +869,7 @@ function extractUnitPricesFromSegment(segment: string): DetectedUnitPrice[] {
     },
     {
       re: new RegExp(
-        `(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`,
+        `(?:preis|sonderpreis|vereinbart|ansatz|stundensatz|stundenansatz|tagessatz|zu|für|fuer|kostet|kosten|ist|=|:)\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\b`,
         "gi",
       ),
       currencyGroup: 2,
@@ -2300,7 +2300,7 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
       " ",
     )
     .replace(
-      new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"),
+      new RegExp(`\\b(?:pro|je|per|par|at|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"),
       " ",
     )
     .replace(/\b(?:zu|für|fuer|pro|je|per|par|à|a)\b\s*[.,;:!?-]*$/i, " ")
@@ -3088,7 +3088,7 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
     const hasCurrency = new RegExp(CURRENCY_WORDS, "i").test(line);
     const hasCurrencylessUnitPrice =
       new RegExp(
-        `${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`,
+        `${PRICE_NUMBER}\\s*(?:pro|je|per|par|at|à|a|/)\\s*${UNIT_WORDS}\\b`,
         "i",
       ).test(line) ||
       new RegExp(
@@ -3200,7 +3200,7 @@ function findExplicitUnitPriceInLine(
     // same line, so prices cannot leak from another service line.
     {
       re: new RegExp(
-        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "i",
       ),
       currencyGroup: 1,
@@ -3208,7 +3208,7 @@ function findExplicitUnitPriceInLine(
     },
     {
       re: new RegExp(
-        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "i",
       ),
       currencyGroup: 2,
@@ -3226,7 +3226,7 @@ function findExplicitUnitPriceInLine(
 
     {
       re: new RegExp(
-        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`,
+        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\b`,
         "i",
       ),
       currencyGroup: 1,
@@ -3235,7 +3235,7 @@ function findExplicitUnitPriceInLine(
     },
     {
       re: new RegExp(
-        `${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`,
+        `${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\b`,
         "i",
       ),
       currencyGroup: 2,
@@ -3318,7 +3318,7 @@ function findExplicitUnitPriceInLine(
     // darf nicht zum Verlust der gesamten Leistungszeile führen.
     {
       re: new RegExp(
-        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "i",
       ),
       unitGroup: 1,
@@ -3327,7 +3327,7 @@ function findExplicitUnitPriceInLine(
     },
     {
       re: new RegExp(
-        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        `(?:preis|einzelpreis)\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "i",
       ),
       unitGroup: 1,
@@ -3339,7 +3339,7 @@ function findExplicitUnitPriceInLine(
     // Currency is omitted by the customer; use the already resolved fallback currency.
     {
       re: new RegExp(
-        `${PRICE_NUMBER}\\s*(?:pro|je|per|par|à|a|/)\\s*(${UNIT_WORDS})\\b`,
+        `${PRICE_NUMBER}\\s*(?:pro|je|per|par|at|à|a|/)\\s*(${UNIT_WORDS})\\b`,
         "i",
       ),
       priceGroup: 1,
@@ -3508,7 +3508,7 @@ function cleanExplicitServiceNameFromLine(
       " ",
     )
     .replace(
-      new RegExp(`\\b(?:pro|je|per|par|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"),
+      new RegExp(`\\b(?:pro|je|per|par|at|à|a|/)\\s*${UNIT_WORDS}\\b`, "gi"),
       " ",
     )
     .replace(new RegExp(`\\b(?:${CURRENCY_WORDS})\\b`, "gi"), " ")
@@ -7218,6 +7218,245 @@ export function applyUnitlessQuantityPriceLineGuard(
   };
 }
 
+
+function originalCustomerTextOnlyV17_79(value?: string | null): string {
+  return String(value || "")
+    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Automatic translation\s*---[\s\S]*$/i, "")
+    .trim();
+}
+
+type UnitlessTrailingQuantityPriceCandidateV17_79 = {
+  raw: string;
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  currency: string | null;
+  topic: string | null;
+};
+
+function extractUnitlessTrailingQuantityPriceCandidatesV17_79(
+  originalText: string,
+): UnitlessTrailingQuantityPriceCandidateV17_79[] {
+  const source = originalCustomerTextOnlyV17_79(originalText);
+  if (!source) return [];
+
+  const lines = source
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|;/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/^\s*\[?\s*(?:titel|title)\s*:/i.test(line));
+
+  const candidates: UnitlessTrailingQuantityPriceCandidateV17_79[] = [];
+
+  const patterns: Array<{
+    regex: RegExp;
+    serviceGroup: number;
+    quantityGroup: number;
+    currencyGroup?: number;
+    priceGroup: number;
+  }> = [
+    {
+      regex: new RegExp(
+        `^\\s*(?!${QUANTITY_NUMBER_OR_WORD}\\s)(.{3,160}?)\\s+(${QUANTITY_NUMBER_OR_WORD})\\s*(?:à|a|zu|je|pro|per|at|/)\\s*(?:(${CURRENCY_WORDS})\\s*)?${PRICE_NUMBER}\\s*[.。!?)\\]]*\\s*$`,
+        "i",
+      ),
+      serviceGroup: 1,
+      quantityGroup: 2,
+      currencyGroup: 3,
+      priceGroup: 4,
+    },
+    {
+      regex: new RegExp(
+        `^\\s*(?!${QUANTITY_NUMBER_OR_WORD}\\s)(.{3,160}?)\\s+(${QUANTITY_NUMBER_OR_WORD})\\s*(?:à|a|zu|je|pro|per|at|/)\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\s*[.。!?)\\]]*\\s*$`,
+        "i",
+      ),
+      serviceGroup: 1,
+      quantityGroup: 2,
+      priceGroup: 3,
+      currencyGroup: 4,
+    },
+  ];
+
+  for (const line of lines) {
+    if (hasQuantityWithExplicitUnit(line)) continue;
+    if (isLikelyTravelFlatCostLine(line)) continue;
+
+    for (const pattern of patterns) {
+      const match = line.match(pattern.regex);
+      if (!match) continue;
+
+      const quantity = parseQuantityNumber(match[pattern.quantityGroup]);
+      const unitPrice = parsePriceNumber(match[pattern.priceGroup]);
+      if (!quantity || !unitPrice) continue;
+
+      const serviceName = cleanExplicitServiceNameFromLine(line, {
+        quantityRaw: match[pattern.quantityGroup],
+        priceRaw: match[0],
+      });
+
+      const cleanName = cleanValidationServiceDisplayName(serviceName);
+      if (!cleanName || normalizeCompare(cleanName) === "unbekannte leistung") continue;
+
+      candidates.push({
+        raw: line,
+        serviceName: cleanName,
+        quantity,
+        unitPrice,
+        currency: pattern.currencyGroup ? normalizeCurrency(match[pattern.currencyGroup]) : null,
+        topic: weakUnitlessServiceTopic(line) || weakUnitlessServiceTopic(cleanName),
+      });
+    }
+  }
+
+  const byKey = new Map<string, UnitlessTrailingQuantityPriceCandidateV17_79>();
+  for (const candidate of candidates) {
+    const key = `${normalizeCompare(candidate.raw)}:${candidate.quantity}:${candidate.unitPrice}`;
+    if (!byKey.has(key)) byKey.set(key, candidate);
+  }
+  return Array.from(byKey.values());
+}
+
+function unitlessTrailingCandidateMatchesItemV17_79(
+  item: ParsedOrderItemForValidation,
+  candidate: UnitlessTrailingQuantityPriceCandidateV17_79,
+): boolean {
+  const sameQuantity =
+    Math.abs(Number(item.quantity || 0) - candidate.quantity) < 0.001;
+  const samePrice =
+    Math.abs(Number(item.unitPrice || 0) - candidate.unitPrice) < 0.01;
+  if (!sameQuantity || !samePrice) return false;
+
+  const itemText = normalizeCompare(
+    [item.serviceName, item.description, item.sourceText, item.evidence]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const candidateText = normalizeCompare([candidate.raw, candidate.serviceName].join(" "));
+  if (!itemText || !candidateText) return false;
+
+  if (itemText.includes(candidateText) || candidateText.includes(itemText)) return true;
+
+  const itemTopic = weakUnitlessServiceTopic(itemText);
+  const sameTopic = Boolean(itemTopic && candidate.topic && itemTopic === candidate.topic);
+  if (sameTopic) return true;
+
+  const itemTokens = tokenSetForUnitlessService(itemText);
+  const candidateTokens = tokenSetForUnitlessService(candidateText);
+  const sharedTokens = Array.from(candidateTokens).filter((token) => itemTokens.has(token));
+
+  return sharedTokens.length > 0;
+}
+
+function applyUnitlessTrailingQuantityPriceFailClosedV17_79(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const candidates = extractUnitlessTrailingQuantityPriceCandidatesV17_79(originalText);
+  if (candidates.length === 0) return { items, reviewReasons: [] };
+
+  const reviewReasons: string[] = [];
+  const nextItems = items.map((item) => {
+    if (isFlatUnit(item.unit)) return item;
+
+    const candidate = candidates.find((entry) =>
+      unitlessTrailingCandidateMatchesItemV17_79(item, entry),
+    );
+    if (!candidate) return item;
+
+    const serviceName =
+      String(item.serviceName || candidate.serviceName || "Leistung prüfen").trim() ||
+      "Leistung prüfen";
+    const reason = `unit_missing_in_text:${serviceName}`;
+    reviewReasons.push(reason, `unit_mismatch:${serviceName}:Unklar:${item.unit || "Unklar"}:0`);
+
+    return {
+      ...item,
+      serviceName,
+      description: candidate.raw,
+      sourceText: candidate.raw,
+      evidence: candidate.raw,
+      quantity: candidate.quantity,
+      unit: "prüfen",
+      unitPrice: candidate.unitPrice,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: reason,
+      detectedCurrency: candidate.currency || item.detectedCurrency || null,
+    };
+  });
+
+  return { items: nextItems, reviewReasons: unique(reviewReasons) };
+}
+
+function addMissingSemanticFlatCostItemsV17_79(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const existingAmountKeys = new Set(
+    items
+      .filter((item) => normalizeCompare(item.serviceName) === "anfahrt")
+      .filter((item) => Number(item.unitPrice || 0) > 0)
+      .map((item) => roundMoney(Number(item.unitPrice || 0))),
+  );
+  const existingSourceKeys = new Set(
+    items
+      .flatMap((item) => [item.sourceText, item.evidence, item.description])
+      .map((value) => normalizeCompare(value || ""))
+      .filter(Boolean),
+  );
+
+  const candidateLines = unique([
+    ...splitRawIntakeLines(preferredSemanticLineSourceV17_41(originalText)),
+    ...splitRawIntakeLines(originalCustomerTextOnlyV17_79(originalText)),
+  ]);
+
+  const nextItems = items.slice();
+
+  for (const line of candidateLines) {
+    const lineKey = normalizeCompare(line);
+    if (!lineKey || hasQuantityWithExplicitUnit(line)) continue;
+
+    const canonical = canonicalGermanServiceNameFromText(line);
+    if (canonical !== "Anfahrt" && !isLikelyTravelFlatCostLine(line)) continue;
+
+    const flatPrice =
+      findExplicitFlatPriceInLine(line, fallbackCurrency) ||
+      detectCurrencylessFlatPriceFromSegment(line, fallbackCurrency);
+    if (!flatPrice || flatPrice.currency !== fallbackCurrency) continue;
+
+    const amountKey = roundMoney(flatPrice.amount);
+    const sourceAlreadyCaptured = Array.from(existingSourceKeys).some(
+      (sourceKey) => sourceKey.includes(lineKey) || lineKey.includes(sourceKey),
+    );
+    if (sourceAlreadyCaptured || existingAmountKeys.has(amountKey)) continue;
+
+    nextItems.push({
+      serviceName: "Anfahrt",
+      description: line,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: flatPrice.amount,
+      totalPrice: flatPrice.amount,
+      needsReview: false,
+      reviewReason: null,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: flatPrice.currency,
+    });
+
+    existingAmountKeys.add(amountKey);
+    existingSourceKeys.add(lineKey);
+  }
+
+  return nextItems;
+}
+
+
 function applyStructuredFailClosedValidation(params: {
   items: ParsedOrderItemForValidation[];
   finalCurrency: IntakeCurrency;
@@ -8697,6 +8936,11 @@ export function validateAndRepairParsedOrderItems(
     items,
     finalCurrency,
   );
+  items = addMissingSemanticFlatCostItemsV17_79(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
   items = normalizeParsedServiceNames(items);
   items = dedupeUnsafeDuplicateItems(items);
   items = mergeExplicitLineItemList(
@@ -8870,6 +9114,14 @@ export function validateAndRepairParsedOrderItems(
     items,
     finalCurrency,
   );
+
+  const unitlessTrailingFailClosed = applyUnitlessTrailingQuantityPriceFailClosedV17_79(
+    items,
+    input.originalText,
+  );
+  items = unitlessTrailingFailClosed.items;
+  reviewReasons.push(...unitlessTrailingFailClosed.reviewReasons);
+
   reviewReasons.push(...structuredGermanServiceSection.reviewReasons);
 
   reviewReasons.push(...finalEvidenceSafetyPass.reviewReasons);
@@ -8951,7 +9203,7 @@ export function validateAndRepairParsedOrderItems(
 }
 
 const EXECUTION_ADDRESS_MARKER =
-  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|auftragsort|uftragsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|work\s+address|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
+  /\b(ausführungsadresse|ausfuehrungsadresse|ausführende\s+adresse|ausfuehrende\s+adresse|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|arbeitsort|auftragsort|uftragsort|arbeitsadresse|einsatzort|baustellenadresse|baustelle|objektadresse|objekt|leistungsadresse|leistungsort|serviceadresse|montageadresse|reinigungsadresse|ort\s+der\s+ausführung|ort\s+der\s+ausfuehrung|adresse\s+vor\s+ort|adresse\s+wo\s+gearbeitet\s+wird|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im)|work\s+address|work\s+site|job\s+site|job\s+address|service\s+address|site\s+address|location\s+of\s+work|adresse\s+de\s+travail|adresse\s+d[’']intervention|adresse\s+du\s+chantier|lieu\s+d[’']intervention|dirección\s+de\s+trabajo|direccion\s+de\s+trabajo|dirección\s+de\s+obra|direccion\s+de\s+obra|lugar\s+de\s+trabajo|indirizzo\s+di\s+lavoro|indirizzo\s+cantiere|luogo\s+di\s+intervento)\b/i;
 
 const STOP_MARKER =
   /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet|macht|kommt)|zugang|hauswart|hausmeister|concierge|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp|titel|title)\b/i;

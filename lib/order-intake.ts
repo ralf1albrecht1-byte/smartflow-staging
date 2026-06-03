@@ -1429,7 +1429,7 @@ function hasExplicitBillingAddressDirectiveV17_61(
   const text = normalizeUnitText(rawText || "");
   if (!text) return false;
 
-  return /\b(?:rechnungsadresse|rechnungskunde|rechnungsempfaenger|rechnungsempfänger|rechnung\s+(?:geht\s+)?an|rechnung\s+(?:fuer|für)|rechnung\s+bekommt|auftraggeber|besteller|zahler|facturation|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|bill\s+to)\b/.test(
+  return /\b(?:rechnungsadresse|rechnungskunde|rechnungsempfaenger|rechnungsempfänger|rechnung\s+(?:geht\s+)?an|rechnung\s+(?:fuer|für)|rechnung\s+bekommt|auftraggeber|besteller|zahler|facturation|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|invoice|bill\s+to)\b/.test(
     text,
   );
 }
@@ -1440,7 +1440,7 @@ function hasExecutionAddressDirectiveV17_61(
   const text = normalizeUnitText(rawText || "");
   if (!text) return false;
 
-  return /\b(?:ausfuehrungsadresse|ausführungsadresse|ausfuehrungsort|ausführungsort|arbeitsort|arbeitsadresse|einsatzort|baustelle|objektadresse|objekt|leistungsadresse|serviceadresse|job\s+site|work\s+address|service\s+address|adresse\s+de\s+travail|lieu\s+d\s+intervention|lieu\s+d['’]?intervention)\b/.test(
+  return /\b(?:ausfuehrungsadresse|ausführungsadresse|ausfuehrungsort|ausführungsort|arbeitsort|arbeitsadresse|einsatzort|baustelle|objektadresse|objekt|leistungsadresse|serviceadresse|job\s+site|work\s+site|work\s+address|service\s+address|adresse\s+de\s+travail|lieu\s+d\s+intervention|lieu\s+d['’]?intervention)\b/.test(
     text,
   );
 }
@@ -5561,6 +5561,13 @@ V17.09 STRUKTURVERTRAG:
 - Kein Preis, keine Menge und keine Einheit dürfen von einer anderen Zeile oder
   einer anderen Leistung übernommen werden.
 
+- Jede klar bepreiste Arbeits-/Kostenzeile muss als eigene arbeitsposition erscheinen.
+  Das gilt auch für semantische Fahrt-, Reise-, Transport- oder Wegkosten: Wenn die Zeile genau eine Pauschalkosten-Angabe enthält, setze action_name/service_name sinngemäß auf "Anfahrt", einheit="Pauschal", menge=1.
+  Wenn keine Währung in dieser Kostenzeile steht, aber der übrige Auftrag eindeutig in einer Währung geschrieben ist, darf diese Auftragswährung verwendet werden.
+  Wenn eine andere Währung ausdrücklich in derselben Zeile steht, bleibt genau diese Positionswährung erhalten und wird nicht umgerechnet.
+- Mehrsprachige Positionszeilen wie "Window inside 4 pcs at CHF 9" müssen line-local gelesen werden:
+  Objekt/Tätigkeit, Menge, Einheit, Preis und Währung gehören aus genau dieser Zeile zusammen. "at CHF 9" ist ein Preisanker wie "à/je CHF 9", kein Hinweistext.
+
 Sortiere nach Bedeutung, nicht nach einzelnen Signalwörtern:
 - Wer/was bezahlt oder bekommt die Rechnung? → kunde
 - Wo wird die Arbeit tatsächlich ausgeführt? → auftrag.ausfuehrungsadresse
@@ -5595,6 +5602,11 @@ Regeln:
   auftrag.ausfuehrungsadresse.ist_abweichend = false.
 - Wenn Rechnungsadresse und Arbeitsort unterschiedlich sind:
   auftrag.ausfuehrungsadresse.ist_abweichend = true und vollständige Arbeitsadresse setzen.
+- Wenn ein Text getrennte Blöcke für Rechnung/Kunde und Arbeitsort/Baustelle/Work Site/Job Site enthält, ist die Rollenverteilung klar:
+  Rechnungsblock -> kunde; Arbeitsortblock -> auftrag.ausfuehrungsadresse.
+  Dann KEINE Adressrollenprüfung erzwingen, solange beide Adressen vollständig und widerspruchsfrei sind.
+- Wenn nur ein vollständiger Adressblock mit Name/Firma, Strasse, PLZ und Ort vorhanden ist und kein separater Arbeitsort genannt wird, ist das die Rechnungs-/Kundenadresse. Keine Adresse-prüfen-Warnung nötig.
+
 - Bei auftrag.ausfuehrungsadresse.strasse nur den Straßennamen setzen und die Hausnummer separat in hausnummer setzen.
   Wenn du Straße und Hausnummer nicht sicher trennen kannst, schreibe beides vollständig in strasse.
 - Wenn unklar ist, welche Adresse welche Rolle hat:
