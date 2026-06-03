@@ -3201,8 +3201,7 @@ const formatServiceReviewSummaryTooltip = (input: {
     });
     if (manualUnitItems.length > 6)
       lines.push(`+${manualUnitItems.length - 6} weitere`);
-    sections.push(lines.join("
-"));
+    sections.push(lines.join("\n"));
   }
 
   const priceItems = uniqueCatalogReviewItems(input.priceItems || []).filter(
