@@ -5354,32 +5354,37 @@ export default function AuftraegePage() {
   const load = async () => {
     setLoading(true);
     setLoadError(null);
+
+    // V17.86 PERFORMANCE: Die Auftragsliste darf nicht auf Kunden-/Service-
+    // Katalogdaten warten. /api/orders enthält bereits die Kundendaten, die für
+    // die Liste nötig sind. Kunden und Leistungen werden direkt danach im
+    // Hintergrund nachgeladen, damit Merge/Editor/Katalog weiter funktionieren,
+    // aber die Liste nicht 8-10 Sekunden leer bleibt.
     const {
-      results: [o, c, s, settings],
-      errors,
-    } = await fetchAllJSON<[Order[], Customer[], ServiceDef[], any]>([
+      results: [o, settings],
+      errors: firstErrors,
+    } = await fetchAllJSON<[Order[], any]>([
       { url: "/api/orders", fallback: [] },
-      { url: "/api/customers", fallback: [] },
-      { url: "/api/services", fallback: [] },
       { url: "/api/settings", fallback: null },
     ]);
-    // If ALL critical endpoints failed, show error state
-    if (errors.length >= 2) {
-      setLoadError(errors);
+
+    if (firstErrors.length >= 1 && !(o && o.length >= 0)) {
+      setLoadError(firstErrors);
       setLoading(false);
       return;
     }
-    // Merge customers from orders (they may be soft-deleted and not in /api/customers)
-    const custMap = new Map<string, Customer>();
-    (c ?? []).forEach((cust: Customer) => custMap.set(cust.id, cust));
-    (o ?? []).forEach((order: any) => {
-      if (order.customer && !custMap.has(order.customer.id)) {
-        custMap.set(order.customer.id, order.customer);
+
+    const ordersFromApi = o ?? [];
+    const initialCustMap = new Map<string, Customer>();
+    ordersFromApi.forEach((order: any) => {
+      if (order.customer && !initialCustMap.has(order.customer.id)) {
+        initialCustMap.set(order.customer.id, order.customer);
       }
     });
-    setOrders(o ?? []);
-    setCustomers(Array.from(custMap.values()));
-    setServices(s ?? []);
+
+    setOrders(ordersFromApi);
+    setCustomers(Array.from(initialCustMap.values()));
+
     // Default VAT rate: from CompanySettings (mwstAktiv/mwstSatz) if available, else 8.1
     if (settings) {
       setCurrency(settings.currency === "EUR" ? "EUR" : "CHF");
@@ -5389,10 +5394,30 @@ export default function AuftraegePage() {
         setDefaultVatRate(0);
       }
     }
-    // Show partial-failure toast if some requests failed but data is usable
-    if (errors.length > 0)
-      toast.error("Einige Daten konnten nicht vollständig geladen werden");
+
+    if (firstErrors.length > 0) {
+      toast.error("Aufträge konnten nur teilweise geladen werden");
+    }
     setLoading(false);
+
+    // Hintergrunddaten: nicht blockierend für die sichtbare Auftragsliste.
+    fetchAllJSON<[Customer[], ServiceDef[]]>([
+      { url: "/api/customers", fallback: [] },
+      { url: "/api/services", fallback: [] },
+    ]).then(({ results: [c, s], errors }) => {
+      const custMap = new Map<string, Customer>();
+      (c ?? []).forEach((cust: Customer) => custMap.set(cust.id, cust));
+      ordersFromApi.forEach((order: any) => {
+        if (order.customer && !custMap.has(order.customer.id)) {
+          custMap.set(order.customer.id, order.customer);
+        }
+      });
+      setCustomers(Array.from(custMap.values()));
+      setServices(s ?? []);
+      if (errors.length > 0) {
+        toast.error("Kunden/Leistungen wurden nur teilweise geladen");
+      }
+    });
   };
 
   useEffect(() => {
@@ -5537,50 +5562,58 @@ export default function AuftraegePage() {
   }, [searchParams]);
 
   // Only show orders NOT linked to an offer or invoice (they've been "moved")
-  const unlinked =
-    orders?.filter((o: Order) => !o.offerId && !o.invoiceId) ?? [];
-  const filtered = unlinked
-    .filter((o: Order) => {
-      if (statusFilter === "Offen" && o.status === "Erledigt") return false;
-      if (statusFilter === "Erledigt" && o.status !== "Erledigt") return false;
-      const s = search?.toLowerCase() ?? "";
-      if (!s) return true;
-      const svcLine =
-        o.items && o.items.length > 0
-          ? o.items.map((it) => it.serviceName).join(" ")
-          : (o.serviceName ?? "");
-      return (
-        o?.description?.toLowerCase()?.includes(s) ||
-        o?.customer?.name?.toLowerCase()?.includes(s) ||
-        svcLine.toLowerCase().includes(s) ||
-        o?.customer?.city?.toLowerCase()?.includes(s) ||
-        o?.customer?.customerNumber?.toLowerCase()?.includes(s)
-      );
-    })
-    .sort((a: Order, b: Order) => {
-      switch (sortBy) {
-        case "oldest":
-          return (
-            new Date(a.createdAt ?? a.date ?? 0).getTime() -
-            new Date(b.createdAt ?? b.date ?? 0).getTime()
-          );
-        case "name":
-          return (a.customer?.name ?? "").localeCompare(b.customer?.name ?? "");
-        case "amount":
-          return getSafeOrderTotal(b) - getSafeOrderTotal(a);
-        case "review":
-          return (
-            (b.needsReview ? 1 : 0) - (a.needsReview ? 1 : 0) ||
-            new Date(b.createdAt ?? 0).getTime() -
-              new Date(a.createdAt ?? 0).getTime()
-          );
-        default:
-          return (
-            new Date(b.createdAt ?? b.date ?? 0).getTime() -
-            new Date(a.createdAt ?? a.date ?? 0).getTime()
-          );
-      }
-    });
+  // V17.86 PERFORMANCE: Filter/Sort nicht bei jedem kleinen State-Update neu
+  // über die komplette Liste rechnen. Tooltip- und Dialog-State darf die Liste
+  // nicht erneut vollständig sortieren.
+  const unlinked = useMemo(
+    () => orders?.filter((o: Order) => !o.offerId && !o.invoiceId) ?? [],
+    [orders],
+  );
+
+  const filtered = useMemo(() => {
+    const searchKey = search?.toLowerCase() ?? "";
+    return unlinked
+      .filter((o: Order) => {
+        if (statusFilter === "Offen" && o.status === "Erledigt") return false;
+        if (statusFilter === "Erledigt" && o.status !== "Erledigt") return false;
+        if (!searchKey) return true;
+        const svcLine =
+          o.items && o.items.length > 0
+            ? o.items.map((it) => it.serviceName).join(" ")
+            : (o.serviceName ?? "");
+        return (
+          o?.description?.toLowerCase()?.includes(searchKey) ||
+          o?.customer?.name?.toLowerCase()?.includes(searchKey) ||
+          svcLine.toLowerCase().includes(searchKey) ||
+          o?.customer?.city?.toLowerCase()?.includes(searchKey) ||
+          o?.customer?.customerNumber?.toLowerCase()?.includes(searchKey)
+        );
+      })
+      .sort((a: Order, b: Order) => {
+        switch (sortBy) {
+          case "oldest":
+            return (
+              new Date(a.createdAt ?? a.date ?? 0).getTime() -
+              new Date(b.createdAt ?? b.date ?? 0).getTime()
+            );
+          case "name":
+            return (a.customer?.name ?? "").localeCompare(b.customer?.name ?? "");
+          case "amount":
+            return getSafeOrderTotal(b) - getSafeOrderTotal(a);
+          case "review":
+            return (
+              (b.needsReview ? 1 : 0) - (a.needsReview ? 1 : 0) ||
+              new Date(b.createdAt ?? 0).getTime() -
+                new Date(a.createdAt ?? 0).getTime()
+            );
+          default:
+            return (
+              new Date(b.createdAt ?? b.date ?? 0).getTime() -
+              new Date(a.createdAt ?? a.date ?? 0).getTime()
+            );
+        }
+      });
+  }, [unlinked, search, statusFilter, sortBy]);
 
   const openNew = () => {
     setEditId(null);
