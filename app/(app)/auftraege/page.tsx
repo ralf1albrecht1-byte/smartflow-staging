@@ -5235,13 +5235,23 @@ export default function AuftraegePage() {
     load();
   }, []);
 
-  // V17.71: Beim Öffnen des Ausführungsadresse-Editors nur die gespeicherten
-  // Ausführungsorte nachladen, nicht den kompletten Kunden mit Historie. Das
-  // verhindert lange Ladezeiten auf Kunden-/Auftragsseiten und hält die
-  // Vorschläge trotzdem aktuell.
+  // V17.73: Leichtes Nachladen der gespeicherten Ausführungsorte.
+  // - Beim Öffnen des Editors: Vorschläge aktuell halten.
+  // - Beim Öffnen eines Auftrags mit erkannter Ausführungsadresse: prüfen, ob
+  //   diese Adresse erstmals automatisch im Kundenprofil gespeichert wurde.
+  // Keine komplette Kundenhistorie laden.
   useEffect(() => {
     const customerId = String(form.customerId || "").trim();
-    if (!dialogOpen || !siteAddressEditing || !customerId) return;
+    const hasCurrentExecutionAddress = Boolean(
+      form.siteAddressDifferent &&
+        String(form.siteAddress || "").trim() &&
+        String(form.sitePlz || "").trim() &&
+        String(form.siteCity || "").trim(),
+    );
+
+    if (!dialogOpen || !customerId || (!siteAddressEditing && !hasCurrentExecutionAddress)) {
+      return;
+    }
 
     let cancelled = false;
 
@@ -5270,7 +5280,15 @@ export default function AuftraegePage() {
     return () => {
       cancelled = true;
     };
-  }, [dialogOpen, siteAddressEditing, form.customerId]);
+  }, [
+    dialogOpen,
+    siteAddressEditing,
+    form.customerId,
+    form.siteAddressDifferent,
+    form.siteAddress,
+    form.sitePlz,
+    form.siteCity,
+  ]);
 
   // Auto-refresh on tab/window focus removed:
   // it caused visible reload flicker and scroll loss while editing orders.
@@ -6862,6 +6880,44 @@ export default function AuftraegePage() {
       normalizeAddressPartForCompare(site.sitePlz),
       normalizeAddressPartForCompare(site.siteCity),
     ].join("|");
+
+  const currentExecutionAddressSavedInCustomerV17_73 = useMemo(() => {
+    if (!form.customerId || !form.siteAddressDifferent) return null;
+
+    const currentAddress = {
+      siteAddress: form.siteAddress,
+      sitePlz: form.sitePlz,
+      siteCity: form.siteCity,
+    };
+
+    if (!currentAddress.siteAddress || !currentAddress.sitePlz || !currentAddress.siteCity) {
+      return null;
+    }
+
+    const customer = customers.find((entry) => entry.id === form.customerId);
+    const storedAddresses =
+      customer && Array.isArray(customer.executionAddresses)
+        ? customer.executionAddresses
+        : [];
+
+    return (
+      storedAddresses.find((stored) =>
+        isSameAddressPartsV17_63(stored, currentAddress),
+      ) || null
+    );
+  }, [
+    customers,
+    form.customerId,
+    form.siteAddressDifferent,
+    form.siteAddress,
+    form.sitePlz,
+    form.siteCity,
+  ]);
+
+  const showFirstTimeExecutionAddressSavedNoticeV17_73 = Boolean(
+    currentExecutionAddressSavedInCustomerV17_73 &&
+      Number(currentExecutionAddressSavedInCustomerV17_73.usageCount || 0) <= 1,
+  );
 
   const previousExecutionAddressSuggestionsV17_68 = useMemo(() => {
     if (!form.customerId) return [] as OrderWorkSite[];
@@ -10122,6 +10178,11 @@ export default function AuftraegePage() {
                               </>
                             )}
                           </div>
+                          {showFirstTimeExecutionAddressSavedNoticeV17_73 && (
+                            <div className="mt-2 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+                              ✅ Im Kundenprofil gespeichert
+                            </div>
+                          )}
                         </div>
                         <span className="shrink-0 text-xs text-primary">
                           Bearbeiten
