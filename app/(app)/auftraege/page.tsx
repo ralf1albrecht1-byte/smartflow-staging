@@ -765,7 +765,9 @@ const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
     },
   );
 
-  return compactText(text).replace(/\s*[\(\[\{]+\s*$/g, "").trim();
+  return compactText(text)
+    .replace(/\s*[\(\[\{]+\s*$/g, "")
+    .trim();
 };
 
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
@@ -3053,7 +3055,24 @@ const formatServiceReviewSummaryTooltip = (input: {
 
   const unitServices = Array.from(
     new Set(
-      (input.unitConflictServices || []).map(compactText).filter(Boolean),
+      (input.unitConflictServices || [])
+        .map(compactText)
+        .filter(Boolean)
+        .filter((service) => {
+          const parts = service.split(":").map(compactText).filter(Boolean);
+          const textUnit = normalizeForMatch(parts[1] || "");
+          return !(
+            textUnit === "pruefen" ||
+            textUnit === "prufen" ||
+            textUnit === "einheit pruefen" ||
+            textUnit === "einheit prufen" ||
+            textUnit.includes("unklar") ||
+            textUnit.includes("fehlt") ||
+            textUnit.includes("missing") ||
+            textUnit.includes("unknown") ||
+            textUnit.includes("unclear")
+          );
+        }),
     ),
   );
   if (unitServices.length > 0) {
@@ -3624,6 +3643,64 @@ const getSystemBadges = (
     );
   };
 
+  const isUnitMissingReviewText = (value?: string | null) => {
+    const key = normalizeForMatch(value);
+    if (!key) return false;
+    return (
+      key === "pruefen" ||
+      key === "prufen" ||
+      key === "einheit pruefen" ||
+      key === "einheit prufen" ||
+      key.includes("einheit fehlt") ||
+      key.includes("einheit unklar") ||
+      key.includes("einheit offen") ||
+      key.includes("unit missing") ||
+      key.includes("unit unknown") ||
+      key.includes("unit unclear") ||
+      key.includes("unit review")
+    );
+  };
+
+  const isUnitMissingReviewItem = (item?: Partial<OrderItem> | null) => {
+    if (!item) return false;
+    const unitKey = normalizeForMatch((item as any).unit);
+    const reviewText = normalizeForMatch(
+      [
+        (item as any).unit,
+        (item as any).description,
+        (item as any).reviewReason,
+        (item as any).sourceText,
+        (item as any).evidence,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+    return (
+      isUnitMissingServiceName((item as any).serviceName) ||
+      unitKey === "pruefen" ||
+      unitKey === "prufen" ||
+      unitKey === "einheit pruefen" ||
+      unitKey === "einheit prufen" ||
+      isUnitMissingReviewText(reviewText)
+    );
+  };
+
+  const hasUnitMissingReviewForService = (value?: string | null) => {
+    const target = normalizeForMatch(canonicalServiceNameForOrderItem(value));
+    if (!target) return false;
+    return (order.items || []).some((item) => {
+      if (!isUnitMissingReviewItem(item)) return false;
+      const itemName = normalizeForMatch(
+        canonicalServiceNameForOrderItem(item.serviceName),
+      );
+      return (
+        itemName === target ||
+        itemName.includes(target) ||
+        target.includes(itemName)
+      );
+    });
+  };
+
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
       ? order.items.some((it) => {
@@ -3695,12 +3772,21 @@ const getSystemBadges = (
 
           if (isUnitMissingServiceName(serviceName)) return "";
 
+          const textUnitRaw = parts[1] || "";
+          if (isUnitMissingReviewText(textUnitRaw)) return "";
+
           const matchingItem = (order.items || []).find(
             (item) =>
               normalizeForMatch(
                 canonicalServiceNameForOrderItem(item.serviceName),
               ) === normalizeForMatch(serviceName),
           );
+          if (
+            isUnitMissingReviewItem(matchingItem) ||
+            hasUnitMissingReviewForService(serviceName)
+          )
+            return "";
+
           const catalog = findCatalogServiceForName(services, serviceName);
           const itemUnit = matchingItem?.unit || parts[1] || "";
           const catalogUnit = catalog?.unit || parts[2] || "";
@@ -3759,9 +3845,11 @@ const getSystemBadges = (
   const priceReviewItems = uniqueCatalogReviewItems([
     ...priceDeviationItems,
     ...flatOverrideItems,
-  ]);
+  ]).filter((item) => !isUnitMissingReviewItem(item));
   const catalogMissingItems = getCatalogMissingItems(order, services).filter(
-    (item) => !isUnitMissingServiceName(item.serviceName),
+    (item) =>
+      !isUnitMissingServiceName(item.serviceName) &&
+      !isUnitMissingReviewItem(item),
   );
   const hasPriceDeviationReview =
     (order.reviewReasons?.some((reason) =>
@@ -4388,7 +4476,7 @@ const renderBadgeTooltip = (
         return (
           <span
             key={`line_${index}`}
-            className={`block ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+            className={`block min-w-0 whitespace-pre-wrap break-words ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
           >
             {line}
           </span>
@@ -4411,7 +4499,13 @@ const renderMobileSafeBadgeTooltip = (
 
   return (
     <span
-      className={`pointer-events-auto fixed left-3 right-3 top-1/2 z-[10000] max-h-[62vh] max-w-[calc(100vw-1.5rem)] -translate-y-1/2 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-focus:block group-hover:block"}`}
+      style={{
+        left: "1rem",
+        right: "1rem",
+        width: "calc(100vw - 2rem)",
+        maxWidth: "calc(100vw - 2rem)",
+      }}
+      className={`pointer-events-auto fixed top-1/2 z-[10000] block max-h-[62vh] -translate-y-1/2 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-focus:block group-hover:block"}`}
     >
       {tooltipLines.map((line, index) => {
         const trimmed = line.trim();
@@ -4430,7 +4524,7 @@ const renderMobileSafeBadgeTooltip = (
         return (
           <span
             key={`mobile_line_${index}`}
-            className={`block ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+            className={`block min-w-0 whitespace-pre-wrap break-words ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
           >
             {line}
           </span>
@@ -5224,6 +5318,10 @@ export default function AuftraegePage() {
   const [activeMobileTooltipKey, setActiveMobileTooltipKey] = useState<
     string | null
   >(null);
+  const [activeMobileTooltip, setActiveMobileTooltip] = useState<{
+    key: string;
+    tooltip: string;
+  } | null>(null);
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
@@ -5310,12 +5408,16 @@ export default function AuftraegePage() {
     const customerId = String(form.customerId || "").trim();
     const hasCurrentExecutionAddress = Boolean(
       form.siteAddressDifferent &&
-        String(form.siteAddress || "").trim() &&
-        String(form.sitePlz || "").trim() &&
-        String(form.siteCity || "").trim(),
+      String(form.siteAddress || "").trim() &&
+      String(form.sitePlz || "").trim() &&
+      String(form.siteCity || "").trim(),
     );
 
-    if (!dialogOpen || !customerId || (!siteAddressEditing && !hasCurrentExecutionAddress)) {
+    if (
+      !dialogOpen ||
+      !customerId ||
+      (!siteAddressEditing && !hasCurrentExecutionAddress)
+    ) {
       return;
     }
 
@@ -5323,7 +5425,9 @@ export default function AuftraegePage() {
 
     (async () => {
       try {
-        const res = await fetch(`/api/customers/${customerId}/execution-addresses`);
+        const res = await fetch(
+          `/api/customers/${customerId}/execution-addresses`,
+        );
         if (!res.ok) return;
 
         const executionAddresses = await res.json();
@@ -5332,7 +5436,10 @@ export default function AuftraegePage() {
         setCustomers((prev) => {
           const exists = prev.some((entry) => entry.id === customerId);
           if (!exists) {
-            return [...prev, { id: customerId, executionAddresses } as Customer];
+            return [
+              ...prev,
+              { id: customerId, executionAddresses } as Customer,
+            ];
           }
           return prev.map((entry) =>
             entry.id === customerId ? { ...entry, executionAddresses } : entry,
@@ -6961,7 +7068,11 @@ export default function AuftraegePage() {
       siteCity: form.siteCity,
     };
 
-    if (!currentAddress.siteAddress || !currentAddress.sitePlz || !currentAddress.siteCity) {
+    if (
+      !currentAddress.siteAddress ||
+      !currentAddress.sitePlz ||
+      !currentAddress.siteCity
+    ) {
       return null;
     }
 
@@ -6987,7 +7098,7 @@ export default function AuftraegePage() {
 
   const showFirstTimeExecutionAddressSavedNoticeV17_73 = Boolean(
     currentExecutionAddressSavedInCustomerV17_73 &&
-      Number(currentExecutionAddressSavedInCustomerV17_73.usageCount || 0) <= 1,
+    Number(currentExecutionAddressSavedInCustomerV17_73.usageCount || 0) <= 1,
   );
 
   const previousExecutionAddressSuggestionsV17_68 = useMemo(() => {
@@ -7137,8 +7248,10 @@ export default function AuftraegePage() {
       );
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({} as any));
-        toast.error(err?.error || "Ausführungsort konnte nicht entfernt werden.");
+        const err = await res.json().catch(() => ({}) as any);
+        toast.error(
+          err?.error || "Ausführungsort konnte nicht entfernt werden.",
+        );
         return;
       }
 
@@ -8687,6 +8800,63 @@ export default function AuftraegePage() {
     });
   };
 
+  const renderActiveMobileTooltipSheet = () => {
+    if (!activeMobileTooltip) return null;
+    const tooltip = cleanVisibleTooltipTextV17_35(activeMobileTooltip.tooltip);
+    if (!tooltip) return null;
+
+    const tooltipLines = tooltip.split("\n");
+    const headingPattern =
+      /^(?:Einheit fehlt im Kundentext|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+
+    return (
+      <div className="fixed inset-0 z-[12000] sm:hidden">
+        <button
+          type="button"
+          aria-label="Hinweis schließen"
+          className="absolute inset-0 cursor-default bg-transparent"
+          onClick={(event) => {
+            event.stopPropagation();
+            setActiveMobileTooltipKey(null);
+            setActiveMobileTooltip(null);
+          }}
+        />
+        <div
+          className="fixed left-4 right-4 top-1/2 max-h-[62dvh] -translate-y-1/2 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          style={{
+            width: "calc(100vw - 2rem)",
+            maxWidth: "calc(100vw - 2rem)",
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {tooltipLines.map((line, index) => {
+            const trimmed = line.trim();
+            if (/^[-─—–_]{6,}$/.test(trimmed)) {
+              return (
+                <span
+                  key={`active_mobile_sep_${index}`}
+                  className="my-1 block border-t border-slate-200 dark:border-slate-700"
+                />
+              );
+            }
+
+            const emphasizeLine =
+              headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed);
+
+            return (
+              <span
+                key={`active_mobile_line_${index}`}
+                className={`block min-w-0 whitespace-pre-wrap break-words ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+              >
+                {line}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -8701,6 +8871,7 @@ export default function AuftraegePage() {
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
+      {renderActiveMobileTooltipSheet()}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -8883,12 +9054,14 @@ export default function AuftraegePage() {
             const openOrderAtSpecialNotes = (event: any) => {
               event.stopPropagation();
               setActiveMobileTooltipKey(null);
+              setActiveMobileTooltip(null);
               openEdit(o, { focusSection: "specialNotes" });
             };
 
             const openOrderAtCustomer = (event: any) => {
               event.stopPropagation();
               setActiveMobileTooltipKey(null);
+              setActiveMobileTooltip(null);
               openEdit(o, { openCustomerSection: true });
             };
 
@@ -8905,9 +9078,11 @@ export default function AuftraegePage() {
               const title = compactText(badge.tooltip) || badge.label;
               if (!title) return;
               const key = mobileTooltipKey(badge, slot);
-              setActiveMobileTooltipKey((current) =>
-                current === key ? null : key,
-              );
+              setActiveMobileTooltipKey((current) => {
+                const next = current === key ? null : key;
+                setActiveMobileTooltip(next ? { key, tooltip: title } : null);
+                return next;
+              });
             };
 
             const renderMobileChipTooltip = (
@@ -8921,12 +9096,13 @@ export default function AuftraegePage() {
               // content as a centered, width-bounded mobile sheet instead.
               if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot))
                 return null;
-              return renderMobileSafeBadgeTooltip(badge, true);
+              return null;
             };
 
             const openOrderAtItems = (event: any) => {
               event.stopPropagation();
               setActiveMobileTooltipKey(null);
+              setActiveMobileTooltip(null);
               openEdit(o, { focusSection: "items" });
             };
 
@@ -9089,6 +9265,7 @@ export default function AuftraegePage() {
                   className={`border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   onClick={() => {
                     setActiveMobileTooltipKey(null);
+                    setActiveMobileTooltip(null);
                     if (isMergeMode) {
                       handleToggleSelect(o.id);
                       return;
@@ -9265,8 +9442,12 @@ export default function AuftraegePage() {
                             {!hasMultipleMergedData && (
                               <div
                                 className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onTouchStart={(event) => event.stopPropagation()}
+                                onPointerDown={(event) =>
+                                  event.stopPropagation()
+                                }
+                                onTouchStart={(event) =>
+                                  event.stopPropagation()
+                                }
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 <CommunicationChips
@@ -9416,8 +9597,12 @@ export default function AuftraegePage() {
                             {!hasMultipleMergedData && (
                               <div
                                 className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onTouchStart={(event) => event.stopPropagation()}
+                                onPointerDown={(event) =>
+                                  event.stopPropagation()
+                                }
+                                onTouchStart={(event) =>
+                                  event.stopPropagation()
+                                }
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 <CommunicationChips
@@ -10669,7 +10854,9 @@ export default function AuftraegePage() {
                             Boolean(item.serviceName?.trim()) &&
                             !isServiceInCatalog(item.serviceName);
                           const showManualServiceReview =
-                            !unresolvedCurrencyItem && isManualService && !isCompleteItemForCatalogAction;
+                            !unresolvedCurrencyItem &&
+                            isManualService &&
+                            !isCompleteItemForCatalogAction;
                           const sourceLineForItem =
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
@@ -11381,7 +11568,11 @@ export default function AuftraegePage() {
                                         </Label>
                                         <select
                                           className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                          value={unitMissingInTextReason ? "Einheit prüfen" : item.unit}
+                                          value={
+                                            unitMissingInTextReason
+                                              ? "Einheit prüfen"
+                                              : item.unit
+                                          }
                                           onChange={(e: any) =>
                                             updateItem(
                                               index,
@@ -11392,7 +11583,9 @@ export default function AuftraegePage() {
                                         >
                                           {priceTypes.map((pt) => (
                                             <option key={pt} value={pt}>
-                                              {pt === "Einheit prüfen" ? "prüfen" : pt}
+                                              {pt === "Einheit prüfen"
+                                                ? "prüfen"
+                                                : pt}
                                             </option>
                                           ))}
                                         </select>
