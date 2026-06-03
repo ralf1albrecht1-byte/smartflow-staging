@@ -18,6 +18,16 @@ import { PlzOrtInput } from '@/components/plz-ort-input';
 import { MissingCustomerDataBadge } from '@/components/missing-customer-data-badge';
 import { formatCurrency } from '@/lib/currency';
 
+interface OrderItem {
+  id?: string;
+  serviceName?: string | null;
+  description?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  unitPrice?: number | null;
+  totalPrice?: number | null;
+}
+
 interface Order {
   id: string;
   description: string;
@@ -25,9 +35,11 @@ interface Order {
   status: string;
   date: string;
   totalPrice: number;
+  currency?: string | null;
   specialNotes: string | null;
   needsReview: boolean;
   reviewReasons?: string[] | null;
+  items?: OrderItem[] | null;
   hinweisLevel?: string;
   mediaUrl?: string | null;
   mediaType?: string | null;
@@ -169,6 +181,7 @@ export default function KundenDetailPage() {
     | { type: 'invoice'; data: Invoice }
     | null
   >(null);
+  const [openOrderReviewTooltipId, setOpenOrderReviewTooltipId] = useState<string | null>(null);
 
   // Android/browser back: close the duplicate-check dialog FIRST instead of jumping
   // to the previously visited module. Safe version — see lib/use-dialog-back-guard.ts.
@@ -370,6 +383,49 @@ export default function KundenDetailPage() {
       )
     : [];
 
+  const formatOrderItemLine = (item: OrderItem, currency = 'CHF') => {
+    const name = String(item.serviceName || item.description || 'Position').trim();
+    const quantity = Number(item.quantity || 0);
+    const unit = String(item.unit || '').trim();
+    const unitPrice = Number(item.unitPrice || 0);
+    const total = Number(item.totalPrice || (quantity > 0 && unitPrice > 0 ? quantity * unitPrice : 0));
+    const quantityText = quantity > 0 ? (Number.isInteger(quantity) ? quantity.toFixed(0) : String(quantity)) : '';
+    const priceText = unitPrice > 0 ? `${currency} ${unitPrice.toFixed(2)}` : '';
+    const totalText = total > 0 ? ` = ${currency} ${total.toFixed(2)}` : '';
+    const calc = [quantityText, unit, priceText ? `× ${priceText}` : ''].filter(Boolean).join(' ');
+    return `• ${name}${calc ? ` — ${calc}${totalText}` : ''}`;
+  };
+
+  const buildCustomerOrderReviewTooltip = (
+    order: Order,
+    mode: 'customer' | 'address' | 'currency' | 'hard_amount' | 'service_soft' | 'fallback_soft',
+  ) => {
+    const currency = String((order as any).currency || 'CHF');
+    const items = Array.isArray(order.items) ? order.items : [];
+    const itemLines = items.slice(0, 6).map((item) => formatOrderItemLine(item, currency));
+
+    if (mode === 'customer') {
+      return 'Kundendaten prüfen\nPflichtangaben fehlen: Name, Strasse, PLZ oder Ort.';
+    }
+    if (mode === 'address') {
+      return 'Adresse prüfen\nAdressrolle oder Ausführungsadresse ist noch zu prüfen.';
+    }
+    if (mode === 'currency') {
+      return 'Währung prüfen\nWährung im Kundentext oder in einzelnen Positionen ist zu prüfen.';
+    }
+    if (mode === 'hard_amount') {
+      return 'Preis/Menge prüfen\nPreis, Menge oder Einheit fehlt und muss vor Angebot/Rechnung geprüft werden.';
+    }
+
+    const header = mode === 'service_soft'
+      ? 'Leistungen prüfen\nPreisabweichung oder Nicht-im-Katalog-Hinweis. Textpreis wurde übernommen.'
+      : 'Leistungen prüfen\nDieser Auftrag hat weiche Leistungs-Hinweise, aber keinen harten Blocker.';
+
+    return [header, itemLines.length > 0 ? itemLines.join('\n') : 'Details im Auftrag öffnen.']
+      .filter(Boolean)
+      .join('\n\n');
+  };
+
   const getCustomerOrderReviewBadge = (order: Order) => {
     if (!order.needsReview) return null;
 
@@ -383,8 +439,8 @@ export default function KundenDetailPage() {
       return {
         label: 'Kundendaten unvollständig',
         mobileLabel: 'Prüfen',
-        className: 'border-red-300 text-red-600',
-        title: 'Pflichtangaben fehlen — Name, Strasse, PLZ oder Ort sind nicht erfasst.',
+        className: 'border-red-300 text-red-600 bg-red-50',
+        title: buildCustomerOrderReviewTooltip(order, 'customer'),
       };
     }
 
@@ -398,8 +454,8 @@ export default function KundenDetailPage() {
       return {
         label: 'Adresse prüfen',
         mobileLabel: 'Adresse',
-        className: 'border-red-300 text-red-600',
-        title: 'Adressrolle oder Ausführungsadresse ist noch zu prüfen.',
+        className: 'border-red-300 text-red-600 bg-red-50',
+        title: buildCustomerOrderReviewTooltip(order, 'address'),
       };
     }
 
@@ -411,8 +467,8 @@ export default function KundenDetailPage() {
       return {
         label: 'Währung prüfen',
         mobileLabel: 'Währung',
-        className: 'border-red-300 text-red-600',
-        title: 'Währung im Kundentext oder in einzelnen Positionen ist zu prüfen.',
+        className: 'border-red-300 text-red-600 bg-red-50',
+        title: buildCustomerOrderReviewTooltip(order, 'currency'),
       };
     }
 
@@ -426,8 +482,8 @@ export default function KundenDetailPage() {
       return {
         label: 'Preis/Menge prüfen',
         mobileLabel: 'Betrag',
-        className: 'border-red-300 text-red-600',
-        title: 'Preis, Menge oder Einheit fehlt und muss vor Angebot/Rechnung geprüft werden.',
+        className: 'border-red-300 text-red-600 bg-red-50',
+        title: buildCustomerOrderReviewTooltip(order, 'hard_amount'),
       };
     }
 
@@ -442,16 +498,54 @@ export default function KundenDetailPage() {
         label: 'Leistungen prüfen',
         mobileLabel: 'Leistungen',
         className: 'border-yellow-400 text-yellow-900 bg-yellow-50',
-        title: 'Preisabweichung oder Nicht-im-Katalog-Hinweis. Textpreis wurde übernommen.',
+        title: buildCustomerOrderReviewTooltip(order, 'service_soft'),
       };
     }
 
+    // V17.75: Wenn `needsReview` gesetzt ist, aber keine harte konkrete
+    // ReviewReason mitgeliefert wurde, darf das Kundenprofil nicht pauschal rot
+    // "Auftrag prüfen" zeigen. In den getesteten Fällen sind das weiche
+    // Leistungs-Hinweise wie Preisabweichung / Nicht im Katalog.
     return {
-      label: 'Auftrag prüfen',
-      mobileLabel: 'Prüfen',
-      className: 'border-red-300 text-red-600',
-      title: 'Auftrag enthält Prüfpunkte.',
+      label: 'Leistungen prüfen',
+      mobileLabel: 'Leistungen',
+      className: 'border-yellow-400 text-yellow-900 bg-yellow-50',
+      title: buildCustomerOrderReviewTooltip(order, 'fallback_soft'),
     };
+  };
+
+  const renderCustomerOrderReviewBadge = (order: Order) => {
+    const reviewBadge = getCustomerOrderReviewBadge(order);
+    if (!reviewBadge) return null;
+    const isOpen = openOrderReviewTooltipId === order.id;
+
+    return (
+      <span
+        className="relative inline-flex shrink-0"
+        onMouseEnter={() => setOpenOrderReviewTooltipId(order.id)}
+        onMouseLeave={() => setOpenOrderReviewTooltipId((current) => current === order.id ? null : current)}
+      >
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpenOrderReviewTooltipId((current) => current === order.id ? null : order.id);
+          }}
+          className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] leading-5 ${reviewBadge.className}`}
+          aria-label={reviewBadge.title}
+        >
+          ⚠ <span className="sm:hidden ml-1">{reviewBadge.mobileLabel}</span><span className="hidden sm:inline ml-1">{reviewBadge.label}</span>
+        </button>
+        {isOpen && (
+          <span
+            className="absolute left-0 top-full z-50 mt-1 w-[min(340px,calc(100vw-2rem))] rounded-md border bg-white p-3 text-left text-xs leading-relaxed text-slate-900 shadow-xl whitespace-pre-line dark:bg-slate-950 dark:text-slate-100"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {reviewBadge.title}
+          </span>
+        )}
+      </span>
+    );
   };
 
   const tabs = [
@@ -512,19 +606,7 @@ export default function KundenDetailPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-medium text-sm truncate">{order.serviceName || order.description}</p>
-                    {(() => {
-                      const reviewBadge = getCustomerOrderReviewBadge(order);
-                      if (!reviewBadge) return null;
-                      return (
-                        <Badge
-                          variant="outline"
-                          title={reviewBadge.title}
-                          className={`text-[10px] px-1.5 py-0 shrink-0 ${reviewBadge.className}`}
-                        >
-                          ⚠ <span className="sm:hidden">{reviewBadge.mobileLabel}</span><span className="hidden sm:inline">{reviewBadge.label}</span>
-                        </Badge>
-                      );
-                    })()}
+                    {renderCustomerOrderReviewBadge(order)}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {formatDate(order.date)}
@@ -943,17 +1025,18 @@ export default function KundenDetailPage() {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
-                      className="h-8 shrink-0 gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
                       onClick={() => deleteExecutionAddress(addr)}
                       disabled={deletingExecutionAddressId === addr.id}
+                      aria-label="Ausführungsort entfernen"
+                      title="Ausführungsort entfernen"
                     >
                       {deletingExecutionAddressId === addr.id ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <Trash2 className="w-3.5 h-3.5" />
                       )}
-                      <span className="hidden sm:inline">Entfernen</span>
                     </Button>
                   </div>
                   {addr.siteNote?.trim() && (
