@@ -27,6 +27,7 @@ interface Order {
   totalPrice: number;
   specialNotes: string | null;
   needsReview: boolean;
+  reviewReasons?: string[] | null;
   hinweisLevel?: string;
   mediaUrl?: string | null;
   mediaType?: string | null;
@@ -142,8 +143,8 @@ export default function KundenDetailPage() {
   // weitergeführte (converted) orders, abgeschlossene (Angenommen/Abgelehnt/
   // Abgelaufen) offers, and erledigte/archivierte invoices. Pairs with the
   // "N Historie" chip in the customer list.
-  const tabFromUrl = searchParams?.get('tab') as 'auftraege' | 'angebote' | 'rechnungen' | 'historie' | null;
-  const [activeTab, setActiveTab] = useState<'auftraege' | 'angebote' | 'rechnungen' | 'historie'>(tabFromUrl || 'auftraege');
+  const tabFromUrl = searchParams?.get('tab') as 'auftraege' | 'angebote' | 'rechnungen' | 'historie' | 'archiv' | null;
+  const [activeTab, setActiveTab] = useState<'auftraege' | 'angebote' | 'rechnungen' | 'historie' | 'archiv'>(tabFromUrl || 'auftraege');
   const [tabInitialized, setTabInitialized] = useState(!!tabFromUrl);
 
   // Edit customer state
@@ -227,7 +228,7 @@ export default function KundenDetailPage() {
 
   // Sync tab from URL on navigation
   useEffect(() => {
-    if (tabFromUrl && ['auftraege', 'angebote', 'rechnungen', 'historie'].includes(tabFromUrl)) {
+    if (tabFromUrl && ['auftraege', 'angebote', 'rechnungen', 'historie', 'archiv'].includes(tabFromUrl)) {
       setActiveTab(tabFromUrl);
     }
   }, [tabFromUrl]);
@@ -360,19 +361,105 @@ export default function KundenDetailPage() {
   const historicalOffers = customer.offers.filter(o => !isOfferActive(o));
   const activeInvoices = customer.invoices.filter(isInvoiceActive);
   const historicalInvoices = customer.invoices.filter(i => !isInvoiceActive(i));
-  const historieCount =
-    historicalOrders.length + historicalOffers.length + historicalInvoices.length;
+  const archivedInvoices = historicalInvoices;
+  const historieCount = historicalOrders.length + historicalOffers.length;
+  const archiveCount = archivedInvoices.length;
   const savedExecutionAddresses = Array.isArray(customer.executionAddresses)
     ? customer.executionAddresses.filter((addr) =>
         Boolean(addr?.siteAddress?.trim() && addr?.sitePlz?.trim() && addr?.siteCity?.trim()),
       )
     : [];
 
+  const getCustomerOrderReviewBadge = (order: Order) => {
+    if (!order.needsReview) return null;
+
+    const reasons = Array.isArray(order.reviewReasons)
+      ? order.reviewReasons.map((reason) => String(reason || '').toLowerCase()).filter(Boolean)
+      : [];
+
+    const hasReason = (matcher: (reason: string) => boolean) => reasons.some(matcher);
+
+    if (customerCoreDataIncomplete) {
+      return {
+        label: 'Kundendaten unvollständig',
+        mobileLabel: 'Prüfen',
+        className: 'border-red-300 text-red-600',
+        title: 'Pflichtangaben fehlen — Name, Strasse, PLZ oder Ort sind nicht erfasst.',
+      };
+    }
+
+    if (hasReason((reason) =>
+      reason === 'address_role_uncertain' ||
+      reason.includes('customer_address_quarantined') ||
+      reason.includes('ambiguous_role') ||
+      reason.includes('execution_address_incomplete') ||
+      reason.startsWith('intake_address:'),
+    )) {
+      return {
+        label: 'Adresse prüfen',
+        mobileLabel: 'Adresse',
+        className: 'border-red-300 text-red-600',
+        title: 'Adressrolle oder Ausführungsadresse ist noch zu prüfen.',
+      };
+    }
+
+    if (hasReason((reason) =>
+      reason.startsWith('currency_') ||
+      reason.startsWith('item_currency_mismatch:') ||
+      reason.startsWith('currency_conflict_item:'),
+    )) {
+      return {
+        label: 'Währung prüfen',
+        mobileLabel: 'Währung',
+        className: 'border-red-300 text-red-600',
+        title: 'Währung im Kundentext oder in einzelnen Positionen ist zu prüfen.',
+      };
+    }
+
+    if (hasReason((reason) =>
+      reason.startsWith('unit_missing_in_text:') ||
+      reason.includes('price_missing') ||
+      reason.includes('quantity_missing') ||
+      reason.includes('amount_missing') ||
+      reason.includes('price_quantity'),
+    )) {
+      return {
+        label: 'Preis/Menge prüfen',
+        mobileLabel: 'Betrag',
+        className: 'border-red-300 text-red-600',
+        title: 'Preis, Menge oder Einheit fehlt und muss vor Angebot/Rechnung geprüft werden.',
+      };
+    }
+
+    if (hasReason((reason) =>
+      reason.startsWith('price_override:') ||
+      reason.startsWith('unit_mismatch:') ||
+      reason.includes('catalog') ||
+      reason.includes('nicht_im_katalog') ||
+      reason.includes('not_in_catalog'),
+    )) {
+      return {
+        label: 'Leistungen prüfen',
+        mobileLabel: 'Leistungen',
+        className: 'border-yellow-400 text-yellow-900 bg-yellow-50',
+        title: 'Preisabweichung oder Nicht-im-Katalog-Hinweis. Textpreis wurde übernommen.',
+      };
+    }
+
+    return {
+      label: 'Auftrag prüfen',
+      mobileLabel: 'Prüfen',
+      className: 'border-red-300 text-red-600',
+      title: 'Auftrag enthält Prüfpunkte.',
+    };
+  };
+
   const tabs = [
     { key: 'auftraege' as const, label: 'Aufträge', count: activeOrders.length, icon: ClipboardList, historic: historicalOrders.length },
     { key: 'angebote' as const, label: 'Angebote', count: activeOffers.length, icon: FileCheck, historic: historicalOffers.length },
-    { key: 'rechnungen' as const, label: 'Rechnungen', count: activeInvoices.length, icon: FileText, historic: historicalInvoices.length },
+    { key: 'rechnungen' as const, label: 'Rechnungen', count: activeInvoices.length, icon: FileText, historic: archiveCount },
     { key: 'historie' as const, label: 'Historie', count: historieCount, icon: Archive, historic: 0 },
+    { key: 'archiv' as const, label: 'Archiv', count: archiveCount, icon: Archive, historic: 0 },
   ];
 
   // Stage I — On desktop the "→ Historie" hints inside the empty-state cards
@@ -384,6 +471,13 @@ export default function KundenDetailPage() {
     setActiveTab('historie');
     if (typeof document !== 'undefined') {
       document.getElementById('mobile-section-historie')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const goToArchiv = () => {
+    setActiveTab('archiv');
+    if (typeof document !== 'undefined') {
+      document.getElementById('mobile-section-archiv')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
@@ -418,9 +512,19 @@ export default function KundenDetailPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-medium text-sm truncate">{order.serviceName || order.description}</p>
-                    {order.needsReview && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-red-300 text-red-600 shrink-0">⚠ <span className="sm:hidden">Prüfen</span><span className="hidden sm:inline">{customerCoreDataIncomplete ? 'Kundendaten unvollständig' : 'Auftrag prüfen'}</span></Badge>
-                    )}
+                    {(() => {
+                      const reviewBadge = getCustomerOrderReviewBadge(order);
+                      if (!reviewBadge) return null;
+                      return (
+                        <Badge
+                          variant="outline"
+                          title={reviewBadge.title}
+                          className={`text-[10px] px-1.5 py-0 shrink-0 ${reviewBadge.className}`}
+                        >
+                          ⚠ <span className="sm:hidden">{reviewBadge.mobileLabel}</span><span className="hidden sm:inline">{reviewBadge.label}</span>
+                        </Badge>
+                      );
+                    })()}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {formatDate(order.date)}
@@ -496,12 +600,12 @@ export default function KundenDetailPage() {
             Keine aktiven Rechnungen
             {historicalInvoices.length > 0 && (
               <span className="block mt-1 text-xs">
-                {historicalInvoices.length} erledigte Rechnung{historicalInvoices.length === 1 ? '' : 'en'} in
+                {archivedInvoices.length} archivierte Rechnung{archivedInvoices.length === 1 ? '' : 'en'} in
                 <button
-                  onClick={goToHistorie}
+                  onClick={goToArchiv}
                   className="ml-1 underline decoration-dotted hover:text-foreground"
                 >
-                  Historie
+                  Archiv
                 </button>
               </span>
             )}
@@ -547,7 +651,7 @@ export default function KundenDetailPage() {
           <CardContent className="py-8 text-center text-muted-foreground">
             Keine historischen Einträge
             <span className="block mt-1 text-xs">
-              Hier erscheinen konvertierte Aufträge, abgeschlossene Angebote und erledigte Rechnungen
+              Hier erscheinen weitergeführte Aufträge und abgeschlossene Angebote
             </span>
           </CardContent>
         </Card>
@@ -643,43 +747,55 @@ export default function KundenDetailPage() {
               </div>
             </div>
           )}
-
-          {historicalInvoices.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5" /> Archivierte Rechnungen ({historicalInvoices.length})
-              </h3>
-              <div className="space-y-2">
-                {historicalInvoices.map(inv => (
-                  <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'invoice', data: inv })}>
-                    <CardContent className="py-3 px-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium text-sm">{inv.invoiceNumber}</p>
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-gray-400 text-gray-600 shrink-0">Historisch</Badge>
-                            <Badge variant="outline" className="text-[10px] border-gray-400 text-gray-600 shrink-0">→ Archiv</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {formatDate(inv.invoiceDate)}{inv.dueDate ? ` • Fällig: ${formatDate(inv.dueDate)}` : ''}
-                            {inv.createdAt && <span className="ml-2 opacity-60">· Erstellt: {formatDateTime(inv.createdAt)}</span>}
-                          </p>
-                          {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
-                          <Badge className={`text-xs ${invoiceStatusColor[inv.status] || 'bg-gray-100 text-gray-800'}`}>
-                            {inv.status}
-                          </Badge>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
         </>
+      )}
+    </div>
+  );
+
+  const archivSection = (
+    <div className="space-y-2">
+      {archivedInvoices.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            Keine archivierten Rechnungen
+            <span className="block mt-1 text-xs">
+              Erledigte Rechnungen aus dem Archiv werden hier beim Kunden angezeigt.
+            </span>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {archivedInvoices.map(inv => (
+            <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'invoice', data: inv })}>
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-sm">{inv.invoiceNumber}</p>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-gray-400 text-gray-600 shrink-0">Archiv</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatDate(inv.invoiceDate)}{inv.dueDate ? ` • Fällig: ${formatDate(inv.dueDate)}` : ''}
+                      {inv.createdAt && <span className="ml-2 opacity-60">· Erstellt: {formatDateTime(inv.createdAt)}</span>}
+                    </p>
+                    {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
+                    <Badge className={`text-xs ${invoiceStatusColor[inv.status] || 'bg-gray-100 text-gray-800'}`}>
+                      {inv.status}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          <div className="flex justify-end pt-1">
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => router.push('/archiv')}>
+              Archiv öffnen
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -898,6 +1014,7 @@ export default function KundenDetailPage() {
           {activeTab === 'angebote' && angeboteSection}
           {activeTab === 'rechnungen' && rechnungenSection}
           {activeTab === 'historie' && historieSection}
+          {activeTab === 'archiv' && archivSection}
         </div>
       </div>
 
@@ -935,6 +1052,14 @@ export default function KundenDetailPage() {
             <span className="text-xs font-normal text-muted-foreground">({historieCount})</span>
           </h3>
           {historieSection}
+        </section>
+        <section id="mobile-section-archiv">
+          <h3 className="text-base font-bold mb-3 flex items-center gap-2">
+            <Archive className="w-5 h-5 text-primary" />
+            Archiv
+            <span className="text-xs font-normal text-muted-foreground">({archiveCount})</span>
+          </h3>
+          {archivSection}
         </section>
       </div>
 

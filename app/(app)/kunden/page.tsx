@@ -171,12 +171,12 @@ export default function KundenPage() {
                 //   (tc.offers − vc.offers)      → abgeschlossene (Angenommen/Abgelehnt/Abgelaufen) Angebote
                 //   (tc.invoices − vc.invoices)  → always 0 (tc.invoices is strict non-archived)
                 //   + tc.archivedInvoices         → erledigte/archivierte Rechnungen
+                const archivedInvoices = tc?.archivedInvoices ?? 0;
                 const hiddenHistory =
                   vc && tc
                     ? Math.max(0, (tc.orders ?? 0) - (vc.orders ?? 0)) +
                       Math.max(0, (tc.offers ?? 0) - (vc.offers ?? 0)) +
-                      Math.max(0, (tc.invoices ?? 0) - (vc.invoices ?? 0)) +
-                      (tc.archivedInvoices ?? 0)
+                      Math.max(0, (tc.invoices ?? 0) - (vc.invoices ?? 0))
                     : 0;
                 return (
               <Card className="hover:shadow-md transition-shadow cursor-pointer tap-safe" onClick={() => router.push(`/kunden/${c.id}`)}>
@@ -213,13 +213,21 @@ export default function KundenPage() {
                     <div className="self-stretch w-px bg-border/50 shrink-0" aria-hidden />
 
                     {/* COL 3 — history chip (non-interactive) */}
-                    <div className="w-[88px] shrink-0 flex items-center justify-center px-1 pointer-events-none">
+                    <div className="w-[92px] shrink-0 flex flex-col items-center justify-center gap-0.5 px-1 pointer-events-none">
                       {hiddenHistory > 0 && (
                         <span
-                          title="Abgeschlossene, weitergeführte oder archivierte Einträge — Karte tippen, um Details zu öffnen"
+                          title="Abgeschlossene oder weitergeführte Einträge — Karte tippen, um Details zu öffnen"
                           className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 font-medium leading-tight whitespace-nowrap"
                         >
                           {hiddenHistory} Historie
+                        </span>
+                      )}
+                      {archivedInvoices > 0 && (
+                        <span
+                          title="Archivierte Rechnungen — Karte tippen, um Details zu öffnen"
+                          className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 font-medium leading-tight whitespace-nowrap"
+                        >
+                          {archivedInvoices} Archiv
                         </span>
                       )}
                     </div>
@@ -300,7 +308,7 @@ export default function KundenPage() {
                     </div>
 
                     {/* Row B — compact chip strip (entirely non-interactive) */}
-                    {(hasMissingData || hiddenHistory > 0 || executionAddressCount > 0 || (vc?.orders ?? 0) > 0 || (vc?.offers ?? 0) > 0 || (vc?.invoices ?? 0) > 0) && (
+                    {(hasMissingData || hiddenHistory > 0 || archivedInvoices > 0 || executionAddressCount > 0 || (vc?.orders ?? 0) > 0 || (vc?.offers ?? 0) > 0 || (vc?.invoices ?? 0) > 0) && (
                       <div className="flex items-center flex-wrap gap-1 pointer-events-none">
                         {hasMissingData && (
                           <span title="Pflichtangaben fehlen — Name, Strasse, PLZ oder Ort sind nicht erfasst">
@@ -310,10 +318,18 @@ export default function KundenPage() {
                         )}
                         {hiddenHistory > 0 && (
                           <span
-                            title="Abgeschlossene, weitergeführte oder archivierte Einträge — Karte tippen"
+                            title="Abgeschlossene oder weitergeführte Einträge — Karte tippen"
                             className="text-[10px] leading-none px-1.5 py-1 rounded-full bg-gray-200 text-gray-700 font-medium whitespace-nowrap"
                           >
                             {hiddenHistory} Historie
+                          </span>
+                        )}
+                        {archivedInvoices > 0 && (
+                          <span
+                            title="Archivierte Rechnungen — Karte tippen"
+                            className="text-[10px] leading-none px-1.5 py-1 rounded-full bg-slate-200 text-slate-700 font-medium whitespace-nowrap"
+                          >
+                            {archivedInvoices} Archiv
                           </span>
                         )}
                         {(vc?.orders ?? 0) > 0 && (
