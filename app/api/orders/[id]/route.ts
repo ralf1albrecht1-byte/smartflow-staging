@@ -365,6 +365,65 @@ function hasClientItemsPayload(data: any): boolean {
   return Array.isArray(data?.items);
 }
 
+
+function isUnitReviewValueForPersist(value: any): boolean {
+  const key = normalizeSearchText(value);
+  return (
+    !key ||
+    key === "pruefen" ||
+    key === "prufen" ||
+    key === "einheit pruefen" ||
+    key === "einheit prufen" ||
+    key === "unit review" ||
+    key === "unit pruefen"
+  );
+}
+
+function itemAmountKeyForPersist(item: any): string {
+  const quantity = Number(item?.quantity ?? 0);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const currency = String(item?.currency || "").toUpperCase();
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) return "";
+  return `${currency}:${quantity.toFixed(4)}:${unitPrice.toFixed(4)}`;
+}
+
+function isBlockedDuplicateOfConfirmedClientItemForPersist(item: any, confirmedItems: any[]): boolean {
+  const key = itemAmountKeyForPersist(item);
+  if (!key) return false;
+  if (!isUnitReviewValueForPersist(item?.unit)) return false;
+  const totalPrice = Number(item?.totalPrice ?? 0);
+  const hasBlockedTotal = !Number.isFinite(totalPrice) || totalPrice <= 0;
+  if (!hasBlockedTotal && !item?.needsReview) return false;
+
+  return confirmedItems.some((candidate) => {
+    if (candidate === item) return false;
+    if (itemAmountKeyForPersist(candidate) !== key) return false;
+    if (isUnitReviewValueForPersist(candidate?.unit)) return false;
+    if (Number(candidate?.totalPrice ?? 0) <= 0) return false;
+    return true;
+  });
+}
+
+function dropBlockedClientItemDuplicatesForPersist<T extends any>(items: T[]): T[] {
+  const sourceItems = Array.isArray(items) ? items : [];
+  const confirmedItems = sourceItems.filter(
+    (item: any) =>
+      itemAmountKeyForPersist(item) &&
+      !isUnitReviewValueForPersist(item?.unit) &&
+      Number(item?.unitPrice ?? 0) > 0 &&
+      Number(item?.quantity ?? 0) > 0 &&
+      Number(item?.totalPrice ?? 0) > 0,
+  );
+
+  return sourceItems.filter((item: any) => {
+    if (!isBlockedDuplicateOfConfirmedClientItemForPersist(item, confirmedItems)) return true;
+    console.info(
+      `[OrdersIdNormalizeManualUnitFixV17_90D] dropped blocked duplicate service=${item?.serviceName || "?"} unit=${item?.unit || "?"} q=${item?.quantity || "?"} p=${item?.unitPrice || "?"}`,
+    );
+    return false;
+  });
+}
+
 function hasCurrencyConflictReviewOnOrderLike(value: any): boolean {
   const reasons = Array.isArray(value?.reviewReasons) ? value.reviewReasons : [];
   return reasons.some((reason: any) =>
@@ -691,11 +750,19 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
     };
   });
 
+  // V17.90D: Wenn der Editor vollständige Positionswerte sendet, sind diese
+  // die Quelle der Wahrheit. Der alte Text-Reparaturpfad darf dann keine
+  // zusätzliche "Einheit prüfen"-Position aus der ursprünglichen WhatsApp-Zeile
+  // wieder anlegen. Genau das erzeugte nach manueller Einheit-Bestätigung
+  // z. B. wieder "Lagerraum Boden / Einheit prüfen" und hielt den roten
+  // "Betrag prüfen"-Chip fest.
+  if (trustClientItemValues || hasClientItemsPayload(data)) {
+    return dropBlockedClientItemDuplicatesForPersist(normalized);
+  }
+
   return repairZeroQuantityHourItemsFromText(normalized, source, {
     logPrefix: "[OrdersIdNormalizeHourFixV17_06]",
-    // V17.19: Sobald der Editor eine items-Liste sendet, dürfen Pauschal-/
-    // Anfahrt-Sicherheitsnetze keine alten Textpreise mehr zurückschreiben.
-    skipFlatFeeRepair: trustClientItemValues || hasClientItemsPayload(data),
+    skipFlatFeeRepair: false,
   }).items;
 }
 
@@ -1752,15 +1819,20 @@ export async function PUT(
       });
     }
 
-    const persistedHourRepairAfterUpdate = await repairPersistedOrderZeroHourItemsFromText({
-      prisma,
-      order: finalOrder,
-      originalText: getOrderSourceTextForItems({ ...existing, ...data, items: finalOrder.items }),
-      logPrefix: "[OrdersIdPutHourFixV17_06]",
-      skipFlatFeeRepair: shouldTrustClientItemValuesForPersist(data) || hasClientItemsPayload(data),
-    });
-    if (persistedHourRepairAfterUpdate.repairedCount > 0 && persistedHourRepairAfterUpdate.order) {
-      finalOrder = persistedHourRepairAfterUpdate.order;
+    // V17.90D: Nach einem Editor-Save mit expliziter items-Liste darf der
+    // Persisted-Repair nicht nochmals aus altem Kundentext fehlende
+    // Einheit-Positionen erzeugen. Manuelle Korrektur gewinnt.
+    if (!(shouldTrustClientItemValuesForPersist(data) || hasClientItemsPayload(data))) {
+      const persistedHourRepairAfterUpdate = await repairPersistedOrderZeroHourItemsFromText({
+        prisma,
+        order: finalOrder,
+        originalText: getOrderSourceTextForItems({ ...existing, ...data, items: finalOrder.items }),
+        logPrefix: "[OrdersIdPutHourFixV17_06]",
+        skipFlatFeeRepair: false,
+      });
+      if (persistedHourRepairAfterUpdate.repairedCount > 0 && persistedHourRepairAfterUpdate.order) {
+        finalOrder = persistedHourRepairAfterUpdate.order;
+      }
     }
 
     // V17.68: Sobald ein Auftrag mit vollständiger Ausführungsadresse gespeichert
