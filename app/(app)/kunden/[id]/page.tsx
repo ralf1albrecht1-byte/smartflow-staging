@@ -66,6 +66,18 @@ interface Invoice {
   createdAt?: string;
 }
 
+interface CustomerExecutionAddress {
+  id: string;
+  siteName: string | null;
+  siteAddress: string;
+  sitePlz: string;
+  siteCity: string;
+  siteNote: string | null;
+  country?: string | null;
+  usageCount?: number | null;
+  lastUsedAt?: string | null;
+}
+
 interface Customer {
   id: string;
   customerNumber: string | null;
@@ -77,6 +89,7 @@ interface Customer {
   phone: string | null;
   email: string | null;
   notes: string | null;
+  executionAddresses?: CustomerExecutionAddress[];
   orders: Order[];
   offers: Offer[];
   invoices: Invoice[];
@@ -164,7 +177,27 @@ export default function KundenDetailPage() {
     try {
       const res = await fetch(`/api/customers/${customerId}/details`);
       if (res.ok) {
-        setCustomer(await res.json());
+        let loadedCustomer: Customer = await res.json();
+
+        // V17.69: Kundenbasierte Ausführungsorte auf der Detailseite sichtbar
+        // machen. Bestehende Detail-API beibehalten; falls sie die neue Relation
+        // noch nicht mitliefert, gezielt über die Kunden-API nachladen.
+        if (!Array.isArray(loadedCustomer.executionAddresses)) {
+          const enrichedRes = await fetch(`/api/customers/${customerId}`);
+          if (enrichedRes.ok) {
+            const enrichedCustomer = await enrichedRes.json();
+            loadedCustomer = {
+              ...loadedCustomer,
+              executionAddresses: Array.isArray(enrichedCustomer?.executionAddresses)
+                ? enrichedCustomer.executionAddresses
+                : [],
+            };
+          } else {
+            loadedCustomer = { ...loadedCustomer, executionAddresses: [] };
+          }
+        }
+
+        setCustomer(loadedCustomer);
       } else {
         toast.error('Kunde nicht gefunden');
         router.push('/kunden');
@@ -282,6 +315,11 @@ export default function KundenDetailPage() {
   const historicalInvoices = customer.invoices.filter(i => !isInvoiceActive(i));
   const historieCount =
     historicalOrders.length + historicalOffers.length + historicalInvoices.length;
+  const savedExecutionAddresses = Array.isArray(customer.executionAddresses)
+    ? customer.executionAddresses.filter((addr) =>
+        Boolean(addr?.siteAddress?.trim() && addr?.sitePlz?.trim() && addr?.siteCity?.trim()),
+      )
+    : [];
 
   const tabs = [
     { key: 'auftraege' as const, label: 'Aufträge', count: activeOrders.length, icon: ClipboardList, historic: historicalOrders.length },
@@ -700,6 +738,54 @@ export default function KundenDetailPage() {
           </motion.div>
         )}
       </motion.div>
+
+      {/* V17.69 — gespeicherte kundenbasierte Ausführungsorte sichtbar machen.
+          Read-only: Bearbeiten/Löschen kommt erst später, wenn fachlich nötig. */}
+      <Card>
+        <CardContent className="py-4 px-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-primary" />
+              <h3 className="text-sm font-semibold">Gespeicherte Ausführungsorte</h3>
+            </div>
+            <Badge variant="outline" className="text-xs">{savedExecutionAddresses.length}</Badge>
+          </div>
+
+          {savedExecutionAddresses.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Noch keine Ausführungsorte bei diesem Kunden gespeichert. Vollständige Ausführungsadressen aus neuen Aufträgen werden hier angezeigt.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {savedExecutionAddresses.map((addr) => (
+                <div
+                  key={addr.id}
+                  className="rounded-lg border bg-muted/20 px-3 py-2 text-sm"
+                >
+                  <p className="font-medium break-words">
+                    {addr.siteName?.trim() || 'Ausführungsort'}
+                  </p>
+                  <p className="text-muted-foreground break-words">
+                    {addr.siteAddress}
+                  </p>
+                  <p className="text-muted-foreground break-words">
+                    {addr.sitePlz} {addr.siteCity}
+                  </p>
+                  {addr.siteNote?.trim() && (
+                    <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap break-words">
+                      {addr.siteNote}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-2 text-[11px] text-muted-foreground">
+                    {addr.usageCount != null && <span>{addr.usageCount}× verwendet</span>}
+                    {addr.lastUsedAt && <span>Zuletzt: {formatDate(addr.lastUsedAt)}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* === Stage I — Customer detail mobile/desktop split (no mobile tabs) ===
           Mobile (md:hidden): all four sections (Aufträge, Angebote, Rechnungen,

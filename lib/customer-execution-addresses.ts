@@ -114,6 +114,45 @@ export async function rememberCustomerExecutionAddress(
   });
 }
 
+function hasUnresolvedAddressRoleReview(order: any): boolean {
+  const reasons = Array.isArray(order?.reviewReasons) ? order.reviewReasons : [];
+  return reasons.some((reason: any) => {
+    const key = String(reason || "").toLowerCase();
+    return (
+      key === "address_role_uncertain" ||
+      key.includes("address_role_uncertain") ||
+      key.includes("customer_address_quarantined") ||
+      key.includes("ambiguous_role")
+    );
+  });
+}
+
+function hasCompleteExecutionAddress(input: CustomerExecutionAddressInput): boolean {
+  return Boolean(
+    compact(input.siteAddress) &&
+      compact(input.sitePlz) &&
+      compact(input.siteCity),
+  );
+}
+
+function isSameAsBillingAddress(order: any, input: CustomerExecutionAddressInput): boolean {
+  const customer = order?.customer;
+  if (!customer) return false;
+
+  const executionKey = [
+    normalizeKeyPart(input.siteAddress),
+    normalizeKeyPart(input.sitePlz),
+    normalizeKeyPart(input.siteCity),
+  ].join("|");
+  const billingKey = [
+    normalizeKeyPart(customer?.address),
+    normalizeKeyPart(customer?.plz),
+    normalizeKeyPart(customer?.city),
+  ].join("|");
+
+  return Boolean(executionKey && billingKey && executionKey === billingKey);
+}
+
 export async function rememberExecutionAddressesFromOrder(
   prisma: any,
   params: {
@@ -125,30 +164,41 @@ export async function rememberExecutionAddressesFromOrder(
   const customerId = compact(order?.customerId);
   if (!customerId) return 0;
 
+  // V17.69: Unsichere Adressrollen dürfen nicht automatisch als
+  // kundenbasierter Ausführungsort gespeichert werden. Wenn die Rolle noch
+  // offen ist, muss der Nutzer zuerst im Prüfkasten entscheiden.
+  if (hasUnresolvedAddressRoleReview(order)) return 0;
+
   const seen = new Set<string>();
   let saved = 0;
 
   const remember = async (input: CustomerExecutionAddressInput) => {
-    const key = executionAddressIdentityKey({ ...input, customerId });
+    const candidate = { ...input, customerId };
+    if (!hasCompleteExecutionAddress(candidate)) return;
+    if (isSameAsBillingAddress(order, candidate)) return;
+
+    const key = executionAddressIdentityKey(candidate);
     if (!key || seen.has(key)) return;
     seen.add(key);
+
     const row = await rememberCustomerExecutionAddress(prisma, {
-      ...input,
-      customerId,
+      ...candidate,
       userId: params.userId || order?.userId || null,
     });
     if (row) saved += 1;
   };
 
-  if (order?.siteAddressDifferent) {
-    await remember({
-      siteName: order?.siteName,
-      siteAddress: order?.siteAddress,
-      sitePlz: order?.sitePlz,
-      siteCity: order?.siteCity,
-      siteNote: order?.siteNote,
-    });
-  }
+  // V17.69: Nicht mehr nur vom Flag `siteAddressDifferent` abhängig machen.
+  // Bei WhatsApp-/Order-Create kann die vollständige Ausführungsadresse bereits
+  // vorhanden sein, während das Flag noch nicht sauber gesetzt ist. Genau dann
+  // muss der Ausführungsort trotzdem sofort am Kunden gespeichert werden.
+  await remember({
+    siteName: order?.siteName,
+    siteAddress: order?.siteAddress,
+    sitePlz: order?.sitePlz,
+    siteCity: order?.siteCity,
+    siteNote: order?.siteNote,
+  });
 
   const workSites = Array.isArray(order?.workSites) ? order.workSites : [];
   for (const site of workSites) {

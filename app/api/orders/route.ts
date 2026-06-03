@@ -1598,6 +1598,13 @@ export async function POST(request: Request) {
         date: data?.date ? new Date(data.date) : new Date(),
         notes: data?.notes || null,
         specialNotes: normalizedSpecialNotes,
+        needsReview:
+          data?.needsReview !== undefined ? Boolean(data.needsReview) : false,
+        reviewReasons:
+          normalizedReviewReasonsForRequest ??
+          (Array.isArray(data?.reviewReasons)
+            ? data.reviewReasons.filter(Boolean)
+            : []),
         hinweisLevel:
           data?.hinweisLevel ??
           (hasNormalizedSafetyWarnings ? "warning" : "none"),

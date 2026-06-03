@@ -4732,6 +4732,7 @@ export default function AuftraegePage() {
     unit: string;
   }>(null);
   const [catalogDecisionSaving, setCatalogDecisionSaving] = useState(false);
+  const executionAddressCustomerFetchRef = useRef<Set<string>>(new Set());
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -4796,6 +4797,46 @@ export default function AuftraegePage() {
   useEffect(() => {
     load();
   }, []);
+
+  // V17.69: Beim Öffnen/Bearbeiten eines Auftrags den aktuell zugeordneten
+  // Kunden bei Bedarf nachladen, damit die persistenten Ausführungsorte sicher
+  // im Vorschlagskasten erscheinen. Die normale Kundenliste kann aus
+  // Performance-Gründen gekürzt sein; die Einzelkunden-API liefert die Relation.
+  useEffect(() => {
+    const customerId = String(form.customerId || "").trim();
+    if (!customerId) return;
+
+    const currentCustomer = customers.find((entry) => entry.id === customerId);
+    if (Array.isArray(currentCustomer?.executionAddresses)) return;
+    if (executionAddressCustomerFetchRef.current.has(customerId)) return;
+
+    executionAddressCustomerFetchRef.current.add(customerId);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/customers/${customerId}`);
+        if (!res.ok) return;
+
+        const fetched = await res.json();
+        if (cancelled || !fetched?.id) return;
+
+        setCustomers((prev) => {
+          const exists = prev.some((entry) => entry.id === fetched.id);
+          if (!exists) return [...prev, fetched];
+          return prev.map((entry) =>
+            entry.id === fetched.id ? { ...entry, ...fetched } : entry,
+          );
+        });
+      } catch {
+        executionAddressCustomerFetchRef.current.delete(customerId);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.customerId, customers]);
 
   // Auto-refresh on tab/window focus removed:
   // it caused visible reload flicker and scroll loss while editing orders.
@@ -9431,7 +9472,7 @@ export default function AuftraegePage() {
                               Gespeicherte Ausführungsorte
                             </div>
                             <div className="text-[10px] text-cyan-700 dark:text-cyan-300">
-                              vom Kunden · speichert nicht automatisch
+                              Beim Kunden gespeichert
                             </div>
                           </div>
                           <div className="grid gap-1.5">
