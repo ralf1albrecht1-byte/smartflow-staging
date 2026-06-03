@@ -219,11 +219,7 @@ export default function EinstellungenPage() {
         return;
       }
       setLivePrepPreview(data);
-      if (data?.liveStarted) {
-        setLivePrepKeepIds([]);
-      } else {
-        setLivePrepKeepIds((data?.customers || []).filter((customer: LivePrepCustomer) => customer.canKeep).map((customer: LivePrepCustomer) => customer.id));
-      }
+      setLivePrepKeepIds([]);
     } catch {
       toast({ title: 'Fehler', description: 'Netzwerkfehler beim Laden der Vorschau.', variant: 'destructive' });
     } finally {
@@ -233,6 +229,17 @@ export default function EinstellungenPage() {
 
   function toggleLivePrepCustomer(customerId: string) {
     setLivePrepKeepIds(prev => prev.includes(customerId) ? prev.filter(id => id !== customerId) : [...prev, customerId]);
+  }
+
+  function toggleAllLivePrepCustomers() {
+    if (!livePrepPreview || livePrepExecuting) return;
+    const selectableIds = livePrepPreview.customers
+      .filter((customer: LivePrepCustomer) => customer.canKeep)
+      .map((customer: LivePrepCustomer) => customer.id);
+
+    setLivePrepKeepIds(prev =>
+      selectableIds.length > 0 && prev.length === selectableIds.length ? [] : selectableIds,
+    );
   }
 
   async function executeLivePreparation() {
@@ -248,7 +255,7 @@ export default function EinstellungenPage() {
       });
       return;
     }
-    const confirmed = window.prompt('Diese Aktion bereitet den echten Betrieb vor.\n\nSie löscht Aufträge, Angebote, Rechnungen und nicht ausgewählte Kunden dieses TEST-Bestands endgültig, nummeriert die ausgewählten Kunden ab K-001 neu und schaltet auf Live-Betrieb.\n\nZum Bestätigen exakt ECHTSTART eingeben:');
+    const confirmed = window.prompt('Livebetrieb wirklich starten?\n\nErst nach dieser Bestätigung werden nicht ausgewählte Kunden entfernt, Testbelege bereinigt und die ausgewählten Kunden in den Livebetrieb übernommen.\n\nZum Bestätigen exakt ECHTSTART eingeben:');
     if (confirmed !== 'ECHTSTART') return;
     setLivePrepExecuting(true);
     try {
@@ -1485,17 +1492,21 @@ const storedValue = finalUrl;
                           </div>
                         ) : (
                           <>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                              <div className="rounded border bg-background p-2"><div className="text-muted-foreground">Kunden</div><div className="font-semibold">{livePrepPreview.counts.activeCustomers}</div></div>
-                              <div className="rounded border bg-background p-2"><div className="text-muted-foreground">Entwürfe</div><div className="font-semibold">{livePrepPreview.counts.draftCustomers}</div></div>
-                              <div className="rounded border bg-background p-2"><div className="text-muted-foreground">Aufträge</div><div className="font-semibold">{livePrepPreview.counts.activeOrders}</div></div>
-                              <div className="rounded border bg-background p-2"><div className="text-muted-foreground">Belege</div><div className="font-semibold">{livePrepPreview.counts.activeOffers + livePrepPreview.counts.activeInvoices}</div></div>
-                            </div>
-
                             <div>
-                              <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                                 <p className="text-xs font-semibold">Echte Kunden auswählen</p>
-                                <p className="text-[11px] text-muted-foreground">{livePrepKeepIds.length} ausgewählt</p>
+                                <label className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length > 0 &&
+                                      livePrepKeepIds.length === livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length
+                                    }
+                                    disabled={livePrepExecuting || livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length === 0}
+                                    onChange={toggleAllLivePrepCustomers}
+                                  />
+                                  Alle Kunden auswählen
+                                </label>
                               </div>
 
                               <div className="max-h-56 overflow-auto rounded border divide-y bg-background">
@@ -1513,9 +1524,6 @@ const storedValue = finalUrl;
                                     <span className="flex-1 min-w-0">
                                       <span className="block font-semibold text-sm">{customer.customerNumber || 'ohne Nummer'} · {customer.name || 'Ohne Name'}</span>
                                       <span className="block text-muted-foreground">{[customer.address, customer.plz, customer.city].filter(Boolean).join(' · ') || 'Adresse unvollständig'}</span>
-                                      <span className="block text-[11px] text-muted-foreground mt-1">
-                                        {customer.counts.executionAddresses} Ausführungsort(e) · {customer.counts.orders} Auftrag(e)
-                                      </span>
                                       {!customer.canKeep && <span className="block text-red-700 mt-1">Unvollständig — zuerst Kundendaten ergänzen.</span>}
                                     </span>
                                   </label>
@@ -1543,7 +1551,7 @@ const storedValue = finalUrl;
                         <div className="min-w-0">
                           <p className="text-sm font-semibold">Livebetrieb starten</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Startet den echten Betrieb mit den ausgewählten Kunden.
+                            Öffnet zuerst eine Sicherheitsbestätigung.
                           </p>
                         </div>
                       </div>
@@ -1557,11 +1565,11 @@ const storedValue = finalUrl;
                         className="shrink-0 gap-2"
                       >
                         {livePrepExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-                        {livePrepPreview && !livePrepPreview.liveStarted ? 'Livebetrieb starten' : 'Noch nicht bereit'}
+                        {livePrepPreview && !livePrepPreview.liveStarted ? 'Bestätigung öffnen' : 'Noch nicht bereit'}
                       </Button>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-3">
-                      Erst aktiv, nachdem du unter „Kunden übernehmen“ die Auswahl geladen hast.
+                      Beim Klick passiert noch nichts sofort. Der Livebetrieb startet erst nach Eingabe von „ECHTSTART“.
                     </p>
                   </div>
 
