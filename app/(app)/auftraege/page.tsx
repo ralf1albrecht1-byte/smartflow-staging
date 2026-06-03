@@ -5685,19 +5685,21 @@ export default function AuftraegePage() {
     // trotzdem seine Rechnungsadresse/Kunde-prüfen-Karte bearbeiten kann, wird
     // der eingebettete order.customer lokal ergänzt.
     if (o.customerId && o.customer) {
+      const embeddedCustomer = o.customer;
+      const embeddedCustomerId = o.customerId;
       setCustomers((prev) => {
-        if (prev.some((c) => c.id === o.customerId)) return prev;
+        if (prev.some((c) => c.id === embeddedCustomerId)) return prev;
         return [
           ...prev,
           {
-            id: o.customerId,
-            name: o.customer.name || "",
-            customerNumber: o.customer.customerNumber ?? null,
-            address: o.customer.address ?? null,
-            plz: o.customer.plz ?? null,
-            city: o.customer.city ?? null,
-            phone: o.customer.phone ?? null,
-            email: o.customer.email ?? null,
+            id: embeddedCustomerId,
+            name: embeddedCustomer.name || "",
+            customerNumber: embeddedCustomer.customerNumber ?? null,
+            address: embeddedCustomer.address ?? null,
+            plz: embeddedCustomer.plz ?? null,
+            city: embeddedCustomer.city ?? null,
+            phone: embeddedCustomer.phone ?? null,
+            email: embeddedCustomer.email ?? null,
             country: "CH",
           } as Customer,
         ];
