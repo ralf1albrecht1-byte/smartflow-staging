@@ -291,7 +291,7 @@ export default function KundenDetailPage() {
     try {
       const res = await fetch(`/api/customers/${customerId}/execution-addresses/${addr.id}`, { method: 'DELETE' });
       if (res.ok) {
-        toast.success('Ausführungsort entfernt');
+        toast.success('Ausführungsort wurde aus dem Kundenprofil entfernt.');
         await loadCustomer();
       } else {
         const err = await res.json().catch(() => ({} as any));

@@ -208,6 +208,7 @@ function SmsIcon({
 
 interface OrderWorkSite {
   id: string;
+  customerExecutionAddressId?: string | null;
   siteName?: string | null;
   siteAddress?: string | null;
   sitePlz?: string | null;
@@ -6889,6 +6890,7 @@ export default function AuftraegePage() {
       .forEach((stored, index) => {
         const normalizedSite: OrderWorkSite = {
           id: `customer-execution-${stored.id || index}`,
+          customerExecutionAddressId: stored.id || null,
           siteName: cleanWorkSiteDisplayName(stored.siteName) || null,
           siteAddress: compactText(stored.siteAddress) || null,
           sitePlz: compactText(stored.sitePlz) || null,
@@ -6976,6 +6978,62 @@ export default function AuftraegePage() {
     );
     setSiteAddressEditing(true);
     toast.success("Ausführungsadresse ausgewählt – Adresse speichern.");
+  };
+
+  const deletePersistentExecutionAddressSuggestionV17_72 = async (
+    site: OrderWorkSite,
+  ) => {
+    const customerId = String(form.customerId || "").trim();
+    const addressId = String(site.customerExecutionAddressId || "").trim();
+
+    if (!customerId || !addressId) {
+      toast.error("Ausführungsort konnte nicht eindeutig zugeordnet werden.");
+      return;
+    }
+
+    const label =
+      cleanWorkSiteDisplayName(site.siteName) ||
+      [site.siteAddress, site.sitePlz, site.siteCity]
+        .map(compactText)
+        .filter(Boolean)
+        .join(" ") ||
+      "Ausführungsort";
+
+    if (!window.confirm(`Ausführungsort "${label}" wirklich entfernen?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/customers/${customerId}/execution-addresses/${addressId}`,
+        { method: "DELETE" },
+      );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({} as any));
+        toast.error(err?.error || "Ausführungsort konnte nicht entfernt werden.");
+        return;
+      }
+
+      setCustomers((prev) =>
+        prev.map((entry) =>
+          entry.id === customerId
+            ? {
+                ...entry,
+                executionAddresses: Array.isArray(entry.executionAddresses)
+                  ? entry.executionAddresses.filter(
+                      (addr) => addr.id !== addressId,
+                    )
+                  : [],
+              }
+            : entry,
+        ),
+      );
+
+      toast.success("Ausführungsort wurde aus dem Kundenprofil entfernt.");
+    } catch {
+      toast.error("Netzwerkfehler beim Entfernen des Ausführungsorts.");
+    }
   };
 
   const getWorkSiteShortLabel = (site?: OrderWorkSite | null) => {
@@ -7692,7 +7750,7 @@ export default function AuftraegePage() {
 
       setSiteAddressEditing(false);
       await load();
-      toast.success("Ausführungsadresse gespeichert.");
+      toast.success("Ausführungsort wurde im Kundenprofil gespeichert.");
     } catch {
       toast.error("Ausführungsadresse konnte nicht gespeichert werden.");
     } finally {
@@ -10109,30 +10167,49 @@ export default function AuftraegePage() {
                                   .join(" · ");
 
                                 return (
-                                  <button
+                                  <div
                                     key={normalizePersistentExecutionAddressKeyV17_68(
                                       site,
                                     )}
-                                    type="button"
-                                    onClick={() =>
-                                      applyPersistentExecutionAddressSuggestionV17_68(
-                                        site,
-                                      )
-                                    }
-                                    className="w-full rounded-md border border-cyan-200 bg-white px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
+                                    className="flex items-stretch gap-1.5 rounded-md border border-cyan-200 bg-white text-xs shadow-sm transition-colors hover:bg-cyan-100 dark:border-cyan-900/60 dark:bg-slate-950 dark:hover:bg-cyan-950/30"
                                   >
-                                    <div className="font-semibold text-slate-900 dark:text-slate-100">
-                                      {title}
-                                    </div>
-                                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                      {address}
-                                    </div>
-                                    {site.siteNote && (
-                                      <div className="mt-0.5 truncate text-[11px] text-cyan-800 dark:text-cyan-200">
-                                        {site.siteNote}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        applyPersistentExecutionAddressSuggestionV17_68(
+                                          site,
+                                        )
+                                      }
+                                      className="min-w-0 flex-1 px-2 py-1.5 text-left"
+                                    >
+                                      <div className="font-semibold text-slate-900 dark:text-slate-100">
+                                        {title}
                                       </div>
+                                      <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                        {address}
+                                      </div>
+                                      {site.siteNote && (
+                                        <div className="mt-0.5 truncate text-[11px] text-cyan-800 dark:text-cyan-200">
+                                          {site.siteNote}
+                                        </div>
+                                      )}
+                                    </button>
+                                    {site.customerExecutionAddressId && (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          deletePersistentExecutionAddressSuggestionV17_72(
+                                            site,
+                                          );
+                                        }}
+                                        className="flex shrink-0 items-center justify-center px-2 text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/30"
+                                        aria-label="Ausführungsort entfernen"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
                                     )}
-                                  </button>
+                                  </div>
                                 );
                               },
                             )}
