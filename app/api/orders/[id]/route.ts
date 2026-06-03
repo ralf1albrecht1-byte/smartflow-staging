@@ -535,6 +535,39 @@ function isReviewReasonResolvedByConfirmedItemForPersist(reason: string, data: a
   );
 }
 
+// V17.90b: Wenn der Nutzer eine fehlende Einheit im Auftrag manuell ergänzt
+// und speichert, darf die alte Review-Zeile aus dem ursprünglichen Kundentext
+// nicht wieder die gespeicherte Einheit auf „prüfen" zurückdrehen.
+// Das ist kein KI-/Wortlisten-Fix, sondern eine Persistenzregel:
+// vollständige manuelle Positionswerte gewinnen gegen alte Unit-Review-Marker.
+function isUnitReviewResolvedByCompleteClientItemForPersist(reason: string, data: any): boolean {
+  const key = String(reason || "");
+  if (!key.startsWith("unit_missing_in_text:") && !key.startsWith("unit_mismatch:")) {
+    return false;
+  }
+
+  const parts = key.split(":");
+  const reasonService = normalizeSearchText(normalizeServiceNameForDisplay(parts[1] || ""));
+  if (!reasonService) return false;
+
+  const items = Array.isArray(data?.items) ? data.items : [];
+  return items.some((item: any) => {
+    const serviceName = normalizeSearchText(normalizeServiceNameForDisplay(item?.serviceName));
+    const unit = normalizeSearchText(item?.unit);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const quantity = Number(item?.quantity ?? 0);
+
+    return (
+      serviceName === reasonService &&
+      unit.length > 0 &&
+      !unit.includes("pruefen") &&
+      !unit.includes("prufen") &&
+      unitPrice > 0 &&
+      quantity > 0
+    );
+  });
+}
+
 function hasCompleteManualItemsIgnoringCurrencyForPersist(data: any): boolean {
   const items = Array.isArray(data?.items) ? data.items : [];
   if (items.length === 0) return false;
@@ -725,6 +758,10 @@ function normalizeReviewReasonsForPersist(data: any) {
     const key = String(reason || "");
 
     if (isReviewReasonResolvedByConfirmedItemForPersist(key, data)) {
+      return false;
+    }
+
+    if (isUnitReviewResolvedByCompleteClientItemForPersist(key, data)) {
       return false;
     }
 
