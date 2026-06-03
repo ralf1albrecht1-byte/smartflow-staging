@@ -151,9 +151,16 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const confirmText = String(body?.confirmText || '').trim();
-    const keepCustomerIds = Array.isArray(body?.keepCustomerIds)
-      ? Array.from(new Set(body.keepCustomerIds.map((id: any) => String(id || '').trim()).filter(Boolean)))
+    const rawKeepCustomerIds: unknown[] = Array.isArray(body?.keepCustomerIds)
+      ? body.keepCustomerIds
       : [];
+    const keepCustomerIds: string[] = Array.from(
+      new Set<string>(
+        rawKeepCustomerIds
+          .map((id: unknown) => String(id || '').trim())
+          .filter((id: string) => id.length > 0)
+      )
+    );
 
     if (confirmText !== CONFIRM_TEXT) {
       return NextResponse.json({ error: `Bitte exakt ${CONFIRM_TEXT} bestätigen.` }, { status: 400 });
