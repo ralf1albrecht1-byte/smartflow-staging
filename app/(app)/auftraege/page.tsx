@@ -765,7 +765,7 @@ const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
     },
   );
 
-  return compactText(text);
+  return compactText(text).replace(/\s*[\(\[\{]+\s*$/g, "").trim();
 };
 
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
@@ -4374,6 +4374,43 @@ const renderBadgeTooltip = (
   );
 };
 
+const renderMobileSafeBadgeTooltip = (badge: ReviewBadge) => {
+  const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+  if (!tooltip) return null;
+
+  const tooltipLines = tooltip.split("\n");
+  const headingPattern =
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+
+  return (
+    <span className="pointer-events-auto fixed left-3 right-3 top-1/2 z-[10000] hidden max-h-[62vh] -translate-y-1/2 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl group-focus:block group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      {tooltipLines.map((line, index) => {
+        const trimmed = line.trim();
+        if (/^[-─—–_]{6,}$/.test(trimmed)) {
+          return (
+            <span
+              key={`mobile_sep_${index}`}
+              className="my-1 block border-t border-slate-200 dark:border-slate-700"
+            />
+          );
+        }
+
+        const emphasizeLine =
+          headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed);
+
+        return (
+          <span
+            key={`mobile_line_${index}`}
+            className={`block ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+          >
+            {line}
+          </span>
+        );
+      })}
+    </span>
+  );
+};
+
 const renderReviewBadge = (
   badge: ReviewBadge,
   className: string,
@@ -4506,7 +4543,7 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
       ) : (
         badge.label.slice(0, 1)
       )}
-      {renderBadgeTooltip(badge, "left")}
+      {renderMobileSafeBadgeTooltip(badge)}
     </button>
   );
 };
@@ -4533,7 +4570,7 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         className={`group relative ${className}`}
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderBadgeTooltip({ ...badge, tooltip: title }, "left")}
+        {renderMobileSafeBadgeTooltip({ ...badge, tooltip: title })}
       </button>
     );
   }
@@ -4581,7 +4618,7 @@ const renderMobileRightReviewBadge = (badge: ReviewBadge) => {
       className={`group relative inline-flex max-w-full items-center justify-end rounded-full px-1.5 py-0.5 text-right text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
     >
       <span className="truncate">{badge.label}</span>
-      {renderBadgeTooltip(badge, "right")}
+      {renderMobileSafeBadgeTooltip(badge)}
     </button>
   );
 };

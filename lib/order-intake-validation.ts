@@ -2277,7 +2277,7 @@ function cleanLineLocalServiceLabelGrammarV17_60(value?: string | null): string 
     },
   );
 
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/\s+/g, " ").replace(/\s*[\(\[\{]+\s*$/g, "").trim();
 }
 
 function cleanValidationServiceDisplayName(value?: string | null): string {

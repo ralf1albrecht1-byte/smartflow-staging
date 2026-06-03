@@ -87,7 +87,7 @@ function cleanLineLocalServiceLabelGrammarV17_60(value?: string | null) {
     },
   );
 
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/\s+/g, " ").replace(/\s*[\(\[\{]+\s*$/g, "").trim();
 }
 
 function normalizeServiceNameForDisplay(value?: string | null) {
