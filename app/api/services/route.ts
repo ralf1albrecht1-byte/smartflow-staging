@@ -51,6 +51,29 @@ const canonicalServiceName = (value?: string | null) => {
 const canonicalKey = (value?: string | null) =>
   normalizeServiceKey(canonicalServiceName(value));
 
+const isInternalReviewServiceName = (value?: string | null) => {
+  const key = normalizeServiceKey(value);
+  if (!key) return true;
+  return new Set([
+    'leistung pruefen',
+    'leistung prufen',
+    'pruefen',
+    'prufen',
+    'unklare leistung',
+    'bitte pruefen',
+    'bitte prufen',
+    'einheit pruefen',
+    'einheit prufen',
+    'betrag pruefen',
+    'betrag prufen',
+  ]).has(key);
+};
+
+const isInternalReviewUnit = (value?: string | null) => {
+  const key = normalizeServiceKey(value);
+  return !key || new Set(['pruefen', 'prufen', 'einheit pruefen', 'einheit prufen']).has(key);
+};
+
 const preferCanonicalRecord = (current: any | undefined, candidate: any) => {
   if (!current) return candidate;
   const currentName = compact(current.name);
@@ -119,12 +142,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Name fehlt' }, { status: 400 });
     }
 
+    if (isInternalReviewServiceName(name)) {
+      return NextResponse.json({ error: 'Prüf-Platzhalter dürfen nicht in den Leistungskatalog übernommen werden.' }, { status: 400 });
+    }
+
     if (defaultPrice === undefined || defaultPrice === null || isNaN(defaultPrice) || Number(defaultPrice) <= 0) {
       return NextResponse.json({ error: 'Preis ungültig' }, { status: 400 });
     }
 
-    if (!unit || typeof unit !== 'string') {
-      return NextResponse.json({ error: 'Einheit fehlt' }, { status: 400 });
+    if (!unit || typeof unit !== 'string' || isInternalReviewUnit(unit)) {
+      return NextResponse.json({ error: 'Einheit fehlt oder ist noch auf Prüfen.' }, { status: 400 });
     }
 
     const canonicalName = canonicalServiceName(name);
@@ -184,12 +211,16 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Name fehlt' }, { status: 400 });
     }
 
+    if (isInternalReviewServiceName(name)) {
+      return NextResponse.json({ error: 'Prüf-Platzhalter dürfen nicht in den Leistungskatalog übernommen werden.' }, { status: 400 });
+    }
+
     if (defaultPrice === undefined || defaultPrice === null || isNaN(defaultPrice) || Number(defaultPrice) <= 0) {
       return NextResponse.json({ error: 'Preis ungültig' }, { status: 400 });
     }
 
-    if (!unit || typeof unit !== 'string') {
-      return NextResponse.json({ error: 'Einheit fehlt' }, { status: 400 });
+    if (!unit || typeof unit !== 'string' || isInternalReviewUnit(unit)) {
+      return NextResponse.json({ error: 'Einheit fehlt oder ist noch auf Prüfen.' }, { status: 400 });
     }
 
     const canonicalName = canonicalServiceName(name);
