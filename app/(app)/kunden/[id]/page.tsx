@@ -538,7 +538,7 @@ export default function KundenDetailPage() {
         </button>
         {isOpen && (
           <span
-            className="absolute left-0 top-full z-50 mt-1 w-[min(340px,calc(100vw-2rem))] rounded-md border bg-white p-3 text-left text-xs leading-relaxed text-slate-900 shadow-xl whitespace-pre-line dark:bg-slate-950 dark:text-slate-100"
+            className="absolute left-0 bottom-full z-50 mb-2 max-h-[60vh] w-[min(340px,calc(100vw-2rem))] overflow-auto rounded-md border bg-white p-3 text-left text-xs leading-relaxed text-slate-900 shadow-xl whitespace-pre-line dark:bg-slate-950 dark:text-slate-100"
             onClick={(event) => event.stopPropagation()}
           >
             {reviewBadge.title}
@@ -602,7 +602,7 @@ export default function KundenDetailPage() {
         activeOrders.map(order => (
           <Card key={order.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe" onClick={() => router.push(`/auftraege?edit=${order.id}`)}>
             <CardContent className="py-3 px-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-medium text-sm truncate">{order.serviceName || order.description}</p>
@@ -613,7 +613,7 @@ export default function KundenDetailPage() {
                     {order.createdAt && <span className="ml-2 opacity-60">· Erstellt: {formatDateTime(order.createdAt)}</span>}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
 <span className="text-sm font-medium">{formatCurrency((order as any).total || order.totalPrice || 0)}</span><Badge className={`text-xs ${orderStatusColor[order.status] || 'bg-gray-100 text-gray-800'}`}>
                     {order.status}
                   </Badge>
@@ -650,7 +650,7 @@ export default function KundenDetailPage() {
         activeOffers.map(offer => (
           <Card key={offer.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe" onClick={() => router.push(`/angebote?edit=${offer.id}`)}>
             <CardContent className="py-3 px-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm">{offer.offerNumber}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -659,7 +659,7 @@ export default function KundenDetailPage() {
                   </p>
                   {offer.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{offer.notes}</p>}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
                   <span className="text-sm font-medium">{formatCurrency(offer.total)}</span>
                   <Badge className={`text-xs ${offerStatusColor[offer.status] || 'bg-gray-100 text-gray-800'}`}>
                     {offer.status}
@@ -697,7 +697,7 @@ export default function KundenDetailPage() {
         activeInvoices.map(inv => (
           <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe" onClick={() => router.push(`/rechnungen?edit=${inv.id}`)}>
             <CardContent className="py-3 px-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm">{inv.invoiceNumber}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -706,7 +706,7 @@ export default function KundenDetailPage() {
                   </p>
                   {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
                   <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
                   {isOverdue(inv) ? (
                     <Badge className="text-xs bg-red-100 text-red-800">Überfällig</Badge>
@@ -760,7 +760,7 @@ export default function KundenDetailPage() {
                   return (
                     <Card key={order.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'order', data: order })}>
                       <CardContent className="py-3 px-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="font-medium text-sm truncate">{order.serviceName || order.description}</p>
@@ -780,7 +780,7 @@ export default function KundenDetailPage() {
                               {order.createdAt && <span className="ml-2 opacity-60">· Erstellt: {formatDateTime(order.createdAt)}</span>}
                             </p>
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
                            <span className="text-sm font-medium">{formatCurrency((order as any).total || order.totalPrice || 0)}</span>
                             <Badge className={`text-xs ${orderStatusColor[order.status] || 'bg-gray-100 text-gray-800'}`}>
                               {order.status}
@@ -804,7 +804,7 @@ export default function KundenDetailPage() {
                 {historicalOffers.map(offer => (
                   <Card key={offer.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'offer', data: offer })}>
                     <CardContent className="py-3 px-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-medium text-sm">{offer.offerNumber}</p>
@@ -816,7 +816,7 @@ export default function KundenDetailPage() {
                           </p>
                           {offer.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{offer.notes}</p>}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
                           <span className="text-sm font-medium">{formatCurrency(offer.total)}</span>
                           <Badge className={`text-xs ${offerStatusColor[offer.status] || 'bg-gray-100 text-gray-800'}`}>
                             {offer.status}
@@ -850,7 +850,7 @@ export default function KundenDetailPage() {
           {archivedInvoices.map(inv => (
             <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer tap-safe opacity-90" onClick={() => setHistoryView({ type: 'invoice', data: inv })}>
               <CardContent className="py-3 px-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-sm">{inv.invoiceNumber}</p>
@@ -862,7 +862,7 @@ export default function KundenDetailPage() {
                     </p>
                     {inv.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{inv.notes}</p>}
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex w-full items-center justify-between gap-3 border-t pt-2 sm:w-auto sm:justify-start sm:border-t-0 sm:pt-0">
                     <span className="text-sm font-medium">{formatCurrency(inv.total)}</span>
                     <Badge className={`text-xs ${invoiceStatusColor[inv.status] || 'bg-gray-100 text-gray-800'}`}>
                       {inv.status}
