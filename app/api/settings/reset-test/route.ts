@@ -14,8 +14,8 @@ export async function POST() {
     if (result.invoicesReset > 0) parts.push(`${result.invoicesReset} Test-Rechnung${result.invoicesReset === 1 ? '' : 'en'}`);
     if (result.ordersReset > 0) parts.push(`${result.ordersReset} verknüpfte${result.ordersReset === 1 ? 'r' : ''} Auftrag${result.ordersReset === 1 ? '' : 'e'}`);
     const message = parts.length > 0
-      ? `${parts.join(', ')} in den Papierkorb verschoben. Test-Nummern starten wieder bei 001.`
-      : 'Keine aktiven Test-Daten gefunden.';
+      ? `${parts.join(', ')} in den Papierkorb verschoben. Kunden, freie Aufträge und Nummernkreise bleiben erhalten.`
+      : 'Keine aktiven TEST-Angebote oder TEST-Rechnungen gefunden.';
     return NextResponse.json({
       success: true,
       message,

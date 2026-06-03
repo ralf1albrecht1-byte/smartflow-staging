@@ -8,8 +8,8 @@ import { prisma } from '@/lib/prisma';
       TEST-RE-YYYY-XXX   or  RE-YYYY-XXX
   ```
 *
-* IMPORTANT: TEST and LIVE numbering are fully separated.
-* Each has its own independent sequence counter.
+* IMPORTANT: TEST and LIVE numbering are fully separated by prefix.
+* Each namespace calculates the next sequence from existing document numbers.
 *
 * `invoiceNumber` and `offerNumber` carry a GLOBAL @unique constraint
 * in the DB schema.  The sequence scan must therefore cover ALL rows
@@ -79,6 +79,15 @@ const seqStr = String(nextSeq).padStart(3, '0');
 return testModus ? `TEST-RE-${year}-${seqStr}` : `RE-${year}-${seqStr}`;
 }
 
+/**
+ * Soft reset for the existing Settings button.
+ *
+ * This intentionally moves active TEST offers/invoices and their linked orders
+ * to the trash only. It does NOT reset document numbers, customer numbers,
+ * customers, free-standing orders, or counters. The number generators scan all
+ * existing rows, including trashed rows, because offerNumber/invoiceNumber are
+ * globally unique in the database.
+ */
 export async function resetTestCounters(userId: string): Promise<{ offersReset: number; invoicesReset: number; ordersReset: number }> {
 const testModus = await getTestModus(userId);
 if (!testModus) {

@@ -1329,10 +1329,10 @@ const storedValue = finalUrl;
                   <div className="flex items-start gap-3">
                     <div className="flex-1">
                       <p className="text-sm font-medium flex items-center gap-1.5">
-                        <RotateCcw className="w-3.5 h-3.5" />Test-Daten zurücksetzen
+                        <RotateCcw className="w-3.5 h-3.5" />TEST-Angebote/Rechnungen in Papierkorb verschieben
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Verschiebt alle TEST-Angebote und TEST-Rechnungen in den Papierkorb.
+                        Verschiebt nur aktive TEST-Angebote, TEST-Rechnungen und damit verknüpfte Aufträge in den Papierkorb. Kunden, freie Aufträge und Nummernkreise bleiben erhalten.
                       </p>
                     </div>
                     <Button
@@ -1341,13 +1341,13 @@ const storedValue = finalUrl;
                       className="text-amber-700 border-amber-300 hover:bg-amber-100 shrink-0"
                       disabled={resetting}
                       onClick={async () => {
-                        if (!confirm('Alle TEST-Dokumente in den Papierkorb verschieben?')) return;
+                        if (!confirm('Nur aktive TEST-Angebote, TEST-Rechnungen und damit verknüpfte Aufträge in den Papierkorb verschieben?\n\nKunden, freie Aufträge und Nummernkreise bleiben erhalten.')) return;
                         setResetting(true);
                         try {
                           const res = await fetch('/api/settings/reset-test', { method: 'POST' });
                           if (res.ok) {
                             const data = await res.json();
-                            toast({ title: '🔄 Zurückgesetzt', description: data.message });
+                            toast({ title: 'In Papierkorb verschoben', description: data.message });
                           } else {
                             const err = await res.json();
                             toast({ title: 'Fehler', description: err.error || 'Fehler', variant: 'destructive' });
@@ -1360,7 +1360,7 @@ const storedValue = finalUrl;
                       }}
                     >
                       {resetting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}
-                      Zurücksetzen
+                      In Papierkorb
                     </Button>
                   </div>
                 </div>
