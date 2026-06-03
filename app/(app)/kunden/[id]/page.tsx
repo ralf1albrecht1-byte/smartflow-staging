@@ -538,7 +538,7 @@ export default function KundenDetailPage() {
         </button>
         {isOpen && (
           <span
-            className="absolute left-0 bottom-full z-50 mb-2 max-h-[60vh] w-[min(340px,calc(100vw-2rem))] overflow-auto rounded-md border bg-white p-3 text-left text-xs leading-relaxed text-slate-900 shadow-xl whitespace-pre-line dark:bg-slate-950 dark:text-slate-100"
+            className="fixed left-4 right-4 top-[18vh] z-[100] max-h-[58vh] w-auto overflow-auto rounded-md border bg-white p-3 text-left text-xs leading-relaxed text-slate-900 shadow-xl whitespace-pre-line dark:bg-slate-950 dark:text-slate-100 sm:absolute sm:bottom-full sm:left-0 sm:right-auto sm:top-auto sm:z-50 sm:mb-2 sm:max-h-[60vh] sm:w-[min(340px,calc(100vw-2rem))]"
             onClick={(event) => event.stopPropagation()}
           >
             {reviewBadge.title}
