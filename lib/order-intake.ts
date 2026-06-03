@@ -6706,6 +6706,16 @@ export async function processIncomingMessage(
     const safeNewCustomerName = hasPersistableCustomerName
       ? cleanAiStructuredBillingName(kundeData.name || null) || ""
       : "";
+    const safeNewCustomerCity =
+      normalizeUnitText(safeNewCustomerFields.city) === "form"
+        ? null
+        : safeNewCustomerFields.city;
+    const hasCompleteNewCustomerMasterForNumber = Boolean(
+      safeNewCustomerName.trim() &&
+        String(safeNewCustomerFields.street || "").trim() &&
+        String(safeNewCustomerFields.plz || "").trim() &&
+        String(safeNewCustomerCity || "").trim(),
+    );
 
     if (keepNewCustomerMasterEmpty) {
       console.log(
@@ -6739,11 +6749,28 @@ export async function processIncomingMessage(
       }
     }
 
-    const { generateCustomerNumber } = await import("@/lib/customer-number");
-    const customerNumber = await generateCustomerNumber();
+    let customerNumber: string | null = null;
+    if (hasCompleteNewCustomerMasterForNumber) {
+      const { generateCustomerNumber } = await import("@/lib/customer-number");
+      customerNumber = await generateCustomerNumber();
+    } else {
+      // V17.87: Unvollständige Intake-Kunden bleiben Kundenentwurf ohne
+      // sichtbare K-Nummer. Der Auftrag braucht technisch weiterhin eine
+      // customerId, aber der Nummernkreis darf erst bei bestätigten
+      // Hauptdaten verbraucht werden: Name/Firma + Strasse/Hausnummer + PLZ + Ort.
+      parsed.system = parsed.system || {};
+      parsed.system.needs_review = true;
+      if (!customerGuardReviewReasons.includes("customer_draft_unconfirmed")) {
+        customerGuardReviewReasons.push("customer_draft_unconfirmed");
+      }
+      console.log(
+        `[${source}] 🧾 customer draft created without customerNumber until master data is complete`,
+      );
+    }
+
     const customer = await prisma.customer.create({
       data: {
-        customerNumber,
+        ...(customerNumber ? { customerNumber } : {}),
         name: safeNewCustomerName,
         // New customer master data is stored only after the AI-structured billing
         // evidence passed the customer guard. Execution-site data must never be
@@ -6752,11 +6779,8 @@ export async function processIncomingMessage(
         email: safeNewCustomerFields.email,
         address: safeNewCustomerFields.street,
         plz: safeNewCustomerFields.plz,
-        city:
-          normalizeUnitText(safeNewCustomerFields.city) === "form"
-            ? null
-            : safeNewCustomerFields.city,
-        notes: `${source}-Kunde`,
+        city: safeNewCustomerCity,
+        notes: customerNumber ? `${source}-Kunde` : `${source}-Kundenentwurf`,
         ...(userId ? { userId } : {}),
       },
     });

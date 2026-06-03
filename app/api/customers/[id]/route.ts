@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { normalizeCustomerData } from '@/lib/normalize';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
+import { generateCustomerNumber } from '@/lib/customer-number';
 import { getCustomerDeleteBlockerCounts, isCustomerDeleteBlocked, formatCustomerDeleteBlockerMessage } from '@/lib/customer-links';
 
 
@@ -115,6 +116,26 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     if (Object.prototype.hasOwnProperty.call(raw ?? {}, 'notes'))   updateData.notes   = data.notes;
     if (data.country !== undefined) updateData.country = data.country;
     if (raw?.customerNumber !== undefined) updateData.customerNumber = raw.customerNumber;
+
+    // V17.87: Ein Kundenentwurf aus dem Intake hat customerNumber = null.
+    // Erst wenn die Hauptdaten vollständig sind, wird daraus ein echter Kunde
+    // mit sichtbarer K-Nummer. Manuelle Updates bestehender nummerierter Kunden
+    // bleiben unverändert.
+    const nextName = Object.prototype.hasOwnProperty.call(updateData, 'name') ? updateData.name : existing.name;
+    const nextAddress = Object.prototype.hasOwnProperty.call(updateData, 'address') ? updateData.address : existing.address;
+    const nextPlz = Object.prototype.hasOwnProperty.call(updateData, 'plz') ? updateData.plz : existing.plz;
+    const nextCity = Object.prototype.hasOwnProperty.call(updateData, 'city') ? updateData.city : existing.city;
+    const completesDraftCustomer = Boolean(
+      !existing.customerNumber &&
+        !Object.prototype.hasOwnProperty.call(raw ?? {}, 'customerNumber') &&
+        String(nextName || '').trim() &&
+        String(nextAddress || '').trim() &&
+        String(nextPlz || '').trim() &&
+        String(nextCity || '').trim(),
+    );
+    if (completesDraftCustomer) {
+      updateData.customerNumber = await generateCustomerNumber();
+    }
 
     const customer = await prisma.customer.update({ where: { id: params?.id }, data: updateData });
 

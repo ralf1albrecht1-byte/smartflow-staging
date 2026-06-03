@@ -12,7 +12,10 @@ export async function GET() {
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
     const customers = await prisma.customer.findMany({
-      where: { deletedAt: null, userId },
+      // V17.87: Kundenentwürfe aus WhatsApp/Intake haben bewusst noch keine
+      // sichtbare Kundennummer. Sie bleiben am Auftrag für "Kunde prüfen",
+      // dürfen aber nicht als normale Kunden in der Kundenliste auftauchen.
+      where: { deletedAt: null, userId, customerNumber: { not: null } },
       orderBy: { name: 'asc' },
       include: {
         orders: { where: { deletedAt: null }, select: { id: true, offerId: true, invoiceId: true } },

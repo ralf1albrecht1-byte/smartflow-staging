@@ -923,6 +923,20 @@ const hasMissingOrFallbackCustomerName = (value?: string | null) => {
   return !name || isFallbackCustomerName(name);
 };
 
+const isUnconfirmedCustomerDraft = (customer?: {
+  customerNumber?: string | null;
+  address?: string | null;
+  plz?: string | null;
+  city?: string | null;
+}) =>
+  Boolean(
+    customer &&
+      !String(customer.customerNumber || "").trim() &&
+      (!String(customer.address || "").trim() ||
+        !String(customer.plz || "").trim() ||
+        !String(customer.city || "").trim()),
+  );
+
 const pushUniqueBadge = (badges: ReviewBadge[], badge: ReviewBadge) => {
   if (badges.some((existing) => existing.key === badge.key)) return;
   badges.push(badge);
@@ -5666,6 +5680,29 @@ export default function AuftraegePage() {
       city: "",
       country: "CH",
     });
+    // V17.87: Kundenentwürfe ohne sichtbare K-Nummer werden bewusst nicht über
+    // /api/customers in die normale Kundenliste geladen. Damit der Auftrag
+    // trotzdem seine Rechnungsadresse/Kunde-prüfen-Karte bearbeiten kann, wird
+    // der eingebettete order.customer lokal ergänzt.
+    if (o.customerId && o.customer) {
+      setCustomers((prev) => {
+        if (prev.some((c) => c.id === o.customerId)) return prev;
+        return [
+          ...prev,
+          {
+            id: o.customerId,
+            name: o.customer.name || "",
+            customerNumber: o.customer.customerNumber ?? null,
+            address: o.customer.address ?? null,
+            plz: o.customer.plz ?? null,
+            city: o.customer.city ?? null,
+            phone: o.customer.phone ?? null,
+            email: o.customer.email ?? null,
+            country: "CH",
+          } as Customer,
+        ];
+      });
+    }
     const inferredSiteName = inferOrderExecutionSiteName(o);
 
     setForm({
@@ -9933,8 +9970,8 @@ export default function AuftraegePage() {
                                   ) : (
                                     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                       <span className="text-sm font-semibold truncate">
-                                        👤 {cust.customerNumber || ""}
-                                        {cust.customerNumber ? " · " : ""}
+                                        👤 {cust.customerNumber || (isUnconfirmedCustomerDraft(cust) ? "Kunde prüfen" : "")}
+                                        {cust.customerNumber || isUnconfirmedCustomerDraft(cust) ? " · " : ""}
                                       </span>
                                       <span
                                         className={`text-sm font-semibold truncate ${reqMiss(cust.name) ? "text-red-500 border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
@@ -10098,8 +10135,8 @@ export default function AuftraegePage() {
                                     ) : (
                                       <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                         <span className="text-sm font-semibold truncate">
-                                          👤 {cust.customerNumber || ""}
-                                          {cust.customerNumber ? " · " : ""}
+                                          👤 {cust.customerNumber || (isUnconfirmedCustomerDraft(cust) ? "Kunde prüfen" : "")}
+                                          {cust.customerNumber || isUnconfirmedCustomerDraft(cust) ? " · " : ""}
                                         </span>
                                         <span
                                           className={`text-sm font-semibold truncate ${reqMiss(cust.name) ? "text-red-500 border-b border-red-400 border-dashed pb-0.5 italic" : ""}`}
