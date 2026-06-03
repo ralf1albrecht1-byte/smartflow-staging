@@ -49,6 +49,21 @@ export async function GET(request: Request, { params }: { params: { id: string }
             createdAt: true,
           },
         },
+        executionAddresses: {
+          where: { deletedAt: null },
+          orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }],
+          select: {
+            id: true,
+            siteName: true,
+            siteAddress: true,
+            sitePlz: true,
+            siteCity: true,
+            siteNote: true,
+            country: true,
+            usageCount: true,
+            lastUsedAt: true,
+          },
+        },
         invoices: {
           where: { deletedAt: null },
           orderBy: { invoiceDate: 'desc' },

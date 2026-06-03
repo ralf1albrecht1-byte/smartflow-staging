@@ -2,6 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { processIncomingMessage } from "@/lib/order-intake";
 import { logAuditAsync } from "@/lib/audit";
 import { maskPhoneForLog } from "@/lib/phone";
+import {
+  rememberExecutionAddressesFromOrder,
+  rememberExplicitExecutionAddressFromTextForOrder,
+} from "@/lib/customer-execution-addresses";
 
 const DEFAULT_WHATSAPP_TEXT_DELAY_MS = 4_000;
 const MIN_WHATSAPP_TEXT_DELAY_MS = 2_500;
@@ -298,6 +302,47 @@ export async function processWhatsAppTextQueueForSender(
       console.info(
         `[WhatsAppQueueHourFixV17_27] skipped post-persist repair orderId=${orderCreated.orderId}; semantic intake result kept as source of truth`,
       );
+
+      // V17.71: WhatsApp-Aufträge laufen nicht durch app/api/orders/route.ts.
+      // Deshalb muss die kundenbasierte Ausführungsort-Persistenz hier direkt
+      // nach der Order-Erstellung passieren. Sonst erscheint der neue Ort erst,
+      // wenn der Nutzer im Auftrag manuell "Adresse speichern" drückt.
+      try {
+        const orderForExecutionAddress = await prisma.order.findUnique({
+          where: { id: orderCreated.orderId },
+          include: {
+            customer: true,
+            items: { include: { workSite: true } },
+            workSites: true,
+          },
+        });
+
+        if (orderForExecutionAddress) {
+          const savedFromOrder = await rememberExecutionAddressesFromOrder(
+            prisma,
+            { userId: message.userId || null, order: orderForExecutionAddress },
+          );
+          const savedFromText = await rememberExplicitExecutionAddressFromTextForOrder(
+            prisma,
+            {
+              userId: message.userId || null,
+              order: orderForExecutionAddress,
+              text,
+            },
+          );
+
+          if (savedFromOrder > 0 || savedFromText > 0) {
+            console.info(
+              `[CustomerExecutionAddressV17_71] WhatsApp persisted execution addresses orderId=${orderCreated.orderId} fromOrder=${savedFromOrder} fromText=${savedFromText}`,
+            );
+          }
+        }
+      } catch (executionAddressError) {
+        console.warn(
+          `[CustomerExecutionAddressV17_71] WhatsApp execution address persist failed orderId=${orderCreated.orderId}`,
+          executionAddressError,
+        );
+      }
     }
 
     await prisma.intakeQueueMessage.update({

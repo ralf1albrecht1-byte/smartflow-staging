@@ -5234,11 +5234,10 @@ export default function AuftraegePage() {
     load();
   }, []);
 
-  // V17.70: Beim Öffnen des Ausführungsadresse-Editors den Kunden IMMER
-  // frisch nachladen. Die Kundenliste kann eine ältere executionAddresses-Liste
-  // enthalten; dann würden neu gespeicherte Orte wie "Lager Ost" im Vorschlag
-  // fehlen, obwohl sie in der DB stehen. Deshalb nicht mehr abbrechen, nur weil
-  // bereits ein Array vorhanden ist.
+  // V17.71: Beim Öffnen des Ausführungsadresse-Editors nur die gespeicherten
+  // Ausführungsorte nachladen, nicht den kompletten Kunden mit Historie. Das
+  // verhindert lange Ladezeiten auf Kunden-/Auftragsseiten und hält die
+  // Vorschläge trotzdem aktuell.
   useEffect(() => {
     const customerId = String(form.customerId || "").trim();
     if (!dialogOpen || !siteAddressEditing || !customerId) return;
@@ -5247,17 +5246,19 @@ export default function AuftraegePage() {
 
     (async () => {
       try {
-        const res = await fetch(`/api/customers/${customerId}`);
+        const res = await fetch(`/api/customers/${customerId}/execution-addresses`);
         if (!res.ok) return;
 
-        const fetched = await res.json();
-        if (cancelled || !fetched?.id) return;
+        const executionAddresses = await res.json();
+        if (cancelled || !Array.isArray(executionAddresses)) return;
 
         setCustomers((prev) => {
-          const exists = prev.some((entry) => entry.id === fetched.id);
-          if (!exists) return [...prev, fetched];
+          const exists = prev.some((entry) => entry.id === customerId);
+          if (!exists) {
+            return [...prev, { id: customerId, executionAddresses } as Customer];
+          }
           return prev.map((entry) =>
-            entry.id === fetched.id ? { ...entry, ...fetched } : entry,
+            entry.id === customerId ? { ...entry, executionAddresses } : entry,
           );
         });
       } catch {

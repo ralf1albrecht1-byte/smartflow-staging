@@ -213,3 +213,172 @@ export async function rememberExecutionAddressesFromOrder(
 
   return saved;
 }
+
+export type ParsedExecutionAddressBlock = {
+  siteName: string | null;
+  siteAddress: string;
+  sitePlz: string;
+  siteCity: string;
+  siteNote: string | null;
+};
+
+function parseStreetFromExecutionAddressLine(value: string): string | null {
+  const raw = compact(value)
+    .replace(/^\s*(?:adresse|anschrift|strasse|straße|street\s+address|address)\s*:?\s*/i, "")
+    .replace(/[,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) return null;
+
+  const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
+  const word = "[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*";
+  const suffix =
+    "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|street|road|lane)";
+  const patterns = [
+    new RegExp(`\\b((?:${word}\\s+){0,3}${word}${suffix}\\s+${houseNumber})\\b`, "i"),
+    new RegExp(`\\b((?:${word}\\s+){1,4}${suffix}\\s+${houseNumber})\\b`, "i"),
+    new RegExp(
+      `\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,6}\\s+${houseNumber})\\b`,
+      "i",
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) return match[1].replace(/\s+/g, " ").trim();
+  }
+
+  return null;
+}
+
+function parsePlzCityFromExecutionAddressLine(
+  value: string,
+): { plz: string | null; city: string | null } {
+  const cleaned = compact(value)
+    .replace(/^\s*(?:plz\s*\/\s*ort|plz|ort|postleitzahl|zip|postal\s+code|ville|city)\s*:?\s*/i, "")
+    .replace(/[,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const match = cleaned.match(
+    /\b(\d{4,5})\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-]{1,60}?)(?=\s*(?:$|[,;.]))/i,
+  );
+  if (!match) return { plz: null, city: null };
+
+  const city = String(match[2] || "")
+    .replace(/[,;:.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { plz: match[1] || null, city: city || null };
+}
+
+export function extractExplicitExecutionAddressFromText(
+  ...values: unknown[]
+): ParsedExecutionAddressBlock | null {
+  const source = compact(
+    values
+      .map((value) => String(value ?? ""))
+      .filter(Boolean)
+      .join("\n"),
+  );
+  if (!source) return null;
+
+  const lines = source
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const markerRegex =
+    /^\s*(?:ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|baustelle|objekt|einsatzort|einsatzadresse|serviceadresse|job\s*site|work\s*address|work\s*site|lieu\s+d['’]?intervention|adresse\s+de\s+travail)\s*:?\s*(.*)$/i;
+  const stopRegex =
+    /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|kontakt|kontaktperson|ansprechperson|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
+  const priceOrCalculationLineRegex =
+    /(?:\b(?:chf|eur|franken|euro|sfr|stutz)\b|€|\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|stk|stück|stueck|pcs?|meter|m)\b|\b(?:à|a|je|mal|x)\s*\d+(?:[.,]\d+)?\b|\d+(?:[.,]\d+)?\s*(?:chf|eur|fr\.?|€)\b)/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const marker = lines[index].match(markerRegex);
+    if (!marker) continue;
+
+    const blockLines: string[] = [];
+    if (marker[1]?.trim()) blockLines.push(marker[1].trim());
+
+    for (let offset = 1; offset <= 8; offset += 1) {
+      const line = lines[index + offset];
+      if (!line) break;
+      if (stopRegex.test(line)) break;
+      if (priceOrCalculationLineRegex.test(line) && blockLines.length > 0) break;
+      blockLines.push(line);
+    }
+
+    if (blockLines.length === 0) continue;
+
+    let siteName: string | null = null;
+    let siteAddress: string | null = null;
+    let sitePlz: string | null = null;
+    let siteCity: string | null = null;
+    const notes: string[] = [];
+
+    for (const line of blockLines) {
+      if (priceOrCalculationLineRegex.test(line)) break;
+
+      const street = parseStreetFromExecutionAddressLine(line);
+      if (street && !siteAddress) {
+        siteAddress = street;
+        continue;
+      }
+
+      const plzCity = parsePlzCityFromExecutionAddressLine(line);
+      if (plzCity.plz && !sitePlz) sitePlz = plzCity.plz;
+      if (plzCity.city && !siteCity) siteCity = plzCity.city;
+      if (plzCity.plz || plzCity.city) continue;
+
+      const cleanedLine = compact(line);
+      if (!cleanedLine) continue;
+      if (!siteName) siteName = cleanedLine;
+      else notes.push(cleanedLine);
+    }
+
+    if (!siteAddress || !sitePlz || !siteCity) continue;
+
+    return {
+      siteName: siteName || null,
+      siteAddress,
+      sitePlz,
+      siteCity,
+      siteNote: notes.length > 0 ? notes.join(" · ") : null,
+    };
+  }
+
+  return null;
+}
+
+export async function rememberExplicitExecutionAddressFromTextForOrder(
+  prisma: any,
+  params: {
+    userId?: string | null;
+    order: any;
+    text?: string | null;
+  },
+): Promise<number> {
+  const order = params.order;
+  const customerId = compact(order?.customerId);
+  if (!customerId) return 0;
+  if (hasUnresolvedAddressRoleReview(order)) return 0;
+
+  const explicit = extractExplicitExecutionAddressFromText(params.text);
+  if (!explicit) return 0;
+
+  const candidate = { ...explicit, customerId };
+  if (!hasCompleteExecutionAddress(candidate)) return 0;
+  if (isSameAsBillingAddress(order, candidate)) return 0;
+
+  const row = await rememberCustomerExecutionAddress(prisma, {
+    ...candidate,
+    userId: params.userId || order?.userId || null,
+  });
+
+  return row ? 1 : 0;
+}

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Phone, Mail, MapPin, ClipboardList, FileCheck, FileText, Loader2, Search, AlertTriangle, Pencil, Save, Archive } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MapPin, ClipboardList, FileCheck, FileText, Loader2, Search, AlertTriangle, Pencil, Save, Archive, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -150,6 +150,8 @@ export default function KundenDetailPage() {
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', address: '', plz: '', city: '', country: 'CH', phone: '', email: '' });
   const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingCustomer, setDeletingCustomer] = useState(false);
+  const [deletingExecutionAddressId, setDeletingExecutionAddressId] = useState<string | null>(null);
 
   // Duplicate check state (new shared component)
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
@@ -280,6 +282,50 @@ export default function KundenDetailPage() {
     }
   };
 
+  const deleteExecutionAddress = async (addr: CustomerExecutionAddress) => {
+    if (!customer) return;
+    const label = addr.siteName?.trim() || [addr.siteAddress, addr.sitePlz, addr.siteCity].filter(Boolean).join(' ');
+    if (!window.confirm(`Ausführungsort "${label}" wirklich entfernen?`)) return;
+
+    setDeletingExecutionAddressId(addr.id);
+    try {
+      const res = await fetch(`/api/customers/${customerId}/execution-addresses/${addr.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Ausführungsort entfernt');
+        await loadCustomer();
+      } else {
+        const err = await res.json().catch(() => ({} as any));
+        toast.error(err?.error || 'Ausführungsort konnte nicht entfernt werden');
+      }
+    } catch {
+      toast.error('Netzwerkfehler beim Entfernen des Ausführungsorts');
+    } finally {
+      setDeletingExecutionAddressId(null);
+    }
+  };
+
+  const deleteCustomer = async () => {
+    if (!customer) return;
+    const label = customer.name?.trim() || customer.customerNumber || 'diesen Kunden';
+    if (!window.confirm(`Kunden "${label}" wirklich löschen? Aktive Aufträge, Angebote, Rechnungen oder archivierte Rechnungen können das Löschen blockieren.`)) return;
+
+    setDeletingCustomer(true);
+    try {
+      const res = await fetch(`/api/customers/${customerId}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Kunde gelöscht');
+        router.push('/kunden');
+      } else {
+        const err = await res.json().catch(() => ({} as any));
+        toast.error(err?.error || 'Kunde konnte nicht gelöscht werden');
+      }
+    } catch {
+      toast.error('Netzwerkfehler beim Löschen');
+    } finally {
+      setDeletingCustomer(false);
+    }
+  };
+
   const isOverdue = (inv: Invoice) => {
     if (inv.status === 'Bezahlt' || inv.status === 'Erledigt') return false;
     if (!inv.dueDate) return false;
@@ -303,10 +349,11 @@ export default function KundenDetailPage() {
   //   Historisch Angebot: Status in {Angenommen, Abgelehnt, Abgelaufen}
   //   Aktive Rechnung:    Status != Erledigt
   //   Historisch Rechnung: Status == Erledigt (archiviert)
-  const isOrderActive = (o: Order) => !o.offerId && !o.invoiceId;
+  const isOrderActive = (o: Order) => !o.offerId && !o.invoiceId && o.status !== 'Erledigt';
   const isOfferActive = (o: Offer) => o.status === 'Entwurf' || o.status === 'Gesendet';
   const isInvoiceActive = (i: Invoice) => i.status !== 'Erledigt';
 
+  const customerCoreDataIncomplete = isCustomerDataIncomplete(customer);
   const activeOrders = customer.orders.filter(isOrderActive);
   const historicalOrders = customer.orders.filter(o => !isOrderActive(o));
   const activeOffers = customer.offers.filter(isOfferActive);
@@ -352,7 +399,7 @@ export default function KundenDetailPage() {
             Keine aktiven Aufträge
             {historicalOrders.length > 0 && (
               <span className="block mt-1 text-xs">
-                {historicalOrders.length} weitergeführte{historicalOrders.length === 1 ? 'r' : ''} Auftrag{historicalOrders.length === 1 ? '' : 'e'} in
+                {historicalOrders.length} historische{historicalOrders.length === 1 ? 'r' : ''} Auftrag{historicalOrders.length === 1 ? '' : 'e'} in
                 <button
                   onClick={goToHistorie}
                   className="ml-1 underline decoration-dotted hover:text-foreground"
@@ -372,7 +419,7 @@ export default function KundenDetailPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-medium text-sm truncate">{order.serviceName || order.description}</p>
                     {order.needsReview && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-red-300 text-red-600 shrink-0">⚠ <span className="sm:hidden">Prüfen</span><span className="hidden sm:inline">Kundendaten unvollständig</span></Badge>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-red-300 text-red-600 shrink-0">⚠ <span className="sm:hidden">Prüfen</span><span className="hidden sm:inline">{customerCoreDataIncomplete ? 'Kundendaten unvollständig' : 'Auftrag prüfen'}</span></Badge>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -513,9 +560,9 @@ export default function KundenDetailPage() {
                   glance (instead of the technical "Konvertierte Aufträge"). */}
               <h3
                 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-1.5"
-                title="Diese Aufträge wurden schon zu einem Angebot oder zu einer Rechnung weitergeführt."
+                title="Diese Aufträge wurden weitergeführt oder erledigt/archiviert."
               >
-                <ClipboardList className="w-3.5 h-3.5" /> Weitergeführte Aufträge ({historicalOrders.length})
+                <ClipboardList className="w-3.5 h-3.5" /> Historische Aufträge ({historicalOrders.length})
               </h3>
               <div className="space-y-2">
                 {historicalOrders.map(order => {
@@ -534,7 +581,7 @@ export default function KundenDetailPage() {
                               <Badge
                                 variant="outline"
                                 className="text-[10px] px-1.5 py-0 border-gray-400 text-gray-600 shrink-0"
-                                title="Dieser Auftrag wurde schon zu einem Angebot oder zu einer Rechnung weitergeführt."
+                                title="Dieser Auftrag wurde weitergeführt oder erledigt/archiviert."
                               >
                                 Weitergeführt
                               </Badge>
@@ -702,6 +749,9 @@ export default function KundenDetailPage() {
             <Button variant="outline" size="sm" className="gap-2" onClick={() => setDupCheckOpen(true)}>
               <Search className="w-4 h-4" /> Duplikate prüfen
             </Button>
+            <Button variant="outline" size="sm" className="gap-2 border-red-200 text-red-700 hover:bg-red-50" onClick={deleteCustomer} disabled={deletingCustomer}>
+              {deletingCustomer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Kunde löschen
+            </Button>
           </div>
         </div>
 
@@ -762,15 +812,34 @@ export default function KundenDetailPage() {
                   key={addr.id}
                   className="rounded-lg border bg-muted/20 px-3 py-2 text-sm"
                 >
-                  <p className="font-medium break-words">
-                    {addr.siteName?.trim() || 'Ausführungsort'}
-                  </p>
-                  <p className="text-muted-foreground break-words">
-                    {addr.siteAddress}
-                  </p>
-                  <p className="text-muted-foreground break-words">
-                    {addr.sitePlz} {addr.siteCity}
-                  </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium break-words">
+                        {addr.siteName?.trim() || 'Ausführungsort'}
+                      </p>
+                      <p className="text-muted-foreground break-words">
+                        {addr.siteAddress}
+                      </p>
+                      <p className="text-muted-foreground break-words">
+                        {addr.sitePlz} {addr.siteCity}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 shrink-0 gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => deleteExecutionAddress(addr)}
+                      disabled={deletingExecutionAddressId === addr.id}
+                    >
+                      {deletingExecutionAddressId === addr.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                      <span className="hidden sm:inline">Entfernen</span>
+                    </Button>
+                  </div>
                   {addr.siteNote?.trim() && (
                     <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap break-words">
                       {addr.siteNote}
