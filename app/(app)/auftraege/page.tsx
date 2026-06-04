@@ -3994,7 +3994,18 @@ const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
     .join(" · ");
 
   if (addressLine) {
-    lines.push(addressLine);
+    lines.push(`Erkannt: ${addressLine}`);
+  }
+
+  const missing: string[] = [];
+  if (!siteAddress) missing.push("Strasse fehlt");
+  if (!compactText(primarySite?.sitePlz || order.sitePlz)) missing.push("PLZ fehlt");
+  if (!compactText(primarySite?.siteCity || order.siteCity)) missing.push("Ort fehlt");
+
+  if (missing.length > 0) {
+    lines.push(`Warum: ${missing.join(", ")}`);
+  } else {
+    lines.push("Warum: Ausführungsadresse konnte nicht sicher von der Rechnungsadresse getrennt werden.");
   }
 
   lines.push("Im Auftrag zuweisen.");
@@ -9695,9 +9706,16 @@ export default function AuftraegePage() {
     const tooltip = cleanVisibleTooltipTextV17_35(activeMobileTooltip.tooltip);
     if (!tooltip) return null;
 
+    const isSpecialNotesSummary = activeMobileTooltip.key.includes(
+      ":special_notes_summary:",
+    );
+    const specialSummarySections = isSpecialNotesSummary
+      ? splitSpecialNotesSummaryTooltipV17_91(tooltip)
+      : null;
+
     const tooltipLines = tooltip.split("\n");
     const headingPattern =
-      /^(?:Einheit fehlt im Kundentext|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+      /^(?:Einheit fehlt im Kundentext|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Adresse prüfen|Kunde prüfen)$/;
 
     return (
       <div className="fixed inset-0 z-[12000] sm:hidden">
@@ -9712,36 +9730,71 @@ export default function AuftraegePage() {
           }}
         />
         <div
-          className="fixed left-4 right-4 top-1/2 max-h-[62dvh] -translate-y-1/2 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="fixed left-3 right-3 top-1/2 max-h-[66dvh] -translate-y-1/2 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           style={{
-            width: "calc(100vw - 2rem)",
-            maxWidth: "calc(100vw - 2rem)",
+            width: "calc(100vw - 1.5rem)",
+            maxWidth: "calc(100vw - 1.5rem)",
           }}
           onClick={(event) => event.stopPropagation()}
         >
-          {tooltipLines.map((line, index) => {
-            const trimmed = line.trim();
-            if (/^[-─—–_]{6,}$/.test(trimmed)) {
-              return (
-                <span
-                  key={`active_mobile_sep_${index}`}
-                  className="my-1 block border-t border-slate-200 dark:border-slate-700"
-                />
-              );
-            }
+          {isSpecialNotesSummary && specialSummarySections ? (
+            <div className="space-y-2">
+              {specialSummarySections.safety.length > 0 && (
+                <div className="rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+                  <div className="mb-1 flex items-center gap-1 font-bold">
+                    <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
+                  </div>
+                  {specialSummarySections.safety.map((line, index) => (
+                    <div
+                      key={`active_mobile_summary_safety_${index}`}
+                      className="whitespace-pre-wrap break-words"
+                    >
+                      • {line}
+                    </div>
+                  ))}
+                </div>
+              )}
 
-            const emphasizeLine =
-              headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed);
+              {specialSummarySections.hints.length > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                  {specialSummarySections.hints.map((line, index) => (
+                    <div
+                      key={`active_mobile_summary_hint_${index}`}
+                      className="whitespace-pre-wrap break-words"
+                    >
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="whitespace-pre-wrap break-words">
+              {tooltipLines.map((line, index) => {
+                const trimmed = line.trim();
+                if (/^[-─—–_]{6,}$/.test(trimmed)) {
+                  return (
+                    <span
+                      key={`active_mobile_sep_${index}`}
+                      className="my-1 block border-t border-slate-200 dark:border-slate-700"
+                    />
+                  );
+                }
 
-            return (
-              <span
-                key={`active_mobile_line_${index}`}
-                className={`block min-w-0 whitespace-pre-wrap break-words ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
-              >
-                {line}
-              </span>
-            );
-          })}
+                const emphasizeLine =
+                  headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed) || /^Warum:/i.test(trimmed);
+
+                return (
+                  <span
+                    key={`active_mobile_line_${index}`}
+                    className={`block min-w-0 whitespace-pre-wrap break-words ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+                  >
+                    {line}
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
