@@ -9213,31 +9213,19 @@ export default function AuftraegePage() {
   };
 
   const getSafeOrderNetTotal = (o: Order) => {
-    // V17.90L10: the API-normalized order.totalPrice is the list-card source
-    // of truth. It is computed from the same item rules used for the detail
-    // view response, so the outside card must not recompute a different total.
-    const responseNetTotal = Number((o as any).totalPrice ?? NaN);
-    if (Number.isFinite(responseNetTotal) && responseNetTotal >= 0) {
-      return responseNetTotal;
-    }
-
-    // V17.20: Eine offene Mischwährung blockiert nicht mehr pauschal die
-    // Außenkarten-Summe. Jede Position ist Source of Truth: rote/offene
-    // Positionen haben totalPrice 0, bereits manuell bestätigte Positionen
-    // dürfen sichtbar in die Zwischensumme laufen.
+    // V17.90L11: Außenkarte und Innenansicht müssen dieselbe berechenbare
+    // Positionslogik verwenden. Ein stale/API-Order.totalPrice von 0 darf
+    // sichere Positionen wie Anfahrt oder bestätigte CHF-Zeilen nicht auf der
+    // Karte verstecken. Die Items sind Source of Truth; blockierte Items haben
+    // totalPrice 0 oder werden durch isBlockedOrderItemForTotal ausgeschlossen.
     if (o.items && o.items.length > 0) {
-      return o.items.reduce((sum, item) => {
+      const itemNetTotal = o.items.reduce((sum, item) => {
         if (isBlockedOrderItemForTotal(item)) return sum;
         if (
           hasCurrencyMismatchReviewForService(o.reviewReasons, item.serviceName)
         ) {
           return sum;
         }
-        // V17.90L7: Eine globale Mischwährungs-Warnung darf die
-        // Außenkarten-Summe nicht pauschal auf 0 setzen. Die Positionszeile
-        // selbst ist die Wahrheit: rote/offene Positionen haben totalPrice 0
-        // und werden oben blockiert; sichere CHF-Positionen mit totalPrice > 0
-        // bleiben sichtbar berechenbar.
 
         const qty = Number(item.quantity || 0);
         const price = Number(item.unitPrice || 0);
@@ -9250,6 +9238,13 @@ export default function AuftraegePage() {
           sum + (Number.isFinite(lineTotal) && lineTotal > 0 ? lineTotal : 0)
         );
       }, 0);
+
+      return Number.isFinite(itemNetTotal) && itemNetTotal > 0 ? itemNetTotal : 0;
+    }
+
+    const responseNetTotal = Number((o as any).totalPrice ?? NaN);
+    if (Number.isFinite(responseNetTotal) && responseNetTotal >= 0) {
+      return responseNetTotal;
     }
 
     const qty = Number(o.quantity || 0);

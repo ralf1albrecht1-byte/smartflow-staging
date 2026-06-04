@@ -518,15 +518,19 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
   const globalCurrencyReviewApplies =
     hasGlobalCurrencyReviewWithoutItemDetails(data || {}) &&
     !itemIsManuallyConfirmed;
-  const reviewText = [
+  const itemReviewText = [
     item?.unit,
     item?.serviceName,
     item?.description,
     item?.sourceText,
     item?.evidence,
     item?.reviewReason,
-    ...globalReviewReasons,
   ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const reviewText = [itemReviewText, ...globalReviewReasons]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -555,14 +559,14 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
     quantity > 0 &&
     unitPrice > 0 &&
     (storedTotal > 0 || quantity * unitPrice > 0) &&
-    !/währung\/preis\s+noch\s+nicht\s+bestätigt|waehrung\/preis\s+noch\s+nicht\s+bestaetigt|currency\s+not\s+confirmed/i.test(reviewText);
+    !/währung\/preis\s+noch\s+nicht\s+bestätigt|waehrung\/preis\s+noch\s+nicht\s+bestaetigt|currency\s+not\s+confirmed/i.test(itemReviewText);
 
   const hardCurrencyBlock =
     itemHasCurrencyMismatch ||
-    globalCurrencyReviewApplies ||
+    (globalCurrencyReviewApplies && !hasTrustedNumericAmount) ||
     (!itemIsManuallyConfirmed &&
       /currency_review|currency_conflict|currency_unsupported|item_currency_mismatch|currency_conflict_item|währung\/preis\s+noch\s+nicht\s+bestätigt|waehrung\/preis\s+noch\s+nicht\s+bestaetigt|currency\s+not\s+confirmed/i.test(
-        reviewText,
+        itemReviewText,
       ));
 
   // V17.90L10: yellow review text such as "Einheit prüfen: ..." or
@@ -572,8 +576,8 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
     hardCurrencyBlock ||
     serviceIsOpen ||
     unitIsOpen ||
-    /leistung\s+oder\s+einheit\s+ist\s+noch\s+unklar|leistung\s+unklar|service[_\s-]*action[_\s-]*(?:unclear|review)/i.test(reviewText) ||
-    /nicht\s+in\s+(?:netto|mwst|total)|not\s+included\s+in\s+total/i.test(reviewText) ||
+    (!hasTrustedNumericAmount && /leistung\s+oder\s+einheit\s+ist\s+noch\s+unklar|leistung\s+unklar|service[_\s-]*action[_\s-]*(?:unclear|review)/i.test(reviewText)) ||
+    /nicht\s+in\s+(?:netto|mwst|total)|not\s+included\s+in\s+total/i.test(itemReviewText) ||
     (!hasTrustedNumericAmount && /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)|unit\s+(?:missing|open|unknown|unclear|review)|unit_missing_in_text|unit_mismatch:/i.test(reviewText)) ||
     (!hasTrustedNumericAmount && /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)|price\s+(?:missing|open|unclear|review)|price_unclear:|unit_price_review/i.test(reviewText)) ||
     /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)|quantity\s+(?:missing|open|unknown|unclear|review)|quantity_review/i.test(reviewText)
