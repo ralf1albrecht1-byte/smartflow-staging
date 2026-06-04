@@ -4035,6 +4035,12 @@ function applyFinalAmountBlockersBeforePersist(
         .join(" "),
     );
     const detectedCurrency = String(next.detectedCurrency || "").toUpperCase();
+    const serviceKeyForBlock = normalizeUnitText(serviceName);
+    const serviceBlocked =
+      isInternalReviewServiceNameV17_90L(serviceName) ||
+      serviceKeyForBlock.includes("leistung suchen") ||
+      serviceKeyForBlock.includes("eingeben") ||
+      String(next.reviewReason || "").startsWith("service_action_unclear:");
 
     const unitBlocked =
       unitKey.includes("pruefen") ||
@@ -4061,8 +4067,7 @@ function applyFinalAmountBlockersBeforePersist(
 
     const mixedCurrencyItemBlocked =
       hasGlobalCurrencyConflict &&
-      (!detectedCurrency ||
-        (finalCurrency && detectedCurrency !== finalCurrency));
+      Boolean(detectedCurrency && finalCurrency && detectedCurrency !== finalCurrency);
     const genericCurrencyReviewBlocked =
       String(next.reviewReason || "") === "currency_review" &&
       (!detectedCurrency ||
@@ -4077,12 +4082,20 @@ function applyFinalAmountBlockersBeforePersist(
       String(next.reviewReason || "").startsWith("currency_conflict_item:") ||
       genericCurrencyReviewBlocked;
 
-    if (!(unitBlocked || priceBlocked || quantityBlocked || currencyBlocked)) {
+    if (!(serviceBlocked || unitBlocked || priceBlocked || quantityBlocked || currencyBlocked)) {
       return next;
     }
 
     next.needsReview = true;
     next.totalPrice = 0;
+
+    if (serviceBlocked) {
+      next.serviceName = "Leistung prüfen";
+      const hasExplicitUnit = Boolean(next.unit && !isReviewUnitV17_90L(next.unit));
+      if (!hasExplicitUnit) next.unit = "Einheit prüfen";
+      if (!next.reviewReason) next.reviewReason = `service_action_unclear:${serviceName}`;
+      return next;
+    }
 
     if (currencyBlocked) {
       next.unitPrice = 0;
@@ -5265,6 +5278,80 @@ function matchingUnitEvidenceLineForItemV17_90L3(
   return uniqueByUnitAndLine.sort((a, b) => a.line.length - b.line.length)[0] || null;
 }
 
+
+function originalCustomerEvidenceLinesV17_90L5(value: string | null | undefined): string[] {
+  const originalOnly = String(value || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
+  return splitSourceEvidenceLinesV17_90L3(originalOnly);
+}
+
+function hasExplicitWorkActionInEvidenceLineV17_90L5(line: string): boolean {
+  const normalized = normalizeServiceLineForMatchV17_90L(line);
+  return /\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean|cleaning|wash|washing|dust|dusting|wipe|wiping|polish|polishing|limpiar|limpieza|pulire|pulizia|nettoyer|nettoyage|abstauben|abwischen|streichen|schleifen|schneiden|entsorgen|sortieren)\b/.test(normalized);
+}
+
+function hasFloorSurfaceSignalV17_90L5(value: string): boolean {
+  const normalized = normalizeServiceLineForMatchV17_90L(value);
+  return /\b(?:boden|bodenflaeche|floor|sol|suelo|pavimento|lagefläche|lagerflaeche|parkdeck|waschplatz)\b/.test(normalized);
+}
+
+function isGenericFloorCleaningServiceNameV17_90L5(value: string | null | undefined): boolean {
+  const normalized = normalizeServiceLineForMatchV17_90L(String(value || ""));
+  if (!normalized) return false;
+  return hasFloorSurfaceSignalV17_90L5(normalized) && /\b(?:reinigen|reinigung|clean|cleaning)\b/.test(normalized);
+}
+
+function matchingOriginalEvidenceLineByNumbersV17_90L5(
+  sourceText: string | null | undefined,
+  item: { quantity?: any; unitPrice?: any },
+): string | null {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+
+  const matches = originalCustomerEvidenceLinesV17_90L5(sourceText)
+    .filter((line) => lineHasDecimalNumberV17_90L3(line, quantity))
+    .filter((line) => lineHasDecimalNumberV17_90L3(line, unitPrice))
+    .filter((line) => /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€)\b/i.test(line));
+
+  const unique = Array.from(new Map(matches.map((line) => [normalizeUnitText(line), line])).values());
+  if (unique.length !== 1) return null;
+  return unique[0] || null;
+}
+
+function blockGenericFloorRowsWithoutExplicitActionV17_90L5<T extends {
+  serviceName?: string | null;
+  quantity?: any;
+  unit?: string | null;
+  unitPrice?: any;
+  totalPrice?: any;
+  needsReview?: boolean;
+  reviewReason?: string | null;
+  description?: string | null;
+  sourceText?: string | null;
+  evidence?: string | null;
+}>(items: T[], sourceText: string | null | undefined): T[] {
+  return items.map((item) => {
+    if (!isGenericFloorCleaningServiceNameV17_90L5(item.serviceName)) return item;
+
+    const evidenceLine = matchingOriginalEvidenceLineByNumbersV17_90L5(sourceText, item);
+    if (!evidenceLine) return item;
+    if (!hasFloorSurfaceSignalV17_90L5(evidenceLine)) return item;
+    if (hasExplicitWorkActionInEvidenceLineV17_90L5(evidenceLine)) return item;
+
+    return {
+      ...item,
+      serviceName: "Leistung prüfen",
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: item.reviewReason || `service_action_unclear:${compactText(item.serviceName) || "Boden"}`,
+      description: item.description || evidenceLine,
+      sourceText: item.sourceText || evidenceLine,
+      evidence: item.evidence || evidenceLine,
+    };
+  });
+}
+
 function repairReviewUnitsFromLineLocalEvidenceV17_90L3<T extends {
   serviceName?: string | null;
   quantity?: any;
@@ -5312,11 +5399,89 @@ function repairReviewUnitsFromLineLocalEvidenceV17_90L3<T extends {
   });
 }
 
+
+function explicitCurrencyFromEvidenceLineV17_90L4(line: string): string | null {
+  const raw = String(line || "");
+  const normalized = normalizeServiceLineForMatchV17_90L(raw);
+  if (!raw.trim()) return null;
+  if (/\bchf\b|\bfranken\b|\bsfr\.?\b|\bfr\.?\b/i.test(raw)) return "CHF";
+  if (/\b(?:eur|euro)\b|€/i.test(raw)) return "EUR";
+  if (/\b(?:usd|dollar)\b|\$/i.test(raw)) return "USD";
+  if (/\b(?:gbp|pfund)\b|£/i.test(raw)) return "GBP";
+  if (/\bchf\b|\beur\b|\beuro\b/.test(normalized)) {
+    if (/\bchf\b/.test(normalized)) return "CHF";
+    if (/\b(?:eur|euro)\b/.test(normalized)) return "EUR";
+  }
+  return null;
+}
+
+function matchingCurrencyEvidenceLineForItemV17_90L4(
+  sourceText: string | null | undefined,
+  item: { quantity?: any; unitPrice?: any; serviceName?: string | null; unit?: string | null },
+): { line: string; currency: string } | null {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+
+  const serviceKey = normalizeUnitText(item.serviceName || "");
+  const unitKey = normalizeUnitText(item.unit || "");
+  const matches = splitSourceEvidenceLinesV17_90L3(sourceText)
+    .map((line) => ({ line, currency: explicitCurrencyFromEvidenceLineV17_90L4(line) }))
+    .filter((entry): entry is { line: string; currency: string } => Boolean(entry.currency))
+    .filter((entry) => lineHasDecimalNumberV17_90L3(entry.line, quantity))
+    .filter((entry) => lineHasDecimalNumberV17_90L3(entry.line, unitPrice))
+    .filter((entry) => {
+      const normalized = normalizeUnitText(entry.line);
+      // Do not allow a pure metadata/title line to become evidence.
+      if (/^regression\b/i.test(entry.line)) return false;
+      // For flat fees, prefer travel/ride/fee evidence; this avoids stealing
+      // a random same-price service line.
+      if (unitKey === "pauschal" || serviceKey.includes("anfahrt")) {
+        return /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(entry.line);
+      }
+      return true;
+    });
+
+  const unique = Array.from(
+    new Map(matches.map((entry) => [`${entry.currency}:${normalizeUnitText(entry.line)}`, entry])).values(),
+  );
+  const uniqueCurrencies = Array.from(new Set(unique.map((entry) => entry.currency)));
+  if (uniqueCurrencies.length !== 1) return null;
+
+  return unique.sort((a, b) => a.line.length - b.line.length)[0] || null;
+}
+
+function applyLineLocalCurrenciesFromEvidenceV17_90L4<T extends {
+  serviceName?: string | null;
+  quantity?: any;
+  unit?: string | null;
+  unitPrice?: any;
+  detectedCurrency?: string | null;
+  description?: string | null;
+  sourceText?: string | null;
+  evidence?: string | null;
+}>(items: T[], sourceText: string | null | undefined): T[] {
+  return items.map((item) => {
+    if (item.detectedCurrency) return item;
+    const evidence = matchingCurrencyEvidenceLineForItemV17_90L4(sourceText, item);
+    if (!evidence) return item;
+    return {
+      ...item,
+      detectedCurrency: evidence.currency,
+      description: item.description || evidence.line,
+      sourceText: item.sourceText || evidence.line,
+      evidence: item.evidence || evidence.line,
+    };
+  });
+}
+
 function extractBlockedForeignCurrencyLineV17_90L3(
   sourceText: string | null | undefined,
 ): string | null {
   const candidates = splitSourceEvidenceLinesV17_90L3(sourceText).filter((line) => {
     const normalized = normalizeServiceLineForMatchV17_90L(line);
+    if (/^regression\b/i.test(line)) return false;
     if (!/\b(?:eur|euro|usd|dollar|gbp|pfund)\b|[€$£]/i.test(line)) return false;
     if (/\bchf\b/i.test(line)) return false;
     if (!/\d+(?:[.,]\d{1,2})?/.test(normalized)) return false;
@@ -5324,9 +5489,15 @@ function extractBlockedForeignCurrencyLineV17_90L3(
     return true;
   });
 
-  return candidates.length === 1
-    ? candidates[0]
-    : candidates.find((line) => /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(line)) || null;
+  const travelCandidates = candidates.filter((line) =>
+    /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(line),
+  );
+  const pool = travelCandidates.length > 0 ? travelCandidates : candidates;
+  if (pool.length === 0) return null;
+
+  // Prefer the shortest concrete line, e.g. "Travel cost EUR 60" over a long
+  // translated paragraph. Never return the regression title.
+  return pool.sort((a, b) => a.length - b.length)[0] || null;
 }
 
 function repairBlockedFlatFeeCurrencyRowsV17_90L3<T extends {
@@ -8240,6 +8411,14 @@ export async function processIncomingMessage(
     validationSourceText,
   );
 
+  // V17.90L5: Fail-closed for generic floor rows. If the original customer
+  // evidence line only says "Boden/floor/..." with quantity and price but no
+  // explicit work action, do not silently turn it into "Boden reinigen".
+  finalOrderItems = blockGenericFloorRowsWithoutExplicitActionV17_90L5(
+    finalOrderItems,
+    validationSourceText,
+  );
+
   // V17.90L2: final visible-name cleanup. Service names must not contain the
   // numeric quantity/unit/price fragment; those belong in the separate fields.
   finalOrderItems = finalOrderItems.map((item: any) => {
@@ -8272,6 +8451,20 @@ export async function processIncomingMessage(
   // V17.90L3: Restore units only from an explicit line-local unit+quantity+price evidence line.
   // This keeps "52 à CHF 7" blocked, but fixes explicit "48 m2 à CHF 6" rows.
   finalOrderItems = repairReviewUnitsFromLineLocalEvidenceV17_90L3(
+    finalOrderItems,
+    validationSourceText,
+  );
+
+  finalOrderItems = blockGenericFloorRowsWithoutExplicitActionV17_90L5(
+    finalOrderItems,
+    validationSourceText,
+  );
+
+  // V17.90L4: In mixed-currency messages, explicit CHF service lines must stay
+  // calculable while the foreign-currency line is blocked. If the AI did not
+  // attach detectedCurrency to a row, infer it only from a same-line quantity
+  // + price + currency evidence line. No cross-line fallback.
+  finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
     finalOrderItems,
     validationSourceText,
   );
@@ -8310,11 +8503,33 @@ export async function processIncomingMessage(
 
     return {
       ...item,
-      unit: unitKey === "pruefen" || unitKey === "prufen" ? "Einheit prüfen" : item.unit || "Einheit prüfen",
+      unit: "Einheit prüfen",
       totalPrice: 0,
       needsReview: true,
       reviewReason: item.reviewReason || `unit_missing_in_text:${serviceName}`,
     };
+  });
+
+  // V17.90L4: The final blockers may still see stale review text from an
+  // earlier pass. Re-apply the strict same-line unit repair after them so an
+  // explicit "48 m2 à CHF 6" line is counted, while "52 à CHF 7" stays blocked.
+  finalOrderItems = repairReviewUnitsFromLineLocalEvidenceV17_90L3(
+    finalOrderItems,
+    validationSourceText,
+  );
+
+  // V17.90L5: Unit repair must not revive generic floor rows without an
+  // explicit action in the original customer evidence line.
+  finalOrderItems = blockGenericFloorRowsWithoutExplicitActionV17_90L5(
+    finalOrderItems,
+    validationSourceText,
+  );
+
+  // Re-run final blockers after the late unit restoration. This keeps restored
+  // explicit-unit rows calculable and keeps unresolved rows fail-closed.
+  finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
+    detectedCurrencies: intakeValidation.detectedCurrencies,
+    finalCurrency: intakeValidation.finalCurrency,
   });
 
   // V17.90L3: Normalize blocked foreign-currency flat-fee display rows after
