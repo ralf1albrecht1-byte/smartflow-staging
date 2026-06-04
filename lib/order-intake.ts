@@ -1734,7 +1734,7 @@ function cleanExecutionSiteNameCandidate(
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
 
   candidate = candidate
-    .split(/\b(?:hinweise?|notes?|bemerkungen?|besonderheiten|bitte|please|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
+    .split(/\b(?:hinweise?|notes?|bemerkungen?|besonderheiten|bitte|please|kein(?:e|en|em)?|keine|keinen|no|not|pas|sans|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
     .replace(/[,;:.\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -5146,11 +5146,71 @@ function isUsableGermanServiceLabelV17_90L(label: string): boolean {
   );
 }
 
+function isInternalReviewServiceNameV17_90L(value: string): boolean {
+  const key = normalizeUnitText(value);
+  return (
+    !key ||
+    key === "leistung pruefen" ||
+    key === "leistung prüfen" ||
+    key === "pruefen" ||
+    key === "prüfen" ||
+    key === "betrag pruefen" ||
+    key === "betrag prüfen" ||
+    key === "einheit pruefen" ||
+    key === "einheit prüfen"
+  );
+}
+
+function isReviewUnitV17_90L(value?: string | null): boolean {
+  const key = normalizeUnitText(value || "");
+  return (
+    key === "pruefen" ||
+    key === "prüfen" ||
+    key === "einheit pruefen" ||
+    key === "einheit prüfen"
+  );
+}
+
+function hasRawForeignServiceLanguageSignalV17_90L(value: string): boolean {
+  const key = normalizeServiceLineForMatchV17_90L(value);
+  return /\b(?:limpiar|limpieza|suelo|garaje|ventanas|barandilla|desplazamiento|pulizia|pulire|pavimento|finestre|scaffali|trasferta|nettoyage|nettoyer|vitres|deplacement|déplacement)\b/.test(key);
+}
+
+function isAlreadyGermanVisibleServiceNameV17_90L(value: string): boolean {
+  const key = normalizeServiceLineForMatchV17_90L(value);
+  if (hasRawForeignServiceLanguageSignalV17_90L(value)) return false;
+  return /\b(?:reinigen|reinigung|abstauben|abwischen|streichen|schleifen|schneiden|entsorgen|sortieren|putzen)\b/.test(key);
+}
+
+function stripMeasureAndPriceFromVisibleServiceNameV17_90L(value: string): string {
+  let label = compactText(value);
+  if (!label) return "";
+  label = label
+    .replace(
+      /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
+      "",
+    )
+    .replace(
+      /\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
+      "",
+    )
+    .replace(
+      /\s*,?\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pi[eè]ces?|s[aä]cke|saecke|kg|kilogramm|liter)\b.*$/i,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .replace(/[\s,;:.\-–—]+$/g, "")
+    .trim();
+  return cleanGermanServiceLabelGrammarV17_90L(label);
+}
+
 function repairGermanVisibleServiceNamesFromTranslationV17_90L<
   T extends {
     serviceName?: string | null;
     quantity?: number | null;
     unitPrice?: number | null;
+    unit?: string | null;
+    totalPrice?: number | null;
     sourceText?: string | null;
     evidence?: string | null;
     description?: string | null;
@@ -5173,8 +5233,29 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
     const currentName = compactText(item.serviceName);
     const quantity = Number(item.quantity || 0);
     const unitPrice = Number(item.unitPrice || 0);
+    const totalPrice = Number(item.totalPrice || 0);
     if (!currentName || !Number.isFinite(quantity) || quantity <= 0) return item;
     if (!Number.isFinite(unitPrice) || unitPrice <= 0) return item;
+
+    // Do not turn hard-review placeholders or blocked unit-review rows into
+    // guessed service names. Those rows must stay fail-closed and empty in the
+    // editor until the user confirms them.
+    if (
+      isInternalReviewServiceNameV17_90L(currentName) ||
+      isReviewUnitV17_90L(item.unit) ||
+      totalPrice <= 0
+    ) {
+      return item;
+    }
+
+    // If the label is already a German visible service name, do not replace it
+    // with a translated sentence. Only strip accidental measure/price tails.
+    if (isAlreadyGermanVisibleServiceNameV17_90L(currentName)) {
+      const cleanedName = stripMeasureAndPriceFromVisibleServiceNameV17_90L(currentName);
+      return cleanedName && cleanedName !== currentName
+        ? { ...item, serviceName: cleanedName }
+        : item;
+    }
 
     const candidates = translatedLines
       .filter((line) => translatedLineMatchesItemNumbersV17_90L(line, item))
@@ -7987,6 +8068,35 @@ export async function processIncomingMessage(
     finalOrderItems,
     validationSourceText,
   );
+
+  // V17.90L2: final visible-name cleanup. Service names must not contain the
+  // numeric quantity/unit/price fragment; those belong in the separate fields.
+  finalOrderItems = finalOrderItems.map((item: any) => {
+    const serviceName = compactText(item?.serviceName);
+    const serviceKey = normalizeUnitText(serviceName);
+    const unitKey = normalizeUnitText(item?.unit || "");
+    const unitPriceNumber = Number(item?.unitPrice || 0);
+    const totalPriceNumber = Number(item?.totalPrice || 0);
+    let nextItem = item;
+
+    // Blocked foreign-currency flat fees must not inherit quantity from a
+    // neighboring service line. Keep them visibly blocked, but default a flat
+    // fee quantity to 1 instead of an arbitrary leaked value such as 2.
+    if (
+      serviceKey.includes("anfahrt") &&
+      unitKey === "pauschal" &&
+      (!Number.isFinite(unitPriceNumber) || unitPriceNumber <= 0) &&
+      (!Number.isFinite(totalPriceNumber) || totalPriceNumber <= 0)
+    ) {
+      nextItem = { ...nextItem, quantity: 1 };
+    }
+
+    if (!serviceName || isInternalReviewServiceNameV17_90L(serviceName)) return nextItem;
+    const cleanedName = stripMeasureAndPriceFromVisibleServiceNameV17_90L(serviceName);
+    return cleanedName && cleanedName !== serviceName
+      ? { ...nextItem, serviceName: cleanedName }
+      : nextItem;
+  });
 
   // V17.11: Allerletzter Summen-Blocker vor Order.create.
   // Rote Prüfpositionen dürfen zwar Menge/Preis als Hinweis behalten, aber

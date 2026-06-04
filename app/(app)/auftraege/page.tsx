@@ -1114,7 +1114,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
   if (/park|parking|parkplatz|parken|parkieren/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (
-    /zugang|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|seiteneingang|hintereingang|nebeneingang|rampe|klingeln|lift/.test(
+    /zugang|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|klingeln|lift/.test(
       text,
     )
   )
@@ -1183,7 +1183,7 @@ const isNonActionableSemanticHint = (
   }
 
   const hasRealAccessConstraint =
-    /seiteneingang|hintereingang|nebeneingang|rampe|schmal|enger?\s+zugang|schwieriger\s+zugang|kein lift|ohne lift|back entrance|side entrance|rear entrance|access difficult|difficult access|acces difficile/.test(
+    /schmal|enger?\s+zugang|schwieriger\s+zugang|kein lift|ohne lift|access difficult|difficult access|acces difficile/.test(
       text,
     );
 
@@ -4426,13 +4426,18 @@ const getBottomBadges = (
     parsedNotes,
   );
 
-  const appointmentBadge =
-    multipleAppointmentBadge ||
-    appointmentSourceLines
-      .map((line) =>
-        extractAppointmentBadge(line, appointmentBaseDate, order.status),
-      )
-      .find(Boolean);
+  let appointmentBadgeLine = "";
+  const singleAppointmentBadge = appointmentSourceLines.reduce<ReturnType<typeof extractAppointmentBadge>>(
+    (found, line) => {
+      if (found) return found;
+      const badge = extractAppointmentBadge(line, appointmentBaseDate, order.status);
+      if (badge) appointmentBadgeLine = line;
+      return badge;
+    },
+    null,
+  );
+
+  const appointmentBadge = multipleAppointmentBadge || singleAppointmentBadge;
 
   if (appointmentBadge) {
     pushUniqueBadge(badges, {
@@ -4442,7 +4447,7 @@ const getBottomBadges = (
       icon: appointmentBadge.icon,
       tooltip: multipleAppointmentBadge
         ? multipleAppointmentBadge.tooltip
-        : undefined,
+        : compactText(appointmentBadgeLine) || appointmentBadge.label,
     });
   } else {
     const appointmentClarification = detectAppointmentClarificationHint(
