@@ -1106,7 +1106,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
     /\b(?:kleine|grosse|große|hohe|eigene|tritt|steh|auszieh)?\s*leiter\b/.test(
       text,
     ) &&
-    /\b(?:benoetigt|benötigt|braucht|mitbringen|bringen|nehmen|erforderlich|noetig|nötig|vorhanden|aufstellen|kleine|grosse|große|tritt|steh|auszieh)\b/.test(
+    /\b(?:benoetigt|benötigt|braucht|mitbringen|bringen|nehmen|erforderlich|noetig|nötig|vorhanden|steht|stehen|liegt|befindet|halle|lager|raum|empfang|rezeption|aufstellen|kleine|grosse|große|tritt|steh|auszieh)\b/.test(
       text,
     )
   )
@@ -4578,7 +4578,11 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
     customer: order.customer
       ? { ...order.customer }
       : order.customer,
-    specialNotes: cleanedSpecialNotes,
+    // Card-level operational chips are rendered by getOperationalBadges below.
+    // Keep specialNotes out of CommunicationChips here so key/ladder/dog/access
+    // hints do not appear twice. Communication channels still come from notes,
+    // because cleanedNotes contains the cleaned specialNotes text as well.
+    specialNotes: "",
     notes: cleanedNotes,
     audioTranscript: cleanedAudioTranscript,
   };
@@ -4994,9 +4998,13 @@ const renderCallbackCardBadge = (
       key={badge.key}
       href={`tel:${phone}`}
       onClick={(event) => event.stopPropagation()}
-      className="inline-flex"
+      title={clickableBadge.tooltip}
+      aria-label={clickableBadge.tooltip}
+      className={`group relative inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 hover:underline ${getStrongerCardBadgeClassName(clickableBadge.className)}`}
     >
-      {renderOrderCardBadge(clickableBadge, tooltipAlign)}
+      <span className="text-red-600 leading-none">☎</span>
+      {clickableBadge.label}
+      {renderBadgeTooltip(clickableBadge, tooltipAlign)}
     </a>
   );
 };
