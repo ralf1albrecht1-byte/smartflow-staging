@@ -772,13 +772,12 @@ export function CommunicationBlock({
   const equipmentWithFallback = useMemo(() => {
     const existing = [...equipment];
     const sourceLines = String(data.specialNotes || '')
-      .split(/
-+/g)
+      .split(/\n+/g)
       .map((line) => line.trim())
       .filter(Boolean);
     for (const line of sourceLines) {
       const normalized = normalizeSemanticChipText(line);
-      if (!/(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|zugang|access|tor|door|cassetta|box)/.test(normalized)) continue;
+      if (!/\b(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|zugang|access|tor|door|cassetta|box)\b/.test(normalized)) continue;
       if (existing.some((item) => normalizeSemanticChipText(item) === normalized)) continue;
       existing.push(line);
     }
@@ -1039,13 +1038,12 @@ export function CommunicationChips({
   const equipmentWithFallback = useMemo(() => {
     const existing = [...equipment];
     const sourceLines = String(data.specialNotes || '')
-      .split(/
-+/g)
+      .split(/\n+/g)
       .map((line) => line.trim())
       .filter(Boolean);
     for (const line of sourceLines) {
       const normalized = normalizeSemanticChipText(line);
-      if (!/(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|zugang|access|tor|door|cassetta|box)/.test(normalized)) continue;
+      if (!/\b(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|zugang|access|tor|door|cassetta|box)\b/.test(normalized)) continue;
       if (existing.some((item) => normalizeSemanticChipText(item) === normalized)) continue;
       existing.push(line);
     }

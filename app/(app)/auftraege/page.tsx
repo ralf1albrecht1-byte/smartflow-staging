@@ -3337,7 +3337,7 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
 
   const normalizeRoleLabel = (candidate: string) =>
     normalizeForMatch(candidate)
-      .replace(/strasse/g, "str")
+      .replace(/\bstrasse\b/g, "str")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -4587,8 +4587,7 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
 const extractOrderContactPhoneForCustomerDisplayV17_90K = (order?: Order | null) => {
   const source = [order?.notes, order?.specialNotes, order?.audioTranscript]
     .filter(Boolean)
-    .join("
-");
+    .join("\n");
   const match = source.match(
     /(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|rückruf|rueckruf)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i,
   ) || source.match(/(\+\d[\d\s()./-]{7,}\d)/);
@@ -4598,8 +4597,7 @@ const extractOrderContactPhoneForCustomerDisplayV17_90K = (order?: Order | null)
 const extractOrderContactEmailForCustomerDisplayV17_90K = (order?: Order | null) => {
   const source = [order?.notes, order?.specialNotes, order?.audioTranscript]
     .filter(Boolean)
-    .join("
-");
+    .join("\n");
   return source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]?.trim() || "";
 };
 
