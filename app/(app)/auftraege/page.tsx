@@ -2600,6 +2600,12 @@ const isInternalReviewServiceName = (value?: string | null) => {
   ]).has(key);
 };
 
+// V17.90j: Diese Werte sind Smartflow-interne Prüfzustände, keine
+// Leistungs-Wortliste. Sie dürfen im Editor nicht wie echte Leistungen wirken
+// und sollen beim Bearbeiten nicht erst manuell gelöscht werden müssen.
+const getEditableServiceNameValue = (value?: string | null) =>
+  isInternalReviewServiceName(value) ? "" : String(value || "");
+
 const hasUnitMismatchReviewForService = (
   reviewReasons: string[] | null | undefined,
   serviceName?: string | null,
@@ -7059,6 +7065,7 @@ export default function AuftraegePage() {
     );
 
     return (
+      isInternalReviewServiceName(item.serviceName) ||
       unitReviewValue === "pruefen" ||
       unitReviewValue === "prufen" ||
       unitReviewValue.includes("einheit pruefen") ||
@@ -11115,9 +11122,15 @@ export default function AuftraegePage() {
                           const itemTotal = unitMissingInTextReason && !manualUnitConfirmed
                             ? 0
                             : getSafeFormItemTotal(item);
+                          const itemHasInternalReviewServiceName =
+                            isInternalReviewServiceName(item.serviceName);
+                          const itemHasInternalReviewUnit =
+                            isUnitMissingReviewText(item.unit);
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
+                            !itemHasInternalReviewServiceName &&
                             item.unit?.trim() &&
+                            !itemHasInternalReviewUnit &&
                             Number(item.unitPrice || 0) > 0 &&
                             Number(item.quantity || 0) > 0,
                           );
@@ -11128,6 +11141,9 @@ export default function AuftraegePage() {
                             !isServiceInCatalog(item.serviceName);
                           const showManualServiceReview =
                             !unresolvedCurrencyItem && isManualService;
+                          const hasInternalHardReviewState =
+                            itemHasInternalReviewServiceName ||
+                            (itemHasInternalReviewUnit && !manualUnitConfirmed);
                           const sourceLineForItem =
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
@@ -11156,6 +11172,7 @@ export default function AuftraegePage() {
                           const orderSummary = orderSummaryParts.join(" ");
                           const showItemReviewBlock =
                             showCurrencyConflictItemReview ||
+                            hasInternalHardReviewState ||
                             (!unresolvedCurrencyItem &&
                               (showUnitConflict ||
                                 showPriceOverride ||
@@ -11168,6 +11185,7 @@ export default function AuftraegePage() {
                             priceInputReview || quantityInputReview;
                           const isBlockingItemReview =
                             unresolvedCurrencyItem ||
+                            hasInternalHardReviewState ||
                             hasMissingItemInput ||
                             Boolean(unitMissingInTextReason && !manualUnitConfirmed) ||
                             (showPriceReferenceReview &&
@@ -11721,7 +11739,9 @@ export default function AuftraegePage() {
                                         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
                                           <div className="group min-w-0">
                                             <ServiceCombobox
-                                              value={item.serviceName}
+                                              value={getEditableServiceNameValue(
+                                                item.serviceName,
+                                              )}
                                               services={
                                                 services as ServiceOption[]
                                               }
@@ -11740,7 +11760,8 @@ export default function AuftraegePage() {
                                               showManualHint={false}
                                               saveButtonPlacement="none"
                                             />
-                                            {item.serviceName.trim().length >
+                                            {!itemHasInternalReviewServiceName &&
+                                              item.serviceName.trim().length >
                                               28 && (
                                               <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
                                                 {item.serviceName.trim()}
@@ -11987,10 +12008,26 @@ export default function AuftraegePage() {
                                       >
                                         <div className="mb-0.5 flex items-center gap-1 font-semibold">
                                           <AlertTriangle className="h-3 w-3 shrink-0" />
-                                          Manuell prüfen
+                                          {isBlockingItemReview
+                                            ? "Vor Angebot/Rechnung prüfen"
+                                            : "Manuell prüfen"}
                                         </div>
 
                                         <div className="space-y-0.5">
+                                          {hasInternalHardReviewState && (
+                                            <div className="space-y-0.5">
+                                              <div>
+                                                Leistung oder Einheit ist noch
+                                                unklar.
+                                              </div>
+                                              <div>
+                                                Diese Position wird nicht in
+                                                Netto/MwSt./Total gerechnet, bis
+                                                Leistung und Einheit bestätigt
+                                                sind.
+                                              </div>
+                                            </div>
+                                          )}
                                           {showCurrencyConflictItemReview && (
                                             <div className="space-y-0.5">
                                               <div>
@@ -12014,7 +12051,8 @@ export default function AuftraegePage() {
                                             </div>
                                           )}
 
-                                          {showUnitConflict && (
+                                          {showUnitConflict &&
+                                            !hasInternalHardReviewState && (
                                             <div className="space-y-0.5">
                                               {manualUnitConfirmed ? (
                                                 <>
