@@ -1448,6 +1448,15 @@ function hasExecutionAddressDirectiveV17_61(
   );
 }
 
+function hasSameAddressInstructionV17_90L28(
+  rawText: string | null | undefined,
+): boolean {
+  const text = normalizeUnitText(rawText || "");
+  if (!text) return false;
+
+  return /\b(?:gleiche\s+adresse|selbe\s+adresse|dieselbe\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+address|stessa\s+indirizzo|meme\s+adresse|même\s+adresse|gleicher\s+ort|same\s+place)\b/.test(text);
+}
+
 function hasAddressEvidenceInTextV17_61(
   rawText: string | null | undefined,
 ): boolean {
@@ -1494,9 +1503,19 @@ function shouldQuarantineBillingAddressRoleV17_61(args: {
     args.rawText,
   );
   const hasExecutionMarker = hasExecutionAddressDirectiveV17_61(args.rawText);
+  const hasSameAddressInstruction = hasSameAddressInstructionV17_90L28(
+    args.rawText,
+  );
   const hasUsableBillingName = Boolean(
     cleanAiStructuredBillingName(args.billingName || null),
   );
+
+  // V17.90L28: "gleiche Adresse / same address" is not an ambiguous second
+  // address. Keep the billing address and allow room/site labels such as
+  // "Trainingsraum hinten" without opening Adresse prüfen.
+  if (hasSameAddressInstruction && hasFullAddressCandidate && hasUsableBillingName) {
+    return { quarantine: false, reviewReasons: [] };
+  }
 
   const reviewReasons: string[] = [];
 

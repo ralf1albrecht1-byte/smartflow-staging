@@ -751,6 +751,73 @@ const sourceLineUnitTokens = (unit?: string | null) => {
   return [key];
 };
 
+const localPriceSegmentsForDisplayV17_90L28 = (sourceText?: string | null) => {
+  const source = String(sourceText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [] as string[];
+
+  const lines = source
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const unitWords =
+    "(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stuck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|vitres?|fenster|scheiben|stunden?|std\.?)";
+  const money = "(?:chf|eur|fr\.?|franken|stutz|€)";
+  const measuredPattern = new RegExp(
+    `\b\d+(?:[.,]\d+)?\s*${unitWords}\b(?:\s*(?:à|a|zu|je|pro|per|each|at|x))?\s*(?:${money}\s*)?\d+(?:[.,]\d{1,2})?(?:\s*${money})?\b`,
+    "gi",
+  );
+  const flatPattern = new RegExp(
+    `\b(?:anfahrt|fahrtkosten|fahrt|fahrpauschale|wegpauschale|reisepauschale|trasferta|deplacement|déplacement|travel|trip|transport)\b[^\n.;|]{0,80}?(?:${money}\s*\d+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?\s*${money})\b`,
+    "gi",
+  );
+
+  const segments: string[] = [];
+  for (const line of lines) {
+    let previousEnd = 0;
+    for (const match of line.matchAll(measuredPattern)) {
+      const index = match.index ?? 0;
+      const prefix = line.slice(previousEnd, index).trim();
+      const tail = prefix.split(/\s+/g).filter(Boolean).slice(-8).join(" ");
+      const segment = `${tail} ${match[0] || ""}`.replace(/\s+/g, " ").trim();
+      if (segment) segments.push(segment);
+      previousEnd = index + String(match[0] || "").length;
+    }
+
+    for (const match of line.matchAll(flatPattern)) {
+      const segment = String(match[0] || "").replace(/\s+/g, " ").trim();
+      if (segment) segments.push(segment);
+    }
+  }
+
+  return Array.from(new Set(segments));
+};
+
+const trimDisplayEvidenceToServiceV17_90L28 = (
+  line: string,
+  serviceName?: string | null,
+) => {
+  const serviceTokens = sourceLineServiceTokens(serviceName).map(normalizeForMatch);
+  if (serviceTokens.length === 0) return line;
+
+  const words = line.split(/\s+/g).filter(Boolean);
+  let bestIndex = -1;
+  for (let i = 0; i < words.length; i += 1) {
+    const key = normalizeForMatch(words[i]);
+    if (!key) continue;
+    if (serviceTokens.some((token) => token && key.includes(token))) {
+      bestIndex = i;
+      break;
+    }
+  }
+
+  if (bestIndex <= 0) return line;
+  return words.slice(bestIndex).join(" ").replace(/\s+/g, " ").trim();
+};
+
 const findCustomerTextLineForService = (
   sourceText?: string | null,
   serviceName?: string | null,
@@ -767,10 +834,12 @@ const findCustomerTextLineForService = (
   const importantTokens = sourceLineServiceTokens(serviceName);
   if (importantTokens.length === 0) return "";
 
-  const lines = source
+  const rawLines = source
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter(Boolean);
+  const localSegments = localPriceSegmentsForDisplayV17_90L28(source);
+  const lines = Array.from(new Set([...localSegments, ...rawLines]));
 
   let bestLine = "";
   let bestScore = 0;
@@ -785,22 +854,21 @@ const findCustomerTextLineForService = (
       lineKey.includes(normalizeForMatch(token)),
     ).length;
 
-    // Important: never match only on generic words such as "reinigen".
-    // This prevents "Boden reinigen" from being shown as evidence for
-    // "Fenster reinigen".
     if (!directNameMatch && tokenHits === 0) continue;
 
     let score = directNameMatch ? 10 : tokenHits * 4;
 
-    if (sourceLineContainsNumber(lineKey, item?.quantity)) score += 3;
-    if (sourceLineContainsNumber(lineKey, item?.unitPrice)) score += 3;
+    if (sourceLineContainsNumber(lineKey, item?.quantity)) score += 6;
+    if (sourceLineContainsNumber(lineKey, item?.unitPrice)) score += 6;
 
     const unitTokens = sourceLineUnitTokens(item?.unit);
     if (
       unitTokens.some((token) => lineKey.includes(normalizeForMatch(token)))
     ) {
-      score += 1;
+      score += 2;
     }
+
+    if (localSegments.includes(line)) score += 8;
 
     if (score > bestScore) {
       bestScore = score;
@@ -808,7 +876,9 @@ const findCustomerTextLineForService = (
     }
   }
 
-  return bestScore >= 4 ? bestLine : "";
+  return bestScore >= 4
+    ? trimDisplayEvidenceToServiceV17_90L28(bestLine, serviceName)
+    : "";
 };
 
 const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
@@ -3766,8 +3836,28 @@ const hasResolvableStoredExecutionAddressV17_90K = (order: Order) => {
   return Boolean(address && plz && city && hasDifferentExecutionAddressForBadge(order));
 };
 
+const hasCompleteSameExecutionAddressAsCustomerV17_90L28 = (order: Order) => {
+  const sites = Array.isArray(order.workSites) ? order.workSites : [];
+  const primary = sites.find((site) => Boolean(site.isPrimary)) || sites[0] || null;
+  const siteAddress = compactText(primary?.siteAddress || order.siteAddress);
+  const sitePlz = compactText(primary?.sitePlz || order.sitePlz);
+  const siteCity = compactText(primary?.siteCity || order.siteCity);
+
+  if (!siteAddress || !sitePlz || !siteCity) return false;
+
+  return (
+    normalizeAddressPartForCompare(siteAddress) ===
+      normalizeAddressPartForCompare(order.customer?.address) &&
+    normalizeAddressPartForCompare(sitePlz) ===
+      normalizeAddressPartForCompare(order.customer?.plz) &&
+    normalizeAddressPartForCompare(siteCity) ===
+      normalizeAddressPartForCompare(order.customer?.city)
+  );
+};
+
 const hasActiveAddressRoleReviewV17_90K = (order: Order) =>
   hasAddressRoleReviewReasonV17_61(order) &&
+  !hasCompleteSameExecutionAddressAsCustomerV17_90L28(order) &&
   !hasResolvableStoredExecutionAddressV17_90K(order);
 
 const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
@@ -6988,6 +7078,7 @@ export default function AuftraegePage() {
   const shouldShowAddressRoleReviewBoxV17_62 = Boolean(
     currentEditOrder &&
     hasAddressRoleReviewReasonV17_61(currentEditOrder) &&
+    !hasCompleteSameExecutionAddressAsCustomerV17_90L28(currentEditOrder) &&
     addressRoleReviewCandidateV17_62.hasAny &&
     !isAddressRoleReviewAlreadyAssignedV17_90K,
   );
