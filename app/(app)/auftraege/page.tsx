@@ -3368,6 +3368,24 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
 
   if (isGenericAddressRoleLabel(text)) return "";
 
+  const stripOperationalTailV17_90L13 = (candidate: string) => {
+    const parts = candidate
+      .split(/\s*[,;]\s*/)
+      .map((part) => compactText(part))
+      .filter(Boolean);
+    if (parts.length <= 1) return candidate;
+
+    const kept: string[] = [];
+    for (const part of parts) {
+      const key = normalizeForMatch(part);
+      const isOperationalTail = /^(?:nur|kein|keine|bitte|vorher|nachher|danach|sms|whats\s*app|whatsapp|e\s*mail|mail|telefon|tel|anruf|rueckruf|ruckruf|rueckfragen|kontakt|schluessel|schlussel|schlüssel|key|badge|code|torcode|hund|tor\b|leiter|achtung|warnung|gefahr|nicht\s+einfach|zugang|parkieren|parken)\b/.test(key);
+      if (isOperationalTail) break;
+      kept.push(part);
+    }
+
+    return kept.length > 0 ? kept.join(", ") : candidate;
+  };
+
   // Remove generic source markers from the title. Keep the actual object name.
   // V17.90k: also strip French address-role labels and broken leftover
   // fragments such as "sadresse," from "Adresse chantier:". This is
@@ -3387,6 +3405,10 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
     )
     .replace(/^(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
     .replace(/^[:\-–,\s]+/, "")
+    .trim();
+
+  text = stripOperationalTailV17_90L13(text)
+    .replace(/[,:;\s]+$/g, "")
     .trim();
 
   if (!text || isGenericAddressRoleLabel(text)) return "";
@@ -4088,12 +4110,10 @@ const getSystemBadges = (
     });
   }
 
-  const hasAddressRoleReviewForCustomerBadge =
-    hasAddressRoleReviewReasonV17_61(order);
   const hasCustomerReview =
-    !hasAddressRoleReviewForCustomerBadge &&
-    (hasRealCustomerReviewReason(order) ||
-      isCustomerDataIncomplete(order.customer));
+    hasRealCustomerReviewReason(order) ||
+    isCustomerDataIncomplete(order.customer) ||
+    hasMissingOrFallbackCustomerName(order.customer?.name);
 
   if (hasCustomerReview) {
     pushUniqueBadge(badges, {
@@ -10316,17 +10336,10 @@ export default function AuftraegePage() {
                   // Canonical rule — name/address/plz/city required; phone/email optional.
 
                   const missingData = !!cust && isCustomerDataIncomplete(cust);
-                  const hasAddressRoleReviewInDialog =
-                    !!cur && hasAddressRoleReviewReasonV17_61(cur);
-                  const hasCustomerReview =
-                    !!cur && missingData && !hasAddressRoleReviewInDialog;
+                  const hasCustomerReview = !!cur && missingData;
                   const hasImageOnly =
                     cur?.reviewReasons?.includes("image_only_no_text");
-                  if (
-                    (!missingData || hasAddressRoleReviewInDialog) &&
-                    !hasImageOnly
-                  )
-                    return null;
+                  if (!missingData && !hasImageOnly) return null;
 
                   return (
                     <div className="flex items-center gap-2 flex-wrap">

@@ -611,35 +611,56 @@ function normalizeServiceNameForDisplay(value?: string | null) {
 }
 
 function cleanWorkSiteDisplayName(value?: string | null) {
-  let text = String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!text) return null;
+  const compact = (input?: string | null) => String(input || "").replace(/\s+/g, " ").trim();
+  const normalizeRole = (input?: string | null) =>
+    compact(input)
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/ü/g, "u")
+      .replace(/ä/g, "a")
+      .replace(/ö/g, "o")
+      .replace(/ß/g, "ss")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const isGenericAddressRoleLabel = (input?: string | null) => {
+    const key = normalizeRole(input);
+    return !key || /^(?:adresse|sadresse|ausfuhrungsadresse|ausfuhrungsort|ausfuhrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|abweichend von rechnungsadresse|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(key);
+  };
+
+  const stripOperationalTail = (input: string) => {
+    const parts = input
+      .split(/\s*[,;]\s*/)
+      .map((part) => compact(part))
+      .filter(Boolean);
+    if (parts.length <= 1) return input;
+
+    const kept: string[] = [];
+    for (const part of parts) {
+      const key = normalizeRole(part);
+      const isOperationalTail = /^(?:nur|kein|keine|bitte|vorher|nachher|danach|sms|whats app|whatsapp|e mail|mail|telefon|tel|anruf|ruckruf|rueckruf|ruckfragen|kontakt|schlussel|schluessel|key|badge|code|torcode|hund|tor\b|leiter|achtung|warnung|gefahr|nicht einfach|zugang|parkieren|parken)\b/.test(key);
+      if (isOperationalTail) break;
+      kept.push(part);
+    }
+    return kept.length > 0 ? kept.join(", ") : input;
+  };
+
+  let text = compact(value);
+  if (!text || isGenericAddressRoleLabel(text)) return null;
 
   text = text
-    .replace(
-      /^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i,
-      "",
-    )
-    .replace(
-      /^(?:wo\s+gemacht\s+werden\s+muss|wo\s+arbeiten\s+sind|wo\s+es\s+gemacht\s+wird)\s*:?\s*/i,
-      "",
-    )
-    .replace(
-      /^(?:ist|isch|is)\s+(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i,
-      "",
-    )
+    .replace(/^(?:sadresse|adresse\s+chantier|adresse\s+de\s+chantier|adresse|arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|abweichend\s+von\s+rechnungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*[,;:\-–—]?\s*/i, "")
+    .replace(/^(?:wo\s+gemacht\s+werden\s+muss|wo\s+arbeiten\s+sind|wo\s+es\s+gemacht\s+wird)\s*:?\s*/i, "")
+    .replace(/^(?:ist|isch|is)\s+(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
     .replace(/^(?:nicht|nöd|noed|not)\s+(?:gleich|gliich)\s*,?\s*/i, "")
     .replace(/^[:\-–,\s]+/, "")
     .trim();
 
-  return (
-    text ||
-    String(value || "")
-      .replace(/\s+/g, " ")
-      .trim() ||
-    null
-  );
+  text = stripOperationalTail(text).replace(/[,:;\s]+$/g, "").trim();
+
+  return text && !isGenericAddressRoleLabel(text) ? text : null;
 }
 
 function getOrderSourceTextForItems(data: any) {
