@@ -927,6 +927,11 @@ function shouldTrustSourcePriceForItem(item: any, data: any) {
 
 const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
+const MANUAL_UNIT_CONFIRMED_PREFIX = "[MANUAL_UNIT_CONFIRMED]";
+
+function isExplicitManualUnitConfirmedForPersist(item: any): boolean {
+  return String(item?.description || "").trim().startsWith(MANUAL_UNIT_CONFIRMED_PREFIX);
+}
 
 function isItemManuallyConfirmedForPersist(item: any): boolean {
   const description = String(item?.description || "").trim();
@@ -941,7 +946,8 @@ function isItemManuallyConfirmedForPersist(item: any): boolean {
     unitPrice > 0 &&
     quantity > 0 &&
     (description.startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX) ||
-      description.startsWith(PRICE_REVIEW_CONFIRMED_PREFIX))
+      description.startsWith(PRICE_REVIEW_CONFIRMED_PREFIX) ||
+      description.startsWith(MANUAL_UNIT_CONFIRMED_PREFIX))
   );
 }
 
@@ -1109,6 +1115,52 @@ function getDisplaySafeItemForOrder(item: any, orderLike: any) {
   };
 }
 
+
+function isHourLikeUnitForPersist(value?: string | null): boolean {
+  const unit = normalizeSearchText(value || "").replace(/[^a-z0-9]/g, "");
+  return ["stunde", "stunden", "std", "h", "hour", "hours", "heure", "heures", "hora", "horas", "ora", "ore"].includes(unit);
+}
+
+function sourceLineHasExplicitHourUnitForPersist(line?: string | null): boolean {
+  const text = normalizeSearchText(line || "");
+  return /\b(?:stunde|stunden|std|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/.test(text);
+}
+
+function parseLineQuantityAndPriceForPersist(line?: string | null): { quantity: number | null; unitPrice: number | null } {
+  const raw = String(line || "").replace(/'/g, "").replace(/\s+/g, " ").trim();
+  if (!raw) return { quantity: null, unitPrice: null };
+
+  const toNumber = (value: string | undefined | null) => {
+    const number = Number(String(value || "").replace(",", "."));
+    return Number.isFinite(number) && number > 0 ? number : null;
+  };
+
+  const patterns: Array<{ re: RegExp; quantityGroup: number; priceGroup: number }> = [
+    { re: /(?:^|\D)(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stk|stück|stueck|pcs?|teile|einheiten|std\.?|stunden?|h)?\s*(?:à|a|je|each|pro|per|x|mal)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/i, quantityGroup: 1, priceGroup: 2 },
+    { re: /(?:^|\D)(\d+(?:[.,]\d+)?)\s+[^\d\n]{0,80}?\s+(?:à|a|je|each|pro|per)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/i, quantityGroup: 1, priceGroup: 2 },
+  ];
+
+  for (const pattern of patterns) {
+    const match = raw.match(pattern.re);
+    const quantity = toNumber(match?.[pattern.quantityGroup]);
+    const unitPrice = toNumber(match?.[pattern.priceGroup]);
+    if (quantity && unitPrice) return { quantity, unitPrice };
+  }
+
+  return { quantity: null, unitPrice: null };
+}
+
+function shouldFailClosedImplicitHourUnitForPersist(item: any, sourceLine?: string | null): boolean {
+  if (isItemManuallyConfirmedForPersist(item) || isExplicitManualUnitConfirmedForPersist(item)) return false;
+  if (normalizeSearchText(normalizeServiceNameForDisplay(item?.serviceName)) === "anfahrt") return false;
+  if (!isHourLikeUnitForPersist(item?.unit)) return false;
+  if (!sourceLine) return false;
+  if (sourceLineHasExplicitHourUnitForPersist(sourceLine)) return false;
+
+  const values = parseLineQuantityAndPriceForPersist(sourceLine);
+  return Boolean(values.quantity && values.unitPrice);
+}
+
 function hasCompleteManualItemsForPersist(data: any): boolean {
   if (hasCurrencyConflictReviewOnOrderLike(data || {})) return false;
 
@@ -1184,8 +1236,7 @@ function hasCompleteManualItemsIgnoringCurrencyForPersist(data: any): boolean {
 function shouldTrustClientItemValuesForPersist(data: any): boolean {
   return (
     data?.manualReviewResolved === true ||
-    data?.manualItemValuesConfirmed === true ||
-    hasCompleteManualItemsForPersist(data)
+    data?.manualItemValuesConfirmed === true
   );
 }
 
@@ -1195,10 +1246,8 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   const trustClientItemValues = shouldTrustClientItemValuesForPersist(data);
 
   const normalized = items.map((item: any) => {
-    const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
-    const sourceLine = trustClientItemValues
-      ? ""
-      : findSourceLineForItem(source, { ...item, serviceName });
+    let serviceName = normalizeServiceNameForDisplay(item?.serviceName);
+    const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
     const sourcePrice = trustClientItemValues
       ? null
       : extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
@@ -1225,6 +1274,20 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
           : Number(item?.unitPrice ?? 0);
     let quantity = Number(item?.quantity ?? 1);
     let unit = item?.unit;
+    const implicitHourUnitBlocked =
+      !trustClientItemValues &&
+      shouldFailClosedImplicitHourUnitForPersist(
+        { ...item, serviceName, unit, unitPrice, quantity },
+        sourceLine,
+      );
+
+    if (implicitHourUnitBlocked) {
+      const parsedLineValues = parseLineQuantityAndPriceForPersist(sourceLine);
+      serviceName = "Leistung prüfen";
+      unit = "Einheit prüfen";
+      if (parsedLineValues.unitPrice) unitPrice = parsedLineValues.unitPrice;
+      if (parsedLineValues.quantity) quantity = parsedLineValues.quantity;
+    }
 
     if (serviceName === "Anfahrt") {
       unit = "Pauschal";
@@ -1242,12 +1305,13 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       }
     }
 
-    const amountBlocked = trustClientItemValues
-      ? false
-      : isBlockedAmountReviewItemForPersist(
-          { ...item, serviceName, unit, unitPrice, quantity },
-          data,
-        );
+    const amountBlocked = implicitHourUnitBlocked ||
+      (trustClientItemValues
+        ? false
+        : isBlockedAmountReviewItemForPersist(
+            { ...item, serviceName, unit, unitPrice, quantity },
+            data,
+          ));
 
     return {
       ...item,
