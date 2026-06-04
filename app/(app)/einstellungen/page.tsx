@@ -169,6 +169,7 @@ export default function EinstellungenPage() {
   const [showTestDataTools, setShowTestDataTools] = useState(false);
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
   const [liveConfirmText, setLiveConfirmText] = useState('');
+  const [switchingMode, setSwitchingMode] = useState<'live' | 'test' | null>(null);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [showDeleteSection, setShowDeleteSection] = useState(false);
@@ -296,6 +297,46 @@ export default function EinstellungenPage() {
       toast({ title: 'Fehler', description: 'Netzwerkfehler beim Vorbereiten des echten Betriebs.', variant: 'destructive' });
     } finally {
       setLivePrepExecuting(false);
+    }
+  }
+
+  async function switchTestMode(nextTestModus: boolean) {
+    const targetMode = nextTestModus ? 'test' : 'live';
+    setSwitchingMode(targetMode);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, testModus: nextTestModus }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast({
+          title: 'Fehler',
+          description: data?.error || 'Modus konnte nicht gewechselt werden.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const mapped: CompanyData = mapSettingsData(data);
+      setForm(mapped);
+      setSavedData(mapped);
+      setHasChanges(false);
+      setShowLiveConfirm(false);
+      setLiveConfirmText('');
+      setLivePrepPreview(prev => (prev ? { ...prev, testModus: mapped.testModus } : prev));
+
+      toast({
+        title: mapped.testModus ? 'Testmodus aktiv' : 'Livebetrieb aktiv',
+        description: mapped.testModus
+          ? 'Neue Angebote und Rechnungen erhalten TEST-Nummern. Der bestehende Livebetrieb bleibt erhalten.'
+          : 'Du bist wieder im bereits gestarteten Livebetrieb. Es wurden keine Kunden neu übernommen und keine Testdaten gelöscht.',
+      });
+    } catch {
+      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Wechseln des Modus.', variant: 'destructive' });
+    } finally {
+      setSwitchingMode(null);
     }
   }
 
@@ -1479,9 +1520,27 @@ const storedValue = finalUrl;
                     {livePrepPreview && (
                       <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
                         {livePrepPreview.liveStarted ? (
-                          <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs text-green-800 space-y-1">
-                            <p className="font-semibold">Livebetrieb wurde bereits gestartet.</p>
-                            <p>Kundenübernahme ist abgeschlossen und gesperrt.</p>
+                          <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs text-green-800 space-y-3">
+                            <div className="space-y-1">
+                              <p className="font-semibold">Livebetrieb wurde bereits gestartet.</p>
+                              <p>Kundenübernahme ist abgeschlossen und gesperrt.</p>
+                              <p className="text-green-700/90">
+                                Du kannst jetzt nur noch in den bestehenden Livebetrieb wechseln. Es werden keine Kunden neu übernommen und keine Nummern neu vergeben.
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="gap-2"
+                              disabled={switchingMode !== null || livePrepExecuting || livePrepLoading}
+                              onClick={() => {
+                                if (!confirm('Zum bestehenden Livebetrieb wechseln?\n\nEs werden keine Kunden neu übernommen, keine Nummern neu vergeben und keine Testdaten gelöscht.')) return;
+                                switchTestMode(false);
+                              }}
+                            >
+                              {switchingMode === 'live' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                              Zum bestehenden Livebetrieb wechseln
+                            </Button>
                           </div>
                         ) : (
                           <>
@@ -1545,9 +1604,13 @@ const storedValue = finalUrl;
                           <span className="text-sm font-bold">2</span>
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold">Livebetrieb starten</p>
+                          <p className="text-sm font-semibold">
+                            {livePrepPreview?.liveStarted ? 'Bestehenden Livebetrieb öffnen' : 'Livebetrieb starten'}
+                          </p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Erst nach Kunden-Auswahl und Sicherheitswort.
+                            {livePrepPreview?.liveStarted
+                              ? 'Livebetrieb wurde bereits gestartet. Jetzt wird nur der Modus gewechselt.'
+                              : 'Erst nach Kunden-Auswahl und Sicherheitswort.'}
                           </p>
                         </div>
                       </div>
@@ -1555,16 +1618,27 @@ const storedValue = finalUrl;
                       <Button
                         type="button"
                         size="sm"
-                        variant={livePrepPreview && !livePrepPreview.liveStarted ? 'default' : 'outline'}
-                        disabled={!livePrepPreview || livePrepPreview.liveStarted || livePrepExecuting || livePrepLoading}
+                        variant={livePrepPreview ? 'default' : 'outline'}
+                        disabled={!livePrepPreview || livePrepExecuting || livePrepLoading || switchingMode !== null}
                         onClick={() => {
+                          if (livePrepPreview?.liveStarted) {
+                            if (!confirm('Zum bestehenden Livebetrieb wechseln?\n\nEs werden keine Kunden neu übernommen, keine Nummern neu vergeben und keine Testdaten gelöscht.')) return;
+                            switchTestMode(false);
+                            return;
+                          }
                           setShowLiveConfirm(prev => !prev);
                           setLiveConfirmText('');
                         }}
                         className="shrink-0 gap-2"
                       >
-                        <Rocket className="w-4 h-4" />
-                        {showLiveConfirm ? 'Bestätigung schließen' : livePrepPreview && !livePrepPreview.liveStarted ? 'Weiter zur Bestätigung' : 'Noch nicht bereit'}
+                        {switchingMode === 'live' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                        {livePrepPreview?.liveStarted
+                          ? 'Zum bestehenden Livebetrieb wechseln'
+                          : showLiveConfirm
+                            ? 'Bestätigung schließen'
+                            : livePrepPreview
+                              ? 'Weiter zur Bestätigung'
+                              : 'Noch nicht bereit'}
                       </Button>
                     </div>
 
@@ -1716,12 +1790,13 @@ const storedValue = finalUrl;
                               variant="outline"
                               size="sm"
                               className="shrink-0 gap-2"
+                              disabled={switchingMode !== null}
                               onClick={() => {
                                 if (!confirm('In Testmodus wechseln?\n\nNeue Angebote und Rechnungen erhalten danach TEST-Nummern.\n\nDer Livebetrieb bleibt erhalten.')) return;
-                                updateField('testModus', true);
+                                switchTestMode(true);
                               }}
                             >
-                              <FlaskConical className="w-4 h-4" />
+                              {switchingMode === 'test' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
                               In Testmodus wechseln
                             </Button>
                           </div>
