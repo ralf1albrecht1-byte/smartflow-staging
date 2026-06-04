@@ -522,7 +522,7 @@ type ReviewBadge = {
   className: string;
   icon?: boolean;
   tooltip?: string;
-  focusTarget?: "specialNotes" | "items" | "customer";
+  focusTarget?: "specialNotes" | "items" | "customer" | "executionAddress";
 };
 
 const compactText = (value?: string | null) =>
@@ -4014,7 +4014,7 @@ const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
     lines.push("Warum: Ausführungsadresse konnte nicht sicher von der Rechnungsadresse getrennt werden.");
   }
 
-  lines.push("Aktion: Ausführungsadresse kontrollieren, bearbeiten oder übernehmen.");
+  lines.push("Aktion: Ausführungsadresse oben im Auftrag kontrollieren, übernehmen oder bearbeiten.");
   return lines.join("\n");
 };
 
@@ -4057,7 +4057,7 @@ const getSystemBadges = (
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
       tooltip: formatAddressRoleReviewTooltipV17_61(order),
-      focusTarget: "customer",
+      focusTarget: "executionAddress",
     });
   }
 
@@ -5874,8 +5874,9 @@ export default function AuftraegePage() {
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
   const specialNotesRef = useRef<HTMLDivElement | null>(null);
   const serviceItemsRef = useRef<HTMLDivElement | null>(null);
+  const executionAddressRef = useRef<HTMLDivElement | null>(null);
   const [pendingFocusSection, setPendingFocusSection] = useState<
-    "specialNotes" | "items" | null
+    "specialNotes" | "items" | "executionAddress" | null
   >(null);
 
   // New duplicate check (Phase C — Sheet-based)
@@ -6305,7 +6306,7 @@ export default function AuftraegePage() {
     o: Order,
     opts?: {
       openCustomerSection?: boolean;
-      focusSection?: "specialNotes" | "items";
+      focusSection?: "specialNotes" | "items" | "executionAddress";
     },
   ) => {
     setEditId(o.id);
@@ -6609,6 +6610,14 @@ export default function AuftraegePage() {
           block: "start",
         });
         serviceItemsRef.current?.focus?.();
+      }
+
+      if (pendingFocusSection === "executionAddress") {
+        executionAddressRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        executionAddressRef.current?.focus?.();
       }
 
       setPendingFocusSection(null);
@@ -10013,7 +10022,8 @@ export default function AuftraegePage() {
               (badge) =>
                 !mobileHeaderBadgeKeys.has(badge.key) &&
                 (badge.focusTarget === "specialNotes" ||
-                  badge.focusTarget === "customer"),
+                  badge.focusTarget === "customer" ||
+                  badge.focusTarget === "executionAddress"),
             );
             const mobileSystemBadges = leftSystemBadges.filter(
               (badge) =>
@@ -10048,6 +10058,13 @@ export default function AuftraegePage() {
               setActiveMobileTooltipKey(null);
               setActiveMobileTooltip(null);
               openEdit(o, { openCustomerSection: true });
+            };
+
+            const openOrderAtExecutionAddress = (event: any) => {
+              event.stopPropagation();
+              setActiveMobileTooltipKey(null);
+              setActiveMobileTooltip(null);
+              openEdit(o, { focusSection: "executionAddress" });
             };
 
             const mobileTooltipKey = (badge: ReviewBadge, slot: string) =>
@@ -10099,11 +10116,13 @@ export default function AuftraegePage() {
               const shouldOpenSpecialNotes =
                 badge.focusTarget === "specialNotes";
               const shouldOpenCustomer = badge.focusTarget === "customer";
+              const shouldOpenExecutionAddress = badge.focusTarget === "executionAddress";
 
               if (
                 !shouldOpenItems &&
                 !shouldOpenSpecialNotes &&
-                !shouldOpenCustomer
+                !shouldOpenCustomer &&
+                !shouldOpenExecutionAddress
               ) {
                 return renderOrderCardBadge(badge, tooltipAlign);
               }
@@ -10131,7 +10150,9 @@ export default function AuftraegePage() {
                       ? openOrderAtItems
                       : shouldOpenCustomer
                         ? openOrderAtCustomer
-                        : openOrderAtSpecialNotes
+                        : shouldOpenExecutionAddress
+                          ? openOrderAtExecutionAddress
+                          : openOrderAtSpecialNotes
                   }
                   className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
                     isCompactIcon
@@ -11276,7 +11297,11 @@ export default function AuftraegePage() {
               </div>
 
               {shouldShowAddressRoleReviewBoxV17_62 && (
-                <div className="rounded-lg border border-red-200 bg-red-50/80 dark:border-red-900/60 dark:bg-red-950/20 p-3 space-y-3">
+                <div
+                  ref={executionAddressRef}
+                  tabIndex={-1}
+                  className="rounded-lg border border-red-200 bg-red-50/80 p-3 space-y-3 outline-none ring-red-300 focus:ring-2 dark:border-red-900/60 dark:bg-red-950/20"
+                >
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
                     <div className="min-w-0">
@@ -11284,7 +11309,7 @@ export default function AuftraegePage() {
                         Ausführungsadresse unklar
                       </div>
                       <p className="text-xs text-red-700/90 dark:text-red-200/80">
-                        Bitte kontrollieren: Ausführungsadresse übernehmen oder manuell bearbeiten.
+                        Bitte Ausführungsadresse kontrollieren: übernehmen, bearbeiten oder leer speichern, wenn keine abweichende Adresse nötig ist.
                       </p>
                     </div>
                   </div>
@@ -11345,7 +11370,11 @@ export default function AuftraegePage() {
               {/* Ausführungsadresse / Baustellenadresse.
                   Bei mehreren Arbeitsorten ist der bearbeitbare Block darunter die einzige Wahrheit. */}
               {!hasMultipleEditWorkSites && (
-                <div className="rounded-lg border bg-slate-50/70 dark:bg-slate-900/30 p-3 space-y-3">
+                <div
+                  ref={!shouldShowAddressRoleReviewBoxV17_62 ? executionAddressRef : undefined}
+                  tabIndex={-1}
+                  className="rounded-lg border bg-slate-50/70 p-3 space-y-3 outline-none ring-red-300 focus:ring-2 dark:bg-slate-900/30"
+                >
                   <label className="flex items-start gap-2 cursor-pointer">
                     <input
                       type="checkbox"
