@@ -4613,6 +4613,12 @@ const getStrongerCardBadgeClassName = (className?: string | null) =>
 const compactIconForBadge = (
   badge: ReviewBadge,
 ): ComponentType<{ className?: string }> | null => {
+  // V17.90L: Ausführungsadressen bleiben als kompakte Orts-/Textchips sichtbar.
+  // Sie dürfen aber nicht mehr durch die allgemeine Zugangs-/Tür-Erkennung in
+  // einen Tür-/Zugangschip umgewandelt werden, weil das wie ein separater
+  // Zugangshinweis aussieht und falsche Tooltips erzeugen kann.
+  if (badge.key === "site_address") return null;
+
   const label = normalizeForMatch(badge.label);
   if (label.includes("hund")) {
     return DangerousDogIcon;

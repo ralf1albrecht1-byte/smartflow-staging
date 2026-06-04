@@ -221,19 +221,25 @@ const isServiceLikeSpecialNoteLineV17_32 = (value: string): boolean => {
   const text = normalizeDedupeText(value);
   if (!body || !text) return false;
 
-  const hasWorkAction = /(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/.test(text);
+  const hasWorkAction = /(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|pulire|limpieza|limpiar)\b/.test(text);
   const hasMeasureOrPrice =
     /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|stunden?|std|stueck|stück|stk|pcs?|chf|eur|euro|franken|stutz)\b/i.test(body) ||
     /\(\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|stueck|stück|stk)\s*\)/i.test(body) ||
     /\b(?:chf|eur|euro|franken|stutz)\s*\d/i.test(body);
 
-  const actionCount = (text.match(/(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|limpieza)\b/g) || []).length;
+  const actionCount = (text.match(/(?:\b|[a-z])(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean(?:ing)?|nettoyage|nettoyer|pulizia|pulire|limpieza|limpiar)\b/g) || []).length;
   const hasListSeparator = /[,;+]/.test(body);
   const hasOperationalSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
 
   const hasServiceListSummary = hasListSeparator && actionCount >= 1 && /\b(?:anfahrt|fahrtkosten|fahrt|pauschale)\b/.test(text);
+  const serviceLabelWordCount = text.split(/\s+/g).filter(Boolean).length;
+  // V17.90L: kurze serviceartige Labels wie "Reinigung Garage" oder
+  // "Garage Boden reinigen" sind Leistungszusammenfassungen, keine operativen
+  // Besonderheiten. Ohne Kontakt-/Zugangs-/Gefahren-Signal gehören sie nicht in
+  // die Hinweise.
+  const isShortServiceLabel = hasWorkAction && !hasOperationalSignal && serviceLabelWordCount <= 6;
 
-  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2) || hasServiceListSummary);
+  return hasWorkAction && !hasOperationalSignal && (hasMeasureOrPrice || (hasListSeparator && actionCount >= 2) || hasServiceListSummary || isShortServiceLabel);
 };
 
 const canonicalSpecialNoteBodyV17_32 = (value: string): string => {

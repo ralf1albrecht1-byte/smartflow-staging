@@ -5034,6 +5034,171 @@ function formatWorkNameForDisplay(value: string): string {
     .join(" ");
 }
 
+
+// V17.90L: German-visible service name safety net.
+// The AI/validator must write visible service names in German. If the intake
+// has a visible automatic German translation block, we use that block as
+// line-local evidence and replace raw-language service labels only when the
+// translated line carries the same quantity and unit price. This is deliberately
+// not a fixed service mapping: the translated customer line is the source of
+// truth and prevents cross-line leakage.
+function splitAutomaticGermanTranslationBlockV17_90L(
+  value: string | null | undefined,
+): string {
+  const parts = String(value || "").split(
+    /---\s*Übersetzung\s*\(automatisch\)\s*---/i,
+  );
+  return parts.length > 1 ? parts.slice(1).join("\n") : "";
+}
+
+function normalizeServiceLineForMatchV17_90L(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9.,\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function decimalMatchPatternV17_90L(value: number): string {
+  const rounded = Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  if (!Number.isFinite(rounded) || rounded <= 0) return "";
+  if (Number.isInteger(rounded)) return String(rounded);
+  const [intPart, decPart = ""] = String(rounded).split(".");
+  return `${intPart}[.,]${decPart.replace(/0+$/g, "") || "0"}`;
+}
+
+function translatedLineMatchesItemNumbersV17_90L(
+  line: string,
+  item: { quantity?: number | null; unitPrice?: number | null },
+): boolean {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0) return false;
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return false;
+
+  const quantityPattern = decimalMatchPatternV17_90L(quantity);
+  const pricePattern = decimalMatchPatternV17_90L(unitPrice);
+  if (!quantityPattern || !pricePattern) return false;
+
+  const normalized = normalizeServiceLineForMatchV17_90L(line);
+  return (
+    new RegExp(`(^|[^0-9])${quantityPattern}([^0-9]|$)`).test(normalized) &&
+    new RegExp(`(^|[^0-9])${pricePattern}([^0-9]|$)`).test(normalized) &&
+    /\b(?:chf|eur|euro|franken|stutz)\b/.test(normalized)
+  );
+}
+
+
+function cleanGermanServiceLabelGrammarV17_90L(value: string): string {
+  return compactText(value)
+    .replace(/\bBodens\b/gi, "Boden")
+    .replace(/\bGeländers\b/gi, "Geländer")
+    .replace(/\bGelaenders\b/gi, "Geländer")
+    .replace(/^Reinigung\s+des\s+Bodens\s+(im|in\s+der|in\s+dem|am)\s+(.+)$/i, "Boden $1 $2 reinigen")
+    .replace(/^Reinigung\s+(.+)$/i, "$1 reinigen")
+    .replace(/\bFensterreinigung\s+(.+)\s+reinigen\b/gi, "Fenster $1 reinigen")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanTranslatedServiceLabelFromLineV17_90L(line: string): string {
+  let label = compactText(line);
+  if (!label) return "";
+
+  label = label
+    .replace(
+      /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
+      "",
+    )
+    .replace(
+      /\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
+      "",
+    )
+    .replace(
+      /\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pi[eè]ces?|s[aä]cke|saecke|kg|kilogramm|liter)\b.*$/i,
+      "",
+    )
+    .replace(/^[\s:;,.\-–—]+|[\s:;,.\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleanGermanServiceLabelGrammarV17_90L(label);
+}
+
+function isUsableGermanServiceLabelV17_90L(label: string): boolean {
+  const normalized = normalizeServiceLineForMatchV17_90L(label);
+  if (!normalized || label.length < 5 || label.length > 90) return false;
+  if (/^(?:rechnung|ausfuehrung|ausfuehrungsadresse|arbeitsort|kontakt|bitte|achtung|schluessel|schlussel|hund|leiter)\b/.test(normalized)) {
+    return false;
+  }
+
+  // Generic German work-action signal. This validates that the translated
+  // line is an actual service label, not an address or note. It is not a
+  // service mapping and does not decide the service type.
+  return /\b(?:reinigen|reinigung|abstauben|abwischen|streichen|schleifen|schneiden|entsorgen|sortieren|putzen)\b/.test(
+    normalized,
+  );
+}
+
+function repairGermanVisibleServiceNamesFromTranslationV17_90L<
+  T extends {
+    serviceName?: string | null;
+    quantity?: number | null;
+    unitPrice?: number | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+    description?: string | null;
+  },
+>(items: T[], sourceText: string | null | undefined): T[] {
+  const translatedBlock = splitAutomaticGermanTranslationBlockV17_90L(sourceText);
+  if (!translatedBlock.trim()) return items;
+
+  const translatedLines = translatedBlock
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/^\s*(?:rechnung|ausführung|ausfuehrung|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kontakt|e-mail|tel\.?|telefon)\s*:/i.test(line));
+
+  if (translatedLines.length === 0) return items;
+
+  return items.map((item) => {
+    const currentName = compactText(item.serviceName);
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    if (!currentName || !Number.isFinite(quantity) || quantity <= 0) return item;
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0) return item;
+
+    const candidates = translatedLines
+      .filter((line) => translatedLineMatchesItemNumbersV17_90L(line, item))
+      .map(cleanTranslatedServiceLabelFromLineV17_90L)
+      .filter(isUsableGermanServiceLabelV17_90L);
+
+    const uniqueCandidates = Array.from(
+      new Map(candidates.map((candidate) => [normalizeUnitText(candidate), candidate])).values(),
+    );
+
+    if (uniqueCandidates.length !== 1) return item;
+
+    const candidate = uniqueCandidates[0];
+    const currentKey = normalizeUnitText(currentName);
+    const candidateKey = normalizeUnitText(candidate);
+    if (!candidateKey || candidateKey === currentKey) return item;
+
+    return {
+      ...item,
+      serviceName: candidate,
+    };
+  });
+}
+
 function findBestQuantityForService(
   serviceName: string,
   unitType: string,
@@ -7814,6 +7979,14 @@ export async function processIncomingMessage(
       validationSourceText,
     );
   finalOrderItems = unitlessQuantityGuardBeforePersist.items;
+
+  // V17.90L: sichtbare Leistungsnamen müssen deutsch sein. Wenn die automatische
+  // Übersetzung eine eindeutige line-local Servicezeile mit gleicher Menge und
+  // gleichem Preis enthält, ersetzt sie fremdsprachige Rohlabels vor Persistenz.
+  finalOrderItems = repairGermanVisibleServiceNamesFromTranslationV17_90L(
+    finalOrderItems,
+    validationSourceText,
+  );
 
   // V17.11: Allerletzter Summen-Blocker vor Order.create.
   // Rote Prüfpositionen dürfen zwar Menge/Preis als Hinweis behalten, aber
