@@ -39,6 +39,9 @@ const FIXED_APPOINTMENT_HINT =
 const PRE_ARRIVAL_HINT =
   /(?:nicht\s+einfach\s+(?:kommen|vorbeikommen)|nicht\s+ohne\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen)|vor\s+(?:start|arbeitsbeginn|ankunft)\s+(?:kurz\s+)?(?:telefonisch\s+)?(?:melden|anrufen|kontaktieren)|erst\s+nach\s+(?:ruecksprache|rucksprache|absprache)\s+(?:kommen|vorbeikommen))/i;
 
+const isDogSafetyNoteV17_90L34 = (value: string): boolean =>
+  /\b(?:hund|dog|chien)\b/i.test(normalizeDedupeText(value));
+
 const isOperationalJobHint = (value: string) => {
   const line = normalizeLine(value);
   if (!line) return false;
@@ -48,10 +51,7 @@ const isOperationalJobHint = (value: string) => {
   if (isServiceLikeSpecialNoteLineV17_32(line)) return false;
   if (APPOINTMENT_CLARIFY_HINT.test(line)) return true;
   if (PRE_ARRIVAL_HINT.test(line)) return true;
-  // V17.90L23: a fixed customer appointment such as "Termin: morgen Nachmittag"
-  // is an operational field hint and must not collapse to a useless "Termin"
-  // marker or disappear from Besonderheiten.
-  if (FIXED_APPOINTMENT_HINT.test(line)) return true;
+  if (FIXED_APPOINTMENT_HINT.test(line)) return false;
   return !NON_OPERATIONAL_JOB_HINT.test(line);
 };
 
@@ -259,12 +259,6 @@ const canonicalSpecialNoteBodyV17_32 = (value: string): string => {
     .trim();
 
   const normalized = normalizeDedupeText(body);
-  if (/^termin\s*:\s*(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\.?$/i.test(body)) {
-    return body.replace(/\.$/, ".");
-  }
-  if (/^(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\.?$/i.test(body)) {
-    return `Termin: ${body.replace(/\.$/, "")}.`;
-  }
   const code = extractAccessCodeV17_32(body);
 
   const mentionsKeyBox =
@@ -457,6 +451,10 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     }
 
     const cleaned = stripKnownMarker(line);
+    if (cleaned && isDogSafetyNoteV17_90L34(cleaned)) {
+      safetyWarnings.push(cleaned);
+      continue;
+    }
     if (cleaned && isOperationalJobHint(cleaned)) jobHints.push(cleaned);
   }
 
@@ -632,97 +630,12 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
   return mergePreArrivalInstructionLinesV17_34(mergeCommunicationLinesV17_33(out));
 }
 
-
-// V17.90L22: split polluted one-line customer text before special-note
-// canonicalization. A full WhatsApp body must never survive as Besonderheiten.
-// We keep only operational atoms (communication, access/key, appointment,
-// warning), and drop billing/execution/service/price fragments structurally.
-const SPLITTABLE_OPERATIONAL_SIGNAL_V17_90L22 =
-  /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|ruckruf|rückruf|mail|email|e-mail|schluessel|schlussel|schlüssel|key|cle|clé|rezeption|empfang|hauswart|code|torcode|zugang|parkieren|parken|parkplatz|termin|morgen|nachmittag|vormittag|abend|uhr|achtung|warnung|gefahr|nass|rutschig|hund|leiter)\b/i;
-
-const STRUCTURAL_NON_NOTE_FRAGMENT_V17_90L22 =
-  /\b(?:rechnung|rechnungsadresse|rechnungskunde|fattura|factura|fatura|facture|invoice|billing|kunde|e-mail\s*[:=]|email\s*[:=]|ausfuehrung|ausführung|ausfuehrungsadresse|ausführungsadresse|arbeitsort|einsatzort|objektadresse|strasse|straße|str\.?|weg|gasse|platz|allee|ring|rue|avenue|via|viale)\b/i;
-
-const PRICED_SERVICE_FRAGMENT_V17_90L22 =
-  /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stueck|stück|stk|pcs?|stunden?|std\.?|h)\b.{0,80}?\b(?:chf|eur|euro|franken|stutz|à|a|zu|je|pro|per)\b|\b(?:chf|eur|euro|franken|stutz)\s*\d+(?:[.,]\d+)?\b|\b\d+(?:[.,]\d+)?\s*(?:chf|eur|euro|franken|stutz)\b/i;
-
-function splitPotentialCompoundSpecialNoteV17_90L22(value: string): string[] {
-  const raw = stripKnownMarker(String(value || ""));
-  const markerMatch = String(value || "").match(/^\s*(\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\])\s*/i);
-  const marker = markerMatch?.[1] || "";
-  const compact = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\s+/g, " ").trim();
-  if (!compact) return [];
-
-  const seeded = compact
-    .replace(/\b(?:nur\s+)?sms\b/gi, "¶$&")
-    .replace(/\b(?:kein|keine|keinen|ohne|no|not|pas|sans)\s+whatsapp\b/gi, "¶$&")
-    .replace(/\b(?:schluessel|schlussel|schlüssel|key|cle|clé)\b/gi, "¶$&")
-    .replace(/\b(?:achtung|warnung|gefahr)\b/gi, "¶$&")
-    .replace(/\bbitte\s+(?:morgen|heute|am|um|vor|nach)\b/gi, "¶$&")
-    .replace(/\b(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\b/gi, "¶$&")
-    .replace(/\b(?:parkieren|parken|parkplatz)\b/gi, "¶$&");
-
-  const parts = seeded
-    .split(/¶|\n+|(?<=[.!?])\s+/g)
-    .map((part) => normalizeLine(part.replace(/^[-–—•,;:\s]+/, "").replace(/[-–—•,;:\s]+$/, "")))
-    .filter(Boolean);
-
-  const out: string[] = [];
-  for (const part of parts) {
-    const text = normalizeDedupeText(part);
-    if (!text) continue;
-    if (!SPLITTABLE_OPERATIONAL_SIGNAL_V17_90L22.test(part)) continue;
-    if (PRICED_SERVICE_FRAGMENT_V17_90L22.test(part)) continue;
-    if (STRUCTURAL_NON_NOTE_FRAGMENT_V17_90L22.test(part) && !/\b(?:sms|whatsapp|telefon|schluessel|schlussel|schlüssel|key|rezeption|empfang|hauswart|code|achtung|warnung|gefahr|nass|rutschig|termin|morgen|nachmittag|vormittag|parkieren|parken|parkplatz)\b/i.test(part)) {
-      continue;
-    }
-
-    let cleaned = part
-      .replace(/^scrivere\s+/i, "")
-      .replace(/^non\s+whatsapp\b/i, "Kein WhatsApp")
-      .replace(/^chiave\s+alla\s+reception\b/i, "Schlüssel an der Rezeption")
-      .replace(/^attenzione\s*:?\s*/i, "Achtung: ")
-      .replace(/^bitte\s+/i, "Bitte ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    // Normalize standalone appointment fragments into a useful German hint.
-    if (/^(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\.?$/i.test(cleaned)) {
-      cleaned = `Termin: ${cleaned.replace(/\.$/, "")}.`;
-    }
-    if (/^bitte\s+(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\.?$/i.test(cleaned)) {
-      cleaned = `Termin: ${cleaned.replace(/^bitte\s+/i, "").replace(/\.$/, "")}.`;
-    }
-
-    out.push(marker ? `${marker} ${cleaned}` : cleaned);
-  }
-
-  return out.length > 0 ? out : [value];
-}
-
-function sanitizeSpecialNoteInputLinesV17_90L22(values: string[]): string[] {
-  return values
-    .flatMap((value) => splitPotentialCompoundSpecialNoteV17_90L22(value))
-    .map((line) => normalizeLine(line))
-    .filter(Boolean)
-    .filter((line) => {
-      const body = stripKnownMarker(line);
-      if (!body) return false;
-      if (/^termin\s*:?$/i.test(body.trim())) return false;
-      if (PRICED_SERVICE_FRAGMENT_V17_90L22.test(body)) return false;
-      if (STRUCTURAL_NON_NOTE_FRAGMENT_V17_90L22.test(body) && !SPLITTABLE_OPERATIONAL_SIGNAL_V17_90L22.test(body)) return false;
-      return true;
-    });
-}
-
 export function buildSpecialNotes(input: {
   safetyWarnings?: string[];
   jobHints?: string[];
   systemHints?: string[];
 }) {
-  const rawSafetyWarnings = sanitizeSpecialNoteInputLinesV17_90L22(input.safetyWarnings ?? [])
-    .map(canonicalizeSpecialNoteLineV17_32)
-    .filter(Boolean);
+  const rawSafetyWarnings = (input.safetyWarnings ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
   const demotedSafetyHints = rawSafetyWarnings
     .map(stripKnownMarker)
     .filter((line) => isEquipmentOnlyWarningLineV17_34(line));
@@ -730,13 +643,11 @@ export function buildSpecialNotes(input: {
     const cleaned = stripKnownMarker(line);
     return !isNonSafetyConditionLineV17_33(cleaned) && !isEquipmentOnlyWarningLineV17_34(cleaned);
   });
-  const jobHints = sanitizeSpecialNoteInputLinesV17_90L22([...(input.jobHints ?? []), ...demotedSafetyHints])
+  const jobHints = [...(input.jobHints ?? []), ...demotedSafetyHints]
     .map(canonicalizeSpecialNoteLineV17_32)
     .filter((line) => !isNonSafetyConditionLineV17_33(line))
     .filter(isOperationalJobHint);
-  const systemHints = sanitizeSpecialNoteInputLinesV17_90L22(input.systemHints ?? [])
-    .map(canonicalizeSpecialNoteLineV17_32)
-    .filter(Boolean);
+  const systemHints = (input.systemHints ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
 
   const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
   const safetyKeys = new Set(dedupedSafetyWarnings.map(semanticNoteKey));
@@ -752,13 +663,7 @@ export function buildSpecialNotes(input: {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const compacted = Array.from(new Set(compactSpecialNoteLinesV17_27(lines)));
-  const hasSpecificAppointment = compacted.some((line) => /^Termin\s*:.+/i.test(stripKnownMarker(line)));
-  const cleaned = hasSpecificAppointment
-    ? compacted.filter((line) => !/^Termin\s*:?$/i.test(stripKnownMarker(line).trim()))
-    : compacted;
-
-  return cleaned.join("\n");
+  return Array.from(new Set(compactSpecialNoteLinesV17_27(lines))).join("\n");
 }
 
 export function hasWarningKeywords(text: string): boolean {

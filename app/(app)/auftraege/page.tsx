@@ -2562,8 +2562,14 @@ const buildSpecialNotesSummaryTooltipV17_91 = (
         return true;
       });
 
-  const safety = uniqueLines(parsedNotes.safetyWarnings || []);
-  const hints = uniqueLines(parsedNotes.jobHints || []);
+  const isDogSafetyLine = (line: string) =>
+    /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
+
+  const safety = uniqueLines([
+    ...(parsedNotes.safetyWarnings || []),
+    ...(parsedNotes.jobHints || []).filter(isDogSafetyLine),
+  ]);
+  const hints = uniqueLines((parsedNotes.jobHints || []).filter((line) => !isDogSafetyLine(line)));
 
   const sections = [
     safety.length ? ["Gefahr / Achtung", ...safety].join("\n") : "",
@@ -5001,6 +5007,7 @@ const renderSpecialNotesSummaryTooltipV17_91 = (
 
       {hasHints && (
         <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+          <span className="mb-1 block font-bold">Besonderheiten</span>
           {sections.hints.map((line, index) => (
             <span key={`summary_hint_${index}`} className="block whitespace-pre-wrap break-words">
               {line}
@@ -5097,6 +5104,7 @@ const renderMobileSpecialNotesSummaryTooltipV17_91 = (
       )}
       {hasHints && (
         <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+          <span className="mb-1 block font-bold">Besonderheiten</span>
           {sections.hints.map((line, index) => (
             <span key={`mobile_summary_hint_${index}`} className="block whitespace-pre-wrap break-words">
               {line}
@@ -9739,9 +9747,6 @@ export default function AuftraegePage() {
         >
           {isSpecialNotesSummary && specialSummarySections ? (
             <div className="space-y-2">
-              <div className="text-[12px] font-bold uppercase tracking-wide text-blue-700 dark:text-blue-200">
-                Besonderheiten
-              </div>
               {specialSummarySections.safety.length > 0 && (
                 <div className="rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
                   <div className="mb-1 flex items-center gap-1 font-bold">
@@ -9760,6 +9765,7 @@ export default function AuftraegePage() {
 
               {specialSummarySections.hints.length > 0 && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                  <div className="mb-1 font-bold">Besonderheiten</div>
                   {specialSummarySections.hints.map((line, index) => (
                     <div
                       key={`active_mobile_summary_hint_${index}`}
@@ -9773,7 +9779,7 @@ export default function AuftraegePage() {
 
               {specialSummarySections.safety.length === 0 &&
                 specialSummarySections.hints.length === 0 && (
-                  <div className="whitespace-pre-wrap break-words rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
+                  <div className="whitespace-pre-wrap break-words rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
                     {tooltip}
                   </div>
                 )}
@@ -10054,8 +10060,8 @@ export default function AuftraegePage() {
             ) => {
               event.preventDefault();
               event.stopPropagation();
-              const title = compactText(badge.tooltip) || badge.label;
-              if (!title) return;
+              const title = String(badge.tooltip || "").trim() || badge.label;
+              if (!compactText(title)) return;
               const key = mobileTooltipKey(badge, slot);
               setActiveMobileTooltipKey((current) => {
                 const next = current === key ? null : key;
