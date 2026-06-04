@@ -623,12 +623,96 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
   return mergePreArrivalInstructionLinesV17_34(mergeCommunicationLinesV17_33(out));
 }
 
+
+// V17.90L22: split polluted one-line customer text before special-note
+// canonicalization. A full WhatsApp body must never survive as Besonderheiten.
+// We keep only operational atoms (communication, access/key, appointment,
+// warning), and drop billing/execution/service/price fragments structurally.
+const SPLITTABLE_OPERATIONAL_SIGNAL_V17_90L22 =
+  /\b(?:sms|whatsapp|telefon|tel\.?|anrufen|rueckruf|ruckruf|rückruf|mail|email|e-mail|schluessel|schlussel|schlüssel|key|cle|clé|rezeption|empfang|hauswart|code|torcode|zugang|parkieren|parken|parkplatz|termin|morgen|nachmittag|vormittag|abend|uhr|achtung|warnung|gefahr|nass|rutschig|hund|leiter)\b/i;
+
+const STRUCTURAL_NON_NOTE_FRAGMENT_V17_90L22 =
+  /\b(?:rechnung|rechnungsadresse|rechnungskunde|fattura|factura|fatura|facture|invoice|billing|kunde|e-mail\s*[:=]|email\s*[:=]|ausfuehrung|ausführung|ausfuehrungsadresse|ausführungsadresse|arbeitsort|einsatzort|objektadresse|strasse|straße|str\.?|weg|gasse|platz|allee|ring|rue|avenue|via|viale)\b/i;
+
+const PRICED_SERVICE_FRAGMENT_V17_90L22 =
+  /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stueck|stück|stk|pcs?|stunden?|std\.?|h)\b.{0,80}?\b(?:chf|eur|euro|franken|stutz|à|a|zu|je|pro|per)\b|\b(?:chf|eur|euro|franken|stutz)\s*\d+(?:[.,]\d+)?\b|\b\d+(?:[.,]\d+)?\s*(?:chf|eur|euro|franken|stutz)\b/i;
+
+function splitPotentialCompoundSpecialNoteV17_90L22(value: string): string[] {
+  const raw = stripKnownMarker(String(value || ""));
+  const markerMatch = String(value || "").match(/^\s*(\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\])\s*/i);
+  const marker = markerMatch?.[1] || "";
+  const compact = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\s+/g, " ").trim();
+  if (!compact) return [];
+
+  const seeded = compact
+    .replace(/\b(?:nur\s+)?sms\b/gi, "¶$&")
+    .replace(/\b(?:kein|keine|keinen|ohne|no|not|pas|sans)\s+whatsapp\b/gi, "¶$&")
+    .replace(/\b(?:schluessel|schlussel|schlüssel|key|cle|clé)\b/gi, "¶$&")
+    .replace(/\b(?:achtung|warnung|gefahr)\b/gi, "¶$&")
+    .replace(/\bbitte\s+(?:morgen|heute|am|um|vor|nach)\b/gi, "¶$&")
+    .replace(/\b(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\b/gi, "¶$&")
+    .replace(/\b(?:parkieren|parken|parkplatz)\b/gi, "¶$&");
+
+  const parts = seeded
+    .split(/¶|\n+|(?<=[.!?])\s+/g)
+    .map((part) => normalizeLine(part.replace(/^[-–—•,;:\s]+/, "").replace(/[-–—•,;:\s]+$/, "")))
+    .filter(Boolean);
+
+  const out: string[] = [];
+  for (const part of parts) {
+    const text = normalizeDedupeText(part);
+    if (!text) continue;
+    if (!SPLITTABLE_OPERATIONAL_SIGNAL_V17_90L22.test(part)) continue;
+    if (PRICED_SERVICE_FRAGMENT_V17_90L22.test(part)) continue;
+    if (STRUCTURAL_NON_NOTE_FRAGMENT_V17_90L22.test(part) && !/\b(?:sms|whatsapp|telefon|schluessel|schlussel|schlüssel|key|rezeption|empfang|hauswart|code|achtung|warnung|gefahr|nass|rutschig|termin|morgen|nachmittag|vormittag|parkieren|parken|parkplatz)\b/i.test(part)) {
+      continue;
+    }
+
+    let cleaned = part
+      .replace(/^scrivere\s+/i, "")
+      .replace(/^non\s+whatsapp\b/i, "Kein WhatsApp")
+      .replace(/^chiave\s+alla\s+reception\b/i, "Schlüssel an der Rezeption")
+      .replace(/^attenzione\s*:?\s*/i, "Achtung: ")
+      .replace(/^bitte\s+/i, "Bitte ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // Normalize standalone appointment fragments into a useful German hint.
+    if (/^(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\.?$/i.test(cleaned)) {
+      cleaned = `Termin: ${cleaned.replace(/\.$/, "")}.`;
+    }
+    if (/^bitte\s+(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\.?$/i.test(cleaned)) {
+      cleaned = `Termin: ${cleaned.replace(/^bitte\s+/i, "").replace(/\.$/, "")}.`;
+    }
+
+    out.push(marker ? `${marker} ${cleaned}` : cleaned);
+  }
+
+  return out.length > 0 ? out : [value];
+}
+
+function sanitizeSpecialNoteInputLinesV17_90L22(values: string[]): string[] {
+  return values
+    .flatMap((value) => splitPotentialCompoundSpecialNoteV17_90L22(value))
+    .map((line) => normalizeLine(line))
+    .filter(Boolean)
+    .filter((line) => {
+      const body = stripKnownMarker(line);
+      if (!body) return false;
+      if (PRICED_SERVICE_FRAGMENT_V17_90L22.test(body)) return false;
+      if (STRUCTURAL_NON_NOTE_FRAGMENT_V17_90L22.test(body) && !SPLITTABLE_OPERATIONAL_SIGNAL_V17_90L22.test(body)) return false;
+      return true;
+    });
+}
+
 export function buildSpecialNotes(input: {
   safetyWarnings?: string[];
   jobHints?: string[];
   systemHints?: string[];
 }) {
-  const rawSafetyWarnings = (input.safetyWarnings ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
+  const rawSafetyWarnings = sanitizeSpecialNoteInputLinesV17_90L22(input.safetyWarnings ?? [])
+    .map(canonicalizeSpecialNoteLineV17_32)
+    .filter(Boolean);
   const demotedSafetyHints = rawSafetyWarnings
     .map(stripKnownMarker)
     .filter((line) => isEquipmentOnlyWarningLineV17_34(line));
@@ -636,11 +720,13 @@ export function buildSpecialNotes(input: {
     const cleaned = stripKnownMarker(line);
     return !isNonSafetyConditionLineV17_33(cleaned) && !isEquipmentOnlyWarningLineV17_34(cleaned);
   });
-  const jobHints = [...(input.jobHints ?? []), ...demotedSafetyHints]
+  const jobHints = sanitizeSpecialNoteInputLinesV17_90L22([...(input.jobHints ?? []), ...demotedSafetyHints])
     .map(canonicalizeSpecialNoteLineV17_32)
     .filter((line) => !isNonSafetyConditionLineV17_33(line))
     .filter(isOperationalJobHint);
-  const systemHints = (input.systemHints ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
+  const systemHints = sanitizeSpecialNoteInputLinesV17_90L22(input.systemHints ?? [])
+    .map(canonicalizeSpecialNoteLineV17_32)
+    .filter(Boolean);
 
   const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
   const safetyKeys = new Set(dedupedSafetyWarnings.map(semanticNoteKey));

@@ -8923,6 +8923,294 @@ function forceAppendMissingHardMeasuredLineItems(
   );
 }
 
+
+// V17.90L22: final structural integrity guard for messy one-line WhatsApp texts.
+// Goal: every amount-bearing service line must stay line-local. If the LLM or an
+// older repair pass copied the whole customer text into item evidence and then
+// shifted quantities/prices to neighbouring services, rebuild the amount-bearing
+// rows from the exact local customer clauses. This is deliberately structural:
+// it uses quantity/unit/price/evidence locality, not fixed customer service lists.
+function pricedEvidenceCountV17_90L22(value?: string | null): number {
+  const source = normalizeText(value);
+  if (!source) return 0;
+  const measured = source.match(
+    new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b.{0,45}?(?:${CURRENCY_WORDS}|\\b(?:à|a|zu|je|pro|per|each|at)\\b).{0,25}?\\d+(?:[.,]\\d{1,2})?`, "gi"),
+  ) || [];
+  const flat = source.match(
+    new RegExp(`\\b(?:anfahrt|fahrtkosten|fahrt|fahrpauschale|wegpauschale|reisepauschale|trasferta|deplacement|déplacement|travel|trip|transport)\\b.{0,50}?(?:${CURRENCY_WORDS}\\s*\\d|\\d+(?:[.,]\\d{1,2})?\\s*${CURRENCY_WORDS})`, "gi"),
+  ) || [];
+  return measured.length + flat.length;
+}
+
+function itemEvidenceBlobV17_90L22(item: ParsedOrderItemForValidation): string {
+  return [item.sourceText, item.evidence, item.description]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function isBroadPollutedItemEvidenceV17_90L22(
+  item: ParsedOrderItemForValidation,
+): boolean {
+  const evidence = itemEvidenceBlobV17_90L22(item);
+  if (!evidence) return false;
+  const key = normalizeCompare(evidence);
+  return (
+    evidence.length > 240 ||
+    pricedEvidenceCountV17_90L22(evidence) >= 2 ||
+    (/\b(?:rechnung|rechnungsadresse|fattura|factura|invoice|billing|ausfuehrung|ausführung|arbeitsort|whatsapp|kundennachrichten)\b/.test(key) &&
+      pricedEvidenceCountV17_90L22(evidence) >= 1)
+  );
+}
+
+function lineLocalPrefixTailV17_90L22(prefix: string): string {
+  let text = normalizeText(prefix).replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  const lastHardDelimiter = Math.max(
+    text.lastIndexOf("."),
+    text.lastIndexOf(";"),
+    text.lastIndexOf("|"),
+    text.lastIndexOf("\n"),
+  );
+  if (lastHardDelimiter >= 0) {
+    text = text.slice(lastHardDelimiter + 1).trim();
+  }
+
+  text = text
+    .replace(/^[-–—•,;:\s]+/, "")
+    .replace(/^(?:und|plus|dann|danach|zusätzlich|zusaetzlich)\b\s*[,;:-]?\s*/i, "")
+    .replace(/^.*\b(?:leistungen?|arbeiten|da(?:nn)?|bitte)\s*[:：]\s*/i, "")
+    .trim();
+
+  // If the prefix is still polluted by address/contact prose, keep only the
+  // short local label immediately before the quantity. This prevents
+  // "Rechnung: ... Ausführung ... Lagerregale abstauben 9 Stück" from becoming
+  // one service name.
+  const words = text.split(/\s+/g).filter(Boolean);
+  if (words.length > 8) {
+    text = words.slice(-8).join(" ");
+  }
+
+  return text.replace(/^[-–—•,;:\s]+/, "").replace(/\s+/g, " ").trim();
+}
+
+function extractStrictLineLocalPricedItemsV17_90L22(
+  originalText: string,
+  fallbackCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const source = normalizeText(originalText);
+  if (!source) return [];
+
+  const bases = unique([
+    ...source.split(/\n+/g),
+    ...source.split(/(?<=[.!?])\s+/g),
+  ])
+    .map((line) => normalizeText(line))
+    .filter((line) => line.length >= 8);
+
+  const result: ExplicitServiceLineItem[] = [];
+
+  const measuredPattern = new RegExp(
+    `\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])\\s*(?:à|a|zu|je|pro|per|each|at|x)?\\s*(?:(?:${CURRENCY_WORDS})\\s*)?${PRICE_NUMBER}(?:\\s*(?:${CURRENCY_WORDS}))?\\b`,
+    "gi",
+  );
+
+  for (const base of bases) {
+    const matches = Array.from(base.matchAll(measuredPattern));
+    if (matches.length === 0) continue;
+
+    let previousEnd = 0;
+    for (const match of matches) {
+      const matchText = match[0] || "";
+      const matchStart = match.index ?? 0;
+      const matchEnd = matchStart + matchText.length;
+      const localPrefix = lineLocalPrefixTailV17_90L22(base.slice(previousEnd, matchStart));
+      previousEnd = matchEnd;
+
+      if (!localPrefix || localPrefix.length < 3) continue;
+      if (/^(?:rechnung|rechnungsadresse|kunde|fattura|factura|invoice|billing|ausfuehrung|ausführung|arbeitsort|email|e-mail)$/i.test(localPrefix)) continue;
+
+      const segment = `${localPrefix} ${matchText}`.replace(/\s+/g, " ").trim();
+      const quantity = parseQuantityNumber(match[1]);
+      const unitType = unitTypeFromText(match[2]);
+      const unitPrice = findExplicitUnitPriceInLine(segment, fallbackCurrency);
+      if (!quantity || quantity <= 0 || !unitType || !unitPrice || unitPrice.amount <= 0) continue;
+      if (unitPrice.currency !== fallbackCurrency) continue;
+      if (unitPrice.unitType && unitPrice.unitType !== unitType) continue;
+
+      const serviceName = resolveExplicitServiceNameFromContext(
+        originalText,
+        segment,
+        cleanExplicitServiceNameFromLine(segment, {
+          quantityRaw: match[1] && match[2] ? `${match[1]} ${match[2]}` : matchText,
+          priceRaw: unitPrice.raw,
+        }),
+      );
+      if (!serviceName || normalizeCompare(serviceName) === "unbekannte leistung") continue;
+
+      const unit = unitTypeToDisplayUnit(unitType);
+      if (!unit) continue;
+
+      result.push({
+        serviceName,
+        description: segment,
+        quantity,
+        unit,
+        unitPrice: unitPrice.amount,
+        totalPrice: roundMoney(quantity * unitPrice.amount),
+        needsReview: false,
+        reviewReason: null,
+        sourceText: segment,
+        evidence: segment,
+        detectedCurrency: unitPrice.currency,
+      });
+    }
+
+    const flatPattern = new RegExp(
+      `\\b(?:anfahrt|fahrtkosten|fahrt|fahrpauschale|wegpauschale|reisepauschale|trasferta|deplacement|déplacement|travel|trip|transport)\\b[^\\n.;|]{0,70}?(?:(?:${CURRENCY_WORDS})\\s*${PRICE_NUMBER}|${PRICE_NUMBER}\\s*(?:${CURRENCY_WORDS}))\\b`,
+      "gi",
+    );
+
+    for (const match of base.matchAll(flatPattern)) {
+      const segment = normalizeText(match[0]);
+      if (!segment) continue;
+      const flatPrice = findExplicitFlatPriceInLine(segment, fallbackCurrency);
+      if (!flatPrice || flatPrice.amount <= 0 || flatPrice.currency !== fallbackCurrency) continue;
+      const serviceName = resolveExplicitServiceNameFromContext(
+        originalText,
+        segment,
+        cleanExplicitServiceNameFromLine(segment, { priceRaw: flatPrice.raw }),
+      );
+      if (!serviceName || normalizeCompare(serviceName) === "unbekannte leistung") continue;
+      result.push({
+        serviceName,
+        description: segment,
+        quantity: 1,
+        unit: "Pauschal",
+        unitPrice: flatPrice.amount,
+        totalPrice: flatPrice.amount,
+        needsReview: false,
+        reviewReason: null,
+        sourceText: segment,
+        evidence: segment,
+        detectedCurrency: flatPrice.currency,
+      });
+    }
+  }
+
+  const byKey = new Map<string, ExplicitServiceLineItem>();
+  for (const item of result) {
+    const key = [
+      normalizeCompare(item.sourceText || item.description),
+      unitTypeFromDisplayUnit(item.unit) || "",
+      String(Number(item.quantity || 0)),
+      String(roundMoney(Number(item.unitPrice || 0))),
+      item.detectedCurrency || "",
+    ].join("|");
+    const existing = byKey.get(key);
+    if (!existing || String(item.sourceText || "").length > String(existing.sourceText || "").length) {
+      byKey.set(key, item);
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
+function exactAmountUnitMatchV17_90L22(
+  item: ParsedOrderItemForValidation,
+  explicit: ExplicitServiceLineItem,
+): boolean {
+  return (
+    unitTypeFromDisplayUnit(item.unit) === unitTypeFromDisplayUnit(explicit.unit) &&
+    Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) < 0.001 &&
+    Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) < 0.01
+  );
+}
+
+function applyLineLocalIntegrityGuardV17_90L22(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const explicitItems = extractStrictLineLocalPricedItemsV17_90L22(originalText, finalCurrency);
+  if (explicitItems.length < 2) return { items, reviewReasons: [] };
+
+  const reviewReasons: string[] = [];
+  const consumedExplicit = new Set<number>();
+  const next: ParsedOrderItemForValidation[] = [];
+
+  for (const item of items) {
+    const broad = isBroadPollutedItemEvidenceV17_90L22(item);
+    const exactIndex = explicitItems.findIndex((explicit, index) => {
+      if (consumedExplicit.has(index)) return false;
+      return exactAmountUnitMatchV17_90L22(item, explicit);
+    });
+
+    if (exactIndex >= 0) {
+      const explicit = explicitItems[exactIndex];
+      consumedExplicit.add(exactIndex);
+      const shouldOverwriteName =
+        broad || shouldPreferExplicitServiceName(item, explicit) ||
+        normalizeCompare(item.serviceName) !== normalizeCompare(explicit.serviceName);
+      next.push(
+        clearResolvedNumericReview({
+          ...item,
+          serviceName: shouldOverwriteName ? explicit.serviceName : item.serviceName || explicit.serviceName,
+          description: explicit.description,
+          quantity: explicit.quantity,
+          unit: explicit.unit,
+          unitPrice: explicit.unitPrice,
+          totalPrice: calculateSafeLineTotal(explicit),
+          needsReview: false,
+          reviewReason: null,
+          sourceText: explicit.sourceText,
+          evidence: explicit.evidence,
+          detectedCurrency: explicit.detectedCurrency || finalCurrency,
+        }),
+      );
+      if (broad || shouldOverwriteName) reviewReasons.push("line_local_integrity_repaired");
+      continue;
+    }
+
+    // Drop polluted amount-bearing rows from broad evidence when the exact local
+    // priced lines are available. These are the dangerous rows where quantities
+    // or prices drifted to the wrong service, e.g. Anfahrt CHF 6 from a m² line.
+    if (
+      broad &&
+      Number(item.unitPrice || 0) > 0 &&
+      Number(item.quantity || 0) > 0 &&
+      pricedEvidenceCountV17_90L22(itemEvidenceBlobV17_90L22(item)) >= 2
+    ) {
+      reviewReasons.push("line_local_polluted_amount_row_removed");
+      continue;
+    }
+
+    next.push(item);
+  }
+
+  for (let index = 0; index < explicitItems.length; index += 1) {
+    if (consumedExplicit.has(index)) continue;
+    const explicit = explicitItems[index];
+    const alreadyCovered = next.some((item) => exactAmountUnitMatchV17_90L22(item, explicit));
+    if (alreadyCovered) continue;
+    next.push({
+      ...explicit,
+      totalPrice: calculateSafeLineTotal(explicit),
+      needsReview: false,
+      reviewReason: null,
+    });
+    reviewReasons.push(`line_local_integrity_added:${explicit.serviceName}`);
+  }
+
+  return {
+    items: removeHardSameEvidenceAmountDuplicates(
+      removeSameEvidenceQuantityPriceSplitArtifacts(next),
+    ),
+    reviewReasons: unique(reviewReasons),
+  };
+}
+
 function applyFinalEvidenceSafetyPass(
   items: ParsedOrderItemForValidation[],
   originalText: string,
@@ -9383,6 +9671,14 @@ export function validateAndRepairParsedOrderItems(
     finalCurrency,
   );
 
+  const lineLocalIntegrityGuard = applyLineLocalIntegrityGuardV17_90L22(
+    items,
+    input.originalText,
+    finalCurrency,
+  );
+  items = lineLocalIntegrityGuard.items;
+  reviewReasons.push(...lineLocalIntegrityGuard.reviewReasons);
+
   // V17.80: Wenn eine Position nach der semantischen Reparatur vollständig ist
   // (Menge + Einheit + Preis + Total), darf kein alter price_unclear-Hinweis
   // als sichtbarer falscher Text stehen bleiben. Beispiel: "Window inside
@@ -9419,7 +9715,10 @@ export function validateAndRepairParsedOrderItems(
         !reason.startsWith("hard_measured_line_added:") &&
         !reason.startsWith("evidence_bound_line_repaired:") &&
         !reason.startsWith("evidence_bound_line_added:") &&
-        !reason.startsWith("evidence_numeric_repaired:"),
+        !reason.startsWith("evidence_numeric_repaired:") &&
+        !reason.startsWith("line_local_integrity_added:") &&
+        reason !== "line_local_integrity_repaired" &&
+        reason !== "line_local_polluted_amount_row_removed",
     )
     .filter((reason) => {
       if (!reason.startsWith("price_repaired_from_text:")) return true;
