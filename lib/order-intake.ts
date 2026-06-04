@@ -1734,7 +1734,8 @@ function cleanExecutionSiteNameCandidate(
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
 
   candidate = candidate
-    .split(/[,;]\s*(?=(?:hund|dog|chien|perro|cane|tor\s+(?:bitte|geschlossen|schliessen|schließen|zu)|achtung|warnung|gefahr|schlüssel|schluessel|sms|whatsapp|telefon|nicht\s+einfach)\b)/i)[0]
+    .replace(/[,;]\s*(?:torcode|zugangscode|code)\b.*$/i, "")
+    .split(/[,;]\s*(?=(?:hund|dog|chien|perro|cane|torcode|zugangscode|code|tor\s+(?:bitte|geschlossen|schliessen|schließen|zu)|achtung|warnung|gefahr|schlüssel|schluessel|sms|whatsapp|telefon|nicht\s+einfach)\b)/i)[0]
     .split(/\b(?:hinweise?|notes?|bemerkungen?|besonderheiten|bitte|please|kein(?:e|en|em)?|keine|keinen|no|not|pas|sans|hund|dog|chien|perro|cane|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
     .replace(/[,;:.\s]+$/g, "")
     .replace(/\s+/g, " ")
@@ -2206,6 +2207,11 @@ function sanitizeExtractedExecutionAddress<
     translatedSiteName: siteName,
     rawText,
   });
+
+  // V17.90L6: after all repair/preserve passes, remove access/contact/safety
+  // fragments again. They belong to Besonderheiten/chips, never to the
+  // execution-address title.
+  siteName = cleanExecutionSiteNameCandidate(siteName);
 
   const cleaned = {
     ...address,
@@ -4091,7 +4097,15 @@ function applyFinalAmountBlockersBeforePersist(
 
     if (serviceBlocked) {
       next.serviceName = "Leistung prüfen";
-      const hasExplicitUnit = Boolean(next.unit && !isReviewUnitV17_90L(next.unit));
+      const evidenceText = [next.description, next.sourceText, next.evidence]
+        .filter(Boolean)
+        .join(" ");
+      const hasExplicitLineUnit = /\b(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stueck|stück|stk|pcs?|piece|pieces|stunden?|std\.?|hours?|heures?|horas?|ore|pauschal)\b/i.test(
+        evidenceText,
+      );
+      const hasExplicitUnit = Boolean(
+        next.unit && !isReviewUnitV17_90L(next.unit) && hasExplicitLineUnit,
+      );
       if (!hasExplicitUnit) next.unit = "Einheit prüfen";
       if (!next.reviewReason) next.reviewReason = `service_action_unclear:${serviceName}`;
       return next;

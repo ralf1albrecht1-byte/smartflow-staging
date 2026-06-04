@@ -3853,17 +3853,32 @@ const getSystemBadges = (
           const totalPrice = Number((it as any).totalPrice || 0);
           const text = [
             it.unit,
+            it.serviceName,
             it.description,
             (it as any).sourceText,
             (it as any).evidence,
+            (it as any).reviewReason,
           ]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
+          const normalizedServiceName = normalizeForMatch(it.serviceName || "");
+          const serviceIsOpen =
+            !normalizedServiceName ||
+            normalizedServiceName === "leistung pruefen" ||
+            normalizedServiceName === "leistung prufen" ||
+            normalizedServiceName.includes("leistung suchen") ||
+            normalizedServiceName.includes("eingeben");
           const explicitReviewZeroTotal =
             totalPrice <= 0 &&
-            (/einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(text) ||
-              /unit\s+(?:missing|open|unknown|unclear|review)/i.test(text));
+            (serviceIsOpen ||
+              /leistung\s+(?:oder\s+einheit\s+)?(?:unklar|offen|pr[üu]fen)/i.test(text) ||
+              /service[_\s-]*(?:action[_\s-]*)?(?:unclear|review)/i.test(text) ||
+              /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(text) ||
+              /unit\s+(?:missing|open|unknown|unclear|review)/i.test(text) ||
+              /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(text) ||
+              /price\s+(?:missing|open|unknown|unclear|review)/i.test(text) ||
+              /nicht\s+in\s+(?:netto|mwst|total)/i.test(text));
           return (
             quantity <= 0 ||
             unitPrice <= 0 ||
@@ -9104,27 +9119,59 @@ export default function AuftraegePage() {
 
   const isBlockedOrderItemForTotal = (item: OrderItem) => {
     const unitReviewValue = normalizeForMatch(item.unit || "");
+    const serviceReviewValue = normalizeForMatch(item.serviceName || "");
     const reviewText = normalizeForMatch(
-      [item.unit, item.description, (item as any).reviewReason]
+      [
+        item.unit,
+        item.serviceName,
+        item.description,
+        (item as any).sourceText,
+        (item as any).evidence,
+        (item as any).reviewReason,
+      ]
         .filter(Boolean)
         .join(" "),
     );
+    const totalPrice = Number((item as any).totalPrice || 0);
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+
+    const serviceIsOpen =
+      !serviceReviewValue ||
+      serviceReviewValue === "leistung pruefen" ||
+      serviceReviewValue === "leistung prufen" ||
+      serviceReviewValue.includes("leistung suchen") ||
+      serviceReviewValue.includes("eingeben");
 
     return (
+      serviceIsOpen ||
+      (totalPrice <= 0 && quantity > 0 && unitPrice > 0) ||
       unitReviewValue === "pruefen" ||
       unitReviewValue === "prufen" ||
       unitReviewValue.includes("einheit pruefen") ||
       unitReviewValue.includes("einheit prufen") ||
+      reviewText.includes("leistung oder einheit ist noch unklar") ||
+      reviewText.includes("leistung unklar") ||
+      reviewText.includes("service action unclear") ||
+      reviewText.includes("service_action_unclear") ||
       reviewText.includes("einheit pruefen") ||
       reviewText.includes("einheit prufen") ||
       reviewText.includes("einheit fehlt") ||
+      reviewText.includes("einheit unklar") ||
       reviewText.includes("unit missing") ||
+      reviewText.includes("unit unclear") ||
       reviewText.includes("preis pruefen") ||
       reviewText.includes("preis prufen") ||
       reviewText.includes("preis fehlt") ||
+      reviewText.includes("preis unklar") ||
+      reviewText.includes("price unclear") ||
       reviewText.includes("menge pruefen") ||
       reviewText.includes("menge prufen") ||
-      reviewText.includes("menge fehlt")
+      reviewText.includes("menge fehlt") ||
+      reviewText.includes("nicht in netto") ||
+      reviewText.includes("nicht in mwst") ||
+      reviewText.includes("nicht in total") ||
+      reviewText.includes("not included in total")
     );
   };
 
