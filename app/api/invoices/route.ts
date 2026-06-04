@@ -31,6 +31,16 @@ const CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^total_unrealistic_check$/,
   /^currency_unsupported$/,
   /^manual_flat_service_from_text$/,
+  // V17.90L24: hard global order gate. These are not soft catalog hints;
+  // they mean the complete order structure is unsafe for documents.
+  /^intake_risk:special_notes_polluted$/,
+  /^intake_risk:appointment_note_incomplete$/,
+  /^intake_risk:appointment_hint_missing$/,
+  /^intake_risk:item_evidence_not_line_local$/,
+  /^intake_risk:service_name_unresolved$/,
+  /^intake_risk:priced_item_total_blocked$/,
+  /^intake_risk:priced_service_line_missing_or_mismatched$/,
+  /^intake_risk:order_total_mismatch$/,
 ];
 
 const isSourceOrderItemResolvedForDocument = (item: any) => {

@@ -9350,7 +9350,7 @@ export async function processIncomingMessage(
   // blockieren. Er schreibt nur strukturierte Warnungen ins Server-Log, damit
   // wir riskante Strukturen später sauber aktivieren können.
   const readOnlyRiskValidator = runReadOnlyIntakeRiskValidator({
-    originalText: `${messageText}\n${fullWorkText}`,
+    originalText: validationSourceText,
     billingCustomer: {
       name: kundeData.name || null,
       street: addr.street || null,
@@ -9363,6 +9363,9 @@ export async function processIncomingMessage(
     executionAddress: extractedExecutionAddress || null,
     detectedCurrencies: intakeValidation.detectedCurrencies,
     finalCurrency: intakeValidation.finalCurrency,
+    orderItems: finalOrderItems,
+    specialNotes: finalSpecialNotes,
+    finalTotal: totalPrice,
   });
 
   if (readOnlyRiskValidator.warnings.length > 0) {
@@ -9546,7 +9549,8 @@ export async function processIncomingMessage(
     (reason) =>
       ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
       reason.startsWith("unit_mismatch:") ||
-      reason.startsWith("currency_"),
+      reason.startsWith("currency_") ||
+      reason.startsWith("intake_risk:"),
   )
     ? "warning"
     : needsReview

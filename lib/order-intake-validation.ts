@@ -58,6 +58,11 @@ export interface ReadOnlyIntakeRiskValidatorInput {
   executionAddress?: ExtractedExecutionAddress | null;
   detectedCurrencies?: string[] | null;
   finalCurrency?: string | null;
+  // V17.90L24: hard global order gate. The second checker must validate the
+  // complete persisted order candidate, not just log customer/address risks.
+  orderItems?: ParsedOrderItemForValidation[] | null;
+  specialNotes?: string | null;
+  finalTotal?: number | null;
 }
 
 export interface ReadOnlyIntakeRiskValidatorResult {
@@ -105,6 +110,125 @@ function extractRiskPhoneCandidates(value?: string | null): string[] {
     .filter((digits) => digits.length >= 7 && digits.length <= 15);
 
   return Array.from(new Set(normalized));
+}
+
+
+// V17.90L24: global fail-closed checks for the whole order candidate.
+// These checks are intentionally stricter than the normal parser. If the
+// candidate looks structurally unsafe, it must be reviewed before document
+// creation. We can loosen later; first protect the user from wrong offers.
+function splitGlobalRiskSegmentsV17_90L24(value?: string | null): string[] {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+|;\s+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 0);
+}
+
+function globalPricedServiceLinesV17_90L24(value?: string | null): string[] {
+  return splitGlobalRiskSegmentsV17_90L24(value).filter((line) => {
+    try {
+      return isPricedServiceLine(line);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function cleanSpecialNoteRiskLineV17_90L24(value?: string | null): string {
+  return String(value || "")
+    .replace(/^\s*\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isPollutedSpecialNoteLineV17_90L24(value?: string | null): boolean {
+  const line = cleanSpecialNoteRiskLineV17_90L24(value);
+  if (!line) return false;
+  const key = normalizeRiskText(line);
+
+  if (line.length > 220) return true;
+  if (globalPricedServiceLinesV17_90L24(line).length > 0) return true;
+  if (/\b(?:rechnung|rechnungsadresse|rechnungskunde|fattura|factura|fatura|facture|invoice|billing|kundennachrichten|whatsapp\s*:|ausfuehrung|ausführung|ausfuehrungsadresse|ausführungsadresse|arbeitsort|einsatzort)\b/.test(key)) return true;
+  if (/\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rue|avenue|via|viale)\b\s+\d+[a-z]?\b/i.test(line)) return true;
+  if (/\b\d{4,5}\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .-]{1,60}\b/.test(line) && !/\b(?:parkieren|parken|parkplatz|termin|sms|whatsapp|schluessel|schlussel|schlüssel|key|code|achtung|warnung|gefahr|nass|rutschig)\b/i.test(line)) return true;
+
+  return false;
+}
+
+function hasUselessBareAppointmentNoteV17_90L24(specialNotes?: string | null): boolean {
+  return splitGlobalRiskSegmentsV17_90L24(specialNotes).some((line) => /^\s*(?:\[(?:HINWEIS|INFO|NOTIZ)\]\s*)?termin\s*:?\s*$/i.test(line));
+}
+
+function appointmentPhrasesInTextV17_90L24(value?: string | null): string[] {
+  const source = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const matches = source.match(/\b(?:bitte\s+)?(?:heute|morgen|uebermorgen|übermorgen)\s+(?:vormittag|nachmittag|abend)\b|\b(?:vormittag|nachmittag|abend)\b|\b\d{1,2}:\d{2}\s*(?:uhr)?\b/gi) || [];
+  return Array.from(new Set(matches.map((m) => normalizeRiskText(m)).filter(Boolean)));
+}
+
+function appointmentHintMissingV17_90L24(originalText: string, specialNotes?: string | null): boolean {
+  const phrases = appointmentPhrasesInTextV17_90L24(originalText).filter((phrase) => /morgen|heute|uebermorgen|ubermorgen|vormittag|nachmittag|abend|uhr/.test(phrase));
+  if (phrases.length === 0) return false;
+  const notes = normalizeRiskText(specialNotes || "");
+  if (!notes) return true;
+  return !phrases.some((phrase) => phrase.split(/\s+/g).filter(Boolean).some((word) => word.length >= 5 && notes.includes(word)));
+}
+
+function hasBroadItemEvidenceV17_90L24(item: ParsedOrderItemForValidation): boolean {
+  try {
+    return isBroadPollutedItemEvidenceV17_90L22(item);
+  } catch {
+    const evidence = [item.sourceText, item.evidence, item.description].filter(Boolean).join("\n");
+    return evidence.length > 240 || globalPricedServiceLinesV17_90L24(evidence).length >= 2;
+  }
+}
+
+function exactExplicitPricedLineCoveredV17_90L24(
+  items: ParsedOrderItemForValidation[],
+  explicit: ParsedOrderItemForValidation,
+): boolean {
+  return items.some((item) => {
+    try {
+      return exactAmountUnitMatchV17_90L22(item, explicit as any);
+    } catch {
+      return (
+        Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) < 0.001 &&
+        Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) < 0.01 &&
+        String(item.unit || "").trim().toLowerCase() === String(explicit.unit || "").trim().toLowerCase()
+      );
+    }
+  });
+}
+
+function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInput): string[] {
+  const warnings: string[] = [];
+  const items = Array.isArray(input.orderItems) ? input.orderItems : [];
+  const specialNotes = input.specialNotes || "";
+  const finalCurrency: IntakeCurrency = input.finalCurrency === "EUR" ? "EUR" : "CHF";
+
+  const pollutedSpecialNotes = splitGlobalRiskSegmentsV17_90L24(specialNotes).filter(isPollutedSpecialNoteLineV17_90L24);
+  if (pollutedSpecialNotes.length > 0) warnings.push("special_notes_polluted");
+  if (hasUselessBareAppointmentNoteV17_90L24(specialNotes)) warnings.push("appointment_note_incomplete");
+  if (appointmentHintMissingV17_90L24(input.originalText, specialNotes)) warnings.push("appointment_hint_missing");
+
+  if (items.some(hasBroadItemEvidenceV17_90L24)) warnings.push("item_evidence_not_line_local");
+  if (items.some((item) => normalizeRiskText(item.serviceName || "") === "leistung pruefen" || normalizeRiskText(item.serviceName || "") === "unbekannte leistung")) warnings.push("service_name_unresolved");
+  if (items.some((item) => Number(item.unitPrice || 0) > 0 && Number(item.quantity || 0) > 0 && Number(item.totalPrice || 0) <= 0)) warnings.push("priced_item_total_blocked");
+
+  const explicitItems = extractStrictLineLocalPricedItemsV17_90L22(input.originalText, finalCurrency);
+  if (explicitItems.length >= 2) {
+    const coveredCount = explicitItems.filter((explicit) => exactExplicitPricedLineCoveredV17_90L24(items, explicit)).length;
+    if (coveredCount < explicitItems.length) warnings.push("priced_service_line_missing_or_mismatched");
+  }
+
+  const calculatedTotal = items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+  const finalTotal = Number(input.finalTotal || 0);
+  if (Number.isFinite(finalTotal) && finalTotal > 0 && Math.abs(finalTotal - calculatedTotal) > 0.05) {
+    warnings.push("order_total_mismatch");
+  }
+
+  return unique(warnings);
 }
 
 export function runReadOnlyIntakeRiskValidator(
@@ -165,8 +289,12 @@ export function runReadOnlyIntakeRiskValidator(
     warnings.push("unsupported_currency_detected");
   }
 
+  warnings.push(...globalOrderGateWarningsV17_90L24(input));
+
   const riskLevel: ReadOnlyIntakeRiskValidatorResult["riskLevel"] =
-    hasMultipleCurrencies || hasUnsupportedCurrency
+    hasMultipleCurrencies || hasUnsupportedCurrency || warnings.some((warning) =>
+      /^(special_notes_polluted|appointment_note_incomplete|appointment_hint_missing|item_evidence_not_line_local|service_name_unresolved|priced_item_total_blocked|priced_service_line_missing_or_mismatched|order_total_mismatch)$/.test(warning),
+    )
       ? "critical"
       : warnings.length > 0
         ? "warning"
@@ -9222,8 +9350,8 @@ function applyLineLocalIntegrityGuardV17_90L22(
 // broad evidence, shifted quantities or blocked m² rows like "Boden Lager".
 function cleanTrailingAmountFromServiceNameV17_90L23(value?: string | null): string {
   let name = normalizeText(value || "")
-    .replace(/\s*,\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|hours?|stunden?|std\.?).*$/i, "")
-    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|hours?|stunden?|std\.?).*$/i, "")
+    .replace(/\s*,\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|hours?|stunden?|std\.?)\b.*$/i, "")
+    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|hours?|stunden?|std\.?)\b.*$/i, "")
     .replace(/\s+(?:à|a|zu|je|pro|per|each|at|x|\*)\s*(?:chf|eur|fr\.?|franken|stutz)?\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
