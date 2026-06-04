@@ -53,7 +53,11 @@ const isResolvableSourceOrderReviewReason = (reason: string) =>
   reason.startsWith("currency_conflict_item:") ||
   reason.startsWith("price_unclear:") ||
   reason.startsWith("price_override:") ||
+  reason.startsWith("unit_mismatch:") ||
+  reason.startsWith("unit_missing_in_text:") ||
   reason === "unit_price_review" ||
+  reason === "unbekannte_leistung_pruefen" ||
+  reason === "stunden_arbeitsposition_pruefen" ||
   reason === "manual_flat_service_from_text";
 
 function sourceOrderBlockers(order: any): string[] {
@@ -78,10 +82,10 @@ function sourceOrderBlockers(order: any): string[] {
       );
       if (!isCritical) return false;
 
-      // Gelbe manuell bestätigte Preis-/Währungshinweise dürfen die
-      // Dokumenterstellung nicht blockieren, sobald jede Position einen
-      // verwertbaren Preis, eine Menge und ein Total hat. Harte Einheitsfehler
-      // bleiben Blocker.
+      // Gelbe/softe Prüfhinweise dürfen die Dokumenterstellung nicht
+      // blockieren, sobald jede Position einen verwertbaren Service, Preis,
+      // eine Menge und ein Total hat. Harte Fehler bleiben automatisch
+      // Blocker, weil allItemsResolved dann false ist.
       return !(allItemsResolved && isResolvableSourceOrderReviewReason(reason));
     })
   ) {
