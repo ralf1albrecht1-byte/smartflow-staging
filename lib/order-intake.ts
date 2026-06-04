@@ -1299,8 +1299,12 @@ function hasExplicitExecutionNotBillingAddressDirectiveV17_51(
   return (
     /nicht\s+an\s+(?:die\s+)?rechnungsadresse/.test(text) ||
     /nicht\s+zur\s+rechnungsadresse/.test(text) ||
-    /rechnung(?:sadresse)?\s+.*(?:sondern|aber)\s+(?:in|im|bei|zur|zum)/.test(text) ||
-    /(?:sondern|aber)\s+(?:in|im|bei|zur|zum)\s+(?:die\s+)?(?:werkstatt|arbeitsort|objekt|baustelle|filiale|lager|innenhof|spielplatz)/.test(text)
+    /rechnung(?:sadresse)?\s+.*(?:sondern|aber)\s+(?:in|im|bei|zur|zum)/.test(
+      text,
+    ) ||
+    /(?:sondern|aber)\s+(?:in|im|bei|zur|zum)\s+(?:die\s+)?(?:werkstatt|arbeitsort|objekt|baustelle|filiale|lager|innenhof|spielplatz)/.test(
+      text,
+    )
   );
 }
 
@@ -1417,7 +1421,6 @@ function extractAiStructuredExecutionAddress(
   };
 }
 
-
 // V17.61_PHASE1_ADDRESS_ROLE_SAFETY
 // Phase 1 of the address-assignment workflow: do not let a single/ambiguous
 // address silently become the billing customer address. This is intentionally
@@ -1456,7 +1459,8 @@ function hasAddressEvidenceInTextV17_61(
   for (let index = 0; index < lines.length; index += 1) {
     windows.push(lines[index]);
     if (lines[index + 1]) windows.push(`${lines[index]}\n${lines[index + 1]}`);
-    if (lines[index + 2]) windows.push(`${lines[index]}\n${lines[index + 1]}\n${lines[index + 2]}`);
+    if (lines[index + 2])
+      windows.push(`${lines[index]}\n${lines[index + 1]}\n${lines[index + 2]}`);
   }
 
   return windows.some((candidate) => {
@@ -1509,15 +1513,17 @@ function shouldQuarantineBillingAddressRoleV17_61(args: {
   }
 
   const onlyAddressWithoutSafeName =
-    hasFullAddressCandidate && !hasUsableBillingName && !hasExplicitBillingMarker;
+    hasFullAddressCandidate &&
+    !hasUsableBillingName &&
+    !hasExplicitBillingMarker;
   if (onlyAddressWithoutSafeName) {
     reviewReasons.push("address_role_uncertain");
   }
 
   const clearBillingAddress = Boolean(
     hasPersistedAddressCandidate &&
-      !hasExplicitBillingMarker &&
-      (hasExecutionMarker || onlyAddressWithoutSafeName),
+    !hasExplicitBillingMarker &&
+    (hasExecutionMarker || onlyAddressWithoutSafeName),
   );
 
   if (clearBillingAddress) {
@@ -1738,9 +1744,16 @@ function cleanExecutionSiteNameCandidate(
     // V17.90L14: do not let communication fragments become part of the
     // execution-site name. Example: "Veloraum und Kellerflur, Nur" from
     // the following line "Nur SMS ..." must become "Veloraum und Kellerflur".
-    .replace(/[,;]\s*(?:nur|bitte\s+nur|kein(?:e|en|em)?\s+(?:whats\s*app|whatsapp)|sms|whats\s*app|whatsapp|e[-\s]*mail|mail|telefon|tel\.?|anruf|rueckruf|ruckruf|kontakt)\b.*$/i, "")
-    .split(/[,;]\s*(?=(?:nur|bitte\s+nur|hund|dog|chien|perro|cane|torcode|zugangscode|code|tor\s+(?:bitte|geschlossen|schliessen|schließen|zu)|achtung|warnung|gefahr|schlüssel|schluessel|sms|whatsapp|telefon|nicht\s+einfach)\b)/i)[0]
-    .split(/\b(?:hinweise?|notes?|bemerkungen?|besonderheiten|bitte|please|nur|kein(?:e|en|em)?|keine|keinen|no|not|pas|sans|hund|dog|chien|perro|cane|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
+    .replace(
+      /[,;]\s*(?:nur|bitte\s+nur|kein(?:e|en|em)?\s+(?:whats\s*app|whatsapp)|sms|whats\s*app|whatsapp|e[-\s]*mail|mail|telefon|tel\.?|anruf|rueckruf|ruckruf|kontakt)\b.*$/i,
+      "",
+    )
+    .split(
+      /[,;]\s*(?=(?:nur|bitte\s+nur|hund|dog|chien|perro|cane|torcode|zugangscode|code|tor\s+(?:bitte|geschlossen|schliessen|schließen|zu)|achtung|warnung|gefahr|schlüssel|schluessel|sms|whatsapp|telefon|nicht\s+einfach)\b)/i,
+    )[0]
+    .split(
+      /\b(?:hinweise?|notes?|bemerkungen?|besonderheiten|bitte|please|nur|kein(?:e|en|em)?|keine|keinen|no|not|pas|sans|hund|dog|chien|perro|cane|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i,
+    )[0]
     .replace(/[,;:.\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -1907,12 +1920,13 @@ function repairExecutionStreetFromText(args: {
   return null;
 }
 
-
 function compactRepeatedExecutionSiteDescriptorsV17_48(
   descriptors: string[],
 ): string[] {
   const uniqueDescriptors = Array.from(
-    new Map(descriptors.map((line) => [normalizeUnitText(line), line])).values(),
+    new Map(
+      descriptors.map((line) => [normalizeUnitText(line), line]),
+    ).values(),
   ).slice(0, 3);
 
   if (uniqueDescriptors.length < 2) return uniqueDescriptors;
@@ -1922,23 +1936,30 @@ function compactRepeatedExecutionSiteDescriptorsV17_48(
       .split(",")
       .map((part) => part.trim())
       .filter(Boolean);
-    return { original: line, head: parts[0] || "", tail: parts.slice(1).join(", ") };
+    return {
+      original: line,
+      head: parts[0] || "",
+      tail: parts.slice(1).join(", "),
+    };
   });
 
   const firstHeadKey = normalizeUnitText(splitDescriptors[0]?.head || "");
   const allSameHead = Boolean(
     firstHeadKey &&
-      splitDescriptors.every(
-        (entry) =>
-          normalizeUnitText(entry.head) === firstHeadKey && Boolean(entry.tail),
-      ),
+    splitDescriptors.every(
+      (entry) =>
+        normalizeUnitText(entry.head) === firstHeadKey && Boolean(entry.tail),
+    ),
   );
 
   if (!allSameHead) return uniqueDescriptors;
 
   const tails = Array.from(
     new Map(
-      splitDescriptors.map((entry) => [normalizeUnitText(entry.tail), entry.tail]),
+      splitDescriptors.map((entry) => [
+        normalizeUnitText(entry.tail),
+        entry.tail,
+      ]),
     ).values(),
   );
 
@@ -1952,12 +1973,15 @@ function compactRepeatedExecutionSiteDescriptorsV17_48(
   return [`${splitDescriptors[0].head}, ${joinedTails}`];
 }
 
-function extractLikelyOriginalProperSitePhrasesV17_49(value: string | null | undefined): string[] {
+function extractLikelyOriginalProperSitePhrasesV17_49(
+  value: string | null | undefined,
+): string[] {
   const text = String(value || "");
   if (!text.trim()) return [];
 
   const phrases = new Set<string>();
-  const phrasePattern = /\b[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*){1,4}\b/gu;
+  const phrasePattern =
+    /\b[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*(?:\s+[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*){1,4}\b/gu;
   for (const match of text.matchAll(phrasePattern)) {
     const phrase = match[0].replace(/\s+/g, " ").trim();
     if (phrase.length < 5) continue;
@@ -1976,7 +2000,9 @@ function originalExecutionSiteDescriptorFromTextV17_50(
   rawText: string | null | undefined,
 ): string | null {
   const originalPart =
-    String(rawText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
+    String(rawText || "").split(
+      /---\s*Übersetzung\s*\(automatisch\)\s*---/i,
+    )[0] || "";
   const executionBlock = extractExecutionBlockFromText(originalPart);
   if (!executionBlock) return null;
 
@@ -1999,11 +2025,14 @@ function preserveOriginalProperSitePhraseV17_50(args: {
   const translated = compactText(args.translatedSiteName);
   if (!translated) return null;
 
-  const originalDescriptor = originalExecutionSiteDescriptorFromTextV17_50(args.rawText);
+  const originalDescriptor = originalExecutionSiteDescriptorFromTextV17_50(
+    args.rawText,
+  );
   if (!originalDescriptor) return translated;
 
   const translatedKey = normalizeUnitText(translated);
-  const properPhrases = extractLikelyOriginalProperSitePhrasesV17_49(originalDescriptor);
+  const properPhrases =
+    extractLikelyOriginalProperSitePhrasesV17_49(originalDescriptor);
 
   for (const phrase of properPhrases) {
     const phraseClean = compactText(phrase);
@@ -2015,7 +2044,10 @@ function preserveOriginalProperSitePhraseV17_50(args: {
     const tail = phraseParts.slice(1).join(" ").trim();
     if (tail.length < 4) continue;
 
-    const tailRe = new RegExp(`(^|,\\s*)[^,]{0,60}\\b${escapeRegExpV17_50(tail)}\\b`, "i");
+    const tailRe = new RegExp(
+      `(^|,\\s*)[^,]{0,60}\\b${escapeRegExpV17_50(tail)}\\b`,
+      "i",
+    );
     if (tailRe.test(translated)) {
       return translated
         .replace(tailRe, (_match, prefix) => `${prefix || ""}${phraseClean}`)
@@ -2027,7 +2059,6 @@ function preserveOriginalProperSitePhraseV17_50(args: {
 
   return translated;
 }
-
 
 function trimExecutionSiteNameToExplicitDescriptorV17_90L16(args: {
   siteName: string | null | undefined;
@@ -2073,9 +2104,12 @@ function translatedSiteNameWouldDropOriginalProperNameV17_49(args: {
   const translated = compactText(args.translatedSiteName);
   if (!current || !translated) return false;
 
-  const originalPart = String(args.rawText || "")
-    .split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
-  const originalBlock = extractExecutionBlockFromText(originalPart) || originalPart;
+  const originalPart =
+    String(args.rawText || "").split(
+      /---\s*Übersetzung\s*\(automatisch\)\s*---/i,
+    )[0] || "";
+  const originalBlock =
+    extractExecutionBlockFromText(originalPart) || originalPart;
   const originalBlockKey = normalizeUnitText(originalBlock);
   const translatedKey = normalizeUnitText(translated);
 
@@ -2092,7 +2126,10 @@ function translatedSiteNameWouldDropOriginalProperNameV17_49(args: {
 function translatedExecutionSiteNameCandidateFromTextV17_45(
   rawText: string | null | undefined,
 ): string | null {
-  const translated = String(rawText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i).slice(1).join("\n");
+  const translated = String(rawText || "")
+    .split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)
+    .slice(1)
+    .join("\n");
   const executionBlock = extractExecutionBlockFromText(translated || rawText);
   if (!executionBlock) return null;
 
@@ -2126,15 +2163,20 @@ function shouldReplaceExecutionSiteNameWithTranslatedV17_45(args: {
   const translated = normalizeUnitText(args.translatedSiteName || "");
   if (!current || !translated || current === translated) return false;
 
-  const translatedBlock = String(args.rawText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i).slice(1).join("\n");
+  const translatedBlock = String(args.rawText || "")
+    .split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)
+    .slice(1)
+    .join("\n");
   if (!translatedBlock) return false;
   if (!normalizeUnitText(translatedBlock).includes(translated)) return false;
 
-  if (translatedSiteNameWouldDropOriginalProperNameV17_49({
-    currentSiteName: args.currentSiteName,
-    translatedSiteName: args.translatedSiteName,
-    rawText: args.rawText,
-  })) {
+  if (
+    translatedSiteNameWouldDropOriginalProperNameV17_49({
+      currentSiteName: args.currentSiteName,
+      translatedSiteName: args.translatedSiteName,
+      rawText: args.rawText,
+    })
+  ) {
     return false;
   }
 
@@ -2152,7 +2194,9 @@ function shouldReplaceExecutionSiteNameWithTranslatedV17_45(args: {
   return (
     !normalizeUnitText(translatedBlock).includes(current) ||
     translatedIsMoreSpecific ||
-    /\b(?:locale|ufficio|sala|room|staff|laundry|stairwell|work\s*site)\b/i.test(current)
+    /\b(?:locale|ufficio|sala|room|staff|laundry|stairwell|work\s*site)\b/i.test(
+      current,
+    )
   );
 }
 
@@ -2236,7 +2280,8 @@ function sanitizeExtractedExecutionAddress<
     siteCity,
   });
 
-  const translatedSiteName = translatedExecutionSiteNameCandidateFromTextV17_45(rawText);
+  const translatedSiteName =
+    translatedExecutionSiteNameCandidateFromTextV17_45(rawText);
   if (
     shouldReplaceExecutionSiteNameWithTranslatedV17_45({
       currentSiteName: siteName,
@@ -2544,6 +2589,18 @@ function uniqueNormalizedLines(lines: string[]): string[] {
     });
 }
 
+function isTechnicalIntakeMetaLineV17_90L17(
+  line: string | null | undefined,
+): boolean {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return false;
+
+  // Smartflow regression/test labels are technical harness metadata. They must
+  // never become customer-visible notes, addresses or services. This is not a
+  // service vocabulary list; it only removes our own test markers.
+  return /^\s*(?:regression|testfall|testlauf)\b/i.test(trimmed);
+}
+
 function stripInternalTitleLinesFromText(value?: string | null): string {
   return String(value || "")
     .replace(/\r\n/g, "\n")
@@ -2556,7 +2613,10 @@ function stripInternalTitleLinesFromText(value?: string | null): string {
       // Kundennachricht gespeichert und nicht erneut als Leistung interpretiert
       // werden. Das ist keine Leistungs-Wortliste, sondern nur die Entfernung
       // des technischen Markers, den Smartflow selbst erzeugt hatte.
-      return !/^\[\s*(?:titel|title)\s*[:：][^\]]*\]\s*$/i.test(trimmed);
+      return (
+        !/^\[\s*(?:titel|title)\s*[:：][^\]]*\]\s*$/i.test(trimmed) &&
+        !isTechnicalIntakeMetaLineV17_90L17(trimmed)
+      );
     })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -2575,12 +2635,16 @@ const EMPTY_INTAKE_NORMALIZATION_V17_49: IntakeNormalizationResultV17_49 = {
   showTranslationInCustomerMessage: false,
 };
 
-function looksLikePlainGermanCustomerTextV17_53(value?: string | null): boolean {
+function looksLikePlainGermanCustomerTextV17_53(
+  value?: string | null,
+): boolean {
   const key = normalizeSemanticText(value || "");
   if (!key) return false;
 
   const foreignSentenceSignal =
-    /\b(?:facture|ex[eé]cution|fattura|esecuzione|merci|veuillez|venire|senza|avviso|contatto|pulizia|nettoyage|d[eé]placement|trasferta|cl[eé])\b/i.test(key);
+    /\b(?:facture|ex[eé]cution|fattura|esecuzione|merci|veuillez|venire|senza|avviso|contatto|pulizia|nettoyage|d[eé]placement|trasferta|cl[eé]|račun|racun|izvođenje|izvodenje|molim|prije|dolaska|ključ|kljuc|dvorištu|dvoristu|fatur[eë]|ekzekutim|shkruani|para\s+ardhjes|kujdes|çel[eë]si|celesi|fatura|uygulama|gelmeden|anahtar|dikkat|фактура|извршување)\b/i.test(
+      key,
+    );
   if (foreignSentenceSignal) return false;
 
   const germanSignals = [
@@ -2609,7 +2673,9 @@ function shouldShowAutomaticTranslationBlockV17_49(args: {
   targetLanguage: string;
   modelWantsVisibleTranslation?: boolean;
 }): boolean {
-  const translationText = stripInternalTitleLinesFromText(args.translationText || "").trim();
+  const translationText = stripInternalTitleLinesFromText(
+    args.translationText || "",
+  ).trim();
   if (!translationText) return false;
 
   const detected = normalizeSemanticText(args.detectedLanguage || "");
@@ -2618,16 +2684,33 @@ function shouldShowAutomaticTranslationBlockV17_49(args: {
   const detectedClearlyTarget =
     (target.includes("deutsch") || target.includes("german")) &&
     /(?:^|\b)(?:deutsch|standarddeutsch|german)(?:\b|$)/i.test(detected) &&
-    !/(?:schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|francais|français|italien|italian|italiano|spanisch|spanish|portugies|portuguese|english|englisch|mixed|mischsprache)/i.test(detected);
+    !/(?:schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|francais|français|italien|italian|italiano|spanisch|spanish|portugies|portuguese|english|englisch|croatian|kroatisch|bosnian|bosnisch|serbian|serbisch|bks|balkan|albanian|albanisch|shqip|turkish|tuerkisch|türkisch|macedonian|mazedonisch|kyrillisch|mixed|mischsprache)/i.test(
+      detected,
+    );
 
-  if (detectedClearlyTarget || looksLikePlainGermanCustomerTextV17_53(args.originalText)) return false;
+  if (
+    detectedClearlyTarget ||
+    looksLikePlainGermanCustomerTextV17_53(args.originalText)
+  )
+    return false;
 
   const detectedClearlyDifferentLanguage =
-    /(schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|francais|français|italien|italian|italiano|spanisch|spanish|portugies|portuguese|english|englisch|mixed|mischsprache)/i.test(
+    /(schweizerdeutsch|dialekt|mundart|swiss\s*german|french|franzoes|franzos|francais|français|italien|italian|italiano|spanisch|spanish|portugies|portuguese|english|englisch|croatian|kroatisch|bosnian|bosnisch|serbian|serbisch|bks|balkan|albanian|albanisch|shqip|turkish|tuerkisch|türkisch|macedonian|mazedonisch|kyrillisch|mixed|mischsprache)/i.test(
       detected,
     );
 
   if (detectedClearlyDifferentLanguage) return true;
+
+  // Mixed texts often contain German service lines but foreign-language headers
+  // and access/safety sentences. In that case the visible customer message must
+  // still show the German working translation. This is display gating only, not
+  // a service decision list.
+  const originalKey = normalizeSemanticText(args.originalText || "");
+  const hasNonGermanOperationalSentence =
+    /\b(?:račun|racun|izvođenje|izvodenje|molim|prije|dolaska|ključ|kljuc|dvorištu|dvoristu|kapiju|potvrde|fatur[eë]|ekzekutim|shkruani|para\s+ardhjes|kujdes|çel[eë]si|celesi|uygulama|gelmeden|anahtar|dikkat|фактура|извршување|пристигнување|клучот)\b/i.test(
+      originalKey,
+    );
+  if (hasNonGermanOperationalSentence) return true;
 
   // Fail closed for the UI: if the language detector is unsure, keep the
   // normalised Arbeitsfassung internal. Customer messages should not be filled
@@ -2643,7 +2726,8 @@ async function createStandardGermanValidationTranslation(args: {
 }): Promise<IntakeNormalizationResultV17_49> {
   const rawText = stripInternalTitleLinesFromText(args.text || "").trim();
   const targetLanguage = (args.targetLanguage || "Deutsch").trim() || "Deutsch";
-  if (!rawText || !process.env.OPENAI_API_KEY) return EMPTY_INTAKE_NORMALIZATION_V17_49;
+  if (!rawText || !process.env.OPENAI_API_KEY)
+    return EMPTY_INTAKE_NORMALIZATION_V17_49;
 
   try {
     const transRes = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -2665,7 +2749,8 @@ Gib NUR gültiges JSON zurück:
 
 Regeln:
 - needs_normalization=true nur, wenn der Text wirklich fremdsprachig, dialektal, deutlich gemischtsprachig oder fachlich so roh ist, dass der nachfolgende Validator ohne Arbeitsfassung Leistungen/Rollen verlieren würde.
-- show_customer_translation=true NUR, wenn der sichtbare Kundentext für einen deutschsprachigen Nutzer wirklich übersetzt werden muss, z.B. Französisch, Italienisch, Englisch, Spanisch, Schweizerdeutsch/Dialekt oder starke Mischsprache.
+- show_customer_translation=true NUR, wenn der sichtbare Kundentext für einen deutschsprachigen Nutzer wirklich übersetzt werden muss, z.B. Französisch, Italienisch, Englisch, Spanisch, Kroatisch/Bosnisch/Serbisch, Albanisch, Türkisch, Mazedonisch, Schweizerdeutsch/Dialekt oder starke Mischsprache.
+- Wenn einzelne Leistungszeilen bereits deutsch sind, aber Kopfzeilen/Hinweise/Zugang/Gefahren in einer anderen Sprache stehen, ist es trotzdem Mischsprache: needs_normalization=true und show_customer_translation=true.
 - show_customer_translation=false bei normalem Standard-${targetLanguage}, auch wenn darin echte fremdsprachige Eigennamen, Raum-/Gebäudenamen, Firmennamen, Straßennamen oder Ortsnamen vorkommen. Beispiel: "Rue du Lac", "Bâtiment Lumière", "Sala Verde", "Route de Genève" sind Namen und lösen allein keinen sichtbaren Übersetzungsblock aus.
 - Übersetze/normalisiere bei needs_normalization=true den kompletten Text nach professionellem Standard-${targetLanguage}.
 - Erhalte Struktur, Zeilenumbrüche, Adressblöcke, Telefonnummern, E-Mail, Mengen, Einheiten, Preise, Währungen, Codes und Reihenfolge exakt sinngemäß.
@@ -2707,7 +2792,9 @@ Regeln:
         translationText: cleanTranslation,
         detectedLanguage,
         targetLanguage,
-        modelWantsVisibleTranslation: Boolean(transData?.show_customer_translation),
+        modelWantsVisibleTranslation: Boolean(
+          transData?.show_customer_translation,
+        ),
       });
 
     console.log(
@@ -2913,19 +3000,36 @@ function canonicalizeSpecialNoteLine(line: string): string {
   // This guard is phrase-meaning based for recurring safety/access concepts,
   // not a service-word mapping.
   if (
-    /\b(paviment|pavimento|pavimento\s+delicato|detergente\s+neutro|detergenti\s+neutri)\b/i.test(normalized) ||
-    (/\b(delicat|delicato|delicata|empfindlich|neutro|neutre|neutral)\b/i.test(normalized) && /\b(boden|floor|sol|suelo|paviment|pavimento|reinigungsmittel|detergente|detergent)\b/i.test(normalized))
+    /\b(paviment|pavimento|pavimento\s+delicato|detergente\s+neutro|detergenti\s+neutri)\b/i.test(
+      normalized,
+    ) ||
+    (/\b(delicat|delicato|delicata|empfindlich|neutro|neutre|neutral)\b/i.test(
+      normalized,
+    ) &&
+      /\b(boden|floor|sol|suelo|paviment|pavimento|reinigungsmittel|detergente|detergent)\b/i.test(
+        normalized,
+      ))
   ) {
     return "Empfindlicher Boden, neutrales Reinigungsmittel verwenden";
   }
 
-  if (/\b(non\s+toccare|ne\s+pas\s+toucher|do\s+not\s+touch|nicht\s+beruehren|nicht\s+berühren)\b/i.test(normalized) && /\b(kabel|cable|cavi|cables|strom|lichtanlage)\b/i.test(normalized)) {
+  if (
+    /\b(non\s+toccare|ne\s+pas\s+toucher|do\s+not\s+touch|nicht\s+beruehren|nicht\s+berühren)\b/i.test(
+      normalized,
+    ) &&
+    /\b(kabel|cable|cavi|cables|strom|lichtanlage)\b/i.test(normalized)
+  ) {
     return /lichtanlage/i.test(normalized)
       ? "Lichtanlage nicht berühren"
       : "Nicht an den Kabeln arbeiten";
   }
 
-  if (/\b(accesso|access|acceso|zugang|eingang|garage|porta|tuercode|türcode|code)\b/i.test(normalized) && /\b(code|garage|porta|tuer|tür|eingang|zugang)\b/i.test(normalized)) {
+  if (
+    /\b(accesso|access|acceso|zugang|eingang|garage|porta|tuercode|türcode|code)\b/i.test(
+      normalized,
+    ) &&
+    /\b(code|garage|porta|tuer|tür|eingang|zugang)\b/i.test(normalized)
+  ) {
     return original
       .replace(/\bEntrare\s+dal\s+garage\b/gi, "Zugang über die Garage")
       .replace(/\bcodice\s+porta\b/gi, "Türcode")
@@ -2933,6 +3037,17 @@ function canonicalizeSpecialNoteLine(line: string): string {
       .replace(/\bporta\b/gi, "Tür")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  if (
+    /^kontakt\s+vor\s+ort:/i.test(normalized) &&
+    /\b(?:kljuc|ključ|celesi|çelesi|key|schluessel|schlussel)\b/i.test(
+      normalized,
+    )
+  ) {
+    return /\bhauswart\b/i.test(normalized)
+      ? "Schlüssel beim Hauswart"
+      : "Schlüssel/Kontakt vor Ort prüfen";
   }
 
   if (/^kontakt\s+vor\s+ort:/i.test(normalized)) {
@@ -3353,6 +3468,23 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     ) {
       jobHints.push("Keine Anrufe während der Bürozeiten");
     }
+  }
+
+  const specificParkingLine = normalizedLines.find(
+    (line) =>
+      /\b(?:parkieren|parken|parking)\b/i.test(line) &&
+      /\b(?:platz|besucherplatz|parkplatz|place)\b/i.test(line) &&
+      /\b\d+\b/.test(line),
+  );
+  if (specificParkingLine) {
+    const placeMatch = specificParkingLine.match(
+      /\b(?:platz|besucherplatz|parkplatz|place)\s*(\d+)\b/i,
+    );
+    jobHints.push(
+      placeMatch
+        ? `Parkieren nur auf Platz ${placeMatch[1]}`
+        : "Parkhinweis beachten",
+    );
   }
 
   const hasGoodParking = normalizedLines.some(
@@ -4122,7 +4254,9 @@ function applyFinalAmountBlockersBeforePersist(
 
     const mixedCurrencyItemBlocked =
       hasGlobalCurrencyConflict &&
-      Boolean(detectedCurrency && finalCurrency && detectedCurrency !== finalCurrency);
+      Boolean(
+        detectedCurrency && finalCurrency && detectedCurrency !== finalCurrency,
+      );
     const genericCurrencyReviewBlocked =
       String(next.reviewReason || "") === "currency_review" &&
       (!detectedCurrency ||
@@ -4137,7 +4271,15 @@ function applyFinalAmountBlockersBeforePersist(
       String(next.reviewReason || "").startsWith("currency_conflict_item:") ||
       genericCurrencyReviewBlocked;
 
-    if (!(serviceBlocked || unitBlocked || priceBlocked || quantityBlocked || currencyBlocked)) {
+    if (
+      !(
+        serviceBlocked ||
+        unitBlocked ||
+        priceBlocked ||
+        quantityBlocked ||
+        currencyBlocked
+      )
+    ) {
       return next;
     }
 
@@ -4149,14 +4291,16 @@ function applyFinalAmountBlockersBeforePersist(
       const evidenceText = [next.description, next.sourceText, next.evidence]
         .filter(Boolean)
         .join(" ");
-      const hasExplicitLineUnit = /\b(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stueck|stück|stk|pcs?|piece|pieces|stunden?|std\.?|hours?|heures?|horas?|ore|pauschal)\b/i.test(
-        evidenceText,
-      );
+      const hasExplicitLineUnit =
+        /\b(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stueck|stück|stk|pcs?|piece|pieces|stunden?|std\.?|hours?|heures?|horas?|ore|pauschal)\b/i.test(
+          evidenceText,
+        );
       const hasExplicitUnit = Boolean(
         next.unit && !isReviewUnitV17_90L(next.unit) && hasExplicitLineUnit,
       );
       if (!hasExplicitUnit) next.unit = "Einheit prüfen";
-      if (!next.reviewReason) next.reviewReason = `service_action_unclear:${serviceName}`;
+      if (!next.reviewReason)
+        next.reviewReason = `service_action_unclear:${serviceName}`;
       return next;
     }
 
@@ -5111,7 +5255,6 @@ function formatWorkNameForDisplay(value: string): string {
     .join(" ");
 }
 
-
 // V17.90L: German-visible service name safety net.
 // The AI/validator must write visible service names in German. If the intake
 // has a visible automatic German translation block, we use that block as
@@ -5171,13 +5314,15 @@ function translatedLineMatchesItemNumbersV17_90L(
   );
 }
 
-
 function cleanGermanServiceLabelGrammarV17_90L(value: string): string {
   return compactText(value)
     .replace(/\bBodens\b/gi, "Boden")
     .replace(/\bGeländers\b/gi, "Geländer")
     .replace(/\bGelaenders\b/gi, "Geländer")
-    .replace(/^Reinigung\s+des\s+Bodens\s+(im|in\s+der|in\s+dem|am)\s+(.+)$/i, "Boden $1 $2 reinigen")
+    .replace(
+      /^Reinigung\s+des\s+Bodens\s+(im|in\s+der|in\s+dem|am)\s+(.+)$/i,
+      "Boden $1 $2 reinigen",
+    )
     .replace(/^Reinigung\s+(.+)$/i, "$1 reinigen")
     .replace(/\bFensterreinigung\s+(.+)\s+reinigen\b/gi, "Fenster $1 reinigen")
     .replace(/\s+/g, " ")
@@ -5193,10 +5338,7 @@ function cleanTranslatedServiceLabelFromLineV17_90L(line: string): string {
       /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
       "",
     )
-    .replace(
-      /\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
-      "",
-    )
+    .replace(/\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
     .replace(
       /\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pi[eè]ces?|s[aä]cke|saecke|kg|kilogramm|liter)\b.*$/i,
       "",
@@ -5211,7 +5353,11 @@ function cleanTranslatedServiceLabelFromLineV17_90L(line: string): string {
 function isUsableGermanServiceLabelV17_90L(label: string): boolean {
   const normalized = normalizeServiceLineForMatchV17_90L(label);
   if (!normalized || label.length < 5 || label.length > 90) return false;
-  if (/^(?:rechnung|ausfuehrung|ausfuehrungsadresse|arbeitsort|kontakt|bitte|achtung|schluessel|schlussel|hund|leiter)\b/.test(normalized)) {
+  if (
+    /^(?:rechnung|ausfuehrung|ausfuehrungsadresse|arbeitsort|kontakt|bitte|achtung|schluessel|schlussel|hund|leiter)\b/.test(
+      normalized,
+    )
+  ) {
     return false;
   }
 
@@ -5250,16 +5396,22 @@ function isReviewUnitV17_90L(value?: string | null): boolean {
 
 function hasRawForeignServiceLanguageSignalV17_90L(value: string): boolean {
   const key = normalizeServiceLineForMatchV17_90L(value);
-  return /\b(?:limpiar|limpieza|suelo|garaje|ventanas|barandilla|desplazamiento|pulizia|pulire|pavimento|finestre|scaffali|trasferta|nettoyage|nettoyer|vitres|deplacement|déplacement)\b/.test(key);
+  return /\b(?:limpiar|limpieza|suelo|garaje|ventanas|barandilla|desplazamiento|pulizia|pulire|pavimento|finestre|scaffali|trasferta|nettoyage|nettoyer|vitres|deplacement|déplacement)\b/.test(
+    key,
+  );
 }
 
 function isAlreadyGermanVisibleServiceNameV17_90L(value: string): boolean {
   const key = normalizeServiceLineForMatchV17_90L(value);
   if (hasRawForeignServiceLanguageSignalV17_90L(value)) return false;
-  return /\b(?:reinigen|reinigung|abstauben|abwischen|streichen|schleifen|schneiden|entsorgen|sortieren|putzen)\b/.test(key);
+  return /\b(?:reinigen|reinigung|abstauben|abwischen|streichen|schleifen|schneiden|entsorgen|sortieren|putzen)\b/.test(
+    key,
+  );
 }
 
-function stripMeasureAndPriceFromVisibleServiceNameV17_90L(value: string): string {
+function stripMeasureAndPriceFromVisibleServiceNameV17_90L(
+  value: string,
+): string {
   let label = compactText(value);
   if (!label) return "";
   label = label
@@ -5267,10 +5419,7 @@ function stripMeasureAndPriceFromVisibleServiceNameV17_90L(value: string): strin
       /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
       "",
     )
-    .replace(
-      /\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
-      "",
-    )
+    .replace(/\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
     .replace(
       /\s*,?\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pi[eè]ces?|s[aä]cke|saecke|kg|kilogramm|liter)\b.*$/i,
       "",
@@ -5281,11 +5430,13 @@ function stripMeasureAndPriceFromVisibleServiceNameV17_90L(value: string): strin
   return cleanGermanServiceLabelGrammarV17_90L(label);
 }
 
-
 function lineHasDecimalNumberV17_90L3(line: string, value: number): boolean {
   const pattern = decimalMatchPatternV17_90L(value);
   if (!pattern) return false;
-  const normalized = normalizeServiceLineForMatchV17_90L(line).replace(/m\s*2/g, "m2");
+  const normalized = normalizeServiceLineForMatchV17_90L(line).replace(
+    /m\s*2/g,
+    "m2",
+  );
   return new RegExp(`(^|[^0-9])${pattern}([^0-9]|$)`).test(normalized);
 }
 
@@ -5293,7 +5444,9 @@ function isRegressionMetaLineV17_90L3(line: string): boolean {
   return /^\s*regression\b/i.test(String(line || ""));
 }
 
-function splitSourceEvidenceLinesV17_90L3(value: string | null | undefined): string[] {
+function splitSourceEvidenceLinesV17_90L3(
+  value: string | null | undefined,
+): string[] {
   return String(value || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
@@ -5301,18 +5454,31 @@ function splitSourceEvidenceLinesV17_90L3(value: string | null | undefined): str
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !isRegressionMetaLineV17_90L3(line))
-    .filter((line) => !/^---\s*Übersetzung\s*\(automatisch\)\s*---$/i.test(line));
+    .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
+    .filter(
+      (line) => !/^---\s*Übersetzung\s*\(automatisch\)\s*---$/i.test(line),
+    );
 }
 
-function detectExplicitUnitFromEvidenceLineV17_90L3(line: string): string | null {
+function detectExplicitUnitFromEvidenceLineV17_90L3(
+  line: string,
+): string | null {
   const normalized = normalizeServiceLineForMatchV17_90L(line)
     .replace(/m\s*2/g, "m2")
     .replace(/m\s*²/g, "m2");
 
-  if (/\b(?:m2|qm|quadratmeter|quadratmetern|sqm)\b/.test(normalized)) return "Quadratmeter";
-  if (/\b(?:stueck|stuck|stück|stk|pcs?|pieces?|piece|pi[eè]ces?|pezzi|piezas)\b/.test(normalized)) return "Stück";
-  if (/\b(?:laufmeter|lfm|meter|metres?|metri|metros)\b/.test(normalized)) return "Meter";
-  if (/\b(?:stunden?|std\.?|hours?|heures?|ore|horas?)\b/.test(normalized)) return "Stunde";
+  if (/\b(?:m2|qm|quadratmeter|quadratmetern|sqm)\b/.test(normalized))
+    return "Quadratmeter";
+  if (
+    /\b(?:stueck|stuck|stück|stk|pcs?|pieces?|piece|pi[eè]ces?|pezzi|piezas)\b/.test(
+      normalized,
+    )
+  )
+    return "Stück";
+  if (/\b(?:laufmeter|lfm|meter|metres?|metri|metros)\b/.test(normalized))
+    return "Meter";
+  if (/\b(?:stunden?|std\.?|hours?|heures?|ore|horas?)\b/.test(normalized))
+    return "Stunde";
   return null;
 }
 
@@ -5326,41 +5492,77 @@ function matchingUnitEvidenceLineForItemV17_90L3(
   if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
 
   const matches = splitSourceEvidenceLinesV17_90L3(sourceText)
-    .map((line) => ({ line, unit: detectExplicitUnitFromEvidenceLineV17_90L3(line) }))
-    .filter((entry): entry is { line: string; unit: string } => Boolean(entry.unit))
+    .map((line) => ({
+      line,
+      unit: detectExplicitUnitFromEvidenceLineV17_90L3(line),
+    }))
+    .filter((entry): entry is { line: string; unit: string } =>
+      Boolean(entry.unit),
+    )
     .filter((entry) => lineHasDecimalNumberV17_90L3(entry.line, quantity))
     .filter((entry) => lineHasDecimalNumberV17_90L3(entry.line, unitPrice))
-    .filter((entry) => /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€)\b/i.test(entry.line));
+    .filter((entry) =>
+      /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€)\b/i.test(entry.line),
+    );
 
   const uniqueByUnitAndLine = Array.from(
-    new Map(matches.map((entry) => [`${entry.unit}:${normalizeUnitText(entry.line)}`, entry])).values(),
+    new Map(
+      matches.map((entry) => [
+        `${entry.unit}:${normalizeUnitText(entry.line)}`,
+        entry,
+      ]),
+    ).values(),
   );
-  const uniqueUnits = Array.from(new Set(uniqueByUnitAndLine.map((entry) => entry.unit)));
+  const uniqueUnits = Array.from(
+    new Set(uniqueByUnitAndLine.map((entry) => entry.unit)),
+  );
   if (uniqueUnits.length !== 1) return null;
 
-  return uniqueByUnitAndLine.sort((a, b) => a.line.length - b.line.length)[0] || null;
+  return (
+    uniqueByUnitAndLine.sort((a, b) => a.line.length - b.line.length)[0] || null
+  );
 }
 
-
-function originalCustomerEvidenceLinesV17_90L5(value: string | null | undefined): string[] {
-  const originalOnly = String(value || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
+function originalCustomerEvidenceLinesV17_90L5(
+  value: string | null | undefined,
+): string[] {
+  const originalOnly =
+    String(value || "").split(
+      /---\s*Übersetzung\s*\(automatisch\)\s*---/i,
+    )[0] || "";
   return splitSourceEvidenceLinesV17_90L3(originalOnly);
 }
 
 function hasExplicitWorkActionInEvidenceLineV17_90L5(line: string): boolean {
   const normalized = normalizeServiceLineForMatchV17_90L(line);
-  return /\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean|cleaning|wash|washing|dust|dusting|wipe|wiping|polish|polishing|limpiar|limpieza|pulire|pulizia|nettoyer|nettoyage|abstauben|abwischen|streichen|schleifen|schneiden|entsorgen|sortieren)\b/.test(normalized);
+  return /\b(?:reinigen|reinigung|gereinigt|putzen|saeubern|säubern|clean|cleaning|wash|washing|dust|dusting|wipe|wiping|polish|polishing|limpiar|limpieza|pulire|pulizia|nettoyer|nettoyage|abstauben|abwischen|streichen|schleifen|schneiden|entsorgen|sortieren)\b/.test(
+    normalized,
+  );
 }
 
 function hasFloorSurfaceSignalV17_90L5(value: string): boolean {
   const normalized = normalizeServiceLineForMatchV17_90L(value);
-  return /\b(?:boden|bodenflaeche|floor|sol|suelo|pavimento|lagefläche|lagerflaeche|parkdeck|waschplatz)\b/.test(normalized);
+  return /(?:boden|bodenflaeche|bodenfläche|floor|sol|suelo|pavimento|lagerflaeche|lagerfläche|parkdeck|waschplatz)/.test(
+    normalized,
+  );
 }
 
-function isGenericFloorCleaningServiceNameV17_90L5(value: string | null | undefined): boolean {
+function hasExplicitAreaUnitSignalV17_90L17(value: string): boolean {
+  const normalized = normalizeServiceLineForMatchV17_90L(value)
+    .replace(/m\s*2/g, "m2")
+    .replace(/m\s*²/g, "m2");
+  return /\b(?:m2|qm|quadratmeter|sqm)\b/.test(normalized);
+}
+
+function isGenericFloorCleaningServiceNameV17_90L5(
+  value: string | null | undefined,
+): boolean {
   const normalized = normalizeServiceLineForMatchV17_90L(String(value || ""));
   if (!normalized) return false;
-  return hasFloorSurfaceSignalV17_90L5(normalized) && /\b(?:reinigen|reinigung|clean|cleaning)\b/.test(normalized);
+  return (
+    hasFloorSurfaceSignalV17_90L5(normalized) &&
+    /\b(?:reinigen|reinigung|clean|cleaning)\b/.test(normalized)
+  );
 }
 
 function matchingOriginalEvidenceLineByNumbersV17_90L5(
@@ -5375,33 +5577,44 @@ function matchingOriginalEvidenceLineByNumbersV17_90L5(
   const matches = originalCustomerEvidenceLinesV17_90L5(sourceText)
     .filter((line) => lineHasDecimalNumberV17_90L3(line, quantity))
     .filter((line) => lineHasDecimalNumberV17_90L3(line, unitPrice))
-    .filter((line) => /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€)\b/i.test(line));
+    .filter((line) =>
+      /\b(?:chf|franken|fr\.?|sfr\.?|stutz|eur|euro|€)\b/i.test(line),
+    );
 
-  const unique = Array.from(new Map(matches.map((line) => [normalizeUnitText(line), line])).values());
+  const unique = Array.from(
+    new Map(matches.map((line) => [normalizeUnitText(line), line])).values(),
+  );
   if (unique.length !== 1) return null;
   return unique[0] || null;
 }
 
-function blockGenericFloorRowsWithoutExplicitActionV17_90L5<T extends {
-  serviceName?: string | null;
-  quantity?: any;
-  unit?: string | null;
-  unitPrice?: any;
-  totalPrice?: any;
-  needsReview?: boolean;
-  reviewReason?: string | null;
-  description?: string | null;
-  sourceText?: string | null;
-  evidence?: string | null;
-}>(items: T[], sourceText: string | null | undefined): T[] {
+function blockGenericFloorRowsWithoutExplicitActionV17_90L5<
+  T extends {
+    serviceName?: string | null;
+    quantity?: any;
+    unit?: string | null;
+    unitPrice?: any;
+    totalPrice?: any;
+    needsReview?: boolean;
+    reviewReason?: string | null;
+    description?: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+  },
+>(items: T[], sourceText: string | null | undefined): T[] {
   return items.map((item) => {
-    if (!isGenericFloorCleaningServiceNameV17_90L5(item.serviceName)) return item;
+    if (!isGenericFloorCleaningServiceNameV17_90L5(item.serviceName))
+      return item;
 
-    const evidenceLine = matchingOriginalEvidenceLineByNumbersV17_90L5(sourceText, item);
+    const evidenceLine = matchingOriginalEvidenceLineByNumbersV17_90L5(
+      sourceText,
+      item,
+    );
     if (!evidenceLine) return item;
 
     const evidenceHasFloor = hasFloorSurfaceSignalV17_90L5(evidenceLine);
-    const evidenceHasExplicitAction = hasExplicitWorkActionInEvidenceLineV17_90L5(evidenceLine);
+    const evidenceHasExplicitAction =
+      hasExplicitWorkActionInEvidenceLineV17_90L5(evidenceLine);
 
     // V17.90L8: If the AI invented a generic floor-cleaning name for a line
     // that does not even mention a floor (e.g. "Dort hinten alles machen"),
@@ -5415,14 +5628,15 @@ function blockGenericFloorRowsWithoutExplicitActionV17_90L5<T extends {
       unit: "Einheit prüfen",
       totalPrice: 0,
       needsReview: true,
-      reviewReason: item.reviewReason || `service_action_unclear:${compactText(item.serviceName) || "Boden"}`,
+      reviewReason:
+        item.reviewReason ||
+        `service_action_unclear:${compactText(item.serviceName) || "Boden"}`,
       description: item.description || evidenceLine,
       sourceText: item.sourceText || evidenceLine,
       evidence: item.evidence || evidenceLine,
     };
   });
 }
-
 
 type AmbiguousNoActionEvidenceLineV17_90L9 = {
   line: string;
@@ -5440,8 +5654,14 @@ function parseQuantityPriceFromEvidenceLineV17_90L9(
   const currencyWords = String.raw`(?:CHF|Fr\.?|SFr\.?|EUR|Euro|€)`;
   const number = String.raw`(\d+(?:[.,]\d+)?)`;
   const patterns = [
-    new RegExp(`${number}\\s*(?:${unitWords})?\\s*(?:à|a|at|zu|pro|je|per)\\s*(?:${currencyWords})?\\s*${number}`, "i"),
-    new RegExp(`${number}\\s*(?:${unitWords})?\\s*(?:à|a|at|zu|pro|je|per)\\s*${number}\\s*(?:${currencyWords})`, "i"),
+    new RegExp(
+      `${number}\\s*(?:${unitWords})?\\s*(?:à|a|at|zu|pro|je|per)\\s*(?:${currencyWords})?\\s*${number}`,
+      "i",
+    ),
+    new RegExp(
+      `${number}\\s*(?:${unitWords})?\\s*(?:à|a|at|zu|pro|je|per)\\s*${number}\\s*(?:${currencyWords})`,
+      "i",
+    ),
   ];
 
   for (const pattern of patterns) {
@@ -5468,36 +5688,142 @@ function isFlatFeeOrTravelEvidenceLineV17_90L9(line: string): boolean {
 
 function hasGenericAmbiguousObjectSignalV17_90L9(line: string): boolean {
   const normalized = normalizeServiceLineForMatchV17_90L(line);
-  return /\b(?:alles|all|everything|dort|hinten|bereich|area|zone|sachen|gegenstaende|gegenstande|gegenstände|objekte|objects|items|things|kleine|kleinen|kleiner|small|diverses|diverse|sonstiges|machen)\b/.test(normalized);
+  return /\b(?:alles|all|everything|dort|hinten|bereich|area|zone|sachen|gegenstaende|gegenstande|gegenstände|objekte|objects|items|things|kleine|kleinen|kleiner|small|diverses|diverse|sonstiges|machen)\b/.test(
+    normalized,
+  );
 }
 
 function ambiguousNoActionEvidenceLinesV17_90L9(
   sourceText: string | null | undefined,
 ): AmbiguousNoActionEvidenceLineV17_90L9[] {
-  return originalCustomerEvidenceLinesV17_90L5(sourceText)
-    .filter((line) => !isFlatFeeOrTravelEvidenceLineV17_90L9(line))
-    .filter((line) => !hasExplicitWorkActionInEvidenceLineV17_90L5(line))
-    // V17.90L9 is intentionally narrow: not every object line without a verb
-    // is blocked. Concrete object rows such as "Fenster Eingang 8 Stück à CHF 9"
-    // may still be usable in a cleaning order. We fail closed only for floor/
-    // surface rows or structurally vague rows like "alles machen" / "kleine Sachen".
-    .filter((line) => hasFloorSurfaceSignalV17_90L5(line) || hasGenericAmbiguousObjectSignalV17_90L9(line))
-    .map((line) => {
-      const parsed = parseQuantityPriceFromEvidenceLineV17_90L9(line);
-      return parsed ? { line, ...parsed } : null;
-    })
-    .filter((entry): entry is AmbiguousNoActionEvidenceLineV17_90L9 => Boolean(entry));
+  return (
+    originalCustomerEvidenceLinesV17_90L5(sourceText)
+      .filter((line) => !isFlatFeeOrTravelEvidenceLineV17_90L9(line))
+      .filter((line) => !hasExplicitWorkActionInEvidenceLineV17_90L5(line))
+      // V17.90L9 is intentionally narrow: not every object line without a verb
+      // is blocked. Concrete object rows such as "Fenster Eingang 8 Stück à CHF 9"
+      // may still be usable in a cleaning order. We fail closed only for floor/
+      // surface rows or structurally vague rows like "alles machen" / "kleine Sachen".
+      .filter(
+        (line) =>
+          hasExplicitAreaUnitSignalV17_90L17(line) ||
+          hasFloorSurfaceSignalV17_90L5(line) ||
+          hasGenericAmbiguousObjectSignalV17_90L9(line),
+      )
+      .map((line) => {
+        const parsed = parseQuantityPriceFromEvidenceLineV17_90L9(line);
+        return parsed ? { line, ...parsed } : null;
+      })
+      .filter((entry): entry is AmbiguousNoActionEvidenceLineV17_90L9 =>
+        Boolean(entry),
+      )
+  );
 }
 
 const AMBIGUOUS_EVIDENCE_STOPWORDS_V17_90L9 = new Set([
-  "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer",
-  "im", "in", "am", "an", "auf", "beim", "bei", "und", "oder", "mit", "ohne", "zu", "zur", "zum",
-  "the", "a", "an", "at", "and", "or", "in", "on", "near", "with", "without",
-  "le", "la", "les", "un", "une", "des", "dans", "sur", "et", "ou", "avec", "sans",
-  "il", "lo", "la", "gli", "le", "un", "una", "nel", "nella", "sul", "sulla", "e", "o", "con", "senza",
-  "el", "la", "los", "las", "un", "una", "en", "del", "de", "y", "o", "con", "sin",
-  "reinigen", "reinigung", "putzen", "saeubern", "saubern", "clean", "cleaning", "limpiar", "limpieza", "pulire", "pulizia", "nettoyer", "nettoyage",
-  "m2", "qm", "quadratmeter", "meter", "stueck", "stuck", "stück", "stk", "pcs", "pieces", "piece", "chf", "eur", "euro",
+  "der",
+  "die",
+  "das",
+  "den",
+  "dem",
+  "des",
+  "ein",
+  "eine",
+  "einen",
+  "einem",
+  "einer",
+  "im",
+  "in",
+  "am",
+  "an",
+  "auf",
+  "beim",
+  "bei",
+  "und",
+  "oder",
+  "mit",
+  "ohne",
+  "zu",
+  "zur",
+  "zum",
+  "the",
+  "a",
+  "an",
+  "at",
+  "and",
+  "or",
+  "in",
+  "on",
+  "near",
+  "with",
+  "without",
+  "le",
+  "la",
+  "les",
+  "un",
+  "une",
+  "des",
+  "dans",
+  "sur",
+  "et",
+  "ou",
+  "avec",
+  "sans",
+  "il",
+  "lo",
+  "la",
+  "gli",
+  "le",
+  "un",
+  "una",
+  "nel",
+  "nella",
+  "sul",
+  "sulla",
+  "e",
+  "o",
+  "con",
+  "senza",
+  "el",
+  "la",
+  "los",
+  "las",
+  "un",
+  "una",
+  "en",
+  "del",
+  "de",
+  "y",
+  "o",
+  "con",
+  "sin",
+  "reinigen",
+  "reinigung",
+  "putzen",
+  "saeubern",
+  "saubern",
+  "clean",
+  "cleaning",
+  "limpiar",
+  "limpieza",
+  "pulire",
+  "pulizia",
+  "nettoyer",
+  "nettoyage",
+  "m2",
+  "qm",
+  "quadratmeter",
+  "meter",
+  "stueck",
+  "stuck",
+  "stück",
+  "stk",
+  "pcs",
+  "pieces",
+  "piece",
+  "chf",
+  "eur",
+  "euro",
 ]);
 
 function tokenSetForAmbiguousEvidenceMatchV17_90L9(value: string): Set<string> {
@@ -5512,7 +5838,10 @@ function tokenSetForAmbiguousEvidenceMatchV17_90L9(value: string): Set<string> {
   return new Set(tokens);
 }
 
-function tokenOverlapCountV17_90L9(left: Set<string>, right: Set<string>): number {
+function tokenOverlapCountV17_90L9(
+  left: Set<string>,
+  right: Set<string>,
+): number {
   let count = 0;
   left.forEach((token) => {
     if (right.has(token)) count += 1;
@@ -5522,7 +5851,14 @@ function tokenOverlapCountV17_90L9(left: Set<string>, right: Set<string>): numbe
 
 function findAmbiguousNoActionEvidenceForItemV17_90L9(
   sourceText: string | null | undefined,
-  item: { serviceName?: any; description?: any; evidence?: any; sourceText?: any; quantity?: any; unitPrice?: any },
+  item: {
+    serviceName?: any;
+    description?: any;
+    evidence?: any;
+    sourceText?: any;
+    quantity?: any;
+    unitPrice?: any;
+  },
 ): AmbiguousNoActionEvidenceLineV17_90L9 | null {
   const lines = ambiguousNoActionEvidenceLinesV17_90L9(sourceText);
   if (lines.length === 0) return null;
@@ -5530,45 +5866,82 @@ function findAmbiguousNoActionEvidenceForItemV17_90L9(
   const quantity = Number(item.quantity || 0);
   const price = Number(item.unitPrice || 0);
   const exactNumberMatches = lines.filter((entry) => {
-    const quantityMatches = Number.isFinite(quantity) && quantity > 0 && Math.abs(entry.quantity - quantity) < 0.0001;
-    const priceMatches = Number.isFinite(price) && price > 0 && Math.abs(entry.price - price) < 0.0001;
+    const quantityMatches =
+      Number.isFinite(quantity) &&
+      quantity > 0 &&
+      Math.abs(entry.quantity - quantity) < 0.0001;
+    const priceMatches =
+      Number.isFinite(price) &&
+      price > 0 &&
+      Math.abs(entry.price - price) < 0.0001;
     return quantityMatches && priceMatches;
   });
   if (exactNumberMatches.length === 1) return exactNumberMatches[0];
 
-  const itemText = [item.serviceName, item.description, item.evidence, item.sourceText]
+  const itemText = [
+    item.serviceName,
+    item.description,
+    item.evidence,
+    item.sourceText,
+  ]
     .filter(Boolean)
     .join(" ");
   const itemTokens = tokenSetForAmbiguousEvidenceMatchV17_90L9(itemText);
   const tokenMatches = lines
-    .map((entry) => ({ entry, overlap: tokenOverlapCountV17_90L9(itemTokens, tokenSetForAmbiguousEvidenceMatchV17_90L9(entry.line)) }))
+    .map((entry) => ({
+      entry,
+      overlap: tokenOverlapCountV17_90L9(
+        itemTokens,
+        tokenSetForAmbiguousEvidenceMatchV17_90L9(entry.line),
+      ),
+    }))
     .filter(({ overlap }) => overlap >= 2)
-    .sort((a, b) => b.overlap - a.overlap || a.entry.line.length - b.entry.line.length);
-  if (tokenMatches.length === 1 || (tokenMatches.length > 1 && tokenMatches[0].overlap > tokenMatches[1].overlap)) {
+    .sort(
+      (a, b) =>
+        b.overlap - a.overlap || a.entry.line.length - b.entry.line.length,
+    );
+  if (
+    tokenMatches.length === 1 ||
+    (tokenMatches.length > 1 &&
+      tokenMatches[0].overlap > tokenMatches[1].overlap)
+  ) {
     return tokenMatches[0].entry;
   }
 
-  const priceOnlyMatches = lines.filter((entry) => Number.isFinite(price) && price > 0 && Math.abs(entry.price - price) < 0.0001);
-  const itemLooksAlreadyBlocked = isInternalReviewServiceNameV17_90L(String(item.serviceName || "")) || isReviewUnitV17_90L(String((item as any).unit || ""));
-  if (itemLooksAlreadyBlocked && priceOnlyMatches.length === 1) return priceOnlyMatches[0];
+  const priceOnlyMatches = lines.filter(
+    (entry) =>
+      Number.isFinite(price) &&
+      price > 0 &&
+      Math.abs(entry.price - price) < 0.0001,
+  );
+  const itemLooksAlreadyBlocked =
+    isInternalReviewServiceNameV17_90L(String(item.serviceName || "")) ||
+    isReviewUnitV17_90L(String((item as any).unit || ""));
+  if (itemLooksAlreadyBlocked && priceOnlyMatches.length === 1)
+    return priceOnlyMatches[0];
 
   return null;
 }
 
-function blockAmbiguousRowsWithoutExplicitActionV17_90L9<T extends {
-  serviceName?: string | null;
-  quantity?: any;
-  unit?: string | null;
-  unitPrice?: any;
-  totalPrice?: any;
-  needsReview?: boolean;
-  reviewReason?: string | null;
-  description?: string | null;
-  sourceText?: string | null;
-  evidence?: string | null;
-}>(items: T[], sourceText: string | null | undefined): T[] {
+function blockAmbiguousRowsWithoutExplicitActionV17_90L9<
+  T extends {
+    serviceName?: string | null;
+    quantity?: any;
+    unit?: string | null;
+    unitPrice?: any;
+    totalPrice?: any;
+    needsReview?: boolean;
+    reviewReason?: string | null;
+    description?: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+  },
+>(items: T[], sourceText: string | null | undefined): T[] {
   return items.map((item) => {
-    const evidence = findAmbiguousNoActionEvidenceForItemV17_90L9(sourceText, item);
+    const evidence = findAmbiguousNoActionEvidenceForItemV17_90L9(
+      sourceText,
+      item,
+    );
     if (!evidence) return item;
 
     return {
@@ -5579,7 +5952,9 @@ function blockAmbiguousRowsWithoutExplicitActionV17_90L9<T extends {
       unitPrice: evidence.price,
       totalPrice: 0,
       needsReview: true,
-      reviewReason: item.reviewReason || `service_action_unclear:${compactText(item.serviceName) || "Leistung"}`,
+      reviewReason:
+        item.reviewReason ||
+        `service_action_unclear:${compactText(item.serviceName) || "Leistung"}`,
       description: evidence.line,
       sourceText: evidence.line,
       evidence: evidence.line,
@@ -5587,18 +5962,20 @@ function blockAmbiguousRowsWithoutExplicitActionV17_90L9<T extends {
   });
 }
 
-function repairReviewUnitsFromLineLocalEvidenceV17_90L3<T extends {
-  serviceName?: string | null;
-  quantity?: any;
-  unit?: string | null;
-  unitPrice?: any;
-  totalPrice?: any;
-  needsReview?: boolean;
-  reviewReason?: string | null;
-  description?: string | null;
-  sourceText?: string | null;
-  evidence?: string | null;
-}>(items: T[], sourceText: string | null | undefined): T[] {
+function repairReviewUnitsFromLineLocalEvidenceV17_90L3<
+  T extends {
+    serviceName?: string | null;
+    quantity?: any;
+    unit?: string | null;
+    unitPrice?: any;
+    totalPrice?: any;
+    needsReview?: boolean;
+    reviewReason?: string | null;
+    description?: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+  },
+>(items: T[], sourceText: string | null | undefined): T[] {
   return items.map((item) => {
     const unitKey = normalizeUnitText(item.unit || "");
     const reviewReason = String(item.reviewReason || "");
@@ -5616,10 +5993,13 @@ function repairReviewUnitsFromLineLocalEvidenceV17_90L3<T extends {
 
     const quantity = Number(item.quantity || 0);
     const unitPrice = Number(item.unitPrice || 0);
-    const totalPrice = Math.round((quantity * unitPrice + Number.EPSILON) * 100) / 100;
-    const nextReason = reviewReason.startsWith("unit_missing_in_text:") || reviewReason.startsWith("unit_mismatch:")
-      ? null
-      : item.reviewReason || null;
+    const totalPrice =
+      Math.round((quantity * unitPrice + Number.EPSILON) * 100) / 100;
+    const nextReason =
+      reviewReason.startsWith("unit_missing_in_text:") ||
+      reviewReason.startsWith("unit_mismatch:")
+        ? null
+        : item.reviewReason || null;
 
     return {
       ...item,
@@ -5633,7 +6013,6 @@ function repairReviewUnitsFromLineLocalEvidenceV17_90L3<T extends {
     };
   });
 }
-
 
 function explicitCurrencyFromEvidenceLineV17_90L4(line: string): string | null {
   const raw = String(line || "");
@@ -5652,7 +6031,12 @@ function explicitCurrencyFromEvidenceLineV17_90L4(line: string): string | null {
 
 function matchingCurrencyEvidenceLineForItemV17_90L4(
   sourceText: string | null | undefined,
-  item: { quantity?: any; unitPrice?: any; serviceName?: string | null; unit?: string | null },
+  item: {
+    quantity?: any;
+    unitPrice?: any;
+    serviceName?: string | null;
+    unit?: string | null;
+  },
 ): { line: string; currency: string } | null {
   const quantity = Number(item.quantity || 0);
   const unitPrice = Number(item.unitPrice || 0);
@@ -5662,8 +6046,13 @@ function matchingCurrencyEvidenceLineForItemV17_90L4(
   const serviceKey = normalizeUnitText(item.serviceName || "");
   const unitKey = normalizeUnitText(item.unit || "");
   const matches = splitSourceEvidenceLinesV17_90L3(sourceText)
-    .map((line) => ({ line, currency: explicitCurrencyFromEvidenceLineV17_90L4(line) }))
-    .filter((entry): entry is { line: string; currency: string } => Boolean(entry.currency))
+    .map((line) => ({
+      line,
+      currency: explicitCurrencyFromEvidenceLineV17_90L4(line),
+    }))
+    .filter((entry): entry is { line: string; currency: string } =>
+      Boolean(entry.currency),
+    )
     .filter((entry) => lineHasDecimalNumberV17_90L3(entry.line, quantity))
     .filter((entry) => lineHasDecimalNumberV17_90L3(entry.line, unitPrice))
     .filter((entry) => {
@@ -5673,33 +6062,47 @@ function matchingCurrencyEvidenceLineForItemV17_90L4(
       // For flat fees, prefer travel/ride/fee evidence; this avoids stealing
       // a random same-price service line.
       if (unitKey === "pauschal" || serviceKey.includes("anfahrt")) {
-        return /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(entry.line);
+        return /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(
+          entry.line,
+        );
       }
       return true;
     });
 
   const unique = Array.from(
-    new Map(matches.map((entry) => [`${entry.currency}:${normalizeUnitText(entry.line)}`, entry])).values(),
+    new Map(
+      matches.map((entry) => [
+        `${entry.currency}:${normalizeUnitText(entry.line)}`,
+        entry,
+      ]),
+    ).values(),
   );
-  const uniqueCurrencies = Array.from(new Set(unique.map((entry) => entry.currency)));
+  const uniqueCurrencies = Array.from(
+    new Set(unique.map((entry) => entry.currency)),
+  );
   if (uniqueCurrencies.length !== 1) return null;
 
   return unique.sort((a, b) => a.line.length - b.line.length)[0] || null;
 }
 
-function applyLineLocalCurrenciesFromEvidenceV17_90L4<T extends {
-  serviceName?: string | null;
-  quantity?: any;
-  unit?: string | null;
-  unitPrice?: any;
-  detectedCurrency?: string | null;
-  description?: string | null;
-  sourceText?: string | null;
-  evidence?: string | null;
-}>(items: T[], sourceText: string | null | undefined): T[] {
+function applyLineLocalCurrenciesFromEvidenceV17_90L4<
+  T extends {
+    serviceName?: string | null;
+    quantity?: any;
+    unit?: string | null;
+    unitPrice?: any;
+    detectedCurrency?: string | null;
+    description?: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+  },
+>(items: T[], sourceText: string | null | undefined): T[] {
   return items.map((item) => {
     if (item.detectedCurrency) return item;
-    const evidence = matchingCurrencyEvidenceLineForItemV17_90L4(sourceText, item);
+    const evidence = matchingCurrencyEvidenceLineForItemV17_90L4(
+      sourceText,
+      item,
+    );
     if (!evidence) return item;
     return {
       ...item,
@@ -5714,32 +6117,48 @@ function applyLineLocalCurrenciesFromEvidenceV17_90L4<T extends {
 function extractBlockedForeignCurrencyLineV17_90L3(
   sourceText: string | null | undefined,
 ): string | null {
-  const rawOriginal = String(sourceText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || String(sourceText || "");
+  const rawOriginal =
+    String(sourceText || "").split(
+      /---\s*Übersetzung\s*\(automatisch\)\s*---/i,
+    )[0] || String(sourceText || "");
   const explicitTravelLine = rawOriginal
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .split(/\n+/g)
     .map((line) => line.trim())
-    .find((line) =>
-      !/^regression\b/i.test(line) &&
-      /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(line) &&
-      /\b(?:eur|euro|usd|dollar|gbp|pfund)\b|[€$£]/i.test(line) &&
-      /\d+(?:[.,]\d{1,2})?/.test(line),
+    .find(
+      (line) =>
+        !/^regression\b/i.test(line) &&
+        /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(
+          line,
+        ) &&
+        /\b(?:eur|euro|usd|dollar|gbp|pfund)\b|[€$£]/i.test(line) &&
+        /\d+(?:[.,]\d{1,2})?/.test(line),
     );
   if (explicitTravelLine) return explicitTravelLine;
 
-  const candidates = splitSourceEvidenceLinesV17_90L3(sourceText).filter((line) => {
-    const normalized = normalizeServiceLineForMatchV17_90L(line);
-    if (/^regression\b/i.test(line)) return false;
-    if (!/\b(?:eur|euro|usd|dollar|gbp|pfund)\b|[€$£]/i.test(line)) return false;
-    if (/\bchf\b/i.test(line)) return false;
-    if (!/\d+(?:[.,]\d{1,2})?/.test(normalized)) return false;
-    if (/^(?:invoice|rechnung|facture|factura|fattura|work site|arbeitsort|ausfuehrung|ausführung)\b/i.test(line)) return false;
-    return true;
-  });
+  const candidates = splitSourceEvidenceLinesV17_90L3(sourceText).filter(
+    (line) => {
+      const normalized = normalizeServiceLineForMatchV17_90L(line);
+      if (/^regression\b/i.test(line)) return false;
+      if (!/\b(?:eur|euro|usd|dollar|gbp|pfund)\b|[€$£]/i.test(line))
+        return false;
+      if (/\bchf\b/i.test(line)) return false;
+      if (!/\d+(?:[.,]\d{1,2})?/.test(normalized)) return false;
+      if (
+        /^(?:invoice|rechnung|facture|factura|fattura|work site|arbeitsort|ausfuehrung|ausführung)\b/i.test(
+          line,
+        )
+      )
+        return false;
+      return true;
+    },
+  );
 
   const travelCandidates = candidates.filter((line) =>
-    /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(line),
+    /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(
+      line,
+    ),
   );
   const pool = travelCandidates.length > 0 ? travelCandidates : candidates;
   if (pool.length === 0) return null;
@@ -5749,25 +6168,29 @@ function extractBlockedForeignCurrencyLineV17_90L3(
   return pool.sort((a, b) => a.length - b.length)[0] || null;
 }
 
-function repairBlockedFlatFeeCurrencyRowsV17_90L3<T extends {
-  serviceName?: string | null;
-  quantity?: any;
-  unit?: string | null;
-  unitPrice?: any;
-  totalPrice?: any;
-  needsReview?: boolean;
-  reviewReason?: string | null;
-  description?: string | null;
-  sourceText?: string | null;
-  evidence?: string | null;
-}>(items: T[], sourceText: string | null | undefined): T[] {
+function repairBlockedFlatFeeCurrencyRowsV17_90L3<
+  T extends {
+    serviceName?: string | null;
+    quantity?: any;
+    unit?: string | null;
+    unitPrice?: any;
+    totalPrice?: any;
+    needsReview?: boolean;
+    reviewReason?: string | null;
+    description?: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+  },
+>(items: T[], sourceText: string | null | undefined): T[] {
   const currencyLine = extractBlockedForeignCurrencyLineV17_90L3(sourceText);
 
   return items.map((item) => {
     const serviceKey = normalizeUnitText(item.serviceName || "");
     const unitKey = normalizeUnitText(item.unit || "");
     const reviewKey = normalizeUnitText(
-      [item.reviewReason, item.description, item.sourceText, item.evidence].filter(Boolean).join(" "),
+      [item.reviewReason, item.description, item.sourceText, item.evidence]
+        .filter(Boolean)
+        .join(" "),
     );
     const total = Number(item.totalPrice || 0);
     const price = Number(item.unitPrice || 0);
@@ -5788,7 +6211,9 @@ function repairBlockedFlatFeeCurrencyRowsV17_90L3<T extends {
       serviceKey.includes("anfahrt") ||
       unitKey === "pauschal" ||
       /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|deplacement|déplacement|trasferta|desplazamiento)\b/i.test(
-        [item.description, item.sourceText, item.evidence].filter(Boolean).join(" "),
+        [item.description, item.sourceText, item.evidence]
+          .filter(Boolean)
+          .join(" "),
       );
 
     const isBlockedCurrencyRow =
@@ -5803,11 +6228,15 @@ function repairBlockedFlatFeeCurrencyRowsV17_90L3<T extends {
     // line, and must never show the regression/title line as evidence.
     return {
       ...item,
-      serviceName: serviceKey.includes("anfahrt") || unitKey === "pauschal" ? item.serviceName || "Anfahrt" : item.serviceName,
+      serviceName:
+        serviceKey.includes("anfahrt") || unitKey === "pauschal"
+          ? item.serviceName || "Anfahrt"
+          : item.serviceName,
       quantity: 1,
       totalPrice: 0,
       needsReview: true,
-      reviewReason: item.reviewReason || "currency_conflict_item:Anfahrt:EUR:CHF",
+      reviewReason:
+        item.reviewReason || "currency_conflict_item:Anfahrt:EUR:CHF",
       description: currencyLine || item.description,
       sourceText: currencyLine || item.sourceText,
       evidence: currencyLine || item.evidence,
@@ -5827,7 +6256,8 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
     description?: string | null;
   },
 >(items: T[], sourceText: string | null | undefined): T[] {
-  const translatedBlock = splitAutomaticGermanTranslationBlockV17_90L(sourceText);
+  const translatedBlock =
+    splitAutomaticGermanTranslationBlockV17_90L(sourceText);
   if (!translatedBlock.trim()) return items;
 
   const translatedLines = translatedBlock
@@ -5836,7 +6266,12 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter((line) => line.length >= 8)
-    .filter((line) => !/^\s*(?:rechnung|ausführung|ausfuehrung|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kontakt|e-mail|tel\.?|telefon)\s*:/i.test(line));
+    .filter(
+      (line) =>
+        !/^\s*(?:rechnung|ausführung|ausfuehrung|arbeitsort|ausführungsadresse|ausfuehrungsadresse|kontakt|e-mail|tel\.?|telefon)\s*:/i.test(
+          line,
+        ),
+    );
 
   if (translatedLines.length === 0) return items;
 
@@ -5845,7 +6280,8 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
     const quantity = Number(item.quantity || 0);
     const unitPrice = Number(item.unitPrice || 0);
     const totalPrice = Number(item.totalPrice || 0);
-    if (!currentName || !Number.isFinite(quantity) || quantity <= 0) return item;
+    if (!currentName || !Number.isFinite(quantity) || quantity <= 0)
+      return item;
     if (!Number.isFinite(unitPrice) || unitPrice <= 0) return item;
 
     // Do not turn hard-review placeholders or blocked unit-review rows into
@@ -5862,7 +6298,8 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
     // If the label is already a German visible service name, do not replace it
     // with a translated sentence. Only strip accidental measure/price tails.
     if (isAlreadyGermanVisibleServiceNameV17_90L(currentName)) {
-      const cleanedName = stripMeasureAndPriceFromVisibleServiceNameV17_90L(currentName);
+      const cleanedName =
+        stripMeasureAndPriceFromVisibleServiceNameV17_90L(currentName);
       return cleanedName && cleanedName !== currentName
         ? { ...item, serviceName: cleanedName }
         : item;
@@ -5874,7 +6311,12 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
       .filter(isUsableGermanServiceLabelV17_90L);
 
     const uniqueCandidates = Array.from(
-      new Map(candidates.map((candidate) => [normalizeUnitText(candidate), candidate])).values(),
+      new Map(
+        candidates.map((candidate) => [
+          normalizeUnitText(candidate),
+          candidate,
+        ]),
+      ).values(),
     );
 
     if (uniqueCandidates.length !== 1) return item;
@@ -7210,11 +7652,15 @@ export async function processIncomingMessage(
   ) {
     const addressValidationSourceTextV17_51 = [
       messageText,
-      translationText ? `--- Übersetzung (automatisch) ---\n${translationText}` : "",
+      translationText
+        ? `--- Übersetzung (automatisch) ---\n${translationText}`
+        : "",
     ]
       .filter((part) => String(part || "").trim())
       .join("\n");
-    const executionBlock = extractExecutionBlockFromText(addressValidationSourceTextV17_51);
+    const executionBlock = extractExecutionBlockFromText(
+      addressValidationSourceTextV17_51,
+    );
     const executionStreet = executionBlock
       ? parseBillingStreetFromBlock(executionBlock)
       : null;
@@ -7238,7 +7684,9 @@ export async function processIncomingMessage(
       addr.street = null;
       addr.plz = null;
       addr.city = null;
-      customerGuardReviewReasons.push("customer_address_cleared_execution_site_only_v17_51");
+      customerGuardReviewReasons.push(
+        "customer_address_cleared_execution_site_only_v17_51",
+      );
       parsed.system = parsed.system || {};
       parsed.system.needs_review = true;
     }
@@ -7259,7 +7707,9 @@ export async function processIncomingMessage(
   const addressRoleSafetyV17_61 = shouldQuarantineBillingAddressRoleV17_61({
     rawText: [
       messageText,
-      translationText ? `--- Übersetzung (automatisch) ---\n${translationText}` : "",
+      translationText
+        ? `--- Übersetzung (automatisch) ---\n${translationText}`
+        : "",
     ]
       .filter((part) => String(part || "").trim())
       .join("\n"),
@@ -7576,9 +8026,9 @@ export async function processIncomingMessage(
         : safeNewCustomerFields.city;
     const hasCompleteNewCustomerMasterForNumber = Boolean(
       safeNewCustomerName.trim() &&
-        String(safeNewCustomerFields.street || "").trim() &&
-        String(safeNewCustomerFields.plz || "").trim() &&
-        String(safeNewCustomerCity || "").trim(),
+      String(safeNewCustomerFields.street || "").trim() &&
+      String(safeNewCustomerFields.plz || "").trim() &&
+      String(safeNewCustomerCity || "").trim(),
     );
 
     if (keepNewCustomerMasterEmpty) {
@@ -7699,8 +8149,12 @@ export async function processIncomingMessage(
     parsed.auftrag?.sicherheitswarnungen;
   const rawBesonderheiten = parsed.auftrag?.besonderheiten;
 
-  const rawGefahrenItems = toNoteArray(rawGefahren);
-  const rawBesonderheitenItems = toNoteArray(rawBesonderheiten);
+  const rawGefahrenItems = toNoteArray(rawGefahren).filter(
+    (line) => !isTechnicalIntakeMetaLineV17_90L17(line),
+  );
+  const rawBesonderheitenItems = toNoteArray(rawBesonderheiten).filter(
+    (line) => !isTechnicalIntakeMetaLineV17_90L17(line),
+  );
 
   const gefahrItemsFromBesonderheiten = rawBesonderheitenItems
     .filter((line) => safetyMarkerRe.test(line) || isLikelySafetyWarning(line))
@@ -7712,6 +8166,7 @@ export async function processIncomingMessage(
       (line) => !safetyMarkerRe.test(line) && !isLikelySafetyWarning(line),
     )
     .map(stripSpecialMarker)
+    .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
     .map(canonicalizeSpecialNoteLine)
     .filter(Boolean);
 
@@ -7756,7 +8211,9 @@ export async function processIncomingMessage(
     ...rawGefahrenItems.map(stripSpecialMarker),
     ...gefahrItemsFromBesonderheiten,
     ...semanticFallbackNotes.safetyWarnings,
-  ]).filter((line) => !isNonActionableSpecialNoteCandidate(line));
+  ])
+    .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
+    .filter((line) => !isNonActionableSpecialNoteCandidate(line));
 
   const hinweisItems = reconcileCommunicationSpecialNoteLines(
     dedupeSpecialNoteLines(
@@ -7767,6 +8224,7 @@ export async function processIncomingMessage(
       ].map(canonicalizeSpecialNoteLine),
     ),
   )
+    .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
     .filter((line) => !isNonActionableSpecialNoteCandidate(line))
     .filter((line) => !isNonActionablePlanningHint(line))
     .filter(
@@ -8584,7 +9042,9 @@ export async function processIncomingMessage(
   const validationSourceText = [
     messageText,
     fullWorkText,
-    translationText ? `--- Übersetzung (automatisch) ---\n${translationText}` : "",
+    translationText
+      ? `--- Übersetzung (automatisch) ---\n${translationText}`
+      : "",
   ]
     .filter((part) => String(part || "").trim())
     .join("\n");
@@ -8668,10 +9128,7 @@ export async function processIncomingMessage(
   // (z. B. "42 à CHF 7"), darf keine KI-/Katalog-/Repair-Schicht daraus
   // still eine Stunde/m2/Stück-Position mit berechnetem Total machen.
   const unitlessQuantityGuardBeforePersist =
-    applyUnitlessQuantityPriceLineGuard(
-      finalOrderItems,
-      validationSourceText,
-    );
+    applyUnitlessQuantityPriceLineGuard(finalOrderItems, validationSourceText);
   finalOrderItems = unitlessQuantityGuardBeforePersist.items;
 
   // V17.90L: sichtbare Leistungsnamen müssen deutsch sein. Wenn die automatische
@@ -8721,8 +9178,10 @@ export async function processIncomingMessage(
       nextItem = { ...nextItem, quantity: 1 };
     }
 
-    if (!serviceName || isInternalReviewServiceNameV17_90L(serviceName)) return nextItem;
-    const cleanedName = stripMeasureAndPriceFromVisibleServiceNameV17_90L(serviceName);
+    if (!serviceName || isInternalReviewServiceNameV17_90L(serviceName))
+      return nextItem;
+    const cleanedName =
+      stripMeasureAndPriceFromVisibleServiceNameV17_90L(serviceName);
     return cleanedName && cleanedName !== serviceName
       ? { ...nextItem, serviceName: cleanedName }
       : nextItem;
@@ -8773,11 +9232,19 @@ export async function processIncomingMessage(
   finalOrderItems = finalOrderItems.map((item) => {
     const unitKey = normalizeUnitText(item.unit || "");
     const reviewKey = normalizeUnitText(
-      [item.unit, item.description, item.sourceText, item.evidence, item.reviewReason]
+      [
+        item.unit,
+        item.description,
+        item.sourceText,
+        item.evidence,
+        item.reviewReason,
+      ]
         .filter(Boolean)
         .join(" "),
     );
-    const serviceName = String(item.serviceName || "Unbekannte Leistung").trim() || "Unbekannte Leistung";
+    const serviceName =
+      String(item.serviceName || "Unbekannte Leistung").trim() ||
+      "Unbekannte Leistung";
     const unitStillOpen =
       unitKey === "pruefen" ||
       unitKey === "prufen" ||
