@@ -16,6 +16,7 @@ import {
   Search,
   Loader2,
   AlertTriangle,
+  Info,
   FileText,
   FileCheck,
   Volume2,
@@ -1762,6 +1763,7 @@ const dangerBadgeLabel = (value?: string | null) => {
 };
 
 const badgeSortRank = (badge: ReviewBadge) => {
+  if (badge.key === "special_notes_summary") return -1;
   const className = badge.className || "";
   if (/bg-red-|text-red-|border-red-/.test(className)) return 0;
   if (
@@ -2539,6 +2541,63 @@ const getMultipleAppointmentBadge = (
   };
 };
 
+
+const cleanSpecialNotesSummaryLineV17_91 = (value?: string | null) =>
+  compactText(stripVisibleNoteMarkerV17_35(value))
+    .replace(/^[-•*]\s*/g, "")
+    .trim();
+
+const buildSpecialNotesSummaryTooltipV17_91 = (
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+) => {
+  const seen = new Set<string>();
+  const uniqueLines = (lines: string[]) =>
+    lines
+      .map(cleanSpecialNotesSummaryLineV17_91)
+      .filter(Boolean)
+      .filter((line) => {
+        const key = normalizeForMatch(line);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+  const safety = uniqueLines(parsedNotes.safetyWarnings || []);
+  const hints = uniqueLines(parsedNotes.jobHints || []);
+
+  const sections = [
+    safety.length ? ["Gefahr / Achtung", ...safety].join("\n") : "",
+    hints.length ? ["Besonderheiten", ...hints].join("\n") : "",
+  ].filter(Boolean);
+
+  return sections.join("\n---\n");
+};
+
+const splitSpecialNotesSummaryTooltipV17_91 = (tooltip: string) => {
+  const result: { safety: string[]; hints: string[] } = {
+    safety: [],
+    hints: [],
+  };
+  let section: "safety" | "hints" | null = null;
+
+  tooltip.split(/\n+/g).forEach((rawLine) => {
+    const line = compactText(rawLine);
+    if (!line || /^[-─—–_]{3,}$/.test(line)) return;
+    if (/^Gefahr\s*\/\s*Achtung$/i.test(line)) {
+      section = "safety";
+      return;
+    }
+    if (/^Besonderheiten$/i.test(line)) {
+      section = "hints";
+      return;
+    }
+    if (section === "safety") result.safety.push(line);
+    if (section === "hints") result.hints.push(line);
+  });
+
+  return result;
+};
+
 const getOperationalBadges = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -2581,6 +2640,17 @@ const getOperationalBadges = (
       tooltip,
       focusTarget: "specialNotes",
     });
+
+  const specialNotesSummaryTooltip = buildSpecialNotesSummaryTooltipV17_91(parsedNotes);
+  if (specialNotesSummaryTooltip) {
+    pushUniqueBadge(badges, {
+      key: "special_notes_summary",
+      label: "Info",
+      className: "bg-blue-100 text-blue-700 border border-blue-300",
+      tooltip: specialNotesSummaryTooltip,
+      focusTarget: "specialNotes",
+    });
+  }
 
   parsedNotes.safetyWarnings.forEach((line) => {
     const kind = getSemanticBadgeKind(line);
@@ -4866,6 +4936,7 @@ const compactIconForBadge = (
   // einen Tür-/Zugangschip umgewandelt werden, weil das wie ein separater
   // Zugangshinweis aussieht und falsche Tooltips erzeugen kann.
   if (badge.key === "site_address") return null;
+  if (badge.key === "special_notes_summary") return Info;
 
   const label = normalizeForMatch(badge.label);
   if (label.includes("hund")) {
@@ -4886,11 +4957,59 @@ const compactIconForBadge = (
 
 const compactSymbolForBadge = (_badge: ReviewBadge): string | null => null;
 
+
+const renderSpecialNotesSummaryTooltipV17_91 = (
+  badge: ReviewBadge,
+  align: "left" | "right" = "left",
+  forceVisible = false,
+) => {
+  const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+  if (!tooltip) return null;
+  const alignClass = align === "right" ? "right-0" : "left-0";
+  const sections = splitSpecialNotesSummaryTooltipV17_91(tooltip);
+  const hasSafety = sections.safety.length > 0;
+  const hasHints = sections.hints.length > 0;
+  if (!hasSafety && !hasHints) return null;
+
+  return (
+    <span
+      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 w-[min(24rem,calc(100vw-2rem))] max-h-[55vh] overflow-auto rounded-xl border border-slate-200 bg-white p-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-hover:block group-focus:block"}`}
+    >
+      {hasSafety && (
+        <span className="mb-2 block rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+          <span className="mb-1 flex items-center gap-1 font-bold">
+            <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
+          </span>
+          {sections.safety.map((line, index) => (
+            <span key={`summary_safety_${index}`} className="block whitespace-pre-wrap break-words">
+              • {line}
+            </span>
+          ))}
+        </span>
+      )}
+
+      {hasHints && (
+        <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+          {sections.hints.map((line, index) => (
+            <span key={`summary_hint_${index}`} className="block whitespace-pre-wrap break-words">
+              {line}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+};
+
 const renderBadgeTooltip = (
   badge: ReviewBadge,
   align: "left" | "right" = "left",
   forceVisible = false,
 ) => {
+  if (badge.key === "special_notes_summary") {
+    return renderSpecialNotesSummaryTooltipV17_91(badge, align, forceVisible);
+  }
+
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
   if (!tooltip) return null;
 
@@ -4931,10 +5050,61 @@ const renderBadgeTooltip = (
   );
 };
 
+
+const renderMobileSpecialNotesSummaryTooltipV17_91 = (
+  badge: ReviewBadge,
+  forceVisible = false,
+) => {
+  const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+  if (!tooltip) return null;
+  const sections = splitSpecialNotesSummaryTooltipV17_91(tooltip);
+  const hasSafety = sections.safety.length > 0;
+  const hasHints = sections.hints.length > 0;
+  if (!hasSafety && !hasHints) return null;
+
+  return (
+    <span
+      style={{
+        left: "1rem",
+        right: "1rem",
+        width: "calc(100vw - 2rem)",
+        maxWidth: "calc(100vw - 2rem)",
+      }}
+      className={`pointer-events-auto fixed top-1/2 z-[10000] block max-h-[62vh] -translate-y-1/2 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white p-3 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-focus:block group-hover:block"}`}
+    >
+      {hasSafety && (
+        <span className="mb-2 block rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+          <span className="mb-1 flex items-center gap-1 font-bold">
+            <AlertTriangle className="h-4 w-4" /> Gefahr / Achtung
+          </span>
+          {sections.safety.map((line, index) => (
+            <span key={`mobile_summary_safety_${index}`} className="block whitespace-pre-wrap break-words">
+              • {line}
+            </span>
+          ))}
+        </span>
+      )}
+      {hasHints && (
+        <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+          {sections.hints.map((line, index) => (
+            <span key={`mobile_summary_hint_${index}`} className="block whitespace-pre-wrap break-words">
+              {line}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+};
+
 const renderMobileSafeBadgeTooltip = (
   badge: ReviewBadge,
   forceVisible = false,
 ) => {
+  if (badge.key === "special_notes_summary") {
+    return renderMobileSpecialNotesSummaryTooltipV17_91(badge, forceVisible);
+  }
+
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
   if (!tooltip) return null;
 
@@ -5061,6 +5231,7 @@ const mobileIconForBadge = (badge: ReviewBadge) => {
 
   const label = normalizeForMatch(badge.label);
   if (badge.key === "site_address") return MapPin;
+  if (badge.key === "special_notes_summary") return Info;
   if (badge.key === "callback_request") return Phone;
   if (badge.key === "appointment" || badge.key === "appointment_clarify")
     return CalendarDays;
