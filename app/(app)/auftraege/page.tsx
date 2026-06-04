@@ -3988,7 +3988,7 @@ const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
     .filter(Boolean)
     .join(" ");
 
-  const lines = ["Adresse prüfen"];
+  const lines = ["Ausführadresse unklar"];
   const addressLine = [siteTitle, siteAddress, sitePlace]
     .filter(Boolean)
     .join(" · ");
@@ -4008,7 +4008,7 @@ const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
     lines.push("Warum: Ausführungsadresse konnte nicht sicher von der Rechnungsadresse getrennt werden.");
   }
 
-  lines.push("Im Auftrag zuweisen.");
+  lines.push("Aktion: Ausführungsadresse kontrollieren, bearbeiten oder übernehmen.");
   return lines.join("\n");
 };
 
@@ -4047,7 +4047,7 @@ const getSystemBadges = (
   if (hasActiveAddressRoleReviewV17_90K(order)) {
     pushUniqueBadge(badges, {
       key: "address_review",
-      label: "Adresse prüfen",
+      label: "Ausführadresse unklar",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
       tooltip: formatAddressRoleReviewTooltipV17_61(order),
@@ -9715,7 +9715,7 @@ export default function AuftraegePage() {
 
     const tooltipLines = tooltip.split("\n");
     const headingPattern =
-      /^(?:Einheit fehlt im Kundentext|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Adresse prüfen|Kunde prüfen)$/;
+      /^(?:Einheit fehlt im Kundentext|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Adresse prüfen|Ausführadresse unklar|Ausführungsadresse unklar|Kunde prüfen)$/;
 
     return (
       <div className="fixed inset-0 z-[12000] sm:hidden">
@@ -9730,7 +9730,7 @@ export default function AuftraegePage() {
           }}
         />
         <div
-          className="fixed left-3 right-3 top-1/2 max-h-[66dvh] -translate-y-1/2 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="fixed bottom-4 left-3 right-3 max-h-[72dvh] min-h-[72px] overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           style={{
             width: "calc(100vw - 1.5rem)",
             maxWidth: "calc(100vw - 1.5rem)",
@@ -9739,6 +9739,9 @@ export default function AuftraegePage() {
         >
           {isSpecialNotesSummary && specialSummarySections ? (
             <div className="space-y-2">
+              <div className="text-[12px] font-bold uppercase tracking-wide text-blue-700 dark:text-blue-200">
+                Besonderheiten
+              </div>
               {specialSummarySections.safety.length > 0 && (
                 <div className="rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
                   <div className="mb-1 flex items-center gap-1 font-bold">
@@ -9767,6 +9770,13 @@ export default function AuftraegePage() {
                   ))}
                 </div>
               )}
+
+              {specialSummarySections.safety.length === 0 &&
+                specialSummarySections.hints.length === 0 && (
+                  <div className="whitespace-pre-wrap break-words rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
+                    {tooltip}
+                  </div>
+                )}
             </div>
           ) : (
             <div className="whitespace-pre-wrap break-words">
@@ -11265,17 +11275,17 @@ export default function AuftraegePage() {
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-red-800 dark:text-red-200">
-                        Adresse prüfen
+                        Ausführungsadresse unklar
                       </div>
                       <p className="text-xs text-red-700/90 dark:text-red-200/80">
-                        Erkannte Adresse bitte einmal zuweisen.
+                        Bitte kontrollieren: Ausführungsadresse übernehmen oder manuell bearbeiten.
                       </p>
                     </div>
                   </div>
 
                   <div className="rounded-md border border-red-100 bg-white/80 p-2 text-sm dark:border-red-900/50 dark:bg-background/60">
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Adresse erkannt
+                      Erkannte Ausführungsadresse
                     </div>
                     {addressRoleReviewCandidateV17_62.siteName && (
                       <div className="font-medium">
@@ -11317,11 +11327,11 @@ export default function AuftraegePage() {
                       onClick={applyAddressReviewAsExecutionV17_62}
                       className="justify-center"
                     >
-                      Als Ausführungsadresse speichern
+                      Als Ausführungsadresse übernehmen
                     </Button>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Der Klick speichert die Adressentscheidung direkt.
+                    Wenn Strasse, PLZ oder Ort fehlen: Ausführungsadresse manuell bearbeiten und speichern.
                   </p>
                 </div>
               )}
