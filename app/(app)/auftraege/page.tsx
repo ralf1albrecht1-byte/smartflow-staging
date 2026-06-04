@@ -2600,6 +2600,27 @@ const isInternalReviewServiceName = (value?: string | null) => {
   ]).has(key);
 };
 
+// V17.90j2: Top-level helper, weil der Editor denselben Prüfzustand braucht
+// wie die Karten-Badges. Das sind Smartflow-interne Review-Platzhalter,
+// keine Service-Wortliste und keine fachliche Service-Erkennung.
+const isUnitMissingReviewText = (value?: string | null) => {
+  const key = normalizeForMatch(value);
+  if (!key) return false;
+  return (
+    key === "pruefen" ||
+    key === "prufen" ||
+    key === "einheit pruefen" ||
+    key === "einheit prufen" ||
+    key.includes("einheit fehlt") ||
+    key.includes("einheit unklar") ||
+    key.includes("einheit offen") ||
+    key.includes("unit missing") ||
+    key.includes("unit unknown") ||
+    key.includes("unit unclear") ||
+    key.includes("unit review")
+  );
+};
+
 // V17.90j: Diese Werte sind Smartflow-interne Prüfzustände, keine
 // Leistungs-Wortliste. Sie dürfen im Editor nicht wie echte Leistungen wirken
 // und sollen beim Bearbeiten nicht erst manuell gelöscht werden müssen.
