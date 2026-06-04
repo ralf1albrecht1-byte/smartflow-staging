@@ -550,6 +550,63 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+
+
+const serviceLabelHasWorkIntentV17_90L27 = (value?: string | null) => {
+  const key = normalizeForMatch(value);
+  if (!key) return false;
+  return /\b(?:reinig|putz|pulire|clean|nettoyer|limpieza|wisch|abwisch|abstaub|staub|saug|polier|desinfiz|entfern|schneid|streichen|malen|montier|reparier)\b/.test(key) ||
+    /\b(?:boden|floor|sol|paviment|pavimento|waschraumboden|kuechenboden|fenster|scheiben|glas|glastuer|glastur|glastür|tische|tavoli|regale|reifenregale|rollstuehle|rollstühle|kofferwagen|gelaender|geländer)\b/.test(key);
+};
+
+const serviceLabelContextClauseV17_90L27 = (value?: string | null) => {
+  const key = normalizeForMatch(value);
+  if (!key) return false;
+  return /\b(?:empfang|reception|werkstattleiter|kuechenchef|küchenchef|koch|cuoco|hauswart|huuswart|chef|nachbar|patientenzimmer|schluessel|schlüssel|key|code|sms|whatsapp|telefon|anruf|rueckruf|rückruf|email|mail|achtung|vorsicht|oprez|attention|hund|pas|dog|oel|öl|kabel|strom|rutschig|scivoloso|nass|mouill|nicht|kein|keine|betreten|kommen|eintreten|rezeption|hauptrezeption|buero|büro|office|bahnhofplatz|strasse|straße|weg|gasse|platz|ring|allee|route|rue|via|viale|avenue|luzern|zuerich|zürich|baden|dietikon|lugano|basel|aarau|lausanne)\b/.test(key) || /\b\d{4,5}\b/.test(key);
+};
+
+const cleanServiceLabelContextNoiseV17_90L27 = (value?: string | null) => {
+  let text = compactText(value);
+  if (!text) return "";
+
+  text = text
+    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b\s*/i, "")
+    .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
+    .replace(/\s*,\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b.*$/i, "")
+    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b.*$/i, "")
+    .replace(/\s+(?:à|a|zu|je|pro|per|each|at|x|\*)\s*(?:chf|eur|fr\.?|franken|stutz)?\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const dash = text.match(/^(.{2,90}?)[\s,]*[-–—]\s*(.{3,})$/);
+  if (dash && serviceLabelContextClauseV17_90L27(dash[1]) && serviceLabelHasWorkIntentV17_90L27(dash[2])) {
+    text = dash[2].trim();
+  }
+
+  const commaParts = text.split(/\s*,\s*/g).map((part) => part.trim()).filter(Boolean);
+  if (commaParts.length > 1) {
+    for (let i = commaParts.length - 1; i >= 1; i -= 1) {
+      const right = commaParts.slice(i).join(", ");
+      const left = commaParts.slice(0, i).join(", ");
+      if (serviceLabelHasWorkIntentV17_90L27(right) && serviceLabelContextClauseV17_90L27(left)) {
+        text = right;
+        break;
+      }
+    }
+  }
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    const before = text;
+    text = text
+      .replace(/^(?:empfang|reception|werkstattleiter|kuechenchef|küchenchef|koch|cuoco|hauswart|huuswart|chef|patientenzimmer|schluessel|schlüssel|key|code|buero|büro|office|bahnhofplatz|luzern|zuerich|zürich|baden|dietikon|lugano|basel|aarau|lausanne)\b\s*[,;:-]?\s*/i, "")
+      .replace(/^(?:bitte|nur|kein|keine|nicht|vorher|sms|whatsapp|telefon|anruf|rueckruf|rückruf|achtung|vorsicht|oprez|attention|hund|pas|dog|oelspur|ölspur|kabel|strom|rutschig|scivoloso|nass)\b\s*[,;:-]?\s*/i, "")
+      .trim();
+    if (text === before) break;
+  }
+
+  return compactText(text).replace(/^[-–—•,;:\s]+/, "");
+};
+
 const CALLBACK_CONTACT_WORD_PATTERN =
   /\b(?:anruf|anrufen|zurueckrufen|zuruckrufen|telefonieren|telefonisch|melden|kontaktieren|rueckruf|ruckruf|anruf|call|aaluete|anluete|anlaeuten|klingeln|telefonkontakt|telefon)\b/;
 
@@ -755,7 +812,7 @@ const findCustomerTextLineForService = (
 };
 
 const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
-  let text = compactText(value)
+  let text = cleanServiceLabelContextNoiseV17_90L27(value)
     .replace(/^\s*(?:text|kundentext|quelle|source|evidence)\s*[:：]\s*/i, "")
     .trim();
   if (!text) return "";
@@ -797,7 +854,7 @@ const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
 };
 
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
-  const name = cleanLineLocalServiceLabelGrammarV17_60(value);
+  const name = cleanLineLocalServiceLabelGrammarV17_60(cleanServiceLabelContextNoiseV17_90L27(value));
   const key = normalizeForMatch(name);
 
   // V17.59: preserve already line-local, explicit service labels from the

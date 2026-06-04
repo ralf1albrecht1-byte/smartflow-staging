@@ -2446,7 +2446,8 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
     ),
   );
 
-  const grammarCleaned = cleanLineLocalServiceLabelGrammarV17_60(cleaned);
+  const contextCleaned = cleanServiceLabelContextNoiseV17_90L27(cleaned);
+  const grammarCleaned = cleanLineLocalServiceLabelGrammarV17_60(contextCleaned);
 
   const hasSpecificLineLocalAction = hasVisibleGermanWorkActionV17_37(grammarCleaned) && meaningfulServiceTokens(grammarCleaned).length >= 3;
   if (hasSpecificLineLocalAction) {
@@ -3842,6 +3843,7 @@ function cleanExplicitServiceNameFromLine(
       .trim();
   }
 
+  cleaned = cleanServiceLabelContextNoiseV17_90L27(cleaned);
   const cleanedKey = normalizeCompare(cleaned);
   if (isPriceAnchorOnlyServiceName(cleaned)) return "Unbekannte Leistung";
   if (
@@ -5643,6 +5645,7 @@ function cleanMeasuredLineServiceNameV17_55(
   name = cleanGermanServiceNounArtifactsV17_48(
     stripServiceFieldLabelArtifactsV17_47(name),
   );
+  name = cleanServiceLabelContextNoiseV17_90L27(name);
   name = cleanValidationServiceDisplayName(name);
 
   const key = normalizeCompare(name);
@@ -9091,6 +9094,66 @@ function isBroadPollutedItemEvidenceV17_90L22(
   );
 }
 
+
+// V17.90L27: visible service labels must contain only the work, not access,
+// contact, hazard or address fragments that sit before the local price line.
+function serviceLabelHasWorkIntentV17_90L27(value?: string | null): boolean {
+  const key = normalizeCompare(value || "");
+  if (!key) return false;
+  return /\b(?:reinig|putz|pulire|clean|nettoyer|limpieza|wisch|abwisch|abstaub|staub|saug|polier|desinfiz|entfern|schneid|streichen|malen|montier|reparier)\b/.test(key) ||
+    /\b(?:boden|floor|sol|paviment|pavimento|waschraumboden|kuechenboden|küchenboden|fenster|scheiben|glas|glastuer|glastur|glastür|tische|tavoli|regale|reifenregale|rollstuehle|rollstühle|kofferwagen|gelaender|geländer)\b/.test(key);
+}
+
+function serviceLabelContextClauseV17_90L27(value?: string | null): boolean {
+  const key = normalizeCompare(value || "");
+  if (!key) return false;
+  return /\b(?:empfang|reception|werkstattleiter|kuechenchef|küchenchef|koch|cuoco|hauswart|huuswart|chef|nachbar|patientenzimmer|schluessel|schlüssel|key|code|sms|whatsapp|telefon|anruf|rueckruf|rückruf|email|mail|achtung|vorsicht|oprez|attention|hund|pas|dog|oel|öl|kabel|strom|rutschig|scivoloso|nass|mouill|nicht|kein|keine|betreten|kommen|eintreten|rezeption|hauptrezeption|buero|büro|office|bahnhofplatz|strasse|straße|weg|gasse|platz|ring|allee|route|rue|via|viale|avenue|luzern|zuerich|zürich|baden|dietikon|lugano|basel|aarau|lausanne)\b/.test(key) || /\b\d{4,5}\b/.test(key);
+}
+
+function cleanServiceLabelContextNoiseV17_90L27(value?: string | null): string {
+  let text = normalizeText(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  // Quantity stays in the quantity field, never in the visible service name.
+  text = text
+    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b\s*/i, "")
+    .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
+    .replace(/\s*,\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b.*$/i, "")
+    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b.*$/i, "")
+    .replace(/\s+(?:à|a|zu|je|pro|per|each|at|x|\*)\s*(?:chf|eur|fr\.?|franken|stutz)?\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const dash = text.match(/^(.{2,90}?)[\s,]*[-–—]\s*(.{3,})$/);
+  if (dash && serviceLabelContextClauseV17_90L27(dash[1]) && serviceLabelHasWorkIntentV17_90L27(dash[2])) {
+    text = dash[2].trim();
+  }
+
+  const commaParts = text.split(/\s*,\s*/g).map((part) => part.trim()).filter(Boolean);
+  if (commaParts.length > 1) {
+    for (let i = commaParts.length - 1; i >= 1; i -= 1) {
+      const right = commaParts.slice(i).join(", ");
+      const left = commaParts.slice(0, i).join(", ");
+      if (serviceLabelHasWorkIntentV17_90L27(right) && serviceLabelContextClauseV17_90L27(left)) {
+        text = right;
+        break;
+      }
+    }
+  }
+
+  // Remove short leading context words that may still sit directly before the service.
+  for (let pass = 0; pass < 3; pass += 1) {
+    const before = text;
+    text = text
+      .replace(/^(?:empfang|reception|werkstattleiter|kuechenchef|küchenchef|koch|cuoco|hauswart|huuswart|chef|patientenzimmer|schluessel|schlüssel|key|code|buero|büro|office|bahnhofplatz|luzern|zuerich|zürich|baden|dietikon|lugano|basel|aarau|lausanne)\b\s*[,;:-]?\s*/i, "")
+      .replace(/^(?:bitte|nur|kein|keine|nicht|vorher|ankuendigen|ankündigen|sms|whatsapp|telefon|anruf|rueckruf|rückruf|achtung|vorsicht|oprez|attention|hund|pas|dog|oelspur|ölspur|kabel|strom|rutschig|scivoloso|nass)\b\s*[,;:-]?\s*/i, "")
+      .trim();
+    if (text === before) break;
+  }
+
+  return text.replace(/^[-–—•,;:\s]+/, "").replace(/\s+/g, " ").trim();
+}
+
 function lineLocalPrefixTailV17_90L22(prefix: string): string {
   let text = normalizeText(prefix).replace(/\s+/g, " ").trim();
   if (!text) return "";
@@ -9110,6 +9173,8 @@ function lineLocalPrefixTailV17_90L22(prefix: string): string {
     .replace(/^(?:und|plus|dann|danach|zusätzlich|zusaetzlich)\b\s*[,;:-]?\s*/i, "")
     .replace(/^.*\b(?:leistungen?|arbeiten|da(?:nn)?|bitte)\s*[:：]\s*/i, "")
     .trim();
+
+  text = cleanServiceLabelContextNoiseV17_90L27(text);
 
   // V17.90L25: if the price line is written as one long WhatsApp sentence,
   // contact/access/warning text can sit directly before the actual service.
@@ -9385,6 +9450,7 @@ function cleanTrailingAmountFromServiceNameV17_90L23(value?: string | null): str
     .replace(/\s+/g, " ")
     .trim();
 
+  name = cleanServiceLabelContextNoiseV17_90L27(name);
   name = cleanValidationServiceDisplayName(name);
   return normalizeText(name).replace(/^./, (char) => char.toUpperCase());
 }
