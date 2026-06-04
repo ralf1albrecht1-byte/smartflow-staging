@@ -658,7 +658,13 @@ function cleanWorkSiteDisplayName(value?: string | null) {
     .replace(/^[:\-–,\s]+/, "")
     .trim();
 
-  text = stripOperationalTail(text).replace(/[,:;\s]+$/g, "").trim();
+  text = stripOperationalTail(text)
+    // V17.90L14: remove dangling communication fragments that can be appended
+    // to execution-site names, e.g. "Veloraum und Kellerflur, Nur" from
+    // "Nur SMS ...". Keep the actual site name, remove only operational tails.
+    .replace(/\s*[,;]\s*(?:nur|bitte\s+nur|kein(?:e|en|em)?\s+(?:whats\s*app|whatsapp)|sms|whats\s*app|whatsapp|e[-\s]*mail|mail|telefon|tel\.?|anruf|rueckruf|ruckruf|kontakt)\b.*$/i, "")
+    .replace(/[,:;\s]+$/g, "")
+    .trim();
 
   return text && !isGenericAddressRoleLabel(text) ? text : null;
 }

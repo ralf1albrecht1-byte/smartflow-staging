@@ -1735,8 +1735,12 @@ function cleanExecutionSiteNameCandidate(
 
   candidate = candidate
     .replace(/[,;]\s*(?:torcode|zugangscode|code)\b.*$/i, "")
-    .split(/[,;]\s*(?=(?:hund|dog|chien|perro|cane|torcode|zugangscode|code|tor\s+(?:bitte|geschlossen|schliessen|schließen|zu)|achtung|warnung|gefahr|schlüssel|schluessel|sms|whatsapp|telefon|nicht\s+einfach)\b)/i)[0]
-    .split(/\b(?:hinweise?|notes?|bemerkungen?|besonderheiten|bitte|please|kein(?:e|en|em)?|keine|keinen|no|not|pas|sans|hund|dog|chien|perro|cane|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
+    // V17.90L14: do not let communication fragments become part of the
+    // execution-site name. Example: "Veloraum und Kellerflur, Nur" from
+    // the following line "Nur SMS ..." must become "Veloraum und Kellerflur".
+    .replace(/[,;]\s*(?:nur|bitte\s+nur|kein(?:e|en|em)?\s+(?:whats\s*app|whatsapp)|sms|whats\s*app|whatsapp|e[-\s]*mail|mail|telefon|tel\.?|anruf|rueckruf|ruckruf|kontakt)\b.*$/i, "")
+    .split(/[,;]\s*(?=(?:nur|bitte\s+nur|hund|dog|chien|perro|cane|torcode|zugangscode|code|tor\s+(?:bitte|geschlossen|schliessen|schließen|zu)|achtung|warnung|gefahr|schlüssel|schluessel|sms|whatsapp|telefon|nicht\s+einfach)\b)/i)[0]
+    .split(/\b(?:hinweise?|notes?|bemerkungen?|besonderheiten|bitte|please|nur|kein(?:e|en|em)?|keine|keinen|no|not|pas|sans|hund|dog|chien|perro|cane|kontakt|contact|contatto|contacter|melden|anrufen|whatsapp|sms|telefon|phone|kommen\s+sie|komm(?:en)?\s+erst|come\s+after|only\s+after|nur\s+nach|erst\s+nach|nicht\s+vor|guests?|gäste|auschecken|checkout)\b/i)[0]
     .replace(/[,;:.\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();

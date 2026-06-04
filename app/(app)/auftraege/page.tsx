@@ -3408,6 +3408,11 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
     .trim();
 
   text = stripOperationalTailV17_90L13(text)
+    // V17.90L14: remove dangling communication fragments that may have been
+    // appended to the execution-site title by the AI, e.g.
+    // "Veloraum und Kellerflur, Nur" from "Nur SMS ...". This is structural
+    // address cleanup only; no service vocabulary is mapped here.
+    .replace(/\s*[,;]\s*(?:nur|bitte\s+nur|kein(?:e|en|em)?\s+(?:whats\s*app|whatsapp)|sms|whats\s*app|whatsapp|e[-\s]*mail|mail|telefon|tel\.?|anruf|rueckruf|ruckruf|kontakt)\b.*$/i, "")
     .replace(/[,:;\s]+$/g, "")
     .trim();
 
@@ -3533,7 +3538,7 @@ const formatExecutionAddressTooltip = (order: Order) => {
   }
 
   const fallback = [
-    compactText(order.siteName) || inferOrderExecutionSiteName(order),
+    cleanWorkSiteDisplayName(order.siteName) || inferOrderExecutionSiteName(order),
     compactText(order.siteAddress),
     [order.sitePlz, order.siteCity].map(compactText).filter(Boolean).join(" "),
   ].filter(Boolean);
