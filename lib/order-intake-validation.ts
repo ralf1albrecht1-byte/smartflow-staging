@@ -9374,8 +9374,13 @@ function applyLineLocalIntegrityGuardV17_90L22(
 // broad evidence, shifted quantities or blocked m² rows like "Boden Lager".
 function cleanTrailingAmountFromServiceNameV17_90L23(value?: string | null): string {
   let name = normalizeText(value || "")
-    .replace(/\s*,\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|hours?|stunden?|std\.?)\b.*$/i, "")
-    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|hours?|stunden?|std\.?)\b.*$/i, "")
+    // V17.90L26: quantities/counts belong into Menge/Einheit, never into the
+    // visible service name. Handles translation output like
+    // "18 Tische im Saal reinigen" and "5 Eingangsscheiben reinigen".
+    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b\s*/i, "")
+    .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
+    .replace(/\s*,\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b.*$/i, "")
+    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b.*$/i, "")
     .replace(/\s+(?:à|a|zu|je|pro|per|each|at|x|\*)\s*(?:chf|eur|fr\.?|franken|stutz)?\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -9473,6 +9478,76 @@ function applyDeterministicLineLocalRebuildV17_90L23(
     })),
     reviewReasons: ["line_local_deterministic_rebuild"],
   };
+}
+
+
+// V17.90L26: final local evidence/name cleanup. Even when numeric values are
+// already correct, old AI rows may still carry the whole WhatsApp text as item
+// description/evidence. Replace those visible proof texts with the exact local
+// price line and remove quantity fragments from the service name.
+function applyLineLocalEvidenceDescriptionCleanupV17_90L26(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const explicitItems = extractStrictLineLocalPricedItemsV17_90L22(originalText, finalCurrency)
+    .map(canonicalLineLocalItemV17_90L23);
+  if (explicitItems.length === 0) {
+    return {
+      items: items.map((item) => ({
+        ...item,
+        serviceName: cleanTrailingAmountFromServiceNameV17_90L23(item.serviceName) || item.serviceName,
+      })),
+      reviewReasons: [],
+    };
+  }
+
+  const used = new Set<number>();
+  const reviewReasons: string[] = [];
+
+  const next = items.map((item) => {
+    const matchIndex = explicitItems.findIndex((explicit, index) => {
+      if (used.has(index)) return false;
+      return exactAmountUnitMatchV17_90L22(item, explicit);
+    });
+
+    const cleanedCurrentName = cleanTrailingAmountFromServiceNameV17_90L23(item.serviceName) || item.serviceName;
+    if (matchIndex < 0) {
+      return { ...item, serviceName: cleanedCurrentName };
+    }
+
+    const explicit = explicitItems[matchIndex];
+    used.add(matchIndex);
+    const explicitLine = explicit.sourceText || explicit.evidence || explicit.description;
+    const currentEvidence = itemEvidenceBlobV17_90L22(item);
+    const broad = isBroadPollutedItemEvidenceV17_90L22(item);
+    const cleanedExplicitName = cleanTrailingAmountFromServiceNameV17_90L23(explicit.serviceName) || explicit.serviceName;
+    const shouldUseExplicitName =
+      broad ||
+      !cleanedCurrentName ||
+      normalizeCompare(cleanedCurrentName) === "unbekannte leistung" ||
+      /^\d/.test(normalizeText(item.serviceName || "")) ||
+      /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|stück|stueck|stk|pcs?|pezzi|meter)\b/i.test(String(item.serviceName || ""));
+
+    if (broad || currentEvidence !== explicitLine || shouldUseExplicitName) {
+      reviewReasons.push("line_local_evidence_cleaned");
+    }
+
+    return clearResolvedNumericReview({
+      ...item,
+      serviceName: shouldUseExplicitName ? cleanedExplicitName : cleanedCurrentName,
+      description: explicitLine,
+      sourceText: explicitLine,
+      evidence: explicitLine,
+      quantity: explicit.quantity,
+      unit: explicit.unit,
+      unitPrice: explicit.unitPrice,
+      totalPrice: calculateSafeLineTotal(explicit),
+      detectedCurrency: explicit.detectedCurrency || item.detectedCurrency || finalCurrency,
+    });
+  });
+
+  return { items: next, reviewReasons: unique(reviewReasons) };
 }
 
 function applyFinalEvidenceSafetyPass(
@@ -9965,6 +10040,14 @@ export function validateAndRepairParsedOrderItems(
   items = serviceNameSafetyGuard.items;
   reviewReasons.push(...serviceNameSafetyGuard.reviewReasons);
 
+  const lineLocalEvidenceCleanupV17_90L26 = applyLineLocalEvidenceDescriptionCleanupV17_90L26(
+    items,
+    input.originalText,
+    finalCurrency,
+  );
+  items = lineLocalEvidenceCleanupV17_90L26.items;
+  reviewReasons.push(...lineLocalEvidenceCleanupV17_90L26.reviewReasons);
+
   const unitlessTrailingFailClosed = applyUnitlessTrailingQuantityPriceFailClosedV17_79(
     items,
     input.originalText,
@@ -10401,13 +10484,33 @@ function extractInlineExecutionAddressCandidate(
 
   const siteAddress = parseStreet(raw);
   const plzCity = parsePlzCity(raw);
-  if (!siteAddress || !plzCity.plz || !plzCity.city) return null;
+  if (!siteAddress) return null;
+
+  const afterStreet =
+    raw.split(new RegExp(escapeRegExp(siteAddress), "i")).slice(1).join(" ") || "";
+  const customerCityKey = normalizeCompare(customer?.customerCity || "");
+  const afterStreetKey = normalizeCompare(afterStreet);
+  let sitePlz = plzCity.plz;
+  let siteCity = plzCity.city;
+
+  // V17.90L26: one-line customer messages often write the execution address
+  // as "Baustelle Hof links Badenerstrasse 92 Zürich" without repeating the
+  // PLZ. If the city matches the billing/customer city, reuse that PLZ instead
+  // of opening an incomplete address-review card like "Hof links".
+  if ((!sitePlz || !siteCity) && customerCityKey && afterStreetKey.includes(customerCityKey)) {
+    sitePlz = sitePlz || customer?.customerPlz || null;
+    siteCity = siteCity || customer?.customerCity || null;
+  }
+  if (siteCity && !sitePlz && customerCityKey && normalizeCompare(siteCity) === customerCityKey) {
+    sitePlz = customer?.customerPlz || null;
+  }
+  if (!sitePlz || !siteCity) return null;
 
   if (
     isSameAddress({
       extractedAddress: siteAddress,
-      extractedPlz: plzCity.plz,
-      extractedCity: plzCity.city,
+      extractedPlz: sitePlz,
+      extractedCity: siteCity,
       customerAddress: customer?.customerAddress,
       customerPlz: customer?.customerPlz,
       customerCity: customer?.customerCity,
@@ -10416,8 +10519,11 @@ function extractInlineExecutionAddressCandidate(
     return null;
   }
 
-  const beforeStreet =
+  const beforeStreetRaw =
     raw.split(new RegExp(escapeRegExp(siteAddress), "i"))[0] || "";
+  const beforeStreet = beforeStreetRaw
+    .replace(/^.*\b(?:baustelle|arbeitsort|ausfuehrung|ausführung|objekt|einsatzort|arbeit)\b\s*:?[\s-]*/i, "")
+    .trim() || beforeStreetRaw;
   const siteNameCandidate = cleanSiteNameCandidate(beforeStreet);
   const siteName = isSafeSiteNameCandidate(siteNameCandidate)
     ? siteNameCandidate
@@ -10426,8 +10532,8 @@ function extractInlineExecutionAddressCandidate(
   return {
     siteName,
     siteAddress,
-    sitePlz: plzCity.plz,
-    siteCity: plzCity.city,
+    sitePlz,
+    siteCity,
     siteNote: null,
   };
 }

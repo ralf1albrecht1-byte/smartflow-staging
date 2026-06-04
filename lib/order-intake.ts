@@ -5334,6 +5334,10 @@ function cleanTranslatedServiceLabelFromLineV17_90L(line: string): string {
   if (!label) return "";
 
   label = label
+    // V17.90L26: visible labels must not start with the count. Quantity lives
+    // in the Menge field, e.g. "18 Tische ..." -> "Tische ...".
+    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stücke?|stueck|stück|stk|pcs?|pieces?|pi[eè]ces?|pezzi|stunden?|std\.?)\b\s*/i, "")
+    .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
     .replace(
       /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
       "",
@@ -5415,6 +5419,10 @@ function stripMeasureAndPriceFromVisibleServiceNameV17_90L(
   let label = compactText(value);
   if (!label) return "";
   label = label
+    // V17.90L26: visible labels must not start with the count. Quantity lives
+    // in the Menge field, e.g. "18 Tische ..." -> "Tische ...".
+    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stücke?|stueck|stück|stk|pcs?|pieces?|pi[eè]ces?|pezzi|stunden?|std\.?)\b\s*/i, "")
+    .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
     .replace(
       /\s*(?:zu|à|a|pro|je|per|für|fuer)\s*(?:chf|eur|euro|fr\.?|sfr\.?)\s*\d+(?:[.,]\d{1,2})?.*$/i,
       "",
