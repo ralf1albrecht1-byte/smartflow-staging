@@ -1778,6 +1778,10 @@ function cleanExecutionSiteNameCandidate(
     "bitte",
     "nadresse",
     "n adresse",
+    "strasse",
+    "straße",
+    "street",
+    "str",
   ]);
   if (blockedExact.has(normalized)) return null;
 
@@ -2024,6 +2028,42 @@ function preserveOriginalProperSitePhraseV17_50(args: {
   return translated;
 }
 
+
+function trimExecutionSiteNameToExplicitDescriptorV17_90L16(args: {
+  siteName: string | null | undefined;
+  rawText: string | null | undefined;
+}): string | null {
+  const current = cleanExecutionSiteNameCandidate(args.siteName);
+  if (!current) return null;
+
+  // AI-first guard: The execution-site name must be supported by the explicit
+  // execution-address block itself. If the AI appended the next note line to
+  // the site name, replace the name with the descriptor line directly before
+  // the street/postcode in the original/translated execution block. This is a
+  // block/evidence-boundary check, not a service or hazard word list.
+  const descriptors = [
+    originalExecutionSiteDescriptorFromTextV17_50(args.rawText),
+    translatedExecutionSiteNameCandidateFromTextV17_45(args.rawText),
+  ]
+    .map((value) => cleanExecutionSiteNameCandidate(value))
+    .filter((value): value is string => Boolean(value));
+
+  const currentKey = normalizeUnitText(current);
+  for (const descriptor of descriptors) {
+    const descriptorKey = normalizeUnitText(descriptor);
+    if (!descriptorKey) continue;
+    if (
+      currentKey === descriptorKey ||
+      currentKey.startsWith(`${descriptorKey} `) ||
+      currentKey.includes(descriptorKey)
+    ) {
+      return descriptor;
+    }
+  }
+
+  return current;
+}
+
 function translatedSiteNameWouldDropOriginalProperNameV17_49(args: {
   currentSiteName: string | null | undefined;
   translatedSiteName: string | null | undefined;
@@ -2209,6 +2249,11 @@ function sanitizeExtractedExecutionAddress<
 
   siteName = preserveOriginalProperSitePhraseV17_50({
     translatedSiteName: siteName,
+    rawText,
+  });
+
+  siteName = trimExecutionSiteNameToExplicitDescriptorV17_90L16({
+    siteName,
     rawText,
   });
 
@@ -6679,6 +6724,8 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
   keine Ausführungsadresse speichern
   in besonderheiten kurz "Ausführungsadresse prüfen" aufnehmen.
 - Keine Leistungsbeschreibung, Preise, Hinweise oder Sätze wie "Bitte reinigen..." in die Adresse schreiben.
+- Der name der Ausführungsadresse darf ausschließlich aus dem eigentlichen Arbeitsort-/Ausführungsadressblock stammen, normalerweise aus der Zeile direkt vor der Straßenzeile. Sobald die Straße/PLZ/Ort abgeschlossen sind, gehören die folgenden Zeilen zu Kommunikation, Termin, Zugang, Gefahr oder Besonderheiten und dürfen nicht mehr an den Ausführungsort angehängt werden.
+- Wenn du nur durch Anhängen einer folgenden Hinweiszeile einen längeren Ausführungsort bilden könntest, ist das falsch: nutze nur die belegte Objektzeile vor der Adresse.
 - Auftrags-/Karten-Titel wie "[Titel: ...]" sind nur Titel und dürfen NIEMALS als name der Ausführungsadresse gespeichert werden.
 - name der Ausführungsadresse darf nur ein echter Objekt-/Ortsname sein, z.B. "Garage West", "Wohnung 3", "Lagerhalle Süd".
 - name der Ausführungsadresse NIEMALS mit Leistungs-/Preiszeilen oder Leistungszusammenfassungen füllen, z.B. NICHT "Anfahrt CHF 45", NICHT "10 Fenster reinigen CHF 7 pro Stück", NICHT "Fenster reinigen und Anfahrt".`;

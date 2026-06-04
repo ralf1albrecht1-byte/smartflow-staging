@@ -497,6 +497,7 @@ function inferExplicitCurrencyFromPayload(
 function cleanLineLocalServiceLabelGrammarV17_60(value?: string | null) {
   let text = String(value || "")
     .replace(/\s+/g, " ")
+    .replace(/^\s*(?:text|kundentext|quelle|source|evidence)\s*[:：]\s*/i, "")
     .trim();
   if (!text) return "";
 
@@ -627,7 +628,7 @@ function cleanWorkSiteDisplayName(value?: string | null) {
 
   const isGenericAddressRoleLabel = (input?: string | null) => {
     const key = normalizeRole(input);
-    return !key || /^(?:adresse|sadresse|ausfuhrungsadresse|ausfuhrungsort|ausfuhrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|abweichend von rechnungsadresse|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(key);
+    return !key || /^(?:adresse|sadresse|ausfuhrungsadresse|ausfuhrungsort|ausfuhrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|abweichend von rechnungsadresse|strasse|strasse str|str|strasse|straße|street|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(key);
   };
 
   const stripOperationalTail = (input: string) => {

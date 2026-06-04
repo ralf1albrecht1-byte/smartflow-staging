@@ -755,7 +755,9 @@ const findCustomerTextLineForService = (
 };
 
 const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
-  let text = compactText(value);
+  let text = compactText(value)
+    .replace(/^\s*(?:text|kundentext|quelle|source|evidence)\s*[:：]\s*/i, "")
+    .trim();
   if (!text) return "";
 
   // V17.60: purely grammatical cleanup for line-local labels. This is not a
@@ -3361,7 +3363,7 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
     // V17.63: role labels and broken role-label fragments are not real
     // execution-site names. Do not persist/display fragments like "sadresse".
     // This is deliberately structural UI cleanup, not a service-name mapping.
-    return /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|abweichend von rechnungsadresse|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(
+    return /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|abweichend von rechnungsadresse|strasse|strasse str|str|strasse|straße|street|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(
       key,
     );
   };
@@ -5210,6 +5212,7 @@ const extractFallbackServiceLabels = (order: Order) => {
 
 const cleanCardServiceLabelV17_34 = (value?: string | null) =>
   compactText(value)
+    .replace(/^\s*(?:text|kundentext|quelle|source|evidence)\s*[:：]\s*/i, "")
     .replace(
       /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i,
       "",
