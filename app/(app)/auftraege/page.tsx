@@ -1822,6 +1822,7 @@ const extractAppointmentBadge = (
 ) => {
   const raw = compactText(value);
   const text = normalizeForMatch(raw);
+  if (!hasExplicitAppointmentBadgeSignalV17_90L10(raw)) return null;
   if (
     !text ||
     isCallbackTimeLine(raw) ||
@@ -2014,9 +2015,21 @@ const hasExplicitPriceContextForAppointment = (value?: string | null) => {
 };
 
 const hasAppointmentIntentWord = (value?: string | null) =>
-  /\b(?:termin|datum|ausfuehrung|ausführung|arbeitsbeginn|zeitfenster|appointment|rendez\s*vous|appuntamento)\b/i.test(
+  /\b(?:termin|datum|arbeitsbeginn|zeitfenster|appointment|rendez\s*vous|appuntamento)\b/i.test(
     normalizeForMatch(value),
   );
+
+const hasExplicitAppointmentBadgeSignalV17_90L10 = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+
+  const hasExplicitIntent = hasAppointmentIntentWord(value);
+  const hasRelativeDay = /\b(?:heute|morgen|uebermorgen|übermorgen|today|tomorrow|demain|mañana|manana|domani)\b/.test(text);
+  const hasWeekday = /\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/.test(text);
+  const hasExecutionAction = /\b(?:erledigen|ausfuehren|ausführen|machen|kommen|starten|beginnen|durchfuehren|durchführen|visite|passage|arrivare|venir|realizar|hacer)\b/.test(text);
+
+  return hasExplicitIntent || ((hasRelativeDay || hasWeekday) && hasExecutionAction);
+};
 
 const hasValidAppointmentDateParts = (day?: string, month?: string) => {
   const d = Number(day);
@@ -3348,7 +3361,7 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
     // V17.63: role labels and broken role-label fragments are not real
     // execution-site names. Do not persist/display fragments like "sadresse".
     // This is deliberately structural UI cleanup, not a service-name mapping.
-    return /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(
+    return /^(?:adresse|sadresse|ausfuehrungsadresse|ausfuehrungsort|ausfuehrung|arbeitsadresse|arbeitsort|einsatzadresse|einsatzort|objekt|baustelle|abweichend von rechnungsadresse|work site|job site|lieu|lieu intervention|adresse de travail)$/.test(
       key,
     );
   };
@@ -3361,7 +3374,7 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
   // structural field-label cleanup, not service-word mapping.
   text = text
     .replace(
-      /^(?:sadresse|adresse\s+chantier|adresse\s+de\s+chantier|adresse|arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*[,;:\-–—]?\s*/i,
+      /^(?:sadresse|adresse\s+chantier|adresse\s+de\s+chantier|adresse|arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|abweichend\s+von\s+rechnungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*[,;:\-–—]?\s*/i,
       "",
     )
     .replace(
@@ -9143,6 +9156,13 @@ export default function AuftraegePage() {
       serviceReviewValue.includes("leistung suchen") ||
       serviceReviewValue.includes("eingeben");
 
+    const unitIsOpen =
+      !unitReviewValue ||
+      unitReviewValue === "pruefen" ||
+      unitReviewValue === "prufen" ||
+      unitReviewValue.includes("einheit pruefen") ||
+      unitReviewValue.includes("einheit prufen");
+
     const hasTrustedNumericAmount =
       quantity > 0 &&
       unitPrice > 0 &&
@@ -9152,29 +9172,34 @@ export default function AuftraegePage() {
       !reviewText.includes("wahrung/preis noch nicht bestatigt") &&
       !reviewText.includes("currency not confirmed");
 
-    // V17.90L8: "Preis im Text unklar" is a yellow review, not a hard
-    // blocker, when the line has its own numeric quantity and price. Hard
-    // blockers remain: missing service/unit/price/quantity and currency review.
+    const hasHardCurrencyBlock =
+      reviewText.includes("währung/preis noch nicht bestätigt") ||
+      reviewText.includes("waehrung/preis noch nicht bestaetigt") ||
+      reviewText.includes("wahrung/preis noch nicht bestatigt") ||
+      reviewText.includes("currency not confirmed") ||
+      reviewText.includes("item currency mismatch") ||
+      reviewText.includes("currency_conflict_item");
+
+    // V17.90L10: yellow evidence text like "Einheit prüfen: Maschinenpodest"
+    // or "Preis im Text unklar" must not remove a complete line from the card
+    // total when service, unit, quantity and price are line-local and numeric.
+    // Only real hard blockers remove an item from totals.
     return (
       serviceIsOpen ||
+      unitIsOpen ||
+      hasHardCurrencyBlock ||
       (totalPrice <= 0 && quantity > 0 && unitPrice > 0) ||
-      unitReviewValue === "pruefen" ||
-      unitReviewValue === "prufen" ||
-      unitReviewValue.includes("einheit pruefen") ||
-      unitReviewValue.includes("einheit prufen") ||
       reviewText.includes("leistung oder einheit ist noch unklar") ||
       reviewText.includes("leistung unklar") ||
       reviewText.includes("service action unclear") ||
       reviewText.includes("service_action_unclear") ||
-      reviewText.includes("einheit pruefen") ||
-      reviewText.includes("einheit prufen") ||
-      reviewText.includes("einheit fehlt") ||
-      reviewText.includes("einheit unklar") ||
-      reviewText.includes("unit missing") ||
-      reviewText.includes("unit unclear") ||
-      reviewText.includes("preis pruefen") ||
-      reviewText.includes("preis prufen") ||
-      reviewText.includes("preis fehlt") ||
+      (!hasTrustedNumericAmount && reviewText.includes("einheit fehlt")) ||
+      (!hasTrustedNumericAmount && reviewText.includes("einheit unklar")) ||
+      (!hasTrustedNumericAmount && reviewText.includes("unit missing")) ||
+      (!hasTrustedNumericAmount && reviewText.includes("unit unclear")) ||
+      (!hasTrustedNumericAmount && reviewText.includes("preis pruefen")) ||
+      (!hasTrustedNumericAmount && reviewText.includes("preis prufen")) ||
+      (!hasTrustedNumericAmount && reviewText.includes("preis fehlt")) ||
       (!hasTrustedNumericAmount && reviewText.includes("preis unklar")) ||
       (!hasTrustedNumericAmount && reviewText.includes("price unclear")) ||
       reviewText.includes("menge pruefen") ||
@@ -9188,6 +9213,14 @@ export default function AuftraegePage() {
   };
 
   const getSafeOrderNetTotal = (o: Order) => {
+    // V17.90L10: the API-normalized order.totalPrice is the list-card source
+    // of truth. It is computed from the same item rules used for the detail
+    // view response, so the outside card must not recompute a different total.
+    const responseNetTotal = Number((o as any).totalPrice ?? NaN);
+    if (Number.isFinite(responseNetTotal) && responseNetTotal >= 0) {
+      return responseNetTotal;
+    }
+
     // V17.20: Eine offene Mischwährung blockiert nicht mehr pauschal die
     // Außenkarten-Summe. Jede Position ist Source of Truth: rote/offene
     // Positionen haben totalPrice 0, bereits manuell bestätigte Positionen

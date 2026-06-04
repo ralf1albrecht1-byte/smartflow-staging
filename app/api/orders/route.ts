@@ -1061,6 +1061,7 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
     !itemIsManuallyConfirmed;
   const reviewText = [
     item?.unit,
+    item?.serviceName,
     item?.description,
     item?.sourceText,
     item?.evidence,
@@ -1074,30 +1075,49 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
   const quantity = Number(item?.quantity ?? 0);
   const unitPrice = Number(item?.unitPrice ?? 0);
   const storedTotal = Number(item?.totalPrice ?? 0);
+  const unitKey = normalizeSearchText(item?.unit);
+  const serviceKey = normalizeSearchText(normalizeServiceNameForDisplay(item?.serviceName));
+
+  const serviceIsOpen =
+    !serviceKey ||
+    serviceKey === "leistung pruefen" ||
+    serviceKey === "leistung prufen" ||
+    serviceKey.includes("leistung suchen") ||
+    serviceKey.includes("eingeben");
+
+  const unitIsOpen =
+    !unitKey ||
+    unitKey === "pruefen" ||
+    unitKey === "prufen" ||
+    unitKey.includes("einheit pruefen") ||
+    unitKey.includes("einheit prufen");
+
   const hasTrustedNumericAmount =
     quantity > 0 &&
     unitPrice > 0 &&
     (storedTotal > 0 || quantity * unitPrice > 0) &&
     !/währung\/preis\s+noch\s+nicht\s+bestätigt|waehrung\/preis\s+noch\s+nicht\s+bestaetigt|currency\s+not\s+confirmed/i.test(reviewText);
 
-  return (
+  const hardCurrencyBlock =
     itemHasCurrencyMismatch ||
     globalCurrencyReviewApplies ||
-    /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(reviewText) ||
-    /unit\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
-    /unit_missing_in_text|unit_mismatch:/i.test(reviewText) ||
-    /preis\s+(?:fehlt|offen|pr[üu]fen)/i.test(reviewText) ||
-    (!hasTrustedNumericAmount && /preis\s+unklar/i.test(reviewText)) ||
-    /price\s+(?:missing|open|review)/i.test(reviewText) ||
-    (!hasTrustedNumericAmount && /price\s+unclear/i.test(reviewText)) ||
-    (!hasTrustedNumericAmount && /price_unclear:|unit_price_review/i.test(reviewText)) ||
-    /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
-    /quantity\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
-    /quantity_review/i.test(reviewText) ||
     (!itemIsManuallyConfirmed &&
-      /currency_review|currency_conflict|currency_unsupported|item_currency_mismatch|currency_conflict_item/i.test(
+      /currency_review|currency_conflict|currency_unsupported|item_currency_mismatch|currency_conflict_item|währung\/preis\s+noch\s+nicht\s+bestätigt|waehrung\/preis\s+noch\s+nicht\s+bestaetigt|currency\s+not\s+confirmed/i.test(
         reviewText,
-      ))
+      ));
+
+  // V17.90L10: yellow review text such as "Einheit prüfen: ..." or
+  // "Preis im Text unklar" must not zero a complete, line-local item.
+  // Only real hard blockers are excluded from net/vat/total.
+  return (
+    hardCurrencyBlock ||
+    serviceIsOpen ||
+    unitIsOpen ||
+    /leistung\s+oder\s+einheit\s+ist\s+noch\s+unklar|leistung\s+unklar|service[_\s-]*action[_\s-]*(?:unclear|review)/i.test(reviewText) ||
+    /nicht\s+in\s+(?:netto|mwst|total)|not\s+included\s+in\s+total/i.test(reviewText) ||
+    (!hasTrustedNumericAmount && /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)|unit\s+(?:missing|open|unknown|unclear|review)|unit_missing_in_text|unit_mismatch:/i.test(reviewText)) ||
+    (!hasTrustedNumericAmount && /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)|price\s+(?:missing|open|unclear|review)|price_unclear:|unit_price_review/i.test(reviewText)) ||
+    /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)|quantity\s+(?:missing|open|unknown|unclear|review)|quantity_review/i.test(reviewText)
   );
 }
 
