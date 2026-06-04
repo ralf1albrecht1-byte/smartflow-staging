@@ -48,7 +48,10 @@ const isOperationalJobHint = (value: string) => {
   if (isServiceLikeSpecialNoteLineV17_32(line)) return false;
   if (APPOINTMENT_CLARIFY_HINT.test(line)) return true;
   if (PRE_ARRIVAL_HINT.test(line)) return true;
-  if (FIXED_APPOINTMENT_HINT.test(line)) return false;
+  // V17.90L23: a fixed customer appointment such as "Termin: morgen Nachmittag"
+  // is an operational field hint and must not collapse to a useless "Termin"
+  // marker or disappear from Besonderheiten.
+  if (FIXED_APPOINTMENT_HINT.test(line)) return true;
   return !NON_OPERATIONAL_JOB_HINT.test(line);
 };
 
@@ -256,6 +259,12 @@ const canonicalSpecialNoteBodyV17_32 = (value: string): string => {
     .trim();
 
   const normalized = normalizeDedupeText(body);
+  if (/^termin\s*:\s*(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\.?$/i.test(body)) {
+    return body.replace(/\.$/, ".");
+  }
+  if (/^(?:morgen|heute)\s+(?:vormittag|nachmittag|abend)\.?$/i.test(body)) {
+    return `Termin: ${body.replace(/\.$/, "")}.`;
+  }
   const code = extractAccessCodeV17_32(body);
 
   const mentionsKeyBox =

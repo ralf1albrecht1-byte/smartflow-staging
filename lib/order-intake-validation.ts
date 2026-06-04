@@ -8999,7 +8999,10 @@ function extractStrictLineLocalPricedItemsV17_90L22(
   originalText: string,
   fallbackCurrency: IntakeCurrency,
 ): ExplicitServiceLineItem[] {
-  const source = normalizeText(originalText);
+  // V17.90L23: use the semantic working text/translation when available.
+  // Raw + translation together can create duplicate or polluted candidates; the
+  // preferred semantic source is the correct line-local basis for validation.
+  const source = normalizeText(preferredSemanticLineSourceV17_41(originalText) || originalText);
   if (!source) return [];
 
   const bases = unique([
@@ -9208,6 +9211,115 @@ function applyLineLocalIntegrityGuardV17_90L22(
       removeSameEvidenceQuantityPriceSplitArtifacts(next),
     ),
     reviewReasons: unique(reviewReasons),
+  };
+}
+
+
+
+// V17.90L23: final deterministic rebuild for explicit amount-bearing texts.
+// If a message contains several clear local price lines, these lines are the
+// source of truth. This prevents old AI/post-processing rows from surviving with
+// broad evidence, shifted quantities or blocked m² rows like "Boden Lager".
+function cleanTrailingAmountFromServiceNameV17_90L23(value?: string | null): string {
+  let name = normalizeText(value || "")
+    .replace(/\s*,\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|hours?|stunden?|std\.?).*$/i, "")
+    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|hours?|stunden?|std\.?).*$/i, "")
+    .replace(/\s+(?:à|a|zu|je|pro|per|each|at|x|\*)\s*(?:chf|eur|fr\.?|franken|stutz)?\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  name = cleanValidationServiceDisplayName(name);
+  return normalizeText(name).replace(/^./, (char) => char.toUpperCase());
+}
+
+function canonicalLineLocalItemV17_90L23(
+  item: ExplicitServiceLineItem,
+): ExplicitServiceLineItem {
+  const serviceName = cleanTrailingAmountFromServiceNameV17_90L23(item.serviceName);
+  return {
+    ...item,
+    serviceName: serviceName || item.serviceName || "Leistung prüfen",
+    description: item.sourceText || item.description,
+    totalPrice: calculateSafeLineTotal(item),
+    needsReview: false,
+    reviewReason: null,
+    evidence: item.sourceText || item.evidence || item.description,
+  };
+}
+
+function itemHasOpenLineLocalAmountProblemV17_90L23(
+  item: ParsedOrderItemForValidation,
+): boolean {
+  const reason = String(item.reviewReason || "");
+  const nameKey = normalizeCompare(item.serviceName);
+  const unitKey = normalizeCompare(item.unit);
+  return (
+    Number(item.totalPrice || 0) <= 0 ||
+    Number(item.unitPrice || 0) <= 0 ||
+    (!isFlatUnit(item.unit) && Number(item.quantity || 0) <= 0) ||
+    !unitKey ||
+    nameKey === "leistung pruefen" ||
+    nameKey === "unbekannte leistung" ||
+    reason.startsWith("service_name_review:") ||
+    reason.startsWith("unit_mismatch:") ||
+    reason === "unit_price_review" ||
+    reason === "quantity_review"
+  );
+}
+
+function sameLineLocalAmountKeyV17_90L23(
+  item: ParsedOrderItemForValidation,
+): string {
+  return [
+    unitTypeFromDisplayUnit(item.unit) || normalizeCompare(item.unit),
+    String(Number(item.quantity || 0)),
+    String(roundMoney(Number(item.unitPrice || 0))),
+    normalizeCurrency(item.detectedCurrency) || "",
+  ].join("|");
+}
+
+function shouldDeterministicallyRebuildFromLineLocalItemsV17_90L23(
+  items: ParsedOrderItemForValidation[],
+  explicitItems: ExplicitServiceLineItem[],
+): boolean {
+  if (explicitItems.length < 2) return false;
+  if (explicitItems.length > items.length) return true;
+  if (items.some(itemHasOpenLineLocalAmountProblemV17_90L23)) return true;
+  if (items.some(isBroadPollutedItemEvidenceV17_90L22)) return true;
+
+  const explicitKeys = new Set(explicitItems.map(sameLineLocalAmountKeyV17_90L23));
+  const covered = items.filter((item) => explicitKeys.has(sameLineLocalAmountKeyV17_90L23(item))).length;
+  return covered < explicitItems.length;
+}
+
+function applyDeterministicLineLocalRebuildV17_90L23(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const explicitItems = extractStrictLineLocalPricedItemsV17_90L22(originalText, finalCurrency)
+    .map(canonicalLineLocalItemV17_90L23);
+  if (!shouldDeterministicallyRebuildFromLineLocalItemsV17_90L23(items, explicitItems)) {
+    return { items, reviewReasons: [] };
+  }
+
+  const byAmount = new Map<string, ExplicitServiceLineItem>();
+  for (const item of explicitItems) {
+    const key = sameLineLocalAmountKeyV17_90L23(item);
+    const existing = byAmount.get(key);
+    if (!existing || String(item.sourceText || "").length > String(existing.sourceText || "").length) {
+      byAmount.set(key, item);
+    }
+  }
+
+  return {
+    items: Array.from(byAmount.values()).map((item) => ({
+      ...item,
+      totalPrice: calculateSafeLineTotal(item),
+      needsReview: false,
+      reviewReason: null,
+    })),
+    reviewReasons: ["line_local_deterministic_rebuild"],
   };
 }
 
@@ -9679,6 +9791,14 @@ export function validateAndRepairParsedOrderItems(
   items = lineLocalIntegrityGuard.items;
   reviewReasons.push(...lineLocalIntegrityGuard.reviewReasons);
 
+  const deterministicLineLocalRebuild = applyDeterministicLineLocalRebuildV17_90L23(
+    items,
+    input.originalText,
+    finalCurrency,
+  );
+  items = deterministicLineLocalRebuild.items;
+  reviewReasons.push(...deterministicLineLocalRebuild.reviewReasons);
+
   // V17.80: Wenn eine Position nach der semantischen Reparatur vollständig ist
   // (Menge + Einheit + Preis + Total), darf kein alter price_unclear-Hinweis
   // als sichtbarer falscher Text stehen bleiben. Beispiel: "Window inside
@@ -9718,7 +9838,8 @@ export function validateAndRepairParsedOrderItems(
         !reason.startsWith("evidence_numeric_repaired:") &&
         !reason.startsWith("line_local_integrity_added:") &&
         reason !== "line_local_integrity_repaired" &&
-        reason !== "line_local_polluted_amount_row_removed",
+        reason !== "line_local_polluted_amount_row_removed" &&
+        reason !== "line_local_deterministic_rebuild",
     )
     .filter((reason) => {
       if (!reason.startsWith("price_repaired_from_text:")) return true;
