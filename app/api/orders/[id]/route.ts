@@ -506,11 +506,24 @@ function reviewReasonAppliesToItem(reason: any, item: any, data?: any): boolean 
 function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
   const itemIsManuallyConfirmed = isItemManuallyConfirmedForPersist(item);
   const globalReviewReasons = Array.isArray(data?.reviewReasons)
-    ? data.reviewReasons.filter((reason: any) =>
-        itemIsManuallyConfirmed
-          ? false
-          : reviewReasonAppliesToItem(reason, item, data),
-      )
+    ? data.reviewReasons.filter((reason: any) => {
+        if (itemIsManuallyConfirmed) return false;
+        const key = String(reason || "");
+        const hasItemSpecificService = Boolean(parseCurrencyReviewService(key));
+
+        // V17.90L12: Generic order-level review reasons such as
+        // "Leistung oder Einheit ist noch unklar" describe other blocked lines.
+        // They must not be copied onto complete items like Anfahrt, Fenster or
+        // Metallservice rows, otherwise the list card falls to CHF 0.00 while
+        // the edit dialog still calculates correctly. Only item-scoped reasons
+        // (service after colon) and global currency reasons participate here;
+        // open/blocked fields are still detected directly from the item itself.
+        if (!hasItemSpecificService && !key.startsWith("currency_")) {
+          return false;
+        }
+
+        return reviewReasonAppliesToItem(reason, item, data);
+      })
     : [];
   const itemHasCurrencyMismatch =
     !itemIsManuallyConfirmed &&
