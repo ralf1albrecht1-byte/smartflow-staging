@@ -804,18 +804,31 @@ const trimDisplayEvidenceToServiceV17_90L28 = (
   if (serviceTokens.length === 0) return line;
 
   const words = line.split(/\s+/g).filter(Boolean);
+  let firstPricingIndex = words.findIndex((word) =>
+    /^(?:\d+(?:[.,]\d+)?|chf|eur|€|franken|stutz|à|a|zu|je|pro)$/i.test(word),
+  );
+  if (firstPricingIndex < 0) firstPricingIndex = words.length;
+
+  // V17.90L29: pick the service token closest to the measured price, not the
+  // first matching token in a noisy one-line WhatsApp text. This removes
+  // access/hazard fragments such as "Schlüssel beim Werkstattleiter" from
+  // visible evidence for "Boden reinigen".
   let bestIndex = -1;
   for (let i = 0; i < words.length; i += 1) {
     const key = normalizeForMatch(words[i]);
     if (!key) continue;
     if (serviceTokens.some((token) => token && key.includes(token))) {
-      bestIndex = i;
-      break;
+      if (i <= firstPricingIndex || bestIndex < 0) bestIndex = i;
     }
   }
 
-  if (bestIndex <= 0) return line;
-  return words.slice(bestIndex).join(" ").replace(/\s+/g, " ").trim();
+  if (bestIndex <= 0) return line.replace(/\s+/g, " ").trim();
+
+  const cleaned = words.slice(bestIndex).join(" ").replace(/\s+/g, " ").trim();
+  return cleaned
+    .replace(/^boden,\s*/i, "")
+    .replace(/^(?:schluessel|schlussel|schlüssel|key|code|empfang|rezeption|hauswart|werkstattleiter|tresen)[^,;]*[,;]\s*/i, "")
+    .trim();
 };
 
 const findCustomerTextLineForService = (

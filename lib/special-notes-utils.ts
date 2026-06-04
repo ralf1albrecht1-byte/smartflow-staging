@@ -708,6 +708,7 @@ function sanitizeSpecialNoteInputLinesV17_90L22(values: string[]): string[] {
     .filter((line) => {
       const body = stripKnownMarker(line);
       if (!body) return false;
+      if (/^termin\s*:?$/i.test(body.trim())) return false;
       if (PRICED_SERVICE_FRAGMENT_V17_90L22.test(body)) return false;
       if (STRUCTURAL_NON_NOTE_FRAGMENT_V17_90L22.test(body) && !SPLITTABLE_OPERATIONAL_SIGNAL_V17_90L22.test(body)) return false;
       return true;
@@ -751,7 +752,13 @@ export function buildSpecialNotes(input: {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  return Array.from(new Set(compactSpecialNoteLinesV17_27(lines))).join("\n");
+  const compacted = Array.from(new Set(compactSpecialNoteLinesV17_27(lines)));
+  const hasSpecificAppointment = compacted.some((line) => /^Termin\s*:.+/i.test(stripKnownMarker(line)));
+  const cleaned = hasSpecificAppointment
+    ? compacted.filter((line) => !/^Termin\s*:?$/i.test(stripKnownMarker(line).trim()))
+    : compacted;
+
+  return cleaned.join("\n");
 }
 
 export function hasWarningKeywords(text: string): boolean {
