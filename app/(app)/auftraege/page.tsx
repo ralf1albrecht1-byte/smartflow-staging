@@ -9344,6 +9344,32 @@ export default function AuftraegePage() {
           </p>
         ) : (
           filtered.slice(0, visibleCount).map((o: Order, i: number) => {
+            const cardCustomerFromList =
+              customers.find((customer) => customer.id === o.customerId) ||
+              null;
+            const cardOrderForChips: Order = cardCustomerFromList
+              ? {
+                  ...o,
+                  customer: {
+                    ...(o.customer || { name: cardCustomerFromList.name }),
+                    name: cardCustomerFromList.name || o.customer?.name || "",
+                    phone:
+                      cardCustomerFromList.phone || o.customer?.phone || null,
+                    email:
+                      cardCustomerFromList.email || o.customer?.email || null,
+                    address:
+                      cardCustomerFromList.address ||
+                      o.customer?.address ||
+                      null,
+                    plz: cardCustomerFromList.plz || o.customer?.plz || null,
+                    city: cardCustomerFromList.city || o.customer?.city || null,
+                    customerNumber:
+                      cardCustomerFromList.customerNumber ||
+                      o.customer?.customerNumber ||
+                      null,
+                  },
+                }
+              : o;
             const isSonstiges =
               (o.serviceName ?? "").toLowerCase() === "sonstiges" ||
               (o.items &&
@@ -9360,10 +9386,10 @@ export default function AuftraegePage() {
             const leftSystemBadges = systemBadges.filter(
               (badge) => !isAmountReviewBadge(badge),
             );
-            const operationalBadges = getOperationalBadges(o, parsedCardNotes);
-            const bottomBadges = getBottomBadges(o, parsedCardNotes);
+            const operationalBadges = getOperationalBadges(cardOrderForChips, parsedCardNotes);
+            const bottomBadges = getBottomBadges(cardOrderForChips, parsedCardNotes);
             const hasMultipleMergedData = hasMergedMultipleContactData(
-              o,
+              cardOrderForChips,
               parsedCardNotes,
             );
             const hiddenMergedDataBadgeKeys = [
@@ -9565,7 +9591,7 @@ export default function AuftraegePage() {
 
             const renderInteractiveMobileActionBadge = (badge: ReviewBadge) => {
               if (badge.key === "callback_request") {
-                return renderMobileActionBadge(o, badge);
+                return renderMobileActionBadge(cardOrderForChips, badge);
               }
 
               const Icon = mobileIconForBadge(badge) || AlertTriangle;
@@ -9840,7 +9866,7 @@ export default function AuftraegePage() {
                               >
                                 <CommunicationChips
                                   compact
-                                  data={buildCommunicationChipDataV17_52(o)}
+                                  data={buildCommunicationChipDataV17_52(cardOrderForChips)}
                                   onAudioClick={() => openMedia(o)}
                                   onImageClick={() => openMedia(o)}
                                 />
@@ -9995,7 +10021,7 @@ export default function AuftraegePage() {
                               >
                                 <CommunicationChips
                                   compact
-                                  data={buildCommunicationChipDataV17_52(o)}
+                                  data={buildCommunicationChipDataV17_52(cardOrderForChips)}
                                   onAudioClick={() => openMedia(o)}
                                   onImageClick={() => openMedia(o)}
                                 />
@@ -10003,7 +10029,7 @@ export default function AuftraegePage() {
                             )}
 
                             {callbackBadges.map((badge) =>
-                              renderCallbackCardBadge(o, badge),
+                              renderCallbackCardBadge(cardOrderForChips, badge),
                             )}
 
                             {messageBadges.map((badge) =>
