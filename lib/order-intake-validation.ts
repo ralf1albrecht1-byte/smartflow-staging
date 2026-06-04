@@ -1213,6 +1213,35 @@ function canonicalGermanServiceNameFromText(
   const normalized = normalizeCompare(value);
   if (!normalized) return null;
 
+  // V17.90L30: multilingual, line-local service normalization.
+  // These are semantic service/action patterns, not customer-specific word lists.
+  if (
+    /\b(?:local\s+technique|technikraum|technical\s+room|serverraum)\b/.test(normalized) &&
+    /\b(?:depoussier|dépoussier|abstaub|entstaub|dust)\b/.test(normalized)
+  ) {
+    return "Technikraum abstauben";
+  }
+  if (
+    /\b(?:tables?\s+(?:terrasse|terasse)|tische?\s+(?:auf\s+)?(?:der\s+)?terrasse)\b/.test(normalized) ||
+    (/\bterrasse\b/.test(normalized) && /\b(?:tables?|tische?)\b/.test(normalized))
+  ) {
+    return "Tische auf Terrasse reinigen";
+  }
+  if (
+    (/\b(?:tapis|teppiche?)\b/.test(normalized) && /\b(?:couloir|gang|flur)\b/.test(normalized))
+  ) {
+    return "Teppiche im Gang reinigen";
+  }
+  if (
+    /\b(?:lavanderia|waescherei|wascherei|wäsche|waesche)\b/.test(normalized) &&
+    /\b(?:pavimento|boden|floor|sol)\b/.test(normalized)
+  ) {
+    return "Wäschereiboden reinigen";
+  }
+  if (/\b(?:glastuer|glastur|glastür|porte\s+vitree|vetri\s+porta|glastuer\s+eingang)\b/.test(normalized)) {
+    return "Glastür reinigen";
+  }
+
   if (
     /\b(nettoyage\s+du\s+garage|nettoyage\s+du\s+sol\s+du\s+garage|garage\s+floor|sol\s+du\s+garage|garagenboden)\b/.test(
       normalized,
@@ -2448,6 +2477,9 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
 
   const contextCleaned = cleanServiceLabelContextNoiseV17_90L27(cleaned);
   const grammarCleaned = cleanLineLocalServiceLabelGrammarV17_60(contextCleaned);
+
+  const earlyCanonical = canonicalGermanServiceNameFromText(grammarCleaned);
+  if (earlyCanonical) return earlyCanonical;
 
   const hasSpecificLineLocalAction = hasVisibleGermanWorkActionV17_37(grammarCleaned) && meaningfulServiceTokens(grammarCleaned).length >= 3;
   if (hasSpecificLineLocalAction) {
@@ -9068,7 +9100,7 @@ function pricedEvidenceCountV17_90L22(value?: string | null): number {
     new RegExp(`\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b.{0,45}?(?:${CURRENCY_WORDS}|\\b(?:à|a|zu|je|pro|per|each|at)\\b).{0,25}?\\d+(?:[.,]\\d{1,2})?`, "gi"),
   ) || [];
   const flat = source.match(
-    new RegExp(`\\b(?:anfahrt|fahrtkosten|fahrt|fahrpauschale|wegpauschale|reisepauschale|trasferta|deplacement|déplacement|travel|trip|transport)\\b.{0,50}?(?:${CURRENCY_WORDS}\\s*\\d|\\d+(?:[.,]\\d{1,2})?\\s*${CURRENCY_WORDS})`, "gi"),
+    new RegExp(`\\b(?:anfahrt|fahrtkosten|fahrt|fahrpauschale|wegpauschale|reisepauschale|trasferta|deplacement|déplacement|frais\s+de\s+deplacement|frais\s+de\s+déplacement|travel|trip|transport)\\b.{0,50}?(?:${CURRENCY_WORDS}\\s*\\d|\\d+(?:[.,]\\d{1,2})?\\s*${CURRENCY_WORDS})`, "gi"),
   ) || [];
   return measured.length + flat.length;
 }

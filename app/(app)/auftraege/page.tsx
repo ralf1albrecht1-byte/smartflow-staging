@@ -936,9 +936,36 @@ const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
     .trim();
 };
 
+const cleanVisibleServiceAmountFragmentsV17_90L30 = (value?: string | null) =>
+  compactText(value)
+    .replace(/^\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b\s*/i, "")
+    .replace(/^\s*\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
+    .replace(/\s*,?\s*\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stück|stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi|hours?|stunden?|std\.?)\b.*$/i, "")
+    .replace(/\s+(?:à|a|zu|je|pro|per|each|at|x|\*)\s*(?:chf|eur|fr\.?|franken|stutz)?\s*\d+(?:[.,]\d{1,2})?.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const canonicalServiceNameForOrderItem = (value?: string | null) => {
-  const name = cleanLineLocalServiceLabelGrammarV17_60(cleanServiceLabelContextNoiseV17_90L27(value));
+  const name = cleanVisibleServiceAmountFragmentsV17_90L30(
+    cleanLineLocalServiceLabelGrammarV17_60(cleanServiceLabelContextNoiseV17_90L27(value)),
+  );
   const key = normalizeForMatch(name);
+
+  if (/\b(?:local\s+technique|technikraum|technical\s+room|serverraum)\b/.test(key) && /\b(?:depoussier|abstaub|entstaub|dust)\b/.test(key)) {
+    return "Technikraum abstauben";
+  }
+  if (/\b(?:tables?\s+(?:terrasse|terasse)|tische?\s+(?:auf\s+)?(?:der\s+)?terrasse)\b/.test(key) || (/\bterrasse\b/.test(key) && /\b(?:tables?|tische?)\b/.test(key))) {
+    return "Tische auf Terrasse reinigen";
+  }
+  if (/\b(?:tapis|teppiche?)\b/.test(key) && /\b(?:couloir|gang|flur)\b/.test(key)) {
+    return "Teppiche im Gang reinigen";
+  }
+  if (/\b(?:lavanderia|waescherei|wascherei|wäsche|waesche)\b/.test(key) && /\b(?:pavimento|boden|floor|sol)\b/.test(key)) {
+    return "Wäschereiboden reinigen";
+  }
+  if (/\b(?:glastuer|glastur|glastür|porte\s+vitree|vetri\s+porta)\b/.test(key)) {
+    return "Glastür reinigen";
+  }
 
   // V17.59: preserve already line-local, explicit service labels from the
   // validator. The editor must not collapse concrete customer-line services
