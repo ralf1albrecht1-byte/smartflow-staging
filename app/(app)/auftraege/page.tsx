@@ -2600,6 +2600,17 @@ const isInternalReviewServiceName = (value?: string | null) => {
   ]).has(key);
 };
 
+const isUnresolvedReviewUnitValue = (value?: string | null) => {
+  const key = normalizeForMatch(value);
+  if (!key) return false;
+  return new Set([
+    "pruefen",
+    "prufen",
+    "einheit pruefen",
+    "einheit prufen",
+  ]).has(key);
+};
+
 const hasUnitMismatchReviewForService = (
   reviewReasons: string[] | null | undefined,
   serviceName?: string | null,
@@ -11066,13 +11077,22 @@ export default function AuftraegePage() {
                             Number(item.quantity || 0) === 0;
                           const priceInputCritical = priceInputReview;
                           const quantityInputCritical = quantityInputReview;
+                          const hasUnresolvedServicePlaceholder =
+                            isInternalReviewServiceName(item.serviceName);
+                          const hasUnresolvedUnitPlaceholder =
+                            !manualUnitConfirmed &&
+                            isUnresolvedReviewUnitValue(item.unit);
+                          const hasUnresolvedItemPlaceholder =
+                            hasUnresolvedServicePlaceholder ||
+                            hasUnresolvedUnitPlaceholder;
                           const showUnitConflict =
                             !unresolvedCurrencyItem &&
                             Boolean(
                               item.aiWarning?.trim() ||
                               unitMismatchReason ||
                               unitMissingInTextReason ||
-                              manualUnitConfirmed,
+                              manualUnitConfirmed ||
+                              hasUnresolvedItemPlaceholder,
                             );
                           const showPriceOverride =
                             !unresolvedCurrencyItem &&
@@ -11103,6 +11123,8 @@ export default function AuftraegePage() {
                           const isCompleteItemForCatalogAction = Boolean(
                             item.serviceName?.trim() &&
                             item.unit?.trim() &&
+                            !hasUnresolvedServicePlaceholder &&
+                            !hasUnresolvedUnitPlaceholder &&
                             Number(item.unitPrice || 0) > 0 &&
                             Number(item.quantity || 0) > 0,
                           );
@@ -11154,6 +11176,7 @@ export default function AuftraegePage() {
                           const isBlockingItemReview =
                             unresolvedCurrencyItem ||
                             hasMissingItemInput ||
+                            hasUnresolvedItemPlaceholder ||
                             Boolean(unitMissingInTextReason && !manualUnitConfirmed) ||
                             (showPriceReferenceReview &&
                               !isCompleteItemForCatalogAction) ||
@@ -11311,6 +11334,19 @@ export default function AuftraegePage() {
                                 !groupItem.catalogReviewConfirmed &&
                                 !groupCatalogService,
                               );
+                              const groupHasUnresolvedPlaceholder =
+                                isInternalReviewServiceName(groupItem.serviceName) ||
+                                isUnresolvedReviewUnitValue(groupItem.unit);
+
+                              if (groupHasUnresolvedPlaceholder) {
+                                addBadge(
+                                  "unresolved_item",
+                                  "Leistung prüfen",
+                                  "bg-red-100 text-red-700 ring-1 ring-red-200",
+                                  `${itemName || "Leistung"}: Leistung oder Einheit ist noch unklar.`,
+                                );
+                                continue;
+                              }
 
                               if (
                                 groupItemPrice <= 0 ||
@@ -11972,7 +12008,9 @@ export default function AuftraegePage() {
                                       >
                                         <div className="mb-0.5 flex items-center gap-1 font-semibold">
                                           <AlertTriangle className="h-3 w-3 shrink-0" />
-                                          Manuell prüfen
+                                          {isBlockingItemReview
+                                            ? "Vor Angebot/Rechnung prüfen"
+                                            : "Manuell prüfen"}
                                         </div>
 
                                         <div className="space-y-0.5">
@@ -12014,6 +12052,24 @@ export default function AuftraegePage() {
                                                   </div>
                                                   <div>
                                                     Bitte prüfen, ob diese Einheit zur Leistung passt.
+                                                  </div>
+                                                </>
+                                              ) : hasUnresolvedItemPlaceholder ? (
+                                                <>
+                                                  <div>
+                                                    Leistung oder Einheit ist noch unklar.
+                                                  </div>
+                                                  <div>
+                                                    Text:{" "}
+                                                    <span className="font-medium">
+                                                      {sourceLineForItem || orderSummary}
+                                                    </span>
+                                                  </div>
+                                                  <div>
+                                                    Diese Position wird nicht in
+                                                    Netto/MwSt./Total gerechnet,
+                                                    bis Leistung und Einheit
+                                                    bestätigt sind.
                                                   </div>
                                                 </>
                                               ) : unitMissingInTextReason ? (
