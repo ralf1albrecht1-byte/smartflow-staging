@@ -289,7 +289,7 @@ function extractExplicitExecutionAddressFromOrderPayloadV17_70(
     .filter(Boolean);
 
   const markerRegex =
-    /^\s*(?:ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|baustelle|objekt|einsatzort|einsatzadresse|serviceadresse|adresse\s+chantier|adresse\s+de\s+chantier|job\s*site|work\s*address|work\s*site|lieu\s+d['’]?intervention|adresse\s+de\s+travail)\s*:?\s*(.*)$/i;
+    /^\s*(?:ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|baustelle|objekt|einsatzort|einsatzadresse|serviceadresse|job\s*site|work\s*address|work\s*site|lieu\s+d['’]?intervention|adresse\s+de\s+travail)\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|kontakt|kontaktperson|ansprechperson|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
   const priceOrCalculationLineRegex =
@@ -618,7 +618,7 @@ function cleanWorkSiteDisplayName(value?: string | null) {
 
   text = text
     .replace(
-      /^(?:sadresse|adresse\s+chantier|adresse\s+de\s+chantier|adresse|arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*[,;:\-–—]?\s*/i,
+      /^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i,
       "",
     )
     .replace(
@@ -927,11 +927,6 @@ function shouldTrustSourcePriceForItem(item: any, data: any) {
 
 const MANUAL_CURRENCY_CONFIRMED_PREFIX = "[MANUAL_CURRENCY_CONFIRMED]";
 const PRICE_REVIEW_CONFIRMED_PREFIX = "[PRICE_REVIEW_CONFIRMED]";
-const MANUAL_UNIT_CONFIRMED_PREFIX = "[MANUAL_UNIT_CONFIRMED]";
-
-function isExplicitManualUnitConfirmedForPersist(item: any): boolean {
-  return String(item?.description || "").trim().startsWith(MANUAL_UNIT_CONFIRMED_PREFIX);
-}
 
 function isItemManuallyConfirmedForPersist(item: any): boolean {
   const description = String(item?.description || "").trim();
@@ -946,8 +941,7 @@ function isItemManuallyConfirmedForPersist(item: any): boolean {
     unitPrice > 0 &&
     quantity > 0 &&
     (description.startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX) ||
-      description.startsWith(PRICE_REVIEW_CONFIRMED_PREFIX) ||
-      description.startsWith(MANUAL_UNIT_CONFIRMED_PREFIX))
+      description.startsWith(PRICE_REVIEW_CONFIRMED_PREFIX))
   );
 }
 
@@ -1077,15 +1071,26 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
     .join(" ")
     .toLowerCase();
 
+  const quantity = Number(item?.quantity ?? 0);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const storedTotal = Number(item?.totalPrice ?? 0);
+  const hasTrustedNumericAmount =
+    quantity > 0 &&
+    unitPrice > 0 &&
+    (storedTotal > 0 || quantity * unitPrice > 0) &&
+    !/währung\/preis\s+noch\s+nicht\s+bestätigt|waehrung\/preis\s+noch\s+nicht\s+bestaetigt|currency\s+not\s+confirmed/i.test(reviewText);
+
   return (
     itemHasCurrencyMismatch ||
     globalCurrencyReviewApplies ||
     /einheit\s+(?:fehlt|offen|unklar|pr[üu]fen|muss)/i.test(reviewText) ||
     /unit\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
     /unit_missing_in_text|unit_mismatch:/i.test(reviewText) ||
-    /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
-    /price\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
-    /price_unclear:|unit_price_review/i.test(reviewText) ||
+    /preis\s+(?:fehlt|offen|pr[üu]fen)/i.test(reviewText) ||
+    (!hasTrustedNumericAmount && /preis\s+unklar/i.test(reviewText)) ||
+    /price\s+(?:missing|open|review)/i.test(reviewText) ||
+    (!hasTrustedNumericAmount && /price\s+unclear/i.test(reviewText)) ||
+    (!hasTrustedNumericAmount && /price_unclear:|unit_price_review/i.test(reviewText)) ||
     /menge\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(reviewText) ||
     /quantity\s+(?:missing|open|unknown|unclear|review)/i.test(reviewText) ||
     /quantity_review/i.test(reviewText) ||
@@ -1113,52 +1118,6 @@ function getDisplaySafeItemForOrder(item: any, orderLike: any) {
     quantity: Number(item?.quantity ?? 0),
     totalPrice: getItemNetTotalForOrder(item, orderLike || {}),
   };
-}
-
-
-function isHourLikeUnitForPersist(value?: string | null): boolean {
-  const unit = normalizeSearchText(value || "").replace(/[^a-z0-9]/g, "");
-  return ["stunde", "stunden", "std", "h", "hour", "hours", "heure", "heures", "hora", "horas", "ora", "ore"].includes(unit);
-}
-
-function sourceLineHasExplicitHourUnitForPersist(line?: string | null): boolean {
-  const text = normalizeSearchText(line || "");
-  return /\b(?:stunde|stunden|std|h|hour|hours|heure|heures|hora|horas|ora|ore)\b/.test(text);
-}
-
-function parseLineQuantityAndPriceForPersist(line?: string | null): { quantity: number | null; unitPrice: number | null } {
-  const raw = String(line || "").replace(/'/g, "").replace(/\s+/g, " ").trim();
-  if (!raw) return { quantity: null, unitPrice: null };
-
-  const toNumber = (value: string | undefined | null) => {
-    const number = Number(String(value || "").replace(",", "."));
-    return Number.isFinite(number) && number > 0 ? number : null;
-  };
-
-  const patterns: Array<{ re: RegExp; quantityGroup: number; priceGroup: number }> = [
-    { re: /(?:^|\D)(\d+(?:[.,]\d+)?)\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stk|stück|stueck|pcs?|teile|einheiten|std\.?|stunden?|h)?\s*(?:à|a|je|each|pro|per|x|mal)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/i, quantityGroup: 1, priceGroup: 2 },
-    { re: /(?:^|\D)(\d+(?:[.,]\d+)?)\s+[^\d\n]{0,80}?\s+(?:à|a|je|each|pro|per)\s*(?:chf|eur|fr\.?|sfr|franken|stutz|€)?\s*(\d+(?:[.,]\d+)?)/i, quantityGroup: 1, priceGroup: 2 },
-  ];
-
-  for (const pattern of patterns) {
-    const match = raw.match(pattern.re);
-    const quantity = toNumber(match?.[pattern.quantityGroup]);
-    const unitPrice = toNumber(match?.[pattern.priceGroup]);
-    if (quantity && unitPrice) return { quantity, unitPrice };
-  }
-
-  return { quantity: null, unitPrice: null };
-}
-
-function shouldFailClosedImplicitHourUnitForPersist(item: any, sourceLine?: string | null): boolean {
-  if (isItemManuallyConfirmedForPersist(item) || isExplicitManualUnitConfirmedForPersist(item)) return false;
-  if (normalizeSearchText(normalizeServiceNameForDisplay(item?.serviceName)) === "anfahrt") return false;
-  if (!isHourLikeUnitForPersist(item?.unit)) return false;
-  if (!sourceLine) return false;
-  if (sourceLineHasExplicitHourUnitForPersist(sourceLine)) return false;
-
-  const values = parseLineQuantityAndPriceForPersist(sourceLine);
-  return Boolean(values.quantity && values.unitPrice);
 }
 
 function hasCompleteManualItemsForPersist(data: any): boolean {
@@ -1236,7 +1195,8 @@ function hasCompleteManualItemsIgnoringCurrencyForPersist(data: any): boolean {
 function shouldTrustClientItemValuesForPersist(data: any): boolean {
   return (
     data?.manualReviewResolved === true ||
-    data?.manualItemValuesConfirmed === true
+    data?.manualItemValuesConfirmed === true ||
+    hasCompleteManualItemsForPersist(data)
   );
 }
 
@@ -1246,8 +1206,10 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
   const trustClientItemValues = shouldTrustClientItemValuesForPersist(data);
 
   const normalized = items.map((item: any) => {
-    let serviceName = normalizeServiceNameForDisplay(item?.serviceName);
-    const sourceLine = findSourceLineForItem(source, { ...item, serviceName });
+    const serviceName = normalizeServiceNameForDisplay(item?.serviceName);
+    const sourceLine = trustClientItemValues
+      ? ""
+      : findSourceLineForItem(source, { ...item, serviceName });
     const sourcePrice = trustClientItemValues
       ? null
       : extractUnitPriceFromSourceLine(sourceLine, { ...item, serviceName });
@@ -1274,20 +1236,6 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
           : Number(item?.unitPrice ?? 0);
     let quantity = Number(item?.quantity ?? 1);
     let unit = item?.unit;
-    const implicitHourUnitBlocked =
-      !trustClientItemValues &&
-      shouldFailClosedImplicitHourUnitForPersist(
-        { ...item, serviceName, unit, unitPrice, quantity },
-        sourceLine,
-      );
-
-    if (implicitHourUnitBlocked) {
-      const parsedLineValues = parseLineQuantityAndPriceForPersist(sourceLine);
-      serviceName = "Leistung prüfen";
-      unit = "Einheit prüfen";
-      if (parsedLineValues.unitPrice) unitPrice = parsedLineValues.unitPrice;
-      if (parsedLineValues.quantity) quantity = parsedLineValues.quantity;
-    }
 
     if (serviceName === "Anfahrt") {
       unit = "Pauschal";
@@ -1305,13 +1253,12 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       }
     }
 
-    const amountBlocked = implicitHourUnitBlocked ||
-      (trustClientItemValues
-        ? false
-        : isBlockedAmountReviewItemForPersist(
-            { ...item, serviceName, unit, unitPrice, quantity },
-            data,
-          ));
+    const amountBlocked = trustClientItemValues
+      ? false
+      : isBlockedAmountReviewItemForPersist(
+          { ...item, serviceName, unit, unitPrice, quantity },
+          data,
+        );
 
     return {
       ...item,

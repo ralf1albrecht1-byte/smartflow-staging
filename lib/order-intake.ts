@@ -5350,12 +5350,20 @@ function blockGenericFloorRowsWithoutExplicitActionV17_90L5<T extends {
 
     const evidenceLine = matchingOriginalEvidenceLineByNumbersV17_90L5(sourceText, item);
     if (!evidenceLine) return item;
-    if (!hasFloorSurfaceSignalV17_90L5(evidenceLine)) return item;
-    if (hasExplicitWorkActionInEvidenceLineV17_90L5(evidenceLine)) return item;
+
+    const evidenceHasFloor = hasFloorSurfaceSignalV17_90L5(evidenceLine);
+    const evidenceHasExplicitAction = hasExplicitWorkActionInEvidenceLineV17_90L5(evidenceLine);
+
+    // V17.90L8: If the AI invented a generic floor-cleaning name for a line
+    // that does not even mention a floor (e.g. "Dort hinten alles machen"),
+    // fail closed as well. No vocabulary-specific fix: the evidence line must
+    // support both the object and the action.
+    if (evidenceHasFloor && evidenceHasExplicitAction) return item;
 
     return {
       ...item,
       serviceName: "Leistung prüfen",
+      unit: "Einheit prüfen",
       totalPrice: 0,
       needsReview: true,
       reviewReason: item.reviewReason || `service_action_unclear:${compactText(item.serviceName) || "Boden"}`,
@@ -5493,6 +5501,20 @@ function applyLineLocalCurrenciesFromEvidenceV17_90L4<T extends {
 function extractBlockedForeignCurrencyLineV17_90L3(
   sourceText: string | null | undefined,
 ): string | null {
+  const rawOriginal = String(sourceText || "").split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || String(sourceText || "");
+  const explicitTravelLine = rawOriginal
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .find((line) =>
+      !/^regression\b/i.test(line) &&
+      /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(line) &&
+      /\b(?:eur|euro|usd|dollar|gbp|pfund)\b|[€$£]/i.test(line) &&
+      /\d+(?:[.,]\d{1,2})?/.test(line),
+    );
+  if (explicitTravelLine) return explicitTravelLine;
+
   const candidates = splitSourceEvidenceLinesV17_90L3(sourceText).filter((line) => {
     const normalized = normalizeServiceLineForMatchV17_90L(line);
     if (/^regression\b/i.test(line)) return false;

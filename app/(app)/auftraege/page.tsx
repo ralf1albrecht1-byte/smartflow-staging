@@ -9143,6 +9143,18 @@ export default function AuftraegePage() {
       serviceReviewValue.includes("leistung suchen") ||
       serviceReviewValue.includes("eingeben");
 
+    const hasTrustedNumericAmount =
+      quantity > 0 &&
+      unitPrice > 0 &&
+      (totalPrice > 0 || quantity * unitPrice > 0) &&
+      !reviewText.includes("währung/preis noch nicht bestätigt") &&
+      !reviewText.includes("waehrung/preis noch nicht bestaetigt") &&
+      !reviewText.includes("wahrung/preis noch nicht bestatigt") &&
+      !reviewText.includes("currency not confirmed");
+
+    // V17.90L8: "Preis im Text unklar" is a yellow review, not a hard
+    // blocker, when the line has its own numeric quantity and price. Hard
+    // blockers remain: missing service/unit/price/quantity and currency review.
     return (
       serviceIsOpen ||
       (totalPrice <= 0 && quantity > 0 && unitPrice > 0) ||
@@ -9163,8 +9175,8 @@ export default function AuftraegePage() {
       reviewText.includes("preis pruefen") ||
       reviewText.includes("preis prufen") ||
       reviewText.includes("preis fehlt") ||
-      reviewText.includes("preis unklar") ||
-      reviewText.includes("price unclear") ||
+      (!hasTrustedNumericAmount && reviewText.includes("preis unklar")) ||
+      (!hasTrustedNumericAmount && reviewText.includes("price unclear")) ||
       reviewText.includes("menge pruefen") ||
       reviewText.includes("menge prufen") ||
       reviewText.includes("menge fehlt") ||
