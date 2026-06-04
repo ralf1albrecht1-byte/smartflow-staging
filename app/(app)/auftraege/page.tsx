@@ -4962,13 +4962,30 @@ const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
   return normalized.length >= 7 ? normalized : "";
 };
 
-const getOrderPhoneForHref = (order: Order) =>
-  extractPhoneForHref(
-    order.customer?.phone,
+const normalizeStoredPhoneForTelHrefV17_90K6 = (value?: string | null) => {
+  const normalized = String(value || "").replace(/[^+0-9]/g, "");
+  return normalized.length >= 6 ? normalized : "";
+};
+
+const getOrderPhoneForHref = (order: Order) => {
+  // Stored customer phone may be a plain local number like "08888888".
+  // The text extractor intentionally requires phone context for raw message text,
+  // but a saved customer.phone is already a trusted contact field and must be
+  // accepted directly for Rückruf/tel chips.
+  const storedCustomerPhone = normalizeStoredPhoneForTelHrefV17_90K6(
+    order.customer?.phone ||
+      (order as any).phone ||
+      (order as any).customerPhone ||
+      (order as any).contactPhone,
+  );
+  if (storedCustomerPhone) return storedCustomerPhone;
+
+  return extractPhoneForHref(
     order.notes,
     order.specialNotes,
     order.audioTranscript,
   );
+};
 
 const renderCallbackCardBadge = (
   order: Order,
