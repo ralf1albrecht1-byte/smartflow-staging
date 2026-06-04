@@ -169,6 +169,7 @@ export default function EinstellungenPage() {
   const [showTestDataTools, setShowTestDataTools] = useState(false);
   const [showLiveConfirm, setShowLiveConfirm] = useState(false);
   const [liveConfirmText, setLiveConfirmText] = useState('');
+  const [liveRepairConfirmText, setLiveRepairConfirmText] = useState('');
   const [switchingMode, setSwitchingMode] = useState<'live' | 'test' | null>(null);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -225,6 +226,7 @@ export default function EinstellungenPage() {
       setLivePrepKeepIds([]);
       setShowLiveConfirm(false);
       setLiveConfirmText('');
+      setLiveRepairConfirmText('');
     } catch {
       toast({ title: 'Fehler', description: 'Netzwerkfehler beim Laden der Vorschau.', variant: 'destructive' });
     } finally {
@@ -236,6 +238,7 @@ export default function EinstellungenPage() {
     setLivePrepKeepIds(prev => prev.includes(customerId) ? prev.filter(id => id !== customerId) : [...prev, customerId]);
     setShowLiveConfirm(false);
     setLiveConfirmText('');
+    setLiveRepairConfirmText('');
   }
 
   function toggleAllLivePrepCustomers() {
@@ -249,6 +252,7 @@ export default function EinstellungenPage() {
     );
     setShowLiveConfirm(false);
     setLiveConfirmText('');
+    setLiveRepairConfirmText('');
   }
 
   async function executeLivePreparation() {
@@ -295,6 +299,62 @@ export default function EinstellungenPage() {
       loadSettings();
     } catch {
       toast({ title: 'Fehler', description: 'Netzwerkfehler beim Vorbereiten des echten Betriebs.', variant: 'destructive' });
+    } finally {
+      setLivePrepExecuting(false);
+    }
+  }
+
+  async function executeLiveRepair() {
+    if (!livePrepPreview) {
+      toast({ title: 'Zuerst Kundenliste laden', description: 'Bitte lade zuerst die Kundenliste und wähle aus, welcher Kunde im Livebetrieb bleiben soll.' });
+      return;
+    }
+    if (!livePrepPreview.liveStarted) {
+      toast({ title: 'Nicht verfügbar', description: 'Live-Reparatur ist nur für bereits gestarteten Livebetrieb möglich.', variant: 'destructive' });
+      return;
+    }
+    if (livePrepKeepIds.length < 1) {
+      toast({ title: 'Kein Kunde ausgewählt', description: 'Bitte mindestens einen Kunden auswählen, der im bereinigten Livebetrieb erhalten bleiben soll.', variant: 'destructive' });
+      return;
+    }
+    if (liveRepairConfirmText.trim() !== 'LIVE_REPARATUR') {
+      toast({
+        title: 'Bestätigung fehlt',
+        description: 'Bitte LIVE_REPARATUR eingeben, wenn der fehlerhafte Livebestand wirklich bereinigt werden soll.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setLivePrepExecuting(true);
+    try {
+      const res = await fetch('/api/settings/prepare-live', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmText: 'LIVE_REPARATUR',
+          repairExistingLive: true,
+          keepCustomerIds: livePrepKeepIds,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast({ title: 'Fehler', description: data?.error || 'Livebetrieb konnte nicht bereinigt werden.', variant: 'destructive' });
+        return;
+      }
+
+      toast({ title: 'Livebetrieb bereinigt', description: data?.message || 'Bereinigung abgeschlossen.' });
+      setLivePrepPreview(null);
+      setLivePrepKeepIds([]);
+      setShowLiveConfirm(false);
+      setLiveConfirmText('');
+      setLiveRepairConfirmText('');
+      setForm(prev => ({ ...prev, testModus: false }));
+      setSavedData(prev => ({ ...prev, testModus: false }));
+      setHasChanges(false);
+      loadSettings();
+    } catch {
+      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Bereinigen des Livebetriebs.', variant: 'destructive' });
     } finally {
       setLivePrepExecuting(false);
     }
@@ -1525,22 +1585,9 @@ const storedValue = finalUrl;
                               <p className="font-semibold">Livebetrieb wurde bereits gestartet.</p>
                               <p>Kundenübernahme ist abgeschlossen und gesperrt.</p>
                               <p className="text-green-700/90">
-                                Du kannst jetzt nur noch in den bestehenden Livebetrieb wechseln. Es werden keine Kunden neu übernommen und keine Nummern neu vergeben.
+                                Du kannst jetzt über Schritt 2 in den bestehenden Livebetrieb wechseln. Es werden keine Kunden neu übernommen und keine Nummern neu vergeben.
                               </p>
                             </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="gap-2"
-                              disabled={switchingMode !== null || livePrepExecuting || livePrepLoading}
-                              onClick={() => {
-                                if (!confirm('Zum bestehenden Livebetrieb wechseln?\n\nEs werden keine Kunden neu übernommen, keine Nummern neu vergeben und keine Testdaten gelöscht.')) return;
-                                switchTestMode(false);
-                              }}
-                            >
-                              {switchingMode === 'live' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-                              Zum bestehenden Livebetrieb wechseln
-                            </Button>
                           </div>
                         ) : (
                           <>
@@ -1799,6 +1846,104 @@ const storedValue = finalUrl;
                               {switchingMode === 'test' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
                               In Testmodus wechseln
                             </Button>
+                          </div>
+
+                          <div className="rounded-lg border border-red-200 bg-red-50/70 p-3 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                              <div className="min-w-0 text-red-900">
+                                <p className="text-sm font-semibold">Fehlerhaften Livebestand bereinigen</p>
+                                <p className="text-xs mt-1">
+                                  Nur verwenden, wenn im Livebetrieb fälschlich TEST-Kunden, TEST-Aufträge, TEST-Angebote oder TEST-Rechnungen sichtbar sind.
+                                  Es werden alle Aufträge, Angebote und Rechnungen gelöscht. Nur die ausgewählten Kunden bleiben erhalten und werden neu ab K-001 nummeriert.
+                                </p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0 gap-2 border-red-300 text-red-700 hover:bg-red-100"
+                                disabled={livePrepLoading || livePrepExecuting}
+                                onClick={loadLivePrepPreview}
+                              >
+                                {livePrepLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <User2 className="w-4 h-4" />}
+                                Kundenliste laden
+                              </Button>
+                            </div>
+
+                            {livePrepPreview?.liveStarted && (
+                              <div className="space-y-3">
+                                <div>
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                                    <div>
+                                      <p className="text-xs font-semibold text-red-900">Kunden auswählen, die bleiben sollen</p>
+                                      <p className="text-[11px] text-red-800/80">{livePrepKeepIds.length} ausgewählt</p>
+                                    </div>
+                                    <label className="inline-flex items-center gap-2 text-xs cursor-pointer select-none rounded-md border border-red-200 px-2 py-1 bg-background hover:bg-red-50">
+                                      <input
+                                        type="checkbox"
+                                        checked={
+                                          livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length > 0 &&
+                                          livePrepKeepIds.length === livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length
+                                        }
+                                        disabled={livePrepExecuting || livePrepPreview.customers.filter((customer: LivePrepCustomer) => customer.canKeep).length === 0}
+                                        onChange={toggleAllLivePrepCustomers}
+                                      />
+                                      Alle auswählen
+                                    </label>
+                                  </div>
+
+                                  <div className="max-h-64 overflow-auto rounded border divide-y bg-background">
+                                    {livePrepPreview.customers.length === 0 ? (
+                                      <p className="text-xs text-muted-foreground p-3">Keine aktiven Kunden mit Kundennummer vorhanden.</p>
+                                    ) : livePrepPreview.customers.map(customer => (
+                                      <label key={customer.id} className={`flex items-start gap-3 p-3 text-xs ${customer.canKeep ? 'cursor-pointer hover:bg-muted/40' : 'opacity-60'}`}>
+                                        <input
+                                          type="checkbox"
+                                          className="mt-1"
+                                          checked={livePrepKeepIds.includes(customer.id)}
+                                          disabled={!customer.canKeep || livePrepExecuting}
+                                          onChange={() => toggleLivePrepCustomer(customer.id)}
+                                        />
+                                        <span className="flex-1 min-w-0">
+                                          <span className="block font-semibold text-sm">{customer.customerNumber || 'ohne Nummer'} · {customer.name || 'Ohne Name'}</span>
+                                          <span className="block text-muted-foreground">{[customer.address, customer.plz, customer.city].filter(Boolean).join(' · ') || 'Adresse unvollständig'}</span>
+                                          <span className="block text-[11px] text-muted-foreground mt-0.5">
+                                            Aufträge: {customer.counts.orders} · Angebote: {customer.counts.offers} · Rechnungen: {customer.counts.invoices} · Ausführungsorte: {customer.counts.executionAddresses}
+                                          </span>
+                                          {!customer.canKeep && <span className="block text-red-700 mt-1">Unvollständig — zuerst Kundendaten ergänzen.</span>}
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <Label className="text-xs text-red-900">Zur Bereinigung exakt LIVE_REPARATUR eingeben</Label>
+                                  <Input
+                                    value={liveRepairConfirmText}
+                                    onChange={e => setLiveRepairConfirmText(e.target.value)}
+                                    placeholder="LIVE_REPARATUR"
+                                    disabled={livePrepExecuting}
+                                    className="mt-1 bg-background"
+                                  />
+                                </div>
+
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={livePrepExecuting || liveRepairConfirmText.trim() !== 'LIVE_REPARATUR' || livePrepKeepIds.length < 1}
+                                  onClick={() => {
+                                    if (!confirm('Fehlerhaften Livebestand bereinigen?\n\nAlle Aufträge, Angebote und Rechnungen werden gelöscht.\nAlle nicht ausgewählten Kunden werden gelöscht.\nAusgewählte Kunden werden neu ab K-001 nummeriert.\n\nNur fortfahren, wenn diese alten TEST-Daten weg dürfen.')) return;
+                                    executeLiveRepair();
+                                  }}
+                                  className="gap-2"
+                                >
+                                  {livePrepExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                  Livebestand bereinigen
+                                </Button>
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">

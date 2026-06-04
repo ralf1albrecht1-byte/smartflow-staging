@@ -6,6 +6,7 @@ import { requireUserId, handleAuthError, getSessionUser } from '@/lib/get-sessio
 import { logAuditAsync } from '@/lib/audit';
 
 const CONFIRM_TEXT = 'ECHTSTART';
+const REPAIR_CONFIRM_TEXT = 'LIVE_REPARATUR';
 const CUSTOMER_COUNTER_NAME = 'customer:global';
 const LIVE_STARTED_COUNTER_PREFIX = 'live-started:';
 
@@ -178,16 +179,29 @@ export async function POST(request: Request) {
       )
     );
 
-    if (confirmText !== CONFIRM_TEXT) {
-      return NextResponse.json({ error: `Bitte exakt ${CONFIRM_TEXT} bestätigen.` }, { status: 400 });
+    const repairExistingLive =
+      confirmText === REPAIR_CONFIRM_TEXT || body?.repairExistingLive === true;
+
+    if (confirmText !== CONFIRM_TEXT && confirmText !== REPAIR_CONFIRM_TEXT) {
+      return NextResponse.json({ error: `Bitte exakt ${CONFIRM_TEXT} oder ${REPAIR_CONFIRM_TEXT} bestätigen.` }, { status: 400 });
     }
 
     const settings = await getSettings(userId);
     const liveStarted = await hasLiveStarted(userId);
-    if (liveStarted) {
+
+    if (repairExistingLive && !liveStarted) {
+      return NextResponse.json({ error: 'Live-Reparatur ist nur möglich, wenn der Livebetrieb bereits gestartet wurde.' }, { status: 409 });
+    }
+
+    if (liveStarted && !repairExistingLive) {
       return NextResponse.json({ error: 'Echter Betrieb wurde bereits gestartet. Kundenübernahme und Nummernkreis-Reset sind gesperrt. Testmodus kann weiter zum Ausprobieren verwendet werden.' }, { status: 409 });
     }
-    if (!settings?.testModus) {
+
+    if (repairExistingLive && keepCustomerIds.length === 0) {
+      return NextResponse.json({ error: 'Bitte mindestens einen Kunden auswählen, der im bereinigten Livebetrieb erhalten bleiben soll.' }, { status: 400 });
+    }
+
+    if (!repairExistingLive && !settings?.testModus) {
       return NextResponse.json({ error: 'Echter Betrieb ist bereits aktiv.' }, { status: 409 });
     }
 
@@ -213,6 +227,9 @@ export async function POST(request: Request) {
         where: {
           customerNumber: { in: targetNumbers },
           NOT: { id: { in: keepCustomerIds } },
+          // Eigene nicht ausgewählte Kunden werden im Echtstart/Repair gelöscht.
+          // Sie dürfen daher keine Neu-Nummerierung ab K-001 blockieren.
+          userId: { not: userId },
         },
         select: { id: true, customerNumber: true, name: true },
       });
@@ -296,6 +313,7 @@ export async function POST(request: Request) {
       });
 
       return {
+        mode: repairExistingLive ? 'repair' : 'start',
         keptCustomers: keepCustomers.length,
         deletedCustomers: deletedCustomers.count,
         deletedExecutionAddresses: deletedExecutionAddresses.count,
@@ -315,7 +333,7 @@ export async function POST(request: Request) {
       userId: su?.id,
       userEmail: su?.email,
       userRole: su?.role,
-      action: 'PREPARE_LIVE_MODE',
+      action: result.mode === 'repair' ? 'REPAIR_LIVE_MODE' : 'PREPARE_LIVE_MODE',
       area: 'SETTINGS',
       targetType: 'CompanySettings',
       details: result,
@@ -324,7 +342,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Echter Betrieb vorbereitet. ${result.keptCustomers} Kunde${result.keptCustomers === 1 ? '' : 'n'} übernommen. Nächste Kundennummer: ${result.nextCustomerNumber}.`,
+      message: result.mode === 'repair'
+        ? `Livebetrieb bereinigt. ${result.keptCustomers} Kunde${result.keptCustomers === 1 ? '' : 'n'} behalten. Nächste Kundennummer: ${result.nextCustomerNumber}.`
+        : `Echter Betrieb vorbereitet. ${result.keptCustomers} Kunde${result.keptCustomers === 1 ? '' : 'n'} übernommen. Nächste Kundennummer: ${result.nextCustomerNumber}.`,
       ...result,
     });
   } catch (error: any) {
