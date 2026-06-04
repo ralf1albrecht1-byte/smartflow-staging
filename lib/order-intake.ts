@@ -9345,10 +9345,12 @@ export async function processIncomingMessage(
     extractedExecutionAddress = null;
   }
 
-  // V16.23: Zweiter Prüfer als reine Read-only-Kontrolle.
-  // Dieser Validator darf keine Daten ändern, keine Chips setzen und nichts
-  // blockieren. Er schreibt nur strukturierte Warnungen ins Server-Log, damit
-  // wir riskante Strukturen später sauber aktivieren können.
+  const totalPrice = finalOrderItems.reduce(
+    (sum, item) => sum + Number(item.totalPrice || 0),
+    0,
+  );
+
+  // V17.90L24b: globaler Prüfer braucht den bereits berechneten Totalwert.
   const readOnlyRiskValidator = runReadOnlyIntakeRiskValidator({
     originalText: validationSourceText,
     billingCustomer: {
@@ -9390,10 +9392,6 @@ export async function processIncomingMessage(
   const unit = primaryItem?.unit || "Stunde";
   const unitPrice = primaryItem?.unitPrice || 0;
   const quantity = primaryItem?.quantity || 0;
-  const totalPrice = finalOrderItems.reduce(
-    (sum, item) => sum + Number(item.totalPrice || 0),
-    0,
-  );
 
   const quantityReviewReasons = finalOrderItems
     .filter((item) => item.needsReview && item.reviewReason)
