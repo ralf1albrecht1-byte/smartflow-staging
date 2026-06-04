@@ -4126,9 +4126,10 @@ const getSystemBadges = (
     pushUniqueBadge(badges, {
       key: "customer_review",
       label: "Kunde prüfen",
-      className: "bg-yellow-100 text-yellow-700 border border-yellow-300",
+      className: "bg-red-100 text-red-700 border border-red-300",
+      icon: true,
       tooltip:
-        "Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
+        "Blockiert Angebot/Rechnung: Kundendaten fehlen, sind unvollständig oder müssen gegen mögliche Duplikate geprüft werden.",
       focusTarget: "customer",
     });
   }

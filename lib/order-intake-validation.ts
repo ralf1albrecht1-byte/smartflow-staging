@@ -354,7 +354,7 @@ const CURRENCY_WORDS =
   "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|£)";
 
 const UNIT_WORDS =
-  "(?:stueck|stück|stuck|stk|pcs|pc|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
+  "(?:stueck|stück|stuck|stk|pcs|pc|pezzi|pezzo|pezza|pezze|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
 
 const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 
@@ -704,7 +704,7 @@ const unitTypeFromText = (value?: string | null): string | null => {
   if (!source) return null;
 
   if (
-    /\b(stueck|stuck|stück|stk|pcs|pc|piece|pieces|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten)\b/i.test(
+    /\b(stueck|stuck|stück|stk|pcs|pc|pezzi|pezzo|pezza|pezze|piece|pieces|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten)\b/i.test(
       source,
     )
   )
@@ -9111,13 +9111,27 @@ function lineLocalPrefixTailV17_90L22(prefix: string): string {
     .replace(/^.*\b(?:leistungen?|arbeiten|da(?:nn)?|bitte)\s*[:：]\s*/i, "")
     .trim();
 
-  // If the prefix is still polluted by address/contact prose, keep only the
-  // short local label immediately before the quantity. This prevents
-  // "Rechnung: ... Ausführung ... Lagerregale abstauben 9 Stück" from becoming
-  // one service name.
+  // V17.90L25: if the price line is written as one long WhatsApp sentence,
+  // contact/access/warning text can sit directly before the actual service.
+  // Keep the short local service label immediately before the amount and strip
+  // leading warning/contact words from that label.
+  const pollution = /\b(?:sms|whats\s*app|whatsapp|telefon|anruf|rueckruf|ruckruf|email|e-mail|mail|schluessel|schlussel|schlüssel|key|code|hauswart|huuswart|reception|empfang|koch|cuoco|hund|pas|dog|hof|oprez|vorsicht|achtung|attention|scivoloso|rutschig|mouille|mouill[eé]|nass|zugang|tor|parkieren|parken)\b/i;
   const words = text.split(/\s+/g).filter(Boolean);
-  if (words.length > 8) {
-    text = words.slice(-8).join(" ");
+  if (words.length > 8 || pollution.test(text)) {
+    text = words.slice(-6).join(" ");
+  }
+
+  text = text
+    .replace(/^(?:sms|whats\s*app|whatsapp|telefon|anruf|rueckruf|ruckruf|email|e-mail|mail|schluessel|schlussel|schlüssel|key|code|hauswart|huuswart|reception|empfang|koch|cuoco|hund|pas|dog|hof|oprez|vorsicht|achtung|attention|scivoloso|rutschig|mouille|mouill[eé]|nass|zugang|tor|parkieren|parken)\b\s*/i, "")
+    .replace(/^(?:im|in|beim|bei|am|an|der|die|das|dem|den|und|kein|keine|nema|molim|samo|nur|pas|u|je|ist|liegt|vor|ankunft)\b\s*/i, "")
+    .trim();
+
+  // If the label is still contaminated, keep a very short action-local tail.
+  if (pollution.test(text)) {
+    const tail = text.split(/\s+/g).filter(Boolean).slice(-3).join(" ");
+    text = tail
+      .replace(/^(?:vorsicht|achtung|attention|oprez|hund|pas|hof|rutschig|scivoloso|nass)\b\s*/i, "")
+      .trim();
   }
 
   return text.replace(/^[-–—•,;:\s]+/, "").replace(/\s+/g, " ").trim();
@@ -9127,16 +9141,26 @@ function extractStrictLineLocalPricedItemsV17_90L22(
   originalText: string,
   fallbackCurrency: IntakeCurrency,
 ): ExplicitServiceLineItem[] {
-  // V17.90L23: use the semantic working text/translation when available.
-  // Raw + translation together can create duplicate or polluted candidates; the
-  // preferred semantic source is the correct line-local basis for validation.
-  const source = normalizeText(preferredSemanticLineSourceV17_41(originalText) || originalText);
-  if (!source) return [];
+  // V17.90L25: do not trust the automatic translation alone. Some translated
+  // blocks can swap quantities or drop lines. Extract from the original text
+  // without the translation block AND from the semantic working text; the local
+  // priced lines with the strongest coverage win later by amount/source key.
+  const originalOnlySource = normalizeText(
+    String(originalText || "")
+      .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+      .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+      .replace(/\n+---\s*Automatic translation\s*---[\s\S]*$/i, ""),
+  );
+  const semanticSource = normalizeText(preferredSemanticLineSourceV17_41(originalText) || "");
+  const sources = unique([originalOnlySource, semanticSource]).filter(Boolean);
+  if (sources.length === 0) return [];
 
-  const bases = unique([
-    ...source.split(/\n+/g),
-    ...source.split(/(?<=[.!?])\s+/g),
-  ])
+  const bases = unique(
+    sources.flatMap((source) => [
+      ...source.split(/\n+/g),
+      ...source.split(/(?<=[.!?])\s+/g),
+    ]),
+  )
     .map((line) => normalizeText(line))
     .filter((line) => line.length >= 8);
 
