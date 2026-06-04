@@ -5536,23 +5536,43 @@ function repairBlockedFlatFeeCurrencyRowsV17_90L3<T extends {
     );
     const total = Number(item.totalPrice || 0);
     const price = Number(item.unitPrice || 0);
+    const blockedByCurrencyReview =
+      reviewKey.includes("currency_conflict") ||
+      reviewKey.includes("currency mismatch") ||
+      reviewKey.includes("waehrung") ||
+      reviewKey.includes("wahrung") ||
+      reviewKey.includes("währung") ||
+      reviewKey.includes("preis fehlt") ||
+      reviewKey.includes("preis unklar") ||
+      reviewKey.includes("preis pruefen") ||
+      reviewKey.includes("preis prüfen") ||
+      reviewKey.includes("price unclear") ||
+      reviewKey.includes("price missing");
+
+    const isFlatFeeTravelRow =
+      serviceKey.includes("anfahrt") ||
+      unitKey === "pauschal" ||
+      /\b(?:travel|cost|fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|deplacement|déplacement|trasferta|desplazamiento)\b/i.test(
+        [item.description, item.sourceText, item.evidence].filter(Boolean).join(" "),
+      );
+
     const isBlockedCurrencyRow =
       total <= 0 &&
-      (!Number.isFinite(price) || price <= 0) &&
-      (reviewKey.includes("currency_conflict") ||
-        reviewKey.includes("currency mismatch") ||
-        reviewKey.includes("waehrung") ||
-        reviewKey.includes("wahrung") ||
-        reviewKey.includes("währung") ||
-        serviceKey.includes("anfahrt") ||
-        unitKey === "pauschal");
+      isFlatFeeTravelRow &&
+      (blockedByCurrencyReview || !Number.isFinite(price) || price <= 0);
 
     if (!isBlockedCurrencyRow) return item;
 
+    // V17.90L7: This must be fail-closed but visually clean. A blocked foreign
+    // currency flat fee must never inherit quantity/source text from another
+    // line, and must never show the regression/title line as evidence.
     return {
       ...item,
       serviceName: serviceKey.includes("anfahrt") || unitKey === "pauschal" ? item.serviceName || "Anfahrt" : item.serviceName,
       quantity: 1,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: item.reviewReason || "currency_conflict_item:Anfahrt:EUR:CHF",
       description: currencyLine || item.description,
       sourceText: currencyLine || item.sourceText,
       evidence: currencyLine || item.evidence,

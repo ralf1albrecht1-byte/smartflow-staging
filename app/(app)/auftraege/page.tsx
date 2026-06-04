@@ -9188,12 +9188,11 @@ export default function AuftraegePage() {
         ) {
           return sum;
         }
-        if (
-          hasGlobalCurrencyReviewWithoutItemDetails(o.reviewReasons) &&
-          !isPersistedManualCurrencyConfirmedItem(item)
-        ) {
-          return sum;
-        }
+        // V17.90L7: Eine globale Mischwährungs-Warnung darf die
+        // Außenkarten-Summe nicht pauschal auf 0 setzen. Die Positionszeile
+        // selbst ist die Wahrheit: rote/offene Positionen haben totalPrice 0
+        // und werden oben blockiert; sichere CHF-Positionen mit totalPrice > 0
+        // bleiben sichtbar berechenbar.
 
         const qty = Number(item.quantity || 0);
         const price = Number(item.unitPrice || 0);
