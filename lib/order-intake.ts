@@ -5374,6 +5374,170 @@ function blockGenericFloorRowsWithoutExplicitActionV17_90L5<T extends {
   });
 }
 
+
+type AmbiguousNoActionEvidenceLineV17_90L9 = {
+  line: string;
+  quantity: number;
+  price: number;
+  unit: string | null;
+};
+
+function parseQuantityPriceFromEvidenceLineV17_90L9(
+  line: string,
+): { quantity: number; price: number; unit: string | null } | null {
+  const raw = String(line || "").trim();
+  if (!raw) return null;
+  const unitWords = String.raw`(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pieces?|piece|pi[eè]ces?|pezzi|piezas|s[aä]cke|saecke|säcke)`;
+  const currencyWords = String.raw`(?:CHF|Fr\.?|SFr\.?|EUR|Euro|€)`;
+  const number = String.raw`(\d+(?:[.,]\d+)?)`;
+  const patterns = [
+    new RegExp(`${number}\\s*(?:${unitWords})?\\s*(?:à|a|at|zu|pro|je|per)\\s*(?:${currencyWords})?\\s*${number}`, "i"),
+    new RegExp(`${number}\\s*(?:${unitWords})?\\s*(?:à|a|at|zu|pro|je|per)\\s*${number}\\s*(?:${currencyWords})`, "i"),
+  ];
+
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (!match) continue;
+    const quantity = parseIntakeDecimalNumber(match[1]);
+    const price = parseIntakeDecimalNumber(match[2]);
+    if (!quantity || !price) continue;
+    return {
+      quantity,
+      price,
+      unit: detectExplicitUnitFromEvidenceLineV17_90L3(raw),
+    };
+  }
+
+  return null;
+}
+
+function isFlatFeeOrTravelEvidenceLineV17_90L9(line: string): boolean {
+  return /\b(?:fahrt|anfahrt|fahrtkosten|reisekosten|fahrkosten|travel|travel\s+cost|déplacement|deplacement|trasferta|desplazamiento)\b/i.test(
+    String(line || ""),
+  );
+}
+
+function hasGenericAmbiguousObjectSignalV17_90L9(line: string): boolean {
+  const normalized = normalizeServiceLineForMatchV17_90L(line);
+  return /\b(?:alles|all|everything|dort|hinten|bereich|area|zone|sachen|gegenstaende|gegenstande|gegenstände|objekte|objects|items|things|kleine|kleinen|kleiner|small|diverses|diverse|sonstiges|machen)\b/.test(normalized);
+}
+
+function ambiguousNoActionEvidenceLinesV17_90L9(
+  sourceText: string | null | undefined,
+): AmbiguousNoActionEvidenceLineV17_90L9[] {
+  return originalCustomerEvidenceLinesV17_90L5(sourceText)
+    .filter((line) => !isFlatFeeOrTravelEvidenceLineV17_90L9(line))
+    .filter((line) => !hasExplicitWorkActionInEvidenceLineV17_90L5(line))
+    // V17.90L9 is intentionally narrow: not every object line without a verb
+    // is blocked. Concrete object rows such as "Fenster Eingang 8 Stück à CHF 9"
+    // may still be usable in a cleaning order. We fail closed only for floor/
+    // surface rows or structurally vague rows like "alles machen" / "kleine Sachen".
+    .filter((line) => hasFloorSurfaceSignalV17_90L5(line) || hasGenericAmbiguousObjectSignalV17_90L9(line))
+    .map((line) => {
+      const parsed = parseQuantityPriceFromEvidenceLineV17_90L9(line);
+      return parsed ? { line, ...parsed } : null;
+    })
+    .filter((entry): entry is AmbiguousNoActionEvidenceLineV17_90L9 => Boolean(entry));
+}
+
+const AMBIGUOUS_EVIDENCE_STOPWORDS_V17_90L9 = new Set([
+  "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer",
+  "im", "in", "am", "an", "auf", "beim", "bei", "und", "oder", "mit", "ohne", "zu", "zur", "zum",
+  "the", "a", "an", "at", "and", "or", "in", "on", "near", "with", "without",
+  "le", "la", "les", "un", "une", "des", "dans", "sur", "et", "ou", "avec", "sans",
+  "il", "lo", "la", "gli", "le", "un", "una", "nel", "nella", "sul", "sulla", "e", "o", "con", "senza",
+  "el", "la", "los", "las", "un", "una", "en", "del", "de", "y", "o", "con", "sin",
+  "reinigen", "reinigung", "putzen", "saeubern", "saubern", "clean", "cleaning", "limpiar", "limpieza", "pulire", "pulizia", "nettoyer", "nettoyage",
+  "m2", "qm", "quadratmeter", "meter", "stueck", "stuck", "stück", "stk", "pcs", "pieces", "piece", "chf", "eur", "euro",
+]);
+
+function tokenSetForAmbiguousEvidenceMatchV17_90L9(value: string): Set<string> {
+  const normalized = normalizeServiceLineForMatchV17_90L(value)
+    .replace(/m\s*2/g, "m2")
+    .replace(/\b\d+(?:[.,]\d+)?\b/g, " ");
+  const tokens = normalized
+    .split(/\s+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4)
+    .filter((token) => !AMBIGUOUS_EVIDENCE_STOPWORDS_V17_90L9.has(token));
+  return new Set(tokens);
+}
+
+function tokenOverlapCountV17_90L9(left: Set<string>, right: Set<string>): number {
+  let count = 0;
+  left.forEach((token) => {
+    if (right.has(token)) count += 1;
+  });
+  return count;
+}
+
+function findAmbiguousNoActionEvidenceForItemV17_90L9(
+  sourceText: string | null | undefined,
+  item: { serviceName?: any; description?: any; evidence?: any; sourceText?: any; quantity?: any; unitPrice?: any },
+): AmbiguousNoActionEvidenceLineV17_90L9 | null {
+  const lines = ambiguousNoActionEvidenceLinesV17_90L9(sourceText);
+  if (lines.length === 0) return null;
+
+  const quantity = Number(item.quantity || 0);
+  const price = Number(item.unitPrice || 0);
+  const exactNumberMatches = lines.filter((entry) => {
+    const quantityMatches = Number.isFinite(quantity) && quantity > 0 && Math.abs(entry.quantity - quantity) < 0.0001;
+    const priceMatches = Number.isFinite(price) && price > 0 && Math.abs(entry.price - price) < 0.0001;
+    return quantityMatches && priceMatches;
+  });
+  if (exactNumberMatches.length === 1) return exactNumberMatches[0];
+
+  const itemText = [item.serviceName, item.description, item.evidence, item.sourceText]
+    .filter(Boolean)
+    .join(" ");
+  const itemTokens = tokenSetForAmbiguousEvidenceMatchV17_90L9(itemText);
+  const tokenMatches = lines
+    .map((entry) => ({ entry, overlap: tokenOverlapCountV17_90L9(itemTokens, tokenSetForAmbiguousEvidenceMatchV17_90L9(entry.line)) }))
+    .filter(({ overlap }) => overlap >= 2)
+    .sort((a, b) => b.overlap - a.overlap || a.entry.line.length - b.entry.line.length);
+  if (tokenMatches.length === 1 || (tokenMatches.length > 1 && tokenMatches[0].overlap > tokenMatches[1].overlap)) {
+    return tokenMatches[0].entry;
+  }
+
+  const priceOnlyMatches = lines.filter((entry) => Number.isFinite(price) && price > 0 && Math.abs(entry.price - price) < 0.0001);
+  const itemLooksAlreadyBlocked = isInternalReviewServiceNameV17_90L(String(item.serviceName || "")) || isReviewUnitV17_90L(String((item as any).unit || ""));
+  if (itemLooksAlreadyBlocked && priceOnlyMatches.length === 1) return priceOnlyMatches[0];
+
+  return null;
+}
+
+function blockAmbiguousRowsWithoutExplicitActionV17_90L9<T extends {
+  serviceName?: string | null;
+  quantity?: any;
+  unit?: string | null;
+  unitPrice?: any;
+  totalPrice?: any;
+  needsReview?: boolean;
+  reviewReason?: string | null;
+  description?: string | null;
+  sourceText?: string | null;
+  evidence?: string | null;
+}>(items: T[], sourceText: string | null | undefined): T[] {
+  return items.map((item) => {
+    const evidence = findAmbiguousNoActionEvidenceForItemV17_90L9(sourceText, item);
+    if (!evidence) return item;
+
+    return {
+      ...item,
+      serviceName: "Leistung prüfen",
+      unit: "Einheit prüfen",
+      quantity: evidence.quantity,
+      unitPrice: evidence.price,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: item.reviewReason || `service_action_unclear:${compactText(item.serviceName) || "Leistung"}`,
+      description: evidence.line,
+      sourceText: evidence.line,
+      evidence: evidence.line,
+    };
+  });
+}
+
 function repairReviewUnitsFromLineLocalEvidenceV17_90L3<T extends {
   serviceName?: string | null;
   quantity?: any;
@@ -8475,6 +8639,15 @@ export async function processIncomingMessage(
     validationSourceText,
   );
 
+  // V17.90L9: Any quantity/price row without an explicit work action in the
+  // original customer line must stay fail-closed. This prevents invented
+  // services like "Boden reinigen" or "Kleine Gegenstände reinigen" from
+  // being priced when the customer only wrote "alles machen" / "kleine Sachen".
+  finalOrderItems = blockAmbiguousRowsWithoutExplicitActionV17_90L9(
+    finalOrderItems,
+    validationSourceText,
+  );
+
   // V17.90L2: final visible-name cleanup. Service names must not contain the
   // numeric quantity/unit/price fragment; those belong in the separate fields.
   finalOrderItems = finalOrderItems.map((item: any) => {
@@ -8512,6 +8685,15 @@ export async function processIncomingMessage(
   );
 
   finalOrderItems = blockGenericFloorRowsWithoutExplicitActionV17_90L5(
+    finalOrderItems,
+    validationSourceText,
+  );
+
+  // V17.90L9: Any quantity/price row without an explicit work action in the
+  // original customer line must stay fail-closed. This prevents invented
+  // services like "Boden reinigen" or "Kleine Gegenstände reinigen" from
+  // being priced when the customer only wrote "alles machen" / "kleine Sachen".
+  finalOrderItems = blockAmbiguousRowsWithoutExplicitActionV17_90L9(
     finalOrderItems,
     validationSourceText,
   );
@@ -8577,6 +8759,15 @@ export async function processIncomingMessage(
   // V17.90L5: Unit repair must not revive generic floor rows without an
   // explicit action in the original customer evidence line.
   finalOrderItems = blockGenericFloorRowsWithoutExplicitActionV17_90L5(
+    finalOrderItems,
+    validationSourceText,
+  );
+
+  // V17.90L9: Any quantity/price row without an explicit work action in the
+  // original customer line must stay fail-closed. This prevents invented
+  // services like "Boden reinigen" or "Kleine Gegenstände reinigen" from
+  // being priced when the customer only wrote "alles machen" / "kleine Sachen".
+  finalOrderItems = blockAmbiguousRowsWithoutExplicitActionV17_90L9(
     finalOrderItems,
     validationSourceText,
   );
