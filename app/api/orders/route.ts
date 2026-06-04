@@ -289,7 +289,7 @@ function extractExplicitExecutionAddressFromOrderPayloadV17_70(
     .filter(Boolean);
 
   const markerRegex =
-    /^\s*(?:ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|baustelle|objekt|einsatzort|einsatzadresse|serviceadresse|job\s*site|work\s*address|work\s*site|lieu\s+d['’]?intervention|adresse\s+de\s+travail)\s*:?\s*(.*)$/i;
+    /^\s*(?:ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|ausführungsort|ausfuehrungsort|arbeitsort|arbeitsadresse|baustelle|objekt|einsatzort|einsatzadresse|serviceadresse|adresse\s+chantier|adresse\s+de\s+chantier|job\s*site|work\s*address|work\s*site|lieu\s+d['’]?intervention|adresse\s+de\s+travail)\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+(?:geht\s+)?an|rechnungsadresse|rechnungskunde|billing\s+address|bill\s+to|invoice\s+customer|kontakt|kontaktperson|ansprechperson|besonderheiten|bemerkungen|hinweise|leistungen|leistungsübersicht|leistungsuebersicht|termin|datum)\s*:?/i;
   const priceOrCalculationLineRegex =
@@ -618,7 +618,7 @@ function cleanWorkSiteDisplayName(value?: string | null) {
 
   text = text
     .replace(
-      /^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i,
+      /^(?:sadresse|adresse\s+chantier|adresse\s+de\s+chantier|adresse|arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*[,;:\-–—]?\s*/i,
       "",
     )
     .replace(

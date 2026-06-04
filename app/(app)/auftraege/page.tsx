@@ -3356,9 +3356,12 @@ const cleanWorkSiteDisplayName = (value?: string | null) => {
   if (isGenericAddressRoleLabel(text)) return "";
 
   // Remove generic source markers from the title. Keep the actual object name.
+  // V17.90k: also strip French address-role labels and broken leftover
+  // fragments such as "sadresse," from "Adresse chantier:". This is
+  // structural field-label cleanup, not service-word mapping.
   text = text
     .replace(
-      /^(?:arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*/i,
+      /^(?:sadresse|adresse\s+chantier|adresse\s+de\s+chantier|adresse|arbeitsort|ausführungsort|ausfuehrungsort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|einsatzort|objekt|baustelle|job site|work site|lieu|lieu d['’]?intervention|adresse de travail)\s*(?:ist|isch|is|=|:)?\s*[,;:\-–—]?\s*/i,
       "",
     )
     .replace(
@@ -3419,7 +3422,7 @@ const inferExecutionSiteNameFromText = (
     .filter(Boolean);
 
   const markerPattern =
-    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
+    /^(?:ausführung|ausfuehrung|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|arbeitsort|einsatzort|objekt|baustelle|adresse\s+chantier|adresse\s+de\s+chantier|exécution|execution|work\s*site|job\s*site|lieu\s+d['’]?intervention)\s*:?\s*(.*)$/i;
   const stopPattern =
     /^(?:rechnung|facture|invoice|leistungen|leistung|besonderheiten|bemerkungen|hinweise|termin|datum|bitte|merci|please|kontakt|rückfragen|rueckfragen)\b/i;
 
@@ -3652,6 +3655,22 @@ const hasAddressRoleReviewReasonV17_61 = (order: Order) =>
       reason.startsWith("intake_address:"),
   ) ?? false;
 
+const hasResolvableStoredExecutionAddressV17_90K = (order: Order) => {
+  if (!hasAddressRoleReviewReasonV17_61(order)) return false;
+
+  const sites = Array.isArray(order.workSites) ? order.workSites : [];
+  const primary = sites.find((site) => Boolean(site.isPrimary)) || sites[0];
+  const address = compactText(primary?.siteAddress || order.siteAddress);
+  const plz = compactText(primary?.sitePlz || order.sitePlz);
+  const city = compactText(primary?.siteCity || order.siteCity);
+
+  return Boolean(address && plz && city && hasDifferentExecutionAddressForBadge(order));
+};
+
+const hasActiveAddressRoleReviewV17_90K = (order: Order) =>
+  hasAddressRoleReviewReasonV17_61(order) &&
+  !hasResolvableStoredExecutionAddressV17_90K(order);
+
 const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
   const workSites = Array.isArray(order.workSites) ? order.workSites : [];
   const primarySite =
@@ -3691,7 +3710,7 @@ const getSystemBadges = (
 
   if (
     hasDifferentExecutionAddressForBadge(order) &&
-    !hasAddressRoleReviewReasonV17_61(order)
+    !hasActiveAddressRoleReviewV17_90K(order)
   ) {
     const workSiteCount = Array.isArray(order.workSites)
       ? order.workSites.length
@@ -3715,7 +3734,7 @@ const getSystemBadges = (
     });
   }
 
-  if (hasAddressRoleReviewReasonV17_61(order)) {
+  if (hasActiveAddressRoleReviewV17_90K(order)) {
     pushUniqueBadge(badges, {
       key: "address_review",
       label: "Adresse prüfen",
@@ -4545,20 +4564,43 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
     order.audioTranscript,
   );
 
-  // Card-level communication chips must not create a generic red phone chip
-  // from SMS/WhatsApp-only contact data. Rückruf is handled by its own badge.
+  // V17.90k: Keep stored customer contact data available for SMS/WhatsApp/Mail
+  // chip targets. The communication component only creates channel chips from
+  // explicit communication intent; a stored phone number alone must not create a
+  // generic phone chip. This keeps chips clickable when a later message says
+  // "Bitte SMS/WhatsApp" without repeating the number.
   return {
     ...order,
-    phone: "",
-    customerPhone: "",
-    contactPhone: "",
+    phone: (order as any).phone || order.customer?.phone || "",
+    customerPhone: order.customer?.phone || "",
+    contactPhone: order.customer?.phone || "",
+    email: (order as any).email || order.customer?.email || "",
     customer: order.customer
-      ? { ...order.customer, phone: "" }
+      ? { ...order.customer }
       : order.customer,
     specialNotes: cleanedSpecialNotes,
     notes: cleanedNotes,
     audioTranscript: cleanedAudioTranscript,
   };
+};
+
+const extractOrderContactPhoneForCustomerDisplayV17_90K = (order?: Order | null) => {
+  const source = [order?.notes, order?.specialNotes, order?.audioTranscript]
+    .filter(Boolean)
+    .join("
+");
+  const match = source.match(
+    /(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|rückruf|rueckruf)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i,
+  ) || source.match(/(\+\d[\d\s()./-]{7,}\d)/);
+  return match?.[1]?.replace(/\s+/g, " ").trim() || "";
+};
+
+const extractOrderContactEmailForCustomerDisplayV17_90K = (order?: Order | null) => {
+  const source = [order?.notes, order?.specialNotes, order?.audioTranscript]
+    .filter(Boolean)
+    .join("
+");
+  return source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]?.trim() || "";
 };
 
 const getStrongerCardBadgeClassName = (className?: string | null) =>
@@ -5244,7 +5286,7 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
 
   if (
     isCustomerDataIncomplete(order?.customer) &&
-    !hasAddressRoleReviewReasonV17_61(order)
+    !hasActiveAddressRoleReviewV17_90K(order)
   ) {
     blockers.push("Kundendaten prüfen");
   }
@@ -6743,10 +6785,63 @@ export default function AuftraegePage() {
       leftCity === rightCity,
     );
   };
+  const isAddressRoleReviewAlreadyAssignedV17_90K = (() => {
+    if (!currentEditOrder || !addressRoleReviewCandidateV17_62.hasCompleteAddress) return false;
+
+    const candidate = {
+      siteAddress: addressRoleReviewCandidateV17_62.siteAddress,
+      sitePlz: addressRoleReviewCandidateV17_62.sitePlz,
+      siteCity: addressRoleReviewCandidateV17_62.siteCity,
+    };
+
+    const formPrimarySite =
+      formWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      formWorkSites[0] ||
+      null;
+
+    const storedCandidates = [
+      formPrimarySite
+        ? {
+            siteAddress: formPrimarySite.siteAddress,
+            sitePlz: formPrimarySite.sitePlz,
+            siteCity: formPrimarySite.siteCity,
+          }
+        : null,
+      {
+        siteAddress: form.siteAddress,
+        sitePlz: form.sitePlz,
+        siteCity: form.siteCity,
+      },
+      ...((currentEditOrder.workSites || []).map((site) => ({
+        siteAddress: site.siteAddress,
+        sitePlz: site.sitePlz,
+        siteCity: site.siteCity,
+      })) as Array<{
+        siteAddress?: string | null;
+        sitePlz?: string | null;
+        siteCity?: string | null;
+      }>),
+      {
+        siteAddress: currentEditOrder.siteAddress,
+        sitePlz: currentEditOrder.sitePlz,
+        siteCity: currentEditOrder.siteCity,
+      },
+    ].filter(Boolean) as Array<{
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+    }>;
+
+    return storedCandidates.some((stored) =>
+      isSameAddressPartsV17_63(candidate, stored),
+    );
+  })();
+
   const shouldShowAddressRoleReviewBoxV17_62 = Boolean(
     currentEditOrder &&
     hasAddressRoleReviewReasonV17_61(currentEditOrder) &&
-    addressRoleReviewCandidateV17_62.hasAny,
+    addressRoleReviewCandidateV17_62.hasAny &&
+    !isAddressRoleReviewAlreadyAssignedV17_90K,
   );
   const hasCurrentEditCurrencyReview = hasAnyCurrencyReviewReason(
     currentEditReviewReasons,
@@ -10150,8 +10245,8 @@ export default function AuftraegePage() {
                         const visibleCustomerAddress = cust.address;
                         const visibleCustomerPlz = cust.plz;
                         const visibleCustomerCity = cust.city;
-                        const visibleCustomerPhone = cust.phone;
-                        const visibleCustomerEmail = cust.email;
+                        const visibleCustomerPhone = cust.phone || extractOrderContactPhoneForCustomerDisplayV17_90K(currentEditOrder);
+                        const visibleCustomerEmail = cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
                         // Block D: the whole customer card is a shortcut to
                         // "Kunde bearbeiten" (only in edit mode where the card is
                         // static). Keyboard-accessible via Enter/Space. The existing
@@ -10333,8 +10428,8 @@ export default function AuftraegePage() {
                             const visibleCustomerAddress = cust.address;
                             const visibleCustomerPlz = cust.plz;
                             const visibleCustomerCity = cust.city;
-                            const visibleCustomerPhone = cust.phone;
-                            const visibleCustomerEmail = cust.email;
+                            const visibleCustomerPhone = cust.phone || extractOrderContactPhoneForCustomerDisplayV17_90K(currentEditOrder);
+                            const visibleCustomerEmail = cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
                             return (
                               <div className="mt-2 border border-sky-200 rounded-lg p-2 sm:p-3 bg-sky-50/70 dark:border-sky-900/60 dark:bg-sky-950/20 space-y-1.5 min-w-0">
                                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
@@ -10699,7 +10794,7 @@ export default function AuftraegePage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold">
-                            📍 {form.siteName?.trim() || "Ausführungsadresse"}
+                            📍 {cleanWorkSiteDisplayName(form.siteName) || "Ausführungsadresse"}
                           </div>
                           <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-0.5 text-sm">
                             <span className="text-muted-foreground">

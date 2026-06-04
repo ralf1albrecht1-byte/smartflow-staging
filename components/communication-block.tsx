@@ -576,7 +576,7 @@ function detectCommunicationPreferenceChips(
       label: 'Mail',
       color: 'teal',
       href: email ? `mailto:${email}` : undefined,
-      title: appendContactTime(email ? `E-Mail: ${email}` : 'E-Mail bevorzugt', mailTime),
+      title: appendContactTime(email ? `E-Mail: ${email}` : 'E-Mail bevorzugt · keine E-Mail hinterlegt', mailTime),
     });
   }
 
@@ -596,7 +596,7 @@ function detectCommunicationPreferenceChips(
       label: 'SMS',
       color: 'blue',
       href: phone ? `sms:${phone}` : undefined,
-      title: appendContactTime(phone ? `SMS: ${phone}` : 'SMS bevorzugt', smsTime),
+      title: appendContactTime(phone ? `SMS: ${phone}` : 'SMS bevorzugt · keine Telefonnummer vorhanden', smsTime),
     });
   }
 
@@ -769,6 +769,21 @@ export function CommunicationBlock({
   // Extract chips from specialNotes
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
+  const equipmentWithFallback = useMemo(() => {
+    const existing = [...equipment];
+    const sourceLines = String(data.specialNotes || '')
+      .split(/
++/g)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    for (const line of sourceLines) {
+      const normalized = normalizeSemanticChipText(line);
+      if (!/(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|zugang|access|tor|door|cassetta|box)/.test(normalized)) continue;
+      if (existing.some((item) => normalizeSemanticChipText(item) === normalized)) continue;
+      existing.push(line);
+    }
+    return existing;
+  }, [data.specialNotes, equipment]);
 
   // Callback is semantic and marker-based: only parsed specialNotes may create it.
   // Raw customer messages are not scanned, so "nicht anrufen" / "klingeln und warten"
@@ -798,7 +813,7 @@ export function CommunicationBlock({
     <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
 
       {/* ─── 1. CHIPS ROW ─── */}
-      {(mediaInfo || hasTranslation || communicationPreferences.length > 0 || hazards.length > 0 || equipment.length > 0 || callbackNote) && (
+      {(mediaInfo || hasTranslation || communicationPreferences.length > 0 || hazards.length > 0 || equipmentWithFallback.length > 0 || callbackNote) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {/* Media type (Sprachnachricht / Bild / Bild+Text only) */}
           {mediaInfo && (
@@ -837,7 +852,7 @@ export function CommunicationBlock({
             );
           })}
           {/* Equipment chips */}
-          {equipment.map((h, i) => {
+          {equipmentWithFallback.map((h, i) => {
             const visual = getEquipmentChipVisual(h);
             return (
               <span
@@ -1021,6 +1036,21 @@ export function CommunicationChips({
   const parsed = useMemo(() => parseNotesField(data.notes), [data.notes]);
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
+  const equipmentWithFallback = useMemo(() => {
+    const existing = [...equipment];
+    const sourceLines = String(data.specialNotes || '')
+      .split(/
++/g)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    for (const line of sourceLines) {
+      const normalized = normalizeSemanticChipText(line);
+      if (!/(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|zugang|access|tor|door|cassetta|box)/.test(normalized)) continue;
+      if (existing.some((item) => normalizeSemanticChipText(item) === normalized)) continue;
+      existing.push(line);
+    }
+    return existing;
+  }, [data.specialNotes, equipment]);
   const callbackNote = detectCallbackRequest(data.specialNotes);
   const communicationPreferences = useMemo(
     () => detectCommunicationPreferenceChips(data, parsed),
@@ -1033,7 +1063,7 @@ export function CommunicationChips({
       .join('\n'),
   );
 
-  if (!hasAudio && !hasImages && hazards.length === 0 && equipment.length === 0 && !callbackNote && communicationPreferences.length === 0) return null;
+  if (!hasAudio && !hasImages && hazards.length === 0 && equipmentWithFallback.length === 0 && !callbackNote && communicationPreferences.length === 0) return null;
 
   return (
     <>
@@ -1079,7 +1109,7 @@ export function CommunicationChips({
           </span>
         );
       })}
-      {equipment.map((h, i) => {
+      {equipmentWithFallback.map((h, i) => {
         const visual = getEquipmentChipVisual(h);
         const iconOnly = compact || visual.iconOnly;
         return (
