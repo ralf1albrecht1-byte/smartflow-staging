@@ -156,6 +156,70 @@ function getEquipmentChipVisual(value: string): SemanticChipVisual {
   return { icon: '🔧', iconOnly: false, title: value };
 }
 
+
+
+type EquipmentChipCategory = 'ladder' | 'key' | 'access' | 'badge' | 'equipment';
+
+function getEquipmentChipCategory(value: string | null | undefined): EquipmentChipCategory {
+  const text = normalizeSemanticChipText(value);
+
+  if (/\b(leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)) return 'ladder';
+  if (/\b(badge|keycard|key\s*card|schluesselkarte|schlusselkarte|schlüsselkarte)\b/.test(text)) return 'badge';
+  if (/\b(schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|cassetta|box|code)\b/.test(text)) return 'key';
+  if (/\b(zugang|eingang|hintereingang|seiteneingang|tor|door|access|entree|entrée|porta|puerta)\b/.test(text)) return 'access';
+  return 'equipment';
+}
+
+function isEquipmentHintLine(value: string | null | undefined): boolean {
+  const text = normalizeSemanticChipText(value);
+  return /\b(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|zugang|access|tor|door|cassetta|box|code)\b/.test(text);
+}
+
+function equipmentHintScore(value: string | null | undefined): number {
+  const raw = String(value || '').trim();
+  const text = normalizeSemanticChipText(raw);
+  let score = raw.length;
+
+  if (/\b(?:in|im|bei|beim|an|am|at|dans|alla|nella|en)\b/.test(text)) score += 20;
+  if (/\b\d{2,}\b/.test(text)) score += 20;
+  if (/\b(?:halle|empfang|rezeption|reception|hauswart|buero|büro|box|cassetta|kasten)\b/.test(text)) score += 20;
+  if (/^(?:leiter|schlüssel|schlussel|key|badge)$/i.test(raw)) score -= 40;
+
+  return score;
+}
+
+function buildEquipmentChipHints(
+  equipment: string[],
+  specialNotes: string | null | undefined,
+): string[] {
+  const candidates = [
+    ...equipment,
+    ...String(specialNotes || '')
+      .split(/\n+/g)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter(isEquipmentHintLine),
+  ];
+
+  const selectedByCategory = new Map<EquipmentChipCategory, string>();
+
+  for (const candidate of candidates) {
+    const cleaned = String(candidate || '').replace(/\s+/g, ' ').trim();
+    if (!cleaned || !isEquipmentHintLine(cleaned)) continue;
+
+    const category = getEquipmentChipCategory(cleaned);
+    const previous = selectedByCategory.get(category);
+    if (!previous || equipmentHintScore(cleaned) > equipmentHintScore(previous)) {
+      selectedByCategory.set(category, cleaned);
+    }
+  }
+
+  const orderedCategories: EquipmentChipCategory[] = ['ladder', 'key', 'badge', 'access', 'equipment'];
+  return orderedCategories
+    .map((category) => selectedByCategory.get(category))
+    .filter((value): value is string => Boolean(value));
+}
+
 // ─── Types ───
 export interface CommunicationData {
   // Work summary (the clean normalized description)
@@ -769,20 +833,10 @@ export function CommunicationBlock({
   // Extract chips from specialNotes
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
-  const equipmentWithFallback = useMemo(() => {
-    const existing = [...equipment];
-    const sourceLines = String(data.specialNotes || '')
-      .split(/\n+/g)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    for (const line of sourceLines) {
-      const normalized = normalizeSemanticChipText(line);
-      if (!/\b(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|zugang|access|tor|door|cassetta|box)\b/.test(normalized)) continue;
-      if (existing.some((item) => normalizeSemanticChipText(item) === normalized)) continue;
-      existing.push(line);
-    }
-    return existing;
-  }, [data.specialNotes, equipment]);
+  const equipmentWithFallback = useMemo(
+    () => buildEquipmentChipHints(equipment, data.specialNotes),
+    [data.specialNotes, equipment],
+  );
 
   // Callback is semantic and marker-based: only parsed specialNotes may create it.
   // Raw customer messages are not scanned, so "nicht anrufen" / "klingeln und warten"
@@ -790,6 +844,22 @@ export function CommunicationBlock({
   const callbackNote = useMemo(() => {
     return detectCallbackRequest(data.specialNotes);
   }, [data.specialNotes]);
+  const callbackPhone = useMemo(
+    () => getContactPhone(
+      data,
+      [
+        parsed.originalMessage,
+        parsed.translation,
+        data.specialNotes,
+        data.audioTranscript,
+        data.customer?.phone,
+        data.phone,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    ),
+    [data, parsed.originalMessage, parsed.translation],
+  );
 
   const communicationPreferences = useMemo(
     () => detectCommunicationPreferenceChips(data, parsed),
@@ -829,11 +899,23 @@ export function CommunicationBlock({
             </span>
           ))}
           {/* Callback request chip */}
-          {callbackNote && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700">
+          {callbackNote && callbackPhone ? (
+            <a
+              href={`tel:${callbackPhone}`}
+              onClick={(event) => event.stopPropagation()}
+              title={`Anrufen: ${callbackPhone}`}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 hover:underline"
+            >
+              📞 {callbackNote}
+            </a>
+          ) : callbackNote ? (
+            <span
+              title="Rückruf gewünscht · Nummer fehlt"
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700"
+            >
               📞 {callbackNote}
             </span>
-          )}
+          ) : null}
           {/* Hazard chips */}
           {hazards.filter((h) => !isNegatedAnimalHint(h)).map((h, i) => {
             const visual = getHazardChipVisual(h);
@@ -1035,20 +1117,10 @@ export function CommunicationChips({
   const parsed = useMemo(() => parseNotesField(data.notes), [data.notes]);
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
-  const equipmentWithFallback = useMemo(() => {
-    const existing = [...equipment];
-    const sourceLines = String(data.specialNotes || '')
-      .split(/\n+/g)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    for (const line of sourceLines) {
-      const normalized = normalizeSemanticChipText(line);
-      if (!/\b(leiter|ladder|echelle|scala|escalera|escada|schluessel|schlussel|schlüssel|key|cle|clé|chiave|llave|badge|zugang|access|tor|door|cassetta|box)\b/.test(normalized)) continue;
-      if (existing.some((item) => normalizeSemanticChipText(item) === normalized)) continue;
-      existing.push(line);
-    }
-    return existing;
-  }, [data.specialNotes, equipment]);
+  const equipmentWithFallback = useMemo(
+    () => buildEquipmentChipHints(equipment, data.specialNotes),
+    [data.specialNotes, equipment],
+  );
   const callbackNote = detectCallbackRequest(data.specialNotes);
   const communicationPreferences = useMemo(
     () => detectCommunicationPreferenceChips(data, parsed),
@@ -1056,7 +1128,14 @@ export function CommunicationChips({
   );
   const callbackPhone = getContactPhone(
     data,
-    [parsed.originalMessage, parsed.translation, data.specialNotes, data.audioTranscript]
+    [
+      parsed.originalMessage,
+      parsed.translation,
+      data.specialNotes,
+      data.audioTranscript,
+      data.customer?.phone,
+      data.phone,
+    ]
       .filter(Boolean)
       .join('\n'),
   );
