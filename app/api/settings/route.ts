@@ -278,17 +278,40 @@ currency: currency === 'EUR' ? 'EUR' : 'CHF',
 
 
 
-    // Safety gate: a plain mode switch must never create a fake LIVE view over TEST data.
-    // LIVE can only be entered when the live-start marker exists and at least one LIVE
-    // customer is present. Initial creation/repair is handled by prepare-live.
+    // Safety gate für normale Einstellungs-Speicherungen im Livebetrieb.
+    // Ein bewusst ohne Kunden gestarteter Livebetrieb ist gültig. Deshalb reicht
+    // der dauerhafte Start-Marker aus. LIVE-Daten dienen nur als Fallback für
+    // ältere Bestände, bei denen der Marker eventuell noch nicht existiert.
     if (testModus === false) {
-      const [liveMarker, liveCustomers] = await Promise.all([
-        prisma.counter.findUnique({ where: { name: `live-started:${userId}` }, select: { id: true } }),
-        prisma.customer.count({ where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null } }),
+      const [liveMarker, liveCustomer, liveOrder, liveOffer, liveInvoice] = await Promise.all([
+        prisma.counter.findUnique({
+          where: { name: `live-started:${userId}` },
+          select: { id: true },
+        }),
+        prisma.customer.findFirst({
+          where: { userId, dataScope: DATA_SCOPE_LIVE },
+          select: { id: true },
+        }),
+        prisma.order.findFirst({
+          where: { userId, dataScope: DATA_SCOPE_LIVE },
+          select: { id: true },
+        }),
+        prisma.offer.findFirst({
+          where: { userId, dataScope: DATA_SCOPE_LIVE },
+          select: { id: true },
+        }),
+        prisma.invoice.findFirst({
+          where: { userId, dataScope: DATA_SCOPE_LIVE },
+          select: { id: true },
+        }),
       ]);
-      if (!liveMarker || liveCustomers === 0) {
+
+      if (!liveMarker && !liveCustomer && !liveOrder && !liveOffer && !liveInvoice) {
         return NextResponse.json(
-          { error: 'Livebestand ist noch nicht vorbereitet oder leer. Bitte zuerst den sicheren Echtstart bzw. die Live-Reparatur ausführen.' },
+          {
+            error:
+              'Livebetrieb wurde noch nicht gestartet. Bitte zuerst den sicheren Echtstart ausführen.',
+          },
           { status: 409 },
         );
       }

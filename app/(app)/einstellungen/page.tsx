@@ -353,13 +353,19 @@ export default function EinstellungenPage() {
   async function switchTestMode(nextTestModus: boolean) {
     const targetMode = nextTestModus ? 'test' : 'live';
     setSwitchingMode(targetMode);
+
     try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
+      // Der Moduswechsel läuft absichtlich über einen eigenen Endpoint.
+      // Dadurch werden keine Firmendaten, Telefonnummern oder sonstigen
+      // Einstellungen erneut gespeichert oder validiert.
+      const res = await fetch('/api/settings/mode', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, testModus: nextTestModus }),
+        body: JSON.stringify({ testModus: nextTestModus }),
       });
+
       const data = await res.json().catch(() => null);
+
       if (!res.ok) {
         toast({
           title: 'Fehler',
@@ -369,26 +375,35 @@ export default function EinstellungenPage() {
         return;
       }
 
-      const mapped: CompanyData = mapSettingsData(data);
-      setForm(mapped);
-      setSavedData(mapped);
-      setHasChanges(false);
+      const persistedTestModus = data?.testModus === true;
+
+      // Nur den Modus im lokalen Formular aktualisieren. Ungespeicherte
+      // Änderungen an anderen Einstellungen bleiben vollständig erhalten.
+      setForm(prev => ({ ...prev, testModus: persistedTestModus }));
+      setSavedData(prev => ({ ...prev, testModus: persistedTestModus }));
       setShowLiveConfirm(false);
       setLiveConfirmText('');
-      setLivePrepPreview(prev => (prev ? { ...prev, testModus: mapped.testModus } : prev));
+      setLivePrepPreview(prev =>
+        prev ? { ...prev, testModus: persistedTestModus } : prev,
+      );
       setExistingLiveStateChecked(false);
+
       window.dispatchEvent(new CustomEvent('smartflow-mode-changed', {
-        detail: { testModus: mapped.testModus },
+        detail: { testModus: persistedTestModus },
       }));
 
       toast({
-        title: mapped.testModus ? 'Testmodus aktiv' : 'Livebetrieb aktiv',
-        description: mapped.testModus
+        title: persistedTestModus ? 'Testmodus aktiv' : 'Livebetrieb aktiv',
+        description: persistedTestModus
           ? 'Neue Angebote und Rechnungen erhalten TEST-Nummern. Der bestehende Livebetrieb bleibt erhalten.'
           : 'Du bist wieder im bereits gestarteten Livebetrieb. Es wurden keine Kunden neu übernommen und keine Testdaten gelöscht.',
       });
     } catch {
-      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Wechseln des Modus.', variant: 'destructive' });
+      toast({
+        title: 'Fehler',
+        description: 'Netzwerkfehler beim Wechseln des Modus.',
+        variant: 'destructive',
+      });
     } finally {
       setSwitchingMode(null);
     }
