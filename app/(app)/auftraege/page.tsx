@@ -4412,42 +4412,9 @@ const getSystemBadges = (
     });
   }
 
-  const hardIntakeRiskReasons = (order.reviewReasons || []).filter((reason) =>
-    /^(?:intake_risk:(?:special_notes_polluted|appointment_note_incomplete|appointment_hint_missing|item_evidence_not_line_local|service_name_unresolved|priced_item_total_blocked|priced_service_line_missing_or_mismatched|order_total_mismatch))$/.test(
-      String(reason || ""),
-    ),
-  );
-
-  if (hardIntakeRiskReasons.length > 0) {
-    const labels: Record<string, string> = {
-      "intake_risk:special_notes_polluted":
-        "Besonderheiten enthalten vermischte Auftragsdaten.",
-      "intake_risk:appointment_note_incomplete":
-        "Terminangabe ist unvollständig.",
-      "intake_risk:appointment_hint_missing":
-        "Terminwunsch wurde nicht eindeutig übernommen.",
-      "intake_risk:item_evidence_not_line_local":
-        "Mindestens eine Leistung enthält vermischte Textbelege.",
-      "intake_risk:service_name_unresolved":
-        "Mindestens eine Leistung ist noch unklar.",
-      "intake_risk:priced_item_total_blocked":
-        "Eine bepreiste Position ist noch blockiert.",
-      "intake_risk:priced_service_line_missing_or_mismatched":
-        "Eine Preiszeile stimmt nicht eindeutig mit der gespeicherten Leistung überein.",
-      "intake_risk:order_total_mismatch":
-        "Die gespeicherte Auftragssumme stimmt nicht mit den Positionen überein.",
-    };
-    pushUniqueBadge(badges, {
-      key: "hard_order_review",
-      label: "Auftrag prüfen",
-      className: "bg-red-100 text-red-700 border border-red-300",
-      icon: true,
-      tooltip: hardIntakeRiskReasons
-        .map((reason) => labels[reason] || "Auftrag muss geprüft werden.")
-        .join("\n"),
-      focusTarget: "items",
-    });
-  }
+  // V17.90L36b: Alte Intake-Diagnosen dürfen keinen pauschalen roten
+  // "Auftrag prüfen"-Chip erzeugen. Aktuelle harte Fehler werden bereits
+  // konkret als Kunde, Ausführadresse, Währung, Betrag oder Einheit angezeigt.
 
   const hasCurrencyReview = hasAnyCurrencyReviewReason(
     order.reviewReasons,
@@ -5811,55 +5778,51 @@ const emptyForm = {
   siteNote: "",
 };
 
-const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
-  /^address_role_uncertain$/,
-  /^customer_address_quarantined_ambiguous_role_v17_61$/,
-  /^execution_address_incomplete$/,
+const HARD_CURRENCY_CONVERSION_REVIEW_PATTERNS = [
   /^currency_/,
   /^item_currency_mismatch/,
   /^currency_conflict_item:/,
-  /^unit_mismatch:/,
-  /^unit_missing_in_text:/,
-  /^unit_price_review$/,
-  /^quantity_review$/,
-  /^price_unclear:/,
-  /^stunden_arbeitsposition_pruefen$/,
-  /^total_unrealistic_check$/,
   /^currency_unsupported$/,
-  /^intake_risk:special_notes_polluted$/,
-  /^intake_risk:appointment_note_incomplete$/,
-  /^intake_risk:appointment_hint_missing$/,
-  /^intake_risk:item_evidence_not_line_local$/,
-  /^intake_risk:service_name_unresolved$/,
-  /^intake_risk:priced_item_total_blocked$/,
-  /^intake_risk:priced_service_line_missing_or_mismatched$/,
-  /^intake_risk:order_total_mismatch$/,
 ];
 
 const isPersistedManualCurrencyConfirmedItem = (item: any) =>
   compactText(item?.description).startsWith(MANUAL_CURRENCY_CONFIRMED_PREFIX) ||
   compactText(item?.description).startsWith(PRICE_REVIEW_CONFIRMED_PREFIX);
 
-const hasOrderAllItemsManuallyResolvedForConversion = (order: Order | any) => {
-  const items: any[] = Array.isArray(order?.items) ? order.items : [];
-  if (items.length === 0) return false;
-  return items.every((item) => {
-    const quantity = Number(item?.quantity ?? 0);
-    const unitPrice = Number(item?.unitPrice ?? 0);
-    const total = Number(item?.totalPrice ?? unitPrice * quantity);
-    return quantity > 0 && unitPrice > 0 && total > 0;
-  });
+const isUnresolvedConversionServiceNameV17_90L36b = (
+  value?: string | null,
+) => {
+  const key = normalizeForMatch(value || "");
+  if (!key) return true;
+  return (
+    key === "leistung pruefen" ||
+    key === "leistung prufen" ||
+    key === "unbekannte leistung" ||
+    key === "unklare leistung" ||
+    key.includes("leistung suchen") ||
+    key.includes("leistung eingeben")
+  );
 };
 
-const isResolvableConversionReviewReason = (reason: string) =>
-  reason.startsWith("price_unclear:") ||
-  reason.startsWith("unit_mismatch:") ||
-  reason === "unit_price_review";
+const isUnresolvedConversionUnitV17_90L36b = (value?: string | null) => {
+  const key = normalizeForMatch(value || "");
+  if (!key) return true;
+  return (
+    key === "pruefen" ||
+    key === "prufen" ||
+    key === "einheit pruefen" ||
+    key === "einheit prufen" ||
+    key.includes("einheit fehlt") ||
+    key.includes("einheit unklar") ||
+    key.includes("unit missing") ||
+    key.includes("unit unclear")
+  );
+};
 
 const getOrderConversionBlockers = (order: Order | any): string[] => {
   const blockers: string[] = [];
-  // Status is intentionally NOT a blocker. Open orders may be moved to
-  // Angebot/Rechnung when the actual data is safe enough.
+  // Status ist absichtlich kein Blocker. Entscheidend ist nur der aktuell
+  // gespeicherte, konkrete Zustand von Kunde, Adresse, Währung und Leistungen.
   const items: any[] = Array.isArray(order?.items) ? order.items : [];
   const reviewReasons: string[] = Array.isArray(order?.reviewReasons)
     ? order.reviewReasons.filter(Boolean)
@@ -5869,52 +5832,49 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     blockers.push("Keine Leistungen vorhanden");
   }
 
-  if (
-    items.some(
-      (item) =>
-        Number(item?.unitPrice || 0) <= 0 ||
-        Number(item?.quantity || 0) <= 0 ||
-        Number(
-          item?.totalPrice ??
-            Number(item?.unitPrice || 0) * Number(item?.quantity || 0),
-        ) <= 0,
-    )
-  ) {
+  const hasUnresolvedServiceOrUnit = items.some(
+    (item) =>
+      isUnresolvedConversionServiceNameV17_90L36b(item?.serviceName) ||
+      isUnresolvedConversionUnitV17_90L36b(item?.unit),
+  );
+  if (hasUnresolvedServiceOrUnit) {
+    blockers.push("Leistung/Einheit prüfen");
+  }
+
+  const hasInvalidAmount = items.some((item) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const total = Number(item?.totalPrice ?? unitPrice * quantity);
+    return quantity <= 0 || unitPrice <= 0 || total <= 0;
+  });
+  if (hasInvalidAmount) {
     blockers.push("Preis/Menge prüfen");
   }
 
-  const allItemsResolvedForConversion =
-    hasOrderAllItemsManuallyResolvedForConversion(order);
-
   if (
-    reviewReasons.some((reason) => {
-      const isCritical = CRITICAL_CONVERSION_REVIEW_PATTERNS.some((pattern) =>
+    reviewReasons.some((reason) =>
+      HARD_CURRENCY_CONVERSION_REVIEW_PATTERNS.some((pattern) =>
         pattern.test(reason),
-      );
-      if (!isCritical) return false;
-      // V17.19: Alte KI-/Währungs-ReviewReasons dürfen Angebot/Rechnung nicht
-      // mehr blockieren, wenn alle Positionen inzwischen manuell verwertbare
-      // Preise/Mengen/Totale haben. Harte Mengen-/Einheitsfehler bleiben Blocker.
-      return !(
-        allItemsResolvedForConversion &&
-        isResolvableConversionReviewReason(reason)
-      );
-    })
+      ),
+    )
   ) {
-    blockers.push("Offene Prüfhinweise im Auftrag");
+    blockers.push("Währung prüfen");
   }
 
-  // needsReview alleine blockiert nicht mehr. Gelbe Hinweise wie
-  // Preisabweichung oder Nicht-im-Katalog dürfen Angebot/Rechnung nicht
-  // verhindern, solange Preis, Menge, Kunde und Währung verwertbar sind.
+  if (reviewReasons.includes("total_unrealistic_check")) {
+    blockers.push("Betrag prüfen");
+  }
 
-  if (
-    isCustomerDataIncomplete(order?.customer) &&
-    !hasActiveAddressRoleReviewV17_90K(order)
-  ) {
+  if (hasActiveAddressRoleReviewV17_90K(order)) {
+    blockers.push("Ausführungsadresse prüfen");
+  }
+
+  if (isCustomerDataIncomplete(order?.customer)) {
     blockers.push("Kundendaten prüfen");
   }
 
+  // needsReview und alte intake_risk:* Gründe blockieren nicht pauschal.
+  // Sobald die aktuellen Felder vollständig sind, darf Angebot/Rechnung weiter.
   return Array.from(new Set(blockers));
 };
 

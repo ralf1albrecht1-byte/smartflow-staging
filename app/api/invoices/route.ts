@@ -18,55 +18,97 @@ import {
   roundMoney,
 } from "@/lib/currency";
 
-const CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS = [
-  /^address_role_uncertain$/,
-  /^customer_address_quarantined_ambiguous_role_v17_61$/,
-  /^execution_address_incomplete$/,
+const HARD_CURRENCY_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^currency_/,
   /^item_currency_mismatch/,
   /^currency_conflict_item:/,
-  /^unit_mismatch:/,
-  /^unit_missing_in_text:/,
-  /^unit_price_review$/,
-  /^quantity_review$/,
-  /^price_unclear:/,
-  /^price_override:/,
-  /^unbekannte_leistung_pruefen$/,
-  /^stunden_arbeitsposition_pruefen$/,
-  /^total_unrealistic_check$/,
   /^currency_unsupported$/,
-  /^manual_flat_service_from_text$/,
-  // V17.90L24: hard global order gate. These are not soft catalog hints;
-  // they mean the complete order structure is unsafe for documents.
-  /^intake_risk:special_notes_polluted$/,
-  /^intake_risk:appointment_note_incomplete$/,
-  /^intake_risk:appointment_hint_missing$/,
-  /^intake_risk:item_evidence_not_line_local$/,
-  /^intake_risk:service_name_unresolved$/,
-  /^intake_risk:priced_item_total_blocked$/,
-  /^intake_risk:priced_service_line_missing_or_mismatched$/,
-  /^intake_risk:order_total_mismatch$/,
 ];
+
+const normalizeDocumentReviewTextV17_90L36b = (value: unknown) =>
+  String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isUnresolvedSourceServiceNameV17_90L36b = (value: unknown) => {
+  const key = normalizeDocumentReviewTextV17_90L36b(value);
+  if (!key) return true;
+  return (
+    key === "leistung pruefen" ||
+    key === "leistung prufen" ||
+    key === "unbekannte leistung" ||
+    key === "unklare leistung" ||
+    key.includes("leistung suchen") ||
+    key.includes("leistung eingeben")
+  );
+};
+
+const isUnresolvedSourceUnitV17_90L36b = (value: unknown) => {
+  const key = normalizeDocumentReviewTextV17_90L36b(value);
+  if (!key) return true;
+  return (
+    key === "pruefen" ||
+    key === "prufen" ||
+    key === "einheit pruefen" ||
+    key === "einheit prufen" ||
+    key.includes("einheit fehlt") ||
+    key.includes("einheit unklar") ||
+    key.includes("unit missing") ||
+    key.includes("unit unclear")
+  );
+};
 
 const isSourceOrderItemResolvedForDocument = (item: any) => {
   const quantity = Number(item?.quantity ?? 0);
   const unitPrice = Number(item?.unitPrice ?? 0);
   const total = Number(item?.totalPrice ?? quantity * unitPrice);
 
-  return quantity > 0 && unitPrice > 0 && total > 0;
+  return (
+    !isUnresolvedSourceServiceNameV17_90L36b(item?.serviceName) &&
+    !isUnresolvedSourceUnitV17_90L36b(item?.unit) &&
+    quantity > 0 &&
+    unitPrice > 0 &&
+    total > 0
+  );
 };
 
-const hasSourceOrderAllItemsResolvedForDocument = (order: any) => {
-  const items = Array.isArray(order?.items) ? order.items : [];
-  if (items.length === 0) return false;
-  return items.every(isSourceOrderItemResolvedForDocument);
-};
+const hasActiveExecutionAddressReviewV17_90L36b = (order: any) => {
+  const reasons = Array.isArray(order?.reviewReasons)
+    ? order.reviewReasons.filter(Boolean)
+    : [];
+  const hasAddressReason = reasons.some(
+    (reason: string) =>
+      reason === "address_role_uncertain" ||
+      reason === "customer_address_quarantined_ambiguous_role_v17_61" ||
+      reason === "execution_address_incomplete" ||
+      reason.startsWith("intake_address:"),
+  );
+  if (!hasAddressReason) return false;
 
-const isResolvableSourceOrderReviewReason = (reason: string) =>
-  reason.startsWith("price_unclear:") ||
-  reason.startsWith("price_override:") ||
-  reason.startsWith("unit_mismatch:") ||
-  reason === "unit_price_review";
+  const workSites = Array.isArray(order?.workSites) ? order.workSites : [];
+  const primary =
+    workSites.find((site: any) => Boolean(site?.isPrimary)) ||
+    workSites[0] ||
+    null;
+  const siteAddress = String(primary?.siteAddress || order?.siteAddress || "").trim();
+  const sitePlz = String(primary?.sitePlz || order?.sitePlz || "").trim();
+  const siteCity = String(primary?.siteCity || order?.siteCity || "").trim();
+  const hasAnySiteValue = Boolean(siteAddress || sitePlz || siteCity);
+  const siteIsComplete = Boolean(siteAddress && sitePlz && siteCity);
+
+  // Wurde keine abweichende Ausführungsadresse gewählt und sind keine
+  // Ausführungsdaten vorhanden, ist ein alter Review-Grund erledigt.
+  if (!order?.siteAddressDifferent && !hasAnySiteValue) return false;
+  return !siteIsComplete;
+};
 
 function sourceOrderBlockers(order: any): string[] {
   const blockers: string[] = [];
@@ -77,31 +119,42 @@ function sourceOrderBlockers(order: any): string[] {
 
   if (items.length === 0) blockers.push("Keine Leistungen vorhanden");
 
-  const allItemsResolved = hasSourceOrderAllItemsResolvedForDocument(order);
+  if (
+    items.some(
+      (item: any) =>
+        isUnresolvedSourceServiceNameV17_90L36b(item?.serviceName) ||
+        isUnresolvedSourceUnitV17_90L36b(item?.unit),
+    )
+  ) {
+    blockers.push("Leistung/Einheit prüfen");
+  }
 
-  if (!allItemsResolved) {
-    blockers.push("Preis/Menge prüfen");
+  if (items.some((item: any) => !isSourceOrderItemResolvedForDocument(item))) {
+    const hasInvalidAmount = items.some((item: any) => {
+      const quantity = Number(item?.quantity ?? 0);
+      const unitPrice = Number(item?.unitPrice ?? 0);
+      const total = Number(item?.totalPrice ?? quantity * unitPrice);
+      return quantity <= 0 || unitPrice <= 0 || total <= 0;
+    });
+    if (hasInvalidAmount) blockers.push("Preis/Menge prüfen");
   }
 
   if (
-    reviewReasons.some((reason: string) => {
-      const isCritical = CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS.some((pattern) =>
+    reviewReasons.some((reason: string) =>
+      HARD_CURRENCY_SOURCE_ORDER_REVIEW_PATTERNS.some((pattern) =>
         pattern.test(reason),
-      );
-      if (!isCritical) return false;
-
-      // Gelbe/softe Prüfhinweise dürfen die Dokumenterstellung nicht
-      // blockieren, sobald jede Position einen verwertbaren Service, Preis,
-      // eine Menge und ein Total hat. Harte Fehler bleiben automatisch
-      // Blocker, weil allItemsResolved dann false ist.
-      return !(allItemsResolved && isResolvableSourceOrderReviewReason(reason));
-    })
+      ),
+    )
   ) {
-    blockers.push("Offene Prüfhinweise im Auftrag");
+    blockers.push("Währung prüfen");
   }
 
-  if (order?.needsReview && reviewReasons.length > 0 && !allItemsResolved) {
-    blockers.push("Auftrag ist noch auf Prüfen gesetzt");
+  if (reviewReasons.includes("total_unrealistic_check")) {
+    blockers.push("Betrag prüfen");
+  }
+
+  if (hasActiveExecutionAddressReviewV17_90L36b(order)) {
+    blockers.push("Ausführungsadresse prüfen");
   }
 
   const customer = order?.customer;
@@ -114,6 +167,8 @@ function sourceOrderBlockers(order: any): string[] {
     blockers.push("Kundendaten prüfen");
   }
 
+  // Alte intake_risk:* Diagnosen und needsReview allein sind kein Blocker.
+  // Entscheidend sind nur die aktuell gespeicherten, konkreten Felder oben.
   return Array.from(new Set(blockers));
 }
 
