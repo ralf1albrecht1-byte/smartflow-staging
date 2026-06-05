@@ -3001,6 +3001,74 @@ const hasGlobalCurrencyReviewWithoutItemDetails = (
   hasAnyCurrencyReviewReason(reviewReasons) &&
   !hasItemLevelCurrencyReviewReasons(reviewReasons);
 
+type ForeignCurrencyAmountV17_90L36D = {
+  currency: "CHF" | "EUR";
+  amount: number;
+  evidence: string;
+};
+
+// V17.90L36d: Wenn der alte Auftrag nur einen globalen Mischwährungsgrund
+// besitzt, darf eine im Kundentext vorhandene Fremdwährungsposition nicht
+// unsichtbar bleiben. Wir extrahieren ausschliesslich Währung + Betrag und
+// erzeugen bei fehlender Zuordnung eine neutrale rote Prüfposition. Es wird
+// keine Leistung erfunden und keine Service-Wortliste verwendet.
+const extractForeignCurrencyAmountsV17_90L36D = (
+  value: string | null | undefined,
+  orderCurrency: string | null | undefined,
+): ForeignCurrencyAmountV17_90L36D[] => {
+  const source = String(value || "");
+  const normalizedOrderCurrency =
+    String(orderCurrency || "CHF").toUpperCase() === "EUR" ? "EUR" : "CHF";
+  if (!source.trim()) return [];
+
+  const matches: Array<{ currency: "CHF" | "EUR"; amount: number; index: number; raw: string }> = [];
+  const patterns = [
+    /(?:\b(CHF|EUR)\b|(€))\s*([0-9]+(?:[.,][0-9]{1,2})?)/gi,
+    /([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:\b(CHF|EUR)\b|(€))/gi,
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source)) !== null) {
+      const isLeadingCurrencyPattern = Boolean(match[3]);
+      const currencyToken = isLeadingCurrencyPattern
+        ? match[1] || match[2]
+        : match[2] || match[3];
+      const amountToken = isLeadingCurrencyPattern ? match[3] : match[1];
+      const currency: "CHF" | "EUR" =
+        String(currencyToken || "").toUpperCase() === "CHF" ? "CHF" : "EUR";
+      const amount = Number(String(amountToken || "").replace(",", "."));
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      if (currency === normalizedOrderCurrency) continue;
+      matches.push({ currency, amount, index: match.index, raw: match[0] });
+    }
+  }
+
+  const seen = new Set<string>();
+  return matches
+    .sort((a, b) => a.index - b.index)
+    .filter((entry) => {
+      const key = `${entry.currency}|${entry.amount.toFixed(2)}|${entry.index}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((entry) => {
+      const start = Math.max(0, entry.index - 55);
+      const end = Math.min(source.length, entry.index + entry.raw.length + 25);
+      const evidence = source
+        .slice(start, end)
+        .replace(/\s+/g, " ")
+        .replace(/^.*?(?:[.;]|\n)\s*/, "")
+        .trim();
+      return {
+        currency: entry.currency,
+        amount: entry.amount,
+        evidence: evidence || entry.raw,
+      };
+    });
+};
+
 const findUnitMissingInTextReviewForService = (
   reviewReasons: string[] | null | undefined,
   serviceName?: string | null,
@@ -6534,72 +6602,128 @@ export default function AuftraegePage() {
     );
     // Populate items from order
     if (o.items && o.items.length > 0) {
-      setFormItems(
-        mergeEquivalentFormItems(
-          o.items.map((item) => {
-            const hasQuantityReview = hasQuantityReviewForService(
-              o.reviewReasons,
-              item.serviceName,
-            );
-            const quantityNumber = Number(item.quantity || 0);
-            const hasValidQuantity =
-              Number.isFinite(quantityNumber) && quantityNumber > 0;
-            const rawAiWarning = getAiWarningFromItemDescription(
-              item.description,
-            );
-            const isCatalogConfirmed =
-              getCatalogReviewConfirmedFromItemDescription(item.description);
-            const hasPersistedManualCurrencyConfirmation =
-              getManualCurrencyConfirmedFromItemDescription(item.description);
-            const isManualUnitConfirmed =
-              getManualUnitConfirmedFromItemDescription(item.description);
-            const hasItemCurrencyMismatch = hasCurrencyMismatchReviewForService(
-              o.reviewReasons,
-              item.serviceName,
-            );
-            // V17.90L36c: Ein alter MANUAL_CURRENCY_CONFIRMED-Marker darf
-            // einen weiterhin gespeicherten positionsbezogenen Währungsfehler
-            // nicht überstimmen. Erst wenn der konkrete ReviewReason nach einer
-            // echten manuellen Korrektur entfernt wurde, gilt die Position als
-            // bestätigt.
-            const isManualCurrencyConfirmed =
-              hasPersistedManualCurrencyConfirmation &&
-              !hasItemCurrencyMismatch;
-            // V17.22: Mischwährung wird pro Position bewertet. Nur die Zeilen,
-            // deren Textwährung von der Auftragswährung abweicht, werden rot/leer
-            // geöffnet. Eine EUR-Zeile in einem EUR-Auftrag bleibt befüllt und
-            // zeigt nur die normale gelbe Preisabweichung zum Katalog.
-            const shouldRequireFreshManualPrice =
-              !isManualCurrencyConfirmed && hasItemCurrencyMismatch;
+      const mappedItems: FormItem[] = o.items.map((item) => {
+        const hasQuantityReview = hasQuantityReviewForService(
+          o.reviewReasons,
+          item.serviceName,
+        );
+        const quantityNumber = Number(item.quantity || 0);
+        const hasValidQuantity =
+          Number.isFinite(quantityNumber) && quantityNumber > 0;
+        const rawAiWarning = getAiWarningFromItemDescription(
+          item.description,
+        );
+        const isCatalogConfirmed =
+          getCatalogReviewConfirmedFromItemDescription(item.description);
+        const hasPersistedManualCurrencyConfirmation =
+          getManualCurrencyConfirmedFromItemDescription(item.description);
+        const isManualUnitConfirmed =
+          getManualUnitConfirmedFromItemDescription(item.description);
+        const hasItemCurrencyMismatch = hasCurrencyMismatchReviewForService(
+          o.reviewReasons,
+          item.serviceName,
+        );
+        // V17.90L36c: Ein alter MANUAL_CURRENCY_CONFIRMED-Marker darf
+        // einen weiterhin gespeicherten positionsbezogenen Währungsfehler
+        // nicht überstimmen. Erst wenn der konkrete ReviewReason nach einer
+        // echten manuellen Korrektur entfernt wurde, gilt die Position als
+        // bestätigt.
+        const isManualCurrencyConfirmed =
+          hasPersistedManualCurrencyConfirmation &&
+          !hasItemCurrencyMismatch;
+        const shouldRequireFreshManualPrice =
+          !isManualCurrencyConfirmed && hasItemCurrencyMismatch;
 
-            return {
-              key: Math.random().toString(36).slice(2),
-              serviceName: canonicalServiceNameForOrderItem(
-                item.serviceName ?? "",
+        return {
+          key: Math.random().toString(36).slice(2),
+          serviceName: canonicalServiceNameForOrderItem(
+            item.serviceName ?? "",
+          ),
+          unit: item.unit ?? "Stunde",
+          unitPrice: shouldRequireFreshManualPrice
+            ? ""
+            : Number(item.unitPrice || 0) === 0
+              ? ""
+              : String(item.unitPrice),
+          quantity: !hasValidQuantity ? "" : String(item.quantity),
+          aiWarning: isManualCurrencyConfirmed ? "" : rawAiWarning,
+          catalogReviewConfirmed: isCatalogConfirmed,
+          manualCurrencyConfirmed: isManualCurrencyConfirmed,
+          manualUnitConfirmed: isManualUnitConfirmed,
+          workSiteId: item.workSiteId || null,
+        };
+      });
+
+      // V17.90L36d: Alte Mischwährungsaufträge besitzen teilweise nur einen
+      // globalen Reviewgrund, obwohl im Kundentext eine zusätzliche
+      // Fremdwährungsposition steht. Diese Position darf nicht unsichtbar
+      // bleiben oder in eine andere Leistung hineinrutschen. Sie wird als
+      // neutrale rote Prüfposition mit Total 0 angezeigt.
+      const syntheticCurrencyReviewItems: FormItem[] = [];
+      if (hasGlobalCurrencyReviewWithoutItemDetails(o.reviewReasons)) {
+        const sourceText =
+          String(o.notes || "").trim() ||
+          [
+            o.description,
+            ...(o.items || []).map((entry) => entry.description || ""),
+          ]
+            .filter(Boolean)
+            .join("\n");
+        const foreignAmounts = extractForeignCurrencyAmountsV17_90L36D(
+          sourceText,
+          o.currency,
+        );
+
+        foreignAmounts.forEach((foreign) => {
+          const exactMatches = mappedItems.filter((item) => {
+            const price = Number(item.unitPrice || 0);
+            if (!Number.isFinite(price) || Math.abs(price - foreign.amount) >= 0.01)
+              return false;
+            const evidence = normalizeForMatch(item.aiWarning || "");
+            return (
+              evidence.includes(normalizeForMatch(foreign.currency)) &&
+              evidence.includes(
+                normalizeForMatch(String(foreign.amount).replace(".", ",")),
+              )
+            );
+          });
+
+          if (exactMatches.length === 1) {
+            const target = exactMatches[0];
+            target.unitPrice = "";
+            target.manualCurrencyConfirmed = false;
+            target.aiWarning = `Währung prüfen: ${foreign.evidence}`;
+            return;
+          }
+
+          const duplicatePlaceholder = syntheticCurrencyReviewItems.some(
+            (item) =>
+              normalizeForMatch(item.aiWarning || "").includes(
+                normalizeForMatch(`${foreign.currency} ${foreign.amount}`),
               ),
-              unit: item.unit ?? "Stunde",
-              // V17.16: Bei ungelöster Mischwährung auch Anfahrt nicht mit dem
-              // alten Textpreis vorbefüllen. Der Benutzer soll einen frischen
-              // Zielpreis eingeben; sonst springt Anfahrt nach Reload wieder auf
-              // den Originaltextwert wie CHF 50 zurück.
-              unitPrice: shouldRequireFreshManualPrice
-                ? ""
-                : Number(item.unitPrice || 0) === 0
-                  ? ""
-                  : String(item.unitPrice),
-              // Keep trusted persisted quantities even when a unit_mismatch review chip
-              // remains. The review chip may still be valid because catalog unit and
-              // customer-text unit differ, but blanking a valid quantity turns a repaired
-              // hour row back into Menge prüfen / Total CHF 0.00 in the editor.
-              quantity: !hasValidQuantity ? "" : String(item.quantity),
-              aiWarning: isManualCurrencyConfirmed ? "" : rawAiWarning,
-              catalogReviewConfirmed: isCatalogConfirmed,
-              manualCurrencyConfirmed: isManualCurrencyConfirmed,
-              manualUnitConfirmed: isManualUnitConfirmed,
-              workSiteId: item.workSiteId || null,
-            };
-          }),
-        ),
+          );
+          if (duplicatePlaceholder) return;
+
+          syntheticCurrencyReviewItems.push({
+            key: Math.random().toString(36).slice(2),
+            serviceName: "Leistung prüfen",
+            unit: "Pauschal",
+            unitPrice: "",
+            quantity: "1",
+            aiWarning: `Währung prüfen: Fremdwährungsposition aus Kundentext (${foreign.currency} ${foreign.amount}). ${foreign.evidence}`,
+            catalogReviewConfirmed: false,
+            manualCurrencyConfirmed: false,
+            manualUnitConfirmed: false,
+            workSiteId: null,
+          });
+        });
+      }
+
+      setFormItems(
+        mergeEquivalentFormItems([
+          ...mappedItems,
+          ...syntheticCurrencyReviewItems,
+        ]),
       );
     } else {
       setFormItems(
@@ -7743,6 +7867,48 @@ export default function AuftraegePage() {
     }
   };
 
+  const discardAddressReviewSuggestionV17_90L36D = async () => {
+    if (!editId) return;
+
+    const clearedWorkSites =
+      blankWorkSitesForClearedExecutionAddressV17_64(formWorkSites);
+    const nextFormPatch = {
+      siteAddressDifferent: false,
+      siteName: "",
+      siteAddress: "",
+      sitePlz: "",
+      siteCity: "",
+      siteNote: "",
+    };
+
+    setForm((prev) => ({ ...prev, ...nextFormPatch }));
+    setFormWorkSites(clearedWorkSites);
+    setFormItems((prev) =>
+      prev.map((item) => ({ ...item, workSiteId: null })),
+    );
+    setSiteAddressEditing(false);
+    setActiveWorkSiteId(null);
+    setExpandedWorkSiteIds([]);
+
+    setSaving(true);
+    try {
+      const saved = await persistAddressReviewPatchV17_64(
+        nextFormPatch,
+        clearedWorkSites,
+        { resolveAddressReview: true },
+      );
+      if (saved) {
+        toast.success(
+          "Vorschlag verworfen. Die Rechnungsadresse bleibt unverändert.",
+        );
+      }
+    } catch {
+      toast.error("Adressvorschlag konnte nicht verworfen werden");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const isBlockingCurrencyReviewText = (value?: string | null) => {
     const text = normalizeForMatch(value);
     if (!text) return false;
@@ -7780,10 +7946,14 @@ export default function AuftraegePage() {
   const isManuallyConfirmedCurrencyItem = (item: FormItem) => {
     if (!isCompleteResolvedFormItem(item)) return false;
 
-    // V17.90L36c: Der konkrete Währungs-ReviewReason ist stärker als ein
-    // alter Bestätigungsmarker. Sonst kann eine positionsbezogen falsche
-    // Währung trotz rotem Gesamtblocker wieder in Netto/Total einfließen.
-    if (hasFormItemCurrencyMismatch(item)) return false;
+    // V17.90L36c: Beim Öffnen wird ein alter Bestätigungsmarker für eine noch
+    // immer fehlerhafte Position bewusst nicht übernommen. Setzt der Nutzer
+    // danach Preis/Einheit/Menge/Leistung neu, wird manualCurrencyConfirmed in
+    // dieser Sitzung erneut gesetzt und genau diese Position darf aufgelöst
+    // werden. Eine reine Katalogbestätigung löst keinen Währungsfehler.
+    if (hasFormItemCurrencyMismatch(item)) {
+      return Boolean(item.manualCurrencyConfirmed);
+    }
 
     if (
       Boolean(item.manualCurrencyConfirmed) ||
@@ -11687,6 +11857,16 @@ export default function AuftraegePage() {
                       className="justify-center"
                     >
                       Als Ausführungsadresse übernehmen
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={discardAddressReviewSuggestionV17_90L36D}
+                      disabled={saving}
+                      className="justify-center"
+                    >
+                      Vorschlag verwerfen
                     </Button>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
