@@ -366,6 +366,7 @@ interface FormItem {
   catalogReviewConfirmed?: boolean;
   manualCurrencyConfirmed?: boolean;
   manualUnitConfirmed?: boolean;
+  sourceDescription?: string;
   workSiteId?: string | null;
   workSite?: OrderWorkSite | null;
 }
@@ -2994,7 +2995,10 @@ const hasCurrencyMismatchReviewForService = (
   if (!serviceKey) return false;
 
   return getCurrencyMismatchReviewDetails(reviewReasons).some(
-    (detail) => normalizeForMatch(detail.serviceName) === serviceKey,
+    (detail) =>
+      normalizeForMatch(
+        canonicalServiceNameForOrderItem(detail.serviceName),
+      ) === serviceKey,
   );
 };
 
@@ -6863,6 +6867,7 @@ export default function AuftraegePage() {
           catalogReviewConfirmed: isCatalogConfirmed,
           manualCurrencyConfirmed: isManualCurrencyConfirmed,
           manualUnitConfirmed: isManualUnitConfirmed,
+          sourceDescription: compactText(item.description),
           workSiteId: item.workSiteId || null,
         };
       });
@@ -6936,16 +6941,75 @@ export default function AuftraegePage() {
             catalogReviewConfirmed: false,
             manualCurrencyConfirmed: false,
             manualUnitConfirmed: false,
+            sourceDescription: foreign.evidence,
             workSiteId: null,
           });
         });
       }
 
+      const mergedEditorItems = mergeEquivalentFormItems([
+        ...mappedItems,
+        ...syntheticCurrencyReviewItems,
+      ]);
+      const sourceTextForEditorCleanup = [
+        o.notes,
+        o.audioTranscript,
+        o.description,
+        o.specialNotes,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const foreignEvidenceForEditorCleanup =
+        extractForeignCurrencyAmountsV17_90L36D(
+          sourceTextForEditorCleanup,
+          o.currency,
+        );
+      const concreteForeignReviewCount = mergedEditorItems.filter((entry) => {
+        if (isInternalReviewServiceName(entry.serviceName)) return false;
+        const evidence = normalizeForMatch(
+          [entry.aiWarning, entry.sourceDescription].filter(Boolean).join(" "),
+        );
+        return foreignEvidenceForEditorCleanup.some((foreign) => {
+          const foreignKey = normalizeForMatch(foreign.evidence);
+          return Boolean(
+            foreignKey &&
+              evidence &&
+              (evidence.includes(foreignKey) || foreignKey.includes(evidence)),
+          );
+        });
+      }).length;
+      let remainingConcreteForeignReviews = concreteForeignReviewCount;
       setFormItems(
-        mergeEquivalentFormItems([
-          ...mappedItems,
-          ...syntheticCurrencyReviewItems,
-        ]),
+        mergedEditorItems.filter((entry) => {
+          if (remainingConcreteForeignReviews <= 0) return true;
+          if (!isInternalReviewServiceName(entry.serviceName)) return true;
+          if (Number(entry.unitPrice || 0) > 0) return true;
+
+          const evidence = normalizeForMatch(
+            [entry.aiWarning, entry.sourceDescription].filter(Boolean).join(" "),
+          );
+          const hasSpecificEvidence =
+            evidence.length >= 18 &&
+            !/^(?:leistung|einheit|preis|menge).*(?:unklar|pruefen|prufen)$/.test(
+              evidence,
+            );
+          const duplicatesForeignEvidence =
+            foreignEvidenceForEditorCleanup.some((foreign) => {
+              const foreignKey = normalizeForMatch(foreign.evidence);
+              return Boolean(
+                foreignKey &&
+                  evidence &&
+                  (evidence.includes(foreignKey) ||
+                    foreignKey.includes(evidence)),
+              );
+            });
+
+          if (!hasSpecificEvidence || duplicatesForeignEvidence) {
+            remainingConcreteForeignReviews -= 1;
+            return false;
+          }
+          return true;
+        }),
       );
     } else {
       setFormItems(
@@ -7253,20 +7317,48 @@ export default function AuftraegePage() {
     name: string,
     svcOpt?: ServiceOption,
   ) => {
-    // V17.90L39: Manche Combobox-Pfade liefern beim Klick nur den Namen zurück.
-    // Dann muss der sichtbare Katalogeintrag trotzdem eindeutig nachgeschlagen
-    // werden; sonst bleiben Preis/Einheit nur optisch gesetzt und die rote
-    // Währungsprüfung wird nicht persistent aufgelöst.
-    const svc =
-      svcOpt ||
-      services.find(
-        (service) =>
-          normalizeForMatch(service.name) === normalizeForMatch(name),
-      );
-
     setFormItems((prev) =>
       prev.map((item, i) => {
         if (i !== index) return item;
+
+        // V17.90L40: Manche Combobox-Pfade liefern nur den Namen. Gibt es
+        // gleichnamige Katalogeinträge, darf nicht der erste beliebige Treffer
+        // genommen werden. Bevorzugt wird der tatsächlich übergebene Eintrag;
+        // andernfalls der strukturell passendste Treffer zur bestehenden
+        // Prüfposition (Einheit/Preis), damit z. B. Pauschal nicht zu Stunde wird.
+        const targetNameKey = normalizeForMatch(
+          canonicalServiceNameForOrderItem(name),
+        );
+        const exactCandidates = services.filter(
+          (service) =>
+            normalizeForMatch(
+              canonicalServiceNameForOrderItem(service.name),
+            ) === targetNameKey,
+        );
+        const currentUnitKey = normalizePriceUnitForCompare(item.unit);
+        const currentPrice = Number(item.unitPrice || 0);
+        const svc =
+          svcOpt ||
+          exactCandidates
+            .map((candidate) => {
+              const candidateUnitKey = normalizePriceUnitForCompare(
+                candidate.unit,
+              );
+              const candidatePrice = Number(candidate.defaultPrice || 0);
+              let score = 0;
+              if (currentUnitKey && candidateUnitKey === currentUnitKey)
+                score += 100;
+              if (
+                currentPrice > 0 &&
+                candidatePrice > 0 &&
+                Math.abs(candidatePrice - currentPrice) < 0.01
+              )
+                score += 80;
+              if (candidatePrice > 0) score += 20;
+              if (candidateUnitKey) score += 10;
+              return { candidate, score };
+            })
+            .sort((a, b) => b.score - a.score)[0]?.candidate;
 
         if (svc) {
           const selectedCatalogPrice = Number(svc.defaultPrice ?? 0);
@@ -7624,7 +7716,12 @@ export default function AuftraegePage() {
           const warningText = normalizeForMatch(nextItem.aiWarning);
           const itemHadCurrencyReview =
             hasFormItemCurrencyMismatch(item) ||
-            isBlockingCurrencyReviewText(item.aiWarning);
+            isBlockingCurrencyReviewText(item.aiWarning) ||
+            Boolean(
+              hasCurrentEditCurrencyReview &&
+                (isInternalReviewServiceName(item.serviceName) ||
+                  Number(item.unitPrice || 0) <= 0),
+            );
           const unitText = normalizeForMatch(nextItem.unit);
           const isResolvedInput =
             nextItem.serviceName.trim().length > 0 &&

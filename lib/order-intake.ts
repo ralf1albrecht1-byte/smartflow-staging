@@ -9368,6 +9368,64 @@ export async function processIncomingMessage(
     validationSourceText,
   );
 
+  // V17.90L40: Letzte Persistenz-Sicherung gegen doppelte rote Felder.
+  // Wenn eine konkrete Fremdwährungs-Prüfposition existiert, darf daneben
+  // keine leere generische "Leistung prüfen"-Zeile aus demselben Evidence-
+  // Fragment gespeichert werden. Eigenständige unklare Leistungen mit eigener
+  // konkreter Evidence bleiben erhalten.
+  const finalCurrencyForDuplicateGuard = intakeValidation.finalCurrency;
+  const foreignReviewItemsForDuplicateGuard = finalOrderItems.filter((item) => {
+    const detected = String(item.detectedCurrency || "")
+      .trim()
+      .toUpperCase();
+    const reason = String(item.reviewReason || "");
+    return Boolean(
+      (detected && detected !== finalCurrencyForDuplicateGuard) ||
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:"),
+    );
+  });
+
+  if (foreignReviewItemsForDuplicateGuard.length > 0) {
+    const foreignEvidence = foreignReviewItemsForDuplicateGuard
+      .map((item) =>
+        normalizeUnitText(
+          [item.sourceText, item.evidence, item.description]
+            .filter(Boolean)
+            .join(" "),
+        ),
+      )
+      .filter(Boolean);
+
+    finalOrderItems = finalOrderItems.filter((item) => {
+      if (foreignReviewItemsForDuplicateGuard.includes(item)) return true;
+      if (!isInternalReviewServiceNameV17_90L(item.serviceName || ""))
+        return true;
+      if (Number(item.unitPrice || 0) > 0 || Number(item.totalPrice || 0) > 0)
+        return true;
+
+      const evidence = normalizeUnitText(
+        [item.sourceText, item.evidence, item.description]
+          .filter(Boolean)
+          .join(" "),
+      );
+      const hasSpecificEvidence =
+        evidence.length >= 18 &&
+        !/^(?:leistung|einheit|preis|menge).*(?:unklar|pruefen|prüfen)$/.test(
+          evidence,
+        );
+      const duplicatesForeignEvidence = foreignEvidence.some((foreign) =>
+        Boolean(
+          foreign &&
+            evidence &&
+            (evidence.includes(foreign) || foreign.includes(evidence)),
+        ),
+      );
+
+      return hasSpecificEvidence && !duplicatesForeignEvidence;
+    });
+  }
+
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {
     customerAddress: addr.street,
