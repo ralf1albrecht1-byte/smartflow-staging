@@ -1,4 +1,21 @@
-import { getActiveDataScope, type DataScope } from '@/lib/data-scope';
+export type DataScope = 'TEST' | 'LIVE';
+
+async function resolveCustomerLinksDataScope(
+  prisma: any,
+  userId: string,
+  requestedScope?: DataScope,
+): Promise<DataScope> {
+  if (requestedScope === 'TEST' || requestedScope === 'LIVE') {
+    return requestedScope;
+  }
+
+  const settings = await prisma.companySettings.findFirst({
+    where: { userId },
+    select: { testModus: true },
+  });
+
+  return settings?.testModus === false ? 'LIVE' : 'TEST';
+}
 /**
  * Single source of truth for counting records linked to a customer in a way that
  * matches exactly what the user sees in the module list pages.
@@ -167,7 +184,11 @@ export async function getCustomerDeleteBlockerCounts(
   userId: string,
   requestedScope?: DataScope,
 ): Promise<CustomerDeleteBlockerCounts> {
-  const dataScope = requestedScope || await getActiveDataScope(userId, prisma);
+  const dataScope = await resolveCustomerLinksDataScope(
+    prisma,
+    userId,
+    requestedScope,
+  );
   const [activeOrders, activeOffers, activeInvoices, archivedInvoices, historicalOrders, historicalOffers] = await Promise.all([
     prisma.order.count({ where: { customerId, deletedAt: null, userId, dataScope, offerId: null, invoiceId: null } }),
     prisma.offer.count({ where: { customerId, deletedAt: null, userId, dataScope, status: { in: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
