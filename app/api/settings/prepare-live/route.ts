@@ -159,8 +159,11 @@ export async function POST(request: Request) {
     if (confirmText !== CONFIRM_TEXT && confirmText !== REPAIR_CONFIRM_TEXT) {
       return NextResponse.json({ error: `Bitte exakt ${CONFIRM_TEXT} oder ${REPAIR_CONFIRM_TEXT} bestätigen.` }, { status: 400 });
     }
-    if (keepCustomerIds.length === 0) {
-      return NextResponse.json({ error: 'Bitte mindestens einen TEST-Kunden für den Livebetrieb auswählen.' }, { status: 400 });
+    if (repairExistingLive && keepCustomerIds.length === 0) {
+      return NextResponse.json(
+        { error: 'Für die Live-Reparatur muss mindestens ein TEST-Kunde ausgewählt werden.' },
+        { status: 400 },
+      );
     }
 
     const settings = await getSettings(userId);
@@ -319,7 +322,9 @@ export async function POST(request: Request) {
       success: true,
       message: result.mode === 'repair'
         ? `Livebestand sicher neu aufgebaut. ${result.copiedCustomers.length} Kunde${result.copiedCustomers.length === 1 ? '' : 'n'} kopiert; TEST-Daten blieben unverändert.`
-        : `Livebetrieb vorbereitet. ${result.copiedCustomers.length} Kunde${result.copiedCustomers.length === 1 ? '' : 'n'} kopiert; keine TEST-Aufträge oder Belege wurden übernommen.`,
+        : result.copiedCustomers.length === 0
+          ? 'Livebetrieb ohne Kunden gestartet. TEST-Daten blieben vollständig unverändert.'
+          : `Livebetrieb vorbereitet. ${result.copiedCustomers.length} Kunde${result.copiedCustomers.length === 1 ? '' : 'n'} kopiert; keine TEST-Aufträge oder Belege wurden übernommen.`,
       ...result,
     });
   } catch (error: any) {

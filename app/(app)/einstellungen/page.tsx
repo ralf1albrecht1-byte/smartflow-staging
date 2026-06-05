@@ -307,8 +307,12 @@ export default function EinstellungenPage() {
       });
       return;
     }
-    if (livePrepKeepIds.length === 0) {
-      toast({ title: 'Kunde fehlt', description: 'Bitte mindestens einen vollständigen TEST-Kunden auswählen.', variant: 'destructive' });
+    if (repairMode && livePrepKeepIds.length === 0) {
+      toast({
+        title: 'Kunde fehlt',
+        description: 'Für die Live-Reparatur muss mindestens ein vollständiger TEST-Kunde ausgewählt werden.',
+        variant: 'destructive',
+      });
       return;
     }
     setLivePrepExecuting(true);
@@ -1556,7 +1560,7 @@ const storedValue = finalUrl;
                               ? 'Der Livebestand ist leer. Wähle die TEST-Kunden aus, die als neue Live-Kunden kopiert werden sollen.'
                               : livePrepPreview?.liveStarted
                                 ? 'Der Livebetrieb wurde bereits gestartet. Es werden keine Kunden mehr übernommen.'
-                                : 'Wähle aus, welche echten Kunden in den Livebetrieb kopiert werden.'}
+                                : 'Wähle optional aus, welche echten Kunden in den Livebetrieb kopiert werden.'}
                           </p>
                         </div>
                       </div>
@@ -1655,7 +1659,7 @@ const storedValue = finalUrl;
                               ? 'Nur der leere/fehlerhafte LIVE-Bestand wird neu aufgebaut. TEST bleibt unverändert.'
                               : livePrepPreview?.liveStarted
                                 ? 'Livebetrieb wurde bereits gestartet. Jetzt wird nur der Modus gewechselt.'
-                                : 'Erst nach Kunden-Auswahl und Sicherheitswort.'}
+                                : 'Kundenauswahl ist optional. Das Sicherheitswort ECHTSTART ist erforderlich.'}
                           </p>
                         </div>
                       </div>
@@ -1670,7 +1674,7 @@ const storedValue = finalUrl;
                           livePrepLoading ||
                           switchingMode !== null ||
                           (
-                            (!livePrepPreview.liveStarted || livePrepPreview.liveNeedsRepair) &&
+                            livePrepPreview.liveNeedsRepair &&
                             livePrepKeepIds.length === 0
                           )
                         }
@@ -1694,7 +1698,7 @@ const storedValue = finalUrl;
                             ? 'Bestätigung schließen'
                             : livePrepPreview
                               ? (
-                                  livePrepKeepIds.length === 0
+                                  livePrepPreview.liveNeedsRepair && livePrepKeepIds.length === 0
                                     ? 'Kunde auswählen'
                                     : 'Weiter zur Bestätigung'
                                 )
@@ -1714,8 +1718,12 @@ const storedValue = finalUrl;
                           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                           <div className="space-y-1">
                             <p className="font-semibold">Letzte Bestätigung</p>
-                            <p>Übernommen werden nur die ausgewählten Kunden: {livePrepKeepIds.length} Kunde(n).</p>
-                            <p>Nur die ausgewählten Kunden werden als LIVE-Kopien angelegt. TEST-Kunden, TEST-Aufträge und TEST-Belege werden nicht gelöscht oder verschoben.</p>
+                            <p>
+                              {livePrepKeepIds.length === 0
+                                ? 'Es wurden keine Kunden ausgewählt. Der neue Livebetrieb startet mit einem leeren Kundenbestand.'
+                                : `Übernommen werden nur die ausgewählten Kunden: ${livePrepKeepIds.length} Kunde(n).`}
+                            </p>
+                            <p>Nur ausgewählte Kunden werden als LIVE-Kopien angelegt. TEST-Kunden, TEST-Aufträge und TEST-Belege werden nicht gelöscht oder verschoben.</p>
                           </div>
                         </div>
 
