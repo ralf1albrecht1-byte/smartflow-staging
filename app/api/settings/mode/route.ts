@@ -46,6 +46,90 @@ async function hasExistingLivebetrieb(userId: string): Promise<boolean> {
  * - löscht keine Daten,
  * - speichert keine anderen Firmeneinstellungen.
  */
+export async function GET() {
+  try {
+    let userId: string;
+
+    try {
+      userId = await requireUserId();
+    } catch (error) {
+      return handleAuthError(error);
+    }
+
+    const [
+      settings,
+      liveStarted,
+      testCustomers,
+      liveCustomers,
+      testOrders,
+      liveOrders,
+      testOffers,
+      liveOffers,
+      testInvoices,
+      liveInvoices,
+    ] = await Promise.all([
+      prisma.companySettings.findFirst({
+        where: { userId },
+        select: { testModus: true },
+      }),
+      hasExistingLivebetrieb(userId),
+      prisma.customer.count({
+        where: { userId, dataScope: 'TEST', deletedAt: null },
+      }),
+      prisma.customer.count({
+        where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null },
+      }),
+      prisma.order.count({
+        where: { userId, dataScope: 'TEST', deletedAt: null },
+      }),
+      prisma.order.count({
+        where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null },
+      }),
+      prisma.offer.count({
+        where: { userId, dataScope: 'TEST', deletedAt: null },
+      }),
+      prisma.offer.count({
+        where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null },
+      }),
+      prisma.invoice.count({
+        where: { userId, dataScope: 'TEST', deletedAt: null },
+      }),
+      prisma.invoice.count({
+        where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null },
+      }),
+    ]);
+
+    return NextResponse.json({
+      testModus: settings?.testModus ?? true,
+      liveStarted,
+      // Ein leer gestarteter Livebetrieb ist gültig und kein Reparaturfall.
+      liveNeedsRepair: false,
+      counts: {
+        testCustomers,
+        liveCustomers,
+        testOrders,
+        liveOrders,
+        testOffers,
+        liveOffers,
+        testInvoices,
+        liveInvoices,
+      },
+      customers: [],
+      warnings: liveStarted
+        ? [
+            'Livebetrieb wurde bereits gestartet. Die einmalige Kundenübernahme ist abgeschlossen und gesperrt.',
+          ]
+        : [],
+    });
+  } catch (error) {
+    console.error('GET /api/settings/mode error:', error);
+    return NextResponse.json(
+      { error: 'Modusstatus konnte nicht geladen werden.' },
+      { status: 500 },
+    );
+  }
+}
+
 export async function PATCH(request: Request) {
   try {
     let userId: string;

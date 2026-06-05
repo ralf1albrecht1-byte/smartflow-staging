@@ -230,8 +230,15 @@ export default function EinstellungenPage() {
 
     (async () => {
       try {
-        const res = await fetch('/api/settings/prepare-live', { method: 'GET', cache: 'no-store' });
+        // Wichtig: Derselbe Status-Endpunkt entscheidet über Anzeige UND
+        // tatsächlichen Moduswechsel. Dadurch kann die UI einen vorhandenen
+        // Livebestand nicht mehr fälschlich als neuen Erststart darstellen.
+        const res = await fetch('/api/settings/mode', {
+          method: 'GET',
+          cache: 'no-store',
+        });
         const data = await res.json().catch(() => null);
+
         if (!cancelled && res.ok && data?.liveStarted) {
           setLivePrepPreview(data);
           setLivePrepKeepIds([]);
@@ -239,7 +246,7 @@ export default function EinstellungenPage() {
           setLiveConfirmText('');
         }
       } catch {
-        // Bestehender-Livebetrieb-Prüfung ist nur UI-Komfort. Manuelles Laden bleibt möglich.
+        // Status kann weiterhin über den manuellen Button erneut geladen werden.
       }
     })();
 
@@ -252,18 +259,49 @@ export default function EinstellungenPage() {
   async function loadLivePrepPreview() {
     setLivePrepLoading(true);
     try {
-      const res = await fetch('/api/settings/prepare-live', { method: 'GET' });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        toast({ title: 'Fehler', description: data?.error || 'Vorschau konnte nicht geladen werden.', variant: 'destructive' });
+      // Erste Schutzstufe: Ist LIVE bereits vorhanden, wird niemals erneut
+      // die Kundenauswahl oder ein zweiter Echtstart angeboten.
+      const modeRes = await fetch('/api/settings/mode', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      const modeData = await modeRes.json().catch(() => null);
+
+      if (modeRes.ok && modeData?.liveStarted) {
+        setLivePrepPreview(modeData);
+        setLivePrepKeepIds([]);
+        setShowLiveConfirm(false);
+        setLiveConfirmText('');
         return;
       }
+
+      // Nur bei einem echten, noch nie gestarteten Account wird die optionale
+      // Kundenauswahl für den ersten Echtstart geladen.
+      const res = await fetch('/api/settings/prepare-live', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        toast({
+          title: 'Fehler',
+          description: data?.error || 'Vorschau konnte nicht geladen werden.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       setLivePrepPreview(data);
       setLivePrepKeepIds([]);
       setShowLiveConfirm(false);
       setLiveConfirmText('');
     } catch {
-      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Laden der Vorschau.', variant: 'destructive' });
+      toast({
+        title: 'Fehler',
+        description: 'Netzwerkfehler beim Laden der Vorschau.',
+        variant: 'destructive',
+      });
     } finally {
       setLivePrepLoading(false);
     }
