@@ -206,6 +206,15 @@ export default function EinstellungenPage() {
   useEffect(() => {
     loadSettings();
     loadCompliance();
+
+    const requestedSection = new URLSearchParams(window.location.search).get('section');
+    if (requestedSection === 'nummern') {
+      setActiveSection('nummern');
+      setOpenSections(prev => ({ ...prev, nummern: true }));
+      window.setTimeout(() => {
+        document.getElementById('nummern')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    }
   }, []);
 
   useEffect(() => {
@@ -326,6 +335,9 @@ export default function EinstellungenPage() {
       setForm(prev => ({ ...prev, testModus: false }));
       setSavedData(prev => ({ ...prev, testModus: false }));
       setHasChanges(false);
+      window.dispatchEvent(new CustomEvent('smartflow-mode-changed', {
+        detail: { testModus: false },
+      }));
       loadSettings();
     } catch {
       toast({ title: 'Fehler', description: 'Netzwerkfehler beim Vorbereiten des Livebetriebs.', variant: 'destructive' });
@@ -361,6 +373,9 @@ export default function EinstellungenPage() {
       setLiveConfirmText('');
       setLivePrepPreview(prev => (prev ? { ...prev, testModus: mapped.testModus } : prev));
       setExistingLiveStateChecked(false);
+      window.dispatchEvent(new CustomEvent('smartflow-mode-changed', {
+        detail: { testModus: mapped.testModus },
+      }));
 
       toast({
         title: mapped.testModus ? 'Testmodus aktiv' : 'Livebetrieb aktiv',
@@ -1649,7 +1664,16 @@ const storedValue = finalUrl;
                         type="button"
                         size="sm"
                         variant={livePrepPreview ? 'default' : 'outline'}
-                        disabled={!livePrepPreview || livePrepExecuting || livePrepLoading || switchingMode !== null}
+                        disabled={
+                          !livePrepPreview ||
+                          livePrepExecuting ||
+                          livePrepLoading ||
+                          switchingMode !== null ||
+                          (
+                            (!livePrepPreview.liveStarted || livePrepPreview.liveNeedsRepair) &&
+                            livePrepKeepIds.length === 0
+                          )
+                        }
                         onClick={() => {
                           if (livePrepPreview?.liveStarted && !livePrepPreview?.liveNeedsRepair) {
                             if (!confirm('Zum bestehenden Livebetrieb wechseln?\n\nEs werden keine Kunden neu übernommen, keine Nummern neu vergeben und keine Testdaten gelöscht.')) return;
@@ -1669,7 +1693,11 @@ const storedValue = finalUrl;
                           : showLiveConfirm
                             ? 'Bestätigung schließen'
                             : livePrepPreview
-                              ? 'Weiter zur Bestätigung'
+                              ? (
+                                  livePrepKeepIds.length === 0
+                                    ? 'Kunde auswählen'
+                                    : 'Weiter zur Bestätigung'
+                                )
                               : 'Noch nicht bereit'}
                       </Button>
                     </div>
