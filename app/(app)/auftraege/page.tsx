@@ -6661,14 +6661,28 @@ export default function AuftraegePage() {
       // neutrale rote Prüfposition mit Total 0 angezeigt.
       const syntheticCurrencyReviewItems: FormItem[] = [];
       if (hasGlobalCurrencyReviewWithoutItemDetails(o.reviewReasons)) {
-        const sourceText =
-          String(o.notes || "").trim() ||
-          [
-            o.description,
-            ...(o.items || []).map((entry) => entry.description || ""),
-          ]
-            .filter(Boolean)
-            .join("\n");
+        // V17.90L36e: Nicht nur das erste nicht-leere Textfeld verwenden.
+        // Bei älteren Aufträgen steht die originale Kundennachricht häufig in
+        // audioTranscript, während notes bereits nur Besonderheiten enthält.
+        // Alle verfügbaren Quellen werden zusammengeführt, damit eine echte
+        // Fremdwährungszeile wie "Travel cost EUR 35" sichtbar als rote
+        // Prüfposition erzeugt werden kann.
+        const sourceText = Array.from(
+          new Set(
+            [
+              o.notes,
+              o.audioTranscript,
+              o.description,
+              o.specialNotes,
+              ...(o.items || []).flatMap((entry) => [
+                entry.description || "",
+                entry.serviceName || "",
+              ]),
+            ]
+              .map((value) => String(value || "").trim())
+              .filter(Boolean),
+          ),
+        ).join("\n");
         const foreignAmounts = extractForeignCurrencyAmountsV17_90L36D(
           sourceText,
           o.currency,
