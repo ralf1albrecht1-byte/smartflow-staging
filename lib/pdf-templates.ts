@@ -83,8 +83,7 @@ function decodeOfferPdfMeta(value: unknown): OfferPdfMeta {
 function renderOfferPdfTextBlock(offer: any): string {
   const meta = decodeOfferPdfMeta(offer?.notes);
   if (!meta.title && !meta.text) return "";
-  const body = meta.text ? meta.text.replace(/
-/g, "<br/>") : "";
+  const body = meta.text ? meta.text.replace(/\n/g, "<br/>") : "";
   if (meta.title) {
     return `<div class="notes"><strong>${meta.title}</strong>${body ? `<br/>${body}` : ""}</div>`;
   }

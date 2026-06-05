@@ -3104,9 +3104,9 @@ export default function AngebotePage() {
                             </div>
                           </div>
                         )}
-                        {stripForwardedMessage(String(linkedOrderData.notes || "")).trim() ? (
+                        {String(linkedOrderData.notes || "").trim() ? (
                           <div className="max-h-[320px] overflow-auto rounded-md border bg-background p-2 whitespace-pre-wrap break-words">
-                            {stripForwardedMessage(String(linkedOrderData.notes || "")).trim()}
+                            {String(linkedOrderData.notes || "").trim()}
                           </div>
                         ) : linkedOrderData.mediaUrl ? (
                           <div className="rounded-md border bg-background p-2 text-muted-foreground">
