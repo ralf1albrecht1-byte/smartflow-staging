@@ -1307,7 +1307,9 @@ function isReviewReasonResolvedByConfirmedItemForPersist(
   // Position. Preis-/Kataloghinweise dürfen weiterhin so aufgelöst werden.
   return (
     key.startsWith("price_unclear:") ||
-    key.startsWith("price_override:")
+    key.startsWith("price_override:") ||
+    key.startsWith("item_currency_mismatch:") ||
+    key.startsWith("currency_conflict_item:")
   );
 }
 
@@ -1357,11 +1359,15 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
     ]
       .filter(Boolean)
       .join(" ");
-    const itemHasUnresolvedCurrencyMismatch =
-      hasCurrencyMismatchReviewForService(data || {}, serviceName);
     const itemManuallyConfirmed =
-      isItemManuallyConfirmedForPersist(item) &&
-      !itemHasUnresolvedCurrencyMismatch;
+      isItemManuallyConfirmedForPersist(item);
+    // V17.90L41: Der explizite MANUAL_CURRENCY_CONFIRMED-Marker entsteht nur
+    // nach einer echten Benutzeraktion im Editor. Er muss daher den veralteten
+    // positionsbezogenen ReviewReason überstimmen; andernfalls setzt die API
+    // den eingegebenen Preis beim Speichern wieder auf 0.
+    const itemHasUnresolvedCurrencyMismatch =
+      hasCurrencyMismatchReviewForService(data || {}, serviceName) &&
+      !itemManuallyConfirmed;
     const forceMissingPriceReview =
       !trustClientItemValues &&
       !itemManuallyConfirmed &&
@@ -1576,10 +1582,29 @@ function normalizeReviewReasonsForPersist(data: any) {
   const allItemsComplete = hasCompleteManualItemsForPersist(data);
   const allItemsCompleteIgnoringCurrency =
     hasCompleteManualItemsIgnoringCurrencyForPersist(data);
+  const hasExplicitConfirmedCurrencyItem = items.some((item: any) =>
+    isItemManuallyConfirmedForPersist(item),
+  );
   const firstPass = reasons.filter((reason: string) => {
     const key = String(reason || "");
 
     if (isReviewReasonResolvedByConfirmedItemForPersist(key, data)) {
+      return false;
+    }
+
+    // V17.90L41: Wenn der Editor eine vollständig ausgefüllte Position mit
+    // explizitem Bestätigungsmarker sendet und den Währungsreview als gelöst
+    // kennzeichnet, dürfen weder globale noch positionsbezogene Altgründe die
+    // Position beim Reload erneut blockieren.
+    if (
+      data?.manualCurrencyReviewResolved === true &&
+      hasExplicitConfirmedCurrencyItem &&
+      (key === "currency_review" ||
+        key === "currency_conflict" ||
+        key === "currency_unsupported" ||
+        key.startsWith("item_currency_mismatch:") ||
+        key.startsWith("currency_conflict_item:"))
+    ) {
       return false;
     }
 

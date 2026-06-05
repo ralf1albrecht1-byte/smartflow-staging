@@ -6905,8 +6905,34 @@ export default function AuftraegePage() {
           sourceText,
           o.currency,
         );
+        const confirmedResolvedCurrencyItems = mappedItems.filter(
+          (item) =>
+            Boolean(item.manualCurrencyConfirmed) &&
+            String(item.serviceName || "").trim().length > 0 &&
+            Number(item.unitPrice || 0) > 0 &&
+            Number(item.quantity || 0) > 0,
+        );
 
         foreignAmounts.forEach((foreign) => {
+          const foreignCurrencyKey = normalizeForMatch(foreign.currency);
+          const foreignAmountKey = normalizeForMatch(String(foreign.amount));
+          const representedByConfirmedItem =
+            confirmedResolvedCurrencyItems.some((item) => {
+              const evidence = normalizeForMatch(
+                [item.sourceDescription, item.aiWarning]
+                  .filter(Boolean)
+                  .join(" "),
+              );
+              return Boolean(
+                evidence &&
+                  evidence.includes(foreignCurrencyKey) &&
+                  evidence.includes(foreignAmountKey),
+              );
+            }) ||
+            (foreignAmounts.length === 1 &&
+              confirmedResolvedCurrencyItems.length === 1);
+          if (representedByConfirmedItem) return;
+
           const representedByEditableMismatchItem = mappedItems.some((item) => {
             if (
               !hasCurrencyMismatchReviewForService(
@@ -6966,24 +6992,31 @@ export default function AuftraegePage() {
         );
       const concreteForeignReviewCount = mergedEditorItems.filter((entry) => {
         if (isInternalReviewServiceName(entry.serviceName)) return false;
-        const evidence = normalizeForMatch(
-          [entry.aiWarning, entry.sourceDescription].filter(Boolean).join(" "),
-        );
-        return foreignEvidenceForEditorCleanup.some((foreign) => {
-          const foreignKey = normalizeForMatch(foreign.evidence);
-          return Boolean(
-            foreignKey &&
-              evidence &&
-              (evidence.includes(foreignKey) || foreignKey.includes(evidence)),
-          );
-        });
+        if (Boolean(entry.manualCurrencyConfirmed)) return true;
+        if (
+          hasCurrencyMismatchReviewForService(
+            effectiveOrderReviewReasons,
+            entry.serviceName,
+          )
+        )
+          return true;
+        return isBlockingCurrencyReviewText(entry.aiWarning);
       }).length;
-      let remainingConcreteForeignReviews = concreteForeignReviewCount;
+      const confirmedCurrencyReviewCount = mergedEditorItems.filter(
+        (entry) =>
+          Boolean(entry.manualCurrencyConfirmed) &&
+          Number(entry.unitPrice || 0) > 0 &&
+          Number(entry.quantity || 0) > 0,
+      ).length;
+      let staleGenericReviewBudget = Math.max(
+        concreteForeignReviewCount,
+        confirmedCurrencyReviewCount,
+      );
       setFormItems(
         mergedEditorItems.filter((entry) => {
-          if (remainingConcreteForeignReviews <= 0) return true;
           if (!isInternalReviewServiceName(entry.serviceName)) return true;
           if (Number(entry.unitPrice || 0) > 0) return true;
+          if (staleGenericReviewBudget <= 0) return true;
 
           const evidence = normalizeForMatch(
             [entry.aiWarning, entry.sourceDescription].filter(Boolean).join(" "),
@@ -7003,9 +7036,14 @@ export default function AuftraegePage() {
                     foreignKey.includes(evidence)),
               );
             });
+          const isGenericBoilerplate =
+            !evidence ||
+            /^(?:leistung|einheit|preis|menge|vor angebot rechnung|diese position wird nicht).*(?:unklar|pruefen|prufen|netto|total)?$/.test(
+              evidence,
+            );
 
-          if (!hasSpecificEvidence || duplicatesForeignEvidence) {
-            remainingConcreteForeignReviews -= 1;
+          if (isGenericBoilerplate || !hasSpecificEvidence || duplicatesForeignEvidence) {
+            staleGenericReviewBudget -= 1;
             return false;
           }
           return true;
@@ -7713,7 +7751,6 @@ export default function AuftraegePage() {
           field === "unit" ||
           field === "serviceName"
         ) {
-          const warningText = normalizeForMatch(nextItem.aiWarning);
           const itemHadCurrencyReview =
             hasFormItemCurrencyMismatch(item) ||
             isBlockingCurrencyReviewText(item.aiWarning) ||
@@ -7761,13 +7798,13 @@ export default function AuftraegePage() {
           // ohne die Position künstlich als Katalogprüfung-erledigt zu markieren.
           // So wird eine korrigierte einzelne Zeile sofort gelb/normal berechnet
           // und bleibt nach Speichern/Reload erhalten; andere Zeilen bleiben rot.
-          if (
-            isResolvedInput &&
-            itemHadCurrencyReview &&
-            /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
-              warningText || normalizeForMatch(item.aiWarning),
-            )
-          ) {
+          // V17.90L41: Sobald eine echte Währungs-Prüfposition durch den
+          // Benutzer vollständig ausgefüllt wurde, gilt sie unmittelbar als
+          // bestätigt. Die Bestätigung darf nicht davon abhängen, ob der
+          // sichtbare Warntext noch direkt am Item hängt oder nur als
+          // orderweiter ReviewReason gespeichert ist. Sonst bleibt das
+          // Preisfeld rot und der Server setzt den Preis beim Reload wieder 0.
+          if (isResolvedInput && itemHadCurrencyReview) {
             nextItem.aiWarning = "";
             nextItem.manualCurrencyConfirmed = true;
           }

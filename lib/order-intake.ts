@@ -1712,11 +1712,19 @@ function cleanIntakeCityCandidate(
       /\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i,
       "",
     )
+    // V17.90L41: Operative Satzfortsetzungen wie
+    // "Zürich bitte zuerst beim Empfang melden" dürfen nicht als Ort
+    // gespeichert werden. Nur der Ortsanteil vor der Anweisung bleibt.
+    .replace(
+      /\s+\b(?:bitte|zuerst|vorher|danach|anschliessend|anschließend|nachher|erst\s+noch)\b.*$/i,
+      "",
+    )
     .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
   if (!city || /^[-–—]+$/.test(city)) return null;
+  if (/\b(?:beim|bei|am|an|im|in|zum|zur)\s*$/i.test(city)) return null;
   return city;
 }
 

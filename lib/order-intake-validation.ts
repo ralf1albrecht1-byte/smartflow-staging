@@ -4872,6 +4872,280 @@ function finalizeForeignCurrencyReviewItemsV17_90L39(
   });
 }
 
+
+// V17.90L41: Letzte positionsbezogene Währungsabsicherung. Wenn exakt der
+// gespeicherte Positionspreis in derselben Evidence mit einer anderen Währung
+// steht, darf dieser Betrag niemals still als Auftragswährung berechnet werden.
+// Beispiel: Auftrag CHF, Evidence "Anfahrt 35 Euro" -> Preis bleibt 0 und die
+// Position wird als Währung prüfen gespeichert. Andere CHF-Positionen im selben
+// chaotischen Einzeiler bleiben unberührt, weil nur der exakt gebundene Betrag
+// geprüft wird.
+function explicitCurrencyForExactItemPriceV17_90L41(
+  evidence: string,
+  unitPrice: number,
+): string | null {
+  if (!evidence || !Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+
+  const normalizedAmount = String(unitPrice)
+    .replace(/\.0+$/, "")
+    .replace(/(\.\d*?)0+$/, "$1");
+  const amountPattern = escapeRegExp(normalizedAmount).replace("\\.", "[.,]");
+  const currencyPatterns: Array<[string, string]> = [
+    ["CHF", "(?:chf|franken|fr\\.?|sfr\\.?|stutz)"],
+    ["EUR", "(?:eur|euro|€)"],
+    ["USD", "(?:usd|us-dollar|dollar|us\\$|\\$)"],
+    ["GBP", "(?:gbp|pfund|pound|£)"],
+  ];
+
+  for (const [currency, token] of currencyPatterns) {
+    const pattern = new RegExp(
+      `(?:\\b${token}\\b\\s*${amountPattern}\\b|\\b${amountPattern}\\s*${token}\\b)`,
+      "i",
+    );
+    if (pattern.test(evidence)) return currency;
+  }
+
+  return null;
+}
+
+
+type RawForeignCurrencyAmountV17_90L41 = {
+  currency: string;
+  amount: number;
+  index: number;
+  evidence: string;
+};
+
+function extractRawForeignCurrencyAmountsV17_90L41(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): RawForeignCurrencyAmountV17_90L41[] {
+  const source = normalizeText(originalText || "");
+  if (!source) return [];
+
+  const currencyPatterns: Array<[string, string]> = [
+    ["CHF", "(?:chf|franken|fr\\.?|sfr\\.?|stutz)"],
+    ["EUR", "(?:eur|euro|€)"],
+    ["USD", "(?:usd|us-dollar|dollar|us\\$|\\$)"],
+    ["GBP", "(?:gbp|pfund|pound|£)"],
+  ];
+  const found: RawForeignCurrencyAmountV17_90L41[] = [];
+
+  const add = (currency: string, rawAmount: string, index: number) => {
+    if (currency === finalCurrency) return;
+    const amount = Number(String(rawAmount || "").replace("'", "").replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const start = Math.max(0, index - 90);
+    const end = Math.min(source.length, index + 90);
+    const evidence = source
+      .slice(start, end)
+      .replace(/^.*?(?:\n|;|\.)\s*/s, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const key = `${currency}:${amount}:${index}`;
+    if (found.some((entry) => `${entry.currency}:${entry.amount}:${entry.index}` === key)) return;
+    found.push({ currency, amount, index, evidence });
+  };
+
+  for (const [currency, token] of currencyPatterns) {
+    const before = new RegExp(`\\b${token}\\b\\s*(${PRICE_NUMBER})`, "gi");
+    for (const match of source.matchAll(before)) {
+      if (match.index == null) continue;
+      add(currency, match[1], match.index);
+    }
+    const after = new RegExp(`(${PRICE_NUMBER})\\s*${token}\\b`, "gi");
+    for (const match of source.matchAll(after)) {
+      if (match.index == null) continue;
+      add(currency, match[1], match.index);
+    }
+  }
+
+  return found.sort((a, b) => a.index - b.index);
+}
+
+function appendRawForeignCurrencyReviewItemsV17_90L41(
+  originalText: string,
+  originalItems: ParsedOrderItemForValidation[],
+  currentItems: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const rawForeign = extractRawForeignCurrencyAmountsV17_90L41(
+    originalText,
+    finalCurrency,
+  );
+  if (rawForeign.length === 0) return { items: currentItems, reviewReasons: [] };
+
+  const next = [...currentItems];
+  const reviewReasons: string[] = [];
+
+  for (const foreign of rawForeign) {
+    const candidate = originalItems.find((item) => {
+      const price = Number(item.unitPrice || 0);
+      if (Math.abs(price - foreign.amount) >= 0.01) return false;
+      const evidence = normalizeText(
+        Array.from(
+          new Set(
+            [item.sourceText, item.evidence, item.description]
+              .map((value) => String(value || "").trim())
+              .filter(Boolean),
+          ),
+        ).join(" "),
+      );
+      return (
+        explicitCurrencyForExactItemPriceV17_90L41(evidence, price) ===
+        foreign.currency
+      );
+    });
+
+    const candidateEvidence = normalizeText(
+      Array.from(
+        new Set(
+          [candidate?.sourceText, candidate?.evidence, candidate?.description]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean),
+        ),
+      ).join(" "),
+    );
+    const evidence = candidateEvidence || foreign.evidence;
+    const alreadyRepresented = next.some((item) => {
+      const reason = String(item.reviewReason || "");
+      const currency = String(item.detectedCurrency || "").toUpperCase();
+      const itemEvidence = itemEvidenceKeyV17_90L39(item);
+      const evidenceKey = normalizeCompare(evidence);
+      return Boolean(
+        (currency === foreign.currency ||
+          reason.startsWith("item_currency_mismatch:") ||
+          reason.startsWith("currency_conflict_item:")) &&
+          itemEvidence &&
+          evidenceKey &&
+          (itemEvidence.includes(evidenceKey) || evidenceKey.includes(itemEvidence)),
+      );
+    });
+    if (alreadyRepresented) continue;
+
+    const serviceName =
+      String(candidate?.serviceName || "").trim() || "Leistung prüfen";
+    const reason = `item_currency_mismatch:${serviceName}:${foreign.currency}:${finalCurrency}`;
+    next.push({
+      serviceName,
+      description: evidence,
+      quantity: Number(candidate?.quantity || 0) > 0 ? Number(candidate?.quantity) : 1,
+      unit: candidate?.unit || "Pauschal",
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: reason,
+      sourceText: evidence,
+      evidence,
+      detectedCurrency: foreign.currency,
+    });
+    reviewReasons.push("currency_review", "currency_conflict", reason);
+  }
+
+  return { items: next, reviewReasons: unique(reviewReasons) };
+}
+
+function enforceExactItemCurrencyBindingV17_90L41(
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const reviewReasons: string[] = [];
+  const guarded = items.map((item) => {
+    const unitPrice = Number(item.unitPrice || 0);
+    const evidence = normalizeText(
+      Array.from(
+        new Set(
+          [item.sourceText, item.evidence, item.description]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean),
+        ),
+      ).join(" "),
+    );
+    const explicitCurrency = explicitCurrencyForExactItemPriceV17_90L41(
+      evidence,
+      unitPrice,
+    );
+
+    if (!explicitCurrency || explicitCurrency === finalCurrency) return item;
+
+    const serviceName =
+      String(item.serviceName || "").trim() || "Leistung prüfen";
+    const reason = `item_currency_mismatch:${serviceName}:${explicitCurrency}:${finalCurrency}`;
+    reviewReasons.push("currency_review", "currency_conflict", reason);
+
+    return {
+      ...item,
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: reason,
+      detectedCurrency: explicitCurrency,
+      description: item.sourceText || item.evidence || item.description,
+    };
+  });
+
+  const concreteForeignReviews = guarded.filter((item) => {
+    const reason = String(item.reviewReason || "");
+    const currency = String(item.detectedCurrency || "").toUpperCase();
+    return Boolean(
+      (currency && currency !== finalCurrency) ||
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:"),
+    );
+  });
+
+  if (concreteForeignReviews.length === 0) {
+    return { items: guarded, reviewReasons: unique(reviewReasons) };
+  }
+
+  const foreignEvidence = concreteForeignReviews
+    .map((item) => itemEvidenceKeyV17_90L39(item))
+    .filter(Boolean);
+  const seenForeignEvidence = new Set<string>();
+
+  const consolidated = guarded.filter((item) => {
+    const reason = String(item.reviewReason || "");
+    const currency = String(item.detectedCurrency || "").toUpperCase();
+    const isForeignReview = Boolean(
+      (currency && currency !== finalCurrency) ||
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:"),
+    );
+    const evidence = itemEvidenceKeyV17_90L39(item);
+
+    if (isForeignReview && evidence) {
+      const key = `${currency || "FOREIGN"}:${evidence}`;
+      if (seenForeignEvidence.has(key)) return false;
+      seenForeignEvidence.add(key);
+      return true;
+    }
+
+    if (
+      isGenericOpenReviewServiceNameV17_90L39(item.serviceName) &&
+      Number(item.unitPrice || 0) <= 0 &&
+      Number(item.totalPrice || 0) <= 0
+    ) {
+      const genericBoilerplate =
+        !evidence ||
+        /^(?:leistung|einheit|preis|menge|vor angebot rechnung|diese position wird nicht).*(?:unklar|pruefen|prufen|netto|total)?$/.test(
+          evidence,
+        );
+      const duplicatesForeign = foreignEvidence.some((foreign) =>
+        Boolean(
+          evidence &&
+            foreign &&
+            (evidence.includes(foreign) || foreign.includes(evidence)),
+        ),
+      );
+      if (genericBoilerplate || duplicatesForeign) return false;
+    }
+
+    return true;
+  });
+
+  return { items: consolidated, reviewReasons: unique(reviewReasons) };
+}
+
 function findUnclearTravelReferenceLine(originalText: string): string | null {
   const line = splitRawIntakeLines(originalText).find((candidate) => {
     const normalized = normalizeCompare(candidate);
@@ -10586,6 +10860,19 @@ export function validateAndRepairParsedOrderItems(
     items,
     finalCurrency,
   );
+  const exactCurrencyBindingV17_90L41 =
+    enforceExactItemCurrencyBindingV17_90L41(items, finalCurrency);
+  items = exactCurrencyBindingV17_90L41.items;
+  reviewReasons.push(...exactCurrencyBindingV17_90L41.reviewReasons);
+  const rawForeignCurrencyFallbackV17_90L41 =
+    appendRawForeignCurrencyReviewItemsV17_90L41(
+      input.originalText,
+      input.items,
+      items,
+      finalCurrency,
+    );
+  items = rawForeignCurrencyFallbackV17_90L41.items;
+  reviewReasons.push(...rawForeignCurrencyFallbackV17_90L41.reviewReasons);
   hasRealCurrencyProblem = items.some((item) => {
     const rawDetectedCurrency = String(item.detectedCurrency || "")
       .trim()
@@ -10871,6 +11158,23 @@ function parsePlzCity(value: string): {
   };
 }
 
+
+function cleanExecutionCityInstructionTailV17_90L41(
+  value?: string | null,
+): string | null {
+  const cleaned = stripOperationalAddressTailV17_90L39(value || "")
+    .replace(
+      /\s+\b(?:bitte|zuerst|vorher|danach|anschliessend|anschließend|nachher|erst\s+noch)\b.*$/i,
+      "",
+    )
+    .replace(/[\s,;:.\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  if (/\b(?:beim|bei|am|an|im|in|zum|zur)\s*$/i.test(cleaned)) return null;
+  return cleaned;
+}
+
 function parseCityWithoutPlz(value: string): string | null {
   const source = normalizeText(value);
   if (!source) return null;
@@ -10900,7 +11204,8 @@ function parseCityWithoutPlz(value: string): string | null {
       )
     )
       continue;
-    return candidate;
+    const cleanedCity = cleanExecutionCityInstructionTailV17_90L41(candidate);
+    if (cleanedCity) return cleanedCity;
   }
 
   return null;
@@ -11144,10 +11449,11 @@ function extractInlineExecutionAddressCandidate(
     .replace(/\s+/g, " ")
     .trim();
   let sitePlz = plzCity.plz;
-  let siteCity =
+  let siteCity = cleanExecutionCityInstructionTailV17_90L41(
     plzCity.city ||
-    parseCityWithoutPlz(immediatePlaceSegment) ||
-    parseCityWithoutPlz(afterStreet);
+      parseCityWithoutPlz(immediatePlaceSegment) ||
+      parseCityWithoutPlz(afterStreet),
+  );
 
   // V17.90L38/L39: Fehlende PLZ oder fehlender Ort dürfen nicht still aus
   // der Rechnungsadresse ergänzt werden. Eine ausdrücklich markierte, sicher
@@ -11429,10 +11735,11 @@ export function extractExecutionAddressFromText(
 
     const fallbackPlzCity = parsePlzCity(blockLines.join(" "));
     let sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
-    let siteCity =
+    let siteCity = cleanExecutionCityInstructionTailV17_90L41(
       plzCityFromLine?.city ||
-      fallbackPlzCity.city ||
-      parseCityWithoutPlz(blockLines.join(", "));
+        fallbackPlzCity.city ||
+        parseCityWithoutPlz(blockLines.join(", ")),
+    );
 
     if (!siteAddress && !(sitePlz && siteCity)) continue;
 
