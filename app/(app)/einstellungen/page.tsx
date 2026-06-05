@@ -1744,7 +1744,7 @@ const storedValue = finalUrl;
                             <div className="min-w-0">
                               <p className="text-sm font-semibold">Testdaten in Papierkorb verschieben</p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                Verschiebt TEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge in den Papierkorb. Der Livebetrieb wird nicht verändert.
+                                Verschiebt alle TEST-Kunden, TEST-Aufträge, TEST-Angebote und TEST-Rechnungen in den Papierkorb. Ausführungsorte werden mit ihren Kunden ausgeblendet. Der Livebetrieb wird nicht verändert.
                               </p>
                             </div>
                             <Button
@@ -1753,7 +1753,7 @@ const storedValue = finalUrl;
                               className="text-amber-700 border-amber-300 hover:bg-amber-100 shrink-0 gap-2"
                               disabled={resetting}
                               onClick={async () => {
-                                if (!confirm('Testdaten in Papierkorb verschieben?\n\nTEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge werden in den Papierkorb verschoben.\n\nDer Livebetrieb wird nicht verändert.')) return;
+                                if (!confirm('Testdaten in Papierkorb verschieben?\n\nAlle TEST-Kunden, TEST-Aufträge, TEST-Angebote und TEST-Rechnungen werden in den Papierkorb verschoben. Ausführungsorte werden mit ihren Kunden ausgeblendet.\n\nLIVE-Daten bleiben unverändert.')) return;
                                 setResetting(true);
                                 try {
                                   const res = await fetch('/api/settings/reset-test', { method: 'POST' });
@@ -1837,7 +1837,7 @@ const storedValue = finalUrl;
                             <div className="min-w-0">
                               <p className="text-sm font-semibold">Testdaten in Papierkorb verschieben</p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                Verschiebt TEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge in den Papierkorb. Der Livebetrieb wird nicht verändert.
+                                Verschiebt alle TEST-Kunden, TEST-Aufträge, TEST-Angebote und TEST-Rechnungen in den Papierkorb. Ausführungsorte werden mit ihren Kunden ausgeblendet. Der Livebetrieb wird nicht verändert.
                               </p>
                             </div>
                             <Button
@@ -1846,7 +1846,7 @@ const storedValue = finalUrl;
                               className="text-amber-700 border-amber-300 hover:bg-amber-100 shrink-0 gap-2"
                               disabled={resetting}
                               onClick={async () => {
-                                if (!confirm('Testdaten in Papierkorb verschieben?\n\nTEST-Angebote, TEST-Rechnungen und verknüpfte Testaufträge werden in den Papierkorb verschoben.\n\nDer Livebetrieb wird nicht verändert.')) return;
+                                if (!confirm('Testdaten in Papierkorb verschieben?\n\nAlle TEST-Kunden, TEST-Aufträge, TEST-Angebote und TEST-Rechnungen werden in den Papierkorb verschoben. Ausführungsorte werden mit ihren Kunden ausgeblendet.\n\nLIVE-Daten bleiben unverändert.')) return;
                                 setResetting(true);
                                 try {
                                   const res = await fetch('/api/settings/reset-test', { method: 'POST' });

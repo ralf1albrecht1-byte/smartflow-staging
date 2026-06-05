@@ -12,10 +12,11 @@ export async function POST() {
     const parts: string[] = [];
     if (result.offersReset > 0) parts.push(`${result.offersReset} Test-Angebot${result.offersReset === 1 ? '' : 'e'}`);
     if (result.invoicesReset > 0) parts.push(`${result.invoicesReset} Test-Rechnung${result.invoicesReset === 1 ? '' : 'en'}`);
-    if (result.ordersReset > 0) parts.push(`${result.ordersReset} verknüpfte${result.ordersReset === 1 ? 'r' : ''} Auftrag${result.ordersReset === 1 ? '' : 'e'}`);
+    if (result.ordersReset > 0) parts.push(`${result.ordersReset} Auftrag${result.ordersReset === 1 ? '' : 'e'}`);
+    if (result.customersReset > 0) parts.push(`${result.customersReset} Kunde${result.customersReset === 1 ? '' : 'n'}`);
     const message = parts.length > 0
-      ? `${parts.join(', ')} in den Papierkorb verschoben. Kunden, freie Aufträge und Nummernkreise bleiben erhalten.`
-      : 'Keine aktiven TEST-Angebote oder TEST-Rechnungen gefunden.';
+      ? `${parts.join(', ')} in den TEST-Papierkorb verschoben. LIVE-Daten und Nummernkreise bleiben unverändert.`
+      : 'Keine aktiven TEST-Kunden, Aufträge, Angebote oder Rechnungen gefunden.';
     return NextResponse.json({
       success: true,
       message,
