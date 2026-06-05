@@ -94,7 +94,7 @@ const SECTIONS = [
   { key: 'dokumente',       label: 'Dokumente & Rechnungen',     icon: FileText },
   { key: 'sprache',         label: 'Sprache & Kommunikation',    icon: Languages },
   { key: 'support',         label: 'Tool-Support',               icon: LifeBuoy },
-  { key: 'nummern',         label: 'Testmodus & Echtstart',      icon: FlaskConical },
+  { key: 'nummern',         label: 'Testmodus & Livebetrieb',      icon: FlaskConical },
   { key: 'konto',           label: 'Konto & Sicherheit',         icon: ShieldCheck },
   { key: 'datenschutz',     label: 'Rechtliches & Datenschutz',  icon: ScrollText },
   { key: 'daten_kuendigung', label: 'Daten & Kündigung',         icon: Database },
@@ -1580,7 +1580,7 @@ const storedValue = finalUrl;
           </SectionShell>
 
           {/* SECTION: TESTMODUS & ECHTSTART */}
-          <SectionShell id="nummern" sectionKey="nummern" activeSection={activeSection} open={openSections.nummern} toggle={() => setOpenSections(p => ({ ...p, nummern: !p.nummern }))} title="Testmodus &amp; Echtstart" icon={FlaskConical}>
+          <SectionShell id="nummern" sectionKey="nummern" activeSection={activeSection} open={openSections.nummern} toggle={() => setOpenSections(p => ({ ...p, nummern: !p.nummern }))} title="Testmodus &amp; Livebetrieb" icon={FlaskConical}>
             <div className="space-y-4">
               {/* Status */}
               <div className={form.testModus ? 'rounded-xl border border-blue-200 bg-blue-50/70 dark:bg-blue-900/10 dark:border-blue-900 p-4' : 'rounded-xl border border-green-200 bg-green-50/70 dark:bg-green-900/10 dark:border-green-900 p-4'}>
