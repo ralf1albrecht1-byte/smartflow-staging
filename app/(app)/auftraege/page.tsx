@@ -6549,7 +6549,7 @@ export default function AuftraegePage() {
             );
             const isCatalogConfirmed =
               getCatalogReviewConfirmedFromItemDescription(item.description);
-            const isManualCurrencyConfirmed =
+            const hasPersistedManualCurrencyConfirmation =
               getManualCurrencyConfirmedFromItemDescription(item.description);
             const isManualUnitConfirmed =
               getManualUnitConfirmedFromItemDescription(item.description);
@@ -6557,6 +6557,14 @@ export default function AuftraegePage() {
               o.reviewReasons,
               item.serviceName,
             );
+            // V17.90L36c: Ein alter MANUAL_CURRENCY_CONFIRMED-Marker darf
+            // einen weiterhin gespeicherten positionsbezogenen Währungsfehler
+            // nicht überstimmen. Erst wenn der konkrete ReviewReason nach einer
+            // echten manuellen Korrektur entfernt wurde, gilt die Position als
+            // bestätigt.
+            const isManualCurrencyConfirmed =
+              hasPersistedManualCurrencyConfirmation &&
+              !hasItemCurrencyMismatch;
             // V17.22: Mischwährung wird pro Position bewertet. Nur die Zeilen,
             // deren Textwährung von der Auftragswährung abweicht, werden rot/leer
             // geöffnet. Eine EUR-Zeile in einem EUR-Auftrag bleibt befüllt und
@@ -7772,14 +7780,17 @@ export default function AuftraegePage() {
   const isManuallyConfirmedCurrencyItem = (item: FormItem) => {
     if (!isCompleteResolvedFormItem(item)) return false;
 
+    // V17.90L36c: Der konkrete Währungs-ReviewReason ist stärker als ein
+    // alter Bestätigungsmarker. Sonst kann eine positionsbezogen falsche
+    // Währung trotz rotem Gesamtblocker wieder in Netto/Total einfließen.
+    if (hasFormItemCurrencyMismatch(item)) return false;
+
     if (
       Boolean(item.manualCurrencyConfirmed) ||
       Boolean(item.catalogReviewConfirmed)
     ) {
       return true;
     }
-
-    if (hasFormItemCurrencyMismatch(item)) return false;
 
     return !isBlockingCurrencyReviewText(item.aiWarning);
   };
@@ -8725,7 +8736,67 @@ export default function AuftraegePage() {
         .map((item) => item.workSiteId)
         .filter((siteId): siteId is string => Boolean(siteId)),
     );
-    const cleanWorkSites = formWorkSites.filter(
+
+    // V17.90L36c: Die kompakte Ausführungsadress-Maske schreibt in `form`.
+    // `formWorkSites` kann dabei noch den alten, unvollständigen Stand tragen.
+    // Vor jedem Speichern wird deshalb der primäre Arbeitsort ausdrücklich mit
+    // den aktuell sichtbaren Editorfeldern synchronisiert. So werden Strasse,
+    // PLZ und Ort weder verworfen noch durch alte WorkSite-Werte überschrieben.
+    const currentPrimaryWorkSiteForEditor =
+      formWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      formWorkSites[0] ||
+      null;
+    const hasCurrentExecutionAddressEditorContent = Boolean(
+      form.siteAddressDifferent &&
+        [
+          form.siteName,
+          form.siteAddress,
+          form.sitePlz,
+          form.siteCity,
+          form.siteNote,
+        ].some((value) => String(value || "").trim()),
+    );
+    const synchronizedFormWorkSites = hasCurrentExecutionAddressEditorContent
+      ? (() => {
+          const primaryId =
+            currentPrimaryWorkSiteForEditor?.id ||
+            `local-site-${editId || Date.now().toString(36)}`;
+          const synchronizedPrimary: OrderWorkSite = {
+            ...(currentPrimaryWorkSiteForEditor || {}),
+            id: primaryId,
+            siteName: cleanWorkSiteDisplayName(form.siteName) || null,
+            siteAddress: form.siteAddress?.trim() || null,
+            sitePlz: form.sitePlz?.trim() || null,
+            siteCity: form.siteCity?.trim() || null,
+            siteNote: form.siteNote?.trim() || null,
+            isPrimary: true,
+            sortOrder: 0,
+          };
+
+          if (!currentPrimaryWorkSiteForEditor) {
+            return [
+              synchronizedPrimary,
+              ...formWorkSites.map((site, index) => ({
+                ...site,
+                isPrimary: false,
+                sortOrder: index + 1,
+              })),
+            ];
+          }
+
+          return formWorkSites.map((site, index) =>
+            site.id === currentPrimaryWorkSiteForEditor.id
+              ? synchronizedPrimary
+              : {
+                  ...site,
+                  isPrimary: false,
+                  sortOrder: Math.max(1, Number(site.sortOrder ?? index + 1)),
+                },
+          );
+        })()
+      : formWorkSites;
+
+    const cleanWorkSites = synchronizedFormWorkSites.filter(
       (site) => hasWorkSiteContent(site) || assignedWorkSiteIds.has(site.id),
     );
     const primaryWorkSiteForPayload =

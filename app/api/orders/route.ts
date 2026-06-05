@@ -1073,7 +1073,11 @@ function reviewReasonAppliesToItem(
 }
 
 function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
-  const itemIsManuallyConfirmed = isItemManuallyConfirmedForPersist(item);
+  const itemHasPersistedCurrencyMismatch =
+    hasCurrencyMismatchReviewForService(data || {}, item?.serviceName);
+  const itemIsManuallyConfirmed =
+    isItemManuallyConfirmedForPersist(item) &&
+    !itemHasPersistedCurrencyMismatch;
   const globalReviewReasons = Array.isArray(data?.reviewReasons)
     ? data.reviewReasons.filter((reason: any) => {
         if (itemIsManuallyConfirmed) return false;
@@ -1094,9 +1098,7 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
         return reviewReasonAppliesToItem(reason, item, data);
       })
     : [];
-  const itemHasCurrencyMismatch =
-    !itemIsManuallyConfirmed &&
-    hasCurrencyMismatchReviewForService(data || {}, item?.serviceName);
+  const itemHasCurrencyMismatch = itemHasPersistedCurrencyMismatch;
   const globalCurrencyReviewApplies =
     hasGlobalCurrencyReviewWithoutItemDetails(data || {}) &&
     !itemIsManuallyConfirmed;
@@ -1259,11 +1261,13 @@ function isReviewReasonResolvedByConfirmedItemForPersist(
   if (!serviceName) return false;
   if (!getManuallyConfirmedServiceNamesForPersist(data).has(serviceName))
     return false;
+  // V17.90L36c: Positionsbezogene Währungsfehler werden nicht mehr
+  // allein durch einen alten Beschreibungsmarker entfernt. Die UI entfernt den
+  // konkreten ReviewReason erst bei einer echten manuellen Korrektur dieser
+  // Position. Preis-/Kataloghinweise dürfen weiterhin so aufgelöst werden.
   return (
     key.startsWith("price_unclear:") ||
-    key.startsWith("price_override:") ||
-    key.startsWith("item_currency_mismatch:") ||
-    key.startsWith("currency_conflict_item:")
+    key.startsWith("price_override:")
   );
 }
 
@@ -1313,7 +1317,11 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
     ]
       .filter(Boolean)
       .join(" ");
-    const itemManuallyConfirmed = isItemManuallyConfirmedForPersist(item);
+    const itemHasUnresolvedCurrencyMismatch =
+      hasCurrencyMismatchReviewForService(data || {}, serviceName);
+    const itemManuallyConfirmed =
+      isItemManuallyConfirmedForPersist(item) &&
+      !itemHasUnresolvedCurrencyMismatch;
     const forceMissingPriceReview =
       !trustClientItemValues &&
       !itemManuallyConfirmed &&
@@ -1347,16 +1355,26 @@ function normalizeItemsForPersist(items: any[] | undefined, data: any) {
       }
     }
 
-    const amountBlocked = trustClientItemValues
-      ? false
-      : isBlockedAmountReviewItemForPersist(
-          { ...item, serviceName, unit, unitPrice, quantity },
-          data,
-        );
+    const amountBlocked =
+      itemHasUnresolvedCurrencyMismatch ||
+      (trustClientItemValues
+        ? false
+        : isBlockedAmountReviewItemForPersist(
+            { ...item, serviceName, unit, unitPrice, quantity },
+            data,
+          ));
+    const persistedDescription =
+      itemHasUnresolvedCurrencyMismatch &&
+      String(item?.description || "").trim().startsWith(
+        MANUAL_CURRENCY_CONFIRMED_PREFIX,
+      )
+        ? serviceName
+        : item?.description;
 
     return {
       ...item,
       serviceName,
+      description: persistedDescription,
       unit,
       unitPrice:
         amountBlocked && hasCurrencyConflictReviewOnOrderLike(data)
