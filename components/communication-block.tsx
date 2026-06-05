@@ -804,6 +804,9 @@ export function CommunicationBlock({
   onDescriptionChange,
   specialNotesValue,
   onSpecialNotesChange,
+  showChips = true,
+  showSpecialNotes = true,
+  showCustomerMessage = true,
 }: {
   data: CommunicationData;
   /** Show editable description field (for Orders only) */
@@ -813,6 +816,10 @@ export function CommunicationBlock({
   /** Editable special notes value */
   specialNotesValue?: string;
   onSpecialNotesChange?: (val: string) => void;
+  /** Optional display controls. Defaults preserve all existing callers. */
+  showChips?: boolean;
+  showSpecialNotes?: boolean;
+  showCustomerMessage?: boolean;
 }) {
   const parsed = useMemo(() => parseNotesField(data.notes), [data.notes]);
   const mediaInfo = useMemo(() => getMediaTypeLabel(data), [data.notes, data.mediaUrl, data.mediaType, data.imageUrls]);
@@ -882,7 +889,7 @@ export function CommunicationBlock({
     <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
 
       {/* ─── 1. CHIPS ROW ─── */}
-      {(mediaInfo || hasTranslation || communicationPreferences.length > 0 || hazards.length > 0 || equipmentWithFallback.length > 0 || callbackNote) && (
+      {showChips && (mediaInfo || hasTranslation || communicationPreferences.length > 0 || hazards.length > 0 || equipmentWithFallback.length > 0 || callbackNote) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {/* Media type (Sprachnachricht / Bild / Bild+Text only) */}
           {mediaInfo && (
@@ -973,7 +980,7 @@ export function CommunicationBlock({
       ) : null}
 
       {/* ─── 3. SPECIAL NOTES (editable or read-only) ─── */}
-      {onSpecialNotesChange !== undefined ? (
+      {showSpecialNotes && (onSpecialNotesChange !== undefined ? (
         <div>
           <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
@@ -1004,10 +1011,10 @@ export function CommunicationBlock({
             )}
           </div>
         </div>
-      ) : null}
+      ) : null)}
 
       {/* ─── 4. CUSTOMER MESSAGE / MEDIA BLOCK ─── */}
-      {(parsed.originalMessage || hasAudio || imagePaths.length > 0 || data.audioTranscript) && (
+      {showCustomerMessage && (parsed.originalMessage || hasAudio || imagePaths.length > 0 || data.audioTranscript) && (
         <div className="border-t pt-3 mt-1 space-y-3">
           <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
             📨 Kundennachricht

@@ -28,6 +28,7 @@ import {
   CommunicationChips,
   resolveCommunicationData,
   stripForwardedMessage,
+  type CommunicationData,
 } from "@/components/communication-block";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import { autoFillCustomerFromNotes } from "@/lib/extract-from-notes";
@@ -361,6 +362,235 @@ function extractOfferAppointmentLabel(value?: string | null): string {
   return line.length > 38 ? `${line.slice(0, 35).trim()}…` : line;
 }
 
+
+const OFFER_PDF_META_PREFIX = "[[SMARTFLOW_OFFER_PDF_V1]]";
+
+type OfferPdfMeta = { title: string; text: string };
+type OfferOperationalChip = {
+  key: string;
+  title: string;
+  icon: string;
+  tone: "danger" | "warning";
+};
+
+function decodeOfferPdfMeta(value?: string | null): OfferPdfMeta {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { title: "", text: "" };
+  if (!raw.startsWith(OFFER_PDF_META_PREFIX)) {
+    return { title: "", text: raw };
+  }
+  try {
+    const parsed = JSON.parse(raw.slice(OFFER_PDF_META_PREFIX.length));
+    return {
+      title: String(parsed?.title ?? "").trim(),
+      text: String(parsed?.text ?? "").trim(),
+    };
+  } catch {
+    return { title: "", text: raw };
+  }
+}
+
+function encodeOfferPdfMeta(title?: string | null, text?: string | null): string {
+  const cleanTitle = String(title ?? "").trim();
+  const cleanText = String(text ?? "").trim();
+  if (!cleanTitle && !cleanText) return "";
+  return `${OFFER_PDF_META_PREFIX}${JSON.stringify({
+    title: cleanTitle,
+    text: cleanText,
+  })}`;
+}
+
+function normalizeOfferHint(value?: string | null): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9\s/+.-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function uniqueOfferLines(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values) {
+    const line = String(raw ?? "").replace(/\s+/g, " ").trim();
+    const key = normalizeOfferHint(line);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(line);
+  }
+  return result;
+}
+
+function isOfferDogHint(value: string): boolean {
+  return /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros)\b/.test(
+    normalizeOfferHint(value),
+  );
+}
+
+function buildOfferOperationalChips(
+  safetyWarnings: string[],
+  jobHints: string[],
+): OfferOperationalChip[] {
+  const result: OfferOperationalChip[] = [];
+  const push = (chip: OfferOperationalChip) => {
+    if (result.some((existing) => existing.key === chip.key)) return;
+    result.push(chip);
+  };
+
+  uniqueOfferLines([
+    ...safetyWarnings,
+    ...jobHints.filter(isOfferDogHint),
+  ]).forEach((line, index) => {
+    if (isOfferDogHint(line)) {
+      push({ key: "dog", title: line, icon: "🐶", tone: "danger" });
+      return;
+    }
+    push({
+      key: `danger_${index}_${normalizeOfferHint(line).slice(0, 28)}`,
+      title: line,
+      icon: "⚠️",
+      tone: "danger",
+    });
+  });
+
+  uniqueOfferLines(jobHints).forEach((line) => {
+    const text = normalizeOfferHint(line);
+    if (!text || isOfferDogHint(line)) return;
+    if (/\b(?:leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)) {
+      push({ key: "ladder", title: line, icon: "🪜", tone: "warning" });
+      return;
+    }
+    if (/\b(?:schluessel|schlussel|key|cle|chiave|llave|code|schluesselbox|schlusselbox)\b/.test(text)) {
+      push({ key: "key", title: line, icon: "🔑", tone: "warning" });
+      return;
+    }
+    if (/\b(?:zugang|eingang|hintereingang|seiteneingang|tor|door|access|entree|porta|puerta)\b/.test(text)) {
+      push({ key: "access", title: line, icon: "🚪", tone: "warning" });
+      return;
+    }
+    if (/\b(?:park|parkplatz|parking|stellplatz)\b/.test(text)) {
+      push({ key: "parking", title: line, icon: "🅿️", tone: "warning" });
+    }
+  });
+
+  return result;
+}
+
+function buildOfferContactChipData(
+  data: CommunicationData,
+  customer?: Customer | null,
+): CommunicationData {
+  const combinedSource = [
+    data.notes,
+    data.specialNotes,
+    data.audioTranscript,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    ...data,
+    customer: customer
+      ? { email: customer.email || null, phone: customer.phone || null }
+      : data.customer,
+    specialNotes: "",
+    notes: combinedSource,
+  };
+}
+
+function OfferPlainTooltip({
+  text,
+  align = "left",
+}: {
+  text: string;
+  align?: "left" | "right";
+}) {
+  if (!text.trim()) return null;
+  return (
+    <span
+      className={`pointer-events-none absolute ${align === "right" ? "right-0" : "left-0"} bottom-full z-[9999] mb-1 hidden w-max max-w-[min(22rem,calc(100vw-2rem))] whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+    >
+      {text}
+    </span>
+  );
+}
+
+function OfferAddressTooltip({ site }: { site: OfferExecutionSite }) {
+  return (
+    <span className="pointer-events-none absolute left-0 bottom-full z-[9999] mb-1 hidden w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-sky-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      <span className="mb-2 flex items-center gap-1.5 font-bold text-sky-800 dark:text-sky-200">
+        <MapPin className="h-3.5 w-3.5" /> Ausführungsadresse
+      </span>
+      {site.siteName && (
+        <span className="mb-2 block break-words text-sm font-semibold">
+          {site.siteName}
+        </span>
+      )}
+      <span className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1">
+        <span className="text-muted-foreground">Strasse:</span>
+        <span className="break-words">{site.siteAddress || "–"}</span>
+        <span className="text-muted-foreground">PLZ / Ort:</span>
+        <span className="break-words">
+          {[site.sitePlz, site.siteCity].filter(Boolean).join(" ") || "–"}
+        </span>
+        {site.siteNote && (
+          <>
+            <span className="text-muted-foreground">Hinweis:</span>
+            <span className="break-words">{site.siteNote}</span>
+          </>
+        )}
+      </span>
+    </span>
+  );
+}
+
+function OfferInfoTooltip({
+  safetyWarnings,
+  jobHints,
+}: {
+  safetyWarnings: string[];
+  jobHints: string[];
+}) {
+  const safety = uniqueOfferLines(safetyWarnings);
+  const safetyKeys = new Set(safety.map(normalizeOfferHint));
+  const hints = uniqueOfferLines(jobHints).filter(
+    (line) =>
+      !isOfferDogHint(line) && !safetyKeys.has(normalizeOfferHint(line)),
+  );
+  if (safety.length === 0 && hints.length === 0) return null;
+  return (
+    <span className="pointer-events-none absolute left-0 bottom-full z-[9999] mb-1 hidden w-[min(24rem,calc(100vw-2rem))] max-h-[55vh] overflow-auto rounded-xl border border-slate-200 bg-white p-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      {safety.length > 0 && (
+        <span className="mb-2 block rounded-lg border border-red-300 bg-red-50 p-2 text-red-800">
+          <span className="mb-1 flex items-center gap-1 font-bold">
+            <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
+          </span>
+          {safety.map((line, index) => (
+            <span key={`offer_info_safety_${index}`} className="block break-words">
+              • {line}
+            </span>
+          ))}
+        </span>
+      )}
+      {hints.length > 0 && (
+        <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900">
+          <span className="mb-1 block font-bold">Besonderheiten</span>
+          {hints.map((line, index) => (
+            <span key={`offer_info_hint_${index}`} className="block break-words">
+              {line}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function AngebotePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -381,6 +611,7 @@ export default function AngebotePage() {
     customerId: "",
     offerDate: new Date().toISOString().split("T")[0],
     validDays: "14",
+    pdfTitle: "",
     notes: "",
     status: "Entwurf",
   });
@@ -759,6 +990,7 @@ export default function AngebotePage() {
         customerId: custId || "",
         offerDate: new Date().toISOString().split("T")[0],
         validDays: "14",
+        pdfTitle: "",
         notes: "",
         status: "Entwurf",
       };
@@ -1003,13 +1235,20 @@ export default function AngebotePage() {
     // Strip forwarded customer message from the customer-visible PDF text.
     // Existing offers without their own text receive a safe, editable suggestion
     // from the linked order summary — never from the raw customer message.
-    const cleanNotes = cleanOfferPdfTextForEditor(off, lo);
+    const decodedPdfMeta = decodeOfferPdfMeta(off.notes);
+    const hasEncodedPdfMeta = String(off.notes || "").startsWith(
+      OFFER_PDF_META_PREFIX,
+    );
+    const cleanNotes = hasEncodedPdfMeta
+      ? decodedPdfMeta.text
+      : cleanOfferPdfTextForEditor(off, lo);
     setForm({
       customerId: off.customerId ?? "",
       offerDate: off.offerDate
         ? new Date(off.offerDate).toISOString().split("T")[0]
         : "",
       validDays: getOfferValidDays(off),
+      pdfTitle: decodedPdfMeta.title,
       notes: cleanNotes,
       status: off.status ?? "Entwurf",
     });
@@ -1128,6 +1367,7 @@ export default function AngebotePage() {
       customerId: "",
       offerDate: new Date().toISOString().split("T")[0],
       validDays: "14",
+      pdfTitle: "",
       notes: "",
       status: "Entwurf",
     });
@@ -1160,6 +1400,7 @@ export default function AngebotePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
           items: itemsForSave,
           vatRate,
           currency,
@@ -1171,6 +1412,7 @@ export default function AngebotePage() {
     } else {
       const payload: any = {
         ...form,
+        notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
         items: itemsForSave,
         vatRate,
         currency,
@@ -1635,6 +1877,23 @@ export default function AngebotePage() {
                       .filter(Boolean)
                       .join("\n"),
                   );
+                  const contactChipData = buildOfferContactChipData(
+                    orderCtx,
+                    off.customer,
+                  );
+                  const operationalChips = buildOfferOperationalChips(
+                    parsedOfferNotes.safetyWarnings,
+                    parsedOfferNotes.jobHints,
+                  );
+                  const dangerChips = operationalChips.filter(
+                    (chip) => chip.tone === "danger",
+                  );
+                  const warningChips = operationalChips.filter(
+                    (chip) => chip.tone === "warning",
+                  );
+                  const hasInfoTooltip =
+                    parsedOfferNotes.safetyWarnings.length > 0 ||
+                    parsedOfferNotes.jobHints.length > 0;
                   return (
                     <motion.div
                       key={off?.id}
@@ -1740,207 +1999,460 @@ export default function AngebotePage() {
                               )}
                             </div>
 
-                            {/* Center: Main info */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 text-xs">
-                                <span className="text-muted-foreground shrink-0">
-                                  {(() => {
-                                    const dt =
-                                      off.orders?.[0]?.createdAt ||
-                                      off.createdAt;
-                                    return dt
-                                      ? new Date(dt).toLocaleDateString(
-                                          "de-CH",
-                                          { day: "2-digit", month: "2-digit" },
-                                        ) +
-                                          " " +
-                                          new Date(dt).toLocaleTimeString(
-                                            "de-CH",
-                                            {
-                                              hour: "2-digit",
-                                              minute: "2-digit",
-                                            },
-                                          )
-                                      : "";
-                                  })()}
-                                </span>
-                                <span className="text-muted-foreground">·</span>
-                                <span className="font-medium text-foreground truncate">
-                                  {isFallbackCustomerName(off?.customer?.name)
-                                    ? "⚠️ Kunde nicht zugeordnet"
-                                    : off?.customer?.name || "–"}
-                                </span>
-                                {off?.customer?.customerNumber && (
-                                  <span className="text-muted-foreground shrink-0">
-                                    ({off.customer.customerNumber})
+                            {/* Main info — mirrored from the order-card layout */}
+                            <div className="min-w-0 flex-1">
+                              {/* Mobile */}
+                              <div className="space-y-1.5 md:hidden">
+                                <div className="flex flex-wrap items-center gap-1 text-xs">
+                                  <span className="text-muted-foreground">
+                                    {(() => {
+                                      const dt = off.orders?.[0]?.createdAt || off.createdAt;
+                                      return dt
+                                        ? `${new Date(dt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} ${new Date(dt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
+                                        : "";
+                                    })()}
                                   </span>
-                                )}
-                                {primaryExecutionSite && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openOfferSection(off, "execution");
-                                    }}
-                                    className="inline-flex max-w-[15rem] items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800 hover:bg-cyan-100"
-                                    title={[
-                                      primaryExecutionSite.siteName,
-                                      primaryExecutionSite.siteAddress,
-                                      [
-                                        primaryExecutionSite.sitePlz,
-                                        primaryExecutionSite.siteCity,
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" "),
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ")}
-                                  >
-                                    <MapPin className="h-3 w-3 shrink-0" />
-                                    <span className="truncate">
-                                      {primaryExecutionSite.siteName ||
-                                        primaryExecutionSite.siteAddress ||
-                                        "Ausführungsadresse"}
+                                  <span className="text-muted-foreground">·</span>
+                                  <span className="min-w-0 max-w-[12rem] truncate font-medium">
+                                    {isFallbackCustomerName(off?.customer?.name)
+                                      ? "⚠️ Kunde nicht zugeordnet"
+                                      : off?.customer?.name || "–"}
+                                  </span>
+                                  {off?.customer?.customerNumber && (
+                                    <span className="shrink-0 text-muted-foreground">
+                                      ({off.customer.customerNumber})
                                     </span>
-                                  </button>
-                                )}
-                                {isCustomerDataIncomplete(off.customer) && (
-                                  <MissingCustomerDataBadge
-                                    variant="compact"
-                                    onClick={() =>
-                                      openEditOffer(off, {
-                                        openCustomerSection: true,
-                                      })
-                                    }
-                                  />
-                                )}
-                              </div>
-                              <p
-                                className={`text-sm font-medium mt-0.5 line-clamp-2 ${isSonstiges ? "text-red-600 dark:text-red-400" : "text-foreground"}`}
-                              >
-                                {isSonstiges && "⚠ "}
-                                {itemNames}
-                              </p>
-                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                <select
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="text-[11px] border rounded px-1.5 py-0.5 font-medium"
-                                  style={getStatusStyle(
-                                    OFFER_STATUS_STYLES,
-                                    off?.status ?? "",
                                   )}
-                                  value={off?.status ?? ""}
-                                  onChange={(e: any) => {
-                                    e.stopPropagation();
-                                    updateStatus(
-                                      off?.id,
-                                      e?.target?.value ?? "",
-                                    );
-                                  }}
+                                  {primaryExecutionSite && (
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openOfferSection(off, "execution");
+                                      }}
+                                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-800"
+                                    >
+                                      <MapPin className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">
+                                        {primaryExecutionSite.siteName ||
+                                          primaryExecutionSite.siteAddress ||
+                                          "Ausführungsadresse"}
+                                      </span>
+                                    </button>
+                                  )}
+                                </div>
+
+                                <p
+                                  className={`line-clamp-3 text-sm font-medium ${
+                                    isSonstiges
+                                      ? "text-red-600 dark:text-red-400"
+                                      : "text-foreground"
+                                  }`}
                                 >
-                                  {offerStatuses.map((s) => (
-                                    <option
-                                      key={s}
+                                  {isSonstiges && "⚠ "}
+                                  {itemNames}
+                                </p>
+
+                                <div className="flex items-end justify-between gap-2">
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <select
+                                        onClick={(event) => event.stopPropagation()}
+                                        className="shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-medium"
+                                        style={getStatusStyle(
+                                          OFFER_STATUS_STYLES,
+                                          off?.status ?? "",
+                                        )}
+                                        value={off?.status ?? ""}
+                                        onChange={(event: any) => {
+                                          event.stopPropagation();
+                                          updateStatus(
+                                            off?.id,
+                                            event?.target?.value ?? "",
+                                          );
+                                        }}
+                                      >
+                                        {offerStatuses.map((status) => (
+                                          <option
+                                            key={status}
+                                            style={getStatusStyle(
+                                              OFFER_STATUS_STYLES,
+                                              status,
+                                            )}
+                                          >
+                                            {status}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                        {off?.offerNumber ?? ""}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <div
+                                        className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                        onClickCapture={(event) => {
+                                          const element = (
+                                            event.target as HTMLElement
+                                          ).closest<HTMLElement>(
+                                            "[aria-label], [title], button, a",
+                                          );
+                                          const detail =
+                                            element?.getAttribute("aria-label") ||
+                                            element?.getAttribute("title") ||
+                                            "Kontakt";
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          openOfferSection(off, "details", detail);
+                                        }}
+                                      >
+                                        <CommunicationChips
+                                          data={contactChipData}
+                                          compact
+                                          onAudioClick={() =>
+                                            orderCtx.mediaUrl &&
+                                            openMedia(orderCtx.mediaUrl, "audio")
+                                          }
+                                          onImageClick={() => {
+                                            const imgs = orderCtx.imageUrls;
+                                            if (imgs && imgs.length > 0)
+                                              openImageGallery(imgs);
+                                            else if (orderCtx.mediaUrl)
+                                              openMedia(orderCtx.mediaUrl, "image");
+                                          }}
+                                        />
+                                      </div>
+
+                                      {hasInfoTooltip && (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            openOfferSection(
+                                              off,
+                                              "details",
+                                              [
+                                                ...parsedOfferNotes.safetyWarnings,
+                                                ...parsedOfferNotes.jobHints,
+                                              ].join("\n"),
+                                            );
+                                          }}
+                                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                                          aria-label="Besonderheiten anzeigen"
+                                        >
+                                          <Info className="h-4 w-4" />
+                                        </button>
+                                      )}
+
+                                      {dangerChips.map((chip) => (
+                                        <button
+                                          key={`mobile_${chip.key}`}
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            openOfferSection(off, "details", chip.title);
+                                          }}
+                                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-300 bg-red-100 text-[16px] text-red-800"
+                                          aria-label={chip.title}
+                                        >
+                                          {chip.icon}
+                                        </button>
+                                      ))}
+
+                                      {warningChips.map((chip) => (
+                                        <button
+                                          key={`mobile_${chip.key}`}
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            openOfferSection(off, "details", chip.title);
+                                          }}
+                                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-amber-300 bg-amber-100 text-[16px] text-amber-800"
+                                          aria-label={chip.title}
+                                        >
+                                          {chip.icon}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="shrink-0 text-right">
+                                    {appointmentLabel && (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(
+                                            off,
+                                            "details",
+                                            appointmentLabel,
+                                          );
+                                        }}
+                                        className="mb-1 inline-flex rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700"
+                                      >
+                                        {appointmentLabel}
+                                      </button>
+                                    )}
+                                    <div className="font-mono text-[15px] font-bold tabular-nums">
+                                      {formatCurrency(
+                                        Number(off?.total ?? 0),
+                                        off.currency === "EUR" ? "EUR" : "CHF",
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Desktop/tablet */}
+                              <div className="hidden min-w-0 items-stretch gap-3 md:flex">
+                                <div className="min-w-0 flex-1 overflow-visible">
+                                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+                                    <span className="shrink-0 text-muted-foreground">
+                                      {(() => {
+                                        const dt = off.orders?.[0]?.createdAt || off.createdAt;
+                                        return dt
+                                          ? `${new Date(dt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} ${new Date(dt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
+                                          : "";
+                                      })()}
+                                    </span>
+                                    <span className="shrink-0 text-muted-foreground">·</span>
+                                    <span className="min-w-0 max-w-[280px] truncate font-medium text-foreground">
+                                      {isFallbackCustomerName(off?.customer?.name)
+                                        ? "⚠️ Kunde nicht zugeordnet"
+                                        : off?.customer?.name || "–"}
+                                    </span>
+                                    {off?.customer?.customerNumber && (
+                                      <span className="shrink-0 text-muted-foreground">
+                                        ({off.customer.customerNumber})
+                                      </span>
+                                    )}
+
+                                    {primaryExecutionSite && (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(off, "execution");
+                                        }}
+                                        className="group relative inline-flex max-w-[18rem] shrink-0 items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800 outline-none hover:bg-cyan-100 focus:ring-2 focus:ring-cyan-300"
+                                        aria-label="Ausführungsadresse anzeigen"
+                                      >
+                                        <MapPin className="h-3 w-3 shrink-0" />
+                                        <span className="truncate">
+                                          {primaryExecutionSite.siteName ||
+                                            primaryExecutionSite.siteAddress ||
+                                            "Ausführungsadresse"}
+                                        </span>
+                                        <OfferAddressTooltip site={primaryExecutionSite} />
+                                      </button>
+                                    )}
+
+                                    {isCustomerDataIncomplete(off.customer) && (
+                                      <MissingCustomerDataBadge
+                                        variant="compact"
+                                        onClick={() =>
+                                          openEditOffer(off, {
+                                            openCustomerSection: true,
+                                          })
+                                        }
+                                      />
+                                    )}
+                                  </div>
+
+                                  <p
+                                    className={`mt-0.5 whitespace-normal break-words text-sm font-medium ${
+                                      isSonstiges
+                                        ? "text-red-600 dark:text-red-400"
+                                        : "text-foreground"
+                                    }`}
+                                  >
+                                    {isSonstiges && "⚠ "}
+                                    {itemNames}
+                                  </p>
+
+                                  <div className="mt-1 flex max-w-full flex-wrap items-center gap-1.5 overflow-visible">
+                                    <select
+                                      onClick={(event) => event.stopPropagation()}
+                                      className="shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-medium"
                                       style={getStatusStyle(
                                         OFFER_STATUS_STYLES,
-                                        s,
+                                        off?.status ?? "",
                                       )}
+                                      value={off?.status ?? ""}
+                                      onChange={(event: any) => {
+                                        event.stopPropagation();
+                                        updateStatus(
+                                          off?.id,
+                                          event?.target?.value ?? "",
+                                        );
+                                      }}
                                     >
-                                      {s}
-                                    </option>
-                                  ))}
-                                </select>
-                                <span className="font-mono text-[11px] text-muted-foreground">
-                                  {off?.offerNumber ?? ""}
-                                </span>
+                                      {offerStatuses.map((status) => (
+                                        <option
+                                          key={status}
+                                          style={getStatusStyle(
+                                            OFFER_STATUS_STYLES,
+                                            status,
+                                          )}
+                                        >
+                                          {status}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                                      {off?.offerNumber ?? ""}
+                                    </span>
 
-                                {off.items?.some(
-                                  (it: any) =>
-                                    Number(it.quantity) <= 0 ||
-                                    Number(it.unitPrice) <= 0,
-                                ) && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[11px] px-2 py-0.5 bg-red-200 text-red-800 border border-red-300"
-                                  >
-                                    Preis/Menge prüfen
-                                  </Badge>
-                                )}
+                                    <div
+                                      className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                      onClickCapture={(event) => {
+                                        const element = (
+                                          event.target as HTMLElement
+                                        ).closest<HTMLElement>(
+                                          "[aria-label], [title], button, a",
+                                        );
+                                        const detail =
+                                          element?.getAttribute("aria-label") ||
+                                          element?.getAttribute("title") ||
+                                          "Kontakt";
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        element?.blur();
+                                        openOfferSection(off, "details", detail);
+                                      }}
+                                    >
+                                      <CommunicationChips
+                                        data={contactChipData}
+                                        compact
+                                        onAudioClick={() =>
+                                          orderCtx.mediaUrl &&
+                                          openMedia(orderCtx.mediaUrl, "audio")
+                                        }
+                                        onImageClick={() => {
+                                          const imgs = orderCtx.imageUrls;
+                                          if (imgs && imgs.length > 0)
+                                            openImageGallery(imgs);
+                                          else if (orderCtx.mediaUrl)
+                                            openMedia(orderCtx.mediaUrl, "image");
+                                        }}
+                                      />
+                                    </div>
 
-                                {parsedOfferNotes.jobHints.length > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openOfferSection(
-                                        off,
-                                        "details",
-                                        parsedOfferNotes.jobHints.join("\n"),
-                                      );
-                                    }}
-                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                                    aria-label="Besonderheiten anzeigen"
-                                    title="Besonderheiten anzeigen"
-                                  >
-                                    <Info className="h-4 w-4" />
-                                  </button>
-                                )}
-                                <div
-                                  className="contents"
-                                  onClickCapture={(event) => {
-                                    const element = (
-                                      event.target as HTMLElement
-                                    ).closest<HTMLElement>(
-                                      "[aria-label], [title], button, a",
-                                    );
-                                    const detail =
-                                      element?.getAttribute("aria-label") ||
-                                      element?.getAttribute("title") ||
-                                      "Kontakt oder Besonderheit";
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    element?.blur();
-                                    openOfferSection(off, "details", detail);
-                                  }}
-                                >
-                                  <CommunicationChips
-                                    data={orderCtx}
-                                    compact
-                                    onAudioClick={() =>
-                                      orderCtx.mediaUrl &&
-                                      openMedia(orderCtx.mediaUrl, "audio")
-                                    }
-                                    onImageClick={() => {
-                                      const imgs = orderCtx.imageUrls;
-                                      if (imgs && imgs.length > 0)
-                                        openImageGallery(imgs);
-                                      else if (orderCtx.mediaUrl)
-                                        openMedia(orderCtx.mediaUrl, "image");
-                                    }}
-                                  />
+                                    {hasInfoTooltip && (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(
+                                            off,
+                                            "details",
+                                            [
+                                              ...parsedOfferNotes.safetyWarnings,
+                                              ...parsedOfferNotes.jobHints,
+                                            ].join("\n"),
+                                          );
+                                        }}
+                                        className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 outline-none hover:bg-blue-100 focus:ring-2 focus:ring-blue-300"
+                                        aria-label="Besonderheiten anzeigen"
+                                      >
+                                        <Info className="h-4 w-4" />
+                                        <OfferInfoTooltip
+                                          safetyWarnings={
+                                            parsedOfferNotes.safetyWarnings
+                                          }
+                                          jobHints={parsedOfferNotes.jobHints}
+                                        />
+                                      </button>
+                                    )}
+
+                                    {dangerChips.map((chip) => (
+                                      <button
+                                        key={chip.key}
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(off, "details", chip.title);
+                                        }}
+                                        className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-red-300 bg-red-100 text-[17px] font-semibold text-red-800 outline-none hover:bg-red-200 focus:ring-2 focus:ring-red-300"
+                                        aria-label={chip.title}
+                                      >
+                                        {chip.icon}
+                                        <OfferPlainTooltip text={chip.title} />
+                                      </button>
+                                    ))}
+
+                                    {warningChips.map((chip) => (
+                                      <button
+                                        key={chip.key}
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(off, "details", chip.title);
+                                        }}
+                                        className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-amber-300 bg-amber-100 text-[17px] font-semibold text-amber-800 outline-none hover:bg-amber-200 focus:ring-2 focus:ring-amber-300"
+                                        aria-label={chip.title}
+                                      >
+                                        {chip.icon}
+                                        <OfferPlainTooltip text={chip.title} />
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
-                                {appointmentLabel && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openOfferSection(
-                                        off,
-                                        "details",
-                                        appointmentLabel,
-                                      );
-                                    }}
-                                    className="inline-flex shrink-0 items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
-                                  >
-                                    {appointmentLabel}
-                                  </button>
-                                )}
-                                <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
-                                  {formatCurrency(
-                                    Number(off?.total ?? 0),
-                                    off.currency === "EUR" ? "EUR" : "CHF",
-                                  )}
-                                </span>
+
+                                <div className="ml-auto flex w-[280px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5">
+                                  <div className="flex min-h-[22px] flex-wrap justify-end gap-1">
+                                    {off.items?.some(
+                                      (item: any) =>
+                                        Number(item.quantity) <= 0 ||
+                                        Number(item.unitPrice) <= 0,
+                                    ) && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] text-red-800"
+                                      >
+                                        Preis/Menge prüfen
+                                      </Badge>
+                                    )}
+                                  </div>
+
+                                  <div className="flex w-full flex-wrap items-end justify-end gap-3">
+                                    {appointmentLabel && (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(
+                                            off,
+                                            "details",
+                                            appointmentLabel,
+                                          );
+                                        }}
+                                        className="group relative inline-flex shrink-0 items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 outline-none hover:bg-violet-100 focus:ring-2 focus:ring-violet-300"
+                                      >
+                                        {appointmentLabel}
+                                        <OfferPlainTooltip
+                                          text={appointmentLabel}
+                                          align="right"
+                                        />
+                                      </button>
+                                    )}
+
+                                    <div className="whitespace-nowrap text-right leading-tight">
+                                      <div className="font-mono text-sm font-bold tabular-nums">
+                                        {formatCurrency(
+                                          Number(off?.total ?? 0),
+                                          off.currency === "EUR" ? "EUR" : "CHF",
+                                        )}
+                                      </div>
+                                      {Number(off?.vatRate ?? 0) > 0 && (
+                                        <div className="text-[9px] leading-none text-muted-foreground">
+                                          inkl. MwSt
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -2074,7 +2586,7 @@ export default function AngebotePage() {
                             }}
                             title="Kunde bearbeiten"
                             aria-label="Kunde bearbeiten"
-                            className="rounded-xl border-2 border-slate-300 bg-muted/30 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            className="rounded-xl border border-sky-200 bg-sky-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-sky-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
                           >
                             {isFallbackCustomerName(cust.name) ? (
                               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -2207,7 +2719,7 @@ export default function AngebotePage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 rounded-xl border-2 border-slate-300 bg-muted/30 p-2 sm:p-3 space-y-1.5 min-w-0">
+                              <div className="mt-2 rounded-xl border border-sky-200 bg-sky-50/70 p-2 sm:p-3 space-y-1.5 min-w-0">
                                 {isFallbackCustomerName(cust.name) ? (
                                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
@@ -2417,7 +2929,7 @@ export default function AngebotePage() {
                 <>
                   <div
                     ref={executionAddressRef}
-                    className="scroll-mt-20 rounded-xl border-2 border-slate-300 bg-slate-50/70 p-3 sm:p-4 dark:bg-slate-900/30"
+                    className="scroll-mt-20 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:p-4 dark:border-slate-800 dark:bg-slate-900/30"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <label className="flex cursor-pointer items-start gap-2">
@@ -2464,7 +2976,7 @@ export default function AngebotePage() {
                         {executionSites.map((site, index) => (
                           <div
                             key={`${site.sourceOrderId || "site"}-${index}`}
-                            className="rounded-xl border-2 border-slate-300 bg-background p-3 shadow-sm"
+                            className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950"
                           >
                             {editingExecutionAddress ? (
                               <div className="space-y-3">
@@ -2601,10 +3113,40 @@ export default function AngebotePage() {
                         const lineTotal =
                           Number(item?.unitPrice ?? 0) *
                           Number(item?.quantity ?? 0);
+                        const matchedService = (services || []).find(
+                          (service: any) =>
+                            normalizeOfferHint(service?.name) ===
+                            normalizeOfferHint(item?.description),
+                        );
+                        const catalogPrice = Number(
+                          matchedService?.defaultPrice ?? 0,
+                        );
+                        const catalogUnit = String(
+                          matchedService?.unit ?? "",
+                        ).trim();
+                        const samePrice =
+                          !matchedService ||
+                          Math.abs(
+                            Number(item?.unitPrice ?? 0) - catalogPrice,
+                          ) < 0.001;
+                        const sameUnit =
+                          !matchedService ||
+                          !catalogUnit ||
+                          String(item?.unit ?? "").trim() === catalogUnit;
+                        const itemNeedsReview =
+                          Number(item?.unitPrice ?? 0) <= 0 ||
+                          Number(item?.quantity ?? 0) <= 0 ||
+                          !matchedService ||
+                          !samePrice ||
+                          !sameUnit;
                         return (
                           <div
                             key={idx}
-                            className="min-w-0 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 shadow-sm"
+                            className={`min-w-0 space-y-3 rounded-xl border-2 p-3 shadow-sm ${
+                              itemNeedsReview
+                                ? "border-amber-300 bg-amber-50/60"
+                                : "border-slate-300 bg-slate-50/70"
+                            }`}
                           >
                             <div className="flex items-start gap-2">
                               <div className="min-w-0 flex-1">
@@ -2725,6 +3267,25 @@ export default function AngebotePage() {
                                 />
                               </div>
                             </div>
+
+                            {item?.description?.trim() && itemNeedsReview && (
+                              <div className="rounded-lg border border-amber-300 bg-amber-100/60 px-3 py-2 text-xs text-amber-900">
+                                <div className="font-semibold">⚠ Manuell prüfen</div>
+                                {!matchedService ? (
+                                  <div className="mt-1">
+                                    Nicht im Leistungskatalog. Optional über Menü übernehmen.
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 space-y-0.5">
+                                    <div>
+                                      Katalog: {catalogUnit || "—"} · {formatCurrency(catalogPrice, currency)}
+                                    </div>
+                                    {!sameUnit && <div>Einheit weicht vom Katalog ab.</div>}
+                                    {!samePrice && <div>Preis weicht vom Katalog ab.</div>}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       }) ?? []}
@@ -2741,8 +3302,17 @@ export default function AngebotePage() {
                     </Button>
                   </div>
 
-                  <div className="min-w-0 space-y-4 rounded-xl border-2 border-slate-300 bg-muted/40 p-3 sm:p-4">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-4 border-t-4 border-slate-300 pt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-base font-semibold">
+                        Angebotsdaten & Betrag
+                      </Label>
+                      <span className="text-xs text-muted-foreground">
+                        Klar getrennt von den Leistungen
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
                       <div>
                         <Label>Angebotsdatum</Label>
                         <Input
@@ -2754,7 +3324,7 @@ export default function AngebotePage() {
                         />
                       </div>
                       <div>
-                        <Label>Gültigkeitsdauer (Tage)</Label>
+                        <Label>Gültig (Tage)</Label>
                         <Input
                           type="number"
                           min="0"
@@ -2767,7 +3337,7 @@ export default function AngebotePage() {
                       <div>
                         <Label>Status</Label>
                         <select
-                          className="flex h-10 w-full rounded-md border border-input px-3 py-2 text-sm"
+                          className="flex w-full rounded-md border border-input px-3 py-2 text-sm"
                           style={getStatusStyle(
                             OFFER_STATUS_STYLES,
                             form.status,
@@ -2793,7 +3363,7 @@ export default function AngebotePage() {
                       <div>
                         <Label>Währung</Label>
                         <select
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                           value={currency}
                           onChange={(event) =>
                             setCurrency(
@@ -2807,56 +3377,121 @@ export default function AngebotePage() {
                       </div>
                     </div>
 
-                    <MwStControl vatRate={vatRate} onChange={setVatRate} />
-                    <div className="min-w-0 space-y-1 border-t-2 border-slate-300 pt-3 text-sm">
-                      <div className="flex min-w-0 justify-between">
-                        <span className="shrink-0">Netto</span>
-                        <span className="font-mono tabular-nums">
-                          {formatCurrency(subtotal, currency)}
-                        </span>
-                      </div>
-                      {vatRate > 0 && (
+                    <div className="min-w-0 space-y-3 rounded-xl border-2 border-slate-400 bg-slate-100/90 p-2 sm:p-4 dark:border-slate-700 dark:bg-slate-900/70">
+                      <MwStControl vatRate={vatRate} onChange={setVatRate} />
+                      <div className="min-w-0 space-y-1 border-t border-slate-300 pt-2 text-xs sm:text-sm">
                         <div className="flex min-w-0 justify-between">
-                          <span className="shrink-0">MwSt. {vatRate}%</span>
-                          <span className="font-mono tabular-nums">
-                            {formatCurrency(vatAmount, currency)}
+                          <span className="shrink-0">Netto</span>
+                          <span className="font-mono">
+                            {formatCurrency(subtotal, currency)}
                           </span>
                         </div>
-                      )}
-                      <div className="flex min-w-0 justify-between border-t-2 border-slate-300 pt-2 text-base font-bold">
-                        <span className="shrink-0">Total</span>
-                        <span className="font-mono text-primary tabular-nums">
-                          {formatCurrency(total, currency)}
-                        </span>
+                        {vatRate > 0 && (
+                          <div className="flex min-w-0 justify-between">
+                            <span className="shrink-0">MwSt. {vatRate}%</span>
+                            <span className="font-mono">
+                              {formatCurrency(vatAmount, currency)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex min-w-0 justify-between border-t-2 border-slate-300 pt-2 text-sm font-bold sm:text-base">
+                          <span className="shrink-0">Total</span>
+                          <span className="font-mono text-primary">
+                            {formatCurrency(total, currency)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4">
-                    <Label className="font-semibold">
-                      Text für Angebot / PDF
-                    </Label>
-                    <div className="text-xs text-muted-foreground">
-                      Nur für den Kunden sichtbar. Leer lassen, wenn kein
-                      zusätzlicher Text im PDF benötigt wird.
+                  {!showNewCustomer && (
+                    <div className="rounded-xl border bg-background p-2 sm:p-3">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setDialogOpen(false)}
+                          disabled={saving}
+                          className="order-3 w-full lg:order-1 lg:w-auto"
+                        >
+                          Abbrechen
+                        </Button>
+
+                        <div className="order-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-2 lg:min-w-[430px]">
+                          <Button
+                            type="button"
+                            onClick={save}
+                            disabled={saving}
+                            className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                          >
+                            {saving
+                              ? "Speichere..."
+                              : editOfferId
+                                ? "Speichern"
+                                : "Angebot erstellen"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={saveAndCreateInvoice}
+                            disabled={saving}
+                            className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          >
+                            <FileText className="mr-1.5 h-4 w-4" />
+                            → Rechnung
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                    <textarea
-                      className="flex min-h-[96px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      rows={4}
-                      placeholder="Optionaler Einleitungstext, Zusammenfassung oder Zusatz für das Angebots-PDF..."
-                      value={form.notes}
-                      onChange={(event) =>
-                        setForm({ ...form, notes: event.target.value })
-                      }
-                    />
+                  )}
+
+                  <div className="space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4">
+                    <div>
+                      <Label className="font-semibold">
+                        Text für Angebot / PDF
+                      </Label>
+                      <div className="text-xs text-muted-foreground">
+                        Nur für den Kunden sichtbar. Beide Felder sind optional.
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Titel im Angebots-PDF</Label>
+                      <Input
+                        placeholder="z.B. Zusätzliche Informationen"
+                        value={form.pdfTitle}
+                        onChange={(event) =>
+                          setForm({ ...form, pdfTitle: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Text im Angebots-PDF</Label>
+                      <textarea
+                        className="flex min-h-[105px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        rows={5}
+                        placeholder="Optionaler Einleitungstext, Hinweis oder Zusatz für das Angebots-PDF..."
+                        value={form.notes}
+                        onChange={(event) =>
+                          setForm({ ...form, notes: event.target.value })
+                        }
+                      />
+                    </div>
                   </div>
 
                   <div
                     ref={offerDetailsRef}
-                    className="scroll-mt-20 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4"
+                    tabIndex={-1}
+                    className="scroll-mt-24 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-4"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <Label className="font-semibold">Besonderheiten</Label>
+                      <div className="flex items-center gap-2">
+                        <Label className="font-semibold">Besonderheiten</Label>
+                        {linkedSafetyWarnings.length > 0 && (
+                          <Badge className="border border-red-300 bg-red-100 text-red-700">
+                            Gefahr / Achtung
+                          </Badge>
+                        )}
+                      </div>
                       <span className="text-xs text-muted-foreground">
                         Intern – nicht automatisch im Kunden-PDF
                       </span>
@@ -2875,10 +3510,10 @@ export default function AngebotePage() {
                     )}
 
                     {linkedSafetyWarnings.length > 0 && (
-                      <div className="space-y-1 rounded-lg border-2 border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                      <div className="space-y-1 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
                         <div className="flex items-center gap-2 font-semibold">
                           <AlertTriangle className="h-4 w-4" />
-                          Gefahr / Achtung
+                          Wichtige Gefahren / Warnhinweise
                         </div>
                         <ul className="list-disc pl-5">
                           {linkedSafetyWarnings.map((line, index) => (
@@ -2888,43 +3523,36 @@ export default function AngebotePage() {
                       </div>
                     )}
 
+                    {linkedJobHints.length > 0 && (
+                      <div className="rounded-lg border border-yellow-300 bg-yellow-50/70 p-3 text-sm text-slate-900">
+                        <div className="mb-2 font-semibold">
+                          Weitere Besonderheiten
+                        </div>
+                        <div className="space-y-1 leading-7">
+                          {linkedJobHints.map((line, index) => (
+                            <div
+                              key={`${line}-${index}`}
+                              className="whitespace-pre-wrap break-words"
+                            >
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {linkedOrderData && (
                       <CommunicationBlock
                         data={linkedOrderData}
-                        specialNotesValue={linkedJobHints.join("\n")}
+                        showChips={false}
+                        showSpecialNotes={false}
+                        showCustomerMessage
                       />
                     )}
                   </div>
                 </>
               )}
 
-              {/* Document action buttons — hidden when customer editor OR duplicate panel is open */}
-              {!showNewCustomer && !dupCheckOpen && (
-                <div className="flex flex-wrap justify-center sm:justify-end gap-2 mb-20 md:mb-0">
-                  <Button
-                    variant="outline"
-                    onClick={() => setDialogOpen(false)}
-                  >
-                    Abbrechen
-                  </Button>
-                  <Button onClick={save} disabled={saving}>
-                    {saving
-                      ? "Speichern..."
-                      : editOfferId
-                        ? "Speichern"
-                        : "Angebot erstellen"}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={saveAndCreateInvoice}
-                    disabled={saving}
-                    className="bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
-                  >
-                    <FileText className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />→
-                    Rechnung
-                  </Button>
-                </div>
-              )}
             </div>
             {/* Duplicate Check Panel (right column) */}
             {dupCheckOpen &&
