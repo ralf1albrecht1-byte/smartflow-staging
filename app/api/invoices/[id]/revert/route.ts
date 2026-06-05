@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
 
@@ -16,10 +17,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+    const dataScope = await getActiveDataScope(userId);
 
     const invoice = await prisma.invoice.findFirst({
-      where: { id: params?.id, userId, deletedAt: null },
-      include: { orders: { select: { id: true } } },
+      where: { id: params?.id, userId, dataScope, deletedAt: null },
+      include: { orders: { where: { dataScope }, select: { id: true } } },
     });
     if (!invoice) return NextResponse.json({ error: 'Rechnung nicht gefunden' }, { status: 404 });
 
@@ -27,7 +29,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     let reactivatedOffer = false;
     if (invoice.sourceOfferId) {
       const offer = await prisma.offer.findFirst({
-        where: { id: invoice.sourceOfferId, userId },
+        where: { id: invoice.sourceOfferId, userId, dataScope },
       });
       if (offer) {
         await prisma.offer.update({
@@ -45,7 +47,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const orderIds = invoice.orders.map((o: any) => o.id);
     if (orderIds.length > 0) {
       await prisma.order.updateMany({
-        where: { id: { in: orderIds } },
+        where: { id: { in: orderIds }, userId, dataScope },
         data: { invoiceId: null },
       });
     }

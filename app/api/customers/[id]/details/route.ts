@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
 import { isArchivedInvoice } from '@/lib/customer-links';
 
@@ -8,12 +9,13 @@ export async function GET(request: Request, { params }: { params: { id: string }
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+    const dataScope = await getActiveDataScope(userId);
 
     const customer = await prisma.customer.findFirst({
-      where: { id: params?.id, userId },
+      where: { id: params?.id, userId, dataScope },
       include: {
         orders: {
-          where: { deletedAt: null },
+          where: { deletedAt: null, dataScope },
           orderBy: { date: 'desc' },
           select: {
             id: true,
@@ -50,7 +52,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
           },
         },
         offers: {
-          where: { deletedAt: null },
+          where: { deletedAt: null, dataScope },
           orderBy: { offerDate: 'desc' },
           select: {
             id: true,
@@ -63,7 +65,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
           },
         },
         invoices: {
-          where: { deletedAt: null },
+          where: { deletedAt: null, dataScope },
           orderBy: { invoiceDate: 'desc' },
           select: {
             id: true,

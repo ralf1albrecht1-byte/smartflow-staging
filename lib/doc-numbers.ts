@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { DATA_SCOPE_TEST } from '@/lib/data-scope';
 
 /**
 
@@ -99,6 +100,7 @@ const now = new Date();
 const offersResult = await prisma.offer.updateMany({
 where: {
 offerNumber: { startsWith: 'TEST-' },
+dataScope: DATA_SCOPE_TEST,
 deletedAt: null,
 userId,
 },
@@ -108,6 +110,7 @@ data: { deletedAt: now },
 const invoicesResult = await prisma.invoice.updateMany({
 where: {
 invoiceNumber: { startsWith: 'TEST-' },
+dataScope: DATA_SCOPE_TEST,
 deletedAt: null,
 userId,
 },
@@ -115,12 +118,12 @@ data: { deletedAt: now },
 });
 
 const testOfferIds = (await prisma.offer.findMany({
-where: { offerNumber: { startsWith: 'TEST-' }, userId },
+where: { offerNumber: { startsWith: 'TEST-' }, dataScope: DATA_SCOPE_TEST, userId },
 select: { id: true },
 })).map((o: { id: string }) => o.id);
 
 const testInvoiceIds = (await prisma.invoice.findMany({
-where: { invoiceNumber: { startsWith: 'TEST-' }, userId },
+where: { invoiceNumber: { startsWith: 'TEST-' }, dataScope: DATA_SCOPE_TEST, userId },
 select: { id: true },
 })).map((i: { id: string }) => i.id);
 
@@ -128,7 +131,7 @@ let ordersReset = 0;
 
 if (testOfferIds.length > 0) {
 const r = await prisma.order.updateMany({
-where: { offerId: { in: testOfferIds }, deletedAt: null, userId },
+where: { offerId: { in: testOfferIds }, dataScope: DATA_SCOPE_TEST, deletedAt: null, userId },
 data: { deletedAt: now },
 });
 ordersReset += r.count;
@@ -136,7 +139,7 @@ ordersReset += r.count;
 
 if (testInvoiceIds.length > 0) {
 const r = await prisma.order.updateMany({
-where: { invoiceId: { in: testInvoiceIds }, deletedAt: null, userId },
+where: { invoiceId: { in: testInvoiceIds }, dataScope: DATA_SCOPE_TEST, deletedAt: null, userId },
 data: { deletedAt: now },
 });
 ordersReset += r.count;

@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getActiveDataScope, type DataScope } from "@/lib/data-scope";
 import { generateInvoiceNumber } from "@/lib/doc-numbers";
 import {
   requireUserId,
@@ -174,6 +175,7 @@ function sourceOrderBlockers(order: any): string[] {
 
 async function validateSourceOrdersForDocument(
   userId: string,
+  dataScope: DataScope,
   orderIds: unknown,
 ) {
   const ids = Array.isArray(orderIds)
@@ -182,7 +184,7 @@ async function validateSourceOrdersForDocument(
   if (ids.length === 0) return null;
 
   const orders = await prisma.order.findMany({
-    where: { id: { in: ids }, userId, deletedAt: null },
+    where: { id: { in: ids }, userId, dataScope, deletedAt: null },
     include: {
       items: { include: { workSite: true } },
       workSites: true,
@@ -238,9 +240,10 @@ export async function GET(request: Request) {
     return unauthorizedResponse();
   }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const url = new URL(request.url);
     const statusFilter = url.searchParams.get("status");
-    const where: any = { deletedAt: null, userId };
+    const where: any = { deletedAt: null, userId, dataScope };
     if (statusFilter) where.status = statusFilter;
     const invoices = await prisma.invoice.findMany({
       where,
@@ -249,6 +252,7 @@ export async function GET(request: Request) {
         customer: true,
         items: true,
         orders: {
+          where: { dataScope },
           select: {
             id: true,
             createdAt: true,
@@ -274,7 +278,7 @@ export async function GET(request: Request) {
     let offerMap: Record<string, string> = {};
     if (offerIds.length > 0) {
       const offers = await prisma.offer.findMany({
-        where: { id: { in: offerIds } },
+        where: { id: { in: offerIds }, userId, dataScope },
         select: { id: true, offerNumber: true },
       });
       offerMap = Object.fromEntries(
@@ -306,12 +310,14 @@ export async function POST(request: Request) {
     return unauthorizedResponse();
   }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const data = await request.json();
     const itemError = validateDocumentItems(data?.items ?? []);
     if (itemError)
       return NextResponse.json({ error: itemError }, { status: 400 });
     const sourceOrderError = await validateSourceOrdersForDocument(
       userId,
+      dataScope,
       data?.orderIds,
     );
     if (sourceOrderError)
@@ -342,13 +348,29 @@ export async function POST(request: Request) {
     dueDate.setDate(dueDate.getDate() + Number(data?.paymentDays ?? 30));
     // Guard: reject creation linked to an archived customer
     if (data?.customerId) {
+      const activeCustomer = await prisma.customer.findFirst({
+        where: { id: data.customerId, userId, dataScope, deletedAt: null },
+        select: { id: true },
+      });
+      if (!activeCustomer) {
+        return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
+      }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
-    // Duplicate guard: if an invoice already exists for this sourceOfferId, return it
+    // Source offer must belong to the same active TEST/LIVE scope.
     if (data?.sourceOfferId) {
+      const sourceOffer = await prisma.offer.findFirst({
+        where: { id: data.sourceOfferId, userId, dataScope, deletedAt: null },
+        select: { id: true },
+      });
+      if (!sourceOffer) {
+        return NextResponse.json({ error: "Angebot gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
+      }
+
+      // Duplicate guard: if an invoice already exists for this sourceOfferId, return it
       const existing = await prisma.invoice.findFirst({
-        where: { sourceOfferId: data.sourceOfferId, userId, deletedAt: null },
+        where: { sourceOfferId: data.sourceOfferId, userId, dataScope, deletedAt: null },
         include: { customer: true, items: true },
       });
       if (existing) {
@@ -385,6 +407,7 @@ export async function POST(request: Request) {
             status: data?.status ?? "Entwurf",
             sourceOfferId: data?.sourceOfferId ?? null,
             userId,
+            dataScope,
             items: {
               create: items.map((item: any) => ({
                 description: item?.description ?? "",
@@ -419,7 +442,7 @@ export async function POST(request: Request) {
     }
     if (data?.orderIds?.length) {
       await prisma.order.updateMany({
-        where: { id: { in: data.orderIds } },
+        where: { id: { in: data.orderIds }, userId, dataScope },
         data: { invoiceId: invoice.id },
       });
     }

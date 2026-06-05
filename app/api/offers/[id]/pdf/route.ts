@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import puppeteer from "puppeteer";
 import { prisma } from "@/lib/prisma";
+import { getActiveDataScope } from "@/lib/data-scope";
 import { generateOfferHtml } from "@/lib/pdf-templates";
 import { toImageDataUrl } from "@/lib/pdf-image-data-url";
 import {
@@ -104,6 +105,8 @@ export async function GET(
       return unauthorizedResponse();
     }
 
+    const dataScope = await getActiveDataScope(userId);
+
     const su = await getSessionUser();
 
     console.log(
@@ -112,7 +115,7 @@ export async function GET(
 
     const [offer, companySettings] = await Promise.all([
       prisma.offer.findFirst({
-        where: { id: params?.id, userId },
+        where: { id: params?.id, userId, dataScope },
         include: { customer: true, items: true },
       }),
       prisma.companySettings.findFirst({

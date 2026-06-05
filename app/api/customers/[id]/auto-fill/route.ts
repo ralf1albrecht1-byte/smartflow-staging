@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { extractCustomerDataFromText } from '@/lib/extract-from-notes';
 import { protectCustomerData } from '@/lib/data-protection';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
@@ -40,8 +41,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+    const dataScope = await getActiveDataScope(userId);
 
-    const customer = await prisma.customer.findFirst({ where: { id: params.id, userId } });
+    const customer = await prisma.customer.findFirst({ where: { id: params.id, userId, dataScope } });
     if (!customer) return NextResponse.json({ error: 'Kunde nicht gefunden' }, { status: 404 });
 
     // Layer 3 — stop dead for fallback/stub customers. Return the row as-is.
@@ -62,7 +64,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
 
     const orders = await prisma.order.findMany({
-      where: { customerId: params.id, notes: { not: null } },
+      where: { customerId: params.id, userId, dataScope, notes: { not: null } },
       select: { notes: true },
       orderBy: { createdAt: 'desc' },
     });

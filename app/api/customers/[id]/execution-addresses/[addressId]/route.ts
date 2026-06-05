@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
 
@@ -10,10 +11,11 @@ export async function DELETE(
 ) {
   let userId: string;
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+  const dataScope = await getActiveDataScope(userId);
 
   try {
     const customer = await prisma.customer.findFirst({
-      where: { id: params.id, userId, deletedAt: null },
+      where: { id: params.id, userId, dataScope, deletedAt: null },
       select: { id: true },
     });
 

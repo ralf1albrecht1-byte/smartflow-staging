@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
@@ -9,7 +10,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
 
     const body = await request.json().catch(() => ({}));
-    const order = await prisma.order.findFirst({ where: { id: params.id, userId } });
+    const dataScope = await getActiveDataScope(userId);
+    const order = await prisma.order.findFirst({ where: { id: params.id, userId, dataScope } });
     if (!order) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
 
     let cleaned = (order.specialNotes || '')

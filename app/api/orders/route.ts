@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getActiveDataScope } from "@/lib/data-scope";
 import {
   requireUserId,
   unauthorizedResponse,
@@ -2159,9 +2160,10 @@ export async function GET(request: Request) {
     return unauthorizedResponse();
   }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const { searchParams } = new URL(request.url);
     const status = searchParams?.get("status");
-    const where: any = { deletedAt: null, userId };
+    const where: any = { deletedAt: null, userId, dataScope };
     if (status && status !== "Alle") where.status = status;
     const orders = await prisma.order.findMany({
       where,
@@ -2229,6 +2231,7 @@ export async function POST(request: Request) {
     return unauthorizedResponse();
   }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const rawData = await request.json();
     const data = {
       ...rawData,
@@ -2302,6 +2305,13 @@ export async function POST(request: Request) {
     const total = calculatedTotals.total;
     // Guard: reject creation linked to an archived customer
     if (data?.customerId) {
+      const activeCustomer = await prisma.customer.findFirst({
+        where: { id: data.customerId, userId, dataScope, deletedAt: null },
+        select: { id: true },
+      });
+      if (!activeCustomer) {
+        return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
+      }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
@@ -2343,6 +2353,7 @@ export async function POST(request: Request) {
         imageUrls: data?.imageUrls ?? [],
         audioTranscript: data?.audioTranscript || null,
         userId,
+        dataScope,
         ...(items && items.length > 0
           ? {
               items: {
@@ -2379,8 +2390,8 @@ export async function POST(request: Request) {
         );
 
       if (explicitBillingAddress) {
-        const linkedCustomer = await prisma.customer.findUnique({
-          where: { id: data.customerId },
+        const linkedCustomer = await prisma.customer.findFirst({
+          where: { id: data.customerId, userId, dataScope },
           select: {
             id: true,
             name: true,
@@ -2418,8 +2429,8 @@ export async function POST(request: Request) {
             });
 
             order =
-              (await prisma.order.findUnique({
-                where: { id: order.id },
+              (await prisma.order.findFirst({
+                where: { id: order.id, userId, dataScope },
                 include: {
                   customer: true,
                   items: { include: { workSite: true } },
@@ -2485,8 +2496,8 @@ export async function POST(request: Request) {
 
     if (rememberedExecutionAddressCount > 0 || explicitExecutionAddress) {
       order =
-        (await prisma.order.findUnique({
-          where: { id: order.id },
+        (await prisma.order.findFirst({
+          where: { id: order.id, userId, dataScope },
           include: {
             customer: true,
             items: { include: { workSite: true } },

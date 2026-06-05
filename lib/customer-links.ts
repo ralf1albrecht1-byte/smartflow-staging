@@ -1,3 +1,4 @@
+import { getActiveDataScope, type DataScope } from '@/lib/data-scope';
 /**
  * Single source of truth for counting records linked to a customer in a way that
  * matches exactly what the user sees in the module list pages.
@@ -164,14 +165,16 @@ export async function getCustomerDeleteBlockerCounts(
   prisma: any,
   customerId: string,
   userId: string,
+  requestedScope?: DataScope,
 ): Promise<CustomerDeleteBlockerCounts> {
+  const dataScope = requestedScope || await getActiveDataScope(userId, prisma);
   const [activeOrders, activeOffers, activeInvoices, archivedInvoices, historicalOrders, historicalOffers] = await Promise.all([
-    prisma.order.count({ where: { customerId, deletedAt: null, userId, offerId: null, invoiceId: null } }),
-    prisma.offer.count({ where: { customerId, deletedAt: null, userId, status: { in: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
-    prisma.invoice.count({ where: { customerId, deletedAt: null, userId, status: { not: 'Erledigt' } } }),
-    prisma.invoice.count({ where: { customerId, deletedAt: null, userId, status: 'Erledigt' } }),
-    prisma.order.count({ where: { customerId, deletedAt: null, userId, OR: [{ offerId: { not: null } }, { invoiceId: { not: null } }] } }),
-    prisma.offer.count({ where: { customerId, deletedAt: null, userId, status: { notIn: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
+    prisma.order.count({ where: { customerId, deletedAt: null, userId, dataScope, offerId: null, invoiceId: null } }),
+    prisma.offer.count({ where: { customerId, deletedAt: null, userId, dataScope, status: { in: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
+    prisma.invoice.count({ where: { customerId, deletedAt: null, userId, dataScope, status: { not: 'Erledigt' } } }),
+    prisma.invoice.count({ where: { customerId, deletedAt: null, userId, dataScope, status: 'Erledigt' } }),
+    prisma.order.count({ where: { customerId, deletedAt: null, userId, dataScope, OR: [{ offerId: { not: null } }, { invoiceId: { not: null } }] } }),
+    prisma.offer.count({ where: { customerId, deletedAt: null, userId, dataScope, status: { notIn: ACTIVE_OFFER_STATUSES as unknown as string[] } } }),
   ]);
   return { activeOrders, activeOffers, activeInvoices, archivedInvoices, historicalOrders, historicalOffers };
 }

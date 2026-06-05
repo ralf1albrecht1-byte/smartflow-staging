@@ -6,6 +6,7 @@ import { logAuditAsync } from '@/lib/audit';
 import { normalizePhoneE164 } from '@/lib/normalize';
 import { getEnvLabel } from '@/lib/env';
 import { getS3ResolvedConfig } from '@/lib/aws-config';
+import { DATA_SCOPE_LIVE } from '@/lib/data-scope';
 
 export async function GET() {
   try {
@@ -275,6 +276,23 @@ currency: currency === 'EUR' ? 'EUR' : 'CHF',
     // WhatsApp intake number — already normalized above in step 2
     if (whatsappProvided) settingsData.whatsappIntakeNumber = normalizedWhatsapp;
 
+
+
+    // Safety gate: a plain mode switch must never create a fake LIVE view over TEST data.
+    // LIVE can only be entered when the live-start marker exists and at least one LIVE
+    // customer is present. Initial creation/repair is handled by prepare-live.
+    if (testModus === false) {
+      const [liveMarker, liveCustomers] = await Promise.all([
+        prisma.counter.findUnique({ where: { name: `live-started:${userId}` }, select: { id: true } }),
+        prisma.customer.count({ where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null } }),
+      ]);
+      if (!liveMarker || liveCustomers === 0) {
+        return NextResponse.json(
+          { error: 'Livebestand ist noch nicht vorbereitet oder leer. Bitte zuerst den sicheren Echtstart bzw. die Live-Reparatur ausführen.' },
+          { status: 409 },
+        );
+      }
+    }
 
 
 // Find existing settings for this user

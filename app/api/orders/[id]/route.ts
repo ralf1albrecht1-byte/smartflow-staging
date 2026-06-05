@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getActiveDataScope, type DataScope } from "@/lib/data-scope";
 import {
   requireUserId,
   unauthorizedResponse,
@@ -1649,8 +1650,9 @@ export async function GET(
     return unauthorizedResponse();
   }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const order = await prisma.order.findFirst({
-      where: { id: params?.id, userId },
+      where: { id: params?.id, userId, dataScope },
       include: {
         customer: true,
         items: { include: { workSite: true } },
@@ -1698,8 +1700,9 @@ export async function PUT(
     return unauthorizedResponse();
   }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const existing = await prisma.order.findFirst({
-      where: { id: params?.id, userId },
+      where: { id: params?.id, userId, dataScope },
       include: { workSites: true },
     });
     if (!existing)
@@ -1922,6 +1925,13 @@ export async function PUT(
 
     // Guard: reject reassignment to an archived customer
     if (data?.customerId && data.customerId !== existing.customerId) {
+      const activeCustomer = await prisma.customer.findFirst({
+        where: { id: data.customerId, userId, dataScope, deletedAt: null },
+        select: { id: true },
+      });
+      if (!activeCustomer) {
+        return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
+      }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
@@ -2157,6 +2167,7 @@ const cleanupEmptyCustomerAfterOrderDelete = async (
   customerId: string | null | undefined,
   deletedOrderId: string,
   userId: string,
+  dataScope: DataScope,
   request: Request,
 ) => {
   // Safety: this cleanup is scoped to the exact customerId linked to the deleted
@@ -2165,7 +2176,7 @@ const cleanupEmptyCustomerAfterOrderDelete = async (
   if (!customerId) return null;
 
   const customer = await prisma.customer.findFirst({
-    where: { id: customerId, userId, deletedAt: null },
+    where: { id: customerId, userId, dataScope, deletedAt: null },
     select: {
       id: true,
       customerNumber: true,
@@ -2187,15 +2198,16 @@ const cleanupEmptyCustomerAfterOrderDelete = async (
         where: {
           customerId,
           userId,
+          dataScope,
           deletedAt: null,
           id: { not: deletedOrderId },
         },
       }),
       prisma.offer.count({
-        where: { customerId, userId, deletedAt: null },
+        where: { customerId, userId, dataScope, deletedAt: null },
       }),
       prisma.invoice.count({
-        where: { customerId, userId, deletedAt: null },
+        where: { customerId, userId, dataScope, deletedAt: null },
       }),
     ]);
 
@@ -2239,8 +2251,9 @@ export async function DELETE(
     return unauthorizedResponse();
   }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const existing = await prisma.order.findFirst({
-      where: { id: params?.id, userId },
+      where: { id: params?.id, userId, dataScope },
     });
     if (!existing)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
@@ -2253,6 +2266,7 @@ export async function DELETE(
       existing.customerId,
       params?.id,
       userId,
+      dataScope,
       request,
     );
 

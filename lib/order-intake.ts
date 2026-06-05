@@ -17,6 +17,7 @@ import {
 import { maskPhoneForLog } from "@/lib/phone";
 import { buildSpecialNotes } from "@/lib/special-notes-utils";
 import { repairZeroQuantityHourItemsFromText } from "@/lib/order-hour-line-repair";
+import { getActiveDataScope } from "@/lib/data-scope";
 import {
   applyUnitlessQuantityPriceLineGuard,
   extractExecutionAddressFromText,
@@ -7464,6 +7465,7 @@ export async function processIncomingMessage(
     });
     return null;
   }
+  const dataScope = await getActiveDataScope(userId);
   const _intakeStartTime = Date.now();
   console.log(
     `[${source}] Processing message for userId: ${userId} (textLength=${messageText.length}chars, hasImage=${!!imageBase64}, hasMedia=${!!savedMediaPath})`,
@@ -7491,7 +7493,7 @@ export async function processIncomingMessage(
   // (reads address/phone/email straight from the DB), so the LLM does not need
   // that information to decide "gleicher_kunde" / "moeglicher_treffer".
   const allCustomers = await prisma.customer.findMany({
-    where: { deletedAt: null, ...userFilter },
+    where: { deletedAt: null, dataScope, ...userFilter },
     select: { id: true, name: true },
     orderBy: { updatedAt: "desc" },
     take: 200,
@@ -8007,13 +8009,13 @@ export async function processIncomingMessage(
       plz: addr.plz,
       city: addr.city,
       name: kundeData.name,
-    });
+    }, userId, dataScope);
 
     if (matchResult.verdict === "auto_assign") {
       // ✅ Strong unique signal verified (phone or email) → safe to auto-assign
       customerId = matchId;
-      const matchedCust = await prisma.customer.findUnique({
-        where: { id: matchId },
+      const matchedCust = await prisma.customer.findFirst({
+        where: { id: matchId, userId, dataScope },
         select: { address: true, plz: true, city: true },
       });
       if (
@@ -8090,7 +8092,7 @@ export async function processIncomingMessage(
       city: addr.city,
       phone: kundeData.telefon || null,
       email: kundeData.email || null,
-    });
+    }, dataScope);
     if (exact.match) {
       customerId = exact.match.id;
       autoReuseTags.push(`AUTO_REUSED:${exact.match.customerNumber}`);
@@ -8144,6 +8146,7 @@ export async function processIncomingMessage(
         phone: kundeData.telefon || null,
         email: kundeData.email || null,
       },
+      dataScope,
     );
     if (nearExact.match && nearExact.completedField) {
       customerId = nearExact.match.id;
@@ -8315,7 +8318,7 @@ export async function processIncomingMessage(
     let customerNumber: string | null = null;
     if (hasCompleteNewCustomerMasterForNumber) {
       const { generateCustomerNumber } = await import("@/lib/customer-number");
-      customerNumber = await generateCustomerNumber();
+      customerNumber = await generateCustomerNumber(userId, dataScope);
     } else {
       // V17.87: Unvollständige Intake-Kunden bleiben Kundenentwurf ohne
       // sichtbare K-Nummer. Der Auftrag braucht technisch weiterhin eine
@@ -8345,6 +8348,7 @@ export async function processIncomingMessage(
         city: safeNewCustomerCity,
         notes: customerNumber ? `${source}-Kunde` : `${source}-Kundenentwurf`,
         ...(userId ? { userId } : {}),
+        dataScope,
       },
     });
 
@@ -9897,6 +9901,7 @@ export async function processIncomingMessage(
     data: {
       customerId,
       ...(userId ? { userId } : {}),
+      dataScope,
       description,
       serviceName,
       status: "Offen",
@@ -10098,6 +10103,7 @@ async function createFallbackOrderFromRawPayload(
   const FALLBACK_CUSTOMER_NAME = "⚠️ Unbekannt (WhatsApp)";
 
   // Resolve default VAT rate from CompanySettings (same logic as main intake path)
+  const dataScope = await getActiveDataScope(userId);
   const fbSettings = await prisma.companySettings.findFirst({
     where: { userId },
   });
@@ -10112,12 +10118,12 @@ async function createFallbackOrderFromRawPayload(
   try {
     // Upsert per-user fallback customer (name-only; no guessed fields).
     let fallbackCustomer = await prisma.customer.findFirst({
-      where: { userId, name: FALLBACK_CUSTOMER_NAME, deletedAt: null },
+      where: { userId, dataScope, name: FALLBACK_CUSTOMER_NAME, deletedAt: null },
       select: { id: true, name: true },
     });
     if (!fallbackCustomer) {
       fallbackCustomer = await prisma.customer.create({
-        data: { name: FALLBACK_CUSTOMER_NAME, userId },
+        data: { name: FALLBACK_CUSTOMER_NAME, userId, dataScope },
         select: { id: true, name: true },
       });
       console.log(
@@ -10189,6 +10195,7 @@ async function createFallbackOrderFromRawPayload(
         thumbnailUrls,
         notes,
         userId,
+        dataScope,
         // Stage I — even on LLM-fallback we still track audio usage if duration was detected
         audioDurationSec:
           savedMediaType === "audio"
@@ -10366,6 +10373,7 @@ export async function createVoiceTooLongReviewOrder(
   }
 
   // Resolve default VAT rate from CompanySettings (same logic as main intake path)
+  const dataScope = await getActiveDataScope(userId);
   const voiceSettings = await prisma.companySettings.findFirst({
     where: { userId },
   });
@@ -10434,12 +10442,12 @@ export async function createVoiceTooLongReviewOrder(
   try {
     // Upsert per-user fallback customer (same pattern as createFallbackOrderFromRawPayload)
     let fallbackCustomer = await prisma.customer.findFirst({
-      where: { userId, name: FALLBACK_CUSTOMER_NAME, deletedAt: null },
+      where: { userId, dataScope, name: FALLBACK_CUSTOMER_NAME, deletedAt: null },
       select: { id: true, name: true },
     });
     if (!fallbackCustomer) {
       fallbackCustomer = await prisma.customer.create({
-        data: { name: FALLBACK_CUSTOMER_NAME, userId },
+        data: { name: FALLBACK_CUSTOMER_NAME, userId, dataScope },
         select: { id: true, name: true },
       });
       console.log(
@@ -10513,6 +10521,7 @@ export async function createVoiceTooLongReviewOrder(
         thumbnailUrls,
         notes,
         userId,
+        dataScope,
         // Stage I — audio usage tracking for the cost-cap path.
         // For 'uncheckable' we typically don't have a duration, so this stays null
         // (the order is intentionally excluded from the monthly minutes total).

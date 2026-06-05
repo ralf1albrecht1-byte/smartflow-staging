@@ -123,19 +123,15 @@ type LivePrepCustomer = {
 type LivePrepPreview = {
   testModus: boolean;
   liveStarted: boolean;
+  liveNeedsRepair: boolean;
   counts: {
-    activeOrders: number;
-    trashedOrders: number;
-    activeOffers: number;
-    trashedOffers: number;
-    activeInvoices: number;
-    trashedInvoices: number;
-    activeCustomers: number;
-    draftCustomers: number;
-    trashedCustomers: number;
+    testCustomers: number;
+    liveCustomers: number;
+    testOrders: number;
+    liveOrders: number;
     testOffers: number;
-    testInvoices: number;
     liveOffers: number;
+    testInvoices: number;
     liveInvoices: number;
   };
   customers: LivePrepCustomer[];
@@ -285,23 +281,25 @@ export default function EinstellungenPage() {
 
   async function executeLivePreparation() {
     if (!livePrepPreview) {
-      toast({ title: 'Zuerst Vorschau laden', description: 'Bitte lade zuerst die Vorschau, damit klar ist, was übernommen und gelöscht wird.' });
+      toast({ title: 'Zuerst Vorschau laden', description: 'Bitte lade zuerst die Kundenliste.' });
       return;
     }
-    if (livePrepPreview.liveStarted) {
-      toast({
-        title: 'Gesperrt',
-        description: 'Echter Betrieb wurde bereits gestartet. Kundenübernahme und Nummernkreis-Reset sind gesperrt.',
-        variant: 'destructive',
-      });
+    const repairMode = livePrepPreview.liveStarted && livePrepPreview.liveNeedsRepair;
+    if (livePrepPreview.liveStarted && !repairMode) {
+      toast({ title: 'Livebetrieb vorhanden', description: 'Der bestehende Livebetrieb kann direkt geöffnet werden.' });
       return;
     }
-    if (liveConfirmText.trim() !== 'ECHTSTART') {
+    const expectedWord = repairMode ? 'LIVE_REPARATUR' : 'ECHTSTART';
+    if (liveConfirmText.trim() !== expectedWord) {
       toast({
         title: 'Bestätigung fehlt',
-        description: 'Bitte ECHTSTART eingeben, wenn der Livebetrieb wirklich gestartet werden soll.',
+        description: `Bitte ${expectedWord} exakt eingeben.`,
         variant: 'destructive',
       });
+      return;
+    }
+    if (livePrepKeepIds.length === 0) {
+      toast({ title: 'Kunde fehlt', description: 'Bitte mindestens einen vollständigen TEST-Kunden auswählen.', variant: 'destructive' });
       return;
     }
     setLivePrepExecuting(true);
@@ -309,14 +307,18 @@ export default function EinstellungenPage() {
       const res = await fetch('/api/settings/prepare-live', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmText: 'ECHTSTART', keepCustomerIds: livePrepKeepIds }),
+        body: JSON.stringify({
+          confirmText: expectedWord,
+          repairExistingLive: repairMode,
+          keepCustomerIds: livePrepKeepIds,
+        }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        toast({ title: 'Fehler', description: data?.error || 'Echter Betrieb konnte nicht vorbereitet werden.', variant: 'destructive' });
+        toast({ title: 'Fehler', description: data?.error || 'Livebestand konnte nicht vorbereitet werden.', variant: 'destructive' });
         return;
       }
-      toast({ title: 'Echter Betrieb vorbereitet', description: data?.message || 'Vorbereitung abgeschlossen.' });
+      toast({ title: repairMode ? 'Livebestand repariert' : 'Livebetrieb vorbereitet', description: data?.message || 'Vorgang abgeschlossen.' });
       setLivePrepPreview(null);
       setLivePrepKeepIds([]);
       setShowLiveConfirm(false);
@@ -326,7 +328,7 @@ export default function EinstellungenPage() {
       setHasChanges(false);
       loadSettings();
     } catch {
-      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Vorbereiten des echten Betriebs.', variant: 'destructive' });
+      toast({ title: 'Fehler', description: 'Netzwerkfehler beim Vorbereiten des Livebetriebs.', variant: 'destructive' });
     } finally {
       setLivePrepExecuting(false);
     }
@@ -1532,17 +1534,19 @@ const storedValue = finalUrl;
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold">
-                            {livePrepPreview?.liveStarted ? 'Kundenübernahme abgeschlossen' : 'Kunden übernehmen'}
+                            {livePrepPreview?.liveNeedsRepair ? 'Livebestand sicher reparieren' : livePrepPreview?.liveStarted ? 'Kundenübernahme abgeschlossen' : 'Kunden übernehmen'}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {livePrepPreview?.liveStarted
-                              ? 'Der Livebetrieb wurde bereits gestartet. Es werden keine Kunden mehr übernommen.'
-                              : 'Wähle aus, welche echten Kunden in den Livebetrieb mitgenommen werden.'}
+                            {livePrepPreview?.liveNeedsRepair
+                              ? 'Der Livebestand ist leer. Wähle die TEST-Kunden aus, die als neue Live-Kunden kopiert werden sollen.'
+                              : livePrepPreview?.liveStarted
+                                ? 'Der Livebetrieb wurde bereits gestartet. Es werden keine Kunden mehr übernommen.'
+                                : 'Wähle aus, welche echten Kunden in den Livebetrieb kopiert werden.'}
                           </p>
                         </div>
                       </div>
 
-                      {!livePrepPreview?.liveStarted && (
+                      {(!livePrepPreview?.liveStarted || livePrepPreview?.liveNeedsRepair) && (
                         <Button
                           type="button"
                           size="sm"
@@ -1558,7 +1562,7 @@ const storedValue = finalUrl;
 
                     {livePrepPreview && (
                       <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
-                        {livePrepPreview.liveStarted ? (
+                        {livePrepPreview.liveStarted && !livePrepPreview.liveNeedsRepair ? (
                           <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs text-green-800 space-y-1">
                             <p className="font-semibold">Livebetrieb wurde bereits gestartet.</p>
                             <p>Kundenübernahme ist abgeschlossen und gesperrt.</p>
@@ -1612,7 +1616,7 @@ const storedValue = finalUrl;
 
                             <div className="rounded-md border border-green-200 bg-green-50 p-2 text-xs text-green-800 flex items-start gap-2">
                               <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                              <p>Hier wird noch nichts endgültig geändert. Du wählst nur aus, welche Kunden übernommen werden.</p>
+                              <p>Hier wird noch nichts geändert. Ausgewählte TEST-Kunden werden später als getrennte LIVE-Kopien angelegt; TEST-Daten bleiben bestehen.</p>
                             </div>
                           </>
                         )}
@@ -1629,12 +1633,14 @@ const storedValue = finalUrl;
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold">
-                            {livePrepPreview?.liveStarted ? 'Bestehenden Livebetrieb öffnen' : 'Livebetrieb starten'}
+                            {livePrepPreview?.liveNeedsRepair ? 'Livebestand reparieren' : livePrepPreview?.liveStarted ? 'Bestehenden Livebetrieb öffnen' : 'Livebetrieb starten'}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {livePrepPreview?.liveStarted
-                              ? 'Livebetrieb wurde bereits gestartet. Jetzt wird nur der Modus gewechselt.'
-                              : 'Erst nach Kunden-Auswahl und Sicherheitswort.'}
+                            {livePrepPreview?.liveNeedsRepair
+                              ? 'Nur der leere/fehlerhafte LIVE-Bestand wird neu aufgebaut. TEST bleibt unverändert.'
+                              : livePrepPreview?.liveStarted
+                                ? 'Livebetrieb wurde bereits gestartet. Jetzt wird nur der Modus gewechselt.'
+                                : 'Erst nach Kunden-Auswahl und Sicherheitswort.'}
                           </p>
                         </div>
                       </div>
@@ -1645,7 +1651,7 @@ const storedValue = finalUrl;
                         variant={livePrepPreview ? 'default' : 'outline'}
                         disabled={!livePrepPreview || livePrepExecuting || livePrepLoading || switchingMode !== null}
                         onClick={() => {
-                          if (livePrepPreview?.liveStarted) {
+                          if (livePrepPreview?.liveStarted && !livePrepPreview?.liveNeedsRepair) {
                             if (!confirm('Zum bestehenden Livebetrieb wechseln?\n\nEs werden keine Kunden neu übernommen, keine Nummern neu vergeben und keine Testdaten gelöscht.')) return;
                             switchTestMode(false);
                             return;
@@ -1656,7 +1662,9 @@ const storedValue = finalUrl;
                         className="shrink-0 gap-2"
                       >
                         {switchingMode === 'live' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-                        {livePrepPreview?.liveStarted
+                        {livePrepPreview?.liveNeedsRepair
+                          ? (showLiveConfirm ? 'Bestätigung schließen' : 'Weiter zur Reparatur')
+                          : livePrepPreview?.liveStarted
                           ? 'Zum bestehenden Livebetrieb wechseln'
                           : showLiveConfirm
                             ? 'Bestätigung schließen'
@@ -1672,23 +1680,23 @@ const storedValue = finalUrl;
                       </p>
                     )}
 
-                    {livePrepPreview && !livePrepPreview.liveStarted && showLiveConfirm && (
+                    {livePrepPreview && (!livePrepPreview.liveStarted || livePrepPreview.liveNeedsRepair) && showLiveConfirm && (
                       <div className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-3">
                         <div className="flex items-start gap-2 text-xs text-red-800">
                           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                           <div className="space-y-1">
                             <p className="font-semibold">Letzte Bestätigung</p>
                             <p>Übernommen werden nur die ausgewählten Kunden: {livePrepKeepIds.length} Kunde(n).</p>
-                            <p>In den Livebetrieb kommen nur die ausgewählten Kunden. Testdaten werden bereinigt.</p>
+                            <p>Nur die ausgewählten Kunden werden als LIVE-Kopien angelegt. TEST-Kunden, TEST-Aufträge und TEST-Belege werden nicht gelöscht oder verschoben.</p>
                           </div>
                         </div>
 
                         <div>
-                          <Label className="text-xs">Zum Start exakt ECHTSTART eingeben</Label>
+                          <Label className="text-xs">Exakt {livePrepPreview.liveNeedsRepair ? 'LIVE_REPARATUR' : 'ECHTSTART'} eingeben</Label>
                           <Input
                             value={liveConfirmText}
                             onChange={e => setLiveConfirmText(e.target.value)}
-                            placeholder="ECHTSTART"
+                            placeholder={livePrepPreview.liveNeedsRepair ? 'LIVE_REPARATUR' : 'ECHTSTART'}
                             disabled={livePrepExecuting}
                             className="mt-1 bg-background"
                           />
@@ -1698,12 +1706,12 @@ const storedValue = finalUrl;
                           type="button"
                           size="sm"
                           variant="destructive"
-                          disabled={livePrepExecuting || liveConfirmText.trim() !== 'ECHTSTART'}
+                          disabled={livePrepExecuting || liveConfirmText.trim() !== (livePrepPreview.liveNeedsRepair ? 'LIVE_REPARATUR' : 'ECHTSTART')}
                           onClick={executeLivePreparation}
                           className="gap-2"
                         >
                           {livePrepExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-                          Livebetrieb endgültig starten
+                          {livePrepPreview.liveNeedsRepair ? 'Livebestand sicher reparieren' : 'Livebetrieb endgültig starten'}
                         </Button>
                       </div>
                     )}

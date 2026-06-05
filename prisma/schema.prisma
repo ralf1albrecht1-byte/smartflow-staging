@@ -87,7 +87,8 @@ model VerificationToken {
 
 model Customer {
   id             String    @id @default(cuid())
-  customerNumber String?   @unique
+  customerNumber String?
+  dataScope     String    @default("TEST")
   name           String
   address        String?
   plz            String?
@@ -106,6 +107,8 @@ model Customer {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  @@unique([userId, dataScope, customerNumber])
+  @@index([userId, dataScope, deletedAt])
   @@index([userId])
 }
 
@@ -186,6 +189,7 @@ date        DateTime @default(now())
   offer       Offer?   @relation(fields: [offerId], references: [id], onDelete: SetNull)
   userId      String?
   user        User?    @relation(fields: [userId], references: [id])
+  dataScope   String   @default("TEST")
   items       OrderItem[]
   workSites   OrderWorkSite[]
   originOrderIds String[] @default([])
@@ -193,6 +197,7 @@ date        DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([userId, dataScope, deletedAt])
   @@index([userId])
 }
 
@@ -252,11 +257,13 @@ currency      String   @default("CHF")
   sourceOfferId String?
   userId        String?
   user          User?    @relation(fields: [userId], references: [id])
+  dataScope     String    @default("TEST")
   archivedPdfPath String?
   deletedAt     DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([userId, dataScope, deletedAt])
   @@index([userId])
 }
 
@@ -297,10 +304,12 @@ currency    String   @default("CHF")
   notes       String?
   userId      String?
   user        User?    @relation(fields: [userId], references: [id])
+  dataScope   String   @default("TEST")
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([userId, dataScope, deletedAt])
   @@index([userId])
 }
 

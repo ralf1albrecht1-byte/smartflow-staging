@@ -6,22 +6,24 @@ import { requireUserId, unauthorizedResponse, getSessionUser } from '@/lib/get-s
 import { logAuditAsync } from '@/lib/audit';
 import { generateCustomerNumber } from '@/lib/customer-number';
 import { getCustomerDeleteBlockerCounts, isCustomerDeleteBlocked, formatCustomerDeleteBlockerMessage } from '@/lib/customer-links';
+import { getActiveDataScope } from '@/lib/data-scope';
 
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   let userId: string;
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
+    const dataScope = await getActiveDataScope(userId);
     const customer = await prisma.customer.findFirst({
-      where: { id: params?.id, userId },
+      where: { id: params?.id, userId, dataScope },
       include: {
-        orders: { orderBy: { date: 'desc' } },
+        orders: { where: { dataScope }, orderBy: { date: 'desc' } },
         executionAddresses: {
           where: { deletedAt: null },
           orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }],
         },
-        invoices: { orderBy: { invoiceDate: 'desc' } },
-        offers: { orderBy: { offerDate: 'desc' } },
+        invoices: { where: { dataScope }, orderBy: { invoiceDate: 'desc' } },
+        offers: { where: { dataScope }, orderBy: { offerDate: 'desc' } },
       },
     });
     if (!customer) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
@@ -36,7 +38,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   let userId: string;
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
-    const existing = await prisma.customer.findFirst({ where: { id: params?.id, userId } });
+    const dataScope = await getActiveDataScope(userId);
+    const existing = await prisma.customer.findFirst({ where: { id: params?.id, userId, dataScope } });
     if (!existing) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
     const raw = await request.json();
     const data = normalizeCustomerData(raw);
@@ -152,6 +155,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       const existingRealCustomers = await prisma.customer.findMany({
         where: {
           userId,
+          dataScope,
           deletedAt: null,
           id: { not: params?.id },
           customerNumber: { not: null },
@@ -180,7 +184,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       if (matchingExistingCustomer) {
         const reassignedCustomer = await prisma.$transaction(async (tx) => {
           await tx.order.updateMany({
-            where: { customerId: params?.id, deletedAt: null },
+            where: { customerId: params?.id, dataScope, deletedAt: null },
             data: { customerId: matchingExistingCustomer.id },
           });
 
@@ -208,7 +212,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         return NextResponse.json(reassignedCustomer ?? matchingExistingCustomer);
       }
 
-      updateData.customerNumber = await generateCustomerNumber();
+      updateData.customerNumber = await generateCustomerNumber(userId, dataScope);
     }
 
     const customer = await prisma.customer.update({ where: { id: params?.id }, data: updateData });
@@ -242,7 +246,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       const hasName = !!data.name?.trim();
       const hasAddress = !!data.address?.trim() || (!!data.plz?.trim() && !!data.city?.trim());
       if (hasName && hasAddress) {
-        await prisma.order.updateMany({ where: { customerId: params?.id, deletedAt: null, needsReview: true }, data: { needsReview: false, reviewReasons: [] } });
+        await prisma.order.updateMany({ where: { customerId: params?.id, dataScope, deletedAt: null, needsReview: true }, data: { needsReview: false, reviewReasons: [] } });
       }
     }
     return NextResponse.json(customer);
@@ -256,14 +260,15 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
   let userId: string;
   try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
   try {
-    const existing = await prisma.customer.findFirst({ where: { id: params?.id, userId } });
+    const dataScope = await getActiveDataScope(userId);
+    const existing = await prisma.customer.findFirst({ where: { id: params?.id, userId, dataScope } });
     if (!existing) return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
 
     // CANONICAL block-rule (Paket K): see lib/customer-links.ts → getCustomerDeleteBlockerCounts.
     // Shared with Papierkorb hard-delete + auto-cleanup so both paths use the
     // EXACT same "active vs history" distinction. Pure history alone does not
     // block. Archived invoices (status='Erledigt') still block for accounting.
-    const counts = await getCustomerDeleteBlockerCounts(prisma, params.id, userId);
+    const counts = await getCustomerDeleteBlockerCounts(prisma, params.id, userId, dataScope);
     if (isCustomerDeleteBlocked(counts)) {
       return NextResponse.json({
         error: formatCustomerDeleteBlockerMessage(counts),

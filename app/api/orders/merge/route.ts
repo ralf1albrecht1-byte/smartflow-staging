@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getActiveDataScope } from "@/lib/data-scope";
 import {
   buildSpecialNotes,
   splitSpecialNotes,
@@ -762,6 +763,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = session.user.id;
+    const dataScope = await getActiveDataScope(userId);
 
     const result = await prisma.$transaction(async (tx) => {
       const orderInclude = {
@@ -770,8 +772,8 @@ export async function POST(request: NextRequest) {
         items: { include: { workSite: true } },
       } as const;
 
-      const targetOrder = await tx.order.findUnique({
-        where: { id: targetOrderId },
+      const targetOrder = await tx.order.findFirst({
+        where: { id: targetOrderId, userId, dataScope },
         include: orderInclude,
       });
 
@@ -793,6 +795,7 @@ export async function POST(request: NextRequest) {
         where: {
           id: { in: sourceOrderIds },
           userId,
+          dataScope,
           deletedAt: null,
         },
         include: orderInclude,
@@ -1044,7 +1047,7 @@ export async function POST(request: NextRequest) {
       });
 
       await tx.order.updateMany({
-        where: { id: { in: sourceOrderIds } },
+        where: { id: { in: sourceOrderIds }, userId, dataScope },
         data: { deletedAt: new Date() },
       });
 

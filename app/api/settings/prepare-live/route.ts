@@ -4,10 +4,10 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireUserId, handleAuthError, getSessionUser } from '@/lib/get-session';
 import { logAuditAsync } from '@/lib/audit';
+import { DATA_SCOPE_LIVE, DATA_SCOPE_TEST } from '@/lib/data-scope';
 
 const CONFIRM_TEXT = 'ECHTSTART';
 const REPAIR_CONFIRM_TEXT = 'LIVE_REPARATUR';
-const CUSTOMER_COUNTER_NAME = 'customer:global';
 const LIVE_STARTED_COUNTER_PREFIX = 'live-started:';
 
 function isCompleteCustomer(customer: any): boolean {
@@ -15,23 +15,20 @@ function isCompleteCustomer(customer: any): boolean {
     String(customer?.name || '').trim() &&
     String(customer?.address || '').trim() &&
     String(customer?.plz || '').trim() &&
-    String(customer?.city || '').trim()
+    String(customer?.city || '').trim(),
   );
-}
-
-function customerNumberSeq(value: string | null | undefined): number | null {
-  const match = String(value || '').trim().match(/^K-(\d+)$/i);
-  if (!match) return null;
-  const n = Number.parseInt(match[1], 10);
-  return Number.isFinite(n) ? n : null;
-}
-
-async function getSettings(userId: string) {
-  return prisma.companySettings.findFirst({ where: { userId } });
 }
 
 function liveStartedCounterName(userId: string): string {
   return `${LIVE_STARTED_COUNTER_PREFIX}${userId}`;
+}
+
+function customerCounterName(userId: string): string {
+  return `customer:${userId}:live`;
+}
+
+async function getSettings(userId: string) {
+  return prisma.companySettings.findFirst({ where: { userId } });
 }
 
 async function hasLiveStarted(userId: string): Promise<boolean> {
@@ -47,51 +44,39 @@ async function buildPreview(userId: string) {
   const liveStarted = await hasLiveStarted(userId);
 
   const [
-    activeOrders,
-    trashedOrders,
-    activeOffers,
-    trashedOffers,
-    activeInvoices,
-    trashedInvoices,
-    activeCustomers,
-    draftCustomers,
-    trashedCustomers,
+    testCustomers,
+    liveCustomers,
+    testOrders,
+    liveOrders,
     testOffers,
-    testInvoices,
     liveOffers,
+    testInvoices,
     liveInvoices,
-    customers,
   ] = await Promise.all([
-    prisma.order.count({ where: { userId, deletedAt: null } }),
-    prisma.order.count({ where: { userId, deletedAt: { not: null } } }),
-    prisma.offer.count({ where: { userId, deletedAt: null } }),
-    prisma.offer.count({ where: { userId, deletedAt: { not: null } } }),
-    prisma.invoice.count({ where: { userId, deletedAt: null } }),
-    prisma.invoice.count({ where: { userId, deletedAt: { not: null } } }),
-    prisma.customer.count({ where: { userId, deletedAt: null, customerNumber: { not: null } } }),
-    prisma.customer.count({ where: { userId, deletedAt: null, customerNumber: null } }),
-    prisma.customer.count({ where: { userId, deletedAt: { not: null } } }),
-    prisma.offer.count({ where: { userId, offerNumber: { startsWith: 'TEST-' } } }),
-    prisma.invoice.count({ where: { userId, invoiceNumber: { startsWith: 'TEST-' } } }),
-    prisma.offer.count({ where: { userId, NOT: { offerNumber: { startsWith: 'TEST-' } } } }),
-    prisma.invoice.count({ where: { userId, NOT: { invoiceNumber: { startsWith: 'TEST-' } } } }),
     prisma.customer.findMany({
-      where: { userId, deletedAt: null, customerNumber: { not: null } },
+      where: { userId, dataScope: DATA_SCOPE_TEST, deletedAt: null, customerNumber: { not: null } },
       orderBy: [{ customerNumber: 'asc' }, { name: 'asc' }],
       include: {
         _count: {
           select: {
-            orders: true,
-            offers: true,
-            invoices: true,
-            executionAddresses: true,
+            orders: { where: { dataScope: DATA_SCOPE_TEST, deletedAt: null } },
+            offers: { where: { dataScope: DATA_SCOPE_TEST, deletedAt: null } },
+            invoices: { where: { dataScope: DATA_SCOPE_TEST, deletedAt: null } },
+            executionAddresses: { where: { deletedAt: null } },
           },
         },
       },
     }),
+    prisma.customer.count({ where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null } }),
+    prisma.order.count({ where: { userId, dataScope: DATA_SCOPE_TEST, deletedAt: null } }),
+    prisma.order.count({ where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null } }),
+    prisma.offer.count({ where: { userId, dataScope: DATA_SCOPE_TEST, deletedAt: null } }),
+    prisma.offer.count({ where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null } }),
+    prisma.invoice.count({ where: { userId, dataScope: DATA_SCOPE_TEST, deletedAt: null } }),
+    prisma.invoice.count({ where: { userId, dataScope: DATA_SCOPE_LIVE, deletedAt: null } }),
   ]);
 
-  const customerRows = customers.map((customer: any) => ({
+  const customers = testCustomers.map((customer: any) => ({
     id: customer.id,
     customerNumber: customer.customerNumber,
     name: customer.name,
@@ -109,33 +94,29 @@ async function buildPreview(userId: string) {
     },
   }));
 
+  const liveNeedsRepair = liveStarted && liveCustomers === 0;
   const warnings: string[] = [];
-  if (liveStarted) warnings.push('Echter Betrieb wurde bereits gestartet. Kundenübernahme und Nummernkreis-Reset sind dauerhaft gesperrt. Testmodus darf weiter zum Ausprobieren verwendet werden.');
-  if (!settings?.testModus) warnings.push('Echter Betrieb ist bereits aktiv. Vorbereitung ist nur im Testmodus möglich.');
-  if (liveOffers > 0 || liveInvoices > 0) {
-    warnings.push('Es existieren bereits Dokumente ohne TEST-Prefix. Vor dem Neu-Start bitte prüfen, ob das echte Daten sind.');
+  if (liveNeedsRepair) {
+    warnings.push('Der Livebetrieb wurde bereits gestartet, enthält aber aktuell keinen aktiven Live-Kunden. Eine sichere Live-Reparatur ist erforderlich. TEST-Daten bleiben dabei unverändert.');
+  } else if (liveStarted) {
+    warnings.push('Der Livebetrieb wurde bereits gestartet. Bestehende Live-Daten werden beim normalen Moduswechsel nicht verändert.');
   }
-  if (draftCustomers > 0) warnings.push('Es gibt Kundenentwürfe ohne Kundennummer. Diese werden beim Echtstart entfernt, wenn sie nicht vorher vervollständigt werden.');
 
   return {
     testModus: settings?.testModus ?? true,
     liveStarted,
+    liveNeedsRepair,
     counts: {
-      activeOrders,
-      trashedOrders,
-      activeOffers,
-      trashedOffers,
-      activeInvoices,
-      trashedInvoices,
-      activeCustomers,
-      draftCustomers,
-      trashedCustomers,
+      testCustomers: testCustomers.length,
+      liveCustomers,
+      testOrders,
+      liveOrders,
       testOffers,
-      testInvoices,
       liveOffers,
+      testInvoices,
       liveInvoices,
     },
-    customers: customerRows,
+    customers,
     warnings,
   };
 }
@@ -145,12 +126,10 @@ export async function GET() {
     let userId: string;
     try {
       userId = await requireUserId();
-    } catch (e) {
-      return handleAuthError(e);
+    } catch (error) {
+      return handleAuthError(error);
     }
-
-    const preview = await buildPreview(userId);
-    return NextResponse.json(preview);
+    return NextResponse.json(await buildPreview(userId));
   } catch (error: any) {
     console.error('GET /api/settings/prepare-live error:', error);
     return NextResponse.json({ error: 'Vorschau konnte nicht geladen werden.' }, { status: 500 });
@@ -162,169 +141,165 @@ export async function POST(request: Request) {
     let userId: string;
     try {
       userId = await requireUserId();
-    } catch (e) {
-      return handleAuthError(e);
+    } catch (error) {
+      return handleAuthError(error);
     }
 
     const body = await request.json().catch(() => ({}));
     const confirmText = String(body?.confirmText || '').trim();
-    const rawKeepCustomerIds: unknown[] = Array.isArray(body?.keepCustomerIds)
-      ? body.keepCustomerIds
-      : [];
-    const keepCustomerIds: string[] = Array.from(
+    const repairExistingLive = confirmText === REPAIR_CONFIRM_TEXT || body?.repairExistingLive === true;
+    const keepCustomerIds = Array.from(
       new Set<string>(
-        rawKeepCustomerIds
+        (Array.isArray(body?.keepCustomerIds) ? body.keepCustomerIds : [])
           .map((id: unknown) => String(id || '').trim())
-          .filter((id: string) => id.length > 0)
-      )
+          .filter(Boolean),
+      ),
     );
-
-    const repairExistingLive =
-      confirmText === REPAIR_CONFIRM_TEXT || body?.repairExistingLive === true;
 
     if (confirmText !== CONFIRM_TEXT && confirmText !== REPAIR_CONFIRM_TEXT) {
       return NextResponse.json({ error: `Bitte exakt ${CONFIRM_TEXT} oder ${REPAIR_CONFIRM_TEXT} bestätigen.` }, { status: 400 });
+    }
+    if (keepCustomerIds.length === 0) {
+      return NextResponse.json({ error: 'Bitte mindestens einen TEST-Kunden für den Livebetrieb auswählen.' }, { status: 400 });
     }
 
     const settings = await getSettings(userId);
     const liveStarted = await hasLiveStarted(userId);
 
     if (repairExistingLive && !liveStarted) {
-      return NextResponse.json({ error: 'Live-Reparatur ist nur möglich, wenn der Livebetrieb bereits gestartet wurde.' }, { status: 409 });
+      return NextResponse.json({ error: 'LIVE_REPARATUR ist nur bei bereits gestartetem Livebetrieb möglich.' }, { status: 409 });
     }
-
     if (liveStarted && !repairExistingLive) {
-      return NextResponse.json({ error: 'Echter Betrieb wurde bereits gestartet. Kundenübernahme und Nummernkreis-Reset sind gesperrt. Testmodus kann weiter zum Ausprobieren verwendet werden.' }, { status: 409 });
+      return NextResponse.json({ error: 'Der Livebetrieb wurde bereits gestartet. Verwende bei leerem/fehlerhaftem Livebestand die Live-Reparatur.' }, { status: 409 });
     }
-
-    if (repairExistingLive && keepCustomerIds.length === 0) {
-      return NextResponse.json({ error: 'Bitte mindestens einen Kunden auswählen, der im bereinigten Livebetrieb erhalten bleiben soll.' }, { status: 400 });
-    }
-
     if (!repairExistingLive && !settings?.testModus) {
-      return NextResponse.json({ error: 'Echter Betrieb ist bereits aktiv.' }, { status: 409 });
+      return NextResponse.json({ error: 'Der Livebetrieb ist bereits aktiv.' }, { status: 409 });
     }
 
-    const keepCustomers = keepCustomerIds.length > 0
-      ? await prisma.customer.findMany({
-          where: { id: { in: keepCustomerIds }, userId, deletedAt: null },
-          orderBy: [{ customerNumber: 'asc' }, { name: 'asc' }],
-        })
-      : [];
+    const testCustomers = await prisma.customer.findMany({
+      where: {
+        id: { in: keepCustomerIds },
+        userId,
+        dataScope: DATA_SCOPE_TEST,
+        deletedAt: null,
+      },
+      include: {
+        executionAddresses: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: [{ customerNumber: 'asc' }, { name: 'asc' }],
+    });
 
-    if (keepCustomers.length !== keepCustomerIds.length) {
-      return NextResponse.json({ error: 'Mindestens ein ausgewählter Kunde wurde nicht gefunden.' }, { status: 404 });
+    if (testCustomers.length !== keepCustomerIds.length) {
+      return NextResponse.json({ error: 'Mindestens ein ausgewählter TEST-Kunde wurde nicht gefunden.' }, { status: 404 });
     }
-
-    const incompleteKeep = keepCustomers.find((customer: any) => !isCompleteCustomer(customer));
-    if (incompleteKeep) {
-      return NextResponse.json({ error: `Kunde „${incompleteKeep.name || incompleteKeep.id}“ ist unvollständig und kann nicht übernommen werden.` }, { status: 409 });
-    }
-
-    const targetNumbers = keepCustomers.map((_: any, index: number) => `K-${String(index + 1).padStart(3, '0')}`);
-    if (targetNumbers.length > 0) {
-      const conflicts = await prisma.customer.findMany({
-        where: {
-          customerNumber: { in: targetNumbers },
-          NOT: { id: { in: keepCustomerIds } },
-          // Eigene nicht ausgewählte Kunden werden im Echtstart/Repair gelöscht.
-          // Sie dürfen daher keine Neu-Nummerierung ab K-001 blockieren.
-          userId: { not: userId },
-        },
-        select: { id: true, customerNumber: true, name: true },
-      });
-      if (conflicts.length > 0) {
-        return NextResponse.json({
-          error: 'Kundennummern können nicht ab K-001 neu vergeben werden, weil diese Nummern in der Datenbank bereits von anderen Kunden belegt sind.',
-          conflicts,
-        }, { status: 409 });
-      }
+    const incomplete = testCustomers.find((customer: any) => !isCompleteCustomer(customer));
+    if (incomplete) {
+      return NextResponse.json({ error: `Kunde „${incomplete.name || incomplete.id}“ ist unvollständig und kann nicht übernommen werden.` }, { status: 409 });
     }
 
     const result = await prisma.$transaction(async (tx: any) => {
-      const allOrderIds = (await tx.order.findMany({ where: { userId }, select: { id: true } })).map((row: any) => row.id);
-      const allOfferIds = (await tx.offer.findMany({ where: { userId }, select: { id: true } })).map((row: any) => row.id);
-      const allInvoiceIds = (await tx.invoice.findMany({ where: { userId }, select: { id: true } })).map((row: any) => row.id);
-
-      const deletedOrderItems = allOrderIds.length > 0
-        ? await tx.orderItem.deleteMany({ where: { orderId: { in: allOrderIds } } })
-        : { count: 0 };
-      const deletedOrderWorkSites = allOrderIds.length > 0
-        ? await tx.orderWorkSite.deleteMany({ where: { orderId: { in: allOrderIds } } })
-        : { count: 0 };
-      const deletedOrders = await tx.order.deleteMany({ where: { userId } });
-
-      const deletedInvoiceItems = allInvoiceIds.length > 0
-        ? await tx.invoiceItem.deleteMany({ where: { invoiceId: { in: allInvoiceIds } } })
-        : { count: 0 };
-      const deletedInvoices = await tx.invoice.deleteMany({ where: { userId } });
-
-      const deletedOfferItems = allOfferIds.length > 0
-        ? await tx.offerItem.deleteMany({ where: { offerId: { in: allOfferIds } } })
-        : { count: 0 };
-      const deletedOffers = await tx.offer.deleteMany({ where: { userId } });
-
-      const customersToDelete = (await tx.customer.findMany({
-        where: keepCustomerIds.length > 0
-          ? { userId, id: { notIn: keepCustomerIds } }
-          : { userId },
+      // A repair is destructive ONLY inside LIVE. TEST rows are never updated or deleted.
+      const liveOrderIds = (await tx.order.findMany({
+        where: { userId, dataScope: DATA_SCOPE_LIVE },
+        select: { id: true },
+      })).map((row: any) => row.id);
+      const liveOfferIds = (await tx.offer.findMany({
+        where: { userId, dataScope: DATA_SCOPE_LIVE },
+        select: { id: true },
+      })).map((row: any) => row.id);
+      const liveInvoiceIds = (await tx.invoice.findMany({
+        where: { userId, dataScope: DATA_SCOPE_LIVE },
+        select: { id: true },
+      })).map((row: any) => row.id);
+      const liveCustomerIds = (await tx.customer.findMany({
+        where: { userId, dataScope: DATA_SCOPE_LIVE },
         select: { id: true },
       })).map((row: any) => row.id);
 
-      const deletedExecutionAddresses = customersToDelete.length > 0
-        ? await tx.customerExecutionAddress.deleteMany({ where: { customerId: { in: customersToDelete } } })
-        : { count: 0 };
-      const deletedCustomers = customersToDelete.length > 0
-        ? await tx.customer.deleteMany({ where: { id: { in: customersToDelete }, userId } })
-        : { count: 0 };
-
-      if (keepCustomerIds.length > 0) {
-        await tx.customer.updateMany({ where: { id: { in: keepCustomerIds }, userId }, data: { customerNumber: null, deletedAt: null } });
+      if (liveOrderIds.length > 0) {
+        await tx.orderItem.deleteMany({ where: { orderId: { in: liveOrderIds } } });
+        await tx.orderWorkSite.deleteMany({ where: { orderId: { in: liveOrderIds } } });
+        await tx.order.deleteMany({ where: { id: { in: liveOrderIds }, userId, dataScope: DATA_SCOPE_LIVE } });
+      }
+      if (liveInvoiceIds.length > 0) {
+        await tx.invoiceItem.deleteMany({ where: { invoiceId: { in: liveInvoiceIds } } });
+        await tx.invoice.deleteMany({ where: { id: { in: liveInvoiceIds }, userId, dataScope: DATA_SCOPE_LIVE } });
+      }
+      if (liveOfferIds.length > 0) {
+        await tx.offerItem.deleteMany({ where: { offerId: { in: liveOfferIds } } });
+        await tx.offer.deleteMany({ where: { id: { in: liveOfferIds }, userId, dataScope: DATA_SCOPE_LIVE } });
+      }
+      if (liveCustomerIds.length > 0) {
+        await tx.customerExecutionAddress.deleteMany({ where: { customerId: { in: liveCustomerIds } } });
+        await tx.customer.deleteMany({ where: { id: { in: liveCustomerIds }, userId, dataScope: DATA_SCOPE_LIVE } });
       }
 
-      for (let index = 0; index < keepCustomers.length; index++) {
-        await tx.customer.update({
-          where: { id: keepCustomers[index].id },
-          data: { customerNumber: targetNumbers[index], deletedAt: null },
+      const copiedCustomers: Array<{ id: string; customerNumber: string; name: string }> = [];
+      for (let index = 0; index < testCustomers.length; index += 1) {
+        const source: any = testCustomers[index];
+        const customerNumber = `K-${String(index + 1).padStart(3, '0')}`;
+        const created = await tx.customer.create({
+          data: {
+            customerNumber,
+            dataScope: DATA_SCOPE_LIVE,
+            name: source.name,
+            address: source.address,
+            plz: source.plz,
+            city: source.city,
+            country: source.country || 'CH',
+            phone: source.phone,
+            email: source.email,
+            notes: source.notes,
+            userId,
+          },
         });
-      }
 
-      const allNumberedCustomers = await tx.customer.findMany({
-        where: { customerNumber: { not: null } },
-        select: { customerNumber: true },
-      });
-      const maxCustomerSeq = allNumberedCustomers.reduce((max: number, row: any) => {
-        const seq = customerNumberSeq(row.customerNumber);
-        return seq != null && seq > max ? seq : max;
-      }, 0);
+        for (const address of source.executionAddresses || []) {
+          await tx.customerExecutionAddress.create({
+            data: {
+              customerId: created.id,
+              userId,
+              siteName: address.siteName,
+              siteAddress: address.siteAddress,
+              sitePlz: address.sitePlz,
+              siteCity: address.siteCity,
+              siteNote: address.siteNote,
+              country: address.country || 'CH',
+              usageCount: address.usageCount || 1,
+              lastUsedAt: address.lastUsedAt || new Date(),
+            },
+          });
+        }
+        copiedCustomers.push({ id: created.id, customerNumber, name: created.name });
+      }
 
       await tx.counter.upsert({
-        where: { name: CUSTOMER_COUNTER_NAME },
-        update: { value: maxCustomerSeq },
-        create: { name: CUSTOMER_COUNTER_NAME, value: maxCustomerSeq },
+        where: { name: customerCounterName(userId) },
+        update: { value: copiedCustomers.length },
+        create: { name: customerCounterName(userId), value: copiedCustomers.length },
       });
-
-      await tx.companySettings.updateMany({ where: { userId }, data: { testModus: false } });
-
       await tx.counter.upsert({
         where: { name: liveStartedCounterName(userId) },
         update: { value: 1 },
         create: { name: liveStartedCounterName(userId), value: 1 },
       });
+      const companySettings = await tx.companySettings.findFirst({ where: { userId }, select: { id: true } });
+      if (companySettings) {
+        await tx.companySettings.update({ where: { id: companySettings.id }, data: { testModus: false } });
+      } else {
+        await tx.companySettings.create({ data: { userId, testModus: false } });
+      }
 
       return {
         mode: repairExistingLive ? 'repair' : 'start',
-        keptCustomers: keepCustomers.length,
-        deletedCustomers: deletedCustomers.count,
-        deletedExecutionAddresses: deletedExecutionAddresses.count,
-        deletedOrders: deletedOrders.count,
-        deletedOrderItems: deletedOrderItems.count,
-        deletedOrderWorkSites: deletedOrderWorkSites.count,
-        deletedOffers: deletedOffers.count,
-        deletedOfferItems: deletedOfferItems.count,
-        deletedInvoices: deletedInvoices.count,
-        deletedInvoiceItems: deletedInvoiceItems.count,
-        nextCustomerNumber: `K-${String(maxCustomerSeq + 1).padStart(3, '0')}`,
+        copiedCustomers,
+        removedLive: {
+          customers: liveCustomerIds.length,
+          orders: liveOrderIds.length,
+          offers: liveOfferIds.length,
+          invoices: liveInvoiceIds.length,
+        },
+        nextCustomerNumber: `K-${String(copiedCustomers.length + 1).padStart(3, '0')}`,
       };
     }, { timeout: 30000 });
 
@@ -333,7 +308,7 @@ export async function POST(request: Request) {
       userId: su?.id,
       userEmail: su?.email,
       userRole: su?.role,
-      action: result.mode === 'repair' ? 'REPAIR_LIVE_MODE' : 'PREPARE_LIVE_MODE',
+      action: result.mode === 'repair' ? 'REPAIR_LIVE_SCOPE' : 'CREATE_LIVE_SCOPE',
       area: 'SETTINGS',
       targetType: 'CompanySettings',
       details: result,
@@ -343,12 +318,12 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       message: result.mode === 'repair'
-        ? `Livebetrieb bereinigt. ${result.keptCustomers} Kunde${result.keptCustomers === 1 ? '' : 'n'} behalten. Nächste Kundennummer: ${result.nextCustomerNumber}.`
-        : `Echter Betrieb vorbereitet. ${result.keptCustomers} Kunde${result.keptCustomers === 1 ? '' : 'n'} übernommen. Nächste Kundennummer: ${result.nextCustomerNumber}.`,
+        ? `Livebestand sicher neu aufgebaut. ${result.copiedCustomers.length} Kunde${result.copiedCustomers.length === 1 ? '' : 'n'} kopiert; TEST-Daten blieben unverändert.`
+        : `Livebetrieb vorbereitet. ${result.copiedCustomers.length} Kunde${result.copiedCustomers.length === 1 ? '' : 'n'} kopiert; keine TEST-Aufträge oder Belege wurden übernommen.`,
       ...result,
     });
   } catch (error: any) {
     console.error('POST /api/settings/prepare-live error:', error);
-    return NextResponse.json({ error: error?.message || 'Echter Betrieb konnte nicht vorbereitet werden.' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Livebetrieb konnte nicht vorbereitet werden.' }, { status: 500 });
   }
 }

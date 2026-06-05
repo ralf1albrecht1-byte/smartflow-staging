@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getActiveDataScope } from "@/lib/data-scope";
 import {
   requireUserId,
   unauthorizedResponse,
@@ -39,9 +40,10 @@ export async function GET(
     } catch {
       return unauthorizedResponse();
     }
+    const dataScope = await getActiveDataScope(userId);
 
     const offer = await prisma.offer.findFirst({
-      where: { id: params?.id, userId },
+      where: { id: params?.id, userId, dataScope },
       include: {
         customer: true,
         items: true,
@@ -95,10 +97,11 @@ export async function PUT(
     } catch {
       return unauthorizedResponse();
     }
+    const dataScope = await getActiveDataScope(userId);
 
     // Verify ownership
     const existing = await prisma.offer.findFirst({
-      where: { id: params?.id, userId },
+      where: { id: params?.id, userId, dataScope },
     });
     if (!existing)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
@@ -109,7 +112,14 @@ export async function PUT(
       return NextResponse.json({ error: itemError }, { status: 400 });
 
     // Guard: reject reassignment to an archived customer
-    if (data.customerId && data.customerId !== existing.customerId) {
+    if (data?.customerId && data.customerId !== existing.customerId) {
+      const activeCustomer = await prisma.customer.findFirst({
+        where: { id: data.customerId, userId, dataScope, deletedAt: null },
+        select: { id: true },
+      });
+      if (!activeCustomer) {
+        return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
+      }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
@@ -218,9 +228,10 @@ export async function DELETE(
     } catch {
       return unauthorizedResponse();
     }
+    const dataScope = await getActiveDataScope(userId);
 
     const existing = await prisma.offer.findFirst({
-      where: { id: params?.id, userId },
+      where: { id: params?.id, userId, dataScope },
     });
     if (!existing)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });

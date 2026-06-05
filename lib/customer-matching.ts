@@ -50,6 +50,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { phoneEqualsStrict } from '@/lib/phone';
+import type { DataScope } from '@/lib/data-scope';
 
 export type MatchVerdict =
   | 'auto_assign'           // Strong unique signal verified → safe to auto-link
@@ -82,13 +83,19 @@ interface IncomingData {
 export async function verifyCustomerMatch(
   candidateId: string,
   incoming: IncomingData,
+  userId?: string | null,
+  dataScope?: DataScope,
 ): Promise<MatchResult> {
   if (!candidateId) {
     return { verdict: 'kein_treffer', reason: 'no_candidate_id', candidateId: null };
   }
 
-  const cust = await prisma.customer.findUnique({
-    where: { id: candidateId },
+  const cust = await prisma.customer.findFirst({
+    where: {
+      id: candidateId,
+      ...(userId ? { userId } : {}),
+      ...(dataScope ? { dataScope } : {}),
+    },
     select: { id: true, name: true, phone: true, email: true, address: true, plz: true, city: true, deletedAt: true },
   });
   if (!cust) {

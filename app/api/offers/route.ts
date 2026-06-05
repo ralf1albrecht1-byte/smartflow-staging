@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getActiveDataScope, type DataScope } from "@/lib/data-scope";
 import { generateOfferNumber } from "@/lib/doc-numbers";
 import {
   requireUserId,
@@ -174,6 +175,7 @@ function sourceOrderBlockers(order: any): string[] {
 
 async function validateSourceOrdersForDocument(
   userId: string,
+  dataScope: DataScope,
   orderIds: unknown,
 ) {
   const ids = Array.isArray(orderIds)
@@ -182,7 +184,7 @@ async function validateSourceOrdersForDocument(
   if (ids.length === 0) return null;
 
   const orders = await prisma.order.findMany({
-    where: { id: { in: ids }, userId, deletedAt: null },
+    where: { id: { in: ids }, userId, dataScope, deletedAt: null },
     include: {
       items: { include: { workSite: true } },
       workSites: true,
@@ -239,13 +241,15 @@ export async function GET() {
       return unauthorizedResponse();
     }
 
+    const dataScope = await getActiveDataScope(userId);
     const offers = await prisma.offer.findMany({
-      where: { deletedAt: null, userId },
+      where: { deletedAt: null, userId, dataScope },
       orderBy: { offerDate: "desc" },
       include: {
         customer: true,
         items: true,
         orders: {
+          where: { dataScope },
           select: {
             id: true,
             createdAt: true,
@@ -288,12 +292,14 @@ export async function POST(request: Request) {
     } catch {
       return unauthorizedResponse();
     }
+    const dataScope = await getActiveDataScope(userId);
     const data = await request.json();
     const itemError = validateDocumentItems(data?.items ?? []);
     if (itemError)
       return NextResponse.json({ error: itemError }, { status: 400 });
     const sourceOrderError = await validateSourceOrdersForDocument(
       userId,
+      dataScope,
       data?.orderIds,
     );
     if (sourceOrderError)
@@ -325,6 +331,13 @@ export async function POST(request: Request) {
 
     // Guard: reject creation linked to an archived customer
     if (data?.customerId) {
+      const activeCustomer = await prisma.customer.findFirst({
+        where: { id: data.customerId, userId, dataScope, deletedAt: null },
+        select: { id: true },
+      });
+      if (!activeCustomer) {
+        return NextResponse.json({ error: "Kunde gehört nicht zum aktiven TEST-/LIVE-Bestand oder liegt im Papierkorb." }, { status: 409 });
+      }
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
@@ -339,6 +352,7 @@ export async function POST(request: Request) {
             offerNumber,
             customerId: data?.customerId,
             userId,
+            dataScope,
             subtotal,
             vatRate,
             vatAmount,
@@ -383,7 +397,7 @@ export async function POST(request: Request) {
     // Link orders if provided
     if (data?.orderIds?.length) {
       await prisma.order.updateMany({
-        where: { id: { in: data.orderIds }, userId },
+        where: { id: { in: data.orderIds }, userId, dataScope },
         data: { offerId: offer.id },
       });
     }

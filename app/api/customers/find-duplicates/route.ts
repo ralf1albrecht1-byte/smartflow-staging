@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getActiveDataScope } from '@/lib/data-scope';
 import { requireUserId, unauthorizedResponse } from '@/lib/get-session';
 import { classifyMatch, type MatchClass } from '@/lib/duplicate-scoring';
 
@@ -14,6 +15,7 @@ export async function POST(request: Request) {
   try {
     let userId: string;
     try { userId = await requireUserId(); } catch { return unauthorizedResponse(); }
+    const dataScope = await getActiveDataScope(userId);
 
     const { name, address, plz, city, phone, email, excludeId, manualQuery } = await request.json();
 
@@ -30,6 +32,7 @@ export async function POST(request: Request) {
       const matches = await prisma.customer.findMany({
         where: {
           userId,
+          dataScope,
           deletedAt: null,
           ...(excludeId ? { id: { not: excludeId } } : {}),
           OR: isShort
@@ -50,9 +53,9 @@ export async function POST(request: Request) {
           phone: true, email: true, createdAt: true,
           _count: {
             select: {
-              orders: { where: { deletedAt: null } },
-              invoices: { where: { deletedAt: null } },
-              offers: { where: { deletedAt: null } },
+              orders: { where: { deletedAt: null, dataScope } },
+              invoices: { where: { deletedAt: null, dataScope } },
+              offers: { where: { deletedAt: null, dataScope } },
             },
           },
         },
@@ -83,6 +86,7 @@ export async function POST(request: Request) {
       where: {
         name: { contains: lastName, mode: 'insensitive' },
         userId,
+        dataScope,
         deletedAt: null,
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
@@ -92,9 +96,9 @@ export async function POST(request: Request) {
         phone: true, email: true, createdAt: true,
         _count: {
           select: {
-            orders: { where: { deletedAt: null } },
-            invoices: { where: { deletedAt: null } },
-            offers: { where: { deletedAt: null } },
+            orders: { where: { deletedAt: null, dataScope } },
+            invoices: { where: { deletedAt: null, dataScope } },
+            offers: { where: { deletedAt: null, dataScope } },
           },
         },
       },
