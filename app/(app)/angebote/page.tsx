@@ -18,6 +18,8 @@ import {
   ChevronRight,
   MessageCircle,
   MapPin,
+  Info,
+  Pencil,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
@@ -159,16 +161,12 @@ const offerStatuses = ["Entwurf", "Gesendet", "Angenommen", "Abgelehnt"];
 const ACTIVE_OFFER_STATUSES = ["Entwurf", "Gesendet"];
 
 const compactOfferValue = (value: unknown) =>
-  String(value ?? "").replace(/\s+/g, " ").trim();
+  String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const offerSiteKey = (site: OfferExecutionSite) =>
-  [
-    site.siteName,
-    site.siteAddress,
-    site.sitePlz,
-    site.siteCity,
-    site.siteNote,
-  ]
+  [site.siteName, site.siteAddress, site.sitePlz, site.siteCity, site.siteNote]
     .map((value) => compactOfferValue(value).toLowerCase())
     .join("|");
 
@@ -272,6 +270,97 @@ function buildOfferPdfTextSuggestion(offer: Offer) {
     : "Gerne unterbreiten wir Ihnen das nachfolgende Angebot.";
 }
 
+function cleanOfferPdfTextForEditor(
+  offer: Offer,
+  linkedOrder?: NonNullable<Offer["orders"]>[number],
+) {
+  const cleanNotes = stripForwardedMessage(
+    offer.notes,
+    linkedOrder?.notes,
+  ).trim();
+  if (!cleanNotes) return "";
+
+  const automaticSummary = String(linkedOrder?.description || "").trim();
+  const automaticSuggestion = buildOfferPdfTextSuggestion(offer).trim();
+  if (automaticSummary && cleanNotes === automaticSummary) return "";
+  if (automaticSuggestion && cleanNotes === automaticSuggestion) return "";
+  return cleanNotes;
+}
+
+function applyExecutionSitesToOfferItems(
+  sourceItems: OfferItem[],
+  sites: OfferExecutionSite[],
+): OfferItem[] {
+  const cleanSites = sites.filter((site) =>
+    Boolean(
+      compactOfferValue(site.siteName) ||
+      compactOfferValue(site.siteAddress) ||
+      compactOfferValue(site.sitePlz) ||
+      compactOfferValue(site.siteCity) ||
+      compactOfferValue(site.siteNote),
+    ),
+  );
+
+  if (cleanSites.length === 0) {
+    return sourceItems.map((item) => ({
+      ...item,
+      siteName: null,
+      siteAddress: null,
+      sitePlz: null,
+      siteCity: null,
+      siteNote: null,
+      sourceOrderId: item.sourceOrderId || null,
+    }));
+  }
+
+  return sourceItems.map((item) => {
+    const currentKey = offerSiteKey(item);
+    const site =
+      (item.sourceOrderId
+        ? cleanSites.find(
+            (candidate) => candidate.sourceOrderId === item.sourceOrderId,
+          )
+        : undefined) ||
+      cleanSites.find((candidate) => offerSiteKey(candidate) === currentKey) ||
+      (cleanSites.length === 1 ? cleanSites[0] : undefined);
+
+    if (!site) return item;
+    return {
+      ...item,
+      siteName: compactOfferValue(site.siteName) || null,
+      siteAddress: compactOfferValue(site.siteAddress) || null,
+      sitePlz: compactOfferValue(site.sitePlz) || null,
+      siteCity: compactOfferValue(site.siteCity) || null,
+      siteNote: compactOfferValue(site.siteNote) || null,
+      sourceOrderId: site.sourceOrderId || item.sourceOrderId || null,
+    };
+  });
+}
+
+function extractOfferAppointmentLabel(value?: string | null): string {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  const line = source
+    .split(/\n+/g)
+    .map((entry) => entry.trim())
+    .find((entry) =>
+      /\b(?:termin|datum|zeitfenster|appointment)\b/i.test(entry),
+    );
+  if (!line) return "";
+
+  const date = line.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
+  const time = line.match(/\b(\d{1,2})[:.](\d{2})\b/);
+  if (date) {
+    const dateLabel = `${date[1].padStart(2, "0")}.${date[2].padStart(2, "0")}.`;
+    return time
+      ? `Termin ${dateLabel} ${time[1].padStart(2, "0")}:${time[2]}`
+      : `Termin ${dateLabel}`;
+  }
+
+  return line.length > 38 ? `${line.slice(0, 35).trim()}…` : line;
+}
+
 export default function AngebotePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -365,7 +454,15 @@ export default function AngebotePage() {
     description?: string | null;
   } | null>(null);
 
-  const [executionSites, setExecutionSites] = useState<OfferExecutionSite[]>([]);
+  const [executionSites, setExecutionSites] = useState<OfferExecutionSite[]>(
+    [],
+  );
+  const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [selectedChipDetail, setSelectedChipDetail] = useState<string | null>(
+    null,
+  );
+  const executionAddressRef = useRef<HTMLDivElement | null>(null);
+  const offerDetailsRef = useRef<HTMLDivElement | null>(null);
 
   // Auto-fill customer data from order notes when dialog opens
   const autoFillCustomer = async (customerId: string) => {
@@ -669,6 +766,8 @@ export default function AngebotePage() {
       setItems([getEmptyItem()]);
       setLinkedOrderData(null);
       setExecutionSites([]);
+      setEditingExecutionAddress(false);
+      setSelectedChipDetail(null);
       setShowNewCustomer(false);
       setEditingCustomer(false);
       setDialogOpen(true);
@@ -785,6 +884,68 @@ export default function AngebotePage() {
   const linkedSafetyWarnings = parsedLinkedSpecialNotes.safetyWarnings;
   const linkedJobHints = parsedLinkedSpecialNotes.jobHints;
 
+  const updateExecutionSite = (
+    index: number,
+    field: keyof OfferExecutionSite,
+    value: string,
+  ) => {
+    setExecutionSites((current) => {
+      const next = [...current];
+      const existing = next[index] || {};
+      next[index] = {
+        ...existing,
+        [field]: value,
+      };
+      return next;
+    });
+  };
+
+  const setExecutionAddressEnabled = (enabled: boolean) => {
+    if (enabled) {
+      setExecutionSites((current) =>
+        current.length > 0
+          ? current
+          : [
+              {
+                siteName: "",
+                siteAddress: "",
+                sitePlz: "",
+                siteCity: "",
+                siteNote: "",
+                sourceOrderId: fromOrderId || null,
+              },
+            ],
+      );
+      setEditingExecutionAddress(true);
+      requestAnimationFrame(() =>
+        executionAddressRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        }),
+      );
+      return;
+    }
+
+    setExecutionSites([]);
+    setEditingExecutionAddress(false);
+  };
+
+  const openOfferSection = (
+    off: Offer,
+    section: "execution" | "details",
+    detail?: string,
+  ) => {
+    openEditOffer(off);
+    setSelectedChipDetail(detail || null);
+    window.setTimeout(() => {
+      const target =
+        section === "execution"
+          ? executionAddressRef.current
+          : offerDetailsRef.current;
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 160);
+  };
+
   /**
    * Opens the offer edit dialog. With `opts.openCustomerSection: true`
    * the customer-edit panel is auto-expanded with fresh customer data —
@@ -797,6 +958,8 @@ export default function AngebotePage() {
   ) => {
     setEditOfferId(off.id);
     setDupCheckOpen(false);
+    setEditingExecutionAddress(false);
+    setSelectedChipDetail(null);
     // Reset customer form to prevent stale data leaking between records
     setNewCust({
       name: "",
@@ -840,14 +1003,14 @@ export default function AngebotePage() {
     // Strip forwarded customer message from the customer-visible PDF text.
     // Existing offers without their own text receive a safe, editable suggestion
     // from the linked order summary — never from the raw customer message.
-    const cleanNotes = stripForwardedMessage(off.notes, lo?.notes);
+    const cleanNotes = cleanOfferPdfTextForEditor(off, lo);
     setForm({
       customerId: off.customerId ?? "",
       offerDate: off.offerDate
         ? new Date(off.offerDate).toISOString().split("T")[0]
         : "",
       validDays: getOfferValidDays(off),
-      notes: cleanNotes || buildOfferPdfTextSuggestion(off),
+      notes: cleanNotes,
       status: off.status ?? "Entwurf",
     });
     if (off.items && off.items.length > 0) {
@@ -971,6 +1134,8 @@ export default function AngebotePage() {
     setItems([getEmptyItem()]);
     setLinkedOrderData(null);
     setExecutionSites([]);
+    setEditingExecutionAddress(false);
+    setSelectedChipDetail(null);
     setShowNewCustomer(false);
     setEditingCustomer(false);
     setDialogOpen(true);
@@ -987,17 +1152,29 @@ export default function AngebotePage() {
       return null;
     }
 
+    const itemsForSave = applyExecutionSitesToOfferItems(items, executionSites);
+
     if (editOfferId) {
       const res = await fetch(`/api/offers/${editOfferId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, items, vatRate, currency }),
+        body: JSON.stringify({
+          ...form,
+          items: itemsForSave,
+          vatRate,
+          currency,
+        }),
       });
       if (res.ok) return await res.json();
       toast.error("Fehler beim Speichern");
       return null;
     } else {
-      const payload: any = { ...form, items, vatRate, currency };
+      const payload: any = {
+        ...form,
+        items: itemsForSave,
+        vatRate,
+        currency,
+      };
       if (fromOrderId) payload.orderIds = [fromOrderId];
       const res = await fetch("/api/offers", {
         method: "POST",
@@ -1448,6 +1625,16 @@ export default function AngebotePage() {
                       (it.description ?? "").toLowerCase() === "sonstiges",
                   );
                   const orderCtx = resolveCommunicationData(null, off.orders);
+                  const offerExecutionSites = collectOfferExecutionSites(off);
+                  const primaryExecutionSite = offerExecutionSites[0] || null;
+                  const parsedOfferNotes = splitSpecialNotes(
+                    orderCtx.specialNotes,
+                  );
+                  const appointmentLabel = extractOfferAppointmentLabel(
+                    [orderCtx.specialNotes, orderCtx.notes]
+                      .filter(Boolean)
+                      .join("\n"),
+                  );
                   return (
                     <motion.div
                       key={off?.id}
@@ -1456,7 +1643,7 @@ export default function AngebotePage() {
                       transition={{ delay: i * 0.015 }}
                     >
                       <Card
-                        className="hover:shadow-sm transition-shadow cursor-pointer tap-safe"
+                        className="border-2 border-slate-300 hover:border-slate-400 hover:shadow-sm transition-all cursor-pointer tap-safe rounded-xl"
                         onClick={() => openEditOffer(off)}
                       >
                         <CardContent className="px-3 py-2">
@@ -1588,6 +1775,35 @@ export default function AngebotePage() {
                                     ({off.customer.customerNumber})
                                   </span>
                                 )}
+                                {primaryExecutionSite && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openOfferSection(off, "execution");
+                                    }}
+                                    className="inline-flex max-w-[15rem] items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800 hover:bg-cyan-100"
+                                    title={[
+                                      primaryExecutionSite.siteName,
+                                      primaryExecutionSite.siteAddress,
+                                      [
+                                        primaryExecutionSite.sitePlz,
+                                        primaryExecutionSite.siteCity,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" "),
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  >
+                                    <MapPin className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">
+                                      {primaryExecutionSite.siteName ||
+                                        primaryExecutionSite.siteAddress ||
+                                        "Ausführungsadresse"}
+                                    </span>
+                                  </button>
+                                )}
                                 {isCustomerDataIncomplete(off.customer) && (
                                   <MissingCustomerDataBadge
                                     variant="compact"
@@ -1651,20 +1867,74 @@ export default function AngebotePage() {
                                   </Badge>
                                 )}
 
-                                <CommunicationChips
-                                  data={orderCtx}
-                                  onAudioClick={() =>
-                                    orderCtx.mediaUrl &&
-                                    openMedia(orderCtx.mediaUrl, "audio")
-                                  }
-                                  onImageClick={() => {
-                                    const imgs = orderCtx.imageUrls;
-                                    if (imgs && imgs.length > 0)
-                                      openImageGallery(imgs);
-                                    else if (orderCtx.mediaUrl)
-                                      openMedia(orderCtx.mediaUrl, "image");
+                                {parsedOfferNotes.jobHints.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openOfferSection(
+                                        off,
+                                        "details",
+                                        parsedOfferNotes.jobHints.join("\n"),
+                                      );
+                                    }}
+                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                    aria-label="Besonderheiten anzeigen"
+                                    title="Besonderheiten anzeigen"
+                                  >
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                )}
+                                <div
+                                  className="contents"
+                                  onClickCapture={(event) => {
+                                    const element = (
+                                      event.target as HTMLElement
+                                    ).closest<HTMLElement>(
+                                      "[aria-label], [title], button, a",
+                                    );
+                                    const detail =
+                                      element?.getAttribute("aria-label") ||
+                                      element?.getAttribute("title") ||
+                                      "Kontakt oder Besonderheit";
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    element?.blur();
+                                    openOfferSection(off, "details", detail);
                                   }}
-                                />
+                                >
+                                  <CommunicationChips
+                                    data={orderCtx}
+                                    compact
+                                    onAudioClick={() =>
+                                      orderCtx.mediaUrl &&
+                                      openMedia(orderCtx.mediaUrl, "audio")
+                                    }
+                                    onImageClick={() => {
+                                      const imgs = orderCtx.imageUrls;
+                                      if (imgs && imgs.length > 0)
+                                        openImageGallery(imgs);
+                                      else if (orderCtx.mediaUrl)
+                                        openMedia(orderCtx.mediaUrl, "image");
+                                    }}
+                                  />
+                                </div>
+                                {appointmentLabel && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openOfferSection(
+                                        off,
+                                        "details",
+                                        appointmentLabel,
+                                      );
+                                    }}
+                                    className="inline-flex shrink-0 items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
+                                  >
+                                    {appointmentLabel}
+                                  </button>
+                                )}
                                 <span className="font-mono font-bold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums">
                                   {formatCurrency(
                                     Number(off?.total ?? 0),
@@ -1705,7 +1975,7 @@ export default function AngebotePage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent
-          className={`${dupCheckOpen ? "max-w-4xl w-[95vw]" : "max-w-2xl"} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}
+          className={`${dupCheckOpen ? "max-w-5xl w-[96vw]" : "max-w-3xl w-[calc(100vw-0.75rem)] sm:w-[95vw]"} max-h-[94vh] scroll-pt-20 overflow-y-auto overflow-x-hidden transition-all`}
         >
           <DialogHeader>
             <DialogTitle>
@@ -1804,7 +2074,7 @@ export default function AngebotePage() {
                             }}
                             title="Kunde bearbeiten"
                             aria-label="Kunde bearbeiten"
-                            className="border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            className="rounded-xl border-2 border-slate-300 bg-muted/30 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                           >
                             {isFallbackCustomerName(cust.name) ? (
                               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -1937,7 +2207,7 @@ export default function AngebotePage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 border rounded-lg p-2 sm:p-3 bg-muted/30 space-y-1.5 min-w-0">
+                              <div className="mt-2 rounded-xl border-2 border-slate-300 bg-muted/30 p-2 sm:p-3 space-y-1.5 min-w-0">
                                 {isFallbackCustomerName(cust.name) ? (
                                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
@@ -2033,7 +2303,7 @@ export default function AngebotePage() {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="border rounded-lg p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800 min-w-0"
+                    className="rounded-xl border-2 p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-800 min-w-0"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -2145,64 +2415,177 @@ export default function AngebotePage() {
                 </div>
               ) : (
                 <>
-                  <div className="rounded-lg border bg-slate-50/70 p-3 space-y-3 dark:bg-slate-900/30">
-                    <div>
-                      <div className="text-sm font-semibold">
-                        Ausführungsadresse
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Aus dem Auftrag übernommen und für dieses Angebot festgehalten.
-                      </div>
+                  <div
+                    ref={executionAddressRef}
+                    className="scroll-mt-20 rounded-xl border-2 border-slate-300 bg-slate-50/70 p-3 sm:p-4 dark:bg-slate-900/30"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <label className="flex cursor-pointer items-start gap-2">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 rounded border-slate-400"
+                          checked={executionSites.length > 0}
+                          onChange={(event) =>
+                            setExecutionAddressEnabled(event.target.checked)
+                          }
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold">
+                            Ausführungsadresse abweichend von Rechnungsadresse
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            Nur aktivieren, wenn die Arbeit an einem anderen Ort
+                            ausgeführt wird.
+                          </span>
+                        </span>
+                      </label>
+                      {executionSites.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0"
+                          onClick={() =>
+                            setEditingExecutionAddress((current) => !current)
+                          }
+                        >
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
+                        </Button>
+                      )}
                     </div>
 
                     {executionSites.length === 0 ? (
-                      <div className="rounded-md border bg-background px-3 py-2 text-sm text-muted-foreground">
-                        Keine abweichende Ausführungsadresse – die Rechnungsadresse gilt.
+                      <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-background px-3 py-2 text-sm text-muted-foreground">
+                        Die Rechnungsadresse gilt auch als Ausführungsadresse.
                       </div>
                     ) : (
-                      <div className="space-y-2">
+                      <div className="mt-3 space-y-3">
                         {executionSites.map((site, index) => (
                           <div
-                            key={`${offerSiteKey(site)}-${index}`}
-                            className="rounded-lg border bg-background p-3"
+                            key={`${site.sourceOrderId || "site"}-${index}`}
+                            className="rounded-xl border-2 border-slate-300 bg-background p-3 shadow-sm"
                           >
-                            <div className="flex items-start gap-2">
-                              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                              <div className="min-w-0 flex-1">
-                                <div className="text-sm font-semibold">
-                                  {site.siteName ||
-                                    (executionSites.length > 1
-                                      ? `Ausführungsort ${index + 1}`
-                                      : "Ausführungsadresse")}
+                            {editingExecutionAddress ? (
+                              <div className="space-y-3">
+                                <div>
+                                  <Label className="text-xs">
+                                    Objekt / Bereich
+                                  </Label>
+                                  <Input
+                                    value={site.siteName || ""}
+                                    placeholder="z.B. Wohnpark Limmat, Serverraum"
+                                    onChange={(event) =>
+                                      updateExecutionSite(
+                                        index,
+                                        "siteName",
+                                        event.target.value,
+                                      )
+                                    }
+                                  />
                                 </div>
-                                <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-0.5 text-sm">
-                                  <span className="text-muted-foreground">
-                                    Strasse:
-                                  </span>
-                                  <span className="break-words">
-                                    {site.siteAddress || "–"}
-                                  </span>
-                                  <span className="text-muted-foreground">
-                                    PLZ / Ort:
-                                  </span>
-                                  <span className="break-words">
-                                    {[site.sitePlz, site.siteCity]
-                                      .filter(Boolean)
-                                      .join(" ") || "–"}
-                                  </span>
-                                  {site.siteNote && (
-                                    <>
-                                      <span className="text-muted-foreground">
-                                        Hinweis:
-                                      </span>
-                                      <span className="break-words">
-                                        {site.siteNote}
-                                      </span>
-                                    </>
-                                  )}
+                                <div>
+                                  <Label className="text-xs">
+                                    Strasse + Hausnummer
+                                  </Label>
+                                  <Input
+                                    value={site.siteAddress || ""}
+                                    placeholder="Strasse + Hausnummer"
+                                    onChange={(event) =>
+                                      updateExecutionSite(
+                                        index,
+                                        "siteAddress",
+                                        event.target.value,
+                                      )
+                                    }
+                                  />
+                                </div>
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_1fr]">
+                                  <div>
+                                    <Label className="text-xs">PLZ</Label>
+                                    <Input
+                                      value={site.sitePlz || ""}
+                                      placeholder="PLZ"
+                                      onChange={(event) =>
+                                        updateExecutionSite(
+                                          index,
+                                          "sitePlz",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">Ort</Label>
+                                    <Input
+                                      value={site.siteCity || ""}
+                                      placeholder="Ort"
+                                      onChange={(event) =>
+                                        updateExecutionSite(
+                                          index,
+                                          "siteCity",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label className="text-xs">
+                                    Hinweis zum Ausführungsort
+                                  </Label>
+                                  <Input
+                                    value={site.siteNote || ""}
+                                    placeholder="Optionaler interner Hinweis"
+                                    onChange={(event) =>
+                                      updateExecutionSite(
+                                        index,
+                                        "siteNote",
+                                        event.target.value,
+                                      )
+                                    }
+                                  />
                                 </div>
                               </div>
-                            </div>
+                            ) : (
+                              <div className="flex items-start gap-2">
+                                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-semibold">
+                                    {site.siteName ||
+                                      (executionSites.length > 1
+                                        ? `Ausführungsort ${index + 1}`
+                                        : "Ausführungsadresse")}
+                                  </div>
+                                  <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-1 text-sm">
+                                    <span className="text-muted-foreground">
+                                      Strasse:
+                                    </span>
+                                    <span className="break-words">
+                                      {site.siteAddress || "–"}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                      PLZ / Ort:
+                                    </span>
+                                    <span className="break-words">
+                                      {[site.sitePlz, site.siteCity]
+                                        .filter(Boolean)
+                                        .join(" ") || "–"}
+                                    </span>
+                                    {site.siteNote && (
+                                      <>
+                                        <span className="text-muted-foreground">
+                                          Hinweis:
+                                        </span>
+                                        <span className="break-words">
+                                          {site.siteNote}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -2210,255 +2593,292 @@ export default function AngebotePage() {
                   </div>
 
                   <div>
-                    <Label>Währung</Label>
-                    <select
-                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={currency}
-                      onChange={(e: any) =>
-                        setCurrency(e?.target?.value === "EUR" ? "EUR" : "CHF")
-                      }
-                    >
-                      <option value="CHF">CHF</option>
-                      <option value="EUR">EUR</option>
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <Label>Gültigkeitsdauer (Tage)</Label>
-                      <Input
-                        type="number"
-                        value={form.validDays}
-                        onChange={(e: any) =>
-                          setForm({
-                            ...form,
-                            validDays: e?.target?.value ?? "14",
-                          })
-                        }
-                      />
+                    <Label className="mb-2 block text-sm font-semibold">
+                      Leistungen *
+                    </Label>
+                    <div className="space-y-3">
+                      {items?.map((item: OfferItem, idx: number) => {
+                        const lineTotal =
+                          Number(item?.unitPrice ?? 0) *
+                          Number(item?.quantity ?? 0);
+                        return (
+                          <div
+                            key={idx}
+                            className="min-w-0 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 shadow-sm"
+                          >
+                            <div className="flex items-start gap-2">
+                              <div className="min-w-0 flex-1">
+                                <ServiceCombobox
+                                  value={item?.description ?? ""}
+                                  services={services as ServiceOption[]}
+                                  onChange={(name, svc) =>
+                                    onItemServiceSelect(idx, name, svc)
+                                  }
+                                  onServiceCreated={handleServiceCreated}
+                                  currentPrice={
+                                    item?.unitPrice != null
+                                      ? String(item.unitPrice)
+                                      : undefined
+                                  }
+                                  currentUnit={item?.unit}
+                                  contextLabel="Angebot"
+                                />
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Total
+                                </div>
+                                <div className="font-mono text-sm font-bold tabular-nums">
+                                  {formatCurrency(lineTotal, currency)}
+                                </div>
+                              </div>
+                              {items?.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeItem(idx)}
+                                  className="shrink-0 rounded-md p-1 text-destructive hover:bg-red-50 hover:text-destructive/80"
+                                  title="Leistung entfernen"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <div>
+                                <Label className="text-xs">Einheit</Label>
+                                <select
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                                  value={item?.unit ?? "Stunde"}
+                                  onChange={(event) =>
+                                    updateItem(
+                                      idx,
+                                      "unit",
+                                      event.target.value || "Stunde",
+                                    )
+                                  }
+                                >
+                                  <option value="Stunde">Stunde</option>
+                                  <option value="Tag">Tag</option>
+                                  <option value="Pauschal">Pauschal</option>
+                                  <option value="Meter">Meter</option>
+                                  <option value="Quadratmeter">
+                                    Quadratmeter
+                                  </option>
+                                  <option value="Kubikmeter">Kubikmeter</option>
+                                  <option value="Stück">Stück</option>
+                                  <option value="Kilogramm">Kilogramm</option>
+                                  <option value="Tonne">Tonne</option>
+                                  <option value="Liter">Liter</option>
+                                </select>
+                              </div>
+                              <div>
+                                <Label className="text-xs">
+                                  Preis ({currency})
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="0.05"
+                                  placeholder="prüfen"
+                                  className={`h-9 ${
+                                    Number(item?.unitPrice ?? 0) <= 0
+                                      ? "border-red-500 bg-red-50"
+                                      : ""
+                                  }`}
+                                  value={
+                                    Number(item?.unitPrice ?? 0) <= 0
+                                      ? ""
+                                      : (item?.unitPrice ?? "")
+                                  }
+                                  onChange={(event) =>
+                                    updateItem(
+                                      idx,
+                                      "unitPrice",
+                                      event.target.value || "0",
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">Menge</Label>
+                                <Input
+                                  type="number"
+                                  step="0.25"
+                                  placeholder="prüfen"
+                                  className={`h-9 ${
+                                    Number(item?.quantity ?? 0) <= 0
+                                      ? "border-red-500 bg-red-50"
+                                      : ""
+                                  }`}
+                                  value={
+                                    Number(item?.quantity ?? 0) <= 0
+                                      ? ""
+                                      : (item?.quantity ?? "")
+                                  }
+                                  onChange={(event) =>
+                                    updateItem(
+                                      idx,
+                                      "quantity",
+                                      event.target.value || "0",
+                                    )
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }) ?? []}
                     </div>
-                    {editOfferId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 w-full border-2"
+                      onClick={addItem}
+                    >
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      Weitere Leistung hinzufügen
+                    </Button>
+                  </div>
+
+                  <div className="min-w-0 space-y-4 rounded-xl border-2 border-slate-300 bg-muted/40 p-3 sm:p-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <Label>Angebotsdatum</Label>
+                        <Input
+                          type="date"
+                          value={form.offerDate}
+                          onChange={(event) =>
+                            setForm({ ...form, offerDate: event.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label>Gültigkeitsdauer (Tage)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={form.validDays}
+                          onChange={(event) =>
+                            setForm({ ...form, validDays: event.target.value })
+                          }
+                        />
+                      </div>
                       <div>
                         <Label>Status</Label>
                         <select
-                          className="flex w-full rounded-md border border-input px-3 py-2 text-sm"
+                          className="flex h-10 w-full rounded-md border border-input px-3 py-2 text-sm"
                           style={getStatusStyle(
                             OFFER_STATUS_STYLES,
                             form.status,
                           )}
                           value={form.status}
-                          onChange={(e: any) =>
-                            setForm({
-                              ...form,
-                              status: e?.target?.value ?? "Entwurf",
-                            })
+                          onChange={(event) =>
+                            setForm({ ...form, status: event.target.value })
                           }
                         >
-                          {offerStatuses.map((s) => (
+                          {offerStatuses.map((status) => (
                             <option
-                              key={s}
-                              style={getStatusStyle(OFFER_STATUS_STYLES, s)}
+                              key={status}
+                              style={getStatusStyle(
+                                OFFER_STATUS_STYLES,
+                                status,
+                              )}
                             >
-                              {s}
+                              {status}
                             </option>
                           ))}
                         </select>
                       </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <Label className="mb-2 block">Leistungen *</Label>
-                    <div className="space-y-3">
-                      {items?.map((item: OfferItem, idx: number) => (
-                        <div
-                          key={idx}
-                          className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2 min-w-0"
+                      <div>
+                        <Label>Währung</Label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={currency}
+                          onChange={(event) =>
+                            setCurrency(
+                              event.target.value === "EUR" ? "EUR" : "CHF",
+                            )
+                          }
                         >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <ServiceCombobox
-                              value={item?.description ?? ""}
-                              services={services as ServiceOption[]}
-                              onChange={(name, svc) =>
-                                onItemServiceSelect(idx, name, svc)
-                              }
-                              onServiceCreated={handleServiceCreated}
-                              currentPrice={
-                                item?.unitPrice != null
-                                  ? String(item.unitPrice)
-                                  : undefined
-                              }
-                              currentUnit={item?.unit}
-                              contextLabel="Angebot"
-                            />
-                            {items?.length > 1 && (
-                              <button
-                                onClick={() => removeItem(idx)}
-                                className="text-destructive hover:text-destructive/80 p-1 shrink-0"
-                                title="Leistung entfernen"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            <div>
-                              <Label className="text-xs">Einheit</Label>
-                              <select
-                                className="flex w-full rounded-md border border-input bg-background px-2 py-1.5"
-                                value={item?.unit ?? "Stunde"}
-                                onChange={(e: any) =>
-                                  updateItem(
-                                    idx,
-                                    "unit",
-                                    e?.target?.value ?? "Stunde",
-                                  )
-                                }
-                              >
-                                <option value="Stunde">Stunde</option>
-                                <option value="Tag">Tag</option>
-                                <option value="Pauschal">Pauschal</option>
-                                <option value="Meter">Meter</option>
-                                <option value="Quadratmeter">
-                                  Quadratmeter
-                                </option>
-                                <option value="Kubikmeter">Kubikmeter</option>
-                                <option value="Stück">Stück</option>
-                                <option value="Kilogramm">Kilogramm</option>
-                                <option value="Tonne">Tonne</option>
-                                <option value="Liter">Liter</option>
-                              </select>
-                            </div>
-                            <div>
-                              <Label className="text-xs">
-                                Preis ({currency})
-                              </Label>
-                              <Input
-                                type="number"
-                                step="0.05"
-                                placeholder="prüfen"
-                                className={`h-8 ${
-                                  Number(item?.unitPrice ?? 0) <= 0
-                                    ? "border-red-500 bg-red-50"
-                                    : ""
-                                }`}
-                                value={
-                                  Number(item?.unitPrice ?? 0) <= 0
-                                    ? ""
-                                    : (item?.unitPrice ?? "")
-                                }
-                                onChange={(e: any) =>
-                                  updateItem(
-                                    idx,
-                                    "unitPrice",
-                                    e?.target?.value ?? "0",
-                                  )
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs">Menge</Label>
-                              <Input
-                                type="number"
-                                step="0.25"
-                                placeholder="prüfen"
-                                className={`h-8 ${
-                                  Number(item?.quantity ?? 0) <= 0
-                                    ? "border-red-500 bg-red-50"
-                                    : ""
-                                }`}
-                                value={
-                                  Number(item?.quantity ?? 0) <= 0
-                                    ? ""
-                                    : (item?.quantity ?? "")
-                                }
-                                onChange={(e: any) =>
-                                  updateItem(
-                                    idx,
-                                    "quantity",
-                                    e?.target?.value ?? "0",
-                                  )
-                                }
-                              />
-                            </div>
-                          </div>
-                          <div className="text-left sm:text-right text-xs text-muted-foreground">
-                            ={" "}
-                            {formatCurrency(
-                              Number(item?.unitPrice ?? 0) *
-                                Number(item?.quantity ?? 0),
-                              currency,
-                            )}
-                          </div>
-                        </div>
-                      )) ?? []}
+                          <option value="CHF">CHF</option>
+                          <option value="EUR">EUR</option>
+                        </select>
+                      </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-2 w-full"
-                      onClick={addItem}
-                    >
-                      <Plus className="w-3.5 h-3.5 mr-1" />
-                      Weitere Leistung hinzufügen
-                    </Button>
-                  </div>
 
-                  <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
                     <MwStControl vatRate={vatRate} onChange={setVatRate} />
-                    <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                      <div className="flex justify-between min-w-0">
+                    <div className="min-w-0 space-y-1 border-t-2 border-slate-300 pt-3 text-sm">
+                      <div className="flex min-w-0 justify-between">
                         <span className="shrink-0">Netto</span>
-                        <span className="font-mono">
+                        <span className="font-mono tabular-nums">
                           {formatCurrency(subtotal, currency)}
                         </span>
                       </div>
                       {vatRate > 0 && (
-                        <div className="flex justify-between min-w-0">
+                        <div className="flex min-w-0 justify-between">
                           <span className="shrink-0">MwSt. {vatRate}%</span>
-                          <span className="font-mono">
+                          <span className="font-mono tabular-nums">
                             {formatCurrency(vatAmount, currency)}
                           </span>
                         </div>
                       )}
-                      <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base">
+                      <div className="flex min-w-0 justify-between border-t-2 border-slate-300 pt-2 text-base font-bold">
                         <span className="shrink-0">Total</span>
-                        <span className="font-mono text-primary">
+                        <span className="font-mono text-primary tabular-nums">
                           {formatCurrency(total, currency)}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label>Text für Angebot / PDF</Label>
+                  <div className="space-y-1.5 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4">
+                    <Label className="font-semibold">
+                      Text für Angebot / PDF
+                    </Label>
                     <div className="text-xs text-muted-foreground">
-                      Für den Kunden sichtbar. Der Text erscheint im Angebots-PDF oberhalb der Leistungen und kann vollständig geändert oder gelöscht werden.
+                      Nur für den Kunden sichtbar. Leer lassen, wenn kein
+                      zusätzlicher Text im PDF benötigt wird.
                     </div>
                     <textarea
-                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      className="flex min-h-[96px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm"
                       rows={4}
-                      placeholder="Kurze Zusammenfassung oder zusätzliche Angaben für den Kunden..."
+                      placeholder="Optionaler Einleitungstext, Zusammenfassung oder Zusatz für das Angebots-PDF..."
                       value={form.notes}
-                      onChange={(e: any) =>
-                        setForm({ ...form, notes: e?.target?.value ?? "" })
+                      onChange={(event) =>
+                        setForm({ ...form, notes: event.target.value })
                       }
                     />
                   </div>
 
-                  {linkedSafetyWarnings.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label className="font-semibold">
-                          Interne Gefahren / Warnhinweise
-                        </Label>
-                        <Badge className="border border-red-300 bg-red-100 text-red-700">
-                          Gefahr / Achtung
-                        </Badge>
+                  <div
+                    ref={offerDetailsRef}
+                    className="scroll-mt-20 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="font-semibold">Besonderheiten</Label>
+                      <span className="text-xs text-muted-foreground">
+                        Intern – nicht automatisch im Kunden-PDF
+                      </span>
+                    </div>
+
+                    {selectedChipDetail && (
+                      <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+                        <div className="mb-1 flex items-center gap-2 font-semibold">
+                          <Info className="h-4 w-4" />
+                          Ausgewählter Hinweis
+                        </div>
+                        <div className="whitespace-pre-wrap break-words">
+                          {selectedChipDetail}
+                        </div>
                       </div>
-                      <div className="space-y-1 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                    )}
+
+                    {linkedSafetyWarnings.length > 0 && (
+                      <div className="space-y-1 rounded-lg border-2 border-red-300 bg-red-50 p-3 text-sm text-red-800">
                         <div className="flex items-center gap-2 font-semibold">
                           <AlertTriangle className="h-4 w-4" />
-                          Nicht automatisch im Kunden-PDF
+                          Gefahr / Achtung
                         </div>
                         <ul className="list-disc pl-5">
                           {linkedSafetyWarnings.map((line, index) => (
@@ -2466,18 +2886,15 @@ export default function AngebotePage() {
                           ))}
                         </ul>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {/* Unified internal order data: summary, chips, normal special notes and customer message/media. */}
-                  {linkedOrderData && (
-                    <CommunicationBlock
-                      data={linkedOrderData}
-                      showDescription
-                      descriptionValue={linkedOrderData.description || ""}
-                      specialNotesValue={linkedJobHints.join("\n")}
-                    />
-                  )}
+                    {linkedOrderData && (
+                      <CommunicationBlock
+                        data={linkedOrderData}
+                        specialNotesValue={linkedJobHints.join("\n")}
+                      />
+                    )}
+                  </div>
                 </>
               )}
 
