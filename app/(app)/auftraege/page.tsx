@@ -65,6 +65,7 @@ import {
   splitSpecialNotes,
   detectCallbackRequest,
 } from "@/lib/special-notes-utils";
+import { extractExecutionAddressFromText } from "@/lib/order-intake-validation";
 import { fetchAllJSON } from "@/lib/fetch-utils";
 import { LoadErrorFallback } from "@/components/load-error-fallback";
 import { ORDER_STATUS_STYLES, getStatusStyle } from "@/lib/status-colors";
@@ -4169,6 +4170,65 @@ const repairInlineAddressReviewCandidateV17_90L36 = (
   };
 };
 
+const orderExecutionAddressEvidenceSourceV17_90L38 = (order?: Order | null) =>
+  Array.from(
+    new Set(
+      [
+        order?.notes,
+        order?.audioTranscript,
+        order?.description,
+        order?.specialNotes,
+        ...(order?.items || []).flatMap((item) => [
+          item?.description || "",
+          item?.serviceName || "",
+        ]),
+      ]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  ).join("\n");
+
+const getExecutionAddressReviewCandidateFromOrderV17_90L38 = (
+  order?: Order | null,
+): AddressReviewCandidateV17_90L36 => {
+  const workSites = Array.isArray(order?.workSites) ? order!.workSites! : [];
+  const primarySite =
+    workSites.find((site) => Boolean(site.isPrimary)) || workSites[0] || null;
+  const extracted = order
+    ? extractExecutionAddressFromText(
+        orderExecutionAddressEvidenceSourceV17_90L38(order),
+        {
+          customerAddress: order.customer?.address,
+          customerPlz: order.customer?.plz,
+          customerCity: order.customer?.city,
+        },
+      )
+    : null;
+
+  return repairInlineAddressReviewCandidateV17_90L36({
+    siteName:
+      cleanWorkSiteDisplayName(primarySite?.siteName || order?.siteName) ||
+      cleanWorkSiteDisplayName(extracted?.siteName) ||
+      "",
+    siteAddress:
+      compactText(primarySite?.siteAddress || order?.siteAddress) ||
+      compactText(extracted?.siteAddress) ||
+      "",
+    sitePlz:
+      compactText(primarySite?.sitePlz || order?.sitePlz) ||
+      compactText(extracted?.sitePlz) ||
+      "",
+    siteCity:
+      compactText(primarySite?.siteCity || order?.siteCity) ||
+      compactText(extracted?.siteCity) ||
+      "",
+    siteNote:
+      compactText(primarySite?.siteNote || order?.siteNote) ||
+      compactText(extracted?.siteNote) ||
+      "",
+  });
+};
+
 const hasDifferentExecutionAddressForBadge = (order: Order) => {
   if (!order.siteAddressDifferent) return false;
 
@@ -4261,22 +4321,13 @@ const hasActiveAddressRoleReviewV17_90K = (order: Order) =>
   !hasResolvableStoredExecutionAddressV17_90K(order);
 
 const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
-  const workSites = Array.isArray(order.workSites) ? order.workSites : [];
-  const primarySite =
-    workSites.find((site) => Boolean(site.isPrimary)) || workSites[0] || null;
-  const siteTitle = cleanWorkSiteDisplayName(
-    primarySite?.siteName || order.siteName,
-  );
-  const siteAddress = compactText(
-    primarySite?.siteAddress || order.siteAddress,
-  );
-  const sitePlace = [
-    primarySite?.sitePlz || order.sitePlz,
-    primarySite?.siteCity || order.siteCity,
-  ]
-    .map(compactText)
-    .filter(Boolean)
-    .join(" ");
+  const candidate =
+    getExecutionAddressReviewCandidateFromOrderV17_90L38(order);
+  const siteTitle = cleanWorkSiteDisplayName(candidate.siteName);
+  const siteAddress = compactText(candidate.siteAddress);
+  const sitePlz = compactText(candidate.sitePlz);
+  const siteCity = compactText(candidate.siteCity);
+  const sitePlace = [sitePlz, siteCity].filter(Boolean).join(" ");
 
   const lines = ["Ausführadresse unklar"];
   const addressLine = [siteTitle, siteAddress, sitePlace]
@@ -4289,8 +4340,8 @@ const formatAddressRoleReviewTooltipV17_61 = (order: Order) => {
 
   const missing: string[] = [];
   if (!siteAddress) missing.push("Strasse fehlt");
-  if (!compactText(primarySite?.sitePlz || order.sitePlz)) missing.push("PLZ fehlt");
-  if (!compactText(primarySite?.siteCity || order.siteCity)) missing.push("Ort fehlt");
+  if (!sitePlz) missing.push("PLZ fehlt");
+  if (!siteCity) missing.push("Ort fehlt");
 
   if (missing.length > 0) {
     lines.push(`Warum: ${missing.join(", ")}`);
@@ -6150,6 +6201,8 @@ export default function AuftraegePage() {
   const [defaultVatRate, setDefaultVatRate] = useState(8.1);
   const [currency, setCurrency] = useState<"CHF" | "EUR">("CHF");
   const [saving, setSaving] = useState(false);
+  const [manualResidualCurrencyAcknowledged, setManualResidualCurrencyAcknowledged] =
+    useState(false);
 
   // New customer inline / edit customer
   const [showNewCustomer, setShowNewCustomer] = useState(false);
@@ -6486,6 +6539,7 @@ export default function AuftraegePage() {
       if (custId) newForm.customerId = custId;
       setForm(newForm);
       setFormItems([createEmptyItem()]);
+      setManualResidualCurrencyAcknowledged(false);
       setFormWorkSites([]);
       setExpandedWorkSiteIds([]);
       setCustomerMessagesExpanded(false);
@@ -6588,6 +6642,7 @@ export default function AuftraegePage() {
     setEditId(null);
     setForm(emptyForm);
     setFormItems([createEmptyItem()]);
+    setManualResidualCurrencyAcknowledged(false);
     setFormWorkSites([]);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(null);
@@ -6621,6 +6676,7 @@ export default function AuftraegePage() {
     const effectiveOrderReviewReasons =
       effectiveOrderReviewReasonsV17_90L37(o);
     setEditId(o.id);
+    setManualResidualCurrencyAcknowledged(false);
     setServiceActionMenuKey(null);
     setDupCheckOpen(false);
     setUndoPreviousAddress(null);
@@ -7171,6 +7227,29 @@ export default function AuftraegePage() {
         if (i !== index) return item;
 
         if (svc) {
+          const selectedCatalogPrice = Number(svc.defaultPrice ?? 0);
+          const selectingCurrencyReviewItem =
+            isBlockingCurrencyReviewText(item.aiWarning) ||
+            hasFormItemCurrencyMismatch(item);
+
+          if (selectingCurrencyReviewItem) {
+            const hasConfirmedCatalogPrice =
+              Number.isFinite(selectedCatalogPrice) && selectedCatalogPrice > 0;
+            return {
+              ...item,
+              serviceName: svc.name,
+              unitPrice: hasConfirmedCatalogPrice
+                ? String(selectedCatalogPrice)
+                : "",
+              unit: svc.unit || item.unit || "Stunde",
+              quantity:
+                Number(item.quantity || 0) > 0 ? item.quantity : "1",
+              aiWarning: hasConfirmedCatalogPrice ? "" : item.aiWarning,
+              manualCurrencyConfirmed: hasConfirmedCatalogPrice,
+              catalogReviewConfirmed: hasConfirmedCatalogPrice,
+            };
+          }
+
           return {
             ...item,
             serviceName: svc.name,
@@ -7488,6 +7567,9 @@ export default function AuftraegePage() {
           field === "serviceName"
         ) {
           const warningText = normalizeForMatch(nextItem.aiWarning);
+          const itemHadCurrencyReview =
+            hasFormItemCurrencyMismatch(item) ||
+            isBlockingCurrencyReviewText(item.aiWarning);
           const unitText = normalizeForMatch(nextItem.unit);
           const isResolvedInput =
             nextItem.serviceName.trim().length > 0 &&
@@ -7529,10 +7611,10 @@ export default function AuftraegePage() {
           // und bleibt nach Speichern/Reload erhalten; andere Zeilen bleiben rot.
           if (
             isResolvedInput &&
-            (hasCurrentEditCurrencyReview ||
-              /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
-                warningText,
-              ))
+            itemHadCurrencyReview &&
+            /(?:waehrung|wahrung|currency|preis|price|textpreis|unklar|unsicher|bestaetig|bestatig|nicht\s+in\s+netto|nicht\s+in\s+mwst|nicht\s+in\s+total)/.test(
+              warningText || normalizeForMatch(item.aiWarning),
+            )
           ) {
             nextItem.aiWarning = "";
             nextItem.manualCurrencyConfirmed = true;
@@ -7583,6 +7665,14 @@ export default function AuftraegePage() {
   };
 
   const removeItem = (index: number) => {
+    const removedItem = formItems[index];
+    if (removedItem && isBlockingCurrencyReviewText(removedItem.aiWarning)) {
+      // Das bewusste Verwerfen einer roten Fremdwährungs-Prüfposition gilt als
+      // ausdrückliche Prüfung. Ein unsichtbarer Resthinweis darf danach nicht
+      // erneut blockieren.
+      setManualResidualCurrencyAcknowledged(true);
+    }
+
     setFormItems((prev) => {
       if (prev.length <= 1) return [createEmptyItem()];
       return prev.filter((_, i) => i !== index);
@@ -7600,19 +7690,30 @@ export default function AuftraegePage() {
       formWorkSites.find((site) => Boolean(site.isPrimary)) ||
       formWorkSites[0] ||
       null;
+    const extractedFallback =
+      getExecutionAddressReviewCandidateFromOrderV17_90L38(currentEditOrder);
     const rawCandidate = {
       siteName:
         cleanWorkSiteDisplayName(primarySite?.siteName) ||
         cleanWorkSiteDisplayName(form.siteName) ||
+        extractedFallback.siteName ||
         "",
       siteAddress:
-        compactText(primarySite?.siteAddress) || compactText(form.siteAddress),
+        compactText(primarySite?.siteAddress) ||
+        compactText(form.siteAddress) ||
+        extractedFallback.siteAddress,
       sitePlz:
-        compactText(primarySite?.sitePlz) || compactText(form.sitePlz),
+        compactText(primarySite?.sitePlz) ||
+        compactText(form.sitePlz) ||
+        extractedFallback.sitePlz,
       siteCity:
-        compactText(primarySite?.siteCity) || compactText(form.siteCity),
+        compactText(primarySite?.siteCity) ||
+        compactText(form.siteCity) ||
+        extractedFallback.siteCity,
       siteNote:
-        compactText(primarySite?.siteNote) || compactText(form.siteNote),
+        compactText(primarySite?.siteNote) ||
+        compactText(form.siteNote) ||
+        extractedFallback.siteNote,
     };
     const repairedCandidate =
       repairInlineAddressReviewCandidateV17_90L36(rawCandidate);
@@ -8104,15 +8205,34 @@ export default function AuftraegePage() {
     (isInternalReviewServiceName(item.serviceName) ||
       Number(item.unitPrice || 0) <= 0);
 
-  // V17.90L37: Ein globaler Währungshinweis blockiert nur noch die eigene
-  // bearbeitbare Prüfposition. Vollständige CHF-Leistungen bleiben berechenbar.
-  // Wird die Prüfposition bewusst gelöscht, ist der nicht bearbeitbare
-  // Rohtext-Hinweis erledigt und darf nicht erneut global blockieren.
+  const hasConfirmedCurrencyReviewItemV17_90L38 = formItems.some(
+    (item) =>
+      Boolean(item.manualCurrencyConfirmed) &&
+      isCompleteResolvedFormItem(item),
+  );
+  const hasEditableCurrencyReviewItemV17_90L38 = formItems.some(
+    (item) =>
+      hasFormItemCurrencyMismatch(item) ||
+      isEditableCurrencyReviewPlaceholderV17_90L37(item),
+  );
+  const hasResidualCurrencyReviewWithoutEditableItemV17_90L38 = Boolean(
+    hasCurrentEditCurrencyReview &&
+      !hasCurrentEditItemCurrencyMismatch &&
+      !hasEditableCurrencyReviewItemV17_90L38 &&
+      !hasConfirmedCurrencyReviewItemV17_90L38,
+  );
+
+  // V17.90L38: Ein unsichtbarer globaler Währungshinweis wird nicht mehr
+  // automatisch entfernt. Ohne bearbeitbare Prüfposition braucht es die
+  // ausdrückliche Bestätigung "Geprüft und verstanden". Eine bewusst aus dem
+  // Katalog gewählte und dadurch bestätigte Position löst den Hinweis direkt.
   const formHasResolvedCurrencyReview =
     hasCurrentEditCurrencyReview &&
     !hasCurrentEditItemCurrencyMismatch &&
     (currency === "CHF" || currency === "EUR") &&
-    !formItems.some(isEditableCurrencyReviewPlaceholderV17_90L37);
+    !hasEditableCurrencyReviewItemV17_90L38 &&
+    (hasConfirmedCurrencyReviewItemV17_90L38 ||
+      manualResidualCurrencyAcknowledged);
 
   const hasEditCurrencyReview =
     hasCurrentEditCurrencyReview && !formHasResolvedCurrencyReview;
@@ -9241,10 +9361,17 @@ export default function AuftraegePage() {
     const hasUnresolvedEditableCurrencyItem = validItems.some((item) =>
       isFormItemBlockedByCurrencyReview(item),
     );
+    const hasExplicitCurrencyItemConfirmation = validItems.some(
+      (item) =>
+        Boolean(item.manualCurrencyConfirmed) &&
+        isCompleteResolvedFormItem(item),
+    );
     const currencyReviewManuallyResolved = Boolean(
       hasCurrentEditCurrencyReview &&
         (allItemCurrencyReviewsManuallyResolved ||
-          !hasUnresolvedEditableCurrencyItem),
+          hasExplicitCurrencyItemConfirmation ||
+          (!hasUnresolvedEditableCurrencyItem &&
+            manualResidualCurrencyAcknowledged)),
     );
 
     const hasExecutionAddressEvidenceForReview = Boolean(
@@ -9363,6 +9490,8 @@ export default function AuftraegePage() {
         formHasResolvedCurrencyReview ||
         hasExplicitManualItemConfirmation ||
         (!editId && allItemsComplete && !hasCurrentEditCurrencyReview),
+      manualCurrencyReviewResolved: currencyReviewManuallyResolved,
+      manualResidualCurrencyAcknowledged,
       reviewReasons: cleanedReviewReasons,
       needsReview: cleanedReviewReasons.length > 0,
       workSites:
@@ -12355,6 +12484,30 @@ export default function AuftraegePage() {
                           erkannt. Total nicht berechenbar. Erst bereinigen,
                           dann Angebot oder Rechnung erstellen.
                         </div>
+                        {hasResidualCurrencyReviewWithoutEditableItemV17_90L38 && (
+                          <div className="mt-2 rounded-md border border-red-200 bg-white/80 p-2 dark:border-red-900/60 dark:bg-background/50">
+                            <div>
+                              Zu diesem Hinweis existiert keine bearbeitbare
+                              Leistungs- oder Prüfposition. Bitte Kundentext
+                              kontrollieren und anschließend ausdrücklich
+                              bestätigen.
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="mt-2 h-7 border-red-300 bg-white px-2 text-xs text-red-800 hover:bg-red-50 dark:bg-background dark:text-red-100"
+                              onClick={() => {
+                                setManualResidualCurrencyAcknowledged(true);
+                                toast.info(
+                                  "Währungshinweis als geprüft markiert. Bitte Auftrag speichern.",
+                                );
+                              }}
+                            >
+                              Geprüft und verstanden
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
 

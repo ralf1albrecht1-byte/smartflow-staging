@@ -1110,6 +1110,8 @@ function normalizeReviewReasonsForPersist(data: any) {
       allItemsCompleteIgnoringCurrency &&
       !hasRemainingItemCurrencyReview &&
       !hasEditableCurrencyReviewItem &&
+      (data?.manualCurrencyReviewResolved === true ||
+        data?.manualResidualCurrencyAcknowledged === true) &&
       (key === "currency_review" ||
         key === "currency_conflict" ||
         key === "currency_unsupported")

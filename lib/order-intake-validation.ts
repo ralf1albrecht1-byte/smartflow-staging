@@ -10774,29 +10774,35 @@ function extractInlineExecutionAddressCandidate(
     return null;
   }
 
-  const siteAddress = parseStreet(raw);
-  const plzCity = parsePlzCity(raw);
+  const executionMarkerIndex = raw.search(EXECUTION_ADDRESS_MARKER);
+  const executionRaw =
+    executionMarkerIndex >= 0 ? raw.slice(executionMarkerIndex) : raw;
+  const siteAddress = parseStreet(executionRaw);
   if (!siteAddress) return null;
 
   const afterStreet =
-    raw.split(new RegExp(escapeRegExp(siteAddress), "i")).slice(1).join(" ") || "";
-  const customerCityKey = normalizeCompare(customer?.customerCity || "");
-  const afterStreetKey = normalizeCompare(afterStreet);
+    executionRaw
+      .split(new RegExp(escapeRegExp(siteAddress), "i"))
+      .slice(1)
+      .join(" ") || "";
+  const plzCity = parsePlzCity(afterStreet);
+  const immediatePlaceSegment = afterStreet
+    .split(/[,;\n]+/g)[0]
+    ?.replace(/^[:\-–—\s]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   let sitePlz = plzCity.plz;
-  let siteCity = plzCity.city || parseCityWithoutPlz(afterStreet);
+  let siteCity =
+    plzCity.city ||
+    parseCityWithoutPlz(immediatePlaceSegment) ||
+    parseCityWithoutPlz(afterStreet);
 
-  // V17.90L26: one-line customer messages often write the execution address
-  // as "Baustelle Hof links Badenerstrasse 92 Zürich" without repeating the
-  // PLZ. If the city matches the billing/customer city, reuse that PLZ instead
-  // of opening an incomplete address-review card like "Hof links".
-  if ((!sitePlz || !siteCity) && customerCityKey && afterStreetKey.includes(customerCityKey)) {
-    sitePlz = sitePlz || customer?.customerPlz || null;
-    siteCity = siteCity || customer?.customerCity || null;
-  }
-  if (siteCity && !sitePlz && customerCityKey && normalizeCompare(siteCity) === customerCityKey) {
-    sitePlz = customer?.customerPlz || null;
-  }
-  if (!sitePlz || !siteCity) return null;
+  // V17.90L38: Eine fehlende PLZ darf nicht still aus der Rechnungsadresse
+  // übernommen werden. Bei "Ausführung ... Seestrasse 46 Zürich" bleiben
+  // Strasse und Ort als bearbeitbarer Vorschlag erhalten, während nur die PLZ
+  // als fehlend markiert wird. So wird keine möglicherweise falsche PLZ
+  // erfunden und die rote Adressprüfung ist trotzdem konkret bearbeitbar.
+  if (!siteCity) return null;
 
   if (
     isSameAddress({
@@ -10812,7 +10818,7 @@ function extractInlineExecutionAddressCandidate(
   }
 
   const beforeStreetRaw =
-    raw.split(new RegExp(escapeRegExp(siteAddress), "i"))[0] || "";
+    executionRaw.split(new RegExp(escapeRegExp(siteAddress), "i"))[0] || "";
   const beforeStreet = beforeStreetRaw
     .replace(/^.*\b(?:baustelle|arbeitsort|ausfuehrung|ausführung|objekt|einsatzort|arbeit)\b\s*:?[\s-]*/i, "")
     .trim() || beforeStreetRaw;

@@ -9345,14 +9345,24 @@ export async function processIncomingMessage(
     executionAddressCustomerContext,
     validationSourceText,
   );
+  const explicitPartialExecutionAddressFallback =
+    extractExecutionAddressFromText(
+      validationSourceText,
+      executionAddressCustomerContext,
+    );
+  const hasSafeExplicitPartialExecutionAddress = Boolean(
+    explicitPartialExecutionAddressFallback?.siteAddress &&
+      explicitPartialExecutionAddressFallback?.siteCity,
+  );
 
+  // V17.90L38: Wenn die KI eine ausdrücklich markierte Ausführungsadresse
+  // nicht strukturiert zurückliefert, darf der Auftrag nicht nur einen roten
+  // Chip ohne bearbeitbaren Vorschlag erhalten. Eine strukturell erkannte
+  // Teiladresse mit Strasse und Ort wird übernommen; fehlende PLZ bleibt offen.
   let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
     aiStructuredExecutionAddress ||
-      (legacyAddressFallbackEnabled
-        ? extractExecutionAddressFromText(
-            validationSourceText,
-            executionAddressCustomerContext,
-          )
+      (hasSafeExplicitPartialExecutionAddress || legacyAddressFallbackEnabled
+        ? explicitPartialExecutionAddressFallback
         : null),
     validationSourceText,
   );
