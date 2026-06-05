@@ -1064,11 +1064,13 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
       ? String(unitPriceNumber)
       : compactText(normalizedItem.unitPrice);
     const warningKey = normalizeForMatch(normalizedItem.aiWarning);
-    const confirmedKey = normalizedItem.catalogReviewConfirmed
-      ? "catalog_review_confirmed"
-      : normalizedItem.manualUnitConfirmed
-        ? `manual_unit_confirmed:${normalizeForMatch(normalizedItem.unit)}`
-        : "";
+    const confirmedKey = normalizedItem.manualCurrencyConfirmed
+      ? "manual_currency_confirmed"
+      : normalizedItem.catalogReviewConfirmed
+        ? "catalog_review_confirmed"
+        : normalizedItem.manualUnitConfirmed
+          ? `manual_unit_confirmed:${normalizeForMatch(normalizedItem.unit)}`
+          : "";
     const mergeKey = [
       normalizeForMatch(serviceName),
       unitKey,
@@ -4076,11 +4078,38 @@ type AddressReviewCandidateV17_90L36 = {
   siteNote: string;
 };
 
+const EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39 =
+  /\b(?:schlüssel|schluessel|schlussel|key|zugang|zutritt|rezeption|reception|empfang|concierge|hauswart|hausmeister|code|torcode|zugangscode|schlüsselbox|schluesselbox|briefkasten|parkieren|parken|parkplatz|parking|termin|datum|uhrzeit|kontakt(?:person)?|ansprechperson|telefon|tel\.?|handy|natel|whatsapp|sms|e-?mail)\b/i;
+
+const stripOperationalAddressTailV17_90L39 = (value?: string | null) => {
+  const text = compactText(value);
+  if (!text) return "";
+  const match = text.match(EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39);
+  if (!match || match.index == null) return text;
+  return text
+    .slice(0, match.index)
+    .replace(/[,;:\-–—\s]+$/g, "")
+    .trim();
+};
+
+const isOperationalAddressHintV17_90L39 = (value?: string | null) =>
+  EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39.test(compactText(value));
+
 const repairInlineAddressReviewCandidateV17_90L36 = (
   candidate: AddressReviewCandidateV17_90L36,
 ): AddressReviewCandidateV17_90L36 => {
-  const result = { ...candidate };
-  const source = [candidate.siteName, candidate.siteAddress, candidate.siteNote]
+  const result: AddressReviewCandidateV17_90L36 = {
+    ...candidate,
+    siteName: stripOperationalAddressTailV17_90L39(candidate.siteName),
+    siteAddress: stripOperationalAddressTailV17_90L39(candidate.siteAddress),
+    siteCity: stripOperationalAddressTailV17_90L39(candidate.siteCity),
+    // Zugangs-/Schlüsselhinweise gehören in Besonderheiten/Chips und dürfen
+    // nicht als dritte Zeile einer erkannten Adresse erscheinen.
+    siteNote: isOperationalAddressHintV17_90L39(candidate.siteNote)
+      ? ""
+      : compactText(candidate.siteNote),
+  };
+  const source = [result.siteName, result.siteAddress]
     .map(compactText)
     .filter(Boolean)
     .join(", ");
@@ -4089,8 +4118,10 @@ const repairInlineAddressReviewCandidateV17_90L36 = (
 
   const segments = source
     .split(/[,;\n]+/g)
+    .map((part) => stripOperationalAddressTailV17_90L39(part))
     .map((part) => part.replace(/[.\s]+$/g, "").trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((part) => !isOperationalAddressHintV17_90L39(part));
 
   const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
   const streetSuffix =
@@ -4166,7 +4197,9 @@ const repairInlineAddressReviewCandidateV17_90L36 = (
     siteAddress: street,
     sitePlz: plz,
     siteCity: city,
-    siteNote: compactText(result.siteNote),
+    siteNote: isOperationalAddressHintV17_90L39(result.siteNote)
+      ? ""
+      : compactText(result.siteNote),
   };
 };
 
@@ -7220,7 +7253,16 @@ export default function AuftraegePage() {
     name: string,
     svcOpt?: ServiceOption,
   ) => {
-    const svc = svcOpt;
+    // V17.90L39: Manche Combobox-Pfade liefern beim Klick nur den Namen zurück.
+    // Dann muss der sichtbare Katalogeintrag trotzdem eindeutig nachgeschlagen
+    // werden; sonst bleiben Preis/Einheit nur optisch gesetzt und die rote
+    // Währungsprüfung wird nicht persistent aufgelöst.
+    const svc =
+      svcOpt ||
+      services.find(
+        (service) =>
+          normalizeForMatch(service.name) === normalizeForMatch(name),
+      );
 
     setFormItems((prev) =>
       prev.map((item, i) => {
@@ -7235,16 +7277,29 @@ export default function AuftraegePage() {
           if (selectingCurrencyReviewItem) {
             const hasConfirmedCatalogPrice =
               Number.isFinite(selectedCatalogPrice) && selectedCatalogPrice > 0;
+            const catalogUnit = compactText(svc.unit) || "Pauschal";
+            const catalogIsFlat =
+              normalizePriceUnitForCompare(catalogUnit) === "flat";
+
             return {
               ...item,
               serviceName: svc.name,
               unitPrice: hasConfirmedCatalogPrice
                 ? String(selectedCatalogPrice)
                 : "",
-              unit: svc.unit || item.unit || "Stunde",
-              quantity:
-                Number(item.quantity || 0) > 0 ? item.quantity : "1",
+              // Die Katalogauswahl ersetzt die alte Prüf-Einheit vollständig.
+              // Bei Anfahrt darf z. B. nicht "Stunde" aus der roten
+              // Platzhalterposition stehen bleiben.
+              unit: catalogUnit,
+              quantity: catalogIsFlat
+                ? "1"
+                : Number(item.quantity || 0) > 0
+                  ? item.quantity
+                  : "1",
               aiWarning: hasConfirmedCatalogPrice ? "" : item.aiWarning,
+              // Der bewusste Klick auf "Leistung · Preis · Einheit" ist eine
+              // ausdrückliche Benutzerbestätigung und muss sofort sowie nach
+              // Reload gelten.
               manualCurrencyConfirmed: hasConfirmedCatalogPrice,
               catalogReviewConfirmed: hasConfirmedCatalogPrice,
             };

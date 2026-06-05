@@ -2268,6 +2268,32 @@ function repairExecutionSiteNameFromText(args: {
   return uniqueDescriptors.length > 0 ? uniqueDescriptors.join(", ") : null;
 }
 
+
+const EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39 =
+  /\b(?:schlüssel|schluessel|schlussel|key|zugang|zutritt|rezeption|reception|empfang|concierge|hauswart|hausmeister|code|torcode|zugangscode|schlüsselbox|schluesselbox|briefkasten|parkieren|parken|parkplatz|parking|termin|datum|uhrzeit|kontakt(?:person)?|ansprechperson|telefon|tel\.?|handy|natel|whatsapp|sms|e-?mail)\b/i;
+
+function stripExecutionOperationalTailV17_90L39(
+  value?: string | null,
+): string | null {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const match = text.match(EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39);
+  if (!match || match.index == null) return text;
+  const cleaned = text
+    .slice(0, match.index)
+    .replace(/[,;:\-–—\s]+$/g, "")
+    .trim();
+  return cleaned || null;
+}
+
+function isExecutionOperationalHintV17_90L39(
+  value?: string | null,
+): boolean {
+  return EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39.test(
+    String(value || ""),
+  );
+}
+
 function sanitizeExtractedExecutionAddress<
   T extends {
     siteName?: string | null;
@@ -2279,9 +2305,15 @@ function sanitizeExtractedExecutionAddress<
 >(address: T | null | undefined, rawText: string | null | undefined): T | null {
   if (!address) return null;
 
-  let siteName = cleanExecutionSiteNameCandidate(address.siteName || null);
-  const siteCity = cleanIntakeCityCandidate(address.siteCity || null);
-  let siteAddress = cleanExecutionStreetCandidate(address.siteAddress || null);
+  let siteName = cleanExecutionSiteNameCandidate(
+    stripExecutionOperationalTailV17_90L39(address.siteName || null),
+  );
+  const siteCity = cleanIntakeCityCandidate(
+    stripExecutionOperationalTailV17_90L39(address.siteCity || null),
+  );
+  let siteAddress = cleanExecutionStreetCandidate(
+    stripExecutionOperationalTailV17_90L39(address.siteAddress || null),
+  );
 
   siteAddress = repairExecutionStreetFromText({
     rawText,
@@ -2331,6 +2363,11 @@ function sanitizeExtractedExecutionAddress<
     siteName,
     siteAddress,
     siteCity,
+    // Zugang/Schlüssel/Empfang bleibt über Originaltext und Besonderheiten
+    // erhalten, darf aber nicht Teil des Adressvorschlags sein.
+    siteNote: isExecutionOperationalHintV17_90L39(address.siteNote)
+      ? null
+      : stripExecutionOperationalTailV17_90L39(address.siteNote),
   };
 
   if (
@@ -9351,19 +9388,25 @@ export async function processIncomingMessage(
       executionAddressCustomerContext,
     );
   const hasSafeExplicitPartialExecutionAddress = Boolean(
-    explicitPartialExecutionAddressFallback?.siteAddress &&
-      explicitPartialExecutionAddressFallback?.siteCity,
+    explicitPartialExecutionAddressFallback?.siteAddress,
   );
 
   // V17.90L38: Wenn die KI eine ausdrücklich markierte Ausführungsadresse
   // nicht strukturiert zurückliefert, darf der Auftrag nicht nur einen roten
   // Chip ohne bearbeitbaren Vorschlag erhalten. Eine strukturell erkannte
   // Teiladresse mit Strasse und Ort wird übernommen; fehlende PLZ bleibt offen.
+  // V17.90L39: Bei ausdrücklich markierten Ausführungsadressen ist der
+  // deterministische Parser die primäre Quelle. Damit liefert dieselbe Nachricht
+  // nicht je nach KI-Lauf unterschiedliche Adressbestandteile. Die KI bleibt nur
+  // Fallback, wenn der strukturierte Rohtext-Parser keine sichere Strasse+Ort-
+  // Kombination findet.
   let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
-    aiStructuredExecutionAddress ||
-      (hasSafeExplicitPartialExecutionAddress || legacyAddressFallbackEnabled
-        ? explicitPartialExecutionAddressFallback
-        : null),
+    hasSafeExplicitPartialExecutionAddress
+      ? explicitPartialExecutionAddressFallback
+      : aiStructuredExecutionAddress ||
+          (legacyAddressFallbackEnabled
+            ? explicitPartialExecutionAddressFallback
+            : null),
     validationSourceText,
   );
 
