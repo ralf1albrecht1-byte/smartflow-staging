@@ -116,7 +116,34 @@ export async function GET(
     const [offer, companySettings] = await Promise.all([
       prisma.offer.findFirst({
         where: { id: params?.id, userId, dataScope },
-        include: { customer: true, items: true },
+        include: {
+          customer: true,
+          items: true,
+          orders: {
+            select: {
+              id: true,
+              siteAddressDifferent: true,
+              siteName: true,
+              siteAddress: true,
+              sitePlz: true,
+              siteCity: true,
+              siteNote: true,
+              workSites: {
+                select: {
+                  id: true,
+                  siteName: true,
+                  siteAddress: true,
+                  sitePlz: true,
+                  siteCity: true,
+                  siteNote: true,
+                  isPrimary: true,
+                  sortOrder: true,
+                  sourceOrderId: true,
+                },
+              },
+            },
+          },
+        },
       }),
       prisma.companySettings.findFirst({
         where: { userId },

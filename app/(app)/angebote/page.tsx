@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageCircle,
+  MapPin,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
@@ -77,6 +78,15 @@ interface OfferItem {
   siteNote?: string | null;
   sourceOrderId?: string | null;
 }
+interface OfferExecutionSite {
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+  sourceOrderId?: string | null;
+}
+
 interface Offer {
   id: string;
   offerNumber: string;
@@ -99,6 +109,19 @@ interface Offer {
     audioTranscript?: string | null;
     audioDurationSec?: number | null;
     audioTranscriptionStatus?: string | null;
+    siteAddressDifferent?: boolean;
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+    siteNote?: string | null;
+    workSites?: Array<
+      OfferExecutionSite & {
+        id?: string;
+        isPrimary?: boolean;
+        sortOrder?: number;
+      }
+    >;
   }[];
   subtotal: number;
   vatRate: number;
@@ -134,6 +157,120 @@ const statusColors: Record<string, string> = {
 const offerStatuses = ["Entwurf", "Gesendet", "Angenommen", "Abgelehnt"];
 /** Statuses that are considered "active" — used for default list view */
 const ACTIVE_OFFER_STATUSES = ["Entwurf", "Gesendet"];
+
+const compactOfferValue = (value: unknown) =>
+  String(value ?? "").replace(/\s+/g, " ").trim();
+
+const offerSiteKey = (site: OfferExecutionSite) =>
+  [
+    site.siteName,
+    site.siteAddress,
+    site.sitePlz,
+    site.siteCity,
+    site.siteNote,
+  ]
+    .map((value) => compactOfferValue(value).toLowerCase())
+    .join("|");
+
+function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
+  const sites: OfferExecutionSite[] = [];
+  const addSite = (candidate?: OfferExecutionSite | null) => {
+    if (!candidate) return;
+    const site: OfferExecutionSite = {
+      siteName: compactOfferValue(candidate.siteName) || null,
+      siteAddress: compactOfferValue(candidate.siteAddress) || null,
+      sitePlz: compactOfferValue(candidate.sitePlz) || null,
+      siteCity: compactOfferValue(candidate.siteCity) || null,
+      siteNote: compactOfferValue(candidate.siteNote) || null,
+      sourceOrderId: compactOfferValue(candidate.sourceOrderId) || null,
+    };
+    if (
+      !site.siteName &&
+      !site.siteAddress &&
+      !site.sitePlz &&
+      !site.siteCity &&
+      !site.siteNote
+    )
+      return;
+    const key = offerSiteKey(site);
+    if (!sites.some((existing) => offerSiteKey(existing) === key)) {
+      sites.push(site);
+    }
+  };
+
+  (offer.items || []).forEach((item: any) =>
+    addSite({
+      siteName: item?.siteName,
+      siteAddress: item?.siteAddress,
+      sitePlz: item?.sitePlz,
+      siteCity: item?.siteCity,
+      siteNote: item?.siteNote,
+      sourceOrderId: item?.sourceOrderId,
+    }),
+  );
+
+  (offer.orders || []).forEach((order) => {
+    const workSites = Array.isArray(order.workSites)
+      ? [...order.workSites].sort(
+          (a, b) =>
+            Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+            Number(a?.sortOrder ?? 0) - Number(b?.sortOrder ?? 0),
+        )
+      : [];
+    workSites.forEach((site) => addSite({ ...site, sourceOrderId: order.id }));
+
+    if (workSites.length === 0 || order.siteAddressDifferent) {
+      addSite({
+        siteName: order.siteName,
+        siteAddress: order.siteAddress,
+        sitePlz: order.sitePlz,
+        siteCity: order.siteCity,
+        siteNote: order.siteNote,
+        sourceOrderId: order.id,
+      });
+    }
+  });
+
+  return sites;
+}
+
+function getOfferValidDays(offer: Offer) {
+  const start = offer.offerDate ? new Date(offer.offerDate) : null;
+  const end = offer.validUntil ? new Date(offer.validUntil) : null;
+  if (
+    start &&
+    end &&
+    !Number.isNaN(start.getTime()) &&
+    !Number.isNaN(end.getTime())
+  ) {
+    return String(
+      Math.max(0, Math.round((end.getTime() - start.getTime()) / 86_400_000)),
+    );
+  }
+  return "14";
+}
+
+function buildOfferPdfTextSuggestion(offer: Offer) {
+  const summaries = Array.from(
+    new Set(
+      (offer.orders || [])
+        .map((order) => String(order?.description || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  if (summaries.length > 0) return summaries.join("\n\n");
+
+  const services = Array.from(
+    new Set(
+      (offer.items || [])
+        .map((item: any) => String(item?.description || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  return services.length > 0
+    ? `Gerne bieten wir Ihnen die nachfolgend aufgeführten Leistungen an: ${services.join(", ")}.`
+    : "Gerne unterbreiten wir Ihnen das nachfolgende Angebot.";
+}
 
 export default function AngebotePage() {
   const searchParams = useSearchParams();
@@ -227,6 +364,8 @@ export default function AngebotePage() {
     hinweisLevel?: string | null;
     description?: string | null;
   } | null>(null);
+
+  const [executionSites, setExecutionSites] = useState<OfferExecutionSite[]>([]);
 
   // Auto-fill customer data from order notes when dialog opens
   const autoFillCustomer = async (customerId: string) => {
@@ -529,6 +668,7 @@ export default function AngebotePage() {
       setForm(newForm);
       setItems([getEmptyItem()]);
       setLinkedOrderData(null);
+      setExecutionSites([]);
       setShowNewCustomer(false);
       setEditingCustomer(false);
       setDialogOpen(true);
@@ -639,6 +779,11 @@ export default function AngebotePage() {
     ) ?? 0;
   const vatAmount = subtotal * (vatRate / 100);
   const total = subtotal + vatAmount;
+  const parsedLinkedSpecialNotes = splitSpecialNotes(
+    linkedOrderData?.specialNotes,
+  );
+  const linkedSafetyWarnings = parsedLinkedSpecialNotes.safetyWarnings;
+  const linkedJobHints = parsedLinkedSpecialNotes.jobHints;
 
   /**
    * Opens the offer edit dialog. With `opts.openCustomerSection: true`
@@ -672,6 +817,10 @@ export default function AngebotePage() {
     );
     // Set linked order data for Original-Nachricht / Besonderheiten
     const lo = off.orders?.[0];
+    const offerExecutionSites = collectOfferExecutionSites(off);
+    const singleExecutionSite =
+      offerExecutionSites.length === 1 ? offerExecutionSites[0] : null;
+    setExecutionSites(offerExecutionSites);
     if (lo)
       setLinkedOrderData({
         notes: lo.notes,
@@ -688,15 +837,17 @@ export default function AngebotePage() {
         description: lo.description,
       });
     else setLinkedOrderData(null);
-    // Strip forwarded customer message from Bemerkungen (legacy data cleanup)
+    // Strip forwarded customer message from the customer-visible PDF text.
+    // Existing offers without their own text receive a safe, editable suggestion
+    // from the linked order summary — never from the raw customer message.
     const cleanNotes = stripForwardedMessage(off.notes, lo?.notes);
     setForm({
       customerId: off.customerId ?? "",
       offerDate: off.offerDate
         ? new Date(off.offerDate).toISOString().split("T")[0]
         : "",
-      validDays: "14",
-      notes: cleanNotes,
+      validDays: getOfferValidDays(off),
+      notes: cleanNotes || buildOfferPdfTextSuggestion(off),
       status: off.status ?? "Entwurf",
     });
     if (off.items && off.items.length > 0) {
@@ -706,12 +857,14 @@ export default function AngebotePage() {
           quantity: String(i.quantity ?? 0),
           unit: i.unit ?? "Stunde",
           unitPrice: String(i.unitPrice ?? 0),
-          siteName: i.siteName || null,
-          siteAddress: i.siteAddress || null,
-          sitePlz: i.sitePlz || null,
-          siteCity: i.siteCity || null,
-          siteNote: i.siteNote || null,
-          sourceOrderId: i.sourceOrderId || null,
+          siteName: i.siteName || singleExecutionSite?.siteName || null,
+          siteAddress:
+            i.siteAddress || singleExecutionSite?.siteAddress || null,
+          sitePlz: i.sitePlz || singleExecutionSite?.sitePlz || null,
+          siteCity: i.siteCity || singleExecutionSite?.siteCity || null,
+          siteNote: i.siteNote || singleExecutionSite?.siteNote || null,
+          sourceOrderId:
+            i.sourceOrderId || singleExecutionSite?.sourceOrderId || null,
         })),
       );
     } else {
@@ -817,6 +970,7 @@ export default function AngebotePage() {
     });
     setItems([getEmptyItem()]);
     setLinkedOrderData(null);
+    setExecutionSites([]);
     setShowNewCustomer(false);
     setEditingCustomer(false);
     setDialogOpen(true);
@@ -1991,6 +2145,70 @@ export default function AngebotePage() {
                 </div>
               ) : (
                 <>
+                  <div className="rounded-lg border bg-slate-50/70 p-3 space-y-3 dark:bg-slate-900/30">
+                    <div>
+                      <div className="text-sm font-semibold">
+                        Ausführungsadresse
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Aus dem Auftrag übernommen und für dieses Angebot festgehalten.
+                      </div>
+                    </div>
+
+                    {executionSites.length === 0 ? (
+                      <div className="rounded-md border bg-background px-3 py-2 text-sm text-muted-foreground">
+                        Keine abweichende Ausführungsadresse – die Rechnungsadresse gilt.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {executionSites.map((site, index) => (
+                          <div
+                            key={`${offerSiteKey(site)}-${index}`}
+                            className="rounded-lg border bg-background p-3"
+                          >
+                            <div className="flex items-start gap-2">
+                              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold">
+                                  {site.siteName ||
+                                    (executionSites.length > 1
+                                      ? `Ausführungsort ${index + 1}`
+                                      : "Ausführungsadresse")}
+                                </div>
+                                <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-0.5 text-sm">
+                                  <span className="text-muted-foreground">
+                                    Strasse:
+                                  </span>
+                                  <span className="break-words">
+                                    {site.siteAddress || "–"}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    PLZ / Ort:
+                                  </span>
+                                  <span className="break-words">
+                                    {[site.sitePlz, site.siteCity]
+                                      .filter(Boolean)
+                                      .join(" ") || "–"}
+                                  </span>
+                                  {site.siteNote && (
+                                    <>
+                                      <span className="text-muted-foreground">
+                                        Hinweis:
+                                      </span>
+                                      <span className="break-words">
+                                        {site.siteNote}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div>
                     <Label>Währung</Label>
                     <select
@@ -2211,11 +2429,15 @@ export default function AngebotePage() {
                     </div>
                   </div>
 
-                  <div>
-                    <Label>Bemerkungen</Label>
+                  <div className="space-y-1.5">
+                    <Label>Text für Angebot / PDF</Label>
+                    <div className="text-xs text-muted-foreground">
+                      Für den Kunden sichtbar. Der Text erscheint im Angebots-PDF oberhalb der Leistungen und kann vollständig geändert oder gelöscht werden.
+                    </div>
                     <textarea
                       className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      rows={3}
+                      rows={4}
+                      placeholder="Kurze Zusammenfassung oder zusätzliche Angaben für den Kunden..."
                       value={form.notes}
                       onChange={(e: any) =>
                         setForm({ ...form, notes: e?.target?.value ?? "" })
@@ -2223,15 +2445,37 @@ export default function AngebotePage() {
                     />
                   </div>
 
-                  {/* Unified communication block: description + special notes + customer message/media */}
+                  {linkedSafetyWarnings.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label className="font-semibold">
+                          Interne Gefahren / Warnhinweise
+                        </Label>
+                        <Badge className="border border-red-300 bg-red-100 text-red-700">
+                          Gefahr / Achtung
+                        </Badge>
+                      </div>
+                      <div className="space-y-1 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                        <div className="flex items-center gap-2 font-semibold">
+                          <AlertTriangle className="h-4 w-4" />
+                          Nicht automatisch im Kunden-PDF
+                        </div>
+                        <ul className="list-disc pl-5">
+                          {linkedSafetyWarnings.map((line, index) => (
+                            <li key={`${line}-${index}`}>{line}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Unified internal order data: summary, chips, normal special notes and customer message/media. */}
                   {linkedOrderData && (
                     <CommunicationBlock
                       data={linkedOrderData}
                       showDescription
                       descriptionValue={linkedOrderData.description || ""}
-                      specialNotesValue={splitSpecialNotes(
-                        linkedOrderData.specialNotes,
-                      ).jobHints.join("\n")}
+                      specialNotesValue={linkedJobHints.join("\n")}
                     />
                   )}
                 </>

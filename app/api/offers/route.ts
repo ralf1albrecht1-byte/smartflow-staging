@@ -232,6 +232,175 @@ function validateDocumentItems(items: any[]) {
     : null;
 }
 
+const compactOfferText = (value: unknown) =>
+  String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+function getPrimarySourceOrderSite(order: any) {
+  const workSites = Array.isArray(order?.workSites)
+    ? [...order.workSites].sort(
+        (a: any, b: any) =>
+          Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+          Number(a?.sortOrder ?? 0) - Number(b?.sortOrder ?? 0),
+      )
+    : [];
+  const primary = workSites[0] || null;
+  const site = {
+    siteName: compactOfferText(primary?.siteName || order?.siteName) || null,
+    siteAddress:
+      compactOfferText(primary?.siteAddress || order?.siteAddress) || null,
+    sitePlz: compactOfferText(primary?.sitePlz || order?.sitePlz) || null,
+    siteCity: compactOfferText(primary?.siteCity || order?.siteCity) || null,
+    siteNote: compactOfferText(primary?.siteNote || order?.siteNote) || null,
+    sourceOrderId: order?.id || null,
+  };
+
+  const hasSite = Boolean(
+    site.siteName ||
+      site.siteAddress ||
+      site.sitePlz ||
+      site.siteCity ||
+      site.siteNote,
+  );
+  if (!hasSite && !order?.siteAddressDifferent) return null;
+  return site;
+}
+
+async function loadSourceOrdersForOfferCreation(
+  userId: string,
+  dataScope: DataScope,
+  orderIds: unknown,
+) {
+  const ids = Array.isArray(orderIds)
+    ? Array.from(
+        new Set(
+          orderIds.map((id) => String(id || "").trim()).filter(Boolean),
+        ),
+      )
+    : [];
+  if (ids.length === 0) return [];
+
+  return prisma.order.findMany({
+    where: { id: { in: ids }, userId, dataScope, deletedAt: null },
+    include: {
+      workSites: true,
+      items: { include: { workSite: true } },
+    },
+  });
+}
+
+const normalizeOfferItemMatchText = (value: unknown) =>
+  compactOfferText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function findMatchingSourceOrderItem(
+  order: any,
+  item: any,
+  index: number,
+  totalItems: number,
+) {
+  const sourceItems = Array.isArray(order?.items) ? order.items : [];
+  if (sourceItems.length === 0) return null;
+
+  const descriptionKey = normalizeOfferItemMatchText(item?.description);
+  const quantity = Number(item?.quantity ?? 0);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const exact = sourceItems.find((sourceItem: any) => {
+    const sourceKey = normalizeOfferItemMatchText(
+      sourceItem?.serviceName || sourceItem?.description,
+    );
+    return (
+      sourceKey === descriptionKey &&
+      Number(sourceItem?.quantity ?? 0) === quantity &&
+      Number(sourceItem?.unitPrice ?? 0) === unitPrice
+    );
+  });
+  if (exact) return exact;
+
+  const numericMatch = sourceItems.filter(
+    (sourceItem: any) =>
+      Number(sourceItem?.quantity ?? 0) === quantity &&
+      Number(sourceItem?.unitPrice ?? 0) === unitPrice,
+  );
+  if (numericMatch.length === 1) return numericMatch[0];
+
+  return sourceItems.length === totalItems ? sourceItems[index] || null : null;
+}
+
+function enrichOfferItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
+  const byId = new Map(
+    sourceOrders.map((order: any) => [String(order.id), order]),
+  );
+  const singleOrder = sourceOrders.length === 1 ? sourceOrders[0] : null;
+
+  return items.map((item: any, index: number) => {
+    const explicitOrderId = compactOfferText(item?.sourceOrderId);
+    const sourceOrder =
+      (explicitOrderId ? byId.get(explicitOrderId) : null) || singleOrder;
+    const sourceOrderItem = sourceOrder
+      ? findMatchingSourceOrderItem(sourceOrder, item, index, items.length)
+      : null;
+    const sourceSite = sourceOrderItem?.workSite
+      ? {
+          siteName: compactOfferText(sourceOrderItem.workSite.siteName) || null,
+          siteAddress:
+            compactOfferText(sourceOrderItem.workSite.siteAddress) || null,
+          sitePlz: compactOfferText(sourceOrderItem.workSite.sitePlz) || null,
+          siteCity: compactOfferText(sourceOrderItem.workSite.siteCity) || null,
+          siteNote: compactOfferText(sourceOrderItem.workSite.siteNote) || null,
+          sourceOrderId: sourceOrder?.id || null,
+        }
+      : sourceOrder
+        ? getPrimarySourceOrderSite(sourceOrder)
+        : null;
+
+    return {
+      ...item,
+      siteName: compactOfferText(item?.siteName) || sourceSite?.siteName || null,
+      siteAddress:
+        compactOfferText(item?.siteAddress) || sourceSite?.siteAddress || null,
+      sitePlz: compactOfferText(item?.sitePlz) || sourceSite?.sitePlz || null,
+      siteCity: compactOfferText(item?.siteCity) || sourceSite?.siteCity || null,
+      siteNote: compactOfferText(item?.siteNote) || sourceSite?.siteNote || null,
+      sourceOrderId:
+        explicitOrderId || sourceSite?.sourceOrderId || sourceOrder?.id || null,
+    };
+  });
+}
+
+function buildDefaultOfferPdfText(sourceOrders: any[], items: any[]) {
+  const summaries = Array.from(
+    new Set(
+      sourceOrders
+        .map((order: any) => compactOfferText(order?.description))
+        .filter(Boolean),
+    ),
+  );
+  if (summaries.length > 0) return summaries.join("\n\n");
+
+  const serviceNames = Array.from(
+    new Set(
+      items
+        .map((item: any) => compactOfferText(item?.description))
+        .filter(Boolean),
+    ),
+  );
+  if (serviceNames.length > 0) {
+    return `Gerne bieten wir Ihnen die nachfolgend aufgeführten Leistungen an: ${serviceNames.join(", ")}.`;
+  }
+
+  return "Gerne unterbreiten wir Ihnen das nachfolgende Angebot.";
+}
+
 export async function GET() {
   try {
     let userId: string;
@@ -266,6 +435,25 @@ export async function GET() {
             audioTranscript: true,
             audioDurationSec: true,
             audioTranscriptionStatus: true,
+            siteAddressDifferent: true,
+            siteName: true,
+            siteAddress: true,
+            sitePlz: true,
+            siteCity: true,
+            siteNote: true,
+            workSites: {
+              select: {
+                id: true,
+                siteName: true,
+                siteAddress: true,
+                sitePlz: true,
+                siteCity: true,
+                siteNote: true,
+                isPrimary: true,
+                sortOrder: true,
+                sourceOrderId: true,
+              },
+            },
           },
         },
       },
@@ -318,7 +506,15 @@ export async function POST(request: Request) {
         else if (settings && !settings.mwstAktiv) vatRate = 0;
       } catch {}
     }
-    const items = data?.items ?? [];
+    const sourceOrders = await loadSourceOrdersForOfferCreation(
+      userId,
+      dataScope,
+      data?.orderIds,
+    );
+    const items = enrichOfferItemsFromSourceOrders(
+      data?.items ?? [],
+      sourceOrders,
+    );
     const { subtotal, vatAmount, total } = calculateDocumentTotals(
       items.map((item: any) => ({
         quantity: item?.quantity ?? 0,
@@ -326,8 +522,18 @@ export async function POST(request: Request) {
       })),
       vatRate,
     );
-    const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + Number(data?.validDays ?? 14));
+    const parsedOfferDate = data?.offerDate
+      ? new Date(data.offerDate)
+      : new Date();
+    const offerDate = Number.isNaN(parsedOfferDate.getTime())
+      ? new Date()
+      : parsedOfferDate;
+    const validDays = Math.max(0, Number(data?.validDays ?? 14) || 14);
+    const validUntil = new Date(offerDate);
+    validUntil.setDate(validUntil.getDate() + validDays);
+    const pdfText =
+      compactOfferText(data?.notes) ||
+      buildDefaultOfferPdfText(sourceOrders, items);
 
     // Guard: reject creation linked to an archived customer
     if (data?.customerId) {
@@ -358,9 +564,9 @@ export async function POST(request: Request) {
             vatAmount,
             total,
             currency,
-            offerDate: data?.offerDate ? new Date(data.offerDate) : new Date(),
+            offerDate,
             validUntil,
-            notes: data?.notes || null,
+            notes: pdfText || null,
             status: data?.status ?? "Entwurf",
             items: {
               create: items.map((item: any) => ({
@@ -401,6 +607,54 @@ export async function POST(request: Request) {
         data: { offerId: offer.id },
       });
     }
+
+    offer =
+      (await prisma.offer.findFirst({
+        where: { id: offer.id, userId, dataScope },
+        include: {
+          customer: true,
+          items: true,
+          orders: {
+            select: {
+              id: true,
+              createdAt: true,
+              date: true,
+              description: true,
+              notes: true,
+              specialNotes: true,
+              needsReview: true,
+              hinweisLevel: true,
+              mediaUrl: true,
+              mediaType: true,
+              imageUrls: true,
+              thumbnailUrls: true,
+              audioTranscript: true,
+              audioDurationSec: true,
+              audioTranscriptionStatus: true,
+              siteAddressDifferent: true,
+              siteName: true,
+              siteAddress: true,
+              sitePlz: true,
+              siteCity: true,
+              siteNote: true,
+              workSites: {
+                select: {
+                  id: true,
+                  siteName: true,
+                  siteAddress: true,
+                  sitePlz: true,
+                  siteCity: true,
+                  siteNote: true,
+                  isPrimary: true,
+                  sortOrder: true,
+                  sourceOrderId: true,
+                },
+              },
+            },
+          },
+        },
+      })) || offer;
+
     const su = await getSessionUser();
     logAuditAsync({
       userId: su?.id,

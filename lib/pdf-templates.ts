@@ -216,6 +216,8 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
       <div class="meta-item"><span class="meta-label">Angebotsdatum:</span> ${formatDate(offer?.offerDate)}</div>
       <div class="meta-item"><span class="meta-label">Gültig bis:</span> ${formatDate(offer?.validUntil)}</div>
     </div>
+    ${renderOfferExecutionAddressBlock(offer)}
+    ${renderOfferPdfTextBlock(offer)}
     <table>
       <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
       <tbody>${itemsHtml}</tbody>
@@ -225,7 +227,6 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
       ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
       <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
     </div>
-    ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ""}
     <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
     ${buildClassicFooterBlock(c)}
   </body></html>`;
@@ -339,6 +340,99 @@ function buildItemsRows(items: any[], c: CompanyInfo): string {
       );
     })
     .join("");
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatMultilineHtml(value: unknown): string {
+  return escapeHtml(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n/g, "<br/>");
+}
+
+type PdfExecutionSite = {
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+};
+
+function collectOfferExecutionSitesForPdf(offer: any): PdfExecutionSite[] {
+  const sites: PdfExecutionSite[] = [];
+  const keyOf = (site: PdfExecutionSite) =>
+    [site.siteName, site.siteAddress, site.sitePlz, site.siteCity]
+      .map((value) => cleanWorkSiteValue(value).toLowerCase())
+      .join("|");
+  const add = (candidate?: PdfExecutionSite | null) => {
+    if (!candidate) return;
+    const site = {
+      siteName: cleanWorkSiteValue(candidate.siteName) || null,
+      siteAddress: cleanWorkSiteValue(candidate.siteAddress) || null,
+      sitePlz: cleanWorkSiteValue(candidate.sitePlz) || null,
+      siteCity: cleanWorkSiteValue(candidate.siteCity) || null,
+    };
+    if (!site.siteName && !site.siteAddress && !site.sitePlz && !site.siteCity)
+      return;
+    const key = keyOf(site);
+    if (!sites.some((entry) => keyOf(entry) === key)) sites.push(site);
+  };
+
+  (offer?.items || []).forEach((item: any) => add(item));
+  (offer?.orders || []).forEach((order: any) => {
+    const workSites = Array.isArray(order?.workSites)
+      ? [...order.workSites].sort(
+          (a: any, b: any) =>
+            Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+            Number(a?.sortOrder ?? 0) - Number(b?.sortOrder ?? 0),
+        )
+      : [];
+    workSites.forEach((site: any) => add(site));
+    if (workSites.length === 0 || order?.siteAddressDifferent) add(order);
+  });
+
+  return sites;
+}
+
+function renderOfferExecutionAddressBlock(offer: any): string {
+  const sites = collectOfferExecutionSitesForPdf(offer);
+  if (sites.length === 0) return "";
+
+  const entries = sites
+    .map((site, index) => {
+      const title =
+        site.siteName ||
+        (sites.length > 1 ? `Ausführungsort ${index + 1}` : "Ausführungsadresse");
+      const addressLine = site.siteAddress || "";
+      const cityLine = [site.sitePlz, site.siteCity].filter(Boolean).join(" ");
+      return `<div style="${index > 0 ? "margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;" : ""}">
+        <strong>${escapeHtml(title)}</strong>
+        ${addressLine ? `<br/>${escapeHtml(addressLine)}` : ""}
+        ${cityLine ? `<br/>${escapeHtml(cityLine)}` : ""}
+      </div>`;
+    })
+    .join("");
+
+  return `<div style="margin:0 0 18px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:10px;line-height:1.5;">
+    <div style="font-size:9px;text-transform:uppercase;letter-spacing:.7px;color:#64748b;margin-bottom:5px;font-weight:600;">Ausführungsadresse</div>
+    ${entries}
+  </div>`;
+}
+
+function renderOfferPdfTextBlock(offer: any): string {
+  const text = String(offer?.notes || "").trim();
+  if (!text) return "";
+  return `<div style="margin:0 0 20px;padding:12px 14px;background:#f8fafc;border-left:3px solid #64748b;font-size:10px;line-height:1.6;">
+    <strong>Leistungsbeschreibung</strong><br/>
+    ${formatMultilineHtml(text)}
+  </div>`;
 }
 
 function resolveLetterheadUrl(c: CompanyInfo): string | null {
@@ -500,6 +594,8 @@ function renderModernOffer(offer: any, c: CompanyInfo): string {
         <div><span class="label">Angebotsdatum:</span>${formatDate(offer?.offerDate)}</div>
         <div><span class="label">Gültig bis:</span>${formatDate(offer?.validUntil)}</div>
       </div>
+      ${renderOfferExecutionAddressBlock(offer)}
+      ${renderOfferPdfTextBlock(offer)}
       <table>
         <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
         <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
@@ -511,7 +607,6 @@ function renderModernOffer(offer: any, c: CompanyInfo): string {
           <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
         </div>
       </div>
-      ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ""}
       <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
       <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
@@ -628,6 +723,8 @@ function renderMinimalOffer(offer: any, c: CompanyInfo): string {
         <p><strong>Gültig bis</strong> ${formatDate(offer?.validUntil)}</p>
       </div>
     </div>
+    ${renderOfferExecutionAddressBlock(offer)}
+    ${renderOfferPdfTextBlock(offer)}
     <table>
       <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
       <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
@@ -637,7 +734,6 @@ function renderMinimalOffer(offer: any, c: CompanyInfo): string {
       ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
       <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
     </div>
-    ${offer?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${offer.notes}</div>` : ""}
     <div class="notes"><strong>Hinweis</strong><br/>Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
     <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
   </body></html>`;
@@ -766,6 +862,8 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
           <p><em>Gültig bis:</em> ${formatDate(offer?.validUntil)}</p>
         </div>
       </div>
+      ${renderOfferExecutionAddressBlock(offer)}
+      ${renderOfferPdfTextBlock(offer)}
       <table>
         <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
         <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
@@ -775,7 +873,6 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
         ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
         <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
       </div>
-      ${offer?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${offer.notes}</div>` : ""}
       <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
       <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>

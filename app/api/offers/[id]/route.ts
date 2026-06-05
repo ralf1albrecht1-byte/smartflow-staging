@@ -29,6 +29,75 @@ function validateDocumentItemsForUpdate(items: any[]) {
     : null;
 }
 
+function buildOfferDateUpdate(existing: any, data: any) {
+  const parsedOfferDate = data?.offerDate
+    ? new Date(data.offerDate)
+    : new Date(existing?.offerDate || new Date());
+  const offerDate = Number.isNaN(parsedOfferDate.getTime())
+    ? new Date(existing?.offerDate || new Date())
+    : parsedOfferDate;
+
+  const currentOfferDate = new Date(existing?.offerDate || offerDate);
+  const currentValidUntil = existing?.validUntil
+    ? new Date(existing.validUntil)
+    : null;
+  const currentDays =
+    currentValidUntil && !Number.isNaN(currentValidUntil.getTime())
+      ? Math.max(
+          0,
+          Math.round(
+            (currentValidUntil.getTime() - currentOfferDate.getTime()) /
+              86_400_000,
+          ),
+        )
+      : 14;
+  const validDays =
+    data?.validDays !== undefined
+      ? Math.max(0, Number(data.validDays) || 14)
+      : currentDays;
+  const validUntil = new Date(offerDate);
+  validUntil.setDate(validUntil.getDate() + validDays);
+
+  return { offerDate, validUntil };
+}
+
+const offerOrderSelect = {
+  id: true,
+  createdAt: true,
+  date: true,
+  notes: true,
+  specialNotes: true,
+  needsReview: true,
+  hinweisLevel: true,
+  mediaUrl: true,
+  mediaType: true,
+  imageUrls: true,
+  thumbnailUrls: true,
+  audioTranscript: true,
+  audioDurationSec: true,
+  audioTranscriptionStatus: true,
+  description: true,
+  siteAddressDifferent: true,
+  siteName: true,
+  siteAddress: true,
+  sitePlz: true,
+  siteCity: true,
+  siteNote: true,
+  workSites: {
+    select: {
+      id: true,
+      siteName: true,
+      siteAddress: true,
+      sitePlz: true,
+      siteCity: true,
+      siteNote: true,
+      isPrimary: true,
+      sortOrder: true,
+      sourceOrderId: true,
+    },
+  },
+} as const;
+
 export async function GET(
   request: Request,
   { params }: { params: { id: string } },
@@ -47,22 +116,7 @@ export async function GET(
       include: {
         customer: true,
         items: true,
-        orders: {
-          select: {
-            id: true,
-            notes: true,
-            specialNotes: true,
-            needsReview: true,
-            hinweisLevel: true,
-            mediaUrl: true,
-            mediaType: true,
-            imageUrls: true,
-            audioTranscript: true,
-            audioDurationSec: true,
-            audioTranscriptionStatus: true,
-            description: true,
-          },
-        },
+        orders: { select: offerOrderSelect },
       },
     });
     if (!offer)
@@ -107,6 +161,7 @@ export async function PUT(
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
 
     const data = await request.json();
+    const { offerDate, validUntil } = buildOfferDateUpdate(existing, data);
     const itemError = validateDocumentItemsForUpdate(data?.items);
     if (itemError)
       return NextResponse.json({ error: itemError }, { status: 400 });
@@ -162,13 +217,19 @@ export async function PUT(
               ? data.currency
               : existing.currency,
           customerId: data.customerId || undefined,
+          offerDate,
+          validUntil,
           subtotal,
           vatRate,
           vatAmount,
           total,
           items: { create: itemsData },
         },
-        include: { customer: true, items: true },
+        include: {
+          customer: true,
+          items: true,
+          orders: { select: offerOrderSelect },
+        },
       });
       const su = await getSessionUser();
       logAuditAsync({
@@ -191,10 +252,18 @@ export async function PUT(
     if (data?.notes !== undefined) simpleData.notes = data.notes;
     if (data?.currency !== undefined)
       simpleData.currency = data.currency === "EUR" ? "EUR" : "CHF";
+    if (data?.offerDate !== undefined || data?.validDays !== undefined) {
+      simpleData.offerDate = offerDate;
+      simpleData.validUntil = validUntil;
+    }
     const offer = await prisma.offer.update({
       where: { id: params?.id },
       data: simpleData,
-      include: { customer: true, items: true },
+      include: {
+        customer: true,
+        items: true,
+        orders: { select: offerOrderSelect },
+      },
     });
     const su = await getSessionUser();
     logAuditAsync({
