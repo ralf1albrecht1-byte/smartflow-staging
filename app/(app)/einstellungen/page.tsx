@@ -226,7 +226,6 @@ export default function EinstellungenPage() {
     if (existingLiveStateChecked || livePrepPreview?.liveStarted) return;
 
     let cancelled = false;
-    setExistingLiveStateChecked(true);
 
     (async () => {
       try {
@@ -239,14 +238,23 @@ export default function EinstellungenPage() {
         });
         const data = await res.json().catch(() => null);
 
-        if (!cancelled && res.ok && data?.liveStarted) {
+        if (cancelled) return;
+
+        if (res.ok && data?.liveStarted) {
           setLivePrepPreview(data);
           setLivePrepKeepIds([]);
           setShowLiveConfirm(false);
           setLiveConfirmText('');
         }
+
+        // Erst NACH abgeschlossener Antwort markieren. Vorher führte diese
+        // State-Änderung zum Cleanup des Effects und verwarf die gültige
+        // API-Antwort, obwohl liveStarted=true geliefert wurde.
+        setExistingLiveStateChecked(true);
       } catch {
-        // Status kann weiterhin über den manuellen Button erneut geladen werden.
+        if (!cancelled) {
+          setExistingLiveStateChecked(true);
+        }
       }
     })();
 
