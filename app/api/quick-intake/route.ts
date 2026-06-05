@@ -10,6 +10,7 @@ import {
   findNearExactDeterministicMatch,
 } from "@/lib/exact-customer-match";
 import { logAuditAsync } from "@/lib/audit";
+import { getActiveDataScope } from "@/lib/data-scope";
 function getOpenAiApiKey(): string | null {
   return process.env.OPENAI_API_KEY || null;
 }
@@ -22,6 +23,7 @@ export async function POST(request: Request) {
     } catch {
       return unauthorizedResponse();
     }
+    const dataScope = await getActiveDataScope(userId);
 
     const data = await request.json();
     const message = data?.message ?? "";
@@ -125,7 +127,7 @@ export async function POST(request: Request) {
     if (action === "analyze") {
       const [services, customers, settings] = await Promise.all([
         prisma.service.findMany({ where: { userId } }),
-        prisma.customer.findMany({ where: { deletedAt: null, userId } }),
+        prisma.customer.findMany({ where: { deletedAt: null, userId, dataScope } }),
         prisma.companySettings.findFirst({ where: { userId } }),
       ]);
       const branche = settings?.branche || "Dienstleistung";
@@ -329,6 +331,8 @@ Respond with raw JSON only.
             city: addr.city,
             name: parsed.customerName,
           },
+          userId,
+          dataScope,
         );
         matchVerdict = matchResult.verdict;
         matchReason = matchResult.reason;
@@ -390,7 +394,7 @@ Respond with raw JSON only.
 
       if (customerId) {
         const existing = await prisma.customer.findFirst({
-          where: { id: customerId, userId, deletedAt: null },
+          where: { id: customerId, userId, dataScope, deletedAt: null },
         });
         if (!existing) {
           // Customer not found OR archived → don't auto-assign
@@ -403,14 +407,19 @@ Respond with raw JSON only.
             customerCity: analysis.customerCity,
             customerAddress: analysis.customerAddress,
           });
-          const matchResult = await verifyCustomerMatch(customerId, {
+          const matchResult = await verifyCustomerMatch(
+            customerId,
+            {
             phone: analysis.customerPhone,
             email: analysis.customerEmail,
             street: verifyAddr.street,
             plz: verifyAddr.plz,
             city: verifyAddr.city,
             name: analysis.customerName,
-          });
+          },
+            userId,
+            dataScope,
+          );
           if (matchResult.verdict !== "auto_assign") {
             // Not a strong signal match and user didn't confirm → reject auto-assignment
             console.log(
@@ -439,14 +448,19 @@ Respond with raw JSON only.
       // the UI banner (informational; does NOT set needsReview).
       const autoReuseTags: string[] = [];
       if (!customerId) {
-        const exact = await findExactDeterministicMatch(prisma, userId, {
+        const exact = await findExactDeterministicMatch(
+          prisma,
+          userId,
+          {
           name: analysis.customerName || null,
           street: addr.street,
           plz: addr.plz,
           city: addr.city,
           phone: analysis.customerPhone || null,
           email: analysis.customerEmail || null,
-        });
+        },
+          dataScope,
+        );
         if (exact.match) {
           customerId = exact.match.id;
           autoReuseTags.push(`AUTO_REUSED:${exact.match.customerNumber}`);
@@ -496,6 +510,7 @@ Respond with raw JSON only.
             phone: analysis.customerPhone || null,
             email: analysis.customerEmail || null,
           },
+          dataScope,
         );
         if (nearExact.match && nearExact.completedField) {
           customerId = nearExact.match.id;
@@ -570,7 +585,7 @@ Respond with raw JSON only.
             : "Neuer Kunde";
         const { generateCustomerNumber } =
           await import("@/lib/customer-number");
-        const customerNumber = await generateCustomerNumber();
+        const customerNumber = await generateCustomerNumber(userId, dataScope);
         const customer = await prisma.customer.create({
           data: {
             customerNumber,
@@ -582,12 +597,13 @@ Respond with raw JSON only.
             city: sanitized.city,
             notes: "Schnell-Eingang",
             userId,
+            dataScope,
           },
         });
         customerId = customer.id;
       } else {
-        const cust = await prisma.customer.findUnique({
-          where: { id: customerId },
+        const cust = await prisma.customer.findFirst({
+          where: { id: customerId, userId, dataScope },
         });
         if (cust) {
           const { protectCustomerData } = await import("@/lib/data-protection");
@@ -655,6 +671,7 @@ Respond with raw JSON only.
         data: {
           customerId,
           userId,
+          dataScope,
           description: analysis.description || "Neuer Auftrag",
           serviceName: analysis.serviceName || "Sonstiges",
           status: "Offen",
