@@ -7415,7 +7415,7 @@ export default function AuftraegePage() {
     currentEditOrder?.customer ||
     null;
   const hasLinkedExistingBillingCustomerV17_90L36 = Boolean(
-    form.customerId && currentBillingCustomerV17_90L36?.id,
+    form.customerId && currentBillingCustomerV17_90L36?.customerNumber,
   );
 
   const isSameAddressPartsV17_63 = (
