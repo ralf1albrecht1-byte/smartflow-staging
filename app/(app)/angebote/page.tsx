@@ -24,7 +24,6 @@ import {
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
-  CommunicationBlock,
   CommunicationChips,
   resolveCommunicationData,
   stripForwardedMessage,
@@ -361,6 +360,55 @@ function extractOfferAppointmentLabel(value?: string | null): string {
   return line.length > 38 ? `${line.slice(0, 35).trim()}…` : line;
 }
 
+
+const OFFER_PDF_META_PREFIX = "[[SMARTFLOW_OFFER_PDF_V1]]";
+
+type OfferPdfMeta = {
+  title: string;
+  text: string;
+};
+
+function decodeOfferPdfMeta(value?: string | null): OfferPdfMeta {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { title: "", text: "" };
+  if (!raw.startsWith(OFFER_PDF_META_PREFIX)) {
+    return { title: "", text: raw };
+  }
+  try {
+    const parsed = JSON.parse(raw.slice(OFFER_PDF_META_PREFIX.length));
+    return {
+      title: String(parsed?.title ?? "").trim(),
+      text: String(parsed?.text ?? "").trim(),
+    };
+  } catch {
+    return { title: "", text: raw };
+  }
+}
+
+function encodeOfferPdfMeta(title?: string | null, text?: string | null): string {
+  const cleanTitle = String(title ?? "").trim();
+  const cleanText = String(text ?? "").trim();
+  if (!cleanTitle && !cleanText) return "";
+  return `${OFFER_PDF_META_PREFIX}${JSON.stringify({
+    title: cleanTitle,
+    text: cleanText,
+  })}`;
+}
+
+function normalizeOfferServiceName(value?: string | null): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export default function AngebotePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -381,6 +429,7 @@ export default function AngebotePage() {
     customerId: "",
     offerDate: new Date().toISOString().split("T")[0],
     validDays: "14",
+    pdfTitle: "",
     notes: "",
     status: "Entwurf",
   });
@@ -759,6 +808,7 @@ export default function AngebotePage() {
         customerId: custId || "",
         offerDate: new Date().toISOString().split("T")[0],
         validDays: "14",
+        pdfTitle: "",
         notes: "",
         status: "Entwurf",
       };
@@ -1003,13 +1053,15 @@ export default function AngebotePage() {
     // Strip forwarded customer message from the customer-visible PDF text.
     // Existing offers without their own text receive a safe, editable suggestion
     // from the linked order summary — never from the raw customer message.
-    const cleanNotes = cleanOfferPdfTextForEditor(off, lo);
+    const decodedPdfMeta = decodeOfferPdfMeta(off.notes);
+    const cleanNotes = decodedPdfMeta.text || cleanOfferPdfTextForEditor(off, lo);
     setForm({
       customerId: off.customerId ?? "",
       offerDate: off.offerDate
         ? new Date(off.offerDate).toISOString().split("T")[0]
         : "",
       validDays: getOfferValidDays(off),
+      pdfTitle: decodedPdfMeta.title,
       notes: cleanNotes,
       status: off.status ?? "Entwurf",
     });
@@ -1128,6 +1180,7 @@ export default function AngebotePage() {
       customerId: "",
       offerDate: new Date().toISOString().split("T")[0],
       validDays: "14",
+      pdfTitle: "",
       notes: "",
       status: "Entwurf",
     });
@@ -1160,6 +1213,7 @@ export default function AngebotePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
           items: itemsForSave,
           vatRate,
           currency,
@@ -1171,6 +1225,7 @@ export default function AngebotePage() {
     } else {
       const payload: any = {
         ...form,
+        notes: encodeOfferPdfMeta(form.pdfTitle, form.notes),
         items: itemsForSave,
         vatRate,
         currency,
@@ -1630,6 +1685,10 @@ export default function AngebotePage() {
                   const parsedOfferNotes = splitSpecialNotes(
                     orderCtx.specialNotes,
                   );
+                  const offerInfoLines = [
+                    ...parsedOfferNotes.safetyWarnings,
+                    ...parsedOfferNotes.jobHints,
+                  ].filter(Boolean);
                   const appointmentLabel = extractOfferAppointmentLabel(
                     [orderCtx.specialNotes, orderCtx.notes]
                       .filter(Boolean)
@@ -1867,24 +1926,6 @@ export default function AngebotePage() {
                                   </Badge>
                                 )}
 
-                                {parsedOfferNotes.jobHints.length > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openOfferSection(
-                                        off,
-                                        "details",
-                                        parsedOfferNotes.jobHints.join("\n"),
-                                      );
-                                    }}
-                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                                    aria-label="Besonderheiten anzeigen"
-                                    title="Besonderheiten anzeigen"
-                                  >
-                                    <Info className="h-4 w-4" />
-                                  </button>
-                                )}
                                 <div
                                   className="contents"
                                   onClickCapture={(event) => {
@@ -1919,6 +1960,40 @@ export default function AngebotePage() {
                                     }}
                                   />
                                 </div>
+                                {offerInfoLines.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openOfferSection(
+                                        off,
+                                        "details",
+                                        offerInfoLines.join("\n"),
+                                      );
+                                    }}
+                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                    aria-label="Besonderheiten anzeigen"
+                                    title="Besonderheiten anzeigen"
+                                  >
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                )}
+                                {parsedOfferNotes.safetyWarnings.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openOfferSection(
+                                        off,
+                                        "details",
+                                        parsedOfferNotes.safetyWarnings.join("\n"),
+                                      );
+                                    }}
+                                    className="inline-flex shrink-0 items-center rounded-full border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-100"
+                                  >
+                                    Achtung · {parsedOfferNotes.safetyWarnings.length}
+                                  </button>
+                                )}
                                 {appointmentLabel && (
                                   <button
                                     type="button"
@@ -2074,7 +2149,7 @@ export default function AngebotePage() {
                             }}
                             title="Kunde bearbeiten"
                             aria-label="Kunde bearbeiten"
-                            className="rounded-xl border-2 border-slate-300 bg-muted/30 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-muted/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            className="rounded-xl border-2 border-emerald-300 bg-emerald-50/80 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-emerald-100/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                           >
                             {isFallbackCustomerName(cust.name) ? (
                               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -2207,7 +2282,7 @@ export default function AngebotePage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 rounded-xl border-2 border-slate-300 bg-muted/30 p-2 sm:p-3 space-y-1.5 min-w-0">
+                              <div className="mt-2 rounded-xl border-2 border-emerald-300 bg-emerald-50/80 p-2 sm:p-3 space-y-1.5 min-w-0">
                                 {isFallbackCustomerName(cust.name) ? (
                                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
@@ -2417,7 +2492,7 @@ export default function AngebotePage() {
                 <>
                   <div
                     ref={executionAddressRef}
-                    className="scroll-mt-20 rounded-xl border-2 border-slate-300 bg-slate-50/70 p-3 sm:p-4 dark:bg-slate-900/30"
+                    className="scroll-mt-20 rounded-xl border-2 border-sky-300 bg-sky-50/70 p-3 sm:p-4 dark:bg-sky-950/20"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <label className="flex cursor-pointer items-start gap-2">
@@ -2456,7 +2531,7 @@ export default function AngebotePage() {
                     </div>
 
                     {executionSites.length === 0 ? (
-                      <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-background px-3 py-2 text-sm text-muted-foreground">
+                      <div className="mt-3 rounded-lg border border-dashed border-sky-300 bg-background px-3 py-2 text-sm text-muted-foreground">
                         Die Rechnungsadresse gilt auch als Ausführungsadresse.
                       </div>
                     ) : (
@@ -2464,7 +2539,7 @@ export default function AngebotePage() {
                         {executionSites.map((site, index) => (
                           <div
                             key={`${site.sourceOrderId || "site"}-${index}`}
-                            className="rounded-xl border-2 border-slate-300 bg-background p-3 shadow-sm"
+                            className="rounded-xl border-2 border-sky-200 bg-white p-3 shadow-sm"
                           >
                             {editingExecutionAddress ? (
                               <div className="space-y-3">
@@ -2592,19 +2667,65 @@ export default function AngebotePage() {
                     )}
                   </div>
 
-                  <div>
-                    <Label className="mb-2 block text-sm font-semibold">
-                      Leistungen *
-                    </Label>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <Label className="block text-sm font-semibold">
+                          Leistungen *
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Gleich aufgebaut wie im Auftrag: kompakte Karten,
+                          klare Prüfung und ruhige Standard-Ansicht.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="border-2"
+                        onClick={addItem}
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        Leistung hinzufügen
+                      </Button>
+                    </div>
                     <div className="space-y-3">
                       {items?.map((item: OfferItem, idx: number) => {
                         const lineTotal =
                           Number(item?.unitPrice ?? 0) *
                           Number(item?.quantity ?? 0);
+                        const matchedService = (services || []).find(
+                          (svc: any) =>
+                            normalizeOfferServiceName(svc?.name) ===
+                            normalizeOfferServiceName(item?.description),
+                        ) as any;
+                        const hasCatalogMatch = Boolean(matchedService);
+                        const hasValidPrice = Number(item?.unitPrice ?? 0) > 0;
+                        const hasValidQuantity = Number(item?.quantity ?? 0) > 0;
+                        const catalogUnit = String(matchedService?.unit ?? "").trim();
+                        const catalogPrice = Number(matchedService?.defaultPrice ?? 0);
+                        const sameUnit =
+                          !hasCatalogMatch ||
+                          !catalogUnit ||
+                          String(item?.unit ?? "").trim() === catalogUnit;
+                        const samePrice =
+                          !hasCatalogMatch ||
+                          Number.isNaN(catalogPrice) ||
+                          Math.abs(Number(item?.unitPrice ?? 0) - catalogPrice) < 0.001;
+                        const needsReview =
+                          !hasValidPrice ||
+                          !hasValidQuantity ||
+                          !hasCatalogMatch ||
+                          !sameUnit ||
+                          !samePrice;
                         return (
                           <div
                             key={idx}
-                            className="min-w-0 space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 shadow-sm"
+                            className={`min-w-0 space-y-3 rounded-xl border-2 p-3 shadow-sm ${
+                              needsReview
+                                ? "border-amber-300 bg-amber-50/70"
+                                : "border-slate-300 bg-slate-50/70"
+                            }`}
                           >
                             <div className="flex items-start gap-2">
                               <div className="min-w-0 flex-1">
@@ -2725,6 +2846,30 @@ export default function AngebotePage() {
                                 />
                               </div>
                             </div>
+
+                            {item?.description?.trim() && needsReview && (
+                              <div className="rounded-lg border border-amber-300 bg-amber-100/60 px-3 py-2 text-sm text-amber-900">
+                                <div className="font-semibold">⚠ Manuell prüfen</div>
+                                {!hasCatalogMatch ? (
+                                  <div className="mt-1 text-xs">
+                                    Nicht im Leistungskatalog. Optional später in
+                                    den Katalog übernehmen.
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 space-y-1 text-xs">
+                                    <div>
+                                      Katalog: {catalogUnit || "—"} · {formatCurrency(catalogPrice, currency)}
+                                    </div>
+                                    {!sameUnit && (
+                                      <div>Einheit weicht vom Katalog ab.</div>
+                                    )}
+                                    {!samePrice && (
+                                      <div>Preis weicht vom Katalog ab.</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       }) ?? []}
@@ -2740,9 +2885,8 @@ export default function AngebotePage() {
                       Weitere Leistung hinzufügen
                     </Button>
                   </div>
-
-                  <div className="min-w-0 space-y-4 rounded-xl border-2 border-slate-300 bg-muted/40 p-3 sm:p-4">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="min-w-0 space-y-4 rounded-xl border-2 border-slate-300 bg-slate-50/80 p-3 sm:p-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
                       <div>
                         <Label>Angebotsdatum</Label>
                         <Input
@@ -2754,7 +2898,7 @@ export default function AngebotePage() {
                         />
                       </div>
                       <div>
-                        <Label>Gültigkeitsdauer (Tage)</Label>
+                        <Label>Gültig (Tage)</Label>
                         <Input
                           type="number"
                           min="0"
@@ -2832,23 +2976,66 @@ export default function AngebotePage() {
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4">
-                    <Label className="font-semibold">
-                      Text für Angebot / PDF
-                    </Label>
-                    <div className="text-xs text-muted-foreground">
-                      Nur für den Kunden sichtbar. Leer lassen, wenn kein
-                      zusätzlicher Text im PDF benötigt wird.
+                  {!showNewCustomer && (
+                    <div className="mb-1 flex flex-wrap justify-center gap-2 sm:justify-end">
+                      <Button
+                        variant="outline"
+                        onClick={() => setDialogOpen(false)}
+                      >
+                        Abbrechen
+                      </Button>
+                      <Button onClick={save} disabled={saving}>
+                        {saving
+                          ? "Speichern..."
+                          : editOfferId
+                            ? "Speichern"
+                            : "Angebot erstellen"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={saveAndCreateInvoice}
+                        disabled={saving}
+                        className="border border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
+                      >
+                        <FileText className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />→
+                        Rechnung
+                      </Button>
                     </div>
-                    <textarea
-                      className="flex min-h-[96px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      rows={4}
-                      placeholder="Optionaler Einleitungstext, Zusammenfassung oder Zusatz für das Angebots-PDF..."
-                      value={form.notes}
-                      onChange={(event) =>
-                        setForm({ ...form, notes: event.target.value })
-                      }
-                    />
+                  )}
+
+                  <div className="space-y-3 rounded-xl border-2 border-slate-300 bg-background p-3 sm:p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <Label className="font-semibold">
+                          Text für Angebot / PDF
+                        </Label>
+                        <div className="text-xs text-muted-foreground">
+                          Kunden-Sicht im PDF. Getrennter Titel oben, Text darunter.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Titel im Angebots-PDF</Label>
+                      <Input
+                        placeholder="z.B. Angebot für Reinigungsarbeiten im Wohnpark Limmat"
+                        value={form.pdfTitle}
+                        onChange={(event) =>
+                          setForm({ ...form, pdfTitle: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Text im Angebots-PDF</Label>
+                      <textarea
+                        className="flex min-h-[110px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        rows={5}
+                        placeholder="Optionaler Einleitungstext, Zusammenfassung oder Zusatz für das Angebots-PDF..."
+                        value={form.notes}
+                        onChange={(event) =>
+                          setForm({ ...form, notes: event.target.value })
+                        }
+                      />
+                    </div>
                   </div>
 
                   <div
@@ -2878,7 +3065,7 @@ export default function AngebotePage() {
                       <div className="space-y-1 rounded-lg border-2 border-red-300 bg-red-50 p-3 text-sm text-red-800">
                         <div className="flex items-center gap-2 font-semibold">
                           <AlertTriangle className="h-4 w-4" />
-                          Gefahr / Achtung
+                          Wichtige Gefahren / Warnhinweise
                         </div>
                         <ul className="list-disc pl-5">
                           {linkedSafetyWarnings.map((line, index) => (
@@ -2888,43 +3075,54 @@ export default function AngebotePage() {
                       </div>
                     )}
 
+                    {linkedJobHints.length > 0 && (
+                      <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                        <div className="mb-2 font-semibold">Weitere Besonderheiten</div>
+                        <div className="space-y-1">
+                          {linkedJobHints.map((line, index) => (
+                            <div
+                              key={`${line}-${index}`}
+                              className="whitespace-pre-wrap break-words"
+                            >
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {linkedOrderData && (
-                      <CommunicationBlock
-                        data={linkedOrderData}
-                        specialNotesValue={linkedJobHints.join("\n")}
-                      />
+                      <div className="space-y-2 rounded-lg border border-slate-300 bg-slate-50/70 p-3 text-sm">
+                        <div className="font-semibold">Kundennachricht</div>
+                        {linkedOrderData.audioTranscript && (
+                          <div className="rounded-md border bg-background p-2">
+                            <div className="mb-1 text-xs font-medium text-muted-foreground">
+                              Transkription
+                            </div>
+                            <div className="whitespace-pre-wrap break-words">
+                              {linkedOrderData.audioTranscript}
+                            </div>
+                          </div>
+                        )}
+                        {stripForwardedMessage(String(linkedOrderData.notes || "")).trim() ? (
+                          <div className="max-h-[320px] overflow-auto rounded-md border bg-background p-2 whitespace-pre-wrap break-words">
+                            {stripForwardedMessage(String(linkedOrderData.notes || "")).trim()}
+                          </div>
+                        ) : linkedOrderData.mediaUrl ? (
+                          <div className="rounded-md border bg-background p-2 text-muted-foreground">
+                            Medienhinweis vorhanden.
+                          </div>
+                        ) : (
+                          <div className="rounded-md border bg-background p-2 text-muted-foreground">
+                            Keine Kundennachricht gespeichert.
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </>
               )}
 
-              {/* Document action buttons — hidden when customer editor OR duplicate panel is open */}
-              {!showNewCustomer && !dupCheckOpen && (
-                <div className="flex flex-wrap justify-center sm:justify-end gap-2 mb-20 md:mb-0">
-                  <Button
-                    variant="outline"
-                    onClick={() => setDialogOpen(false)}
-                  >
-                    Abbrechen
-                  </Button>
-                  <Button onClick={save} disabled={saving}>
-                    {saving
-                      ? "Speichern..."
-                      : editOfferId
-                        ? "Speichern"
-                        : "Angebot erstellen"}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={saveAndCreateInvoice}
-                    disabled={saving}
-                    className="bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
-                  >
-                    <FileText className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />→
-                    Rechnung
-                  </Button>
-                </div>
-              )}
             </div>
             {/* Duplicate Check Panel (right column) */}
             {dupCheckOpen &&
