@@ -6240,6 +6240,182 @@ function extractBlockedForeignCurrencyLineV17_90L3(
   return pool.sort((a, b) => a.length - b.length)[0] || null;
 }
 
+
+// V17.90L43: Letzte, formatierungsunabhängige Duplikatsicherung direkt vor
+// dem Speichern. Eine konkrete Fremdwährungsquelle aus der ORIGINALNACHRICHT
+// darf höchstens eine rote Prüfposition erzeugen. Die Zuordnung basiert nur
+// auf Quell-Evidence, Betrag und Währung – nicht auf Leistungs-Wortlisten.
+type ForeignCurrencySourceAnchorV17_90L43 = {
+  currency: string;
+  amount: number;
+  evidence: string;
+};
+
+function normalizeCurrencyTokenV17_90L43(value?: string | null): string | null {
+  const token = String(value || "").trim().toUpperCase();
+  if (token === "CHF") return "CHF";
+  if (token === "EUR" || token === "EURO" || token === "€") return "EUR";
+  if (token === "USD" || token === "DOLLAR" || token === "$") return "USD";
+  if (token === "GBP" || token === "PFUND" || token === "£") return "GBP";
+  return null;
+}
+
+function parsePositiveMoneyV17_90L43(value?: string | null): number | null {
+  const parsed = Number(String(value || "").replace(/'/g, "").replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function extractForeignCurrencySourceAnchorsV17_90L43(
+  originalMessageText: string | null | undefined,
+  finalCurrency: string,
+): ForeignCurrencySourceAnchorV17_90L43[] {
+  const anchors: ForeignCurrencySourceAnchorV17_90L43[] = [];
+  const lines = splitSourceEvidenceLinesV17_90L3(originalMessageText);
+  const patterns = [
+    /(?:^|[\s(])(?<currency>CHF|EUR|EURO|USD|DOLLAR|GBP|PFUND|€|\$|£)\s*(?<amount>\d+(?:[.,]\d{1,2})?)/giu,
+    /(?<amount>\d+(?:[.,]\d{1,2})?)\s*(?<currency>CHF|EUR|EURO|USD|DOLLAR|GBP|PFUND|€|\$|£)(?=$|[\s,.;)])/giu,
+  ];
+
+  for (const line of lines) {
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(line)) !== null) {
+        const currency = normalizeCurrencyTokenV17_90L43(
+          match.groups?.currency,
+        );
+        const amount = parsePositiveMoneyV17_90L43(match.groups?.amount);
+        if (!currency || currency === finalCurrency || !amount) continue;
+        anchors.push({ currency, amount, evidence: compactText(line) });
+      }
+    }
+  }
+
+  return anchors;
+}
+
+function foreignReviewCurrencyV17_90L43(
+  item: {
+    detectedCurrency?: string | null;
+    reviewReason?: string | null;
+  },
+  finalCurrency: string,
+): string | null {
+  const detected = normalizeCurrencyTokenV17_90L43(item.detectedCurrency);
+  if (detected && detected !== finalCurrency) return detected;
+
+  const reason = String(item.reviewReason || "");
+  const match = reason.match(
+    /^(?:item_currency_mismatch|currency_conflict_item):[^:]*:([A-Za-z€$£]+):([A-Za-z€$£]+)/i,
+  );
+  const sourceCurrency = normalizeCurrencyTokenV17_90L43(match?.[1]);
+  const targetCurrency = normalizeCurrencyTokenV17_90L43(match?.[2]);
+  if (
+    sourceCurrency &&
+    sourceCurrency !== finalCurrency &&
+    (!targetCurrency || targetCurrency === finalCurrency)
+  ) {
+    return sourceCurrency;
+  }
+
+  return null;
+}
+
+function dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43<
+  T extends {
+    serviceName?: string | null;
+    description?: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+    unitPrice?: any;
+    totalPrice?: any;
+    needsReview?: boolean;
+    reviewReason?: string | null;
+    detectedCurrency?: string | null;
+  },
+>(
+  items: T[],
+  originalMessageText: string | null | undefined,
+  finalCurrencyValue: string,
+): T[] {
+  const finalCurrency = String(finalCurrencyValue || "CHF").toUpperCase();
+  const anchors = extractForeignCurrencySourceAnchorsV17_90L43(
+    originalMessageText,
+    finalCurrency,
+  );
+  if (anchors.length === 0) return items;
+
+  const anchorsByCurrency = new Map<string, ForeignCurrencySourceAnchorV17_90L43[]>();
+  for (const anchor of anchors) {
+    const list = anchorsByCurrency.get(anchor.currency) || [];
+    list.push(anchor);
+    anchorsByCurrency.set(anchor.currency, list);
+  }
+
+  const removeIndexes = new Set<number>();
+
+  for (const [currency, currencyAnchors] of anchorsByCurrency.entries()) {
+    const candidates = items
+      .map((item, index) => {
+        const itemCurrency = foreignReviewCurrencyV17_90L43(
+          item,
+          finalCurrency,
+        );
+        if (itemCurrency !== currency) return null;
+
+        const rawEvidence = compactText(
+          [item.sourceText, item.evidence, item.description]
+            .filter(Boolean)
+            .join(" "),
+        );
+        const evidence = normalizeUnitText(rawEvidence);
+        let score = 0;
+
+        for (const anchor of currencyAnchors) {
+          const anchorEvidence = normalizeUnitText(anchor.evidence);
+          if (evidence && anchorEvidence && evidence === anchorEvidence) {
+            score = Math.max(score, 400);
+          } else if (
+            evidence &&
+            anchorEvidence &&
+            (evidence.includes(anchorEvidence) || anchorEvidence.includes(evidence))
+          ) {
+            score = Math.max(score, 300);
+          }
+
+          if (rawEvidence && lineHasDecimalNumberV17_90L3(rawEvidence, anchor.amount)) {
+            score += 80;
+          }
+        }
+
+        if (rawEvidence) score += 20;
+        if (!isInternalReviewServiceNameV17_90L(item.serviceName || "")) {
+          score += 15;
+        }
+        if (String(item.detectedCurrency || "").trim()) score += 10;
+        if (String(item.reviewReason || "").startsWith("item_currency_mismatch:")) {
+          score += 5;
+        }
+
+        return { index, score };
+      })
+      .filter((entry): entry is { index: number; score: number } =>
+        Boolean(entry),
+      )
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+
+    // Anzahl der gespeicherten Prüfpositionen darf die Anzahl konkreter
+    // Fremdwährungsangaben in der Originalnachricht nicht überschreiten.
+    const allowedCount = currencyAnchors.length;
+    candidates.slice(allowedCount).forEach((entry) => {
+      removeIndexes.add(entry.index);
+    });
+  }
+
+  if (removeIndexes.size === 0) return items;
+  return items.filter((_item, index) => !removeIndexes.has(index));
+}
+
 function repairBlockedFlatFeeCurrencyRowsV17_90L3<
   T extends {
     serviceName?: string | null;
@@ -9434,6 +9610,16 @@ export async function processIncomingMessage(
       return hasSpecificEvidence && !duplicatesForeignEvidence;
     });
   }
+
+  // V17.90L43: Nach ALLEN Repair-/Validator-Pfaden nochmals gegen die
+  // Originalnachricht abgleichen. So kann ein späterer Repair-Pfad nicht aus
+  // derselben EUR-/USD-/GBP-Quelle zusätzlich „Reisekosten“ UND „Anfahrt“
+  // persistieren.
+  finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
+    finalOrderItems,
+    messageText,
+    intakeValidation.finalCurrency,
+  );
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {

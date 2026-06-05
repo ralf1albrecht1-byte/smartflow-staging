@@ -7435,11 +7435,42 @@ export default function AuftraegePage() {
             };
           }
 
+          const currentUnit = compactText(item.unit);
+          const currentUnitKey = normalizeForMatch(currentUnit);
+          const currentUnitIsOpen =
+            !currentUnitKey ||
+            currentUnitKey.includes("pruefen") ||
+            currentUnitKey.includes("prufen");
+          const catalogUnit = compactText(svc.unit);
+          const nextUnit = currentUnitIsOpen
+            ? catalogUnit || "Stunde"
+            : currentUnit || catalogUnit || "Stunde";
+          const nextPrice =
+            Number(item.unitPrice || 0) > 0
+              ? item.unitPrice
+              : String(svc.defaultPrice ?? 0);
+          const nextQuantity =
+            Number(item.quantity || 0) > 0 ? item.quantity : "1";
+          const catalogSelectionResolvesOpenUnit = Boolean(
+            currentUnitIsOpen &&
+              catalogUnit &&
+              Number(nextPrice || 0) > 0 &&
+              Number(nextQuantity || 0) > 0,
+          );
+
           return {
             ...item,
             serviceName: svc.name,
-            unitPrice: item.unitPrice || String(svc.defaultPrice ?? 0),
-            unit: item.unit || svc.unit || "Stunde",
+            unitPrice: nextPrice,
+            unit: nextUnit,
+            quantity: nextQuantity,
+            // V17.90L43: Wählt der Benutzer in einer roten Einheit-prüfen-
+            // Position bewusst eine Katalogleistung, gilt deren sichtbare
+            // Katalogeinheit als ausdrückliche Bestätigung. Ein vorhandener
+            // Textpreis (z. B. CHF 8 statt Katalog CHF 12) bleibt erhalten.
+            aiWarning: catalogSelectionResolvesOpenUnit ? "" : item.aiWarning,
+            manualUnitConfirmed:
+              catalogSelectionResolvesOpenUnit || item.manualUnitConfirmed,
           };
         }
 
