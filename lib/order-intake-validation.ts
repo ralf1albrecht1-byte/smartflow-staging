@@ -3377,6 +3377,56 @@ const EXPLICIT_SERVICE_NAME_BLOCKLIST = new Set([
   "auftrag",
 ]);
 
+// V17.90L37: Einzeilige WhatsApp-Texte können mehrere vollständig bepreiste
+// Leistungen ohne Zeilenumbruch enthalten, z. B.
+// "Boden ... CHF 8 Fenster ... CHF 9 Travel cost EUR 35".
+// Die bisherige Mengenaufteilung verlor dabei den Leistungsanfang der zweiten
+// Position und liess die letzte Fremdwährungsposition unsichtbar.
+// Diese strukturelle Aufteilung trennt ausschliesslich an aufeinanderfolgenden
+// Währungs-/Betragsankern. Sie kennt keine Leistungswortliste.
+function splitSequentialCurrencyPricedSegmentsV17_90L37(
+  value?: string | null,
+): string[] {
+  const source = normalizeText(value);
+  if (!source) return [];
+
+  const result: string[] = [];
+  const logicalLines = source
+    .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+
+  const amountAnchor =
+    /(?:\b(?:CHF|EUR|USD|GBP)\b|[€$£])\s*\d+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?\s*(?:\b(?:CHF|EUR|USD|GBP)\b|[€$£])/gi;
+
+  for (const line of logicalLines) {
+    const anchors: Array<{ index: number; end: number }> = [];
+    amountAnchor.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = amountAnchor.exec(line)) !== null) {
+      anchors.push({ index: match.index, end: match.index + match[0].length });
+    }
+
+    if (anchors.length < 2) continue;
+
+    let start = 0;
+    for (const anchor of anchors) {
+      const segment = line
+        .slice(start, anchor.end)
+        .replace(/^\s*(?:[,.;:|+]|und\b|and\b|et\b|e\b)+\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      start = anchor.end;
+
+      if (segment.length < 4 || !/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]/.test(segment))
+        continue;
+      result.push(segment);
+    }
+  }
+
+  return unique(result);
+}
+
 function splitExplicitServiceLineCandidates(text?: string | null): string[] {
   const source = normalizeText(preferredSemanticLineSourceV17_41(text));
   if (!source) return [];
@@ -3406,9 +3456,13 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
     .map(cleanup)
     .filter(Boolean);
 
+  const sequentialCurrencyPricedSegments =
+    splitSequentialCurrencyPricedSegmentsV17_90L37(source);
+
   const candidateLines = unique([
     ...originalLines,
     ...quantitySplitLines,
+    ...sequentialCurrencyPricedSegments,
   ]).filter((line) => {
     const normalized = normalizeCompare(line);
     if (!normalized || normalized.length < 8) return false;
@@ -3452,13 +3506,18 @@ function splitExplicitServiceLineCandidates(text?: string | null): string[] {
     );
   });
 
-  // If a full original line exists, drop the generated quantity-only suffix.
-  // Example:
-  // "Büroreinigung 4 Stunden CHF 82 pro Stunde" is kept,
-  // "4 Stunden CHF 82 pro Stunde" is dropped.
+  // If a full original line exists, drop only a generated quantity-only
+  // suffix. Semantically complete suffixes such as "Travel cost EUR 35" must
+  // remain, otherwise the only foreign-currency position becomes invisible.
   return candidateLines.filter((line) => {
     const key = normalizeCompare(line);
     if (!key) return false;
+
+    const startsWithBareQuantityAndUnit = new RegExp(
+      `^${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}(?=\\b|\\s|[.,;:!?)])`,
+      "i",
+    ).test(line);
+    if (!startsWithBareQuantityAndUnit) return true;
 
     return !candidateLines.some((other) => {
       if (other === line) return false;
@@ -4466,6 +4525,71 @@ function applyExplicitLineCoverage(
   }
 
   return { items: nextItems, reviewReasons: unique(reviewReasons) };
+}
+
+// V17.90L37: Letzte Absicherung für explizite Fremdwährungsbeträge. Manche
+// spätere semantische Aufräumpässe entfernen eine bereits erkannte 0-Preis-
+// Position wieder. Vor dem Persistieren wird deshalb jede klar bepreiste
+// Fremdwährungszeile nochmals als eigene, bearbeitbare Prüfposition ergänzt.
+function appendMissingForeignCurrencyReviewItemsV17_90L37(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const explicitForeignItems = extractExplicitServiceLineItems(
+    originalText,
+    finalCurrency,
+  ).filter((item) => {
+    const currency = String(item.detectedCurrency || "").toUpperCase();
+    return Boolean(currency && currency !== finalCurrency);
+  });
+  if (explicitForeignItems.length === 0) {
+    return { items, reviewReasons: [] };
+  }
+
+  const next = [...items];
+  const reviewReasons: string[] = [];
+
+  for (const explicit of explicitForeignItems) {
+    const currency = String(explicit.detectedCurrency || "UNKNOWN").toUpperCase();
+    const evidenceKey = normalizeCompare(
+      explicit.sourceText || explicit.evidence || explicit.description,
+    );
+    const serviceName =
+      String(explicit.serviceName || "").trim() || "Leistung prüfen";
+    const alreadyRepresented = next.some((item) => {
+      const itemCurrency = String(item.detectedCurrency || "").toUpperCase();
+      const itemEvidence = normalizeCompare(
+        [item.sourceText, item.evidence, item.description].filter(Boolean).join(" "),
+      );
+      return Boolean(
+        itemCurrency === currency &&
+          evidenceKey &&
+          itemEvidence &&
+          (itemEvidence.includes(evidenceKey) || evidenceKey.includes(itemEvidence)),
+      );
+    });
+    if (alreadyRepresented) continue;
+
+    const reason = `item_currency_mismatch:${serviceName}:${currency}:${finalCurrency}`;
+    next.push({
+      ...explicit,
+      serviceName,
+      quantity: Number(explicit.quantity || 0) > 0 ? Number(explicit.quantity) : 1,
+      unit: explicit.unit || "Pauschal",
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: reason,
+      description: explicit.sourceText || explicit.description,
+      sourceText: explicit.sourceText || explicit.description,
+      evidence: explicit.evidence || explicit.sourceText || explicit.description,
+      detectedCurrency: currency,
+    });
+    reviewReasons.push("currency_review", "currency_conflict", reason);
+  }
+
+  return { items: next, reviewReasons: unique(reviewReasons) };
 }
 
 function findUnclearTravelReferenceLine(originalText: string): string | null {
@@ -10018,13 +10142,25 @@ export function validateAndRepairParsedOrderItems(
       .map((item) => normalizeCompare(item.serviceName)),
   );
 
-  const hasRealCurrencyProblem =
-    detectedCurrencies.length > 1 ||
-    unsupportedDetectedCurrencies.length > 0 ||
-    items.some((item) => {
-      const detectedCurrency = normalizeCurrency(item.detectedCurrency);
-      return Boolean(detectedCurrency && detectedCurrency !== finalCurrency);
-    });
+  // V17.90L37: Ein globaler Währungsblocker darf nur aus einer tatsächlich
+  // gespeicherten/bearbeitbaren Position entstehen. Eine bloss im Rohtext
+  // erwähnte Fremdwährung darf nicht Angebot/Rechnung sperren, wenn keine
+  // eigene Prüfposition dafür existiert. Durch die strukturelle Segmentierung
+  // oben wird eine erkennbare Fremdwährungsposition als eigene Zeile angelegt.
+  let hasRealCurrencyProblem = items.some((item) => {
+    const rawDetectedCurrency = String(item.detectedCurrency || "")
+      .trim()
+      .toUpperCase();
+    const reason = String(item.reviewReason || "");
+    return Boolean(
+      (rawDetectedCurrency && rawDetectedCurrency !== finalCurrency) ||
+        reason === "currency_review" ||
+        reason === "currency_conflict" ||
+        reason === "currency_unsupported" ||
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:"),
+    );
+  });
 
   if (!hasRealCurrencyProblem) {
     items = items.map((item) => {
@@ -10156,6 +10292,29 @@ export function validateAndRepairParsedOrderItems(
   reviewReasons.push(...structuredGermanServiceSection.reviewReasons);
 
   reviewReasons.push(...finalEvidenceSafetyPass.reviewReasons);
+
+  const finalForeignCurrencyReviewV17_90L37 =
+    appendMissingForeignCurrencyReviewItemsV17_90L37(
+      input.originalText,
+      items,
+      finalCurrency,
+    );
+  items = finalForeignCurrencyReviewV17_90L37.items;
+  reviewReasons.push(...finalForeignCurrencyReviewV17_90L37.reviewReasons);
+  hasRealCurrencyProblem = items.some((item) => {
+    const rawDetectedCurrency = String(item.detectedCurrency || "")
+      .trim()
+      .toUpperCase();
+    const reason = String(item.reviewReason || "");
+    return Boolean(
+      (rawDetectedCurrency && rawDetectedCurrency !== finalCurrency) ||
+        reason === "currency_review" ||
+        reason === "currency_conflict" ||
+        reason === "currency_unsupported" ||
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:"),
+    );
+  });
 
   const finalReviewReasons = unique(reviewReasons)
     .filter(

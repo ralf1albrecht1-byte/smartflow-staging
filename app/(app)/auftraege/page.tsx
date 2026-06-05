@@ -3001,72 +3001,177 @@ const hasGlobalCurrencyReviewWithoutItemDetails = (
   hasAnyCurrencyReviewReason(reviewReasons) &&
   !hasItemLevelCurrencyReviewReasons(reviewReasons);
 
-type ForeignCurrencyAmountV17_90L36D = {
+type CurrencyAmountEvidenceV17_90L37 = {
   currency: "CHF" | "EUR";
   amount: number;
   evidence: string;
 };
 
-// V17.90L36d: Wenn der alte Auftrag nur einen globalen Mischwährungsgrund
-// besitzt, darf eine im Kundentext vorhandene Fremdwährungsposition nicht
-// unsichtbar bleiben. Wir extrahieren ausschliesslich Währung + Betrag und
-// erzeugen bei fehlender Zuordnung eine neutrale rote Prüfposition. Es wird
-// keine Leistung erfunden und keine Service-Wortliste verwendet.
+type ForeignCurrencyAmountV17_90L36D = CurrencyAmountEvidenceV17_90L37;
+
+// V17.90L37: Betragsbelege werden strukturell pro Währungsanker getrennt.
+// Dadurch wird aus einem chaotischen Einzeiler mit mehreren Leistungen die
+// letzte Position "Travel cost EUR 35" als eigener, bearbeitbarer Beleg statt
+// als unsichtbarer globaler Blocker.
+const extractCurrencyAmountEvidenceV17_90L37 = (
+  value: string | null | undefined,
+): CurrencyAmountEvidenceV17_90L37[] => {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return [];
+
+  const parsed: CurrencyAmountEvidenceV17_90L37[] = [];
+  const logicalLines = source
+    .split(/\n+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const amountAnchor =
+    /(?:\b(CHF|EUR)\b|(€))\s*([0-9]+(?:[.,][0-9]{1,2})?)|([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:\b(CHF|EUR)\b|(€))/gi;
+
+  for (const line of logicalLines) {
+    const anchors: Array<{
+      start: number;
+      end: number;
+      currency: "CHF" | "EUR";
+      amount: number;
+    }> = [];
+    amountAnchor.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = amountAnchor.exec(line)) !== null) {
+      const leading = Boolean(match[3]);
+      const currencyToken = leading ? match[1] || match[2] : match[5] || match[6];
+      const amountToken = leading ? match[3] : match[4];
+      const amount = Number(String(amountToken || "").replace(",", "."));
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      anchors.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        currency:
+          String(currencyToken || "").toUpperCase() === "CHF" ? "CHF" : "EUR",
+        amount,
+      });
+    }
+
+    if (anchors.length === 0) continue;
+    let segmentStart = 0;
+    for (const anchor of anchors) {
+      const evidence = line
+        .slice(segmentStart, anchor.end)
+        .replace(/^\s*(?:[,.;:|+]|und\b|and\b|et\b|e\b)+\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      segmentStart = anchor.end;
+      parsed.push({
+        currency: anchor.currency,
+        amount: anchor.amount,
+        evidence: evidence || line.slice(anchor.start, anchor.end),
+      });
+    }
+  }
+
+  const bestByKey = new Map<string, CurrencyAmountEvidenceV17_90L37>();
+  parsed.forEach((entry) => {
+    const evidenceKey = normalizeForMatch(entry.evidence);
+    const key = `${entry.currency}|${entry.amount.toFixed(2)}|${evidenceKey}`;
+    const previous = bestByKey.get(key);
+    if (!previous || entry.evidence.length < previous.evidence.length) {
+      bestByKey.set(key, entry);
+    }
+  });
+  return Array.from(bestByKey.values());
+};
+
 const extractForeignCurrencyAmountsV17_90L36D = (
   value: string | null | undefined,
   orderCurrency: string | null | undefined,
 ): ForeignCurrencyAmountV17_90L36D[] => {
-  const source = String(value || "");
   const normalizedOrderCurrency =
     String(orderCurrency || "CHF").toUpperCase() === "EUR" ? "EUR" : "CHF";
-  if (!source.trim()) return [];
+  return extractCurrencyAmountEvidenceV17_90L37(value).filter(
+    (entry) => entry.currency !== normalizedOrderCurrency,
+  );
+};
 
-  const matches: Array<{ currency: "CHF" | "EUR"; amount: number; index: number; raw: string }> = [];
-  const patterns = [
-    /(?:\b(CHF|EUR)\b|(€))\s*([0-9]+(?:[.,][0-9]{1,2})?)/gi,
-    /([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:\b(CHF|EUR)\b|(€))/gi,
-  ];
+const orderCurrencyEvidenceSourceV17_90L37 = (order?: Order | null) =>
+  Array.from(
+    new Set(
+      [
+        order?.notes,
+        order?.audioTranscript,
+        order?.description,
+        order?.specialNotes,
+        ...(order?.items || []).flatMap((item) => [
+          item?.description || "",
+          item?.serviceName || "",
+        ]),
+      ]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  ).join("\n");
 
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(source)) !== null) {
-      const isLeadingCurrencyPattern = Boolean(match[3]);
-      const currencyToken = isLeadingCurrencyPattern
-        ? match[1] || match[2]
-        : match[2] || match[3];
-      const amountToken = isLeadingCurrencyPattern ? match[3] : match[1];
-      const currency: "CHF" | "EUR" =
-        String(currencyToken || "").toUpperCase() === "CHF" ? "CHF" : "EUR";
-      const amount = Number(String(amountToken || "").replace(",", "."));
-      if (!Number.isFinite(amount) || amount <= 0) continue;
-      if (currency === normalizedOrderCurrency) continue;
-      matches.push({ currency, amount, index: match.index, raw: match[0] });
+// Alte Aufträge können item_currency_mismatch an korrekte CHF-Positionen
+// angehängt haben, weil deren Beschreibung den kompletten Kundentext enthielt.
+// Eine positive Position gilt nur dann als falsch zugeordnet, wenn ihr eigener
+// Preis im Auftragswährung-Beleg vorkommt und die Fremdwährungsposition einen
+// anderen Betrag besitzt. Der Fremdbetrag wird anschliessend als eigene
+// Prüfposition sichtbar gemacht.
+const effectiveOrderReviewReasonsV17_90L37 = (
+  order?: Order | null,
+): string[] => {
+  const originalReasons = Array.isArray(order?.reviewReasons)
+    ? order!.reviewReasons!.filter(Boolean)
+    : [];
+  if (!order || originalReasons.length === 0) return originalReasons;
+
+  const orderCurrency = order.currency === "EUR" ? "EUR" : "CHF";
+  const evidence = extractCurrencyAmountEvidenceV17_90L37(
+    orderCurrencyEvidenceSourceV17_90L37(order),
+  );
+  const foreignEvidence = evidence.filter(
+    (entry) => entry.currency !== orderCurrency,
+  );
+  const staleReasons = new Set<string>();
+
+  getCurrencyMismatchReviewDetails(originalReasons).forEach((detail) => {
+    const serviceKey = normalizeForMatch(
+      canonicalServiceNameForOrderItem(detail.serviceName),
+    );
+    const item = (order.items || []).find(
+      (candidate) =>
+        normalizeForMatch(
+          canonicalServiceNameForOrderItem(candidate.serviceName),
+        ) === serviceKey,
+    );
+    const price = Number(item?.unitPrice || 0);
+    const quantity = Number(item?.quantity || 0);
+    if (!item || price <= 0 || quantity <= 0) return;
+    if (detail.textCurrency === orderCurrency) return;
+
+    const itemEvidence = extractCurrencyAmountEvidenceV17_90L37(
+      [item.description, item.serviceName].filter(Boolean).join("\n"),
+    );
+    const hasOwnOrderCurrencyPrice = itemEvidence.some(
+      (entry) =>
+        entry.currency === orderCurrency && Math.abs(entry.amount - price) < 0.01,
+    );
+    const hasDifferentForeignAmount = foreignEvidence.some(
+      (entry) =>
+        entry.currency === detail.textCurrency &&
+        Math.abs(entry.amount - price) >= 0.01,
+    );
+
+    if (hasOwnOrderCurrencyPrice && hasDifferentForeignAmount) {
+      staleReasons.add(detail.reason);
     }
-  }
+  });
 
-  const seen = new Set<string>();
-  return matches
-    .sort((a, b) => a.index - b.index)
-    .filter((entry) => {
-      const key = `${entry.currency}|${entry.amount.toFixed(2)}|${entry.index}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .map((entry) => {
-      const start = Math.max(0, entry.index - 55);
-      const end = Math.min(source.length, entry.index + entry.raw.length + 25);
-      const evidence = source
-        .slice(start, end)
-        .replace(/\s+/g, " ")
-        .replace(/^.*?(?:[.;]|\n)\s*/, "")
-        .trim();
-      return {
-        currency: entry.currency,
-        amount: entry.amount,
-        evidence: evidence || entry.raw,
-      };
-    });
+  const next = originalReasons.filter((reason) => !staleReasons.has(reason));
+  if (staleReasons.size > 0 && foreignEvidence.length > 0) {
+    next.push("currency_conflict", "currency_review");
+  }
+  return Array.from(new Set(next));
 };
 
 const findUnitMissingInTextReviewForService = (
@@ -4484,8 +4589,10 @@ const getSystemBadges = (
   // "Auftrag prüfen"-Chip erzeugen. Aktuelle harte Fehler werden bereits
   // konkret als Kunde, Ausführadresse, Währung, Betrag oder Einheit angezeigt.
 
+  const effectiveCurrencyReviewReasons =
+    effectiveOrderReviewReasonsV17_90L37(order);
   const hasCurrencyReview = hasAnyCurrencyReviewReason(
-    order.reviewReasons,
+    effectiveCurrencyReviewReasons,
   );
 
   if (hasCurrencyReview) {
@@ -4494,7 +4601,10 @@ const getSystemBadges = (
       label: "Währung prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
-      tooltip: formatCurrencyReviewTooltip(order, services),
+      tooltip: formatCurrencyReviewTooltip(
+        { ...order, reviewReasons: effectiveCurrencyReviewReasons },
+        services,
+      ),
     });
   }
 
@@ -6508,6 +6618,8 @@ export default function AuftraegePage() {
       focusSection?: "specialNotes" | "items" | "executionAddress";
     },
   ) => {
+    const effectiveOrderReviewReasons =
+      effectiveOrderReviewReasonsV17_90L37(o);
     setEditId(o.id);
     setServiceActionMenuKey(null);
     setDupCheckOpen(false);
@@ -6604,15 +6716,27 @@ export default function AuftraegePage() {
     if (o.items && o.items.length > 0) {
       const mappedItems: FormItem[] = o.items.map((item) => {
         const hasQuantityReview = hasQuantityReviewForService(
-          o.reviewReasons,
+          effectiveOrderReviewReasons,
           item.serviceName,
         );
         const quantityNumber = Number(item.quantity || 0);
         const hasValidQuantity =
           Number.isFinite(quantityNumber) && quantityNumber > 0;
-        const rawAiWarning = getAiWarningFromItemDescription(
+        const originalHadCurrencyMismatch = hasCurrencyMismatchReviewForService(
+          o.reviewReasons,
+          item.serviceName,
+        );
+        const effectiveHasCurrencyMismatch = hasCurrencyMismatchReviewForService(
+          effectiveOrderReviewReasons,
+          item.serviceName,
+        );
+        const extractedAiWarning = getAiWarningFromItemDescription(
           item.description,
         );
+        const rawAiWarning =
+          originalHadCurrencyMismatch && !effectiveHasCurrencyMismatch
+            ? ""
+            : extractedAiWarning;
         const isCatalogConfirmed =
           getCatalogReviewConfirmedFromItemDescription(item.description);
         const hasPersistedManualCurrencyConfirmation =
@@ -6620,7 +6744,7 @@ export default function AuftraegePage() {
         const isManualUnitConfirmed =
           getManualUnitConfirmedFromItemDescription(item.description);
         const hasItemCurrencyMismatch = hasCurrencyMismatchReviewForService(
-          o.reviewReasons,
+          effectiveOrderReviewReasons,
           item.serviceName,
         );
         // V17.90L36c: Ein alter MANUAL_CURRENCY_CONFIRMED-Marker darf
@@ -6660,7 +6784,7 @@ export default function AuftraegePage() {
       // bleiben oder in eine andere Leistung hineinrutschen. Sie wird als
       // neutrale rote Prüfposition mit Total 0 angezeigt.
       const syntheticCurrencyReviewItems: FormItem[] = [];
-      if (hasGlobalCurrencyReviewWithoutItemDetails(o.reviewReasons)) {
+      if (hasAnyCurrencyReviewReason(effectiveOrderReviewReasons)) {
         // V17.90L36e: Nicht nur das erste nicht-leere Textfeld verwenden.
         // Bei älteren Aufträgen steht die originale Kundennachricht häufig in
         // audioTranscript, während notes bereits nur Besonderheiten enthält.
@@ -6689,26 +6813,21 @@ export default function AuftraegePage() {
         );
 
         foreignAmounts.forEach((foreign) => {
-          const exactMatches = mappedItems.filter((item) => {
-            const price = Number(item.unitPrice || 0);
-            if (!Number.isFinite(price) || Math.abs(price - foreign.amount) >= 0.01)
+          const representedByEditableMismatchItem = mappedItems.some((item) => {
+            if (
+              !hasCurrencyMismatchReviewForService(
+                effectiveOrderReviewReasons,
+                item.serviceName,
+              )
+            )
               return false;
             const evidence = normalizeForMatch(item.aiWarning || "");
             return (
               evidence.includes(normalizeForMatch(foreign.currency)) &&
-              evidence.includes(
-                normalizeForMatch(String(foreign.amount).replace(".", ",")),
-              )
+              evidence.includes(normalizeForMatch(String(foreign.amount)))
             );
           });
-
-          if (exactMatches.length === 1) {
-            const target = exactMatches[0];
-            target.unitPrice = "";
-            target.manualCurrencyConfirmed = false;
-            target.aiWarning = `Währung prüfen: ${foreign.evidence}`;
-            return;
-          }
+          if (representedByEditableMismatchItem) return;
 
           const duplicatePlaceholder = syntheticCurrencyReviewItems.some(
             (item) =>
@@ -7474,7 +7593,8 @@ export default function AuftraegePage() {
     ? orders.find((o: Order) => o.id === editId) || null
     : null;
 
-  const currentEditReviewReasons = currentEditOrder?.reviewReasons ?? [];
+  const currentEditReviewReasons =
+    effectiveOrderReviewReasonsV17_90L37(currentEditOrder);
   const addressRoleReviewCandidateV17_62 = (() => {
     const primarySite =
       formWorkSites.find((site) => Boolean(site.isPrimary)) ||
@@ -7979,16 +8099,20 @@ export default function AuftraegePage() {
     return !isBlockingCurrencyReviewText(item.aiWarning);
   };
 
-  // V17.16: Ein bestehender Mischwährungs-Blocker darf die Summe nur so lange
-  // sperren, bis jede Position im Editor manuell vollständig bestätigt ist.
-  // Die Bestätigung wird pro Position persistiert, damit insbesondere Anfahrt
-  // nach Reload nicht wieder aus "Anfahrt CHF 50" zurückgesetzt wird.
+  const isEditableCurrencyReviewPlaceholderV17_90L37 = (item: FormItem) =>
+    isBlockingCurrencyReviewText(item.aiWarning) &&
+    (isInternalReviewServiceName(item.serviceName) ||
+      Number(item.unitPrice || 0) <= 0);
+
+  // V17.90L37: Ein globaler Währungshinweis blockiert nur noch die eigene
+  // bearbeitbare Prüfposition. Vollständige CHF-Leistungen bleiben berechenbar.
+  // Wird die Prüfposition bewusst gelöscht, ist der nicht bearbeitbare
+  // Rohtext-Hinweis erledigt und darf nicht erneut global blockieren.
   const formHasResolvedCurrencyReview =
     hasCurrentEditCurrencyReview &&
     !hasCurrentEditItemCurrencyMismatch &&
     (currency === "CHF" || currency === "EUR") &&
-    formItems.length > 0 &&
-    formItems.every((item) => isManuallyConfirmedCurrencyItem(item));
+    !formItems.some(isEditableCurrencyReviewPlaceholderV17_90L37);
 
   const hasEditCurrencyReview =
     hasCurrentEditCurrencyReview && !formHasResolvedCurrencyReview;
@@ -7998,7 +8122,7 @@ export default function AuftraegePage() {
     if (isManuallyConfirmedCurrencyItem(item)) return false;
     if (hasFormItemCurrencyMismatch(item)) return true;
     if (hasOnlyGlobalCurrentEditCurrencyReview) {
-      return !isManuallyConfirmedCurrencyItem(item);
+      return isEditableCurrencyReviewPlaceholderV17_90L37(item);
     }
     return false;
   };
@@ -9114,14 +9238,14 @@ export default function AuftraegePage() {
           ),
         ),
       );
-    const allGlobalCurrencyItemsManuallyResolved =
+    const hasUnresolvedEditableCurrencyItem = validItems.some((item) =>
+      isFormItemBlockedByCurrencyReview(item),
+    );
+    const currencyReviewManuallyResolved = Boolean(
       hasCurrentEditCurrencyReview &&
-      currentCurrencyMismatchDetails.length === 0 &&
-      validItems.length > 0 &&
-      validItems.every((item) => isManuallyConfirmedCurrencyItem(item));
-    const currencyReviewManuallyResolved =
-      allItemCurrencyReviewsManuallyResolved ||
-      allGlobalCurrencyItemsManuallyResolved;
+        (allItemCurrencyReviewsManuallyResolved ||
+          !hasUnresolvedEditableCurrencyItem),
+    );
 
     const hasExecutionAddressEvidenceForReview = Boolean(
       addressRoleReviewCandidateV17_62.hasAny ||
@@ -9163,10 +9287,7 @@ export default function AuftraegePage() {
       );
     };
 
-    const cleanedReviewReasons =
-      orders
-        .find((o) => o.id === editId)
-        ?.reviewReasons?.filter((reason) => {
+    const cleanedReviewReasons = currentEditReviewReasons.filter((reason) => {
           if (reason.startsWith("unit_mismatch:")) {
             const [, reasonService] = reason.split(":");
             const reasonName = normalizeForMatch(reasonService);
@@ -9188,7 +9309,9 @@ export default function AuftraegePage() {
 
           if (
             currencyReviewManuallyResolved &&
-            reason.startsWith("currency_")
+            (reason.startsWith("currency_") ||
+              reason.startsWith("item_currency_mismatch:") ||
+              reason.startsWith("currency_conflict_item:"))
           ) {
             return false;
           }
@@ -9219,7 +9342,7 @@ export default function AuftraegePage() {
           }
 
           return true;
-        }) ?? [];
+        });
 
     const payload = {
       ...form,

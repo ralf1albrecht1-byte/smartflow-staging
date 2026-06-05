@@ -516,6 +516,45 @@ function hasGlobalCurrencyReviewWithoutItemDetails(value: any): boolean {
   );
 }
 
+// V17.90L37: Ein globaler Währungsgrund darf nicht jede vollständige
+// Leistung auf Total 0 setzen. Er blockiert nur eine eigene, bearbeitbare
+// Prüfposition. Wird diese Position verworfen, darf der Rohtext allein den
+// Auftrag nicht weiter sperren.
+function isEditableCurrencyReviewItemForPersistV17_90L37(item: any): boolean {
+  const serviceKey = normalizeSearchText(
+    normalizeServiceNameForDisplay(item?.serviceName),
+  );
+  const unitKey = normalizeSearchText(item?.unit);
+  const price = Number(item?.unitPrice ?? 0);
+  const quantity = Number(item?.quantity ?? 0);
+  const reviewText = normalizeSearchText(
+    [item?.description, item?.sourceText, item?.evidence, item?.reviewReason]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const serviceIsOpen =
+    !serviceKey ||
+    serviceKey === "leistung pruefen" ||
+    serviceKey === "leistung prufen" ||
+    serviceKey === "unbekannte leistung" ||
+    serviceKey.includes("leistung suchen") ||
+    serviceKey.includes("eingeben");
+  const unitIsOpen =
+    !unitKey ||
+    unitKey.includes("pruefen") ||
+    unitKey.includes("prufen") ||
+    unitKey.includes("unklar");
+  const hasCurrencyWarning =
+    /waehrung|wahrung|currency|fremdwaehrung|fremdwahrung|nicht in netto|nicht in total/.test(
+      reviewText,
+    );
+
+  return Boolean(
+    serviceIsOpen ||
+      ((price <= 0 || quantity <= 0 || unitIsOpen) && hasCurrencyWarning),
+  );
+}
+
 function hasCurrencyMismatchReviewForService(data: any, serviceName?: string | null): boolean {
   const serviceKey = normalizeSearchText(normalizeServiceNameForDisplay(serviceName));
   if (!serviceKey) return false;
@@ -579,7 +618,8 @@ function isBlockedAmountReviewItemForPersist(item: any, data?: any): boolean {
   const itemHasCurrencyMismatch = itemHasPersistedCurrencyMismatch;
   const globalCurrencyReviewApplies =
     hasGlobalCurrencyReviewWithoutItemDetails(data || {}) &&
-    !itemIsManuallyConfirmed;
+    !itemIsManuallyConfirmed &&
+    isEditableCurrencyReviewItemForPersistV17_90L37(item);
   const itemReviewText = [
     item?.unit,
     item?.serviceName,
@@ -995,14 +1035,36 @@ function normalizeReviewReasonsForPersist(data: any) {
   const allItemsComplete = hasCompleteManualItemsForPersist(data);
   const allItemsCompleteIgnoringCurrency =
     hasCompleteManualItemsIgnoringCurrencyForPersist(data);
-  const currencyReviewManuallyResolved =
-    isCurrencyReviewManuallyResolvedForPersist(data);
-
   const firstPass = reasons.filter((reason: string) => {
     const key = String(reason || "");
 
     if (isReviewReasonResolvedByConfirmedItemForPersist(key, data)) {
       return false;
+    }
+
+    // V17.90L37: Ein positionsbezogener Währungsfehler ist veraltet, wenn
+    // genau diese Position bereits mit positiver Menge und positivem Preis
+    // gespeichert wird. Ein echter Fremdwährungsposten bleibt dagegen als
+    // eigene 0-Preis-Prüfposition erhalten.
+    if (
+      key.startsWith("item_currency_mismatch:") ||
+      key.startsWith("currency_conflict_item:")
+    ) {
+      const serviceKey = parseCurrencyReviewService(key);
+      const matchingItem = items.find(
+        (candidate: any) =>
+          normalizeSearchText(
+            normalizeServiceNameForDisplay(candidate?.serviceName),
+          ) === serviceKey,
+      );
+      if (
+        matchingItem &&
+        Number(matchingItem?.unitPrice || 0) > 0 &&
+        Number(matchingItem?.quantity || 0) > 0 &&
+        !isEditableCurrencyReviewItemForPersistV17_90L37(matchingItem)
+      ) {
+        return false;
+      }
     }
 
     if (isUnitReviewResolvedByCompleteClientItemForPersist(key, data)) {
@@ -1038,13 +1100,16 @@ function normalizeReviewReasonsForPersist(data: any) {
       key.startsWith("currency_conflict_item:")
     );
   });
+  const hasEditableCurrencyReviewItem = items.some(
+    isEditableCurrencyReviewItemForPersistV17_90L37,
+  );
 
   return firstPass.filter((reason: string) => {
     const key = String(reason || "");
     if (
-      currencyReviewManuallyResolved &&
       allItemsCompleteIgnoringCurrency &&
       !hasRemainingItemCurrencyReview &&
+      !hasEditableCurrencyReviewItem &&
       (key === "currency_review" ||
         key === "currency_conflict" ||
         key === "currency_unsupported")
