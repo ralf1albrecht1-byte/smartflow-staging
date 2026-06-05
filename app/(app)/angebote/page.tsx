@@ -591,6 +591,95 @@ function OfferInfoTooltip({
   );
 }
 
+
+type OfferServiceReviewSummary = {
+  blockerCount: number;
+  reviewCount: number;
+  blockerTooltip: string;
+  reviewTooltip: string;
+};
+
+function buildOfferServiceReviewSummary(
+  offer: Offer,
+  services: any[],
+  currency: "CHF" | "EUR",
+): OfferServiceReviewSummary {
+  const blockers: string[] = [];
+  const reviews: string[] = [];
+
+  (offer.items || []).forEach((item: any) => {
+    const name = String(item?.description || "").trim() || "Leistung";
+    const quantity = Number(item?.quantity || 0);
+    const unitPrice = Number(item?.unitPrice || 0);
+    const unit = String(item?.unit || "").trim();
+    const normalizedName = normalizeOfferHint(name);
+    const matchedService = (services || []).find(
+      (service: any) => normalizeOfferHint(service?.name) === normalizedName,
+    );
+
+    if (
+      !name ||
+      quantity <= 0 ||
+      unitPrice <= 0 ||
+      !unit ||
+      /(?:prüfen|pruefen|prufen)/i.test(unit)
+    ) {
+      blockers.push(
+        `${name}: ${quantity <= 0 ? "Menge fehlt oder ist 0" : unitPrice <= 0 ? "Preis fehlt oder ist 0" : "Einheit prüfen"}.`,
+      );
+      return;
+    }
+
+    if (!matchedService) {
+      reviews.push(
+        `${name}: nicht im Leistungskatalog · ${unit} · ${formatCurrency(unitPrice, currency)}.`,
+      );
+      return;
+    }
+
+    const catalogUnit = String(matchedService?.unit || "").trim();
+    const catalogPrice = Number(matchedService?.defaultPrice || 0);
+    const sameUnit = !catalogUnit || unit === catalogUnit;
+    const samePrice = Math.abs(unitPrice - catalogPrice) < 0.001;
+
+    if (!sameUnit || !samePrice) {
+      const reasons = [
+        !sameUnit ? `Einheit ${unit || "–"} statt ${catalogUnit || "–"}` : "",
+        !samePrice
+          ? `Preis ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`
+          : "",
+      ].filter(Boolean);
+      reviews.push(`${name}: ${reasons.join(" · ")}.`);
+    }
+  });
+
+  return {
+    blockerCount: blockers.length,
+    reviewCount: reviews.length,
+    blockerTooltip: blockers.length
+      ? ["Preis/Menge prüfen", ...blockers].join("\n")
+      : "",
+    reviewTooltip: reviews.length
+      ? ["Leistungen prüfen", ...reviews].join("\n")
+      : "",
+  };
+}
+
+type OfferMobileTooltipState = {
+  key: string;
+  text?: string;
+  safetyWarnings?: string[];
+  jobHints?: string[];
+};
+
+type OfferCatalogDecision = {
+  index: number;
+  existing: any;
+  name: string;
+  price: number;
+  unit: string;
+};
+
 export default function AngebotePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -651,6 +740,10 @@ export default function AngebotePage() {
   });
   const [savingCust, setSavingCust] = useState(false);
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
+  const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
+  const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
+  const [catalogDecision, setCatalogDecision] = useState<OfferCatalogDecision | null>(null);
+  const [catalogDecisionSaving, setCatalogDecisionSaving] = useState(false);
 
   // Stage E (deterministic chip flow): pending customerId waiting for the
   // dialog to mount before opening the customer-edit section. Set by the chip
@@ -693,6 +786,7 @@ export default function AngebotePage() {
     null,
   );
   const executionAddressRef = useRef<HTMLDivElement | null>(null);
+  const serviceItemsRef = useRef<HTMLDivElement | null>(null);
   const offerDetailsRef = useRef<HTMLDivElement | null>(null);
 
   // Auto-fill customer data from order notes when dialog opens
@@ -872,6 +966,13 @@ export default function AngebotePage() {
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
   }, [dropdownOpenId]);
+
+  useEffect(() => {
+    if (serviceActionMenuIndex === null) return;
+    const closeMenu = () => setServiceActionMenuIndex(null);
+    document.addEventListener("click", closeMenu);
+    return () => document.removeEventListener("click", closeMenu);
+  }, [serviceActionMenuIndex]);
 
   const resolveS3Url = async (path: string): Promise<string> => {
     try {
@@ -1093,13 +1194,101 @@ export default function AngebotePage() {
   };
 
   const handleServiceCreated = (newSvc: ServiceOption) => {
-    setServices((prev: any[]) =>
-      [...prev, newSvc].sort((a, b) =>
+    setServices((prev: any[]) => {
+      const next = prev.filter(
+        (service: any) =>
+          service?.id !== (newSvc as any)?.id &&
+          normalizeOfferHint(service?.name) !== normalizeOfferHint(newSvc?.name),
+      );
+      return [...next, newSvc].sort((a, b) =>
         (a?.name ?? "").localeCompare(b?.name ?? "", "de", {
           sensitivity: "base",
         }),
-      ),
+      );
+    });
+  };
+
+  const saveOfferItemToServices = async (index: number) => {
+    const item = items[index];
+    if (!item?.description?.trim()) return;
+
+    const name = item.description.trim().replace(/\s+/g, " ");
+    const price = Number(item.unitPrice || 0);
+    const quantity = Number(item.quantity || 0);
+    const unit = String(item.unit || "").trim();
+
+    if (price <= 0 || quantity <= 0 || !unit) {
+      toast.error("Preis, Menge und Einheit zuerst prüfen");
+      return;
+    }
+
+    const existing = (services || []).find(
+      (service: any) =>
+        normalizeOfferHint(service?.name) === normalizeOfferHint(name),
     );
+
+    if (existing) {
+      const sameUnit = String(existing?.unit || "").trim() === unit;
+      const samePrice =
+        Math.abs(Number(existing?.defaultPrice || 0) - price) < 0.001;
+      if (sameUnit && samePrice) {
+        onItemServiceSelect(index, existing.name, existing);
+        setServiceActionMenuIndex(null);
+        toast.success("Leistung ist bereits passend im Leistungskatalog");
+        return;
+      }
+
+      setCatalogDecision({ index, existing, name, price, unit });
+      setServiceActionMenuIndex(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, defaultPrice: price, unit }),
+      });
+      if (!response.ok) throw new Error("service_create_failed");
+      const savedService: ServiceOption = await response.json();
+      handleServiceCreated(savedService);
+      onItemServiceSelect(index, savedService.name, savedService);
+      setServiceActionMenuIndex(null);
+      toast.success("Leistung wurde in den Leistungskatalog übernommen");
+    } catch {
+      toast.error("Leistung konnte nicht übernommen werden");
+    }
+  };
+
+  const updateOfferCatalogFromDecision = async () => {
+    if (!catalogDecision) return;
+    setCatalogDecisionSaving(true);
+    try {
+      const response = await fetch("/api/services", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: catalogDecision.existing.id,
+          name: catalogDecision.existing.name || catalogDecision.name,
+          defaultPrice: catalogDecision.price,
+          unit: catalogDecision.unit,
+        }),
+      });
+      if (!response.ok) throw new Error("service_update_failed");
+      const savedService: ServiceOption = await response.json();
+      handleServiceCreated(savedService);
+      onItemServiceSelect(
+        catalogDecision.index,
+        savedService.name,
+        savedService,
+      );
+      setCatalogDecision(null);
+      toast.success("Leistungskatalog wurde aktualisiert");
+    } catch {
+      toast.error("Leistungskatalog konnte nicht aktualisiert werden");
+    } finally {
+      setCatalogDecisionSaving(false);
+    }
   };
 
   const subtotal =
@@ -1164,7 +1353,7 @@ export default function AngebotePage() {
 
   const openOfferSection = (
     off: Offer,
-    section: "execution" | "details",
+    section: "execution" | "items" | "details",
     detail?: string,
   ) => {
     openEditOffer(off);
@@ -1173,9 +1362,22 @@ export default function AngebotePage() {
       const target =
         section === "execution"
           ? executionAddressRef.current
-          : offerDetailsRef.current;
+          : section === "items"
+            ? serviceItemsRef.current
+            : offerDetailsRef.current;
       target?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 160);
+  };
+
+  const toggleOfferMobileTooltip = (
+    payload: OfferMobileTooltipState,
+    event: any,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveMobileTooltip((current) =>
+      current?.key === payload.key ? null : payload,
+    );
   };
 
   /**
@@ -1192,6 +1394,8 @@ export default function AngebotePage() {
     setDupCheckOpen(false);
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
+    setServiceActionMenuIndex(null);
+    setCatalogDecision(null);
     // Reset customer form to prevent stale data leaking between records
     setNewCust({
       name: "",
@@ -1376,6 +1580,8 @@ export default function AngebotePage() {
     setExecutionSites([]);
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
+    setServiceActionMenuIndex(null);
+    setCatalogDecision(null);
     setShowNewCustomer(false);
     setEditingCustomer(false);
     setDialogOpen(true);
@@ -1439,9 +1645,30 @@ export default function AngebotePage() {
             ? "Angebot aktualisiert"
             : `Angebot ${saved?.offerNumber ?? ""} erstellt`,
         );
+        if (!editOfferId && saved?.id) setEditOfferId(saved.id);
+        setFromOrderId(null);
+        await load();
+      }
+    } catch {
+      toast.error("Fehler");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveAndClose = async () => {
+    setSaving(true);
+    try {
+      const saved = await saveOffer();
+      if (saved) {
+        toast.success(
+          editOfferId
+            ? "Angebot aktualisiert"
+            : `Angebot ${saved?.offerNumber ?? ""} erstellt`,
+        );
         setDialogOpen(false);
         setFromOrderId(null);
-        load();
+        await load();
       }
     } catch {
       toast.error("Fehler");
@@ -1741,6 +1968,61 @@ export default function AngebotePage() {
     }
   };
 
+  const renderActiveMobileTooltipSheet = () => {
+    if (!activeMobileTooltip) return null;
+    const safety = uniqueOfferLines(activeMobileTooltip.safetyWarnings || []);
+    const hints = uniqueOfferLines(activeMobileTooltip.jobHints || []).filter(
+      (line) => !safety.some((warning) => normalizeOfferHint(warning) === normalizeOfferHint(line)),
+    );
+    const textValue = String(activeMobileTooltip.text || "").trim();
+
+    return (
+      <div className="fixed inset-0 z-[12000] sm:hidden">
+        <button
+          type="button"
+          aria-label="Hinweis schließen"
+          className="absolute inset-0 cursor-default bg-black/5"
+          onClick={(event) => {
+            event.stopPropagation();
+            setActiveMobileTooltip(null);
+          }}
+        />
+        <div
+          className="fixed bottom-4 left-3 right-3 max-h-[72dvh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {safety.length > 0 && (
+            <div className="mb-2 rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+              <div className="mb-1 flex items-center gap-1 font-bold">
+                <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
+              </div>
+              {safety.map((line, index) => (
+                <div key={`offer_mobile_safety_${index}`} className="whitespace-pre-wrap break-words">
+                  • {line}
+                </div>
+              ))}
+            </div>
+          )}
+          {hints.length > 0 && (
+            <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+              <div className="mb-1 font-bold">Besonderheiten</div>
+              {hints.map((line, index) => (
+                <div key={`offer_mobile_hint_${index}`} className="whitespace-pre-wrap break-words">
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+          {textValue && (
+            <div className="whitespace-pre-wrap break-words">
+              {textValue}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   if (loading)
     return (
       <div className="flex items-center justify-center h-64">
@@ -1752,6 +2034,7 @@ export default function AngebotePage() {
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
+      {renderActiveMobileTooltipSheet()}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -1894,6 +2177,13 @@ export default function AngebotePage() {
                   const hasInfoTooltip =
                     parsedOfferNotes.safetyWarnings.length > 0 ||
                     parsedOfferNotes.jobHints.length > 0;
+                  const offerCurrency =
+                    off.currency === "EUR" ? "EUR" : "CHF";
+                  const serviceReview = buildOfferServiceReviewSummary(
+                    off,
+                    services,
+                    offerCurrency,
+                  );
                   return (
                     <motion.div
                       key={off?.id}
@@ -1903,7 +2193,10 @@ export default function AngebotePage() {
                     >
                       <Card
                         className="border-2 border-slate-300 hover:border-slate-400 hover:shadow-sm transition-all cursor-pointer tap-safe rounded-xl"
-                        onClick={() => openEditOffer(off)}
+                        onClick={() => {
+                          setActiveMobileTooltip(null);
+                          openEditOffer(off);
+                        }}
                       >
                         <CardContent className="px-3 py-2">
                           <div className="flex items-start gap-2">
@@ -2001,205 +2294,294 @@ export default function AngebotePage() {
 
                             {/* Main info — mirrored from the order-card layout */}
                             <div className="min-w-0 flex-1">
-                              {/* Mobile */}
-                              <div className="space-y-1.5 md:hidden">
-                                <div className="flex flex-wrap items-center gap-1 text-xs">
-                                  <span className="text-muted-foreground">
-                                    {(() => {
-                                      const dt = off.orders?.[0]?.createdAt || off.createdAt;
-                                      return dt
-                                        ? `${new Date(dt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} ${new Date(dt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
-                                        : "";
-                                    })()}
-                                  </span>
-                                  <span className="text-muted-foreground">·</span>
-                                  <span className="min-w-0 max-w-[12rem] truncate font-medium">
-                                    {isFallbackCustomerName(off?.customer?.name)
-                                      ? "⚠️ Kunde nicht zugeordnet"
-                                      : off?.customer?.name || "–"}
-                                  </span>
-                                  {off?.customer?.customerNumber && (
-                                    <span className="shrink-0 text-muted-foreground">
-                                      ({off.customer.customerNumber})
+                              {/* Mobile — same two-column structure as orders */}
+                              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_112px] gap-2 md:hidden">
+                                <div className="min-w-0 overflow-visible">
+                                  <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                                    <span className="shrink-0">
+                                      {(() => {
+                                        const dt = off.orders?.[0]?.createdAt || off.createdAt;
+                                        return dt
+                                          ? `${new Date(dt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} · ${new Date(dt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
+                                          : "";
+                                      })()}
                                     </span>
-                                  )}
-                                  {primaryExecutionSite && (
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        openOfferSection(off, "execution");
-                                      }}
-                                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-800"
-                                    >
-                                      <MapPin className="h-3 w-3 shrink-0" />
-                                      <span className="truncate">
-                                        {primaryExecutionSite.siteName ||
-                                          primaryExecutionSite.siteAddress ||
-                                          "Ausführungsadresse"}
-                                      </span>
-                                    </button>
-                                  )}
-                                </div>
-
-                                <p
-                                  className={`line-clamp-3 text-sm font-medium ${
-                                    isSonstiges
-                                      ? "text-red-600 dark:text-red-400"
-                                      : "text-foreground"
-                                  }`}
-                                >
-                                  {isSonstiges && "⚠ "}
-                                  {itemNames}
-                                </p>
-
-                                <div className="flex items-end justify-between gap-2">
-                                  <div className="min-w-0 flex-1 space-y-1">
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                      <select
-                                        onClick={(event) => event.stopPropagation()}
-                                        className="shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-medium"
-                                        style={getStatusStyle(
-                                          OFFER_STATUS_STYLES,
-                                          off?.status ?? "",
-                                        )}
-                                        value={off?.status ?? ""}
-                                        onChange={(event: any) => {
-                                          event.stopPropagation();
-                                          updateStatus(
-                                            off?.id,
-                                            event?.target?.value ?? "",
-                                          );
-                                        }}
-                                      >
-                                        {offerStatuses.map((status) => (
-                                          <option
-                                            key={status}
-                                            style={getStatusStyle(
-                                              OFFER_STATUS_STYLES,
-                                              status,
-                                            )}
-                                          >
-                                            {status}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <span className="font-mono text-[10px] text-muted-foreground">
-                                        {off?.offerNumber ?? ""}
-                                      </span>
-                                    </div>
-
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                      <div
-                                        className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
-                                        onClickCapture={(event) => {
-                                          const element = (
-                                            event.target as HTMLElement
-                                          ).closest<HTMLElement>(
-                                            "[aria-label], [title], button, a",
-                                          );
-                                          const detail =
-                                            element?.getAttribute("aria-label") ||
-                                            element?.getAttribute("title") ||
-                                            "Kontakt";
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          openOfferSection(off, "details", detail);
-                                        }}
-                                      >
-                                        <CommunicationChips
-                                          data={contactChipData}
-                                          compact
-                                          onAudioClick={() =>
-                                            orderCtx.mediaUrl &&
-                                            openMedia(orderCtx.mediaUrl, "audio")
-                                          }
-                                          onImageClick={() => {
-                                            const imgs = orderCtx.imageUrls;
-                                            if (imgs && imgs.length > 0)
-                                              openImageGallery(imgs);
-                                            else if (orderCtx.mediaUrl)
-                                              openMedia(orderCtx.mediaUrl, "image");
-                                          }}
-                                        />
-                                      </div>
-
-                                      {hasInfoTooltip && (
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            openOfferSection(
-                                              off,
-                                              "details",
-                                              [
-                                                ...parsedOfferNotes.safetyWarnings,
-                                                ...parsedOfferNotes.jobHints,
-                                              ].join("\n"),
-                                            );
-                                          }}
-                                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
-                                          aria-label="Besonderheiten anzeigen"
-                                        >
-                                          <Info className="h-4 w-4" />
-                                        </button>
-                                      )}
-
-                                      {dangerChips.map((chip) => (
-                                        <button
-                                          key={`mobile_${chip.key}`}
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            openOfferSection(off, "details", chip.title);
-                                          }}
-                                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-300 bg-red-100 text-[16px] text-red-800"
-                                          aria-label={chip.title}
-                                        >
-                                          {chip.icon}
-                                        </button>
-                                      ))}
-
-                                      {warningChips.map((chip) => (
-                                        <button
-                                          key={`mobile_${chip.key}`}
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            openOfferSection(off, "details", chip.title);
-                                          }}
-                                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-amber-300 bg-amber-100 text-[16px] text-amber-800"
-                                          aria-label={chip.title}
-                                        >
-                                          {chip.icon}
-                                        </button>
-                                      ))}
-                                    </div>
                                   </div>
 
-                                  <div className="shrink-0 text-right">
+                                  <div className="mt-0.5 flex min-w-0 items-center gap-1 overflow-hidden">
+                                    <span className="min-w-0 truncate text-[13px] font-semibold text-foreground">
+                                      {isFallbackCustomerName(off?.customer?.name)
+                                        ? "Kunde nicht zugeordnet"
+                                        : off?.customer?.name || "–"}
+                                    </span>
+                                    {off?.customer?.customerNumber && (
+                                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                                        ({off.customer.customerNumber})
+                                      </span>
+                                    )}
+                                    {primaryExecutionSite && (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:execution`,
+                                              text: [
+                                                "Ausführungsadresse",
+                                                primaryExecutionSite.siteName,
+                                                primaryExecutionSite.siteAddress,
+                                                [primaryExecutionSite.sitePlz, primaryExecutionSite.siteCity]
+                                                  .filter(Boolean)
+                                                  .join(" "),
+                                                primaryExecutionSite.siteNote,
+                                              ]
+                                                .filter(Boolean)
+                                                .join("\n"),
+                                            },
+                                            event,
+                                          )
+                                        }
+                                        className="inline-flex min-w-0 max-w-[8.5rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-800"
+                                        aria-label="Ausführungsadresse anzeigen"
+                                      >
+                                        <MapPin className="h-3 w-3 shrink-0" />
+                                        <span className="truncate">
+                                          {primaryExecutionSite.siteName ||
+                                            primaryExecutionSite.siteAddress ||
+                                            "Ausführungsadresse"}
+                                        </span>
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <p
+                                    className={`mt-1 line-clamp-2 text-[13px] font-medium leading-snug ${
+                                      isSonstiges
+                                        ? "text-red-600 dark:text-red-400"
+                                        : "text-foreground"
+                                    }`}
+                                  >
+                                    {isSonstiges && "⚠ "}
+                                    {itemNames}
+                                  </p>
+
+                                  <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
+                                    <select
+                                      onClick={(event) => event.stopPropagation()}
+                                      className="h-7 shrink-0 rounded-lg border px-1.5 text-[11px] font-medium"
+                                      style={getStatusStyle(
+                                        OFFER_STATUS_STYLES,
+                                        off?.status ?? "",
+                                      )}
+                                      value={off?.status ?? ""}
+                                      onChange={(event: any) => {
+                                        event.stopPropagation();
+                                        updateStatus(
+                                          off?.id,
+                                          event?.target?.value ?? "",
+                                        );
+                                      }}
+                                    >
+                                      {offerStatuses.map((status) => (
+                                        <option
+                                          key={status}
+                                          style={getStatusStyle(
+                                            OFFER_STATUS_STYLES,
+                                            status,
+                                          )}
+                                        >
+                                          {status}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                                      {off?.offerNumber ?? ""}
+                                    </span>
+
+                                    <div
+                                      className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClickCapture={(event) => {
+                                        const element = (
+                                          event.target as HTMLElement
+                                        ).closest<HTMLElement>(
+                                          "[aria-label], [title], button, a",
+                                        );
+                                        const detail =
+                                          element?.getAttribute("aria-label") ||
+                                          element?.getAttribute("title") ||
+                                          "Kontakt";
+                                        toggleOfferMobileTooltip(
+                                          {
+                                            key: `${off.id}:contact:${detail}`,
+                                            text: detail,
+                                          },
+                                          event,
+                                        );
+                                      }}
+                                    >
+                                      <CommunicationChips
+                                        data={contactChipData}
+                                        compact
+                                        onAudioClick={() =>
+                                          orderCtx.mediaUrl &&
+                                          openMedia(orderCtx.mediaUrl, "audio")
+                                        }
+                                        onImageClick={() => {
+                                          const imgs = orderCtx.imageUrls;
+                                          if (imgs && imgs.length > 0)
+                                            openImageGallery(imgs);
+                                          else if (orderCtx.mediaUrl)
+                                            openMedia(orderCtx.mediaUrl, "image");
+                                        }}
+                                      />
+                                    </div>
+
+                                    {hasInfoTooltip && (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:info`,
+                                              safetyWarnings:
+                                                parsedOfferNotes.safetyWarnings,
+                                              jobHints: parsedOfferNotes.jobHints,
+                                            },
+                                            event,
+                                          )
+                                        }
+                                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                                        aria-label="Besonderheiten anzeigen"
+                                      >
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    )}
+
+                                    {dangerChips.map((chip) => (
+                                      <button
+                                        key={`mobile_${chip.key}`}
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:${chip.key}`,
+                                              text: chip.title,
+                                            },
+                                            event,
+                                          )
+                                        }
+                                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-red-300 bg-red-100 text-[16px] text-red-800"
+                                        aria-label={chip.title}
+                                      >
+                                        {chip.icon}
+                                      </button>
+                                    ))}
+
+                                    {warningChips.map((chip) => (
+                                      <button
+                                        key={`mobile_${chip.key}`}
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:${chip.key}`,
+                                              text: chip.title,
+                                            },
+                                            event,
+                                          )
+                                        }
+                                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-amber-300 bg-amber-100 text-[16px] text-amber-800"
+                                        aria-label={chip.title}
+                                      >
+                                        {chip.icon}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
+                                  <div className="flex w-full flex-col items-end gap-1">
                                     {appointmentLabel && (
                                       <button
                                         type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          openOfferSection(
-                                            off,
-                                            "details",
-                                            appointmentLabel,
-                                          );
-                                        }}
-                                        className="mb-1 inline-flex rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:appointment`,
+                                              text: appointmentLabel,
+                                            },
+                                            event,
+                                          )
+                                        }
+                                        className="inline-flex max-w-full shrink-0 items-center rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700"
                                       >
-                                        {appointmentLabel}
+                                        <span className="truncate">{appointmentLabel}</span>
                                       </button>
                                     )}
+                                    {serviceReview.blockerCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:service_blocker`,
+                                              text: serviceReview.blockerTooltip,
+                                            },
+                                            event,
+                                          )
+                                        }
+                                        className="inline-flex max-w-full rounded-full border border-red-300 bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800"
+                                      >
+                                        Preis/Menge prüfen
+                                      </button>
+                                    )}
+                                    {serviceReview.reviewCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:service_review`,
+                                              text: serviceReview.reviewTooltip,
+                                            },
+                                            event,
+                                          )
+                                        }
+                                        className="inline-flex max-w-full rounded-full border border-yellow-400 bg-yellow-100 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
+                                      >
+                                        Leistungen prüfen · {serviceReview.reviewCount}
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <div className="whitespace-nowrap text-right leading-tight">
                                     <div className="font-mono text-[15px] font-bold tabular-nums">
                                       {formatCurrency(
                                         Number(off?.total ?? 0),
-                                        off.currency === "EUR" ? "EUR" : "CHF",
+                                        offerCurrency,
                                       )}
                                     </div>
+                                    {Number(off?.vatRate ?? 0) > 0 && (
+                                      <div className="text-[9px] leading-none text-muted-foreground">
+                                        inkl. MwSt
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -2207,7 +2589,7 @@ export default function AngebotePage() {
                               {/* Desktop/tablet */}
                               <div className="hidden min-w-0 items-stretch gap-3 md:flex">
                                 <div className="min-w-0 flex-1 overflow-visible">
-                                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+                                  <div className="flex min-w-0 items-center gap-x-1.5 text-xs">
                                     <span className="shrink-0 text-muted-foreground">
                                       {(() => {
                                         const dt = off.orders?.[0]?.createdAt || off.createdAt;
@@ -2217,7 +2599,7 @@ export default function AngebotePage() {
                                       })()}
                                     </span>
                                     <span className="shrink-0 text-muted-foreground">·</span>
-                                    <span className="min-w-0 max-w-[280px] truncate font-medium text-foreground">
+                                    <span className="min-w-0 max-w-[220px] truncate font-medium text-foreground">
                                       {isFallbackCustomerName(off?.customer?.name)
                                         ? "⚠️ Kunde nicht zugeordnet"
                                         : off?.customer?.name || "–"}
@@ -2402,17 +2784,45 @@ export default function AngebotePage() {
 
                                 <div className="ml-auto flex w-[280px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5">
                                   <div className="flex min-h-[22px] flex-wrap justify-end gap-1">
-                                    {off.items?.some(
-                                      (item: any) =>
-                                        Number(item.quantity) <= 0 ||
-                                        Number(item.unitPrice) <= 0,
-                                    ) && (
-                                      <Badge
-                                        variant="secondary"
-                                        className="border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] text-red-800"
+                                    {serviceReview.blockerCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(
+                                            off,
+                                            "items",
+                                            serviceReview.blockerTooltip,
+                                          );
+                                        }}
+                                        className="group relative inline-flex rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800"
                                       >
                                         Preis/Menge prüfen
-                                      </Badge>
+                                        <OfferPlainTooltip
+                                          text={serviceReview.blockerTooltip}
+                                          align="right"
+                                        />
+                                      </button>
+                                    )}
+                                    {serviceReview.reviewCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openOfferSection(
+                                            off,
+                                            "items",
+                                            serviceReview.reviewTooltip,
+                                          );
+                                        }}
+                                        className="group relative inline-flex rounded-full border border-yellow-400 bg-yellow-100 px-2 py-0.5 text-[11px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
+                                      >
+                                        Leistungen prüfen · {serviceReview.reviewCount}
+                                        <OfferPlainTooltip
+                                          text={serviceReview.reviewTooltip}
+                                          align="right"
+                                        />
+                                      </button>
                                     )}
                                   </div>
 
@@ -3104,11 +3514,32 @@ export default function AngebotePage() {
                     )}
                   </div>
 
-                  <div>
-                    <Label className="mb-2 block text-sm font-semibold">
-                      Leistungen *
-                    </Label>
-                    <div className="space-y-3">
+                  <div
+                    ref={serviceItemsRef}
+                    tabIndex={-1}
+                    className="scroll-mt-24 space-y-2 rounded-xl border bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <Label className="text-base font-semibold">
+                          Leistungen *
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={addItem}
+                        className="h-7 shrink-0 px-2 text-xs"
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        Leistung hinzufügen
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2">
                       {items?.map((item: OfferItem, idx: number) => {
                         const lineTotal =
                           Number(item?.unitPrice ?? 0) *
@@ -3133,28 +3564,37 @@ export default function AngebotePage() {
                           !matchedService ||
                           !catalogUnit ||
                           String(item?.unit ?? "").trim() === catalogUnit;
-                        const itemNeedsReview =
+                        const hasCriticalReview =
+                          !String(item?.description || "").trim() ||
                           Number(item?.unitPrice ?? 0) <= 0 ||
                           Number(item?.quantity ?? 0) <= 0 ||
+                          !String(item?.unit || "").trim() ||
+                          /(?:prüfen|pruefen|prufen)/i.test(String(item?.unit || ""));
+                        const itemNeedsReview =
+                          hasCriticalReview ||
                           !matchedService ||
                           !samePrice ||
                           !sameUnit;
+                        const isMenuOpen = serviceActionMenuIndex === idx;
+
                         return (
                           <div
                             key={idx}
-                            className={`min-w-0 space-y-3 rounded-xl border-2 p-3 shadow-sm ${
-                              itemNeedsReview
-                                ? "border-amber-300 bg-amber-50/60"
-                                : "border-slate-300 bg-slate-50/70"
+                            className={`relative min-w-0 space-y-1.5 rounded-lg border-2 p-2 shadow-sm ${
+                              hasCriticalReview
+                                ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                : itemNeedsReview
+                                  ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                  : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
                             }`}
                           >
-                            <div className="flex items-start gap-2">
-                              <div className="min-w-0 flex-1">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2">
+                              <div className="min-w-0">
                                 <ServiceCombobox
                                   value={item?.description ?? ""}
                                   services={services as ServiceOption[]}
-                                  onChange={(name, svc) =>
-                                    onItemServiceSelect(idx, name, svc)
+                                  onChange={(name, service) =>
+                                    onItemServiceSelect(idx, name, service)
                                   }
                                   onServiceCreated={handleServiceCreated}
                                   currentPrice={
@@ -3164,33 +3604,86 @@ export default function AngebotePage() {
                                   }
                                   currentUnit={item?.unit}
                                   contextLabel="Angebot"
+                                  showManualHint={false}
+                                  saveButtonPlacement="none"
                                 />
                               </div>
-                              <div className="shrink-0 text-right">
-                                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  Total
-                                </div>
-                                <div className="font-mono text-sm font-bold tabular-nums">
+
+                              <div className="shrink-0 pt-1 text-right text-[11px] leading-tight text-muted-foreground">
+                                <div>Total</div>
+                                <div className="whitespace-nowrap font-mono text-xs font-semibold text-foreground">
                                   {formatCurrency(lineTotal, currency)}
                                 </div>
                               </div>
-                              {items?.length > 1 && (
+
+                              {itemNeedsReview ? (
+                                <div className="relative shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setServiceActionMenuIndex((current) =>
+                                        current === idx ? null : idx,
+                                      );
+                                    }}
+                                    className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                    title="Aktionen"
+                                  >
+                                    <MoreVertical className="h-3.5 w-3.5" />
+                                  </button>
+
+                                  {isMenuOpen && (
+                                    <div
+                                      onClick={(event) => event.stopPropagation()}
+                                      className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                    >
+                                      {String(item?.description || "").trim() && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            saveOfferItemToServices(idx)
+                                          }
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                        >
+                                          <Plus className="h-3.5 w-3.5" />
+                                          In Leistungskatalog übernehmen
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          removeItem(idx);
+                                          setServiceActionMenuIndex(null);
+                                        }}
+                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                        Löschen
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : items.length > 1 ? (
                                 <button
                                   type="button"
                                   onClick={() => removeItem(idx)}
-                                  className="shrink-0 rounded-md p-1 text-destructive hover:bg-red-50 hover:text-destructive/80"
+                                  className="mt-0.5 shrink-0 rounded-md p-1.5 text-destructive hover:bg-red-50"
                                   title="Leistung entfernen"
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </button>
+                              ) : (
+                                <div className="h-7 w-7" aria-hidden="true" />
                               )}
                             </div>
 
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <div className="grid grid-cols-3 gap-1.5">
                               <div>
-                                <Label className="text-xs">Einheit</Label>
+                                <Label className="text-[10px] leading-none">
+                                  Einheit
+                                </Label>
                                 <select
-                                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                                  className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                                   value={item?.unit ?? "Stunde"}
                                   onChange={(event) =>
                                     updateItem(
@@ -3204,9 +3697,7 @@ export default function AngebotePage() {
                                   <option value="Tag">Tag</option>
                                   <option value="Pauschal">Pauschal</option>
                                   <option value="Meter">Meter</option>
-                                  <option value="Quadratmeter">
-                                    Quadratmeter
-                                  </option>
+                                  <option value="Quadratmeter">Quadratmeter</option>
                                   <option value="Kubikmeter">Kubikmeter</option>
                                   <option value="Stück">Stück</option>
                                   <option value="Kilogramm">Kilogramm</option>
@@ -3215,14 +3706,14 @@ export default function AngebotePage() {
                                 </select>
                               </div>
                               <div>
-                                <Label className="text-xs">
+                                <Label className="text-[10px] leading-none">
                                   Preis ({currency})
                                 </Label>
                                 <Input
                                   type="number"
                                   step="0.05"
                                   placeholder="prüfen"
-                                  className={`h-9 ${
+                                  className={`h-8 text-xs ${
                                     Number(item?.unitPrice ?? 0) <= 0
                                       ? "border-red-500 bg-red-50"
                                       : ""
@@ -3242,12 +3733,14 @@ export default function AngebotePage() {
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs">Menge</Label>
+                                <Label className="text-[10px] leading-none">
+                                  Menge
+                                </Label>
                                 <Input
                                   type="number"
                                   step="0.25"
                                   placeholder="prüfen"
-                                  className={`h-9 ${
+                                  className={`h-8 text-xs ${
                                     Number(item?.quantity ?? 0) <= 0
                                       ? "border-red-500 bg-red-50"
                                       : ""
@@ -3269,19 +3762,31 @@ export default function AngebotePage() {
                             </div>
 
                             {item?.description?.trim() && itemNeedsReview && (
-                              <div className="rounded-lg border border-amber-300 bg-amber-100/60 px-3 py-2 text-xs text-amber-900">
-                                <div className="font-semibold">⚠ Manuell prüfen</div>
+                              <div
+                                className={`rounded-lg border px-3 py-2 text-xs ${
+                                  hasCriticalReview
+                                    ? "border-red-300 bg-red-100/70 text-red-900"
+                                    : "border-amber-300 bg-amber-100/60 text-amber-900"
+                                }`}
+                              >
+                                <div className="font-semibold">
+                                  ⚠ {hasCriticalReview ? "Preis/Menge prüfen" : "Manuell prüfen"}
+                                </div>
                                 {!matchedService ? (
                                   <div className="mt-1">
-                                    Nicht im Leistungskatalog. Optional über Menü übernehmen.
+                                    Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen.
                                   </div>
                                 ) : (
                                   <div className="mt-1 space-y-0.5">
                                     <div>
                                       Katalog: {catalogUnit || "—"} · {formatCurrency(catalogPrice, currency)}
                                     </div>
-                                    {!sameUnit && <div>Einheit weicht vom Katalog ab.</div>}
-                                    {!samePrice && <div>Preis weicht vom Katalog ab.</div>}
+                                    {!sameUnit && (
+                                      <div>Einheit weicht vom Katalog ab.</div>
+                                    )}
+                                    {!samePrice && (
+                                      <div>Preis weicht vom Katalog ab.</div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -3290,16 +3795,6 @@ export default function AngebotePage() {
                         );
                       }) ?? []}
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-2 w-full border-2"
-                      onClick={addItem}
-                    >
-                      <Plus className="mr-1 h-3.5 w-3.5" />
-                      Weitere Leistung hinzufügen
-                    </Button>
                   </div>
 
                   <div className="space-y-4 border-t-4 border-slate-300 pt-4">
@@ -3417,7 +3912,7 @@ export default function AngebotePage() {
                           Abbrechen
                         </Button>
 
-                        <div className="order-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-2 lg:min-w-[430px]">
+                        <div className="order-1 grid grid-cols-1 gap-2 sm:grid-cols-3 lg:order-2 lg:min-w-[650px]">
                           <Button
                             type="button"
                             onClick={save}
@@ -3429,6 +3924,17 @@ export default function AngebotePage() {
                               : editOfferId
                                 ? "Speichern"
                                 : "Angebot erstellen"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={saveAndClose}
+                            disabled={saving}
+                            className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          >
+                            {editOfferId
+                              ? "Speichern & schließen"
+                              : "Erstellen & schließen"}
                           </Button>
                           <Button
                             type="button"
@@ -3724,6 +4230,94 @@ export default function AngebotePage() {
               Navigation between main lists now happens via the small
               mobile-only shortcut rendered at the END of the list page
               (see <MobileListShortcut /> below). */}
+        </DialogContent>
+      </Dialog>
+
+      {/* Catalog decision dialog — same conscious choice as in orders */}
+      <Dialog
+        open={!!catalogDecision}
+        onOpenChange={(open) => {
+          if (!open && !catalogDecisionSaving) setCatalogDecision(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Leistung im Katalog vorhanden</DialogTitle>
+          </DialogHeader>
+          {catalogDecision && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-950">
+                <div className="font-semibold">
+                  {catalogDecision.existing.name} existiert bereits im Leistungskatalog.
+                </div>
+                <div className="mt-1">
+                  Entscheide bewusst, ob dieses Angebot unverändert bleibt oder der Standard im Leistungskatalog global angepasst wird.
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="font-medium text-muted-foreground">
+                    Katalog aktuell
+                  </div>
+                  <div className="mt-1 font-semibold">
+                    {catalogDecision.existing.unit}
+                  </div>
+                  <div className="font-mono text-lg font-bold">
+                    {formatCurrency(
+                      Number(catalogDecision.existing.defaultPrice || 0),
+                      currency,
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="font-medium text-muted-foreground">
+                    Dieses Angebot
+                  </div>
+                  <div className="mt-1 font-semibold">
+                    {catalogDecision.unit}
+                  </div>
+                  <div className="font-mono text-lg font-bold">
+                    {formatCurrency(catalogDecision.price, currency)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={catalogDecisionSaving}
+                  onClick={() => {
+                    setCatalogDecision(null);
+                    toast.info("Angebotswert bleibt unverändert");
+                  }}
+                >
+                  Nur dieses Angebot unverändert lassen
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={catalogDecisionSaving}
+                  onClick={updateOfferCatalogFromDecision}
+                >
+                  {catalogDecisionSaving
+                    ? "Aktualisiere ..."
+                    : "Katalogpreis global aktualisieren"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  disabled={catalogDecisionSaving}
+                  onClick={() => setCatalogDecision(null)}
+                >
+                  Abbrechen
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
