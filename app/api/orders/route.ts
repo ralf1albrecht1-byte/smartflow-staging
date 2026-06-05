@@ -1218,6 +1218,35 @@ function getManuallyConfirmedServiceNamesForPersist(data: any): Set<string> {
   );
 }
 
+function isCurrencyReviewManuallyResolvedForPersist(data: any): boolean {
+  if (!hasCurrencyConflictReviewOnOrderLike(data || {})) return false;
+
+  const reasons = Array.isArray(data?.reviewReasons)
+    ? data.reviewReasons.map((reason: any) => String(reason || ""))
+    : [];
+  const confirmedServices = getManuallyConfirmedServiceNamesForPersist(data);
+  const itemCurrencyServices = reasons
+    .filter(
+      (reason: string) =>
+        reason.startsWith("item_currency_mismatch:") ||
+        reason.startsWith("currency_conflict_item:"),
+    )
+    .map((reason: string) => parseCurrencyReviewService(reason))
+    .filter(Boolean);
+
+  if (itemCurrencyServices.length > 0) {
+    return itemCurrencyServices.every((serviceName: string) =>
+      confirmedServices.has(serviceName),
+    );
+  }
+
+  const items = Array.isArray(data?.items) ? data.items : [];
+  return (
+    items.length > 0 &&
+    items.every((item: any) => isItemManuallyConfirmedForPersist(item))
+  );
+}
+
 function isReviewReasonResolvedByConfirmedItemForPersist(
   reason: string,
   data: any,
@@ -1489,6 +1518,8 @@ function normalizeReviewReasonsForPersist(data: any) {
   const allItemsComplete = hasCompleteManualItemsForPersist(data);
   const allItemsCompleteIgnoringCurrency =
     hasCompleteManualItemsIgnoringCurrencyForPersist(data);
+  const currencyReviewManuallyResolved =
+    isCurrencyReviewManuallyResolvedForPersist(data);
 
   const firstPass = reasons.filter((reason: string) => {
     const key = String(reason || "");
@@ -1533,9 +1564,12 @@ function normalizeReviewReasonsForPersist(data: any) {
   return firstPass.filter((reason: string) => {
     const key = String(reason || "");
     if (
+      currencyReviewManuallyResolved &&
       allItemsCompleteIgnoringCurrency &&
       !hasRemainingItemCurrencyReview &&
-      (key === "currency_review" || key === "currency_conflict")
+      (key === "currency_review" ||
+        key === "currency_conflict" ||
+        key === "currency_unsupported")
     ) {
       return false;
     }

@@ -19,9 +19,14 @@ import {
 } from "@/lib/currency";
 
 const CRITICAL_SOURCE_ORDER_REVIEW_PATTERNS = [
+  /^address_role_uncertain$/,
+  /^customer_address_quarantined_ambiguous_role_v17_61$/,
+  /^execution_address_incomplete$/,
   /^currency_/,
   /^item_currency_mismatch/,
+  /^currency_conflict_item:/,
   /^unit_mismatch:/,
+  /^unit_missing_in_text:/,
   /^unit_price_review$/,
   /^quantity_review$/,
   /^price_unclear:/,
@@ -58,17 +63,10 @@ const hasSourceOrderAllItemsResolvedForDocument = (order: any) => {
 };
 
 const isResolvableSourceOrderReviewReason = (reason: string) =>
-  reason.startsWith("currency_") ||
-  reason.startsWith("item_currency_mismatch") ||
-  reason.startsWith("currency_conflict_item:") ||
   reason.startsWith("price_unclear:") ||
   reason.startsWith("price_override:") ||
   reason.startsWith("unit_mismatch:") ||
-  reason.startsWith("unit_missing_in_text:") ||
-  reason === "unit_price_review" ||
-  reason === "unbekannte_leistung_pruefen" ||
-  reason === "stunden_arbeitsposition_pruefen" ||
-  reason === "manual_flat_service_from_text";
+  reason === "unit_price_review";
 
 function sourceOrderBlockers(order: any): string[] {
   const blockers: string[] = [];

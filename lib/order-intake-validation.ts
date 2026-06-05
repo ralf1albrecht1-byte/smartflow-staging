@@ -10244,7 +10244,7 @@ const STOP_MARKER =
   /\b(rechnungsadresse|rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|auftraggeber|besteller|zahler|factura|fatura|fattura|facture|kunde|kundendaten|kontakt\s+vor\s+ort|kontaktperson|ansprechperson|person\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet|macht|kommt)|zugang|hauswart|hausmeister|concierge|leistung|leistungen|preis|preise|kosten|telefon|tel\.?|e-mail|email|mail|bemerkung|bemerkungen|hinweis|hinweise|notiz|notizen|termin|datum|mwst|währung|waehrung|kundennachricht|whatsapp|titel|title)\b/i;
 
 const ADDRESS_WORD_PATTERN =
-  /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)/i;
+  /(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|quai|boulevard|bd\.?|place|cours|promenade|impasse|passage|via|viale|calle|camino|street|road|lane)/i;
 
 function cleanAddressLine(value: string): string {
   return normalizeText(value)
@@ -10306,10 +10306,10 @@ function parseStreet(value: string): string | null {
     if (candidate) streetCandidates.push(candidate);
   }
 
-  // French/Italian multi-word street names: "Rue du Lac 18",
-  // "Avenue des Fleurs 9", "Chemin de la Gare 4".
+  // Mehrsprachige, strukturierte Strassennamen: "Rue du Lac 18",
+  // "Quai du Mont-Blanc 24", "Avenue des Fleurs 9", "Via Roma 4".
   const foreignStreet = new RegExp(
-    `\\b((?:rue|avenue|av\\.?|chemin|via|viale)\\s+[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|[A-ZÄÖÜa-zäöüß][A-Za-zÄÖÜäöüß'.-]*)){0,6}\\s+${houseNumber})\\b`,
+    `\\b((?:rue|avenue|av\\.?|chemin|quai|boulevard|bd\\.?|place|cours|promenade|impasse|passage|route|via|viale|calle|camino)\\s+[A-ZÄÖÜÀ-ÖØ-öø-ÿa-zäöüß][A-Za-zÄÖÜÀ-ÖØ-öø-ÿäöüß'’.-]*(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|[A-ZÄÖÜÀ-ÖØ-öø-ÿa-zäöüß][A-Za-zÄÖÜÀ-ÖØ-öø-ÿäöüß'’.-]*)){0,8}\\s+${houseNumber})\\b`,
     "gi",
   );
 
@@ -10360,6 +10360,41 @@ function parsePlzCity(value: string): {
     plz: match[1] || null,
     city: city || null,
   };
+}
+
+function parseCityWithoutPlz(value: string): string | null {
+  const source = normalizeText(value);
+  if (!source) return null;
+
+  const candidates = source
+    .split(/[,;\n]+/g)
+    .map((part) =>
+      part
+        .replace(EXECUTION_ADDRESS_MARKER, " ")
+        .replace(STOP_MARKER, " ")
+        .replace(/[.\s]+$/g, "")
+        .replace(/^[:\-–—\s]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean)
+    .reverse();
+
+  for (const candidate of candidates) {
+    if (candidate.length < 2 || candidate.length > 60) continue;
+    if (/\d/.test(candidate)) continue;
+    if (!/[A-Za-zÄÖÜÀ-ÖØ-öø-ÿäöüß]/.test(candidate)) continue;
+    if (ADDRESS_WORD_PATTERN.test(candidate)) continue;
+    if (
+      /\b(?:reinigen|reinigung|putzen|schneiden|entfernen|streichen|montieren|reparieren|chf|eur|euro|preis|kosten|telefon|whatsapp|sms)\b/i.test(
+        candidate,
+      )
+    )
+      continue;
+    return candidate;
+  }
+
+  return null;
 }
 
 function stripMarker(value: string) {
@@ -10589,7 +10624,7 @@ function extractInlineExecutionAddressCandidate(
   const customerCityKey = normalizeCompare(customer?.customerCity || "");
   const afterStreetKey = normalizeCompare(afterStreet);
   let sitePlz = plzCity.plz;
-  let siteCity = plzCity.city;
+  let siteCity = plzCity.city || parseCityWithoutPlz(afterStreet);
 
   // V17.90L26: one-line customer messages often write the execution address
   // as "Baustelle Hof links Badenerstrasse 92 Zürich" without repeating the
@@ -10854,8 +10889,11 @@ export function extractExecutionAddressFromText(
       .find((candidate) => candidate.plz && candidate.city);
 
     const fallbackPlzCity = parsePlzCity(blockLines.join(" "));
-    const sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
-    const siteCity = plzCityFromLine?.city || fallbackPlzCity.city;
+    let sitePlz = plzCityFromLine?.plz || fallbackPlzCity.plz;
+    let siteCity =
+      plzCityFromLine?.city ||
+      fallbackPlzCity.city ||
+      parseCityWithoutPlz(blockLines.join(", "));
 
     if (!siteAddress && !(sitePlz && siteCity)) continue;
 

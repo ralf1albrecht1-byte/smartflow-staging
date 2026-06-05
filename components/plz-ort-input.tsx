@@ -32,7 +32,7 @@
  * This component only updates parent state via callbacks. It never calls the
  * backend save endpoints — the parent's existing save flow is untouched.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import swissPostalCodes from '@onebyte/swiss-postal-codes';
@@ -265,6 +265,11 @@ export function PlzOrtInput({
   hideCountrySelector = false,
 }: PlzOrtInputProps) {
   const effectiveCountry: PlzCountry = normalizeCountry(country);
+  // Isolate browser address autofill to this PLZ/Ort pair. Without an explicit
+  // section, Chrome/Edge can treat unrelated inputs on the page (for example
+  // the Auftrag search field) as part of the saved address and fill them too.
+  const autoCompleteInstanceId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const autoCompleteSection = `section-smartflow-${autoCompleteInstanceId || 'address'}`;
 
   // Per-country dataset (lazy loaded, cached module-wide)
   const [dataset, setDataset] = useState<PlzOrtEntry[]>(
@@ -337,6 +342,8 @@ export function PlzOrtInput({
           <Label className={labelCls}>{landLabel}{required ? ' *' : ''}</Label>
           <select
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            name={`${autoCompleteSection}-country`}
+            autoComplete={`${autoCompleteSection} country`}
             value={effectiveCountry}
             onChange={(e) => onCountryChange?.(e.target.value as PlzCountry)}
           >
@@ -354,7 +361,8 @@ export function PlzOrtInput({
           <Label className={labelCls}>{plzLabel}{required ? ' *' : ''}</Label>
           <Input
             type="text"
-            autoComplete="postal-code"
+            name={`${autoCompleteSection}-postal-code`}
+            autoComplete={`${autoCompleteSection} postal-code`}
             inputMode={inputMode as 'numeric' | 'text'}
             placeholder={plzPh}
             value={plzValue ?? ''}
@@ -398,7 +406,8 @@ export function PlzOrtInput({
           <Label className={labelCls}>{ortLabel}{required ? ' *' : ''}</Label>
           <Input
             type="text"
-            autoComplete="address-level2"
+            name={`${autoCompleteSection}-address-level2`}
+            autoComplete={`${autoCompleteSection} address-level2`}
             placeholder={ortPh}
             value={ortValue ?? ''}
             onChange={(e) => { onOrtChange(e.target.value); if (suggestionsEnabled) setOrtOpen(true); }}

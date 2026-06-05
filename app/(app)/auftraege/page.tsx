@@ -508,6 +508,15 @@ const CUSTOMER_REVIEW_REASONS = new Set([
   "customer_data_incomplete",
 ]);
 
+const isResolvedCustomerReviewReasonV17_90L36 = (reason?: string | null) => {
+  const key = String(reason || "").trim();
+  return (
+    CUSTOMER_REVIEW_REASONS.has(key) ||
+    key === "customer_data_uncertain_no_billing_block" ||
+    key === "intake_risk:billing_customer_missing_or_uncertain"
+  );
+};
+
 const hasRealCustomerReviewReason = (order: Order) => {
   return (
     order.reviewReasons?.some((reason) =>
@@ -3885,6 +3894,108 @@ const normalizeAddressPartForCompare = (value?: string | null) =>
     .replace(/\s+/g, " ")
     .trim();
 
+type AddressReviewCandidateV17_90L36 = {
+  siteName: string;
+  siteAddress: string;
+  sitePlz: string;
+  siteCity: string;
+  siteNote: string;
+};
+
+const repairInlineAddressReviewCandidateV17_90L36 = (
+  candidate: AddressReviewCandidateV17_90L36,
+): AddressReviewCandidateV17_90L36 => {
+  const result = { ...candidate };
+  const source = [candidate.siteName, candidate.siteAddress, candidate.siteNote]
+    .map(compactText)
+    .filter(Boolean)
+    .join(", ");
+
+  if (!source) return result;
+
+  const segments = source
+    .split(/[,;\n]+/g)
+    .map((part) => part.replace(/[.\s]+$/g, "").trim())
+    .filter(Boolean);
+
+  const houseNumber = "\\d+[a-zA-Z]?(?:\\s*[/-]\\s*\\d+[a-zA-Z]?)?";
+  const streetSuffix =
+    "(?:strasse|straße|str\\.?|weg|gasse|platz|allee|ring|rain|halde|steig|street|road|lane)";
+  const foreignStreetType =
+    "(?:rue|avenue|av\\.?|chemin|quai|boulevard|bd\\.?|place|cours|promenade|impasse|passage|route|via|viale|calle|camino)";
+  const word = "[A-ZÄÖÜÀ-ÖØ-Þa-zäöüßà-öø-ÿ][A-Za-zÄÖÜÀ-ÖØ-öø-ÿäöüß'’.-]*";
+  const foreignStreetPattern = new RegExp(
+    `\\b(${foreignStreetType}\\s+${word}(?:\\s+(?:de|des|du|del|della|la|le|les|l['’]?|d['’]?|${word})){0,8}\\s+${houseNumber})\\b`,
+    "i",
+  );
+  const suffixStreetPattern = new RegExp(
+    `\\b((?:${word}\\s+){0,3}${word}${streetSuffix}\\s+${houseNumber})\\b`,
+    "i",
+  );
+
+  let street = compactText(result.siteAddress);
+  let streetSegmentIndex = -1;
+  let matchedStreet = "";
+
+  segments.some((segment, index) => {
+    const match = segment.match(foreignStreetPattern) || segment.match(suffixStreetPattern);
+    if (!match?.[1]) return false;
+    matchedStreet = compactText(match[1]);
+    streetSegmentIndex = index;
+    return true;
+  });
+
+  if (!street && matchedStreet) street = matchedStreet;
+
+  let plz = compactText(result.sitePlz);
+  let city = compactText(result.siteCity);
+
+  const citySegments = streetSegmentIndex >= 0
+    ? segments.slice(streetSegmentIndex + 1)
+    : segments;
+
+  for (const segment of citySegments) {
+    const plzCityMatch = segment.match(/^\s*(\d{4,5})\s+(.+?)\s*$/);
+    if (plzCityMatch) {
+      plz = plz || compactText(plzCityMatch[1]);
+      city = city || compactText(plzCityMatch[2]);
+      break;
+    }
+  }
+
+  if (!city) {
+    const cityOnly = citySegments.find((segment) => {
+      const value = compactText(segment);
+      return (
+        value.length >= 2 &&
+        value.length <= 60 &&
+        !/\d/.test(value) &&
+        /[A-Za-zÄÖÜÀ-ÖØ-öø-ÿäöüß]/.test(value)
+      );
+    });
+    city = compactText(cityOnly);
+  }
+
+  let siteName = compactText(result.siteName);
+  if (streetSegmentIndex > 0) {
+    siteName = compactText(segments.slice(0, streetSegmentIndex).join(", "));
+  } else if (matchedStreet && siteName) {
+    siteName = compactText(
+      siteName
+        .replace(new RegExp(matchedStreet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), "")
+        .replace(/[,;\s]+$/g, ""),
+    );
+  }
+
+  return {
+    siteName,
+    siteAddress: street,
+    sitePlz: plz,
+    siteCity: city,
+    siteNote: compactText(result.siteNote),
+  };
+};
+
 const hasDifferentExecutionAddressForBadge = (order: Order) => {
   if (!order.siteAddressDifferent) return false;
 
@@ -4301,9 +4412,46 @@ const getSystemBadges = (
     });
   }
 
-  const hasCurrencyReview =
-    order.reviewReasons?.some((reason) => reason.startsWith("currency_")) ??
-    false;
+  const hardIntakeRiskReasons = (order.reviewReasons || []).filter((reason) =>
+    /^(?:intake_risk:(?:special_notes_polluted|appointment_note_incomplete|appointment_hint_missing|item_evidence_not_line_local|service_name_unresolved|priced_item_total_blocked|priced_service_line_missing_or_mismatched|order_total_mismatch))$/.test(
+      String(reason || ""),
+    ),
+  );
+
+  if (hardIntakeRiskReasons.length > 0) {
+    const labels: Record<string, string> = {
+      "intake_risk:special_notes_polluted":
+        "Besonderheiten enthalten vermischte Auftragsdaten.",
+      "intake_risk:appointment_note_incomplete":
+        "Terminangabe ist unvollständig.",
+      "intake_risk:appointment_hint_missing":
+        "Terminwunsch wurde nicht eindeutig übernommen.",
+      "intake_risk:item_evidence_not_line_local":
+        "Mindestens eine Leistung enthält vermischte Textbelege.",
+      "intake_risk:service_name_unresolved":
+        "Mindestens eine Leistung ist noch unklar.",
+      "intake_risk:priced_item_total_blocked":
+        "Eine bepreiste Position ist noch blockiert.",
+      "intake_risk:priced_service_line_missing_or_mismatched":
+        "Eine Preiszeile stimmt nicht eindeutig mit der gespeicherten Leistung überein.",
+      "intake_risk:order_total_mismatch":
+        "Die gespeicherte Auftragssumme stimmt nicht mit den Positionen überein.",
+    };
+    pushUniqueBadge(badges, {
+      key: "hard_order_review",
+      label: "Auftrag prüfen",
+      className: "bg-red-100 text-red-700 border border-red-300",
+      icon: true,
+      tooltip: hardIntakeRiskReasons
+        .map((reason) => labels[reason] || "Auftrag muss geprüft werden.")
+        .join("\n"),
+      focusTarget: "items",
+    });
+  }
+
+  const hasCurrencyReview = hasAnyCurrencyReviewReason(
+    order.reviewReasons,
+  );
 
   if (hasCurrencyReview) {
     pushUniqueBadge(badges, {
@@ -5669,13 +5817,23 @@ const CRITICAL_CONVERSION_REVIEW_PATTERNS = [
   /^execution_address_incomplete$/,
   /^currency_/,
   /^item_currency_mismatch/,
+  /^currency_conflict_item:/,
   /^unit_mismatch:/,
+  /^unit_missing_in_text:/,
   /^unit_price_review$/,
   /^quantity_review$/,
   /^price_unclear:/,
   /^stunden_arbeitsposition_pruefen$/,
   /^total_unrealistic_check$/,
   /^currency_unsupported$/,
+  /^intake_risk:special_notes_polluted$/,
+  /^intake_risk:appointment_note_incomplete$/,
+  /^intake_risk:appointment_hint_missing$/,
+  /^intake_risk:item_evidence_not_line_local$/,
+  /^intake_risk:service_name_unresolved$/,
+  /^intake_risk:priced_item_total_blocked$/,
+  /^intake_risk:priced_service_line_missing_or_mismatched$/,
+  /^intake_risk:order_total_mismatch$/,
 ];
 
 const isPersistedManualCurrencyConfirmedItem = (item: any) =>
@@ -5694,10 +5852,8 @@ const hasOrderAllItemsManuallyResolvedForConversion = (order: Order | any) => {
 };
 
 const isResolvableConversionReviewReason = (reason: string) =>
-  reason.startsWith("currency_") ||
-  reason.startsWith("item_currency_mismatch") ||
-  reason.startsWith("currency_conflict_item:") ||
   reason.startsWith("price_unclear:") ||
+  reason.startsWith("unit_mismatch:") ||
   reason === "unit_price_review";
 
 const getOrderConversionBlockers = (order: Order | any): string[] => {
@@ -5775,6 +5931,20 @@ const blockConversionIfUnsafe = (
   return true;
 };
 
+const formatDocumentApiBlockersV17_90L36 = (payload: any): string => {
+  const rawBlockers = Array.isArray(payload?.blockers) ? payload.blockers : [];
+  const blockers = rawBlockers.flatMap((entry: any) =>
+    Array.isArray(entry?.blockers)
+      ? entry.blockers
+      : typeof entry === "string"
+        ? [entry]
+        : [],
+  );
+  return Array.from(new Set(blockers.map(compactText).filter(Boolean)))
+    .slice(0, 3)
+    .join(", ");
+};
+
 export default function AuftraegePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -5785,6 +5955,7 @@ export default function AuftraegePage() {
   const [loadError, setLoadError] = useState<string[] | null>(null);
   const [statusFilter, setStatusFilter] = useState("Alle");
   const [search, setSearch] = useState("");
+  const [searchInputActive, setSearchInputActive] = useState(false);
   const [sortBy, setSortBy] = useState<
     "newest" | "oldest" | "name" | "amount" | "review"
   >("newest");
@@ -7203,33 +7374,49 @@ export default function AuftraegePage() {
       formWorkSites.find((site) => Boolean(site.isPrimary)) ||
       formWorkSites[0] ||
       null;
-    const siteName =
-      cleanWorkSiteDisplayName(primarySite?.siteName) ||
-      cleanWorkSiteDisplayName(form.siteName) ||
-      "";
-    const siteAddress =
-      compactText(primarySite?.siteAddress) || compactText(form.siteAddress);
-    const sitePlz =
-      compactText(primarySite?.sitePlz) || compactText(form.sitePlz);
-    const siteCity =
-      compactText(primarySite?.siteCity) || compactText(form.siteCity);
-    const siteNote =
-      compactText(primarySite?.siteNote) || compactText(form.siteNote);
+    const rawCandidate = {
+      siteName:
+        cleanWorkSiteDisplayName(primarySite?.siteName) ||
+        cleanWorkSiteDisplayName(form.siteName) ||
+        "",
+      siteAddress:
+        compactText(primarySite?.siteAddress) || compactText(form.siteAddress),
+      sitePlz:
+        compactText(primarySite?.sitePlz) || compactText(form.sitePlz),
+      siteCity:
+        compactText(primarySite?.siteCity) || compactText(form.siteCity),
+      siteNote:
+        compactText(primarySite?.siteNote) || compactText(form.siteNote),
+    };
+    const repairedCandidate =
+      repairInlineAddressReviewCandidateV17_90L36(rawCandidate);
     const hasAny = Boolean(
-      siteName || siteAddress || sitePlz || siteCity || siteNote,
+      repairedCandidate.siteName ||
+        repairedCandidate.siteAddress ||
+        repairedCandidate.sitePlz ||
+        repairedCandidate.siteCity ||
+        repairedCandidate.siteNote,
     );
-    const hasCompleteAddress = Boolean(siteAddress && sitePlz && siteCity);
+    const hasCompleteAddress = Boolean(
+      repairedCandidate.siteAddress &&
+        repairedCandidate.sitePlz &&
+        repairedCandidate.siteCity,
+    );
 
     return {
-      siteName,
-      siteAddress,
-      sitePlz,
-      siteCity,
-      siteNote,
+      ...repairedCandidate,
       hasAny,
       hasCompleteAddress,
     };
   })();
+
+  const currentBillingCustomerV17_90L36 =
+    customers.find((customer: Customer) => customer.id === form.customerId) ||
+    currentEditOrder?.customer ||
+    null;
+  const hasLinkedExistingBillingCustomerV17_90L36 = Boolean(
+    form.customerId && currentBillingCustomerV17_90L36?.id,
+  );
 
   const isSameAddressPartsV17_63 = (
     left: {
@@ -7362,12 +7549,13 @@ export default function AuftraegePage() {
   const persistAddressReviewPatchV17_64 = async (
     formPatch: Partial<typeof form>,
     workSitesPatch?: OrderWorkSite[],
+    options?: { resolveAddressReview?: boolean },
   ): Promise<Order | null> => {
     if (!editId) return null;
 
-    const nextReviewReasons = removeAddressRoleReviewReasonsV17_64(
-      currentEditReviewReasons,
-    );
+    const nextReviewReasons = options?.resolveAddressReview
+      ? removeAddressRoleReviewReasonsV17_64(currentEditReviewReasons)
+      : [...currentEditReviewReasons];
     const payload: any = {
       ...formPatch,
       reviewReasons: nextReviewReasons,
@@ -7414,6 +7602,12 @@ export default function AuftraegePage() {
     const candidate = addressRoleReviewCandidateV17_62;
     if (!candidate.hasAny) {
       toast.error("Keine erkannte Adresse zum Übernehmen vorhanden.");
+      return;
+    }
+    if (hasLinkedExistingBillingCustomerV17_90L36) {
+      toast.error(
+        "Ein bestehender Kunde ist bereits zugeordnet. Die Rechnungsadresse bitte nur über Kunde bearbeiten ändern.",
+      );
       return;
     }
 
@@ -7547,16 +7741,33 @@ export default function AuftraegePage() {
     setExpandedWorkSiteIds((prev) =>
       prev.includes(siteId) ? prev : [siteId, ...prev],
     );
-    setSiteAddressEditing(false);
+    const hasCompleteExecutionAddress = Boolean(
+      nextSite.siteAddress && nextSite.sitePlz && nextSite.siteCity,
+    );
+    setSiteAddressEditing(!hasCompleteExecutionAddress);
 
     setSaving(true);
     try {
       const saved = await persistAddressReviewPatchV17_64(
         nextFormPatch,
         nextWorkSites,
+        { resolveAddressReview: hasCompleteExecutionAddress },
       );
-      if (saved)
-        toast.success("Ausführungsadresse übernommen und gespeichert.");
+      if (saved) {
+        if (hasCompleteExecutionAddress) {
+          toast.success("Ausführungsadresse übernommen und gespeichert.");
+        } else {
+          toast.info(
+            "Ausführungsadresse übernommen. Bitte Strasse, PLZ und Ort vollständig ergänzen.",
+          );
+          window.setTimeout(() => {
+            executionAddressRef.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+          }, 40);
+        }
+      }
     } catch {
       toast.error("Adressprüfung konnte nicht gespeichert werden");
     } finally {
@@ -8403,7 +8614,8 @@ export default function AuftraegePage() {
             ),
           );
           setForm((f) => ({ ...f, customerId: updated.id }));
-          // Clear needsReview if address is now complete (Straße + PLZ + Ort)
+          // Nur erledigte Kunden-Prüfungen entfernen. Währungs-, Leistungs-
+          // und Ausführungsadress-Blocker müssen unverändert erhalten bleiben.
           if (
             editId &&
             updated.name?.trim() &&
@@ -8412,21 +8624,32 @@ export default function AuftraegePage() {
             updated.city?.trim()
           ) {
             const curOrder = orders.find((o: Order) => o.id === editId);
-            if (curOrder?.needsReview) {
+            if (curOrder) {
+              const remainingReviewReasons = (curOrder.reviewReasons || []).filter(
+                (reason) => !isResolvedCustomerReviewReasonV17_90L36(reason),
+              );
               try {
-                await fetch(`/api/orders/${editId}`, {
+                const reviewRes = await fetch(`/api/orders/${editId}`, {
                   method: "PUT",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    needsReview: false,
-                    reviewReasons: [],
+                    needsReview: remainingReviewReasons.length > 0,
+                    reviewReasons: remainingReviewReasons,
                   }),
                 });
-                setOrders((prev) =>
-                  prev.map((o) =>
-                    o.id === editId ? { ...o, needsReview: false } : o,
-                  ),
-                );
+                if (reviewRes.ok) {
+                  setOrders((prev) =>
+                    prev.map((o) =>
+                      o.id === editId
+                        ? {
+                            ...o,
+                            needsReview: remainingReviewReasons.length > 0,
+                            reviewReasons: remainingReviewReasons,
+                          }
+                        : o,
+                    ),
+                  );
+                }
               } catch {}
             }
           }
@@ -8444,6 +8667,7 @@ export default function AuftraegePage() {
                 siteNote: "",
               },
               clearedWorkSites,
+              { resolveAddressReview: true },
             );
             setPendingBillingAddressRoleAutoSaveV17_64(false);
             toast.success(
@@ -8486,6 +8710,7 @@ export default function AuftraegePage() {
                 siteNote: "",
               },
               clearedWorkSites,
+              { resolveAddressReview: true },
             );
             setPendingBillingAddressRoleAutoSaveV17_64(false);
             toast.success(
@@ -8662,6 +8887,42 @@ export default function AuftraegePage() {
         .filter(Boolean),
     );
 
+    const currentCurrencyMismatchDetails = getCurrencyMismatchReviewDetails(
+      currentEditReviewReasons,
+    );
+    const allItemCurrencyReviewsManuallyResolved =
+      currentCurrencyMismatchDetails.length > 0 &&
+      currentCurrencyMismatchDetails.every((detail) =>
+        manuallyConfirmedServiceNames.has(
+          normalizeForMatch(
+            canonicalServiceNameForOrderItem(detail.serviceName),
+          ),
+        ),
+      );
+    const allGlobalCurrencyItemsManuallyResolved =
+      hasCurrentEditCurrencyReview &&
+      currentCurrencyMismatchDetails.length === 0 &&
+      validItems.length > 0 &&
+      validItems.every((item) => isManuallyConfirmedCurrencyItem(item));
+    const currencyReviewManuallyResolved =
+      allItemCurrencyReviewsManuallyResolved ||
+      allGlobalCurrencyItemsManuallyResolved;
+
+    const hasExecutionAddressEvidenceForReview = Boolean(
+      addressRoleReviewCandidateV17_62.hasAny ||
+        form.siteAddressDifferent ||
+        cleanWorkSites.some(
+          (site) =>
+            site.siteName?.trim() ||
+            site.siteAddress?.trim() ||
+            site.sitePlz?.trim() ||
+            site.siteCity?.trim(),
+        ),
+    );
+    const hasResolvedAddressRoleForReview = hasExecutionAddressEvidenceForReview
+      ? hasResolvedExecutionAddressForReview
+      : hasResolvedBillingAddressForReview;
+
     const isReviewReasonResolvedByManualUnit = (reason: string) => {
       const key = String(reason || "");
       if (!key.startsWith("unit_missing_in_text:")) return false;
@@ -8711,11 +8972,15 @@ export default function AuftraegePage() {
           }
 
           if (
+            currencyReviewManuallyResolved &&
+            reason.startsWith("currency_")
+          ) {
+            return false;
+          }
+
+          if (
             allItemsComplete &&
-            (reason.startsWith("currency_") ||
-              reason.startsWith("item_currency_mismatch") ||
-              reason.startsWith("currency_conflict_item:") ||
-              reason.startsWith("price_unclear:") ||
+            (reason.startsWith("price_unclear:") ||
               reason === "unit_price_review" ||
               reason === "quantity_review" ||
               reason === "manual_flat_service_from_text" ||
@@ -8733,8 +8998,7 @@ export default function AuftraegePage() {
 
           if (
             isAddressRoleReviewReasonV17_61(reason) &&
-            (hasResolvedBillingAddressForReview ||
-              hasResolvedExecutionAddressForReview)
+            hasResolvedAddressRoleForReview
           ) {
             return false;
           }
@@ -8966,7 +9230,13 @@ export default function AuftraegePage() {
         );
         window.location.href = "/angebote";
       } else {
-        toast.error("Angebot konnte nicht erstellt werden");
+        const errorPayload = await offerRes.json().catch(() => null);
+        const blockers = formatDocumentApiBlockersV17_90L36(errorPayload);
+        toast.error(
+          blockers
+            ? `Angebot nicht möglich: ${blockers}`
+            : errorPayload?.error || "Angebot konnte nicht erstellt werden",
+        );
       }
     } catch {
       toast.error("Fehler");
@@ -9035,7 +9305,13 @@ export default function AuftraegePage() {
         );
         window.location.href = "/rechnungen";
       } else {
-        toast.error("Rechnung konnte nicht erstellt werden");
+        const errorPayload = await invRes.json().catch(() => null);
+        const blockers = formatDocumentApiBlockersV17_90L36(errorPayload);
+        toast.error(
+          blockers
+            ? `Rechnung nicht möglich: ${blockers}`
+            : errorPayload?.error || "Rechnung konnte nicht erstellt werden",
+        );
       }
     } catch {
       toast.error("Fehler");
@@ -9887,9 +10163,19 @@ export default function AuftraegePage() {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
+            type="search"
+            name="smartflow-order-search-query"
             placeholder="Name, Ort, Leistung, Kunden-Nr…"
             className="pl-10 h-9 text-sm"
             value={search}
+            autoComplete="off"
+            aria-autocomplete="none"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            readOnly={!searchInputActive}
+            onFocus={() => setSearchInputActive(true)}
+            onBlur={() => setSearchInputActive(false)}
             onChange={(e: any) => setSearch(e?.target?.value ?? "")}
           />
         </div>
@@ -11343,15 +11629,26 @@ export default function AuftraegePage() {
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={applyAddressReviewAsBillingV17_62}
-                      className="justify-center border-red-200 bg-white text-red-800 hover:bg-red-50 dark:bg-background dark:text-red-100"
-                    >
-                      Als Rechnungsadresse speichern
-                    </Button>
+                    {!hasLinkedExistingBillingCustomerV17_90L36 ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={applyAddressReviewAsBillingV17_62}
+                        className="justify-center border-red-200 bg-white text-red-800 hover:bg-red-50 dark:bg-background dark:text-red-100"
+                      >
+                        Als Rechnungsadresse speichern
+                      </Button>
+                    ) : (
+                      <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-200">
+                        Bestehender Kunde
+                        {currentBillingCustomerV17_90L36?.customerNumber
+                          ? ` ${currentBillingCustomerV17_90L36.customerNumber}`
+                          : ""}{" "}
+                        ist bereits zugeordnet. Rechnungsadresse nur über
+                        „Kunde bearbeiten“ ändern.
+                      </div>
+                    )}
                     <Button
                       type="button"
                       size="sm"
