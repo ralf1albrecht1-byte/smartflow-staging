@@ -4747,15 +4747,101 @@ function finalizeForeignCurrencyReviewItemsV17_90L39(
     };
   });
 
-  const foreignExplicitItems = explicitItems.filter((explicit) => {
+  const foreignExplicitCandidates = explicitItems.filter((explicit) => {
     const currency = String(explicit.detectedCurrency || "").toUpperCase();
     return Boolean(currency && currency !== finalCurrency);
   });
-  if (foreignExplicitItems.length === 0) return next;
+
+  // V17.90L42: Eine konkrete Fremdwährungsquelle darf nur einmal verarbeitet
+  // werden. KI-Original, automatische Übersetzung und späterer Validator können
+  // dieselbe Kostenposition unterschiedlich benennen; entscheidend sind hier
+  // ausschließlich Quellposition, Betrag und Währung, nicht eine Wortliste.
+  const rawForeignAnchors = extractRawForeignCurrencyAmountsV17_90L41(
+    originalText,
+    finalCurrency,
+  );
+  const usedForeignCandidateIndexes = new Set<number>();
+  const foreignExplicitItems = rawForeignAnchors
+    .map((anchor) => {
+      const ranked = foreignExplicitCandidates
+        .map((explicit, index) => {
+          if (usedForeignCandidateIndexes.has(index)) return null;
+          const currency = String(explicit.detectedCurrency || "")
+            .trim()
+            .toUpperCase();
+          if (currency !== anchor.currency) return null;
+
+          const evidence = normalizeText(
+            [explicit.sourceText, explicit.evidence, explicit.description]
+              .filter(Boolean)
+              .join(" "),
+          );
+          if (
+            explicitCurrencyForExactItemPriceV17_90L41(
+              evidence,
+              anchor.amount,
+            ) !== anchor.currency
+          ) {
+            return null;
+          }
+
+          const evidenceKey = normalizeCompare(evidence);
+          const anchorKey = normalizeCompare(anchor.evidence);
+          let score = 0;
+          if (
+            evidenceKey &&
+            anchorKey &&
+            (evidenceKey.includes(anchorKey) ||
+              anchorKey.includes(evidenceKey))
+          ) {
+            score += 100;
+          }
+          if (!isGenericOpenReviewServiceNameV17_90L39(explicit.serviceName)) {
+            score += 20;
+          }
+
+          return { explicit, index, score, length: evidence.length };
+        })
+        .filter(
+          (entry): entry is {
+            explicit: ExplicitServiceLineItem;
+            index: number;
+            score: number;
+            length: number;
+          } => Boolean(entry),
+        )
+        .sort((a, b) => b.score - a.score || a.length - b.length);
+
+      const selected = ranked[0];
+      if (!selected) return null;
+      usedForeignCandidateIndexes.add(selected.index);
+      return selected.explicit;
+    })
+    .filter(
+      (item): item is ExplicitServiceLineItem => Boolean(item),
+    );
+
+  // Fallback für ältere Texte, bei denen kein stabiler Rohanker erzeugt werden
+  // konnte: identische Evidence weiterhin nur einmal verwenden.
+  const effectiveForeignExplicitItems =
+    foreignExplicitItems.length > 0
+      ? foreignExplicitItems
+      : Array.from(
+          new Map(
+            foreignExplicitCandidates.map((item) => [
+              `${String(item.detectedCurrency || "").toUpperCase()}:${normalizeCompare(
+                item.sourceText || item.evidence || item.description,
+              )}`,
+              item,
+            ]),
+          ).values(),
+        );
+
+  if (effectiveForeignExplicitItems.length === 0) return next;
 
   const keepForeignIndexes = new Set<number>();
 
-  for (const explicit of foreignExplicitItems) {
+  for (const explicit of effectiveForeignExplicitItems) {
     const currency = String(explicit.detectedCurrency || "UNKNOWN").toUpperCase();
     const explicitEvidence = normalizeCompare(explicit.sourceText);
     const normalizedExplicit = normalizeParsedServiceNames([explicit])[0] || explicit;
@@ -4850,7 +4936,7 @@ function finalizeForeignCurrencyReviewItemsV17_90L39(
       /^(?:leistung|einheit|preis|menge)(?: oder | und )?.*(?:unklar|pruefen|prufen)|^(?:vor angebot rechnung pruefen|diese position wird nicht in netto|preis fehlt oder ist unsicher)/.test(
         genericEvidence,
       );
-    const genericEvidenceDuplicatesForeignLine = foreignExplicitItems.some(
+    const genericEvidenceDuplicatesForeignLine = effectiveForeignExplicitItems.some(
       (explicit) => {
         const foreignEvidence = normalizeCompare(explicit.sourceText);
         return Boolean(
@@ -5007,11 +5093,11 @@ function appendRawForeignCurrencyReviewItemsV17_90L41(
       ).join(" "),
     );
     const evidence = candidateEvidence || foreign.evidence;
-    const alreadyRepresented = next.some((item) => {
+    const evidenceKey = normalizeCompare(evidence);
+    const alreadyRepresentedByEvidence = next.some((item) => {
       const reason = String(item.reviewReason || "");
       const currency = String(item.detectedCurrency || "").toUpperCase();
       const itemEvidence = itemEvidenceKeyV17_90L39(item);
-      const evidenceKey = normalizeCompare(evidence);
       return Boolean(
         (currency === foreign.currency ||
           reason.startsWith("item_currency_mismatch:") ||
@@ -5021,7 +5107,36 @@ function appendRawForeignCurrencyReviewItemsV17_90L41(
           (itemEvidence.includes(evidenceKey) || evidenceKey.includes(itemEvidence)),
       );
     });
-    if (alreadyRepresented) continue;
+
+    // V17.90L42: Wenn für dieselbe Währung bereits genauso viele konkrete
+    // Prüfpositionen existieren wie Rohquellen im Kundentext, darf der Fallback
+    // keine weitere übersetzte/anders benannte Position anhängen. So werden
+    // beispielsweise KI-Label und deutsche Normalisierung derselben Quelle
+    // nicht als zwei Leistungen gespeichert.
+    const rawSourceCountForCurrency = rawForeign.filter(
+      (entry) => entry.currency === foreign.currency,
+    ).length;
+    const representedSourceCountForCurrency = next.filter((item) => {
+      const reason = String(item.reviewReason || "");
+      const currency = String(item.detectedCurrency || "")
+        .trim()
+        .toUpperCase();
+      return Boolean(
+        currency === foreign.currency ||
+          (reason.startsWith("item_currency_mismatch:") &&
+            reason.split(":")[2]?.toUpperCase() === foreign.currency) ||
+          (reason.startsWith("currency_conflict_item:") &&
+            reason.split(":")[2]?.toUpperCase() === foreign.currency),
+      );
+    }).length;
+
+    if (
+      alreadyRepresentedByEvidence ||
+      (rawSourceCountForCurrency > 0 &&
+        representedSourceCountForCurrency >= rawSourceCountForCurrency)
+    ) {
+      continue;
+    }
 
     const serviceName =
       String(candidate?.serviceName || "").trim() || "Leistung prüfen";
