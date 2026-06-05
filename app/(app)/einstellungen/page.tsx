@@ -1534,7 +1534,7 @@ const storedValue = finalUrl;
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold">
-                            {livePrepPreview?.liveNeedsRepair ? 'Livebestand sicher reparieren' : livePrepPreview?.liveStarted ? 'Kundenübernahme abgeschlossen' : 'Kunden übernehmen'}
+                            {livePrepPreview?.liveNeedsRepair ? 'Livebestand sicher reparieren' : livePrepPreview?.liveStarted ? 'Kundenübernahme abgeschlossen' : 'Livebetrieb vorbereiten'}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
                             {livePrepPreview?.liveNeedsRepair
@@ -1555,7 +1555,7 @@ const storedValue = finalUrl;
                           onClick={loadLivePrepPreview}
                         >
                           {livePrepLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <User2 className="w-4 h-4" />}
-                          Kunden auswählen
+                          Kunden für Livebetrieb auswählen
                         </Button>
                       )}
                     </div>
@@ -1676,7 +1676,7 @@ const storedValue = finalUrl;
 
                     {!livePrepPreview && (
                       <p className="text-[11px] text-muted-foreground">
-                        {livePrepLoading ? 'Livebetrieb-Status wird geprüft…' : 'Zuerst oben „Kunden auswählen" öffnen.'}
+                        {livePrepLoading ? 'Livebetrieb-Status wird geprüft…' : 'Zuerst oben „Kunden für Livebetrieb auswählen" öffnen.'}
                       </p>
                     )}
 
