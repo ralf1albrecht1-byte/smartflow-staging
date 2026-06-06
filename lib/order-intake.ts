@@ -5597,6 +5597,228 @@ function formatWorkNameForDisplay(value: string): string {
     .join(" ");
 }
 
+
+// V17.90L76: Keep the structured AI service label as the visible semantic
+// name. This cleanup is structural only: it removes amount/review tails while
+// preserving Unicode, wording and specificity from the structured result.
+function cleanStructuredAiServiceNameV17_90L76(
+  value: string | null | undefined,
+): string {
+  const countUnit =
+    String.raw`(?:garnituren?|sets?|gruppen?|anlagen?|raeume|räume|zimmer|objekte?|einheiten?|stueck|stück|stk\.?|pcs?|pieces?|pi[eè]ces?|pezzi|meter|laufmeter|lfm|m2|m²|qm|quadratmeter|stunden?|std\.?|tage?|pauschalen?)`;
+
+  let cleaned = compactText(value)
+    .replace(
+      new RegExp(
+        String.raw`\s*[,;:\-–—]?\s*\d+(?:[.,]\d+)?\s*${countUnit}\b(?:\s*(?:à|a|je|po|pro|per|x|mal)\s*(?:(?:CHF|EUR|Fr\.?|Franken|Euro)\s*)?\d+(?:[.,]\d{1,2})?)?.*$`,
+        "iu",
+      ),
+      "",
+    )
+    .replace(
+      /\s+(?:à|a|je|po|pro|per|x|mal)\s*(?:(?:CHF|EUR|Fr\.?|Franken|Euro)\s*)?\d+(?:[.,]\d{1,2})?.*$/iu,
+      "",
+    )
+    .replace(
+      /\s*[,;:\-–—]?\s*(?:bitte\s+)?(?:separat\s+)?(?:prüfen|pruefen|kontrollieren)\s*$/iu,
+      "",
+    )
+    .replace(/[\s,;:\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "Unbekannte Leistung";
+  const firstLetter = cleaned.search(/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]/u);
+  if (firstLetter >= 0) {
+    cleaned = `${cleaned.slice(0, firstLetter)}${cleaned
+      .charAt(firstLetter)
+      .toUpperCase()}${cleaned.slice(firstLetter + 1)}`;
+  }
+  return cleaned;
+}
+
+
+function structuredNameMatchesCatalogServiceV17_90L76(
+  structuredName: string,
+  catalogName: string,
+): boolean {
+  const normalize = (value: string) =>
+    normalizeServiceLineForMatchV17_90L(value)
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const structured = normalize(structuredName);
+  const catalog = normalize(catalogName);
+  if (!structured || !catalog) return false;
+  if (
+    structured === catalog ||
+    structured.includes(catalog) ||
+    catalog.includes(structured)
+  ) {
+    return true;
+  }
+
+  const generic = new Set([
+    "reinigen",
+    "reinigung",
+    "komplett",
+    "gruendlich",
+    "innen",
+    "aussen",
+    "maschinell",
+    "vorsichtig",
+  ]);
+  const tokens = (value: string) =>
+    value
+      .split(/\s+/g)
+      .filter((token) => token.length >= 4 && !generic.has(token));
+  const structuredTokens = tokens(structured);
+  const catalogTokens = tokens(catalog);
+  if (structuredTokens.length === 0 || catalogTokens.length === 0) return false;
+
+  return structuredTokens.some((left) =>
+    catalogTokens.some(
+      (right) => left === right || left.includes(right) || right.includes(left),
+    ),
+  );
+}
+
+
+type StructuredOrderItemSnapshotV17_90L76 = {
+  serviceName: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalPrice: number;
+  needsReview: boolean;
+  reviewReason: string | null;
+  sourceText?: string | null;
+  evidence?: string | null;
+  detectedCurrency?: string | null;
+};
+
+function structuredOrderItemSignatureV17_90L76(
+  item: StructuredOrderItemSnapshotV17_90L76,
+  fallbackCurrency: string,
+): string {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  return [
+    getServiceUnitType(item.unit) || normalizeUnitText(item.unit),
+    Number.isFinite(quantity) ? quantity.toFixed(4) : "0.0000",
+    Number.isFinite(unitPrice) ? unitPrice.toFixed(4) : "0.0000",
+    String(item.detectedCurrency || fallbackCurrency || "").toUpperCase(),
+  ].join("|");
+}
+
+function safeStructuredOrderItemSnapshotV17_90L76(
+  item: StructuredOrderItemSnapshotV17_90L76,
+): boolean {
+  const name = compactText(item.serviceName);
+  const evidence = compactText(
+    item.sourceText || item.evidence || item.description || "",
+  );
+  if (!name || isInternalReviewServiceNameV17_90L(name)) return false;
+  if (hasRawForeignServiceLanguageSignalV17_90L(name)) return false;
+  if (name.length < 4 || name.length > 90 || /\b(?:CHF|EUR)\b/i.test(name)) {
+    return false;
+  }
+  if (!evidence || evidence.length > 240 || /[\r\n]/.test(evidence)) {
+    return false;
+  }
+  if (isReviewUnitV17_90L(item.unit)) return false;
+  return Number(item.quantity || 0) > 0 && Number(item.unitPrice || 0) > 0;
+}
+
+function restoreUniqueStructuredOrderItemsV17_90L76(
+  snapshots: StructuredOrderItemSnapshotV17_90L76[],
+  currentItems: StructuredOrderItemSnapshotV17_90L76[],
+  fallbackCurrency: string,
+): StructuredOrderItemSnapshotV17_90L76[] {
+  const snapshotGroups = new Map<
+    string,
+    Array<{ item: StructuredOrderItemSnapshotV17_90L76; order: number }>
+  >();
+  snapshots.forEach((item, order) => {
+    if (!safeStructuredOrderItemSnapshotV17_90L76(item)) return;
+    const signature = structuredOrderItemSignatureV17_90L76(
+      item,
+      fallbackCurrency,
+    );
+    const group = snapshotGroups.get(signature) || [];
+    group.push({ item, order });
+    snapshotGroups.set(signature, group);
+  });
+
+  const uniqueSnapshots = Array.from(snapshotGroups.entries())
+    .filter(([, group]) => group.length === 1)
+    .map(([signature, group]) => ({ signature, ...group[0] }))
+    .sort((left, right) => left.order - right.order);
+  if (uniqueSnapshots.length === 0) return currentItems;
+
+  const currentGroups = new Map<string, StructuredOrderItemSnapshotV17_90L76[]>();
+  currentItems.forEach((item) => {
+    const signature = structuredOrderItemSignatureV17_90L76(
+      item,
+      fallbackCurrency,
+    );
+    const group = currentGroups.get(signature) || [];
+    group.push(item);
+    currentGroups.set(signature, group);
+  });
+
+  const consumed = new Set<StructuredOrderItemSnapshotV17_90L76>();
+  const restored: StructuredOrderItemSnapshotV17_90L76[] = [];
+
+  uniqueSnapshots.forEach(({ signature, item: snapshot }) => {
+    const candidates = currentGroups.get(signature) || [];
+    const selected = [...candidates].sort((left, right) => {
+      const score = (item: StructuredOrderItemSnapshotV17_90L76) =>
+        (isInternalReviewServiceNameV17_90L(item.serviceName) ? 0 : 4) +
+        (Number(item.totalPrice || 0) > 0 ? 2 : 0);
+      return score(right) - score(left);
+    })[0];
+
+    candidates.forEach((item) => consumed.add(item));
+    const base = selected || snapshot;
+    restored.push({
+      ...base,
+      serviceName: snapshot.serviceName,
+      sourceText: base.sourceText || snapshot.sourceText || snapshot.evidence,
+      evidence: base.evidence || snapshot.evidence || snapshot.sourceText,
+    });
+  });
+
+  currentItems.forEach((item) => {
+    if (!consumed.has(item)) restored.push(item);
+  });
+  return restored;
+}
+
+function cleanVisibleReviewInstructionSuffixV17_90L76<
+  T extends StructuredOrderItemSnapshotV17_90L76,
+>(items: T[]): T[] {
+  return items.map((item) => {
+    const originalName = compactText(item.serviceName);
+    if (isInternalReviewServiceNameV17_90L(originalName)) return item;
+    const cleanedName = originalName
+      .replace(
+        /\s*[,;:\-–—]?\s*(?:bitte\s+)?(?:separat\s+)?(?:prüfen|pruefen|kontrollieren)\s*$/iu,
+        "",
+      )
+      .replace(/[\s,;:\-–—]+$/g, "")
+      .trim();
+    if (!cleanedName || cleanedName === originalName) return item;
+
+    const reason = String(item.reviewReason || "");
+    const reviewReason = reason.includes(originalName)
+      ? reason.replace(originalName, cleanedName)
+      : item.reviewReason;
+    return { ...item, serviceName: cleanedName, reviewReason } as T;
+  });
+}
+
 // V17.90L: German-visible service name safety net.
 // The AI/validator must write visible service names in German. If the intake
 // has a visible automatic German translation block, we use that block as
@@ -7455,7 +7677,11 @@ function reconcileExplicitPricedServiceLinesV17_90L60<
   const materialize = (entry: ExplicitPricedServiceLineV17_90L60, base?: T): T =>
     ({
       ...(base || ({} as T)),
-      serviceName: entry.serviceName,
+      serviceName:
+        base?.serviceName &&
+        !isInternalReviewServiceNameV17_90L(base.serviceName)
+          ? base.serviceName
+          : entry.serviceName,
       description: entry.raw,
       quantity: entry.quantity,
       unit: entry.unit,
@@ -9815,6 +10041,14 @@ export async function processIncomingMessage(
       const detectedName = cleanDetectedWorkName(
         composeWorkNameSource(item, raw),
       );
+      const structuredVisibleName = cleanStructuredAiServiceNameV17_90L76(
+        item.name ||
+          item.action_name ||
+          item.service_name ||
+          item.matched_service_name ||
+          raw ||
+          detectedName,
+      );
 
       if (!detectedName || detectedName.length < 3) return null;
 
@@ -9823,11 +10057,23 @@ export async function processIncomingMessage(
         services,
       );
       const semanticConfidence = normalizeAiConfidence(item.confidence || null);
-      const matchedService =
+      const matchedServiceCandidate =
         semanticMatchedService ||
         (semanticConfidence === "niedrig"
           ? null
           : strictMatchServiceForWorkItem(item, services));
+      // V17.90L76: Unit/price similarity is not semantic identity. Keep normal
+      // catalog behavior only when the structured AI label and catalog label
+      // share a concrete object/context token. Otherwise fail closed and leave
+      // the correctly named row reviewable instead of linking a wrong service.
+      const matchedService =
+        matchedServiceCandidate &&
+        structuredNameMatchesCatalogServiceV17_90L76(
+          structuredVisibleName,
+          String(matchedServiceCandidate.name || ""),
+        )
+          ? matchedServiceCandidate
+          : null;
       const evidenceText = String(
         item.source_text || item.evidence || item.raw || "",
       ).trim();
@@ -9972,7 +10218,10 @@ export async function processIncomingMessage(
 
         const explicitHourLineRepair = findExplicitHourLineRepairForMappedItem(
           {
-            serviceName: String(matchedService.name || "Unbekannte Leistung"),
+            serviceName:
+              structuredVisibleName !== "Unbekannte Leistung"
+                ? structuredVisibleName
+                : String(matchedService.name || "Unbekannte Leistung"),
             description: String(
               raw || detectedName || fullWorkText || `${source}-Auftrag`,
             ),
@@ -10017,9 +10266,12 @@ export async function processIncomingMessage(
           null;
 
         return {
-          serviceName: formatWorkNameForDisplay(
-            String(matchedService.name || "Unbekannte Leistung"),
-          ),
+          serviceName:
+            structuredVisibleName !== "Unbekannte Leistung"
+              ? structuredVisibleName
+              : formatWorkNameForDisplay(
+                  String(matchedService.name || "Unbekannte Leistung"),
+                ),
           description: String(
             raw || detectedName || fullWorkText || `${source}-Auftrag`,
           ),
@@ -10045,9 +10297,12 @@ export async function processIncomingMessage(
           ? unitTypeToDisplayUnit(detectedUnitType)
           : unitTypeToDisplayUnit(getServiceUnitType(item.einheit || null));
 
-      const cleanedDetectedName = formatWorkNameForDisplay(
-        detectedName || "Unbekannte Leistung",
-      );
+      const cleanedDetectedName =
+        structuredVisibleName !== "Unbekannte Leistung"
+          ? structuredVisibleName
+          : formatWorkNameForDisplay(
+              detectedName || "Unbekannte Leistung",
+            );
 
       const finalServiceName =
         cleanedDetectedName.length < 4 ||
@@ -10177,6 +10432,10 @@ export async function processIncomingMessage(
             reviewReason: "unbekannte_leistung_pruefen",
           },
         ];
+
+  const structuredOrderItemSnapshotsV17_90L76 = finalOrderItems.map(
+    (item) => ({ ...item }),
+  );
 
   // V17.90L60: Rebuild explicit priced service rows from their own source
   // lines before validation. This keeps every source line independent.
@@ -10548,6 +10807,31 @@ export async function processIncomingMessage(
     ...item,
     serviceName: normalizeVisibleServiceNameCasingV17_66(item.serviceName),
   }));
+  finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
+    finalOrderItems,
+    validationSourceText,
+  );
+  finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
+    detectedCurrencies: intakeValidation.detectedCurrencies,
+    finalCurrency: intakeValidation.finalCurrency,
+  });
+  finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
+    finalOrderItems,
+    messageText,
+    intakeValidation.finalCurrency,
+  );
+
+  // V17.90L76: Restore only uniquely identifiable, line-local structured AI
+  // rows after all parser/validator passes. Exact unit+quantity+price+currency
+  // identity prevents cross-line leakage and removes generated duplicates.
+  finalOrderItems = restoreUniqueStructuredOrderItemsV17_90L76(
+    structuredOrderItemSnapshotsV17_90L76,
+    finalOrderItems,
+    intakeValidation.finalCurrency,
+  );
+  finalOrderItems = cleanVisibleReviewInstructionSuffixV17_90L76(
+    finalOrderItems,
+  );
   finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
     finalOrderItems,
     validationSourceText,
