@@ -2586,10 +2586,55 @@ const getMultipleAppointmentBadge = (
 };
 
 
-const cleanSpecialNotesSummaryLineV17_91 = (value?: string | null) =>
-  compactText(stripVisibleNoteMarkerV17_35(value))
+const cleanSpecialNotesSummaryLineV17_91 = (value?: string | null) => {
+  const line = compactText(stripVisibleNoteMarkerV17_35(value))
     .replace(/^[-•*]\s*/g, "")
+    .replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, "")
+    .replace(/^\s*(?:wichtige informationen|ausgewählter hinweis|weitere besonderheiten|besonderheiten)\s*:?\s*/i, "")
     .trim();
+  if (!line || /^(?:whatsapp|sms|telefon|e-?mail|kundennachricht)\s*:?$/i.test(line)) return "";
+  return line.charAt(0).toUpperCase() + line.slice(1);
+};
+
+const orderInfoTokensV17_66 = (value: string) => {
+  const stop = new Set([
+    "bitte", "vorher", "zuerst", "nur", "der", "die", "das", "den", "dem",
+    "ein", "eine", "einer", "und", "oder", "mit", "bei", "im", "in", "am",
+    "ist", "sind", "wird", "werden", "soll", "sollen", "kontakt", "bevorzugt",
+  ]);
+  return new Set(
+    normalizeForMatch(value)
+      .split(/\s+/g)
+      .filter((token) => token.length >= 3 && !stop.has(token)),
+  );
+};
+
+const orderInfoLinesEquivalentV17_66 = (left: string, right: string) => {
+  const a = normalizeForMatch(left);
+  const b = normalizeForMatch(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.58) return true;
+  const aTokens = orderInfoTokensV17_66(left);
+  const bTokens = orderInfoTokensV17_66(right);
+  if (aTokens.size < 2 || bTokens.size < 2) return false;
+  const overlap = [...aTokens].filter((token) => bTokens.has(token)).length;
+  const smallerSize = Math.min(aTokens.size, bTokens.size);
+  return overlap >= 2 && overlap / smallerSize >= 0.72;
+};
+
+const uniqueOrderInfoLinesV17_66 = (lines: Array<string | null | undefined>) => {
+  const result: string[] = [];
+  lines.forEach((raw) => {
+    const line = cleanSpecialNotesSummaryLineV17_91(raw);
+    if (!line) return;
+    if (result.some((existing) => orderInfoLinesEquivalentV17_66(existing, line))) return;
+    result.push(line);
+  });
+  return result;
+};
 
 type OrderInfoSummaryV17_65 = {
   safety: string[];
@@ -2644,41 +2689,31 @@ const buildOrderInfoSummaryV17_65 = (
   },
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): OrderInfoSummaryV17_65 => {
-  const seen = new Set<string>();
-  const uniqueLines = (lines: string[]) =>
-    lines
-      .map(cleanSpecialNotesSummaryLineV17_91)
-      .filter(Boolean)
-      .filter((line) => {
-        const key = normalizeForMatch(line);
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
   const isDogLine = (line: string) => /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
   const source = [order.specialNotes, order.notes, order.audioTranscript].filter(Boolean).join("\n");
-  const safety = uniqueLines([
+  const safety = uniqueOrderInfoLinesV17_66([
     ...(parsedNotes.safetyWarnings || []),
     ...(parsedNotes.jobHints || []).filter(isDogLine),
   ]);
-  const safetyKeys = new Set(safety.map(normalizeForMatch));
   const appointmentLines = extractOrderAppointmentSnippetsV17_65(source);
   const importantRawLines = extractOrderImportantInstructionLinesV17_65(source);
-  const primary = uniqueLines([
+  const primary = uniqueOrderInfoLinesV17_66([
     ...(parsedNotes.jobHints || []).filter(isPrimaryOrderInfoHintV17_65),
     ...appointmentLines,
     ...importantRawLines.filter(isPrimaryOrderInfoHintV17_65),
-  ]).filter((line) => !safetyKeys.has(normalizeForMatch(line)));
-  const primaryKeys = new Set(primary.map(normalizeForMatch));
-  const additional = uniqueLines([
+  ]).filter(
+    (line) => !safety.some((warning) => orderInfoLinesEquivalentV17_66(warning, line)),
+  );
+  const additional = uniqueOrderInfoLinesV17_66([
     ...(parsedNotes.jobHints || []).filter(
       (line) => !isDogLine(line) && !isPrimaryOrderInfoHintV17_65(line),
     ),
     ...importantRawLines.filter((line) => !isPrimaryOrderInfoHintV17_65(line)),
-  ]).filter((line) => {
-    const key = normalizeForMatch(line);
-    return !safetyKeys.has(key) && !primaryKeys.has(key);
-  });
+  ]).filter(
+    (line) =>
+      !safety.some((warning) => orderInfoLinesEquivalentV17_66(warning, line)) &&
+      !primary.some((hint) => orderInfoLinesEquivalentV17_66(hint, line)),
+  );
   return { safety, primary, additional };
 };
 
@@ -11364,30 +11399,41 @@ export default function AuftraegePage() {
     if (!isServiceReview) {
       const viewportWidth =
         typeof window !== "undefined" ? window.innerWidth : 390;
-      const popoverWidth = Math.min(352, Math.max(240, viewportWidth - 16));
+      const viewportHeight =
+        typeof window !== "undefined" ? window.innerHeight : 760;
+      const popoverWidth = Math.min(368, Math.max(240, viewportWidth - 16));
       const rect = activeMobileTooltip.anchorRect;
-      const rawCenter = rect
-        ? rect.left + rect.width / 2
-        : viewportWidth / 2;
+      const rawCenter = rect ? rect.left + rect.width / 2 : viewportWidth / 2;
       const half = popoverWidth / 2;
       const center = Math.min(
         Math.max(rawCenter, half + 8),
         viewportWidth - half - 8,
       );
-      const placeBelow = !rect || rect.top < 180;
+      const edge = 10;
+      const gap = 8;
+      const availableAbove = rect ? Math.max(0, rect.top - edge - gap) : viewportHeight - edge * 2;
+      const availableBelow = rect
+        ? Math.max(0, viewportHeight - rect.bottom - edge - gap)
+        : viewportHeight - edge * 2;
+      const desiredHeight = Math.min(560, Math.floor(viewportHeight * 0.68));
+      const placeBelow = rect
+        ? availableBelow >= Math.min(300, desiredHeight) || availableBelow >= availableAbove
+        : true;
+      const availableHeight = placeBelow ? availableBelow : availableAbove;
+      const maxHeight = Math.max(180, Math.min(desiredHeight, availableHeight || desiredHeight));
       const positionStyle = rect
         ? {
             left: `${center}px`,
-            top: placeBelow ? `${rect.bottom + 8}px` : `${rect.top - 8}px`,
+            top: placeBelow ? `${rect.bottom + gap}px` : `${rect.top - gap}px`,
             width: `${popoverWidth}px`,
-            transform: placeBelow
-              ? "translate(-50%, 0)"
-              : "translate(-50%, -100%)",
+            maxHeight: `${maxHeight}px`,
+            transform: placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
           }
         : {
             left: "50%",
             top: "50%",
             width: `${popoverWidth}px`,
+            maxHeight: `${Math.min(desiredHeight, viewportHeight - edge * 2)}px`,
             transform: "translate(-50%, -50%)",
           };
 
@@ -11403,7 +11449,7 @@ export default function AuftraegePage() {
             }}
           />
           <div
-            className="fixed max-h-[45vh] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className="fixed overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             style={positionStyle}
             onClick={(event) => event.stopPropagation()}
           >

@@ -1458,6 +1458,50 @@ function hasSameAddressInstructionV17_90L28(
   return /\b(?:gleiche\s+adresse|selbe\s+adresse|dieselbe\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+address|stessa\s+indirizzo|meme\s+adresse|même\s+adresse|gleicher\s+ort|same\s+place)\b/.test(text);
 }
 
+function sameAddressWorkAreaDescriptorV17_66(
+  rawText: string | null | undefined,
+): string | null {
+  const source = String(rawText || "");
+  if (!source.trim()) return null;
+  const original = source.split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)[0] || "";
+  const translated = source
+    .split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)
+    .slice(1)
+    .join("\n");
+  const candidates = [translated, original].filter(Boolean);
+  const sameAddressTail =
+    String.raw`(?:gleiche\s+adresse|selbe\s+adresse|dieselbe\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+address|m[eê]me\s+adresse|stesso\s+indirizzo)`;
+  const workMarker =
+    String.raw`(?:die\s+)?(?:arbeit(?:en)?|ausf(?:ü|ue)hrung|arbeitsort|einsatzort)`;
+
+  for (const candidateSource of candidates) {
+    const lines = String(candidateSource)
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split(/\n+|(?<=[.!?])\s+/g)
+      .map((line) => compactText(line))
+      .filter(Boolean);
+    for (const line of lines) {
+      if (!new RegExp(sameAddressTail, "i").test(normalizeUnitText(line))) continue;
+      const match = line.match(
+        new RegExp(
+          `${workMarker}\\s+(?:sind|ist|isch|werden|findet\\s+statt)?\\s*(?:im|in\\s+der|in\\s+dem|in|am|bei|beim)\\s+(.+?)\\s*,?\\s*${sameAddressTail}`,
+          "i",
+        ),
+      );
+      if (!match?.[1]) continue;
+      const descriptor = cleanExecutionSiteNameCandidate(
+        match[1]
+          .replace(/\b(?:und|sowie)\s+(?:im|in\s+der|in\s+dem|am|bei|beim)\s+/gi, "und ")
+          .replace(/[,:;\-–—]+\s*$/g, "")
+          .trim(),
+      );
+      if (descriptor) return descriptor;
+    }
+  }
+  return null;
+}
+
 function hasAddressEvidenceInTextV17_61(
   rawText: string | null | undefined,
 ): boolean {
@@ -5425,6 +5469,72 @@ function cleanTranslatedServiceLabelFromLineV17_90L(line: string): string {
   return cleanGermanServiceLabelGrammarV17_90L(label);
 }
 
+// V17.90L66: A translated working line may contain several priced services in
+// one physical line. Split those numeric segments generically and use the exact
+// quantity/unit/price tuple as line-local evidence for a clean German name.
+type TranslatedPricedServiceSegmentV17_66 = {
+  serviceName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+};
+
+function extractTranslatedPricedServiceSegmentsV17_66(
+  translatedBlock: string,
+): TranslatedPricedServiceSegmentV17_66[] {
+  const unitPattern =
+    String.raw`m²|m2|qm|quadratmeter|quadradmeter|laufmeter|lfm|meter|stunden?|std\.?|h|tage?|arbeitstage?|stücke?|stueck|stuck|stk|anzahl|einheiten?|räume?|raeume|raum|zimmer|rooms?|pieces?|piece|pcs|liter|ltr\.?|l|kilogramm|kg|tonnen?|to`;
+  const currencyPattern = String.raw`CHF|Fr\.?|SFr\.?|EUR|Euro|€|USD|\$|GBP|£`;
+  const numberPattern = String.raw`\d+(?:[.,]\d+)?`;
+  const amountPattern = new RegExp(
+    `(${numberPattern})\\s*(${unitPattern})\\s*(?:à|a|je|pro|per|zu|at)\\s*(?:(${currencyPattern})\\s*)?(${numberPattern})(?:\\s*(${currencyPattern}))?`,
+    "gi",
+  );
+  const result: TranslatedPricedServiceSegmentV17_66[] = [];
+
+  String(translatedBlock || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .forEach((rawLine) => {
+      const line = compactText(rawLine);
+      if (!line) return;
+      let previousEnd = 0;
+      amountPattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = amountPattern.exec(line))) {
+        const quantity = parseIntakeDecimalNumber(match[1]);
+        const unit = displayUnitFromExplicitLineV17_90L60(match[2]);
+        const price = parseIntakeDecimalNumber(match[4]);
+        const labelSource = line
+          .slice(previousEnd, match.index)
+          .replace(/^\s*(?:(?:und|sowie|danach|dann|noch|plus|zusätzlich|zusaetzlich)\s+)+/i, "")
+          .replace(/[,:;\-–—]+\s*$/g, "")
+          .trim();
+        const serviceName = cleanTranslatedServiceLabelFromLineV17_90L(labelSource);
+        if (
+          quantity > 0 &&
+          price > 0 &&
+          serviceName &&
+          isUsableGermanServiceLabelV17_90L(serviceName)
+        ) {
+          result.push({ serviceName, quantity, unit, unitPrice: price });
+        }
+        previousEnd = amountPattern.lastIndex;
+      }
+    });
+
+  return result;
+}
+
+function normalizeVisibleServiceNameCasingV17_66(value?: string | null): string {
+  const text = compactText(value);
+  if (!text) return "";
+  const index = text.search(/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]/u);
+  if (index < 0) return text;
+  return `${text.slice(0, index)}${text.charAt(index).toUpperCase()}${text.slice(index + 1)}`;
+}
+
 function isUsableGermanServiceLabelV17_90L(label: string): boolean {
   const normalized = normalizeServiceLineForMatchV17_90L(label);
   if (!normalized || label.length < 5 || label.length > 90) return false;
@@ -6529,6 +6639,7 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
     );
 
   if (translatedLines.length === 0) return items;
+  const translatedSegments = extractTranslatedPricedServiceSegmentsV17_66(translatedBlock);
 
   return items.map((item) => {
     const currentName = compactText(item.serviceName);
@@ -6550,19 +6661,20 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
       return item;
     }
 
-    // If the label is already a German visible service name, do not replace it
-    // with a translated sentence. Only strip accidental measure/price tails.
-    if (isAlreadyGermanVisibleServiceNameV17_90L(currentName)) {
-      const cleanedName =
-        stripMeasureAndPriceFromVisibleServiceNameV17_90L(currentName);
-      return cleanedName && cleanedName !== currentName
-        ? { ...item, serviceName: cleanedName }
-        : item;
-    }
-
-    const candidates = translatedLines
-      .filter((line) => translatedLineMatchesItemNumbersV17_90L(line, item))
-      .map(cleanTranslatedServiceLabelFromLineV17_90L)
+    const candidates = [
+      ...translatedLines
+        .filter((line) => translatedLineMatchesItemNumbersV17_90L(line, item))
+        .map(cleanTranslatedServiceLabelFromLineV17_90L),
+      ...translatedSegments
+        .filter(
+          (segment) =>
+            Math.abs(segment.quantity - quantity) < 0.0001 &&
+            Math.abs(segment.unitPrice - unitPrice) < 0.0001 &&
+            getServiceUnitType(segment.unit) === getServiceUnitType(String(item.unit || "")),
+        )
+        .map((segment) => segment.serviceName),
+    ]
+      .map(normalizeVisibleServiceNameCasingV17_66)
       .filter(isUsableGermanServiceLabelV17_90L);
 
     const uniqueCandidates = Array.from(
@@ -6574,6 +6686,29 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
       ).values(),
     );
 
+    // Even a mixed-language line can already contain the German action word
+    // "reinigen". In that case the old guard treated it as fully German and
+    // preserved fragments such as "les tables dans la salle reinigen". A
+    // unique translated quantity/price segment is stronger line-local evidence
+    // and may normalize that visible name.
+    if (isAlreadyGermanVisibleServiceNameV17_90L(currentName)) {
+      const cleanedName = normalizeVisibleServiceNameCasingV17_66(
+        stripMeasureAndPriceFromVisibleServiceNameV17_90L(currentName),
+      );
+      if (uniqueCandidates.length === 1) {
+        const translatedCandidate = uniqueCandidates[0];
+        if (
+          normalizeUnitText(translatedCandidate) &&
+          normalizeUnitText(translatedCandidate) !== normalizeUnitText(cleanedName)
+        ) {
+          return { ...item, serviceName: translatedCandidate };
+        }
+      }
+      return cleanedName && cleanedName !== currentName
+        ? { ...item, serviceName: cleanedName }
+        : item;
+    }
+
     if (uniqueCandidates.length !== 1) return item;
 
     const candidate = uniqueCandidates[0];
@@ -6583,7 +6718,7 @@ function repairGermanVisibleServiceNamesFromTranslationV17_90L<
 
     return {
       ...item,
-      serviceName: candidate,
+      serviceName: normalizeVisibleServiceNameCasingV17_66(candidate),
     };
   });
 }
@@ -6969,7 +7104,24 @@ function parseExplicitPricedServiceLinesV17_90L60(
     });
   });
 
-  return result;
+  const translatedBlock = splitAutomaticGermanTranslationBlockV17_90L(sourceText);
+  if (!translatedBlock.trim()) return result;
+  const translatedSegments = extractTranslatedPricedServiceSegmentsV17_66(translatedBlock);
+  if (translatedSegments.length === 0) return result;
+
+  return result.map((entry) => {
+    const matches = translatedSegments.filter(
+      (segment) =>
+        Math.abs(segment.quantity - entry.quantity) < 0.0001 &&
+        Math.abs(segment.unitPrice - entry.unitPrice) < 0.0001 &&
+        getServiceUnitType(segment.unit) === getServiceUnitType(entry.unit),
+    );
+    if (matches.length !== 1) return entry;
+    return {
+      ...entry,
+      serviceName: normalizeVisibleServiceNameCasingV17_66(matches[0].serviceName),
+    };
+  });
 }
 
 function explicitLineItemFingerprintV17_90L60(input: {
@@ -10070,7 +10222,10 @@ export async function processIncomingMessage(
   finalOrderItems = reconcileExplicitPricedServiceLinesV17_90L60(
     finalOrderItems,
     messageText,
-  );
+  ).map((item) => ({
+    ...item,
+    serviceName: normalizeVisibleServiceNameCasingV17_66(item.serviceName),
+  }));
   finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
     finalOrderItems,
     validationSourceText,
@@ -10141,6 +10296,27 @@ export async function processIncomingMessage(
       ...extractedExecutionAddress,
       siteName: explicitExecutionSiteDescriptor,
     };
+  }
+
+  // V17.90L66: "gleiche Adresse" is authoritative. Keep an optional
+  // work-area label, but always use the verified billing street/PLZ/city and
+  // discard AI fragments such as greetings or e-mail words from the address.
+  if (
+    hasSameAddressInstructionV17_90L28(validationSourceText) &&
+    executionAddressCustomerContext.customerAddress &&
+    executionAddressCustomerContext.customerPlz &&
+    executionAddressCustomerContext.customerCity
+  ) {
+    const sameAddressWorkArea = sameAddressWorkAreaDescriptorV17_66(validationSourceText);
+    extractedExecutionAddress = sameAddressWorkArea
+      ? {
+          siteName: sameAddressWorkArea,
+          siteAddress: executionAddressCustomerContext.customerAddress,
+          sitePlz: executionAddressCustomerContext.customerPlz,
+          siteCity: executionAddressCustomerContext.customerCity,
+          siteNote: null,
+        }
+      : null;
   }
 
   if (

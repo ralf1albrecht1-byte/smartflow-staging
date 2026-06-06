@@ -482,6 +482,67 @@ function uniqueOfferLines(values: Array<string | null | undefined>): string[] {
   return result;
 }
 
+// V17.90L66: Information can arrive from normalized specialNotes, technical
+// marker lines and the original WhatsApp text. Clean those transport markers
+// and deduplicate semantically before the same information is shown in blue,
+// red or yellow blocks.
+function cleanOfferInfoLineV17_66(value?: string | null): string {
+  const line = String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/^\s*[-•*]+\s*/g, "")
+    .replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, "")
+    .replace(/^\s*(?:wichtige informationen|ausgewählter hinweis|weitere besonderheiten|besonderheiten)\s*:?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!line) return "";
+  if (/^(?:whatsapp|sms|telefon|e-?mail|kundennachricht)\s*:?$/i.test(line)) return "";
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+function offerInfoTokensV17_66(value: string): Set<string> {
+  const stop = new Set([
+    "bitte", "vorher", "zuerst", "nur", "der", "die", "das", "den", "dem",
+    "ein", "eine", "einer", "und", "oder", "mit", "bei", "im", "in", "am",
+    "ist", "sind", "wird", "werden", "soll", "sollen", "kontakt", "bevorzugt",
+  ]);
+  return new Set(
+    normalizeOfferHint(value)
+      .split(/\s+/g)
+      .filter((token) => token.length >= 3 && !stop.has(token)),
+  );
+}
+
+function offerInfoLinesEquivalentV17_66(left: string, right: string): boolean {
+  const a = normalizeOfferHint(left);
+  const b = normalizeOfferHint(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.length >= 12 && longer.includes(shorter) && shorter.length / longer.length >= 0.58) {
+    return true;
+  }
+
+  const aTokens = offerInfoTokensV17_66(left);
+  const bTokens = offerInfoTokensV17_66(right);
+  if (aTokens.size < 2 || bTokens.size < 2) return false;
+  const overlap = [...aTokens].filter((token) => bTokens.has(token)).length;
+  const smallerSize = Math.min(aTokens.size, bTokens.size);
+  return overlap >= 2 && overlap / smallerSize >= 0.72;
+}
+
+function uniqueOfferInfoLinesV17_66(values: Array<string | null | undefined>): string[] {
+  const result: string[] = [];
+  for (const raw of values) {
+    const line = cleanOfferInfoLineV17_66(raw);
+    if (!line) continue;
+    if (result.some((existing) => offerInfoLinesEquivalentV17_66(existing, line))) continue;
+    result.push(line);
+  }
+  return result;
+}
+
 
 type OfferInfoSummary = {
   safety: string[];
@@ -537,24 +598,25 @@ function buildOfferInfoSummary(
 ): OfferInfoSummary {
   const source = [data.specialNotes, data.notes, data.audioTranscript].filter(Boolean).join("\n");
   const dogHints = (parsedNotes.jobHints || []).filter(isOfferDogHint);
-  const safety = uniqueOfferLines([...(parsedNotes.safetyWarnings || []), ...dogHints]);
-  const safetyKeys = new Set(safety.map(normalizeOfferHint));
+  const safety = uniqueOfferInfoLinesV17_66([...(parsedNotes.safetyWarnings || []), ...dogHints]);
   const importantRawLines = extractOfferImportantInstructionLines(source);
   const appointmentLines = extractOfferAppointmentSnippets(source);
-  const primary = uniqueOfferLines([
+  const primary = uniqueOfferInfoLinesV17_66([
     ...(parsedNotes.jobHints || []).filter(isOfferPrimaryInfoHint),
     ...appointmentLines,
     ...importantRawLines.filter(isOfferPrimaryInfoHint),
     appointmentLines.length === 0 ? appointmentLabel : "",
-  ]).filter((line) => !safetyKeys.has(normalizeOfferHint(line)));
-  const primaryKeys = new Set(primary.map(normalizeOfferHint));
-  const additional = uniqueOfferLines([
+  ]).filter(
+    (line) => !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)),
+  );
+  const additional = uniqueOfferInfoLinesV17_66([
     ...(parsedNotes.jobHints || []).filter((line) => !isOfferDogHint(line) && !isOfferPrimaryInfoHint(line)),
     ...importantRawLines.filter((line) => !isOfferPrimaryInfoHint(line)),
-  ]).filter((line) => {
-    const key = normalizeOfferHint(line);
-    return !safetyKeys.has(key) && !primaryKeys.has(key);
-  });
+  ]).filter(
+    (line) =>
+      !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
+      !primary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
+  );
   return { safety, primary, additional };
 }
 
@@ -2531,30 +2593,41 @@ export default function AngebotePage() {
     if (!isServiceReview) {
       const viewportWidth =
         typeof window !== "undefined" ? window.innerWidth : 390;
-      const popoverWidth = Math.min(352, Math.max(240, viewportWidth - 16));
+      const viewportHeight =
+        typeof window !== "undefined" ? window.innerHeight : 760;
+      const popoverWidth = Math.min(368, Math.max(240, viewportWidth - 16));
       const rect = activeMobileTooltip.anchorRect;
-      const rawCenter = rect
-        ? rect.left + rect.width / 2
-        : viewportWidth / 2;
+      const rawCenter = rect ? rect.left + rect.width / 2 : viewportWidth / 2;
       const half = popoverWidth / 2;
       const center = Math.min(
         Math.max(rawCenter, half + 8),
         viewportWidth - half - 8,
       );
-      const placeBelow = !rect || rect.top < 180;
+      const edge = 10;
+      const gap = 8;
+      const availableAbove = rect ? Math.max(0, rect.top - edge - gap) : viewportHeight - edge * 2;
+      const availableBelow = rect
+        ? Math.max(0, viewportHeight - rect.bottom - edge - gap)
+        : viewportHeight - edge * 2;
+      const desiredHeight = Math.min(560, Math.floor(viewportHeight * 0.68));
+      const placeBelow = rect
+        ? availableBelow >= Math.min(300, desiredHeight) || availableBelow >= availableAbove
+        : true;
+      const availableHeight = placeBelow ? availableBelow : availableAbove;
+      const maxHeight = Math.max(180, Math.min(desiredHeight, availableHeight || desiredHeight));
       const positionStyle = rect
         ? {
             left: `${center}px`,
-            top: placeBelow ? `${rect.bottom + 8}px` : `${rect.top - 8}px`,
+            top: placeBelow ? `${rect.bottom + gap}px` : `${rect.top - gap}px`,
             width: `${popoverWidth}px`,
-            transform: placeBelow
-              ? "translate(-50%, 0)"
-              : "translate(-50%, -100%)",
+            maxHeight: `${maxHeight}px`,
+            transform: placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
           }
         : {
             left: "50%",
             top: "50%",
             width: `${popoverWidth}px`,
+            maxHeight: `${Math.min(desiredHeight, viewportHeight - edge * 2)}px`,
             transform: "translate(-50%, -50%)",
           };
 
@@ -2570,7 +2643,7 @@ export default function AngebotePage() {
             }}
           />
           <div
-            className="fixed max-h-[45vh] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className="fixed overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             style={positionStyle}
             onClick={(event) => event.stopPropagation()}
           >
@@ -3452,7 +3525,7 @@ export default function AngebotePage() {
                                       })()}
                                     </span>
                                     <span className="shrink-0 text-muted-foreground">·</span>
-                                    <span className="min-w-0 max-w-[220px] truncate font-medium text-foreground">
+                                    <span className="min-w-[12rem] max-w-[20rem] shrink-0 truncate font-medium text-foreground">
                                       {isFallbackCustomerName(cardCustomerName)
                                         ? "⚠️ Kunde nicht zugeordnet"
                                         : cardCustomerName}
