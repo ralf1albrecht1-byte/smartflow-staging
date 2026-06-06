@@ -908,6 +908,38 @@ const findCustomerTextLineForService = (
     : "";
 };
 
+// V17.90L81: For the yellow position review, prefer the evidence persisted on
+// the item itself. Re-scanning an entire one-line WhatsApp message can attach
+// all following services, access notes and appointment text to one position.
+// This helper is display-only and does not alter review state, values or saving.
+const getCompactStoredItemEvidenceV17_90L81 = (
+  sourceDescription?: string | null,
+  serviceName?: string | null,
+  item?: {
+    quantity?: string | number | null;
+    unit?: string | null;
+    unitPrice?: string | number | null;
+  },
+) => {
+  const stored = stripInternalItemDescriptionMarkers(sourceDescription)
+    .replace(new RegExp(`^\\s*${MANUAL_CURRENCY_CONFIRMED_PREFIX}\\s*`, "i"), "")
+    .replace(new RegExp(`^\\s*${MANUAL_UNIT_CONFIRMED_PREFIX}\\s*[^:]*:\\s*`, "i"), "")
+    .trim();
+  if (!stored) return "";
+
+  const lineLocal = findCustomerTextLineForService(stored, serviceName, item);
+  const candidate = compactText(lineLocal || stored)
+    .replace(/^[-•*]+\s*/, "")
+    .trim();
+  if (!candidate) return "";
+
+  // A stored item description should normally already be line-local. The cap is
+  // a final UI guard only; it never rewrites the persisted description.
+  return candidate.length <= 220
+    ? candidate
+    : `${candidate.slice(0, 217).trim()}…`;
+};
+
 const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
   let text = cleanServiceLabelContextNoiseV17_90L27(value)
     .replace(/^\s*(?:text|kundentext|quelle|source|evidence)\s*[:：]\s*/i, "")
@@ -1321,7 +1353,7 @@ const getSemanticBadgeKind = (value?: string | null) => {
   if (/park|parking|parkplatz|parken|parkieren/.test(text)) return "parking";
   if (/schluessel|schlussel|schlüssel/.test(text)) return "key";
   if (
-    /zugang|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|klingeln|lift/.test(
+    /zugang|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|klingeln|lift|badge|besucherausweis/.test(
       text,
     )
   )
@@ -1393,6 +1425,11 @@ const isNonActionableSemanticHint = (
     /schmal|enger?\s+zugang|schwieriger\s+zugang|kein lift|ohne lift|access difficult|difficult access|acces difficile/.test(
       text,
     );
+  const hasActionableKeyOrBadge =
+    /\b(?:schluessel|schlussel|schlüssel|key|badge|besucherausweis|schluesselbox|schlusselbox|schlüsselbox|torcode|zugangscode)\b/.test(
+      text,
+    );
+  if (hasActionableKeyOrBadge) return false;
 
   const isOnlyNormalDoorInstruction =
     /klingeln|warten|haustuer|haustür|haupteingang|eingangstuer|eingangstür|kunde ist vor ort|kundin ist vor ort|oeffnet die tuer|öffnet die tür|sonner|attendre|ouvre la porte|main entrance|ring the bell|doorbell/.test(
@@ -2038,10 +2075,16 @@ const extractAppointmentBadge = (
   const raw = compactText(value);
   const text = normalizeForMatch(raw);
   if (!hasExplicitAppointmentBadgeSignalV17_90L10(raw)) return null;
+  const hasConcreteAppointmentSignal = Boolean(
+    hasAppointmentIntentWord(raw) &&
+      (raw.match(/\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/) ||
+        raw.match(/\b(?:heute|morgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i)) &&
+      raw.match(/\b(?:[01]?\d|2[0-3])(?::|\.)\d{2}\b/),
+  );
   if (
     !text ||
     isCallbackTimeLine(raw) ||
-    isPreArrivalInstructionLine(raw) ||
+    (isPreArrivalInstructionLine(raw) && !hasConcreteAppointmentSignal) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw) ||
     (hasExplicitPriceContextForAppointment(raw) &&
@@ -2201,6 +2244,14 @@ const isAppointmentContactTimeLine = (value?: string | null) => {
   const raw = compactText(value);
   const text = normalizeForMatch(raw);
   if (!text) return false;
+
+  const hasConcreteAppointmentSignal = Boolean(
+    hasAppointmentIntentWord(raw) &&
+      (raw.match(/\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/) ||
+        raw.match(/\b(?:heute|morgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i)) &&
+      raw.match(/\b(?:[01]?\d|2[0-3])(?::|\.)\d{2}\b/),
+  );
+  if (hasConcreteAppointmentSignal) return false;
 
   if (CONTACT_TIME_WORD_PATTERN.test(text) && CALLBACK_TIME_PATTERN.test(text))
     return true;
@@ -2796,7 +2847,7 @@ const isOperationalPrimaryOrderInfoHintV17_90L80 = (
   value?: string | null,
 ) => {
   const text = normalizeForMatch(value);
-  return /\b(?:genaue\s+zeit|kontakt|ansprechperson|vor\s+ort|whatsapp|sms|anrufen|telefonisch|termin|ankunft|nicht\s+einfach)\b/.test(
+  return /\b(?:genaue\s+zeit|kontakt|ansprechperson|vor\s+ort|whatsapp|sms|anrufen|telefonisch|termin|ankunft|nicht\s+einfach|stromabschaltung|freigabe)\b/.test(
     text,
   );
 };
@@ -2816,8 +2867,16 @@ const buildOrderInfoSummaryV17_65 = (
     .join("\n");
   const inline = extractInlineOrderInfoSnippetsV17_90L80(source);
 
+  const splitInfoClausesV17_90L81 = (line: string) =>
+    compactText(line)
+      .split(
+        /(?:[.;]\s+|(?=\b(?:für\s+[^.!?]{0,35}\bleiter\b|lieferwagen\b|besucherparkplatz\b|parkplatz\b|bewohner\s+schlafen\b|bitte\s+ruhig\s+arbeiten\b|genaue\s+zeit\b|termin\b)\b))/i,
+      )
+      .map((part) => compactText(part))
+      .filter(Boolean);
+
   const rawSafety = uniqueOrderInfoLinesV17_66([
-    ...(parsedNotes.safetyWarnings || []),
+    ...(parsedNotes.safetyWarnings || []).flatMap(splitInfoClausesV17_90L81),
     ...(parsedNotes.jobHints || []).filter(isDogLine),
   ]);
   const reclassifiedPrimary = rawSafety.filter(
@@ -2839,10 +2898,10 @@ const buildOrderInfoSummaryV17_65 = (
   const appointmentLines = extractOrderAppointmentSnippetsV17_65(source);
   const importantRawLines = extractOrderImportantInstructionLinesV17_65(source);
   const primary = uniqueOrderInfoLinesV17_66([
+    ...inline.primary,
     ...(parsedNotes.jobHints || []).filter(isPrimaryOrderInfoHintV17_65),
     ...appointmentLines,
     ...importantRawLines.filter(isPrimaryOrderInfoHintV17_65),
-    ...inline.primary,
     ...reclassifiedPrimary,
   ]).filter(
     (line) =>
@@ -2851,13 +2910,13 @@ const buildOrderInfoSummaryV17_65 = (
       ),
   );
   const additional = uniqueOrderInfoLinesV17_66([
+    ...inline.additional,
     ...(parsedNotes.jobHints || []).filter(
       (line) =>
         !isDogLine(line) &&
         !isPrimaryOrderInfoHintV17_65(line),
     ),
     ...importantRawLines.filter((line) => !isPrimaryOrderInfoHintV17_65(line)),
-    ...inline.additional,
     ...reclassifiedAdditional,
   ]).filter(
     (line) =>
@@ -2896,31 +2955,56 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
     }
   };
 
-  const phoneMatches = joined.match(/\+?\d[\d\s().\/-]{6,}\d/g) || [];
-  const phone =
-    phoneMatches
-      .map((value) => value.replace(/\s+/g, " ").trim())
-      .find((value) => {
-        const digits = value.replace(/\D/g, "");
-        return digits.length >= 7 && digits.length <= 15;
-      }) || "";
+  const phonePatternV17_90L81 = /\+?\d[\d\s().\/-]{6,}\d/g;
+  const isUsablePhoneV17_90L81 = (value: string) => {
+    const digits = value.replace(/\D/g, "");
+    return digits.length >= 7 && digits.length <= 15;
+  };
   const contactLine =
-    source.find((line) => phone && line.includes(phone)) ||
+    source
+      .filter(
+        (line) =>
+          /\b(?:kontakt\s+vor\s+ort|ansprechperson|vor\s+ort|contact\s+sur\s+place|dort)\b/i.test(
+            line,
+          ) && Boolean(line.match(phonePatternV17_90L81)),
+      )
+      .sort((left, right) => {
+        const score = (line: string) =>
+          (/\b(?:kontakt\s+vor\s+ort|ansprechperson|vor\s+ort|contact\s+sur\s+place|dort)\b/i.test(line) ? 10 : 0) +
+          (/\b[A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){1,2}\b/u.test(line) ? 5 : 0) +
+          (/\b(?:whatsapp|sms|anrufen|telefon)\b/i.test(line) ? 2 : 0);
+        return score(right) - score(left);
+      })[0] ||
     source.find((line) =>
       /\b(?:kontakt\s+vor\s+ort|vor\s+ort|whatsapp|sms|telefon|anrufen|anruf)\b/i.test(
         line,
       ),
     );
+  const contactPhone =
+    (contactLine?.match(phonePatternV17_90L81) || [])
+      .map((value) => value.replace(/\s+/g, " ").trim())
+      .find(isUsablePhoneV17_90L81) || "";
+  const fallbackPhone =
+    (joined.match(phonePatternV17_90L81) || [])
+      .map((value) => value.replace(/\s+/g, " ").trim())
+      .find(isUsablePhoneV17_90L81) || "";
+  const phone = contactPhone || fallbackPhone;
   if (contactLine || phone) {
     const line = contactLine || joined;
     const nameMatch = line.match(
-      /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){1,2})\s+(?=\+?\d)/u,
+      /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:|dort\s+)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){0,2})\s*[,;·:\-–—]*\s*(?=\+?\d)/u,
     );
     const contactParts = [nameMatch?.[1]?.trim() || "", phone];
     if (/\bwhatsapp\b/i.test(joined)) contactParts.push("nur WhatsApp");
     else if (/\bsms\b/i.test(joined)) contactParts.push("nur SMS");
     if (/\b(?:nicht\s+telefonisch|nicht\s+(?:im\s+büro\s+)?anrufen|kein\s+anruf)\b/i.test(joined)) {
       contactParts.push("nicht telefonisch");
+    }
+    if (/\b(?:zuerst|vorher|vor\s+ankunft)\s+(?:kurz\s+)?anrufen\b/i.test(joined)) {
+      contactParts.push("zuerst anrufen");
+    }
+    if (/\bnicht\s+einfach\s+(?:kommen|vorbeikommen)\b/i.test(joined)) {
+      contactParts.push("nicht einfach kommen");
     }
     pushUnique(`Kontakt: ${contactParts.filter(Boolean).join(" · ")}`);
   }
@@ -2955,20 +3039,42 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
     );
   }
 
-  const accessLines = source.filter((line) =>
-    /\b(?:schlüssel|schluessel|code|empfang|besucherausweis|zugang|schlüsselbox|schluesselbox)\b/i.test(
-      line,
-    ),
-  );
+  const accessLines = source.filter((line) => {
+    const normalized = normalizeForMatch(line);
+    const hasDirectAccessSignal =
+      /\b(?:schluessel|schlussel|schlüssel|key|code|besucherausweis|zugang|badge|schluesselbox|schlusselbox|schlüsselbox)\b/.test(
+        normalized,
+      );
+    const receptionCarriesAccess =
+      /\bempfang\b/.test(normalized) &&
+      /\b(?:schluessel|schlussel|schlüssel|key|code|badge|besucherausweis)\b/.test(
+        normalized,
+      );
+    return hasDirectAccessSignal || receptionCarriesAccess;
+  });
   if (accessLines.length > 0) {
-    const accessValue = uniqueOrderInfoLinesV17_66(
+    const normalizedAccessLines = uniqueOrderInfoLinesV17_66(
       accessLines.map((line) =>
         line
           .replace(/^\s*zugang\s*:?\s*/i, "")
           .replace(/[.;]+$/g, "")
           .trim(),
       ),
-    ).join(" · ");
+    );
+    const badgeAtReception = normalizedAccessLines.some((line) =>
+      /\bbadge\b/i.test(line) && /\bempfang\b/i.test(line),
+    );
+    const noCode = normalizedAccessLines.some((line) =>
+      /\b(?:kein\s+code|code\s+gibt\s+es\s+keinen|ohne\s+code)\b/i.test(
+        line,
+      ),
+    );
+    const badgeTarget = normalizedAccessLines
+      .map((line) => line.match(/\b([A-ZÄÖÜ][\p{L}'’\-]*raum)\b/u)?.[1] || "")
+      .find(Boolean);
+    const accessValue = badgeAtReception
+      ? `${badgeTarget ? `${badgeTarget}: ` : ""}Badge beim Empfang${noCode ? ", kein Code" : ""}`
+      : normalizedAccessLines.join(" · ");
     pushUnique(`Zugang: ${accessValue}`);
   }
 
@@ -5887,11 +5993,28 @@ const extractCallbackTimeHint = (
 
   for (const line of source) {
     const normalized = normalizeForMatch(line);
-    if (!CALLBACK_CONTACT_WORD_PATTERN.test(normalized)) {
+    const callbackMatch = normalized.match(CALLBACK_CONTACT_WORD_PATTERN);
+    if (!callbackMatch) {
       continue;
     }
 
-    const rangeMatch = line.match(
+    const callbackIndex = callbackMatch.index || 0;
+    let callbackLocal = line.slice(
+      Math.max(0, callbackIndex - 70),
+      Math.min(line.length, callbackIndex + 140),
+    );
+    const appointmentBoundary = callbackLocal.search(/\btermin\b/i);
+    if (appointmentBoundary >= 0) {
+      const callbackLocalKey = normalizeForMatch(callbackLocal);
+      const localCallbackIndex = callbackLocalKey.search(CALLBACK_CONTACT_WORD_PATTERN);
+      if (appointmentBoundary > localCallbackIndex) {
+        callbackLocal = callbackLocal.slice(0, appointmentBoundary);
+      } else {
+        callbackLocal = callbackLocal.slice(appointmentBoundary + "Termin".length);
+      }
+    }
+
+    const rangeMatch = callbackLocal.match(
       /(?:zwischen|von)\s*(\d{1,2})(?::|\.)(\d{2})\s*(?:uhr|h)?\s*(?:und|bis)\s*(\d{1,2})(?::|\.)(\d{2})\s*(?:uhr|h)?\b/i,
     );
 
@@ -5903,7 +6026,7 @@ const extractCallbackTimeHint = (
       return `${fromHour}:${fromMinute}–${toHour}:${toMinute}`;
     }
 
-    const match = line.match(
+    const match = callbackLocal.match(
       /(?:erst\s+)?(?:ab|nach)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i,
     );
 
@@ -5913,7 +6036,7 @@ const extractCallbackTimeHint = (
       return `erst ab ${hour}:${minute}`;
     }
 
-    const notBeforeMatch = line.match(
+    const notBeforeMatch = callbackLocal.match(
       /(?:nicht\s+vor|nicht\s+vorher\s+als|fr[uü]hestens)\s*(\d{1,2})(?:[:.\s]+(\d{2}))?\s*(?:uhr|h)?\b/i,
     );
 
@@ -6258,6 +6381,19 @@ const isChannelOnlyContactLineForCommunicationChips = (
 
 const sanitizeCommunicationChipLineForCommunicationChips = (line: string) => {
   if (!isChannelOnlyContactLineForCommunicationChips(line)) return line;
+
+  // V17.90L81: A whole WhatsApp order can arrive as one long line. Removing
+  // every phone number from that mixed line also removes the explicit on-site
+  // contact and forces the chip back to the billing-office number. Only strip
+  // numbers from genuinely short, channel-only instructions.
+  const normalized = normalizeForMatch(line);
+  const mixedOperationalSignals = [
+    /\brechnung\b/.test(normalized),
+    /\b(?:arbeit|arbeitsort|chantier|einsatzort)\b/.test(normalized),
+    /\b(?:leistung|reinigen|montieren|ersetzen|pruefen|service)\b/.test(normalized),
+    /\b(?:termin|schluessel|schlussel|code|parkplatz)\b/.test(normalized),
+  ].filter(Boolean).length;
+  if (line.length > 180 && mixedOperationalSignals >= 2) return line;
 
   return compactText(
     line
@@ -14823,14 +14959,16 @@ export default function AuftraegePage() {
                               hasFrontendCatalogTextFlatOverride ||
                               hasFrontendCatalogUnitDeviation,
                             );
+                          // V17.90L81: A global unit_price_review must not
+                          // paint every otherwise complete manual service with
+                          // "Preis im Text unklar". Only an item-specific reason
+                          // may show that message.
                           const showPriceReferenceReview =
                             !unresolvedCurrencyItem &&
                             !priceInputReview &&
                             Boolean(
-                              priceUnclearReason ||
-                              curOrder?.reviewReasons?.includes(
-                                "unit_price_review",
-                              ),
+                              priceUnclearReason &&
+                                isServiceInCatalog(item.serviceName),
                             );
                           const showManualCurrencyConfirmedReview =
                             !unresolvedCurrencyItem &&
@@ -14861,15 +14999,21 @@ export default function AuftraegePage() {
                           const hasInternalHardReviewState =
                             itemHasInternalReviewServiceName ||
                             (itemHasInternalReviewUnit && !manualUnitConfirmed);
+                          const itemEvidenceInput = {
+                            quantity: item.quantity,
+                            unit: item.unit,
+                            unitPrice: item.unitPrice,
+                          };
                           const sourceLineForItem =
+                            getCompactStoredItemEvidenceV17_90L81(
+                              item.sourceDescription,
+                              item.serviceName,
+                              itemEvidenceInput,
+                            ) ||
                             findCustomerTextLineForService(
                               visibleCustomerMessageText || customerMessageText,
                               item.serviceName,
-                              {
-                                quantity: item.quantity,
-                                unit: item.unit,
-                                unitPrice: item.unitPrice,
-                              },
+                              itemEvidenceInput,
                             );
                           const catalogSummary = catalogService
                             ? `${catalogService.unit}${
@@ -15846,32 +15990,24 @@ export default function AuftraegePage() {
                                                       Auftrag: {unitShortLabel(item.unit)} · {formatCurrency(itemPriceNumber, currency)}
                                                     </div>
                                                   </>
-                                                ) : sourceLineForItem ? (
-                                                  <div>
-                                                    Text:{" "}
-                                                    <span className="font-medium">
-                                                      {sourceLineForItem}
-                                                    </span>
-                                                    <span className="font-semibold">
-                                                      {" "}
-                                                      — Textpreis übernommen.
-                                                    </span>
-                                                  </div>
                                                 ) : (
-                                                  <div>
-                                                    Textpreis übernommen: Preis
-                                                    stammt aus dem Kundentext.
-                                                    Genaue Textzeile bitte bei
-                                                    Bedarf unten prüfen.
-                                                  </div>
+                                                  <>
+                                                    <div className="font-semibold">
+                                                      Textpreis übernommen
+                                                    </div>
+                                                    <div>
+                                                      Textpreis:{" "}
+                                                      <span className="font-medium">
+                                                        {formatCurrency(itemPriceNumber, currency)} / {unitShortLabel(item.unit)}
+                                                      </span>
+                                                    </div>
+                                                  </>
                                                 )}
                                                 <div className="text-amber-700/75 dark:text-amber-200/75">
-                                                  Katalog: {catalogService.unit}{" "}
-                                                  ·{" "}
-                                                  {formatCurrency(
-                                                    catalogPrice,
-                                                    currency,
-                                                  )}
+                                                  Katalogpreis:{" "}
+                                                  <span className="font-medium">
+                                                    {formatCurrency(catalogPrice, currency)} / {unitShortLabel(catalogService.unit)}
+                                                  </span>
                                                 </div>
                                               </div>
                                             )}
@@ -15897,20 +16033,7 @@ export default function AuftraegePage() {
 
                                           {!showUnitConflict &&
                                             showPriceReferenceReview && (
-                                              <div className="space-y-0.5">
-                                                <div>Preis im Text unklar.</div>
-                                                {sourceLineForItem && (
-                                                  <div>
-                                                    Text:{" "}
-                                                    <span className="font-medium">
-                                                      {sourceLineForItem}
-                                                    </span>
-                                                  </div>
-                                                )}
-                                                <div>
-                                                  Bitte Preis bestätigen.
-                                                </div>
-                                              </div>
+                                              <div>Preis im Text unklar.</div>
                                             )}
 
                                           {!showUnitConflict &&

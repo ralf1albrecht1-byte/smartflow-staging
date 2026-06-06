@@ -123,6 +123,14 @@ const isEquipmentOnlyWarningLineV17_34 = (value: string): boolean => {
   const text = normalizeDedupeText(value);
   if (!text) return false;
 
+  // Ausrüstung, Parkierung und Ruhehinweise sind operative Besonderheiten,
+  // keine roten Gefahren. Echte Risiken bleiben unverändert rot.
+  const isParkingOrQuietHint =
+    /\b(?:parkplatz|besucherparkplatz|parken|parkieren|stellplatz|bewohner schlafen|ruhig arbeiten)\b/.test(
+      text,
+    );
+  if (isParkingOrQuietHint) return true;
+
   // Eine Leiter ist Ausrüstung/Arbeitsmittel, kein roter Gefahrenhinweis.
   // Echte Gefahren wie Gas, Rauch, Strom, Rutschgefahr usw. bleiben rot.
   const hasLadder = /\bleiter\b|\bladder\b|\bechelle\b|\bescalera\b|\bscala\b|\bescada\b/.test(text);

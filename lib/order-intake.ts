@@ -8441,6 +8441,134 @@ Wenn KEIN Text und KEINE Sprachnachricht vorhanden ist (nur Bild(er)):
 }
 
 // ---------- Main intake function ----------
+
+// V17.90L81: Final source-identity guard. It only collapses rows that carry the
+// same local evidence, quantity, unit, price and currency and whose service
+// names are semantically nested (for example "Messprotokoll" and
+// "Messprotokoll erstellen"). It does not merge unrelated equal-priced rows.
+function dedupeEquivalentSourceRowsV17_90L81<T extends Record<string, any>>(
+  input: T[],
+): T[] {
+  const output: T[] = [];
+
+  const normalizedUnit = (value: unknown) => normalizeSemanticText(value);
+  const numberKey = (value: unknown, digits: number) => {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? number.toFixed(digits) : "0";
+  };
+  const nameScore = (value: unknown) => {
+    const name = normalizeSemanticText(value);
+    const actionBonus = /\b(?:pruefen|erstellen|reinigen|montieren|ersetzen|absaugen|reparieren|entkalken|streichen|verlegen|befestigen)\b/.test(name)
+      ? 100
+      : 0;
+    return actionBonus + name.length;
+  };
+
+  for (const item of input || []) {
+    const source = normalizeSemanticText(
+      item.sourceText || item.evidence || item.description || "",
+    );
+    const name = normalizeSemanticText(item.serviceName || "");
+    const identity = [
+      source,
+      numberKey(item.quantity, 4),
+      normalizedUnit(item.unit),
+      numberKey(item.unitPrice, 4),
+      normalizeSemanticText(item.currency || ""),
+    ].join("|");
+
+    const duplicateIndex = output.findIndex((existing) => {
+      const existingSource = normalizeSemanticText(
+        existing.sourceText || existing.evidence || existing.description || "",
+      );
+      const existingName = normalizeSemanticText(existing.serviceName || "");
+      const existingIdentity = [
+        existingSource,
+        numberKey(existing.quantity, 4),
+        normalizedUnit(existing.unit),
+        numberKey(existing.unitPrice, 4),
+        normalizeSemanticText(existing.currency || ""),
+      ].join("|");
+      const namesNested = Boolean(
+        name &&
+          existingName &&
+          (name === existingName ||
+            name.includes(existingName) ||
+            existingName.includes(name)),
+      );
+      return identity === existingIdentity && namesNested;
+    });
+
+    if (duplicateIndex < 0) {
+      output.push(item);
+      continue;
+    }
+
+    const existing = output[duplicateIndex];
+    const preferred =
+      nameScore(item.serviceName) > nameScore(existing.serviceName)
+        ? item
+        : existing;
+    const fallback = preferred === item ? existing : item;
+    output[duplicateIndex] = {
+      ...fallback,
+      ...preferred,
+      sourceText:
+        preferred.sourceText || fallback.sourceText || preferred.description || fallback.description,
+      evidence:
+        preferred.evidence || fallback.evidence || preferred.sourceText || fallback.sourceText,
+      description:
+        preferred.description || fallback.description || preferred.sourceText || fallback.sourceText,
+      needsReview: Boolean(preferred.needsReview && fallback.needsReview),
+      reviewReason:
+        preferred.reviewReason || fallback.reviewReason || null,
+    } as T;
+  }
+
+  return output;
+}
+
+// Restore an explicit action that is still present in the item's own evidence
+// but was shortened by a later label cleaner ("Verteilerschrank prüfen" must
+// not become only "Verteilerschrank"). This uses the same source row only.
+function restoreExplicitSourceActionV17_90L81<T extends Record<string, any>>(
+  input: T[],
+): T[] {
+  return (input || []).map((item) => {
+    const current = String(item.serviceName || "").trim();
+    const source = String(
+      item.sourceText || item.evidence || item.description || "",
+    )
+      .replace(/^[-•*]+\s*/, "")
+      .replace(/^\d+(?:[.,]\d+)?\s+/, "")
+      .trim();
+    if (!current || !source) return item;
+
+    const candidate = source
+      .replace(
+        /\s+\d+(?:[.,]\d+)?\s*(?:stunden?|std\.?|meter|m2|m²|qm|quadratmeter|stueck|stück|stk|pauschal)\b.*$/iu,
+        "",
+      )
+      .replace(/\s+(?:chf|eur|franken|stutz)\b.*$/iu, "")
+      .trim();
+    const currentKey = normalizeSemanticText(current);
+    const candidateKey = normalizeSemanticText(candidate);
+    if (!candidateKey.startsWith(`${currentKey} `)) return item;
+
+    const extra = candidateKey.slice(currentKey.length).trim().split(/\s+/g);
+    if (
+      extra.length < 1 ||
+      extra.length > 2 ||
+      !/\b(?:pruefen|erstellen|reinigen|montieren|ersetzen|absaugen|reparieren|entkalken|streichen|verlegen|befestigen)\b/.test(
+        extra.join(" "),
+      )
+    ) {
+      return item;
+    }
+    return { ...item, serviceName: candidate } as T;
+  });
+}
+
 export async function processIncomingMessage(
   input: IntakeInput,
 ): Promise<IntakeResult | null> {
@@ -9276,6 +9404,32 @@ export async function processIncomingMessage(
       // already runs protectCustomerData(existing, incoming) for any non-null
       // customerId — so we do nothing extra here and let that canonical path
       // handle address/plz/city fill-in.
+    } else if (
+      exact.reason === "multiple_candidates" &&
+      matchId &&
+      abgleichStatus === "bestaetigungs_treffer"
+    ) {
+      // V17.90L81: Do not create a third/fourth duplicate when the verified AI
+      // candidate is already inside an exact duplicate set. Reuse that existing
+      // record, but keep the assignment review visible.
+      const confirmedCandidate = await prisma.customer.findFirst({
+        where: {
+          id: matchId,
+          ...(userId ? { userId } : {}),
+          dataScope,
+          deletedAt: null,
+        },
+        select: { id: true, customerNumber: true },
+      });
+      if (confirmedCandidate) {
+        customerId = confirmedCandidate.id;
+        autoReuseTags.push(
+          `AUTO_REUSED_CONFIRMED_DUPLICATE_SET:${confirmedCandidate.customerNumber}`,
+        );
+        console.log(
+          `[${source}] 🎯 CONFIRMED DUPLICATE-SET REUSE → binding to existing ${confirmedCandidate.customerNumber} (${confirmedCandidate.id})`,
+        );
+      }
     } else if (
       exact.reason !== "incomplete_incoming" &&
       exact.reason !== "no_candidate"
@@ -10910,6 +11064,8 @@ export async function processIncomingMessage(
   finalOrderItems = removeGeneratedReviewDuplicatesByEvidenceV17_90L77(
     finalOrderItems,
   );
+  finalOrderItems = restoreExplicitSourceActionV17_90L81(finalOrderItems);
+  finalOrderItems = dedupeEquivalentSourceRowsV17_90L81(finalOrderItems);
   finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
     finalOrderItems,
     validationSourceText,
