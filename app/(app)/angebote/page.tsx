@@ -20,6 +20,7 @@ import {
   MapPin,
   Info,
   Pencil,
+  Phone,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
@@ -351,14 +352,27 @@ function extractOfferAppointmentLabel(value?: string | null): string {
   if (!line) return "";
 
   const date = line.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
-  const time = line.match(/\b(\d{1,2})[:.](\d{2})\b/);
+  // A dot belongs to Swiss/German dates as well. Therefore only real clock
+  // values with a colon are accepted after the detected date was removed.
+  // This prevents 18.06.2026 from becoming the false time 18:06.
+  const lineWithoutDate = date ? line.replace(date[0], " ") : line;
+  const timeMatches = Array.from(
+    lineWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
+  );
+  const timeLabels = timeMatches
+    .map((match) => `${match[1].padStart(2, "0")}:${match[2]}`)
+    .filter((time, index, all) => all.indexOf(time) === index);
+  const timeLabel =
+    timeLabels.length >= 2
+      ? `${timeLabels[0]}–${timeLabels[1]}`
+      : timeLabels[0] || "";
+
   if (date) {
     const dateLabel = `${date[1].padStart(2, "0")}.${date[2].padStart(2, "0")}.`;
-    return time
-      ? `Termin ${dateLabel} ${time[1].padStart(2, "0")}:${time[2]}`
-      : `Termin ${dateLabel}`;
+    return `Termin ${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
   }
 
+  if (timeLabel) return `Termin ${timeLabel}`;
   return line.length > 38 ? `${line.slice(0, 35).trim()}…` : line;
 }
 
@@ -503,6 +517,100 @@ function buildOfferContactChipData(
   };
 }
 
+type OfferCallbackChip = {
+  title: string;
+  phone: string;
+  href?: string;
+};
+
+function findOfferCommunicationActionHref(
+  target: EventTarget | null,
+): string {
+  const anchor = (target as HTMLElement | null)?.closest?.("a[href]");
+  const href = String(anchor?.getAttribute("href") || "").trim();
+  return /^(?:tel:|sms:|mailto:|https?:\/\/(?:wa\.me|api\.whatsapp\.com)(?:\/|$))/i.test(
+    href,
+  )
+    ? href
+    : "";
+}
+
+function normalizeOfferPhoneHref(value?: string | null): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const hasLeadingPlus = raw.startsWith("+");
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 6) return "";
+  return `${hasLeadingPlus ? "+" : ""}${digits}`;
+}
+
+function extractOfferPhone(value?: string | null): string {
+  const match = String(value || "").match(/(?:\+?\d[\d\s()./-]{6,}\d)/);
+  return normalizeOfferPhoneHref(match?.[0] || "");
+}
+
+function buildOfferCallbackChip(
+  data: CommunicationData,
+  customer?: Customer | null,
+): OfferCallbackChip | null {
+  const source = [data.notes, data.specialNotes, data.audioTranscript]
+    .filter(Boolean)
+    .join("\n");
+  const lines = source
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const isNegativeCallbackLine = (line: string) => {
+    const text = normalizeOfferHint(line);
+    return (
+      /\b(?:nicht|kein|keine|keinen|ohne|nie)\b.{0,45}\b(?:anrufen|rueckrufen|zurueckrufen|rueckruf|telefon|telefonisch)\b/.test(
+        text,
+      ) ||
+      /\b(?:anrufen|rueckrufen|zurueckrufen|rueckruf|telefon|telefonisch)\b.{0,45}\b(?:nicht|kein|keine|ohne|unerwuenscht)\b/.test(
+        text,
+      )
+    );
+  };
+  const isPositiveCallbackLine = (line: string) => {
+    if (isNegativeCallbackLine(line)) return false;
+    const text = normalizeOfferHint(line);
+    return (
+      /\b(?:rueckruf|rueckrufen|zurueckrufen|anruf\s+erbeten)\b/.test(text) ||
+      /\b(?:bitte|kurz|vorher|zuerst|dringend)\b.{0,35}\b(?:anrufen|telefonisch\s+melden|kontaktieren)\b/.test(
+        text,
+      ) ||
+      /\b(?:anrufen|telefonisch\s+melden)\b.{0,35}\b(?:bitte|erbeten|gewuenscht|bevorzugt)\b/.test(
+        text,
+      )
+    );
+  };
+
+  const callbackIndex = lines.findIndex(isPositiveCallbackLine);
+  if (callbackIndex < 0) return null;
+
+  const nearbyLines = [
+    lines[callbackIndex],
+    lines[callbackIndex - 1],
+    lines[callbackIndex + 1],
+    lines[callbackIndex - 2],
+    lines[callbackIndex + 2],
+  ].filter(Boolean);
+  const phone =
+    nearbyLines.map(extractOfferPhone).find(Boolean) ||
+    extractOfferPhone(source) ||
+    normalizeOfferPhoneHref(customer?.phone || data.customer?.phone || data.phone);
+  const callbackLine = lines[callbackIndex];
+
+  return {
+    title: phone ? `Rückruf: ${phone}` : callbackLine || "Rückruf gewünscht",
+    phone,
+    href: phone ? `tel:${phone}` : undefined,
+  };
+}
+
 function OfferPlainTooltip({
   text,
   align = "left",
@@ -592,20 +700,53 @@ function OfferInfoTooltip({
 }
 
 
+type OfferServiceReviewItem = {
+  title: string;
+  details: string[];
+};
+
+type OfferServiceReviewSection = {
+  title: string;
+  items: OfferServiceReviewItem[];
+};
+
 type OfferServiceReviewSummary = {
   blockerCount: number;
   reviewCount: number;
   blockerTooltip: string;
   reviewTooltip: string;
+  blockerSections: OfferServiceReviewSection[];
+  reviewSections: OfferServiceReviewSection[];
 };
+
+function formatOfferReviewNumber(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  return value.toLocaleString("de-CH", {
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function serializeOfferReviewSections(
+  sections: OfferServiceReviewSection[],
+): string {
+  return sections
+    .flatMap((section, sectionIndex) => [
+      ...(sectionIndex > 0 ? ["---"] : []),
+      section.title,
+      ...section.items.flatMap((item) => [item.title, ...item.details]),
+    ])
+    .join("\n");
+}
 
 function buildOfferServiceReviewSummary(
   offer: Offer,
   services: any[],
   currency: "CHF" | "EUR",
 ): OfferServiceReviewSummary {
-  const blockers: string[] = [];
-  const reviews: string[] = [];
+  const blockers: OfferServiceReviewItem[] = [];
+  const deviations: OfferServiceReviewItem[] = [];
+  const missingCatalog: OfferServiceReviewItem[] = [];
 
   (offer.items || []).forEach((item: any) => {
     const name = String(item?.description || "").trim() || "Leistung";
@@ -616,24 +757,33 @@ function buildOfferServiceReviewSummary(
     const matchedService = (services || []).find(
       (service: any) => normalizeOfferHint(service?.name) === normalizedName,
     );
+    const currentCalculation = `${formatOfferReviewNumber(quantity)} ${unit || "–"} × ${formatCurrency(unitPrice, currency)} = ${formatCurrency(quantity * unitPrice, currency)}`;
 
-    if (
-      !name ||
-      quantity <= 0 ||
-      unitPrice <= 0 ||
-      !unit ||
-      /(?:prüfen|pruefen|prufen)/i.test(unit)
-    ) {
-      blockers.push(
-        `${name}: ${quantity <= 0 ? "Menge fehlt oder ist 0" : unitPrice <= 0 ? "Preis fehlt oder ist 0" : "Einheit prüfen"}.`,
-      );
+    const blockerReasons = [
+      !String(item?.description || "").trim() ? "Leistungsname fehlt" : "",
+      quantity <= 0 ? "Menge fehlt oder ist 0" : "",
+      unitPrice <= 0 ? "Preis fehlt oder ist 0" : "",
+      !unit || /(?:prüfen|pruefen|prufen)/i.test(unit)
+        ? "Einheit fehlt oder muss geprüft werden"
+        : "",
+    ].filter(Boolean);
+
+    if (blockerReasons.length > 0) {
+      blockers.push({
+        title: name,
+        details: [...blockerReasons, `Aktuell: ${currentCalculation}`],
+      });
       return;
     }
 
     if (!matchedService) {
-      reviews.push(
-        `${name}: nicht im Leistungskatalog · ${unit} · ${formatCurrency(unitPrice, currency)}.`,
-      );
+      missingCatalog.push({
+        title: name,
+        details: [
+          `Angebot: ${currentCalculation}`,
+          "Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen.",
+        ],
+      });
       return;
     }
 
@@ -643,26 +793,92 @@ function buildOfferServiceReviewSummary(
     const samePrice = Math.abs(unitPrice - catalogPrice) < 0.001;
 
     if (!sameUnit || !samePrice) {
-      const reasons = [
-        !sameUnit ? `Einheit ${unit || "–"} statt ${catalogUnit || "–"}` : "",
+      const differences = [
+        !sameUnit
+          ? `Einheit weicht ab: ${unit || "–"} statt ${catalogUnit || "–"}`
+          : "",
         !samePrice
-          ? `Preis ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`
+          ? `Preis weicht ab: ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`
           : "",
       ].filter(Boolean);
-      reviews.push(`${name}: ${reasons.join(" · ")}.`);
+      deviations.push({
+        title: name,
+        details: [
+          `Angebot: ${currentCalculation}`,
+          `Katalog: ${catalogUnit || "–"} · ${formatCurrency(catalogPrice, currency)}`,
+          ...differences,
+        ],
+      });
     }
   });
 
+  const blockerSections: OfferServiceReviewSection[] = blockers.length
+    ? [{ title: "Preis / Menge / Einheit prüfen", items: blockers }]
+    : [];
+  const reviewSections: OfferServiceReviewSection[] = [
+    ...(deviations.length
+      ? [{ title: "Preis oder Einheit abweichend", items: deviations }]
+      : []),
+    ...(missingCatalog.length
+      ? [{ title: "Nicht im Leistungskatalog", items: missingCatalog }]
+      : []),
+  ];
+
   return {
     blockerCount: blockers.length,
-    reviewCount: reviews.length,
-    blockerTooltip: blockers.length
-      ? ["Preis/Menge prüfen", ...blockers].join("\n")
-      : "",
-    reviewTooltip: reviews.length
-      ? ["Leistungen prüfen", ...reviews].join("\n")
-      : "",
+    reviewCount: deviations.length + missingCatalog.length,
+    blockerTooltip: serializeOfferReviewSections(blockerSections),
+    reviewTooltip: serializeOfferReviewSections(reviewSections),
+    blockerSections,
+    reviewSections,
   };
+}
+
+function OfferServiceReviewTooltip({
+  title,
+  sections,
+  align = "left",
+}: {
+  title: string;
+  sections: OfferServiceReviewSection[];
+  align?: "left" | "right";
+}) {
+  if (sections.length === 0) return null;
+  return (
+    <span
+      className={`pointer-events-none absolute ${align === "right" ? "right-0" : "left-0"} bottom-full z-[9999] mb-1 hidden w-[min(27rem,calc(100vw-2rem))] max-h-[58vh] overflow-auto rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+    >
+      <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+        {title}
+      </span>
+      {sections.map((section, sectionIndex) => (
+        <span
+          key={`${section.title}_${sectionIndex}`}
+          className={`${sectionIndex > 0 ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+        >
+          <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
+            {section.title}
+          </span>
+          {section.items.map((item, itemIndex) => (
+            <span
+              key={`${item.title}_${itemIndex}`}
+              className={`${itemIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+            >
+              <span className="block break-words font-bold">{item.title}</span>
+              {item.details.map((detail, detailIndex) => (
+                <span
+                  key={`${item.title}_${detailIndex}`}
+                  className="block break-words text-slate-600 dark:text-slate-300"
+                >
+                  {detail}
+                </span>
+              ))}
+            </span>
+          ))}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 type OfferMobileTooltipState = {
@@ -670,6 +886,8 @@ type OfferMobileTooltipState = {
   text?: string;
   safetyWarnings?: string[];
   jobHints?: string[];
+  reviewTitle?: string;
+  reviewSections?: OfferServiceReviewSection[];
 };
 
 type OfferCatalogDecision = {
@@ -2013,11 +2231,51 @@ export default function AngebotePage() {
               ))}
             </div>
           )}
-          {textValue && (
-            <div className="whitespace-pre-wrap break-words">
-              {textValue}
-            </div>
-          )}
+          {activeMobileTooltip.reviewSections &&
+            activeMobileTooltip.reviewSections.length > 0 && (
+              <div className="space-y-3">
+                <div className="text-sm font-bold text-slate-950 dark:text-slate-50">
+                  {activeMobileTooltip.reviewTitle || "Leistungen prüfen"}
+                </div>
+                {activeMobileTooltip.reviewSections.map((section, sectionIndex) => (
+                  <div
+                    key={`offer_mobile_review_section_${sectionIndex}`}
+                    className={`${sectionIndex > 0 ? "border-t border-slate-200 pt-3 dark:border-slate-700" : ""}`}
+                  >
+                    <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
+                      {section.title}
+                    </div>
+                    <div className="space-y-2">
+                      {section.items.map((item, itemIndex) => (
+                        <div
+                          key={`offer_mobile_review_item_${sectionIndex}_${itemIndex}`}
+                          className="rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/60"
+                        >
+                          <div className="font-bold text-slate-950 dark:text-slate-50">
+                            {item.title}
+                          </div>
+                          {item.details.map((detail, detailIndex) => (
+                            <div
+                              key={`offer_mobile_review_detail_${detailIndex}`}
+                              className="break-words text-[12px] text-slate-600 dark:text-slate-300"
+                            >
+                              {detail}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          {textValue &&
+            (!activeMobileTooltip.reviewSections ||
+              activeMobileTooltip.reviewSections.length === 0) && (
+              <div className="whitespace-pre-wrap break-words">
+                {textValue}
+              </div>
+            )}
         </div>
       </div>
     );
@@ -2161,6 +2419,10 @@ export default function AngebotePage() {
                       .join("\n"),
                   );
                   const contactChipData = buildOfferContactChipData(
+                    orderCtx,
+                    off.customer,
+                  );
+                  const callbackChip = buildOfferCallbackChip(
                     orderCtx,
                     off.customer,
                   );
@@ -2404,7 +2666,16 @@ export default function AngebotePage() {
                                       className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onTouchStart={(event) => event.stopPropagation()}
-                                      onClickCapture={(event) => {
+                                      onClick={(event) => {
+                                        const actionHref =
+                                          findOfferCommunicationActionHref(
+                                            event.target,
+                                          );
+                                        if (actionHref) {
+                                          event.stopPropagation();
+                                          setActiveMobileTooltip(null);
+                                          return;
+                                        }
                                         const element = (
                                           event.target as HTMLElement
                                         ).closest<HTMLElement>(
@@ -2439,6 +2710,40 @@ export default function AngebotePage() {
                                         }}
                                       />
                                     </div>
+
+                                    {callbackChip &&
+                                      (callbackChip.href ? (
+                                        <a
+                                          href={callbackChip.href}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setActiveMobileTooltip(null);
+                                          }}
+                                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
+                                          aria-label={callbackChip.title}
+                                        >
+                                          <Phone className="h-4 w-4" />
+                                        </a>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onTouchStart={(event) => event.stopPropagation()}
+                                          onClick={(event) =>
+                                            toggleOfferMobileTooltip(
+                                              {
+                                                key: `${off.id}:callback`,
+                                                text: callbackChip.title,
+                                              },
+                                              event,
+                                            )
+                                          }
+                                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
+                                          aria-label={callbackChip.title}
+                                        >
+                                          <Phone className="h-4 w-4" />
+                                        </button>
+                                      ))}
 
                                     {hasInfoTooltip && (
                                       <button
@@ -2539,7 +2844,9 @@ export default function AngebotePage() {
                                           toggleOfferMobileTooltip(
                                             {
                                               key: `${off.id}:service_blocker`,
-                                              text: serviceReview.blockerTooltip,
+                                              reviewTitle: "Preis / Menge prüfen",
+                                              reviewSections:
+                                                serviceReview.blockerSections,
                                             },
                                             event,
                                           )
@@ -2558,7 +2865,9 @@ export default function AngebotePage() {
                                           toggleOfferMobileTooltip(
                                             {
                                               key: `${off.id}:service_review`,
-                                              text: serviceReview.reviewTooltip,
+                                              reviewTitle: `Leistungen prüfen · ${serviceReview.reviewCount}`,
+                                              reviewSections:
+                                                serviceReview.reviewSections,
                                             },
                                             event,
                                           )
@@ -2688,7 +2997,15 @@ export default function AngebotePage() {
 
                                     <div
                                       className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
-                                      onClickCapture={(event) => {
+                                      onClick={(event) => {
+                                        const actionHref =
+                                          findOfferCommunicationActionHref(
+                                            event.target,
+                                          );
+                                        if (actionHref) {
+                                          event.stopPropagation();
+                                          return;
+                                        }
                                         const element = (
                                           event.target as HTMLElement
                                         ).closest<HTMLElement>(
@@ -2720,6 +3037,36 @@ export default function AngebotePage() {
                                         }}
                                       />
                                     </div>
+
+                                    {callbackChip &&
+                                      (callbackChip.href ? (
+                                        <a
+                                          href={callbackChip.href}
+                                          onClick={(event) => event.stopPropagation()}
+                                          className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700 outline-none hover:bg-rose-100 focus:ring-2 focus:ring-rose-300"
+                                          aria-label={callbackChip.title}
+                                        >
+                                          <Phone className="h-4 w-4" />
+                                          <OfferPlainTooltip text={callbackChip.title} />
+                                        </a>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            openOfferSection(
+                                              off,
+                                              "details",
+                                              callbackChip.title,
+                                            );
+                                          }}
+                                          className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700 outline-none hover:bg-rose-100 focus:ring-2 focus:ring-rose-300"
+                                          aria-label={callbackChip.title}
+                                        >
+                                          <Phone className="h-4 w-4" />
+                                          <OfferPlainTooltip text={callbackChip.title} />
+                                        </button>
+                                      ))}
 
                                     {hasInfoTooltip && (
                                       <button
@@ -2798,8 +3145,9 @@ export default function AngebotePage() {
                                         className="group relative inline-flex rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800"
                                       >
                                         Preis/Menge prüfen
-                                        <OfferPlainTooltip
-                                          text={serviceReview.blockerTooltip}
+                                        <OfferServiceReviewTooltip
+                                          title="Preis / Menge prüfen"
+                                          sections={serviceReview.blockerSections}
                                           align="right"
                                         />
                                       </button>
@@ -2818,8 +3166,9 @@ export default function AngebotePage() {
                                         className="group relative inline-flex rounded-full border border-yellow-400 bg-yellow-100 px-2 py-0.5 text-[11px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
                                       >
                                         Leistungen prüfen · {serviceReview.reviewCount}
-                                        <OfferPlainTooltip
-                                          text={serviceReview.reviewTooltip}
+                                        <OfferServiceReviewTooltip
+                                          title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
+                                          sections={serviceReview.reviewSections}
                                           align="right"
                                         />
                                       </button>

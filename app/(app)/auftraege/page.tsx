@@ -3936,50 +3936,74 @@ const formatExecutionAddressTooltip = (order: Order) => {
         Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
     );
 
-  const formatStoredWorkSiteLines = (site: {
-    siteName?: string | null;
-    siteAddress?: string | null;
-    sitePlz?: string | null;
-    siteCity?: string | null;
-    siteNote?: string | null;
-  }) =>
-    [
-      cleanWorkSiteDisplayName(site.siteName),
-      compactText(site.siteAddress),
-      [site.sitePlz, site.siteCity].map(compactText).filter(Boolean).join(" "),
-      compactText(site.siteNote),
+  const formatStoredWorkSiteLines = (
+    site: {
+      siteName?: string | null;
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+      siteNote?: string | null;
+    },
+    index?: number,
+  ) => {
+    const siteName = cleanWorkSiteDisplayName(site.siteName);
+    const street = compactText(site.siteAddress);
+    const place = [site.sitePlz, site.siteCity]
+      .map(compactText)
+      .filter(Boolean)
+      .join(" ");
+    const note = compactText(site.siteNote);
+    return [
+      index != null ? `Arbeitsort ${index + 1}` : "",
+      siteName ? `Objekt: ${siteName}` : "",
+      `Strasse: ${street || "–"}`,
+      `PLZ / Ort: ${place || "–"}`,
+      note ? `Hinweis: ${note}` : "",
     ].filter(Boolean);
+  };
 
   if (workSites.length > 0) {
-    const siteBlocks = workSites.slice(0, 8).map((site, index) => {
-      const lines = formatStoredWorkSiteLines(site);
-      if (lines.length === 0) return `Arbeitsort ${index + 1}`;
-      return workSites.length > 1
-        ? [`${index + 1}. ${lines[0]}`, ...lines.slice(1)].join("\n")
-        : lines.join("\n");
-    });
-
-    const hiddenCount = Math.max(0, workSites.length - siteBlocks.length);
+    const visibleSites = workSites.slice(0, 8);
+    const siteBlocks = visibleSites.map((site, index) =>
+      formatStoredWorkSiteLines(
+        site,
+        workSites.length > 1 ? index : undefined,
+      ).join("\n"),
+    );
+    const hiddenCount = Math.max(0, workSites.length - visibleSites.length);
     return [
       workSites.length > 1
-        ? `Ausführungsorte (${workSites.length}):`
-        : "Ausführungsadresse:",
-      ...siteBlocks,
+        ? `Ausführungsorte · ${workSites.length}`
+        : "Ausführungsadresse",
+      ...siteBlocks.flatMap((block, index) =>
+        index > 0 ? ["---", block] : [block],
+      ),
       hiddenCount > 0 ? `+${hiddenCount} weitere Arbeitsorte` : "",
     ]
       .filter(Boolean)
-      .join("\n\n");
+      .join("\n");
   }
 
-  const fallback = [
-    cleanWorkSiteDisplayName(order.siteName) || inferOrderExecutionSiteName(order),
-    compactText(order.siteAddress),
-    [order.sitePlz, order.siteCity].map(compactText).filter(Boolean).join(" "),
-  ].filter(Boolean);
+  const siteName =
+    cleanWorkSiteDisplayName(order.siteName) || inferOrderExecutionSiteName(order);
+  const street = compactText(order.siteAddress);
+  const place = [order.sitePlz, order.siteCity]
+    .map(compactText)
+    .filter(Boolean)
+    .join(" ");
+  const note = compactText(order.siteNote);
 
-  return fallback.length > 0
-    ? ["Ausführungsadresse:", ...fallback].join("\n")
-    : "Arbeit wird an einer anderen Adresse ausgeführt.";
+  return siteName || street || place || note
+    ? [
+        "Ausführungsadresse",
+        siteName ? `Objekt: ${siteName}` : "",
+        `Strasse: ${street || "–"}`,
+        `PLZ / Ort: ${place || "–"}`,
+        note ? `Hinweis: ${note}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "Ausführungsadresse\nArbeit wird an einer anderen Adresse ausgeführt.";
 };
 
 const combineCatalogReviewBadges = (badges: ReviewBadge[]) => badges;
@@ -4417,7 +4441,7 @@ const getSystemBadges = (
         workSiteCount > 1
           ? `Ausführungsorte · ${workSiteCount}`
           : executionSiteChipLabel || "Ausführungsadresse",
-      className: "bg-cyan-100 text-cyan-700 border border-cyan-300",
+      className: "bg-cyan-50 text-cyan-800 border border-cyan-300",
       tooltip: formatExecutionAddressTooltip(order),
     });
   }
@@ -5350,6 +5374,9 @@ const compactIconForBadge = (
     label.includes("hintereingang")
   )
     return OpenDoorIcon;
+  // Generic red danger chips such as "Achtung" use only the warning symbol,
+  // matching the compact presentation already used on offers/mobile.
+  if (badge.icon && badge.focusTarget === "specialNotes") return AlertTriangle;
   return null;
 };
 
@@ -5400,11 +5427,95 @@ const renderSpecialNotesSummaryTooltipV17_91 = (
   );
 };
 
+const renderExecutionAddressBadgeTooltipV17_90L56 = (
+  badge: ReviewBadge,
+  align: "left" | "right" = "left",
+  forceVisible = false,
+  mobile = false,
+) => {
+  const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+  if (!tooltip) return null;
+  const lines = tooltip.split("\n");
+  const heading = lines.shift() || "Ausführungsadresse";
+  const alignClass = align === "right" ? "right-0" : "left-0";
+  const positionClass = mobile
+    ? "pointer-events-auto fixed top-1/2 left-4 right-4 z-[10000] max-h-[62vh] -translate-y-1/2 overflow-y-auto"
+    : `pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 max-h-[55vh] overflow-y-auto`;
+  const visibilityClass = forceVisible
+    ? "block"
+    : mobile
+      ? "hidden group-focus:block group-hover:block"
+      : "hidden group-hover:block group-focus:block";
+
+  return (
+    <span
+      className={`${positionClass} ${visibilityClass} w-[min(25rem,calc(100vw-2rem))] rounded-xl border border-sky-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
+    >
+      <span className="mb-2 flex items-center gap-1.5 font-bold text-sky-800 dark:text-sky-200">
+        <MapPin className="h-3.5 w-3.5" /> {heading}
+      </span>
+      <span className="block space-y-1">
+        {lines.map((line, index) => {
+          const trimmed = line.trim();
+          if (!trimmed) return null;
+          if (/^[-─—–_]{3,}$/.test(trimmed)) {
+            return (
+              <span
+                key={`execution_address_separator_${index}`}
+                className="my-2 block border-t border-sky-100 dark:border-slate-700"
+              />
+            );
+          }
+          if (/^Arbeitsort\s+\d+/i.test(trimmed)) {
+            return (
+              <span
+                key={`execution_address_site_${index}`}
+                className="mt-2 block font-bold text-slate-950 dark:text-slate-50"
+              >
+                {trimmed}
+              </span>
+            );
+          }
+          const match = trimmed.match(/^(Objekt|Strasse|PLZ \/ Ort|Hinweis):\s*(.*)$/i);
+          if (match) {
+            return (
+              <span
+                key={`execution_address_line_${index}`}
+                className="grid grid-cols-[72px_1fr] gap-x-2"
+              >
+                <span className="text-muted-foreground">{match[1]}:</span>
+                <span
+                  className={`break-words ${/^Objekt$/i.test(match[1]) ? "font-semibold text-slate-950 dark:text-slate-50" : ""}`}
+                >
+                  {match[2] || "–"}
+                </span>
+              </span>
+            );
+          }
+          return (
+            <span key={`execution_address_text_${index}`} className="block break-words">
+              {trimmed}
+            </span>
+          );
+        })}
+      </span>
+    </span>
+  );
+};
+
 const renderBadgeTooltip = (
   badge: ReviewBadge,
   align: "left" | "right" = "left",
   forceVisible = false,
 ) => {
+  if (badge.key === "site_address") {
+    return renderExecutionAddressBadgeTooltipV17_90L56(
+      badge,
+      align,
+      forceVisible,
+      false,
+    );
+  }
   if (badge.key === "special_notes_summary") {
     return renderSpecialNotesSummaryTooltipV17_91(badge, align, forceVisible);
   }
@@ -5501,6 +5612,14 @@ const renderMobileSafeBadgeTooltip = (
   badge: ReviewBadge,
   forceVisible = false,
 ) => {
+  if (badge.key === "site_address") {
+    return renderExecutionAddressBadgeTooltipV17_90L56(
+      badge,
+      "left",
+      forceVisible,
+      true,
+    );
+  }
   if (badge.key === "special_notes_summary") {
     return renderMobileSpecialNotesSummaryTooltipV17_91(badge, forceVisible);
   }
