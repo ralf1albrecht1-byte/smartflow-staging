@@ -8342,7 +8342,7 @@ export async function processIncomingMessage(
     return null;
   }
   const dataScope = await getActiveDataScope(userId);
-  const intakeDiagnosticTraceEnabled = dataScope === "TEST";
+  const intakeDiagnosticTraceEnabled = dataScope === "test";
   const intakeDiagnosticTraceId = createIntakeDiagnosticTraceId();
   const _intakeStartTime = Date.now();
   logIntakeDiagnosticTrace(
