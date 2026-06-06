@@ -1541,8 +1541,19 @@ function hasExplicitBillingAddressDirectiveV17_61(
   const text = normalizeUnitText(rawText || "");
   if (!text) return false;
 
-  return /\b(?:rechnungsadresse|rechnungskunde|rechnungsempfaenger|rechnungsempfänger|rechnung\s+(?:geht\s+)?an|rechnung\s+(?:fuer|für)|rechnung\s+bekommt|auftraggeber|besteller|zahler|facturation|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|invoice|bill\s+to)\b/.test(
-    text,
+  if (
+    /\b(?:rechnungsadresse|rechnungskunde|rechnungsempfaenger|rechnungsempfänger|rechnung\s+(?:geht\s+)?an|rechnung\s+(?:fuer|für)|rechnung\s+bekommt|auftraggeber|besteller|zahler|facturation|billing\s+address|billing\s+customer|invoice\s+address|invoice\s+customer|invoice|bill\s+to)\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  // V17.90L80: Messages often omit "an" and put the complete billing
+  // address directly after "Rechnung". Accept only a bounded, complete
+  // street + Swiss PLZ/city block; a bare company name is not enough.
+  return /\b(?:rechnung|facture|fattura|factura)\s*:?\s+[^\n.]{0,150}\b[\p{L}][\p{L}'’\- ]{1,55}(?:strasse|straße|weg|gasse|platz|allee|rain|quai)\s+\d+[a-z]?\b[^\n.]{0,70}\b\d{4}\s+[\p{L}][\p{L}'’\-]{1,40}\b/iu.test(
+    String(rawText || ""),
   );
 }
 
@@ -5620,7 +5631,11 @@ function cleanStructuredAiServiceNameV17_90L76(
       "",
     )
     .replace(
-      /\s*[,;:\-–—]?\s*(?:bitte\s+)?(?:separat\s+)?(?:prüfen|pruefen|kontrollieren)\s*$/iu,
+      /\s*[,;:\-–—]\s*(?:bitte\s+)?(?:separat\s+)?(?:prüfen|pruefen|kontrollieren)\s*$/iu,
+      "",
+    )
+    .replace(
+      /\s+(?:(?:bitte\s+)?separat|bitte|manuell)\s+(?:prüfen|pruefen|kontrollieren)\s*$/iu,
       "",
     )
     .replace(/[\s,;:\-–—]+$/g, "")

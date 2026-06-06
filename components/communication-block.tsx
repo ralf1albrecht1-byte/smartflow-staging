@@ -474,14 +474,29 @@ function getContactEmail(data: CommunicationData, sourceText: string): string {
   ).trim();
 }
 
+function getOnsiteContactPhoneFromTextV17_90L80(sourceText: string): string {
+  const patterns = [
+    /(?:kontakt(?:\s+vor\s+ort)?|ansprech(?:person|partner)(?:\s+vor\s+ort)?|vor\s+ort(?:\s+ist)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio|dort)\s*[:.,-]?\s*[^\n.!?]{0,90}?(\+?\d[\d\s()./-]{6,}\d)/iu,
+    /(?:bitte\s+)?(?:nur\s+)?(?:whats\s*app|sms|anrufen|kontaktieren)[^\n.!?]{0,80}?(\+?\d[\d\s()./-]{6,}\d)/iu,
+  ];
+  for (const pattern of patterns) {
+    const match = sourceText.match(pattern)?.[1];
+    if (match) return normalizePhoneForHref(match);
+  }
+  return '';
+}
+
 function getContactPhone(data: CommunicationData, sourceText: string): string {
+  const onsitePhone = getOnsiteContactPhoneFromTextV17_90L80(sourceText);
   const explicitPhone =
     sourceText.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     sourceText.match(/(?:use\s+whats\s*app|whats\s*app\s+if\s+possible|per\s+whats\s*app|via\s+whats\s*app).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     sourceText.match(/(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     sourceText.match(/(\+\d[\d\s()./-]{7,}\d)/)?.[1] ||
     '';
-  return normalizePhoneForHref(explicitPhone || data.customer?.phone || data.phone || '');
+  return normalizePhoneForHref(
+    onsitePhone || explicitPhone || data.customer?.phone || data.phone || '',
+  );
 }
 
 function splitCommunicationSourceLines(value: string): string[] {

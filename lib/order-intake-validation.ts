@@ -10834,12 +10834,22 @@ function applyLineLocalEvidenceDescriptionCleanupV17_90L26(
     const currentEvidence = itemEvidenceBlobV17_90L22(item);
     const broad = isBroadPollutedItemEvidenceV17_90L22(item);
     const cleanedExplicitName = cleanTrailingAmountFromServiceNameV17_90L23(explicit.serviceName) || explicit.serviceName;
+    const currentNameKey = normalizeCompare(cleanedCurrentName);
+    const explicitNameKey = normalizeCompare(cleanedExplicitName);
+    const explicitWouldReduceSpecificity = Boolean(
+      currentNameKey &&
+        explicitNameKey &&
+        currentNameKey !== explicitNameKey &&
+        currentNameKey.includes(explicitNameKey) &&
+        explicitNameKey.length >= 4,
+    );
     const shouldUseExplicitName =
-      broad ||
-      !cleanedCurrentName ||
-      normalizeCompare(cleanedCurrentName) === "unbekannte leistung" ||
-      /^\d/.test(normalizeText(item.serviceName || "")) ||
-      /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|stück|stueck|stk|pcs?|pezzi|meter)\b/i.test(String(item.serviceName || ""));
+      !explicitWouldReduceSpecificity &&
+      (broad ||
+        !cleanedCurrentName ||
+        normalizeCompare(cleanedCurrentName) === "unbekannte leistung" ||
+        /^\d/.test(normalizeText(item.serviceName || "")) ||
+        /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|stück|stueck|stk|pcs?|pezzi|meter)\b/i.test(String(item.serviceName || "")));
 
     if (broad || currentEvidence !== explicitLine || shouldUseExplicitName) {
       reviewReasons.push("line_local_evidence_cleaned");
@@ -10873,6 +10883,10 @@ function lineLocalStructuredEvidenceV17_90L79(
   const serviceKey = normalizeCompare(item.serviceName);
   const price = Number(item.unitPrice || 0);
   if (!serviceKey || price <= 0) return null;
+  const strongestServiceToken = serviceKey
+    .split(/\s+/g)
+    .filter((token) => token.length >= 5)
+    .sort((left, right) => right.length - left.length)[0] || "";
   const priceText = Number.isInteger(price)
     ? `${price}(?:[.,]0+)?`
     : `${String(price).split(".")[0]}[.,]${String(price).split(".")[1]}0*`;
@@ -10894,7 +10908,12 @@ function lineLocalStructuredEvidenceV17_90L79(
           Boolean(line) &&
           line.length <= 260 &&
           pricePattern.test(line) &&
-          (normalizeCompare(line).includes(serviceKey) ||
+          (recognitionServiceNamesCompatibleV17_90L69(
+            item.serviceName,
+            line,
+          ) ||
+            (strongestServiceToken &&
+              normalizeCompare(line).includes(strongestServiceToken)) ||
             quantityPattern.test(line)),
       )
       .sort((a, b) => a.length - b.length)[0] || null

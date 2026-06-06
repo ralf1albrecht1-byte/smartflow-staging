@@ -2330,15 +2330,42 @@ const cleanAppointmentReason = (value?: string | null) =>
 const appointmentDetailKey = (detail: AppointmentDetail) =>
   normalizeForMatch([detail.site, detail.address, detail.label].join(" "));
 
+const extractEmbeddedAppointmentLinesV17_90L80 = (
+  value?: string | null,
+): string[] => {
+  const source = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!source.trim()) return [];
+
+  const result: string[] = [];
+  const patterns = [
+    /\b((?:Termin|Zeitfenster)\s*[:\-–—]?\s*[\s\S]{1,220}?)(?=\b(?:ich\s+bin|je\s+suis|soy|eu\s+sou|sono|absender)\b|$)/giu,
+    /\b((?:Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+\d{1,2}[.\/-]\d{1,2}[\s\S]{0,120}?)(?=\b(?:ich\s+bin|je\s+suis|soy|eu\s+sou|sono|absender)\b|$)/giu,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source))) {
+      const line = cleanSpecialNotesSummaryLineV17_91(match[1])
+        .replace(/\s+/g, " ")
+        .trim();
+      if (line && line.length <= 240) result.push(line);
+    }
+  }
+  return Array.from(new Set(result));
+};
+
 const extractAppointmentDetailsFromRawText = (
   ...values: Array<string | null | undefined>
 ): AppointmentDetail[] => {
-  const rawLines = values
-    .filter(Boolean)
-    .join("\n")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split(/\n+/g)
+  const rawSource = values.filter(Boolean).join("\n");
+  const rawLines = [
+    ...rawSource
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split(/\n+/g),
+    ...extractEmbeddedAppointmentLinesV17_90L80(rawSource),
+  ]
     .map((line) => stripVisibleNoteMarkerV17_35(line))
     .filter(Boolean);
 
@@ -2652,10 +2679,16 @@ const extractOrderAppointmentSnippetsV17_65 = (value?: string | null) => {
   const source = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   if (!source.trim()) return [];
   const weekday = "(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)";
-  const result: string[] = [];
+  const result: string[] = [...extractEmbeddedAppointmentLinesV17_90L80(source)];
   const patterns = [
-    new RegExp(`(?:^|\\n)\\s*((?:termin|zeitfenster)\\s*[:\\-–—]?\\s*[^\\n]{1,180})`, "gi"),
-    new RegExp(`(?:^|\\n)\\s*((?:am\\s+)?${weekday}[^\\n]{1,180})`, "gi"),
+    new RegExp(
+      String.raw`(?:^|\n)\s*((?:termin|zeitfenster)\s*[:\-–—]?\s*[^\n]{1,180})`,
+      "gi",
+    ),
+    new RegExp(
+      String.raw`(?:^|\n)\s*((?:am\s+)?${weekday}[^\n]{1,180})`,
+      "gi",
+    ),
     /(?:^|\n)\s*((?:genaue\s+ankunft|ankunft)\s+[^\n]{1,180})/gi,
   ];
   for (const pattern of patterns) {
@@ -2665,9 +2698,8 @@ const extractOrderAppointmentSnippetsV17_65 = (value?: string | null) => {
       if (line) result.push(line);
     }
   }
-  return result;
+  return Array.from(new Set(result));
 };
-
 const extractOrderImportantInstructionLinesV17_65 = (value?: string | null) =>
   String(value || "")
     .replace(/\r\n/g, "\n")
@@ -2681,6 +2713,94 @@ const extractOrderImportantInstructionLinesV17_65 = (value?: string | null) =>
         /\b(?:nichts verschieben|nicht verschieben|keine geraete|keine geräte|nicht ausstecken|nicht bewegen|nicht anfassen|nicht einfach|ankuendigung|ankündigung|empfang|besucherausweis|kontakt vor ort|sms|whatsapp|ankunft)\b/i.test(line),
     );
 
+type InlineOrderInfoSnippetsV17_90L80 = {
+  primary: string[];
+  additional: string[];
+};
+
+const extractInlineOrderInfoSnippetsV17_90L80 = (
+  value?: string | null,
+): InlineOrderInfoSnippetsV17_90L80 => {
+  const source = String(value || "").replace(/\s+/g, " ").trim();
+  if (!source) return { primary: [], additional: [] };
+
+  const primary: string[] = [];
+  const additional: string[] = [];
+  const push = (target: string[], valueToAdd?: string | null) => {
+    const cleaned = cleanSpecialNotesSummaryLineV17_91(valueToAdd)
+      .replace(/\s+/g, " ")
+      .trim();
+    if (cleaned && !target.some((line) => orderInfoLinesEquivalentV17_66(line, cleaned))) {
+      target.push(cleaned);
+    }
+  };
+
+  const contactPatterns = [
+    /(?:kontakt(?:\s+vor\s+ort)?|ansprech(?:person|partner)(?:\s+vor\s+ort)?|vor\s+ort(?:\s+ist)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio|dort)\s*[:.,-]?\s*([\p{L}][\p{L}'’\-]+(?:\s+[\p{L}][\p{L}'’\-]+){0,2})\s*[,;:]?\s*(?:telefon\s*:?\s*)?(\+?\d[\d\s()./-]{6,}\d)/iu,
+  ];
+  for (const pattern of contactPatterns) {
+    const match = source.match(pattern);
+    if (!match) continue;
+    const around = source.slice(
+      Math.max(0, (match.index || 0) - 20),
+      Math.min(source.length, (match.index || 0) + match[0].length + 150),
+    );
+    const parts = [match[1].trim(), match[2].replace(/\s+/g, " ").trim()];
+    if (/\bwhatsapp\b/i.test(around)) parts.push("nur WhatsApp");
+    else if (/\bsms\b/i.test(around)) parts.push("nur SMS");
+    if (/\b(?:nicht\s+(?:(?:im\s+)?büro\s+)?anrufen|nicht\s+telefonisch)\b/i.test(around)) {
+      parts.push("nicht telefonisch");
+    }
+    push(primary, `Vor Ort: ${parts.join(" · ")}`);
+    break;
+  }
+
+  extractEmbeddedAppointmentLinesV17_90L80(source).forEach((line) =>
+    push(primary, line),
+  );
+
+  const senderMatch = source.match(
+    /(?:ich\s+bin|je\s+suis|soy|eu\s+sou|sono)\s+([\p{L}][\p{L}'’\-]+)[^.!?]{0,100}?(?:leit\w*|schick\w*)[^.!?]{0,45}?nur\s+weiter[^.!?]{0,100}/iu,
+  );
+  if (senderMatch) {
+    const suffix = /nicht\s+als\s+kunde\s+speichern/i.test(senderMatch[0])
+      ? " · nicht als Kunde speichern"
+      : "";
+    push(primary, `Absender: ${senderMatch[1]} leitet nur weiter${suffix}`);
+  }
+
+  const parkingMatch = source.match(
+    /(?:lieferwagen\s+)?(?:nur\s+)?(?:auf\s+)?(?:besucherparkplatz|parkplatz(?:\s+für\s+[\p{L}-]+)?|parkplatz\s+installateure)(?:\s+nummer)?\s*\d+/iu,
+  );
+  if (parkingMatch) push(additional, parkingMatch[0]);
+
+  const ladderMatch = source.match(/[^.!?]{0,35}\bleiter\b[^.!?]{0,45}\bmitnehmen\b/iu);
+  if (ladderMatch) push(additional, ladderMatch[0]);
+
+  const quietMatch = source.match(
+    /(?:bewohner\s+schlafen[^.!?]{0,80}|bitte\s+ruhig\s+arbeiten)/iu,
+  );
+  if (quietMatch) push(additional, quietMatch[0]);
+
+  return { primary, additional };
+};
+
+const isAdditionalOrderInfoHintV17_90L80 = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  return /\b(?:leiter\b.{0,45}\bmitnehmen|parkplatz|besucherparkplatz|bewohner\s+schlafen|ruhig\s+arbeiten)\b/.test(
+    text,
+  );
+};
+
+const isOperationalPrimaryOrderInfoHintV17_90L80 = (
+  value?: string | null,
+) => {
+  const text = normalizeForMatch(value);
+  return /\b(?:genaue\s+zeit|kontakt|ansprechperson|vor\s+ort|whatsapp|sms|anrufen|telefonisch|termin|ankunft|nicht\s+einfach)\b/.test(
+    text,
+  );
+};
+
 const buildOrderInfoSummaryV17_65 = (
   order: {
     specialNotes?: string | null;
@@ -2689,29 +2809,61 @@ const buildOrderInfoSummaryV17_65 = (
   },
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ): OrderInfoSummaryV17_65 => {
-  const isDogLine = (line: string) => /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
-  const source = [order.specialNotes, order.notes, order.audioTranscript].filter(Boolean).join("\n");
-  const safety = uniqueOrderInfoLinesV17_66([
+  const isDogLine = (line: string) =>
+    /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
+  const source = [order.specialNotes, order.notes, order.audioTranscript]
+    .filter(Boolean)
+    .join("\n");
+  const inline = extractInlineOrderInfoSnippetsV17_90L80(source);
+
+  const rawSafety = uniqueOrderInfoLinesV17_66([
     ...(parsedNotes.safetyWarnings || []),
     ...(parsedNotes.jobHints || []).filter(isDogLine),
   ]);
+  const reclassifiedPrimary = rawSafety.filter(
+    isOperationalPrimaryOrderInfoHintV17_90L80,
+  );
+  const reclassifiedAdditional = rawSafety.filter(
+    isAdditionalOrderInfoHintV17_90L80,
+  );
+  const safety = rawSafety.filter(
+    (line) =>
+      !reclassifiedPrimary.some((candidate) =>
+        orderInfoLinesEquivalentV17_66(candidate, line),
+      ) &&
+      !reclassifiedAdditional.some((candidate) =>
+        orderInfoLinesEquivalentV17_66(candidate, line),
+      ),
+  );
+
   const appointmentLines = extractOrderAppointmentSnippetsV17_65(source);
   const importantRawLines = extractOrderImportantInstructionLinesV17_65(source);
   const primary = uniqueOrderInfoLinesV17_66([
     ...(parsedNotes.jobHints || []).filter(isPrimaryOrderInfoHintV17_65),
     ...appointmentLines,
     ...importantRawLines.filter(isPrimaryOrderInfoHintV17_65),
+    ...inline.primary,
+    ...reclassifiedPrimary,
   ]).filter(
-    (line) => !safety.some((warning) => orderInfoLinesEquivalentV17_66(warning, line)),
+    (line) =>
+      !safety.some((warning) =>
+        orderInfoLinesEquivalentV17_66(warning, line),
+      ),
   );
   const additional = uniqueOrderInfoLinesV17_66([
     ...(parsedNotes.jobHints || []).filter(
-      (line) => !isDogLine(line) && !isPrimaryOrderInfoHintV17_65(line),
+      (line) =>
+        !isDogLine(line) &&
+        !isPrimaryOrderInfoHintV17_65(line),
     ),
     ...importantRawLines.filter((line) => !isPrimaryOrderInfoHintV17_65(line)),
+    ...inline.additional,
+    ...reclassifiedAdditional,
   ]).filter(
     (line) =>
-      !safety.some((warning) => orderInfoLinesEquivalentV17_66(warning, line)) &&
+      !safety.some((warning) =>
+        orderInfoLinesEquivalentV17_66(warning, line),
+      ) &&
       !primary.some((hint) => orderInfoLinesEquivalentV17_66(hint, line)),
   );
   return { safety, primary, additional };
@@ -2809,15 +2961,14 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
     ),
   );
   if (accessLines.length > 0) {
-    const accessValue = accessLines
-      .map((line) =>
+    const accessValue = uniqueOrderInfoLinesV17_66(
+      accessLines.map((line) =>
         line
           .replace(/^\s*zugang\s*:?\s*/i, "")
           .replace(/[.;]+$/g, "")
           .trim(),
-      )
-      .filter(Boolean)
-      .join(" · ");
+      ),
+    ).join(" · ");
     pushUnique(`Zugang: ${accessValue}`);
   }
 
@@ -2828,7 +2979,7 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
   );
   if (senderLine) {
     const senderName = senderLine.match(
-      /\b(?:ich\s+bin|abssender\s*:?|absender\s*:?)\s+([A-ZÄÖÜ][\p{L}'’\-]+)/iu,
+      /\b(?:ich\s+bin|je\s+suis|soy|eu\s+sou|sono|abssender\s*:?|absender\s*:?)\s+([A-ZÄÖÜ][\p{L}'’\-]+)/iu,
     )?.[1];
     const senderParts = [
       senderName ? `${senderName} leitet nur weiter` : "Leitet nur weiter",
@@ -3204,11 +3355,20 @@ const getRecognitionReviewDetailsV17_90L69 = (order?:
   );
 
 const hasRecognitionReviewV17_90L69 = (
-  order?: Pick<Order, "reviewReasons"> | null,
-) =>
-  Boolean(
-    order?.reviewReasons?.some(isRecognitionReviewReasonV17_90L69),
+  order?: Pick<Order, "reviewReasons" | "items"> | null,
+) => {
+  const details = getRecognitionReviewDetailsV17_90L69(order);
+  if (details.length > 0) {
+    return getActiveRecognitionReviewDetailsV17_90L80(order).length > 0;
+  }
+  return Boolean(
+    order?.reviewReasons?.some(
+      (reason) =>
+        String(reason || "").trim() ===
+        RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69,
+    ),
   );
+};
 
 const recognitionReviewDetailKeyV17_90L70 = (
   detail?: RecognitionReviewPayloadV17_90L69 | null,
@@ -3248,7 +3408,7 @@ const formatRecognitionReviewLineV17_90L69 = (
 };
 
 const formatRecognitionReviewTooltipV17_90L69 = (order: Order) => {
-  const details = getRecognitionReviewDetailsV17_90L69(order);
+  const details = getActiveRecognitionReviewDetailsV17_90L80(order);
   const lines = ["Erkennung prüfen"];
 
   if (details.length > 0) {
@@ -3261,9 +3421,35 @@ const formatRecognitionReviewTooltipV17_90L69 = (order: Order) => {
   return lines.join("\n");
 };
 
+const recognitionEvidenceMentionsUnitV17_90L80 = (
+  value: string | null | undefined,
+  unit: string | null | undefined,
+) => {
+  const text = normalizeForMatch(value);
+  const normalizedUnit = normalizePriceUnitForCompare(unit);
+  if (!text || !normalizedUnit) return false;
+
+  const patterns: Record<string, RegExp> = {
+    piece: /\b(?:stueck|stk|pcs?|pieces?|pi[eè]ces?|pezzi)\b/i,
+    meter: /\b(?:meter|metre|metri|m)\b/i,
+    square_meter: /\b(?:m2|m²|qm|quadratmeter|square meter|metres carres)\b/i,
+    hour: /\b(?:stunde|stunden|std|hour|hours|heure|heures|ora|ore)\b/i,
+    flat: /\b(?:pauschal|pauschale|forfait|flat)\b/i,
+    day: /\b(?:tag|tage|day|days|jour|jours)\b/i,
+  };
+  return Boolean(patterns[normalizedUnit]?.test(text));
+};
+
 const recognitionReviewDetailMatchesItemV17_90L69 = (
   detail: RecognitionReviewPayloadV17_90L69,
-  item: Pick<FormItem, "serviceName" | "quantity" | "unit" | "unitPrice">,
+  item: {
+    serviceName: string;
+    quantity: string | number;
+    unit: string;
+    unitPrice: string | number;
+    description?: string | null;
+    sourceDescription?: string | null;
+  },
 ) => {
   const expectedName = normalizeForMatch(
     canonicalServiceNameForOrderItem(detail.serviceName),
@@ -3278,17 +3464,38 @@ const recognitionReviewDetailMatchesItemV17_90L69 = (
         expectedName.includes(actualName) ||
         actualName.includes(expectedName)),
   );
-  const sameUnit =
-    normalizePriceUnitForCompare(detail.unit) ===
-    normalizePriceUnitForCompare(item.unit);
+  const expectedUnit = normalizePriceUnitForCompare(detail.unit);
+  const actualUnit = normalizePriceUnitForCompare(item.unit);
+  const sameUnit = expectedUnit === actualUnit;
+  const evidenceSupportsActualUnit = recognitionEvidenceMentionsUnitV17_90L80(
+    [detail.sourceText, item.description, item.sourceDescription]
+      .filter(Boolean)
+      .join(" "),
+    item.unit,
+  );
   const sameQuantity =
     Math.abs(Number(detail.quantity || 0) - Number(item.quantity || 0)) <
     0.001;
   const samePrice =
     Math.abs(Number(detail.unitPrice || 0) - Number(item.unitPrice || 0)) <
     0.01;
-  return sameName && sameUnit && sameQuantity && samePrice;
+  return (
+    sameName &&
+    (sameUnit || evidenceSupportsActualUnit) &&
+    sameQuantity &&
+    samePrice
+  );
 };
+
+const getActiveRecognitionReviewDetailsV17_90L80 = (
+  order?: Pick<Order, "reviewReasons" | "items"> | null,
+) =>
+  getRecognitionReviewDetailsV17_90L69(order).filter(
+    (detail) =>
+      !(order?.items || []).some((item) =>
+        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+      ),
+  );
 
 const areRecognitionReviewDetailsResolvedV17_90L69 = (
   order: Pick<Order, "reviewReasons"> | null | undefined,
@@ -4199,7 +4406,6 @@ const formatServiceReviewSummaryTooltip = (input: {
         `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
       );
       if (calculation) lines.push(`  Aktuell: ${calculation}`);
-      lines.push("  Nicht im Leistungskatalog.");
     });
     sections.push(lines.join("\n"));
   }
@@ -4285,7 +4491,6 @@ const buildUnifiedServiceReviewSummaryV17_90L61 = (input: {
         `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
       );
       if (calculation) lines.push(`  Aktuell: ${calculation}`);
-      lines.push("  Nicht im Leistungskatalog.");
     });
     sections.push(lines.join("\n"));
   }
