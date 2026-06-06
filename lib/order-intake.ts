@@ -7609,6 +7609,83 @@ export async function processIncomingMessage(
   }
 
   // Call LLM
+  // Long multi-service messages need substantially more output space than a
+  // normal one- or two-position intake. A fixed 2600-token ceiling truncated
+  // valid JSON for larger orders and immediately created an empty fallback.
+  // Estimate the required budget from line-local price/quantity evidence and
+  // retry once with a larger compact-output request before falling back.
+  const likelyStructuredLineCount = messageText
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        /\d/.test(line) &&
+        /(?:CHF|EUR|USD|GBP|\b(?:m2|m²|qm|stk|stück|stueck|laufmeter|lfm|stunden?|std\.?|pauschal)\b|[à@])/i.test(
+          line,
+        ),
+    ).length;
+  const initialLlmMaxTokens =
+    likelyStructuredLineCount >= 12 || messageText.length >= 1400
+      ? 9000
+      : likelyStructuredLineCount >= 7 || messageText.length >= 900
+        ? 6000
+        : 3600;
+  const retryLlmMaxTokens = Math.max(14000, initialLlmMaxTokens + 5000);
+  const baseLlmMessages: any[] = [
+    { role: "system", content: systemPrompt },
+    {
+      role: "user",
+      content:
+        userContent.length === 1 && !hasAnyImage
+          ? userContent[0].text
+          : userContent,
+    },
+  ];
+  const requestIntakeLlm = (maxTokens: number, compactRetry = false) =>
+    fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: hasAnyImage ? "gpt-4.1" : "gpt-4.1-mini",
+        messages: compactRetry
+          ? [
+              ...baseLlmMessages,
+              {
+                role: "user",
+                content:
+                  "Der vorherige Ausgabeversuch war unvollständig oder abgeschnitten. Gib das vollständige gültige JSON erneut zurück. Halte Titel, Beschreibung, Gefahren und Besonderheiten kurz. Behalte jede echte Arbeitsposition. raw und evidence enthalten pro Position nur die exakt zugehörige kurze Quellzeile. Keine Erklärungen und kein Markdown.",
+              },
+            ]
+          : baseLlmMessages,
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_tokens: maxTokens,
+      }),
+    });
+  const parseIntakeJsonObject = (rawContent: unknown): any | null => {
+    const raw = String(rawContent || "").trim();
+    if (!raw) return null;
+    const withoutFence = raw
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+    const firstBrace = withoutFence.indexOf("{");
+    const lastBrace = withoutFence.lastIndexOf("}");
+    const candidate =
+      firstBrace >= 0 && lastBrace > firstBrace
+        ? withoutFence.slice(firstBrace, lastBrace + 1)
+        : withoutFence;
+    try {
+      const value = JSON.parse(candidate);
+      return value && typeof value === "object" ? value : null;
+    } catch {
+      return null;
+    }
+  };
   // If the LLM fails (credits exhausted, HTTP error, network/timeout, empty or
   // unparseable response), we fall back to creating a manual-review order so
   // no WhatsApp message gets silently dropped. See createFallbackOrderFromRawPayload.
@@ -7618,29 +7695,7 @@ export async function processIncomingMessage(
   );
   let llmResponse: Response;
   try {
-    llmResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: hasAnyImage ? "gpt-4.1" : "gpt-4.1-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content:
-              userContent.length === 1 && !hasAnyImage
-                ? userContent[0].text
-                : userContent,
-          },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0,
-        max_tokens: 2600,
-      }),
-    });
+    llmResponse = await requestIntakeLlm(initialLlmMaxTokens);
   } catch (netErr: any) {
     console.error(
       `[${source}] LLM network/timeout error:`,
@@ -7700,7 +7755,53 @@ export async function processIncomingMessage(
   console.log(
     `[${source}] 🤖 LLM analysis completed in ${Date.now() - _llmStartTime}ms`,
   );
-  const content = llmResult?.choices?.[0]?.message?.content;
+  let content = llmResult?.choices?.[0]?.message?.content;
+  let finishReason = String(llmResult?.choices?.[0]?.finish_reason || "");
+  let parsed: any | null = parseIntakeJsonObject(content);
+
+  if (!content || !parsed || finishReason === "length") {
+    console.warn(
+      `[${source}] LLM output incomplete (finishReason=${finishReason || "unknown"}, chars=${String(content || "").length}); retrying once with max_tokens=${retryLlmMaxTokens}`,
+    );
+    try {
+      const retryResponse = await requestIntakeLlm(retryLlmMaxTokens, true);
+      if (retryResponse.ok) {
+        const retryResult = await retryResponse.json();
+        const retryContent = retryResult?.choices?.[0]?.message?.content;
+        const retryParsed = parseIntakeJsonObject(retryContent);
+        const retryFinishReason = String(
+          retryResult?.choices?.[0]?.finish_reason || "",
+        );
+        if (retryContent && retryParsed && retryFinishReason !== "length") {
+          content = retryContent;
+          parsed = retryParsed;
+          finishReason = retryFinishReason;
+          console.log(
+            `[${source}] ✅ LLM compact retry recovered complete JSON in ${Date.now() - _llmStartTime}ms total`,
+          );
+        } else {
+          content = retryContent || content;
+          finishReason = retryFinishReason || finishReason;
+          parsed = retryParsed;
+          console.error(
+            `[${source}] LLM compact retry still incomplete (finishReason=${retryFinishReason || "unknown"}, chars=${String(retryContent || "").length})`,
+          );
+        }
+      } else {
+        const retryErrorText = await retryResponse.text().catch(() => "");
+        console.error(
+          `[${source}] LLM compact retry API error (${retryResponse.status}):`,
+          retryErrorText.slice(0, 500),
+        );
+      }
+    } catch (retryErr: any) {
+      console.error(
+        `[${source}] LLM compact retry network/parse error:`,
+        retryErr?.message || retryErr,
+      );
+    }
+  }
+
   if (!content) {
     console.error(`[${source}] LLM returned empty content`);
     logAuditAsync({
@@ -7713,20 +7814,24 @@ export async function processIncomingMessage(
     return await createFallbackOrderFromRawPayload(input, "llm_empty_response");
   }
 
-  let parsed: any;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
+  if (!parsed || finishReason === "length") {
     console.error(
-      `[${source}] Failed to parse LLM response:`,
-      content?.slice(0, 500),
+      `[${source}] Failed to recover complete LLM JSON:`,
+      `${String(content).slice(0, 350)} ... ${String(content).slice(-180)}`,
     );
     logAuditAsync({
       userId,
       action: `ORDER_CREATE_FROM_${source.toUpperCase()}_FAILED`,
       area: "WEBHOOK",
       success: false,
-      details: { reason: "llm_parse_error", sender: senderName },
+      details: {
+        reason: "llm_parse_error",
+        sender: senderName,
+        finishReason: finishReason || null,
+        outputChars: String(content).length,
+        initialMaxTokens: initialLlmMaxTokens,
+        retryMaxTokens: retryLlmMaxTokens,
+      },
     });
     return await createFallbackOrderFromRawPayload(input, "llm_parse_error");
   }

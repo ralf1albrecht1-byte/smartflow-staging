@@ -1740,7 +1740,7 @@ const getParkingBadge = (
   if (ownSignal.hasPositive) {
     return {
       label: "Parken",
-      className: "bg-emerald-100 text-emerald-700 border border-emerald-300",
+      className: "bg-blue-50 text-blue-700 border border-blue-300",
     };
   }
 
@@ -5404,7 +5404,11 @@ const compactIconForBadge = (
   return null;
 };
 
-const compactSymbolForBadge = (_badge: ReviewBadge): string | null => null;
+const compactSymbolForBadge = (badge: ReviewBadge): string | null => {
+  const label = normalizeForMatch(badge.label);
+  if (badge.key.includes("parking") && label === "parken") return "P";
+  return null;
+};
 
 
 const renderSpecialNotesSummaryTooltipV17_91 = (
