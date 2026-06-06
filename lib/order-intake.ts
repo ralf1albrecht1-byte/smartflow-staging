@@ -5861,151 +5861,6 @@ function stripMeasureAndPriceFromVisibleServiceNameV17_90L(
   return cleanGermanServiceLabelGrammarV17_90L(label);
 }
 
-
-
-// V17.90L75: Protect a clean structured AI service name from being replaced
-// by a weaker catalogue/translation label later in the pipeline. This only
-// controls the visible name; unit, price, catalogue comparison and all review
-// behavior remain unchanged.
-function cleanTrustedAiVisibleServiceNameV17_90L75(
-  value?: string | null,
-): string {
-  let label = stripMeasureAndPriceFromVisibleServiceNameV17_90L(
-    String(value || ""),
-  );
-  if (!label) return "";
-
-  // Review instructions belong in reviewReason/sourceText, never in the
-  // visible service name. Keep this structural: only remove a trailing
-  // instruction after punctuation, not a legitimate service such as
-  // "Gerät prüfen".
-  label = label
-    .replace(
-      /\s*[,;:–—-]\s*bitte\s+(?:(?:separat|noch|manuell|genau)\s+)?(?:prüfen|pruefen|kontrollieren|bestätigen|bestaetigen)\s*$/iu,
-      "",
-    )
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return cleanGermanServiceLabelGrammarV17_90L(
-    normalizeVisibleServiceNameCasingV17_66(label),
-  );
-}
-
-function isTrustedAiVisibleServiceNameV17_90L75(
-  value?: string | null,
-): boolean {
-  const label = cleanTrustedAiVisibleServiceNameV17_90L75(value);
-  if (!label || label.length < 4 || label.length > 120) return false;
-  if (isInternalReviewServiceNameV17_90L(label)) return false;
-  if (!/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]/u.test(label)) return false;
-  if (
-    /^(?:rechnung|rechnungsadresse|ausführung|ausfuehrung|arbeitsort|kontakt|hinweis|termin|adresse)\b/i.test(
-      label,
-    )
-  ) {
-    return false;
-  }
-  return true;
-}
-
-function restoreTrustedAiVisibleServiceNamesV17_90L75<
-  T extends {
-    serviceName?: string | null;
-    quantity?: number | null;
-    unit?: string | null;
-    unitPrice?: number | null;
-    sourceText?: string | null;
-    evidence?: string | null;
-    description?: string | null;
-    detectedCurrency?: string | null;
-  },
->(items: T[], trustedItems: T[]): T[] {
-  const trusted = trustedItems.filter(
-    (item) =>
-      isTrustedAiVisibleServiceNameV17_90L75(item.serviceName) &&
-      Number(item.quantity || 0) > 0 &&
-      Number(item.unitPrice || 0) > 0 &&
-      getServiceUnitType(item.unit) !== "unknown",
-  );
-
-  return items.map((item) => {
-    const currentName = String(item.serviceName || "").trim();
-    const cleanedCurrentName = cleanTrustedAiVisibleServiceNameV17_90L75(
-      currentName,
-    );
-    let nextItem =
-      cleanedCurrentName && cleanedCurrentName !== currentName
-        ? ({ ...item, serviceName: cleanedCurrentName } as T)
-        : item;
-
-    if (isInternalReviewServiceNameV17_90L(currentName)) return nextItem;
-
-    const quantity = Number(item.quantity || 0);
-    const unitPrice = Number(item.unitPrice || 0);
-    const unitType = getServiceUnitType(item.unit);
-    if (
-      !Number.isFinite(quantity) ||
-      quantity <= 0 ||
-      !Number.isFinite(unitPrice) ||
-      unitPrice <= 0 ||
-      unitType === "unknown"
-    ) {
-      return nextItem;
-    }
-
-    const currency = String(item.detectedCurrency || "")
-      .trim()
-      .toUpperCase();
-    const candidates = trusted.filter((candidate) => {
-      const candidateCurrency = String(candidate.detectedCurrency || "")
-        .trim()
-        .toUpperCase();
-      return (
-        Math.abs(Number(candidate.quantity || 0) - quantity) < 0.0001 &&
-        Math.abs(Number(candidate.unitPrice || 0) - unitPrice) < 0.0001 &&
-        getServiceUnitType(candidate.unit) === unitType &&
-        (!currency || !candidateCurrency || currency === candidateCurrency)
-      );
-    });
-
-    if (candidates.length === 0) return nextItem;
-
-    let selected: T | null = candidates.length === 1 ? candidates[0] : null;
-    if (!selected) {
-      const itemEvidence = [item.sourceText, item.evidence, item.description]
-        .filter(Boolean)
-        .join(" ");
-      const ranked = candidates
-        .map((candidate) => ({
-          candidate,
-          score: evidenceTokenScoreV17_90L60(
-            [candidate.serviceName, candidate.sourceText, candidate.evidence]
-              .filter(Boolean)
-              .join(" "),
-            itemEvidence,
-          ),
-        }))
-        .sort((a, b) => b.score - a.score);
-
-      if (
-        ranked[0]?.score > 0 &&
-        (!ranked[1] || ranked[0].score > ranked[1].score)
-      ) {
-        selected = ranked[0].candidate;
-      }
-    }
-
-    if (!selected) return nextItem;
-    const trustedName = cleanTrustedAiVisibleServiceNameV17_90L75(
-      selected.serviceName,
-    );
-    if (!trustedName) return nextItem;
-
-    return { ...nextItem, serviceName: trustedName } as T;
-  });
-}
-
 function lineHasDecimalNumberV17_90L3(line: string, value: number): boolean {
   const pattern = decimalMatchPatternV17_90L(value);
   if (!pattern) return false;
@@ -7597,22 +7452,10 @@ function reconcileExplicitPricedServiceLinesV17_90L60<
   const removedAggregateIndexes = new Set<number>();
   const assigned = new Map<number, T>();
 
-  const materialize = (entry: ExplicitPricedServiceLineV17_90L60, base?: T): T => {
-    const baseVisibleName = cleanTrustedAiVisibleServiceNameV17_90L75(
-      base?.serviceName,
-    );
-    const entryVisibleName = cleanTrustedAiVisibleServiceNameV17_90L75(
-      entry.serviceName,
-    );
-
-    return ({
+  const materialize = (entry: ExplicitPricedServiceLineV17_90L60, base?: T): T =>
+    ({
       ...(base || ({} as T)),
-      // Numeric/source reconciliation may repair values, but it must not
-      // downgrade an already structured visible name.
-      serviceName:
-        baseVisibleName && !isInternalReviewServiceNameV17_90L(baseVisibleName)
-          ? baseVisibleName
-          : entryVisibleName || entry.serviceName,
+      serviceName: entry.serviceName,
       description: entry.raw,
       quantity: entry.quantity,
       unit: entry.unit,
@@ -7624,7 +7467,6 @@ function reconcileExplicitPricedServiceLinesV17_90L60<
       evidence: entry.raw,
       detectedCurrency: entry.detectedCurrency || base?.detectedCurrency || null,
     }) as T;
-  };
 
   entries.forEach((entry, entryIndex) => {
     const fingerprint = explicitLineItemFingerprintV17_90L60(entry);
@@ -8342,7 +8184,7 @@ export async function processIncomingMessage(
     return null;
   }
   const dataScope = await getActiveDataScope(userId);
-  const intakeDiagnosticTraceEnabled = dataScope === "test";
+  const intakeDiagnosticTraceEnabled = dataScope === "TEST";
   const intakeDiagnosticTraceId = createIntakeDiagnosticTraceId();
   const _intakeStartTime = Date.now();
   logIntakeDiagnosticTrace(
@@ -10174,26 +10016,10 @@ export async function processIncomingMessage(
           (explicitHourLineRepair ? null : quantityValidation.reason) ||
           null;
 
-        const structuredAiVisibleName =
-          aiWorkItemsRaw.length > 0 &&
-          (item.action_name ||
-            item.name ||
-            item.service_name ||
-            item.matched_service_name)
-            ? cleanTrustedAiVisibleServiceNameV17_90L75(detectedName)
-            : "";
-        const finalVisibleServiceName =
-          structuredAiVisibleName &&
-          isTrustedAiVisibleServiceNameV17_90L75(structuredAiVisibleName)
-            ? structuredAiVisibleName
-            : formatWorkNameForDisplay(
-                String(matchedService.name || "Unbekannte Leistung"),
-              );
-
         return {
-          // Catalogue match still controls unit/default price/review behavior.
-          // Only the visible name stays with the structured German AI result.
-          serviceName: finalVisibleServiceName,
+          serviceName: formatWorkNameForDisplay(
+            String(matchedService.name || "Unbekannte Leistung"),
+          ),
           description: String(
             raw || detectedName || fullWorkText || `${source}-Auftrag`,
           ),
@@ -10365,14 +10191,6 @@ export async function processIncomingMessage(
     { items: summarizeIntakeDiagnosticItems(finalOrderItems) },
   );
 
-  // V17.90L75: immutable visible-name reference from the structured AI stage.
-  // Later validators may still change values/review state, but not replace a
-  // clean German service name with a generic or grammatically worse label.
-  const trustedAiVisibleServiceItemsV17_90L75 = finalOrderItems.map((item) => ({
-    ...item,
-    serviceName: cleanTrustedAiVisibleServiceNameV17_90L75(item.serviceName),
-  }));
-
   const validationSourceText = [
     messageText,
     fullWorkText,
@@ -10401,10 +10219,7 @@ export async function processIncomingMessage(
   );
 
   finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
-    restoreTrustedAiVisibleServiceNamesV17_90L75(
-      intakeValidation.items,
-      trustedAiVisibleServiceItemsV17_90L75,
-    ),
+    intakeValidation.items,
     validationSourceText,
   );
 
@@ -10485,10 +10300,6 @@ export async function processIncomingMessage(
   finalOrderItems = repairGermanVisibleServiceNamesFromTranslationV17_90L(
     finalOrderItems,
     validationSourceText,
-  );
-  finalOrderItems = restoreTrustedAiVisibleServiceNamesV17_90L75(
-    finalOrderItems,
-    trustedAiVisibleServiceItemsV17_90L75,
   );
 
   // V17.90L5: Fail-closed for generic floor rows. If the original customer
@@ -10737,10 +10548,6 @@ export async function processIncomingMessage(
     ...item,
     serviceName: normalizeVisibleServiceNameCasingV17_66(item.serviceName),
   }));
-  finalOrderItems = restoreTrustedAiVisibleServiceNamesV17_90L75(
-    finalOrderItems,
-    trustedAiVisibleServiceItemsV17_90L75,
-  );
   finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
     finalOrderItems,
     validationSourceText,
