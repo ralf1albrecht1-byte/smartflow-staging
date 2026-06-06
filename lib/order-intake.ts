@@ -1489,9 +1489,24 @@ function sameAddressWorkAreaDescriptorV17_66(
           "i",
         ),
       );
-      if (!match?.[1]) continue;
+      let descriptorSource = match?.[1] || "";
+
+      // V17.90L70: In real voice messages the same-address statement often
+      // comes first: "gleiche Adresse, Werkhalle Ost, Pausenraum und
+      // Bürotrakt". Preserve the following work-area descriptor as well.
+      if (!descriptorSource) {
+        const afterSameAddress = line.match(
+          new RegExp(
+            String.raw`${sameAddressTail}\s*(?:,|aber|jedoch|und)?\s*(.+?)(?=\b(?:kontakt|leistungen?|schluessel|schlüssel|termin|sms|whatsapp|telefon|anfahrt|fahrt|$))`,
+            "i",
+          ),
+        );
+        descriptorSource = afterSameAddress?.[1] || "";
+      }
+
+      if (!descriptorSource) continue;
       const descriptor = cleanExecutionSiteNameCandidate(
-        match[1]
+        descriptorSource
           .replace(/\b(?:und|sowie)\s+(?:im|in\s+der|in\s+dem|am|bei|beim)\s+/gi, "und ")
           .replace(/[,:;\-–—]+\s*$/g, "")
           .trim(),
@@ -2323,7 +2338,7 @@ function repairExecutionSiteNameFromText(args: {
 
 
 const EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39 =
-  /\b(?:schlüssel|schluessel|schlussel|key|zugang|zutritt|rezeption|reception|empfang|concierge|hauswart|hausmeister|code|torcode|zugangscode|schlüsselbox|schluesselbox|briefkasten|parkieren|parken|parkplatz|parking|termin|datum|uhrzeit|kontakt(?:person)?|ansprechperson|telefon|tel\.?|handy|natel|whatsapp|sms|e-?mail)\b/i;
+  /\b(?:schlüssel|schluessel|schlussel|key|zugang|zutritt|eingang|vor\s+ort|rezeption|reception|empfang|concierge|hauswart|hausmeister|code|torcode|zugangscode|schlüsselbox|schluesselbox|briefkasten|parkieren|parken|parkplatz|parking|termin|datum|uhrzeit|kontakt(?:person)?|ansprechperson|telefon|tel\.?|handy|natel|whatsapp|sms|e-?mail)\b/i;
 
 function stripExecutionOperationalTailV17_90L39(
   value?: string | null,
@@ -2345,6 +2360,22 @@ function isExecutionOperationalHintV17_90L39(
   return EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39.test(
     String(value || ""),
   );
+}
+
+
+function cleanExecutionSiteNoteV17_90L70(
+  value?: string | null,
+): string | null {
+  const note = String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/^[,;:\-–—\s]+|[,;:\-–—\s]+$/g, "")
+    .trim();
+  if (!note || note.length > 120) return null;
+  if (/\b(?:CHF|EUR|Fr\.?|Franken|Euro)\b/i.test(note)) return null;
+  if (/\b(?:eingang|zugang|zutritt|empfang|rezeption|reception|tor|tuer|tür)\b/i.test(note)) {
+    return note;
+  }
+  return stripExecutionOperationalTailV17_90L39(note);
 }
 
 function sanitizeExtractedExecutionAddress<
@@ -2416,11 +2447,9 @@ function sanitizeExtractedExecutionAddress<
     siteName,
     siteAddress,
     siteCity,
-    // Zugang/Schlüssel/Empfang bleibt über Originaltext und Besonderheiten
-    // erhalten, darf aber nicht Teil des Adressvorschlags sein.
-    siteNote: isExecutionOperationalHintV17_90L39(address.siteNote)
-      ? null
-      : stripExecutionOperationalTailV17_90L39(address.siteNote),
+    // Ein kurzer Zugangshinweis bleibt separat erhalten, darf aber niemals
+    // Strasse/PLZ/Ort verschmutzen.
+    siteNote: cleanExecutionSiteNoteV17_90L70(address.siteNote),
   };
 
   if (
@@ -3271,6 +3300,96 @@ function canonicalizeSpecialNoteLine(line: string): string {
  * It deliberately writes German notes into specialNotes, so the UI can stay
  * language-independent and display short German chips.
  */
+
+function hasExplicitMailCommunicationInstructionV17_90L70(
+  value?: string | null,
+): boolean {
+  const source = String(value || "")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, " ")
+    .replace(/\s+/g, " ");
+  return /\b(?:(?:nur|bitte|bevorzugt|preferred|only)\s+(?:per\s+|via\s+)?(?:e-?mail|mail)|(?:per|via)\s+(?:e-?mail|mail)|(?:e-?mail|mail)\s+(?:reicht|genuegt|genügt|bevorzugt|preferred|only))\b/i.test(
+    source,
+  );
+}
+
+function isGeneratedMailOnlyHintV17_90L70(value?: string | null): boolean {
+  return /^(?:e[-\s]?mail|mail)\s+(?:reicht|genuegt|genügt)(?:\b|[.,;:])/i.test(
+    String(value || "").trim(),
+  );
+}
+
+function cleanOperationalHintForwarderTailV17_90L70(
+  value?: string | null,
+): string {
+  let text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+
+  const cutPatterns = [
+    /\s+(?:und|i|and)?\s*(?:bitte\s+)?(?:mich|mene|me)\b.{0,100}?\bnicht\s+als\s+kunden?\s+speichern\b/i,
+    /\s+(?:und|i|and)?\s*(?:ich|ja|i)\s+(?:bin\b.{0,60}?\b(?:leite|schicke|sende)\b|(?:leite|schicke|sende)\b).{0,80}?\bweiter\b/i,
+    /\s+(?:ja\s+)?samo\s+(?:šaljem|saljem)\s+weiter\b/i,
+    /\s+kevin\s+(?:schickt|leitet|sendet)\s+(?:das\s+)?nur\s+weiter\b/i,
+  ];
+
+  for (const pattern of cutPatterns) {
+    const match = text.match(pattern);
+    if (match?.index != null) text = text.slice(0, match.index).trim();
+  }
+
+  return text.replace(/[\s,;:\-–—]+$/g, "").trim();
+}
+
+type ParkingTargetV17_90L70 = {
+  label: string;
+  number: string;
+};
+
+function extractParkingTargetV17_90L70(
+  value?: string | null,
+): ParkingTargetV17_90L70 | null {
+  const source = String(value || "").replace(/\s+/g, " ");
+  const match = source.match(
+    /\b(besucherparkplatz|besucherplatz|parkplatz|platz|rampe)\s*(?:nr\.?|nummer)?\s*(\d+)\b/i,
+  );
+  if (!match?.[1] || !match?.[2]) return null;
+  const rawLabel = match[1].toLowerCase();
+  const label = rawLabel.includes("rampe")
+    ? "Rampe"
+    : rawLabel.includes("besucher")
+      ? "Besucherparkplatz"
+      : rawLabel === "platz"
+        ? "Platz"
+        : "Parkplatz";
+  return { label, number: match[2] };
+}
+
+function enrichParkingHintsV17_90L70(
+  lines: string[],
+  sourceText: string,
+): string[] {
+  const target = extractParkingTargetV17_90L70(sourceText);
+  if (!target) return lines;
+  const targetText = `${target.label} ${target.number}`;
+  let foundParkingHint = false;
+  const enriched = lines.map((line) => {
+    if (!/\b(?:parkieren|parken|parkplatz|besucherplatz|besucherparkplatz|parking|rampe)\b/i.test(line)) {
+      return line;
+    }
+    foundParkingHint = true;
+    if (new RegExp(`\\b${target.number}\\b`).test(line)) return line;
+    if (target.label === "Rampe") return `Lieferwagen neben ${targetText} parken`;
+    return `Lieferwagen auf ${targetText} parken`;
+  });
+  if (!foundParkingHint) {
+    enriched.push(
+      target.label === "Rampe"
+        ? `Lieferwagen neben ${targetText} parken`
+        : `Lieferwagen auf ${targetText} parken`,
+    );
+  }
+  return enriched;
+}
+
 function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
   safetyWarnings: string[];
   jobHints: string[];
@@ -5532,7 +5651,18 @@ function extractTranslatedPricedServiceSegmentsV17_66(
 }
 
 function normalizeVisibleServiceNameCasingV17_66(value?: string | null): string {
-  const text = compactText(value);
+  const countUnit =
+    String.raw`(?:garnituren?|sets?|gruppen?|anlagen?|raeume|räume|zimmer|objekte?|einheiten?|stueck|stück|stk\.?|pcs?|pieces?|pi[eè]ces?|pezzi|meter|laufmeter|lfm|m2|m²|qm|quadratmeter|stunden?|std\.?|tage?|pauschalen?)`;
+  const text = compactText(value)
+    .replace(
+      new RegExp(
+        String.raw`\s*[,;:\-–—]?\s*\d+(?:[.,]\d+)?\s*${countUnit}\b(?:\s*(?:à|a|je|po|pro|per|x|mal)\s*(?:(?:CHF|EUR|Fr\.?|Franken|Euro)\s*)?\d+(?:[.,]\d{1,2})?)?.*$`,
+        "iu",
+      ),
+      "",
+    )
+    .replace(/[\s,;:\-–—]+$/g, "")
+    .trim();
   if (!text) return "";
   const index = text.search(/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]/u);
   if (index < 0) return text;
@@ -9045,21 +9175,26 @@ export async function processIncomingMessage(
       .join("\n"),
   );
 
-  const gefahrItems = dedupeSpecialNoteLines([
+  let gefahrItems = dedupeSpecialNoteLines([
     ...rawGefahrenItems.map(stripSpecialMarker),
     ...gefahrItemsFromBesonderheiten,
     ...semanticFallbackNotes.safetyWarnings,
   ])
+    .map(cleanOperationalHintForwarderTailV17_90L70)
+    .filter(Boolean)
     .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
     .filter((line) => !isNonActionableSpecialNoteCandidate(line));
 
-  const hinweisItems = reconcileCommunicationSpecialNoteLines(
+  let hinweisItems = reconcileCommunicationSpecialNoteLines(
     dedupeSpecialNoteLines(
       [
         ...baseHinweisItems,
         ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
         onsiteContactHint.hint || "",
-      ].map(canonicalizeSpecialNoteLine),
+      ]
+        .map(canonicalizeSpecialNoteLine)
+        .map(cleanOperationalHintForwarderTailV17_90L70)
+        .filter(Boolean),
     ),
   )
     .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
@@ -9072,6 +9207,27 @@ export async function processIncomingMessage(
             normalizeSemanticText(danger) === normalizeSemanticText(line),
         ),
     );
+
+  // V17.90L70: Eine E-Mail-Adresse allein ist keine Kommunikationsanweisung.
+  // Entferne KI-erfundene Hinweise wie "Mail reicht", sofern der Kunde das
+  // nicht ausdrücklich verlangt hat.
+  if (!hasExplicitMailCommunicationInstructionV17_90L70(messageText)) {
+    gefahrItems = gefahrItems.filter(
+      (line) => !isGeneratedMailOnlyHintV17_90L70(line),
+    );
+    hinweisItems = hinweisItems.filter(
+      (line) => !isGeneratedMailOnlyHintV17_90L70(line),
+    );
+  }
+
+  gefahrItems = dedupeSpecialNoteLines(gefahrItems);
+  hinweisItems = dedupeSpecialNoteLines(hinweisItems);
+
+  // Parkplatz-/Rampen-Nummern aus dem Originaltext dürfen nicht in einer
+  // verkürzten Übersetzung verloren gehen.
+  hinweisItems = dedupeSpecialNoteLines(
+    enrichParkingHintsV17_90L70(hinweisItems, messageText),
+  );
 
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,

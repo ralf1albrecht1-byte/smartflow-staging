@@ -10393,6 +10393,58 @@ function extractCountOnlyPricedRecognitionItemsV17_90L69(
   return Array.from(byKey.values());
 }
 
+function extractBareFlatTravelEvidenceV17_90L70(
+  originalText: string,
+  fallbackCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const raw = String(originalText || "");
+  const originalOnly = raw
+    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "");
+  const translated = raw
+    .split(/---\s*(?:Übersetzung|Uebersetzung) \(automatisch\)\s*---/i)
+    .slice(1)
+    .join("\n");
+  const sources = unique([normalizeText(originalOnly), normalizeText(translated)]).filter(Boolean);
+  const result: ExplicitServiceLineItem[] = [];
+  const travelWord =
+    String.raw`(?:anfahrt|fahrtkosten|fahrt|fahrpauschale|wegpauschale|reisekosten|reisepauschale|deplacement|déplacement|travel\s+costs?|travel\s+fee|trip\s+fee|transport\s+fee)`;
+  const pattern = new RegExp(
+    String.raw`\b(${travelWord}(?:\s+pauschal)?)\s*(?:(${CURRENCY_WORDS})\s*)?(\d+(?:[.,]\d{1,2})?)(?:\s*\.-)?(?:\s*(${CURRENCY_WORDS}))?\b`,
+    "gi",
+  );
+
+  for (const source of sources) {
+    for (const match of source.matchAll(pattern)) {
+      const segment = normalizeText(match[0]);
+      const unitPrice = parsePriceNumber(match[3]);
+      const detectedCurrency = normalizeExplicitCurrency(match[2] || match[4]);
+      if (!segment || !unitPrice || unitPrice <= 0) continue;
+      if (detectedCurrency && detectedCurrency !== fallbackCurrency) continue;
+      result.push({
+        serviceName: "Anfahrt",
+        description: segment,
+        quantity: 1,
+        unit: "Pauschal",
+        unitPrice,
+        totalPrice: roundMoney(unitPrice),
+        needsReview: false,
+        reviewReason: null,
+        sourceText: segment,
+        evidence: segment,
+        detectedCurrency: detectedCurrency || fallbackCurrency,
+      });
+    }
+  }
+
+  const byKey = new Map<string, ExplicitServiceLineItem>();
+  for (const item of result) {
+    const key = `${Number(item.unitPrice || 0).toFixed(4)}|${item.detectedCurrency || fallbackCurrency}`;
+    if (!byKey.has(key)) byKey.set(key, item);
+  }
+  return Array.from(byKey.values());
+}
+
 function exactAmountUnitMatchV17_90L22(
   item: ParsedOrderItemForValidation,
   explicit: ExplicitServiceLineItem,
@@ -10511,6 +10563,62 @@ function cleanTrailingAmountFromServiceNameV17_90L23(value?: string | null): str
   return normalizeText(name).replace(/^./, (char) => char.toUpperCase());
 }
 
+
+// V17.90L70: Menge/Einheit/Preis gehören nie in den sichtbaren Leistungsnamen.
+// Diese Bereinigung ist rein strukturell und kennt keine Leistungsbegriffe.
+// Sie entfernt nur eindeutige Zahlen-/Einheiten-Suffixe wie
+// ", 6 Garnituren à CHF 38" oder "3 Stück je CHF 12".
+function cleanFinalServiceAmountSuffixV17_90L70(
+  value?: string | null,
+): string {
+  const countUnit =
+    String.raw`(?:garnituren?|sets?|gruppen?|anlagen?|raeume|räume|zimmer|objekte?|einheiten?|stueck|stück|stk\.?|pcs?|pieces?|pi[eè]ces?|pezzi|meter|laufmeter|lfm|m2|m²|qm|quadratmeter|stunden?|std\.?|tage?|pauschalen?)`;
+
+  let cleaned = normalizeText(value || "")
+    .replace(
+      new RegExp(
+        String.raw`^\s*\d+(?:[.,]\d+)?\s*${countUnit}\b\s*`,
+        "iu",
+      ),
+      "",
+    )
+    .replace(
+      new RegExp(
+        String.raw`\s*[,;:\-–—]?\s*\d+(?:[.,]\d+)?\s*${countUnit}\b(?:\s*(?:à|a|je|po|pro|per|x|mal)\s*(?:(?:CHF|EUR|Fr\.?|Franken|Euro)\s*)?\d+(?:[.,]\d{1,2})?)?.*$`,
+        "iu",
+      ),
+      "",
+    )
+    .replace(
+      /\s+(?:à|a|je|po|pro|per|x|mal)\s*(?:(?:CHF|EUR|Fr\.?|Franken|Euro)\s*)?\d+(?:[.,]\d{1,2})?.*$/iu,
+      "",
+    )
+    .replace(/[\s,;:\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  cleaned = cleanValidationServiceDisplayName(cleaned);
+  return cleaned || normalizeText(value || "");
+}
+
+function applyFinalServiceAmountSuffixCleanupV17_90L70(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  return items.map((item) => {
+    const serviceName = cleanFinalServiceAmountSuffixV17_90L70(
+      item.serviceName,
+    );
+    if (!serviceName || serviceName === item.serviceName) return item;
+    return {
+      ...item,
+      serviceName,
+      reviewReason: String(item.reviewReason || "").startsWith("price_unclear:")
+        ? `price_unclear:${serviceName}`
+        : item.reviewReason,
+    };
+  });
+}
+
 function canonicalLineLocalItemV17_90L23(
   item: ExplicitServiceLineItem,
 ): ExplicitServiceLineItem {
@@ -10612,8 +10720,23 @@ function applyLineLocalEvidenceDescriptionCleanupV17_90L26(
   originalText: string,
   finalCurrency: IntakeCurrency,
 ): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
-  const explicitItems = extractStrictLineLocalPricedItemsV17_90L22(originalText, finalCurrency)
-    .map(canonicalLineLocalItemV17_90L23);
+  const explicitItems = preferStrongRecognitionCandidatesV17_90L69(
+    [
+      ...extractStrictLineLocalPricedItemsV17_90L22(
+        originalText,
+        finalCurrency,
+      ),
+      ...extractCountOnlyPricedRecognitionItemsV17_90L69(
+        originalText,
+        finalCurrency,
+      ),
+      ...extractBareFlatTravelEvidenceV17_90L70(
+        originalText,
+        finalCurrency,
+      ),
+    ],
+    originalText,
+  ).map(canonicalLineLocalItemV17_90L23);
   if (explicitItems.length === 0) {
     return {
       items: items.map((item) => ({
@@ -11219,6 +11342,7 @@ export function validateAndRepairParsedOrderItems(
     );
   items = rawForeignCurrencyFallbackV17_90L41.items;
   reviewReasons.push(...rawForeignCurrencyFallbackV17_90L41.reviewReasons);
+  items = applyFinalServiceAmountSuffixCleanupV17_90L70(items);
   hasRealCurrencyProblem = items.some((item) => {
     const rawDetectedCurrency = String(item.detectedCurrency || "")
       .trim()
@@ -11372,7 +11496,7 @@ const STOP_MARKER =
 // für Zugang/Kontakt/Termin. Sie dürfen nie in Strasse, Ort oder Objektname
 // gespeichert werden; die Information bleibt im Originaltext/Besonderheiten.
 const EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39 =
-  /\b(?:schlüssel|schluessel|schlussel|key|zugang|zutritt|rezeption|reception|empfang|concierge|hauswart|hausmeister|code|torcode|zugangscode|schlüsselbox|schluesselbox|briefkasten|parkieren|parken|parkplatz|parking|termin|datum|uhrzeit|kontakt(?:person)?|ansprechperson|telefon|tel\.?|handy|natel|whatsapp|sms|e-?mail)\b/i;
+  /\b(?:schlüssel|schluessel|schlussel|key|zugang|zutritt|eingang|vor\s+ort|rezeption|reception|empfang|concierge|hauswart|hausmeister|code|torcode|zugangscode|schlüsselbox|schluesselbox|briefkasten|parkieren|parken|parkplatz|parking|termin|datum|uhrzeit|kontakt(?:person)?|ansprechperson|telefon|tel\.?|handy|natel|whatsapp|sms|e-?mail)\b/i;
 
 function stripOperationalAddressTailV17_90L39(value?: string | null): string {
   const text = normalizeText(value || "");
@@ -11492,7 +11616,7 @@ function parsePlzCity(value: string): {
     )
     // Cut accidental continuation text after a plausible city.
     .replace(
-      /\b(leisting|leistung|leistungen|bitte|preis|preise|kosten|fenster|treppenhaus|reinigung|reinigen|farbreste|hecke|garage|tiefgarage|pauschal|arbeiten|kommen|melden|montieren|machen|erledigen|schneiden|streichen|entsorgen)\b.*$/gi,
+      /\b(eingang|vor\s+ort|kontakt|ansprechperson|zugang|leisting|leistung|leistungen|bitte|preis|preise|kosten|fenster|treppenhaus|reinigung|reinigen|farbreste|hecke|garage|tiefgarage|pauschal|arbeiten|kommen|melden|montieren|machen|erledigen|schneiden|streichen|entsorgen)\b.*$/gi,
       "",
     )
     .replace(/\s+/g, " ")
@@ -11760,6 +11884,20 @@ function isSafeSiteNameCandidate(value?: string | null): boolean {
   return true;
 }
 
+
+function extractExecutionAccessNoteV17_90L70(
+  value?: string | null,
+): string | null {
+  const source = normalizeText(value || "");
+  if (!source) return null;
+
+  const match = source.match(
+    /\b(eingang\s+(?:bei|beim|am|an|ueber|über)\s+(?:(?:der|dem|den)\s+)?[A-ZÄÖÜÀ-ÖØ-Þ][A-Za-zÄÖÜÀ-ÖØ-öø-ÿß'’.-]*(?:\s+(?!(?:kontakt|vor\s+ort|telefon|tel\.?|whatsapp|sms|leistung|termin|schlüssel|schluessel|code)\b)[A-Za-zÄÖÜÀ-ÖØ-öø-ÿß'’.-]+){0,2}?)(?=\s*(?:[,;.]|\bkontakt\b|\bvor\s+ort\b|\btelefon\b|\btel\.?\b|\bwhatsapp\b|\bsms\b|\bleistungen?\b|\btermin\b|\bschlüssel\b|\bschluessel\b|\bcode\b|$))/iu,
+  );
+  if (!match?.[1]) return null;
+  return match[1].replace(/\s+/g, " ").trim();
+}
+
 function extractInlineExecutionAddressCandidate(
   line: string,
   customer?: {
@@ -11850,7 +11988,7 @@ function extractInlineExecutionAddressCandidate(
     siteAddress,
     sitePlz,
     siteCity,
-    siteNote: null,
+    siteNote: extractExecutionAccessNoteV17_90L70(executionRaw),
   };
 }
 
@@ -12126,7 +12264,7 @@ export function extractExecutionAddressFromText(
       siteAddress: cleanSiteAddress || siteAddress,
       sitePlz,
       siteCity,
-      siteNote: null,
+      siteNote: extractExecutionAccessNoteV17_90L70(blockLines.join(" ")),
     };
   }
 

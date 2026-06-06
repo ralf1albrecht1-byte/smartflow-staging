@@ -1429,7 +1429,7 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|besucherparkplatz|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
+  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|besucherparkplatz|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed|(?:lieferwagen|fahrzeug|auto)?.*(?:auf|neben|bei)\s+(?:besucherparkplatz|besucherplatz|parkplatz|platz|rampe)\s*(?:nr\.?|nummer)?\s*\d+/.test(
     text,
   );
 };
@@ -13795,9 +13795,9 @@ export default function AuftraegePage() {
                       <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
                         <div className="font-semibold">⚠ Währung prüfen</div>
                         <div>
-                          Im Kundentext wurden unterschiedliche Währungen
-                          erkannt. Total nicht berechenbar. Erst bereinigen,
-                          dann Angebot oder Rechnung erstellen.
+                          {hasResidualCurrencyReviewWithoutEditableItemV17_90L38
+                            ? "Im Kundentext wurden unterschiedliche Währungen erkannt. Der Hinweis besitzt noch keine bearbeitbare Prüfposition."
+                            : "Eine Fremdwährungsposition wurde erkannt und wird bis zur Bestätigung nicht in Netto, MwSt. und Total eingerechnet. Die bestätigten Positionen in der Auftragswährung bleiben berechenbar."}
                         </div>
                         {hasResidualCurrencyReviewWithoutEditableItemV17_90L38 && (
                           <div className="mt-2 rounded-md border border-red-200 bg-white/80 p-2 dark:border-red-900/60 dark:bg-background/50">

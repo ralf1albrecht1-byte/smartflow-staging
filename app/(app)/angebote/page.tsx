@@ -1240,6 +1240,7 @@ export default function AngebotePage() {
   });
 
   const [items, setItems] = useState<OfferItem[]>([getEmptyItem()]);
+  const [serviceOverviewOpen, setServiceOverviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [fromOrderId, setFromOrderId] = useState<string | null>(null);
@@ -1992,6 +1993,7 @@ export default function AngebotePage() {
     opts?: { openCustomerSection?: boolean },
   ) => {
     setEditOfferId(off.id);
+    setServiceOverviewOpen(false);
     setDupCheckOpen(false);
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
@@ -2166,6 +2168,7 @@ export default function AngebotePage() {
 
   const openNewOffer = () => {
     setEditOfferId(null);
+    setServiceOverviewOpen(false);
     setVatRate(defaultVatRate);
     setCurrency(defaultCurrency);
     setForm({
@@ -5005,6 +5008,107 @@ export default function AngebotePage() {
                         </div>
                       </div>
                     )}
+
+                    <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="font-semibold">Leistungsübersicht</div>
+                          <div className="text-xs text-muted-foreground">
+                            Live aus den Leistungen oben
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setServiceOverviewOpen((current) => !current)}
+                          className="h-8 w-full sm:w-auto"
+                        >
+                          {serviceOverviewOpen ? "Einklappen" : "Anzeigen"}
+                        </Button>
+                      </div>
+
+                      {!serviceOverviewOpen && (
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                          <span>
+                            {items.filter((item: OfferItem) =>
+                              String(item?.description || "").trim(),
+                            ).length}{" "}
+                            Leistungen
+                          </span>
+                          <span className="font-mono font-semibold text-foreground">
+                            {formatCurrency(subtotal, currency)}
+                          </span>
+                        </div>
+                      )}
+
+                      {serviceOverviewOpen && (
+                        <div className="mt-3 overflow-x-auto rounded-xl border-2 border-slate-300 dark:border-slate-700">
+                          <table className="w-full min-w-[720px] border-collapse text-sm">
+                            <thead className="bg-slate-50 text-left dark:bg-slate-900/70">
+                              <tr className="border-b border-slate-300 dark:border-slate-700">
+                                <th className="w-14 px-3 py-2 font-semibold">Nr.</th>
+                                <th className="px-3 py-2 font-semibold">Leistung</th>
+                                <th className="w-32 px-3 py-2 font-semibold">Einheit</th>
+                                <th className="w-24 px-3 py-2 text-right font-semibold">Menge</th>
+                                <th className="w-36 px-3 py-2 text-right font-semibold">Einzelpreis</th>
+                                <th className="w-36 px-3 py-2 text-right font-semibold">Summe</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items
+                                .filter((item: OfferItem) =>
+                                  String(item?.description || "").trim(),
+                                )
+                                .map((item: OfferItem, index: number) => {
+                                  const quantity = Number(item?.quantity ?? 0);
+                                  const unitPrice = Number(item?.unitPrice ?? 0);
+                                  return (
+                                    <tr
+                                      key={`offer-overview-${index}`}
+                                      className="border-b border-slate-200 last:border-b-0 dark:border-slate-800"
+                                    >
+                                      <td className="px-3 py-2 align-top">{index + 1}</td>
+                                      <td className="px-3 py-2 align-top font-medium">
+                                        {item.description}
+                                      </td>
+                                      <td className="px-3 py-2 align-top">
+                                        {String(item.unit || "–")}
+                                      </td>
+                                      <td className="px-3 py-2 text-right align-top font-mono">
+                                        {Number.isFinite(quantity) ? quantity : 0}
+                                      </td>
+                                      <td className="px-3 py-2 text-right align-top font-mono">
+                                        {formatCurrency(
+                                          Number.isFinite(unitPrice) ? unitPrice : 0,
+                                          currency,
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2 text-right align-top font-mono">
+                                        {formatCurrency(
+                                          (Number.isFinite(quantity) ? quantity : 0) *
+                                            (Number.isFinite(unitPrice) ? unitPrice : 0),
+                                          currency,
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold dark:border-slate-700 dark:bg-slate-900/70">
+                                <td colSpan={5} className="px-3 py-3">
+                                  Gesamt
+                                </td>
+                                <td className="px-3 py-3 text-right font-mono text-emerald-700 dark:text-emerald-300">
+                                  {formatCurrency(subtotal, currency)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+                    </div>
 
                     {linkedOrderData && (
                       <CommunicationBlock
