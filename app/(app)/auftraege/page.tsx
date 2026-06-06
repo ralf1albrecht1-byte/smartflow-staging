@@ -33,6 +33,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Mic,
+  X,
 } from "lucide-react";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import { CommunicationChips } from "@/components/communication-block";
@@ -5531,6 +5532,179 @@ const renderExecutionAddressBadgeTooltipV17_90L56 = (
   );
 };
 
+const ViewportAwareOrderServiceTooltip = ({
+  badge,
+  align = "left",
+}: {
+  badge: ReviewBadge;
+  align?: "left" | "right";
+}) => {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    width: number;
+    maxHeight: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+  const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const calculatePosition = () => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger || typeof window === "undefined") return null;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 8;
+    const width = Math.max(
+      280,
+      Math.min(432, window.innerWidth - viewportPadding * 2),
+    );
+    const desiredLeft = align === "right" ? rect.right - width : rect.left;
+    const left = Math.min(
+      Math.max(viewportPadding, desiredLeft),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+    const availableAbove = Math.max(
+      0,
+      rect.top - gap - viewportPadding,
+    );
+    const availableBelow = Math.max(
+      0,
+      window.innerHeight - rect.bottom - gap - viewportPadding,
+    );
+    const openBelow = availableAbove < 260 && availableBelow > availableAbove;
+    const available = openBelow ? availableBelow : availableAbove;
+    const maxHeight = Math.max(96, Math.min(560, available));
+
+    return openBelow
+      ? { left, width, maxHeight, top: rect.bottom + gap }
+      : {
+          left,
+          width,
+          maxHeight,
+          bottom: window.innerHeight - rect.top + gap,
+        };
+  };
+
+  const showTooltip = () => {
+    clearHideTimer();
+    const nextPosition = calculatePosition();
+    if (nextPosition) setPosition(nextPosition);
+    setOpen(true);
+  };
+
+  const scheduleHideTooltip = () => {
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+  };
+
+  useEffect(() => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger) return;
+
+    const handleFocusOut = (event: FocusEvent) => {
+      if (!trigger.contains(event.relatedTarget as Node | null)) {
+        scheduleHideTooltip();
+      }
+    };
+
+    trigger.addEventListener("pointerenter", showTooltip);
+    trigger.addEventListener("pointerleave", scheduleHideTooltip);
+    trigger.addEventListener("focusin", showTooltip);
+    trigger.addEventListener("focusout", handleFocusOut);
+
+    return () => {
+      trigger.removeEventListener("pointerenter", showTooltip);
+      trigger.removeEventListener("pointerleave", scheduleHideTooltip);
+      trigger.removeEventListener("focusin", showTooltip);
+      trigger.removeEventListener("focusout", handleFocusOut);
+      clearHideTimer();
+    };
+  }, [align]);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const nextPosition = calculatePosition();
+      if (nextPosition) setPosition(nextPosition);
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, align]);
+
+  if (!tooltip) return null;
+  const tooltipLines = tooltip.split("\n");
+  const headingPattern =
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+
+  return (
+    <>
+      <span ref={anchorRef} className="hidden" aria-hidden="true" />
+      {open && position && (
+        <span
+          role="tooltip"
+          onPointerEnter={clearHideTimer}
+          onPointerLeave={scheduleHideTooltip}
+          style={{
+            left: position.left,
+            width: position.width,
+            maxHeight: position.maxHeight,
+            top: position.top,
+            bottom: position.bottom,
+          }}
+          className="fixed z-[14000] overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        >
+          <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+            {badge.label}
+          </span>
+          {tooltipLines.map((line, index) => {
+            const trimmed = line.trim();
+            if (/^[-─—–_]{6,}$/.test(trimmed)) {
+              return (
+                <span
+                  key={`viewport_service_sep_${index}`}
+                  className="my-2 block border-t border-slate-200 dark:border-slate-700"
+                />
+              );
+            }
+            const emphasizeLine =
+              headingPattern.test(trimmed) ||
+              /^•\s+/.test(trimmed) ||
+              /^Katalogpreis:/i.test(trimmed) ||
+              /—\s*Text\s+/i.test(trimmed);
+            return (
+              <span
+                key={`viewport_service_line_${index}`}
+                className={`block min-w-0 whitespace-pre-wrap break-words ${
+                  emphasizeLine
+                    ? "font-bold text-slate-950 dark:text-slate-50"
+                    : "text-slate-600 dark:text-slate-300"
+                }`}
+              >
+                {line}
+              </span>
+            );
+          })}
+        </span>
+      )}
+    </>
+  );
+};
+
 const renderBadgeTooltip = (
   badge: ReviewBadge,
   align: "left" | "right" = "left",
@@ -5550,6 +5724,10 @@ const renderBadgeTooltip = (
 
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
   if (!tooltip) return null;
+
+  if (badge.key === "service_review_summary" && !forceVisible) {
+    return <ViewportAwareOrderServiceTooltip badge={badge} align={align} />;
+  }
 
   const alignClass = align === "right" ? "right-0" : "left-0";
 
@@ -6545,10 +6723,25 @@ export default function AuftraegePage() {
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<{
     key: string;
     tooltip: string;
+    title?: string;
+    kind?: "service_review" | "default";
   } | null>(null);
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
+
+  useEffect(() => {
+    if (!activeMobileTooltip || typeof document === "undefined") return;
+    const previousOverflow = document.body.style.overflow;
+    const previousOverscrollBehavior = document.body.style.overscrollBehavior;
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.overscrollBehavior = previousOverscrollBehavior;
+    };
+  }, [activeMobileTooltip]);
+
   const [catalogDecision, setCatalogDecision] = useState<null | {
     index: number;
     itemKey: string;
@@ -10857,97 +11050,198 @@ export default function AuftraegePage() {
     const specialSummarySections = isSpecialNotesSummary
       ? splitSpecialNotesSummaryTooltipV17_91(tooltip)
       : null;
+    const isServiceReview = activeMobileTooltip.kind === "service_review";
+    const serviceReviewSections = isServiceReview
+      ? tooltip
+          .split(SERVICE_REVIEW_TOOLTIP_SEPARATOR)
+          .map((sectionText) => {
+            const lines = sectionText
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean);
+            const title = lines.shift() || "Leistungen prüfen";
+            const items: Array<{ title: string; details: string[] }> = [];
+            let current: { title: string; details: string[] } | null = null;
+
+            lines.forEach((line) => {
+              if (line.startsWith("•")) {
+                const content = line.replace(/^•\s*/, "").trim();
+                const [itemTitle, ...detailParts] = content.split(/\s+—\s+/);
+                current = {
+                  title: itemTitle || "Leistung",
+                  details: detailParts.length ? [detailParts.join(" — ")] : [],
+                };
+                items.push(current);
+                return;
+              }
+              if (/^\+\d+\s+weitere/i.test(line)) {
+                items.push({ title: line, details: [] });
+                current = null;
+                return;
+              }
+              if (current) {
+                current.details.push(line);
+              }
+            });
+
+            return { title, items };
+          })
+          .filter((section) => section.items.length > 0)
+      : [];
 
     const tooltipLines = tooltip.split("\n");
     const headingPattern =
       /^(?:Einheit fehlt im Kundentext|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Adresse prüfen|Ausführadresse unklar|Ausführungsadresse unklar|Kunde prüfen)$/;
+    const sheetTitle = activeMobileTooltip.title || "Information";
+
+    const closeSheet = () => {
+      setActiveMobileTooltipKey(null);
+      setActiveMobileTooltip(null);
+    };
 
     return (
       <div className="fixed inset-0 z-[12000] sm:hidden">
         <button
           type="button"
           aria-label="Hinweis schließen"
-          className="absolute inset-0 cursor-default bg-transparent"
+          className="absolute inset-0 cursor-default bg-black/20 backdrop-blur-[1px]"
           onClick={(event) => {
             event.stopPropagation();
-            setActiveMobileTooltipKey(null);
-            setActiveMobileTooltip(null);
+            closeSheet();
           }}
         />
         <div
-          className="fixed bottom-4 left-3 right-3 max-h-[72dvh] min-h-[72px] overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="fixed left-2 right-2 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           style={{
-            width: "calc(100vw - 1.5rem)",
-            maxWidth: "calc(100vw - 1.5rem)",
+            top: "max(0.75rem, env(safe-area-inset-top))",
+            bottom: "max(0.75rem, env(safe-area-inset-bottom))",
           }}
           onClick={(event) => event.stopPropagation()}
         >
-          {isSpecialNotesSummary && specialSummarySections ? (
-            <div className="space-y-2">
-              {specialSummarySections.safety.length > 0 && (
-                <div className="rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
-                  <div className="mb-1 flex items-center gap-1 font-bold">
-                    <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
-                  </div>
-                  {specialSummarySections.safety.map((line, index) => (
-                    <div
-                      key={`active_mobile_summary_safety_${index}`}
-                      className="whitespace-pre-wrap break-words"
-                    >
-                      • {line}
-                    </div>
-                  ))}
-                </div>
-              )}
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+            <div className="min-w-0 truncate text-base font-bold text-slate-950 dark:text-slate-50">
+              {sheetTitle}
+            </div>
+            <button
+              type="button"
+              aria-label="Hinweis schließen"
+              onClick={closeSheet}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 shadow-sm active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
 
-              {specialSummarySections.hints.length > 0 && (
-                <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
-                  <div className="mb-1 font-bold">Besonderheiten</div>
-                  {specialSummarySections.hints.map((line, index) => (
-                    <div
-                      key={`active_mobile_summary_hint_${index}`}
-                      className="whitespace-pre-wrap break-words"
-                    >
-                      {line}
+          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-3 pb-6">
+            {isSpecialNotesSummary && specialSummarySections ? (
+              <div className="space-y-2">
+                {specialSummarySections.safety.length > 0 && (
+                  <div className="rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+                    <div className="mb-1 flex items-center gap-1 font-bold">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {specialSummarySections.safety.length === 0 &&
-                specialSummarySections.hints.length === 0 && (
-                  <div className="whitespace-pre-wrap break-words rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
-                    {tooltip}
+                    {specialSummarySections.safety.map((line, index) => (
+                      <div
+                        key={`active_mobile_summary_safety_${index}`}
+                        className="whitespace-pre-wrap break-words"
+                      >
+                        • {line}
+                      </div>
+                    ))}
                   </div>
                 )}
-            </div>
-          ) : (
-            <div className="whitespace-pre-wrap break-words">
-              {tooltipLines.map((line, index) => {
-                const trimmed = line.trim();
-                if (/^[-─—–_]{6,}$/.test(trimmed)) {
+
+                {specialSummarySections.hints.length > 0 && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                    <div className="mb-1 font-bold">Besonderheiten</div>
+                    {specialSummarySections.hints.map((line, index) => (
+                      <div
+                        key={`active_mobile_summary_hint_${index}`}
+                        className="whitespace-pre-wrap break-words"
+                      >
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {specialSummarySections.safety.length === 0 &&
+                  specialSummarySections.hints.length === 0 && (
+                    <div className="whitespace-pre-wrap break-words rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                      {tooltip}
+                    </div>
+                  )}
+              </div>
+            ) : isServiceReview && serviceReviewSections.length > 0 ? (
+              <div className="space-y-3">
+                {serviceReviewSections.map((section, sectionIndex) => (
+                  <div
+                    key={`order_mobile_review_section_${sectionIndex}`}
+                    className={`${sectionIndex > 0 ? "border-t border-slate-200 pt-3 dark:border-slate-700" : ""}`}
+                  >
+                    <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
+                      {section.title}
+                    </div>
+                    <div className="space-y-2">
+                      {section.items.map((item, itemIndex) => (
+                        <div
+                          key={`order_mobile_review_item_${sectionIndex}_${itemIndex}`}
+                          className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
+                        >
+                          <div className="font-bold text-slate-950 dark:text-slate-50">
+                            {item.title}
+                          </div>
+                          {item.details.map((detail, detailIndex) => {
+                            const isCatalogPrice = /^Katalogpreis:/i.test(detail);
+                            return (
+                              <div
+                                key={`order_mobile_review_detail_${detailIndex}`}
+                                className={`break-words text-[13px] ${
+                                  isCatalogPrice
+                                    ? "font-bold text-slate-950 dark:text-slate-50"
+                                    : "text-slate-600 dark:text-slate-300"
+                                }`}
+                              >
+                                {detail}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap break-words">
+                {tooltipLines.map((line, index) => {
+                  const trimmed = line.trim();
+                  if (/^[-─—–_]{6,}$/.test(trimmed)) {
+                    return (
+                      <span
+                        key={`active_mobile_sep_${index}`}
+                        className="my-1 block border-t border-slate-200 dark:border-slate-700"
+                      />
+                    );
+                  }
+
+                  const emphasizeLine =
+                    headingPattern.test(trimmed) ||
+                    /—\s*Text\s+/i.test(trimmed) ||
+                    /^Warum:/i.test(trimmed);
+
                   return (
                     <span
-                      key={`active_mobile_sep_${index}`}
-                      className="my-1 block border-t border-slate-200 dark:border-slate-700"
-                    />
+                      key={`active_mobile_line_${index}`}
+                      className={`block min-w-0 whitespace-pre-wrap break-words ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
+                    >
+                      {line}
+                    </span>
                   );
-                }
-
-                const emphasizeLine =
-                  headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed) || /^Warum:/i.test(trimmed);
-
-                return (
-                  <span
-                    key={`active_mobile_line_${index}`}
-                    className={`block min-w-0 whitespace-pre-wrap break-words ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
-                  >
-                    {line}
-                  </span>
-                );
-              })}
-            </div>
-          )}
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -11220,7 +11514,19 @@ export default function AuftraegePage() {
               const key = mobileTooltipKey(badge, slot);
               setActiveMobileTooltipKey((current) => {
                 const next = current === key ? null : key;
-                setActiveMobileTooltip(next ? { key, tooltip: title } : null);
+                setActiveMobileTooltip(
+                  next
+                    ? {
+                        key,
+                        tooltip: title,
+                        title: badge.label,
+                        kind:
+                          badge.key === "service_review_summary"
+                            ? "service_review"
+                            : "default",
+                      }
+                    : null,
+                );
                 return next;
               });
             };

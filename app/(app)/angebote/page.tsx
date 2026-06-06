@@ -21,6 +21,7 @@ import {
   Info,
   Pencil,
   Phone,
+  X,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
@@ -870,48 +871,175 @@ function OfferServiceReviewTooltip({
   sections: OfferServiceReviewSection[];
   align?: "left" | "right";
 }) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    width: number;
+    maxHeight: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const calculatePosition = () => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger || typeof window === "undefined") return null;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 8;
+    const width = Math.max(
+      280,
+      Math.min(432, window.innerWidth - viewportPadding * 2),
+    );
+    const desiredLeft = align === "right" ? rect.right - width : rect.left;
+    const left = Math.min(
+      Math.max(viewportPadding, desiredLeft),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+    const availableAbove = Math.max(
+      0,
+      rect.top - gap - viewportPadding,
+    );
+    const availableBelow = Math.max(
+      0,
+      window.innerHeight - rect.bottom - gap - viewportPadding,
+    );
+    const openBelow = availableAbove < 260 && availableBelow > availableAbove;
+    const available = openBelow ? availableBelow : availableAbove;
+    const maxHeight = Math.max(96, Math.min(560, available));
+
+    return openBelow
+      ? {
+          left,
+          width,
+          maxHeight,
+          top: rect.bottom + gap,
+        }
+      : {
+          left,
+          width,
+          maxHeight,
+          bottom: window.innerHeight - rect.top + gap,
+        };
+  };
+
+  const showTooltip = () => {
+    clearHideTimer();
+    const nextPosition = calculatePosition();
+    if (nextPosition) setPosition(nextPosition);
+    setOpen(true);
+  };
+
+  const scheduleHideTooltip = () => {
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+  };
+
+  useEffect(() => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger) return;
+
+    const handleFocusOut = (event: FocusEvent) => {
+      if (!trigger.contains(event.relatedTarget as Node | null)) {
+        scheduleHideTooltip();
+      }
+    };
+
+    trigger.addEventListener("pointerenter", showTooltip);
+    trigger.addEventListener("pointerleave", scheduleHideTooltip);
+    trigger.addEventListener("focusin", showTooltip);
+    trigger.addEventListener("focusout", handleFocusOut);
+
+    return () => {
+      trigger.removeEventListener("pointerenter", showTooltip);
+      trigger.removeEventListener("pointerleave", scheduleHideTooltip);
+      trigger.removeEventListener("focusin", showTooltip);
+      trigger.removeEventListener("focusout", handleFocusOut);
+      clearHideTimer();
+    };
+  }, [align]);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const nextPosition = calculatePosition();
+      if (nextPosition) setPosition(nextPosition);
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, align]);
+
   if (sections.length === 0) return null;
+
   return (
-    <span
-      className={`pointer-events-none absolute ${align === "right" ? "right-0" : "left-0"} bottom-full z-[9999] mb-1 hidden w-[min(27rem,calc(100vw-2rem))] max-h-[58vh] overflow-auto rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}
-    >
-      <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
-        {title}
-      </span>
-      {sections.map((section, sectionIndex) => (
+    <>
+      <span ref={anchorRef} className="hidden" aria-hidden="true" />
+      {open && position && (
         <span
-          key={`${section.title}_${sectionIndex}`}
-          className={`${sectionIndex > 0 ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+          role="tooltip"
+          onPointerEnter={clearHideTimer}
+          onPointerLeave={scheduleHideTooltip}
+          style={{
+            left: position.left,
+            width: position.width,
+            maxHeight: position.maxHeight,
+            top: position.top,
+            bottom: position.bottom,
+          }}
+          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         >
-          <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
-            {section.title}
+          <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+            {title}
           </span>
-          {section.items.map((item, itemIndex) => (
+          {sections.map((section, sectionIndex) => (
             <span
-              key={`${item.title}_${itemIndex}`}
-              className={`${itemIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+              key={`${section.title}_${sectionIndex}`}
+              className={`${sectionIndex > 0 ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
             >
-              <span className="block break-words font-bold">{item.title}</span>
-              {item.details.map((detail, detailIndex) => {
-                const isCatalogPrice = /^Katalogpreis:/i.test(detail.trim());
-                return (
-                  <span
-                    key={`${item.title}_${detailIndex}`}
-                    className={`block break-words ${
-                      isCatalogPrice
-                        ? "font-bold text-slate-950 dark:text-slate-50"
-                        : "text-slate-600 dark:text-slate-300"
-                    }`}
-                  >
-                    {detail}
-                  </span>
-                );
-              })}
+              <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
+                {section.title}
+              </span>
+              {section.items.map((item, itemIndex) => (
+                <span
+                  key={`${item.title}_${itemIndex}`}
+                  className={`${itemIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+                >
+                  <span className="block break-words font-bold">{item.title}</span>
+                  {item.details.map((detail, detailIndex) => {
+                    const isCatalogPrice = /^Katalogpreis:/i.test(detail.trim());
+                    return (
+                      <span
+                        key={`${item.title}_${detailIndex}`}
+                        className={`block break-words ${
+                          isCatalogPrice
+                            ? "font-bold text-slate-950 dark:text-slate-50"
+                            : "text-slate-600 dark:text-slate-300"
+                        }`}
+                      >
+                        {detail}
+                      </span>
+                    );
+                  })}
+                </span>
+              ))}
             </span>
           ))}
         </span>
-      ))}
-    </span>
+      )}
+    </>
   );
 }
 
@@ -994,6 +1122,19 @@ export default function AngebotePage() {
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
+
+
+  useEffect(() => {
+    if (!activeMobileTooltip || typeof document === "undefined") return;
+    const previousOverflow = document.body.style.overflow;
+    const previousOverscrollBehavior = document.body.style.overscrollBehavior;
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.overscrollBehavior = previousOverscrollBehavior;
+    };
+  }, [activeMobileTooltip]);
   const [catalogDecision, setCatalogDecision] = useState<OfferCatalogDecision | null>(null);
   const [catalogDecisionSaving, setCatalogDecisionSaving] = useState(false);
 
@@ -2227,98 +2368,120 @@ export default function AngebotePage() {
       (line) => !safety.some((warning) => normalizeOfferHint(warning) === normalizeOfferHint(line)),
     );
     const textValue = String(activeMobileTooltip.text || "").trim();
+    const sheetTitle =
+      activeMobileTooltip.reviewTitle ||
+      (safety.length > 0 || hints.length > 0 ? "Informationen" : "Hinweis");
+
+    const closeSheet = () => setActiveMobileTooltip(null);
 
     return (
       <div className="fixed inset-0 z-[12000] sm:hidden">
         <button
           type="button"
           aria-label="Hinweis schließen"
-          className="absolute inset-0 cursor-default bg-black/5"
+          className="absolute inset-0 cursor-default bg-black/20 backdrop-blur-[1px]"
           onClick={(event) => {
             event.stopPropagation();
-            setActiveMobileTooltip(null);
+            closeSheet();
           }}
         />
         <div
-          className="fixed bottom-4 left-3 right-3 max-h-[72dvh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="fixed left-2 right-2 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          style={{
+            top: "max(0.75rem, env(safe-area-inset-top))",
+            bottom: "max(0.75rem, env(safe-area-inset-bottom))",
+          }}
           onClick={(event) => event.stopPropagation()}
         >
-          {safety.length > 0 && (
-            <div className="mb-2 rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
-              <div className="mb-1 flex items-center gap-1 font-bold">
-                <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
-              </div>
-              {safety.map((line, index) => (
-                <div key={`offer_mobile_safety_${index}`} className="whitespace-pre-wrap break-words">
-                  • {line}
-                </div>
-              ))}
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+            <div className="min-w-0 truncate text-base font-bold text-slate-950 dark:text-slate-50">
+              {sheetTitle}
             </div>
-          )}
-          {hints.length > 0 && (
-            <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
-              <div className="mb-1 font-bold">Besonderheiten</div>
-              {hints.map((line, index) => (
-                <div key={`offer_mobile_hint_${index}`} className="whitespace-pre-wrap break-words">
-                  {line}
+            <button
+              type="button"
+              aria-label="Hinweis schließen"
+              onClick={closeSheet}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 shadow-sm active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-3 py-3 pb-6">
+            {safety.length > 0 && (
+              <div className="mb-2 rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+                <div className="mb-1 flex items-center gap-1 font-bold">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
                 </div>
-              ))}
-            </div>
-          )}
-          {activeMobileTooltip.reviewSections &&
-            activeMobileTooltip.reviewSections.length > 0 && (
-              <div className="space-y-3">
-                <div className="text-sm font-bold text-slate-950 dark:text-slate-50">
-                  {activeMobileTooltip.reviewTitle || "Leistungen prüfen"}
-                </div>
-                {activeMobileTooltip.reviewSections.map((section, sectionIndex) => (
-                  <div
-                    key={`offer_mobile_review_section_${sectionIndex}`}
-                    className={`${sectionIndex > 0 ? "border-t border-slate-200 pt-3 dark:border-slate-700" : ""}`}
-                  >
-                    <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
-                      {section.title}
-                    </div>
-                    <div className="space-y-2">
-                      {section.items.map((item, itemIndex) => (
-                        <div
-                          key={`offer_mobile_review_item_${sectionIndex}_${itemIndex}`}
-                          className="rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/60"
-                        >
-                          <div className="font-bold text-slate-950 dark:text-slate-50">
-                            {item.title}
-                          </div>
-                          {item.details.map((detail, detailIndex) => {
-                            const isCatalogPrice = /^Katalogpreis:/i.test(
-                              detail.trim(),
-                            );
-                            return (
-                              <div
-                                key={`offer_mobile_review_detail_${detailIndex}`}
-                                className={`break-words text-[12px] ${
-                                  isCatalogPrice
-                                    ? "font-bold text-slate-950 dark:text-slate-50"
-                                    : "text-slate-600 dark:text-slate-300"
-                                }`}
-                              >
-                                {detail}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
+                {safety.map((line, index) => (
+                  <div key={`offer_mobile_safety_${index}`} className="whitespace-pre-wrap break-words">
+                    • {line}
                   </div>
                 ))}
               </div>
             )}
-          {textValue &&
-            (!activeMobileTooltip.reviewSections ||
-              activeMobileTooltip.reviewSections.length === 0) && (
-              <div className="whitespace-pre-wrap break-words">
-                {textValue}
+            {hints.length > 0 && (
+              <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                <div className="mb-1 font-bold">Besonderheiten</div>
+                {hints.map((line, index) => (
+                  <div key={`offer_mobile_hint_${index}`} className="whitespace-pre-wrap break-words">
+                    {line}
+                  </div>
+                ))}
               </div>
             )}
+            {activeMobileTooltip.reviewSections &&
+              activeMobileTooltip.reviewSections.length > 0 && (
+                <div className="space-y-3">
+                  {activeMobileTooltip.reviewSections.map((section, sectionIndex) => (
+                    <div
+                      key={`offer_mobile_review_section_${sectionIndex}`}
+                      className={`${sectionIndex > 0 ? "border-t border-slate-200 pt-3 dark:border-slate-700" : ""}`}
+                    >
+                      <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
+                        {section.title}
+                      </div>
+                      <div className="space-y-2">
+                        {section.items.map((item, itemIndex) => (
+                          <div
+                            key={`offer_mobile_review_item_${sectionIndex}_${itemIndex}`}
+                            className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
+                          >
+                            <div className="font-bold text-slate-950 dark:text-slate-50">
+                              {item.title}
+                            </div>
+                            {item.details.map((detail, detailIndex) => {
+                              const isCatalogPrice = /^Katalogpreis:/i.test(
+                                detail.trim(),
+                              );
+                              return (
+                                <div
+                                  key={`offer_mobile_review_detail_${detailIndex}`}
+                                  className={`break-words text-[13px] ${
+                                    isCatalogPrice
+                                      ? "font-bold text-slate-950 dark:text-slate-50"
+                                      : "text-slate-600 dark:text-slate-300"
+                                  }`}
+                                >
+                                  {detail}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            {textValue &&
+              (!activeMobileTooltip.reviewSections ||
+                activeMobileTooltip.reviewSections.length === 0) && (
+                <div className="whitespace-pre-wrap break-words">
+                  {textValue}
+                </div>
+              )}
+          </div>
         </div>
       </div>
     );
