@@ -1846,10 +1846,16 @@ function detectFlatPriceItems(
         : null);
     if (!detected || detected.currency !== fallbackCurrency) continue;
 
-    const flatServiceSource = selectFlatServiceSourceFromSegment(
+    const selectedFlatServiceSource = selectFlatServiceSourceFromSegment(
       segment,
       explicitFlatLine,
     );
+    const unclearIndexV17_90L79 =
+      unclearPriceSignalIndexV17_90L79(selectedFlatServiceSource);
+    const flatServiceSource =
+      unclearIndexV17_90L79 > 0
+        ? selectedFlatServiceSource.slice(0, unclearIndexV17_90L79).trim()
+        : selectedFlatServiceSource;
     const flatSourceHasFlatSignal =
       /\b(pauschal|pauschale|fixpreis|festpreis|forfait|flat)\b/i.test(
         normalizeCompare(flatServiceSource),
@@ -3112,7 +3118,7 @@ function hasUnclearPriceSignal(value?: string | null): boolean {
   if (!source) return false;
 
   return (
-    /\b(preis\s+(?:wie\s+letztes\s+mal|wie\s+immer|wie\s+gehabt|offen|unklar|normal|standard|muss\s+(?:noch\s+)?(?:geprueft|pruefen|abgeklaert|abklaeren)|noch\s+(?:pruefen|abklaeren|offen))|wie\s+letztes\s+mal|wie\s+immer|wie\s+gehabt|gleicher\s+preis|letzter\s+preis|normaler\s+preis|standardpreis|nach\s+aufwand|ungefaehr|ungefahr|ca\.?|circa)\b/i.test(
+    /\b(preis\s+(?:wie\s+letztes\s+mal|wie\s+immer|wie\s+gehabt|offen|unklar|unbekannt|folgt|erst\s+nach\s+besichtigung|nach\s+besichtigung|normal|standard|muss\s+(?:noch\s+)?(?:geprueft|pruefen|abgeklaert|abklaeren)|noch\s+(?:pruefen|abklaeren|offen))|wie\s+letztes\s+mal|wie\s+immer|wie\s+gehabt|gleicher\s+preis|letzter\s+preis|normaler\s+preis|standardpreis|nach\s+aufwand|ungefaehr|ungefahr|ca\.?|circa)\b/i.test(
       source,
     ) ||
     /\b(?:anfahrt|fahrt|deplacement)\s+(?:normal|standard|wie\s+immer|wie\s+gehabt)\b/i.test(
@@ -3216,12 +3222,40 @@ function hasExplicitPriceEvidenceForItem(
   });
 }
 
+
+// V17.90L79: Locate the actual unclear-price phrase. This prevents a later
+// "Material nach Aufwand" fragment in a chaotic one-line message from
+// invalidating an earlier fully priced service.
+function unclearPriceSignalIndexV17_90L79(value?: string | null): number {
+  const source = normalizeText(value);
+  const match = source.match(
+    /\b(?:preis\s+(?:offen|unklar|unbekannt|folgt|erst\s+nach\s+besichtigung|nach\s+besichtigung|noch\s+(?:pruefen|prüfen|abklaeren|abklären|offen))|nach\s+aufwand|tbd|price\s+(?:open|unclear|unknown)|prix\s+(?:ouvert|incertain|inconnu))\b/i,
+  );
+  return match?.index ?? -1;
+}
+
 function findQuantityOnlyUnclearLine(line: string): {
   quantity: number;
   unitType: string;
   quantityRaw: string;
 } | null {
   if (!hasUnclearPriceSignal(line)) return null;
+  const unclearIndex = unclearPriceSignalIndexV17_90L79(line);
+  if (unclearIndex > 0) {
+    const beforeUnclear = line.slice(0, unclearIndex);
+    const unclearTail = line.slice(unclearIndex);
+    const tailHasOwnQuantity = new RegExp(
+      `\\b${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`,
+      "i",
+    ).test(unclearTail);
+    if (
+      !tailHasOwnQuantity &&
+      (hasExplicitCurrencyAmount(beforeUnclear) ||
+        extractUnitPricesFromSegment(beforeUnclear).length > 0)
+    ) {
+      return null;
+    }
+  }
   const quantityMatch = line.match(
     new RegExp(`\\b(${QUANTITY_NUMBER_OR_WORD})\\s*(${UNIT_WORDS})(?=\\b|\\s|[.,;:!?)])`, "i"),
   );
@@ -10828,6 +10862,196 @@ function applyLineLocalEvidenceDescriptionCleanupV17_90L26(
   return { items: next, reviewReasons: unique(reviewReasons) };
 }
 
+
+// V17.90L79: A complete structured AI row with short line-local evidence may
+// be marked for review, but it must not be silently deleted by later repair
+// passes. Restore only rows whose name, quantity, unit and price are all bound
+// to the same compact evidence line.
+function lineLocalStructuredEvidenceV17_90L79(
+  item: ParsedOrderItemForValidation,
+): string | null {
+  const serviceKey = normalizeCompare(item.serviceName);
+  const price = Number(item.unitPrice || 0);
+  if (!serviceKey || price <= 0) return null;
+  const priceText = Number.isInteger(price)
+    ? `${price}(?:[.,]0+)?`
+    : `${String(price).split(".")[0]}[.,]${String(price).split(".")[1]}0*`;
+  const pricePattern = new RegExp(`(^|\\D)${priceText}(?=\\D|$)`, "i");
+  const quantity = Number(item.quantity || 0);
+  const quantityText = Number.isInteger(quantity)
+    ? `${quantity}(?:[.,]0+)?`
+    : `${String(quantity).split(".")[0]}[.,]${String(quantity).split(".")[1]}0*`;
+  const quantityPattern = new RegExp(
+    `(^|\\D)${quantityText}(?=\\D|$)`,
+    "i",
+  );
+
+  return (
+    [item.evidence, item.description, item.sourceText]
+      .map((value) => normalizeText(value))
+      .filter(
+        (line) =>
+          Boolean(line) &&
+          line.length <= 260 &&
+          pricePattern.test(line) &&
+          (normalizeCompare(line).includes(serviceKey) ||
+            quantityPattern.test(line)),
+      )
+      .sort((a, b) => a.length - b.length)[0] || null
+  );
+}
+
+function restoreCompleteStructuredInputItemsV17_90L79(
+  currentItems: ParsedOrderItemForValidation[],
+  originalItems: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const trusted = originalItems
+    .map((item) => {
+      const evidence = lineLocalStructuredEvidenceV17_90L79(item);
+      const quantity = isFlatUnit(item.unit) ? 1 : Number(item.quantity || 0);
+      const unitPrice = Number(item.unitPrice || 0);
+      const currency = normalizeCurrency(item.detectedCurrency) || finalCurrency;
+      const nameKey = normalizeCompare(item.serviceName);
+      if (
+        !evidence ||
+        quantity <= 0 ||
+        unitPrice <= 0 ||
+        currency !== finalCurrency ||
+        !nameKey ||
+        nameKey === "leistung pruefen" ||
+        nameKey === "unbekannte leistung"
+      ) {
+        return null;
+      }
+      return {
+        ...item,
+        description: evidence,
+        sourceText: evidence,
+        evidence,
+        quantity,
+        totalPrice: calculateSafeLineTotal({ ...item, quantity, unitPrice }),
+        detectedCurrency: finalCurrency,
+      };
+    })
+    .filter(Boolean) as ParsedOrderItemForValidation[];
+
+  if (trusted.length === 0) return currentItems;
+  const used = new Set<number>();
+  const result: ParsedOrderItemForValidation[] = [];
+
+  for (const candidate of trusted) {
+    const candidateEvidence = normalizeCompare(candidate.sourceText || "");
+    const matchIndex = currentItems.findIndex((item, index) => {
+      if (used.has(index)) return false;
+      const sameNumbers =
+        unitTypeFromDisplayUnit(item.unit) ===
+          unitTypeFromDisplayUnit(candidate.unit) &&
+        Math.abs(Number(item.quantity || 0) - Number(candidate.quantity || 0)) <
+          0.001 &&
+        Math.abs(Number(item.unitPrice || 0) - Number(candidate.unitPrice || 0)) <
+          0.01;
+      const sameService = recognitionServiceNamesCompatibleV17_90L69(
+        item.serviceName,
+        candidate.serviceName,
+      );
+      const itemEvidence = normalizeCompare(
+        [item.sourceText, item.evidence, item.description]
+          .filter(Boolean)
+          .join(" "),
+      );
+      return Boolean(
+        (candidateEvidence &&
+          itemEvidence &&
+          (itemEvidence.includes(candidateEvidence) ||
+            candidateEvidence.includes(itemEvidence))) ||
+          (sameNumbers && sameService),
+      );
+    });
+
+    if (matchIndex >= 0) used.add(matchIndex);
+    result.push(candidate);
+  }
+
+  currentItems.forEach((item, index) => {
+    if (!used.has(index)) result.push(item);
+  });
+
+  const byKey = new Map<string, ParsedOrderItemForValidation>();
+  for (const item of result) {
+    const key = [
+      normalizeCompare(item.serviceName),
+      unitTypeFromDisplayUnit(item.unit) || normalizeCompare(item.unit),
+      Number(item.quantity || 0).toFixed(4),
+      Number(item.unitPrice || 0).toFixed(4),
+      normalizeCurrency(item.detectedCurrency) || "",
+    ].join("|");
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, item);
+    } else {
+      byKey.set(key, {
+        ...existing,
+        needsReview: Boolean(existing.needsReview || item.needsReview),
+        reviewReason: existing.reviewReason || item.reviewReason || null,
+      });
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+function appendStructuredUnpricedItemsV17_90L79(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
+  const source = preferredSemanticLineSourceV17_41(originalText)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  const block = source.match(
+    /\b(?:leistungen|arbeiten)\s*:\s*([\s\S]*?)(?=\n\s*(?:hinweise|besonderheiten|kontakt|zugang|termin|notizen|bemerkungen)\s*:|$)/i,
+  )?.[1];
+  if (!block) return { items, reviewReasons: [] };
+
+  const next = [...items];
+  const reviewReasons: string[] = [];
+  for (const rawLine of block.split("\n")) {
+    const line = normalizeText(rawLine).replace(/^[-–—•*]+\s*/, "").trim();
+    if (!line || !hasUnclearPriceSignal(line)) continue;
+    if (
+      hasExplicitCurrencyAmount(line) ||
+      extractUnitPricesFromSegment(line).length > 0 ||
+      detectCurrencylessFlatPriceFromSegment(line, "CHF")
+    ) {
+      continue;
+    }
+    const serviceName = line
+      .replace(/\bpreis\s+(?:noch\s+)?(?:offen|unklar|unbekannt|folgt|erst\s+nach\s+besichtigung|nach\s+besichtigung).*$/i, "")
+      .replace(/[.,;:!?-]+$/g, "")
+      .trim();
+    const visibleName = serviceName || line;
+    const key = normalizeCompare(visibleName);
+    if (!key || next.some((item) => normalizeCompare(item.serviceName) === key)) {
+      continue;
+    }
+    const reason = `price_unclear:${visibleName}`;
+    next.push({
+      serviceName: visibleName,
+      description: line,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: reason,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: null,
+    });
+    reviewReasons.push(reason, "unit_price_review");
+  }
+  return { items: next, reviewReasons: unique(reviewReasons) };
+}
+
 function applyFinalEvidenceSafetyPass(
   items: ParsedOrderItemForValidation[],
   originalText: string,
@@ -10862,6 +11086,9 @@ export function validateAndRepairParsedOrderItems(
   input: IntakeValidationInput,
 ): IntakeValidationResult {
   const reviewReasons: string[] = [];
+  const structuredInputSnapshotV17_90L79 = input.items.map((item) => ({
+    ...item,
+  }));
   const detectedCurrencies = detectCurrenciesInText(input.originalText);
   const supportedDetectedCurrencies = detectedCurrencies.filter(
     (currency): currency is IntakeCurrency =>
@@ -11385,6 +11612,18 @@ export function validateAndRepairParsedOrderItems(
     input.originalText,
     items,
   );
+  items = restoreCompleteStructuredInputItemsV17_90L79(
+    items,
+    structuredInputSnapshotV17_90L79,
+    finalCurrency,
+  );
+  const unpricedStructuredV17_90L79 = appendStructuredUnpricedItemsV17_90L79(
+    input.originalText,
+    items,
+  );
+  items = unpricedStructuredV17_90L79.items;
+  reviewReasons.push(...unpricedStructuredV17_90L79.reviewReasons);
+
   hasRealCurrencyProblem = items.some((item) => {
     const rawDetectedCurrency = String(item.detectedCurrency || "")
       .trim()
@@ -11420,6 +11659,11 @@ export function validateAndRepairParsedOrderItems(
         reason !== "service_added_from_original_line_v17_48",
     )
     .filter((reason) => {
+      if (reason === "manual_flat_service_from_text") {
+        return items.some(
+          (item) => item.reviewReason === "manual_flat_service_from_text",
+        );
+      }
       if (!reason.startsWith("price_repaired_from_text:")) return true;
       const [, serviceName = ""] = reason.split(":");
       const serviceKey = normalizeCompare(serviceName);
