@@ -3002,6 +3002,157 @@ const normalizePriceUnitForCompare = (value?: string | null) => {
   return unit;
 };
 
+type RecognitionReviewPayloadV17_90L69 = {
+  kind?: string;
+  serviceName?: string;
+  quantity?: number;
+  unit?: string;
+  unitPrice?: number;
+  sourceText?: string;
+};
+
+const RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L69 =
+  "intake_risk:recognition_review:";
+const RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69 =
+  "intake_risk:priced_service_line_missing_or_mismatched";
+
+const isRecognitionReviewReasonV17_90L69 = (reason?: string | null) => {
+  const value = String(reason || "").trim();
+  return (
+    value === RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69 ||
+    value.startsWith(RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L69)
+  );
+};
+
+const parseRecognitionReviewReasonV17_90L69 = (
+  reason?: string | null,
+): RecognitionReviewPayloadV17_90L69 | null => {
+  const value = String(reason || "").trim();
+  if (!value.startsWith(RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L69))
+    return null;
+
+  try {
+    const encoded = value.slice(
+      RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L69.length,
+    );
+    const payload = JSON.parse(decodeURIComponent(encoded));
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+};
+
+const getRecognitionReviewDetailsV17_90L69 = (order?:
+  | Pick<Order, "reviewReasons">
+  | null) =>
+  Array.from(
+    new Map(
+      (order?.reviewReasons || [])
+        .map(parseRecognitionReviewReasonV17_90L69)
+        .filter((value): value is RecognitionReviewPayloadV17_90L69 =>
+          Boolean(value),
+        )
+        .map((detail) => [
+          [
+            normalizeForMatch(detail.serviceName),
+            Number(detail.quantity || 0).toFixed(4),
+            normalizePriceUnitForCompare(detail.unit),
+            Number(detail.unitPrice || 0).toFixed(4),
+          ].join("|"),
+          detail,
+        ] as const),
+    ).values(),
+  );
+
+const hasRecognitionReviewV17_90L69 = (
+  order?: Pick<Order, "reviewReasons"> | null,
+) =>
+  Boolean(
+    order?.reviewReasons?.some(isRecognitionReviewReasonV17_90L69),
+  );
+
+const formatRecognitionReviewLineV17_90L69 = (
+  detail: RecognitionReviewPayloadV17_90L69,
+) => {
+  const serviceName =
+    canonicalServiceNameForOrderItem(detail.serviceName) ||
+    compactText(detail.serviceName) ||
+    "Mögliche Leistung";
+  const quantity = Number(detail.quantity || 0);
+  const unit = compactText(detail.unit);
+  const unitPrice = Number(detail.unitPrice || 0);
+  const amount =
+    quantity > 0 && unitPrice > 0
+      ? `${formatMergedNumberString(quantity)} ${unit || "Einheit"} à CHF ${unitPrice.toFixed(2)}`
+      : "Werte unklar";
+  return `• ${serviceName} — ${amount}`;
+};
+
+const formatRecognitionReviewTooltipV17_90L69 = (order: Order) => {
+  const details = getRecognitionReviewDetailsV17_90L69(order);
+  const lines = [
+    "Erkennung prüfen",
+    details.length === 1
+      ? "Eine mögliche Leistung wurde nicht sicher übernommen oder falsch zugeordnet:"
+      : "Mögliche Leistungen wurden nicht sicher übernommen oder falsch zugeordnet:",
+  ];
+
+  if (details.length > 0) {
+    lines.push(...details.slice(0, 8).map(formatRecognitionReviewLineV17_90L69));
+  } else {
+    lines.push("• Mindestens eine bepreiste Leistungszeile stimmt nicht sicher mit den gespeicherten Positionen überein.");
+  }
+
+  lines.push(
+    "Auftrag öffnen, Positionen kontrollieren und ergänzen oder ausdrücklich als geprüft bestätigen.",
+  );
+  return lines.join("\n");
+};
+
+const recognitionReviewDetailMatchesItemV17_90L69 = (
+  detail: RecognitionReviewPayloadV17_90L69,
+  item: Pick<FormItem, "serviceName" | "quantity" | "unit" | "unitPrice">,
+) => {
+  const expectedName = normalizeForMatch(
+    canonicalServiceNameForOrderItem(detail.serviceName),
+  );
+  const actualName = normalizeForMatch(
+    canonicalServiceNameForOrderItem(item.serviceName),
+  );
+  const sameName = Boolean(
+    expectedName &&
+      actualName &&
+      (expectedName === actualName ||
+        expectedName.includes(actualName) ||
+        actualName.includes(expectedName)),
+  );
+  const sameUnit =
+    normalizePriceUnitForCompare(detail.unit) ===
+    normalizePriceUnitForCompare(item.unit);
+  const sameQuantity =
+    Math.abs(Number(detail.quantity || 0) - Number(item.quantity || 0)) <
+    0.001;
+  const samePrice =
+    Math.abs(Number(detail.unitPrice || 0) - Number(item.unitPrice || 0)) <
+    0.01;
+  return sameName && sameUnit && sameQuantity && samePrice;
+};
+
+const areRecognitionReviewDetailsResolvedV17_90L69 = (
+  order: Pick<Order, "reviewReasons"> | null | undefined,
+  items: Array<Pick<FormItem, "serviceName" | "quantity" | "unit" | "unitPrice">>,
+) => {
+  const details = getRecognitionReviewDetailsV17_90L69(order);
+  return (
+    details.length > 0 &&
+    details.every((detail) =>
+      items.some((item) =>
+        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+      ),
+    )
+  );
+};
+
 const isInternalReviewServiceName = (value?: string | null) => {
   const key = normalizeForMatch(value);
   if (!key) return true;
@@ -4935,6 +5086,17 @@ const getSystemBadges = (
     });
   }
 
+  if (hasRecognitionReviewV17_90L69(order)) {
+    pushUniqueBadge(badges, {
+      key: "recognition_review",
+      label: "Erkennung prüfen",
+      className: "bg-red-100 text-red-700 border border-red-300",
+      icon: true,
+      tooltip: formatRecognitionReviewTooltipV17_90L69(order),
+      focusTarget: "items",
+    });
+  }
+
   // V17.90L36b: Alte Intake-Diagnosen dürfen keinen pauschalen roten
   // "Auftrag prüfen"-Chip erzeugen. Aktuelle harte Fehler werden bereits
   // konkret als Kunde, Ausführadresse, Währung, Betrag oder Einheit angezeigt.
@@ -6743,6 +6905,10 @@ const getOrderConversionBlockers = (order: Order | any): string[] => {
     blockers.push("Währung prüfen");
   }
 
+  if (reviewReasons.some(isRecognitionReviewReasonV17_90L69)) {
+    blockers.push("Erkennung prüfen");
+  }
+
   if (reviewReasons.includes("total_unrealistic_check")) {
     blockers.push("Betrag prüfen");
   }
@@ -6855,6 +7021,8 @@ export default function AuftraegePage() {
   const [currency, setCurrency] = useState<"CHF" | "EUR">("CHF");
   const [saving, setSaving] = useState(false);
   const [manualResidualCurrencyAcknowledged, setManualResidualCurrencyAcknowledged] =
+    useState(false);
+  const [manualRecognitionReviewAcknowledged, setManualRecognitionReviewAcknowledged] =
     useState(false);
 
   // New customer inline / edit customer
@@ -7232,6 +7400,7 @@ export default function AuftraegePage() {
       setForm(newForm);
       setFormItems([createEmptyItem()]);
       setManualResidualCurrencyAcknowledged(false);
+      setManualRecognitionReviewAcknowledged(false);
       setFormWorkSites([]);
       setExpandedWorkSiteIds([]);
       setCustomerMessagesExpanded(false);
@@ -7335,6 +7504,7 @@ export default function AuftraegePage() {
     setForm(emptyForm);
     setFormItems([createEmptyItem()]);
     setManualResidualCurrencyAcknowledged(false);
+    setManualRecognitionReviewAcknowledged(false);
     setFormWorkSites([]);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(null);
@@ -7369,6 +7539,7 @@ export default function AuftraegePage() {
       effectiveOrderReviewReasonsV17_90L37(o);
     setEditId(o.id);
     setManualResidualCurrencyAcknowledged(false);
+    setManualRecognitionReviewAcknowledged(false);
     setServiceActionMenuKey(null);
     setDupCheckOpen(false);
     setUndoPreviousAddress(null);
@@ -8560,6 +8731,10 @@ export default function AuftraegePage() {
 
   const currentEditReviewReasons =
     effectiveOrderReviewReasonsV17_90L37(currentEditOrder);
+  const currentRecognitionReviewDetailsV17_90L69 =
+    getRecognitionReviewDetailsV17_90L69(currentEditOrder);
+  const hasCurrentRecognitionReviewV17_90L69 =
+    currentEditReviewReasons.some(isRecognitionReviewReasonV17_90L69);
   const addressRoleReviewCandidateV17_62 = (() => {
     const primarySite =
       formWorkSites.find((site) => Boolean(site.isPrimary)) ||
@@ -10304,7 +10479,19 @@ export default function AuftraegePage() {
       );
     };
 
+    const recognitionReviewResolvedByCurrentItemsV17_90L69 =
+      areRecognitionReviewDetailsResolvedV17_90L69(
+        currentEditOrder,
+        validItems,
+      );
+
     const cleanedReviewReasons = currentEditReviewReasons.filter((reason) => {
+          if (isRecognitionReviewReasonV17_90L69(reason)) {
+            return !(
+              manualRecognitionReviewAcknowledged ||
+              recognitionReviewResolvedByCurrentItemsV17_90L69
+            );
+          }
           if (reason.startsWith("unit_mismatch:")) {
             const [, reasonService] = reason.split(":");
             const reasonName = normalizeForMatch(reasonService);
@@ -13551,6 +13738,58 @@ export default function AuftraegePage() {
                         )}
                       </div>
                     </div>
+
+                    {hasCurrentRecognitionReviewV17_90L69 && (
+                      <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
+                        <div className="font-semibold">⚠ Erkennung prüfen</div>
+                        <div className="mt-1">
+                          Mindestens eine mögliche Leistungszeile wurde nicht
+                          sicher übernommen oder einer falschen Position
+                          zugeordnet. Angebot und Rechnung bleiben bis zur
+                          Kontrolle gesperrt.
+                        </div>
+                        <div className="mt-2 space-y-1 rounded-md border border-red-200 bg-white/80 p-2 dark:border-red-900/60 dark:bg-background/50">
+                          {currentRecognitionReviewDetailsV17_90L69.length > 0 ? (
+                            currentRecognitionReviewDetailsV17_90L69
+                              .slice(0, 8)
+                              .map((detail, index) => (
+                                <div key={`${normalizeForMatch(detail.serviceName)}-${index}`}>
+                                  {formatRecognitionReviewLineV17_90L69(detail)}
+                                </div>
+                              ))
+                          ) : (
+                            <div>
+                              Mindestens eine bepreiste Leistungszeile stimmt
+                              nicht sicher mit den gespeicherten Positionen
+                              überein.
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-2">
+                          Fehlende oder falsch zugeordnete Position korrigieren.
+                          Ist die Erkennung nach Ihrer Kontrolle fachlich
+                          vollständig, kann der Hinweis ausdrücklich bestätigt
+                          werden.
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-2 h-7 border-red-300 bg-white px-2 text-xs text-red-800 hover:bg-red-50 disabled:opacity-70 dark:bg-background dark:text-red-100"
+                          disabled={manualRecognitionReviewAcknowledged}
+                          onClick={() => {
+                            setManualRecognitionReviewAcknowledged(true);
+                            toast.info(
+                              "Erkennung als geprüft markiert. Bitte Auftrag speichern.",
+                            );
+                          }}
+                        >
+                          {manualRecognitionReviewAcknowledged
+                            ? "Als geprüft markiert"
+                            : "Geprüft und verstanden"}
+                        </Button>
+                      </div>
+                    )}
 
                     {hasEditCurrencyReview && (
                       <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">

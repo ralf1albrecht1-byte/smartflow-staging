@@ -184,21 +184,137 @@ function hasBroadItemEvidenceV17_90L24(item: ParsedOrderItemForValidation): bool
   }
 }
 
+function recognitionServiceNamesCompatibleV17_90L69(
+  left?: string | null,
+  right?: string | null,
+): boolean {
+  const a = normalizeCompare(left);
+  const b = normalizeCompare(right);
+  if (!a || !b) return false;
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+
+  const ignored = new Set([
+    "reinigen",
+    "reinigung",
+    "komplett",
+    "gruendlich",
+    "gründlich",
+    "innen",
+    "aussen",
+    "außen",
+    "maschinell",
+  ]);
+  const tokens = (value: string) =>
+    value
+      .split(/\s+/g)
+      .filter((token) => token.length >= 4 && !ignored.has(token));
+  const aTokens = tokens(a);
+  const bTokens = tokens(b);
+  if (aTokens.length === 0 || bTokens.length === 0) return false;
+  const shared = aTokens.filter((token) => bTokens.includes(token)).length;
+  return shared > 0 && shared / Math.min(aTokens.length, bTokens.length) >= 0.6;
+}
+
 function exactExplicitPricedLineCoveredV17_90L24(
   items: ParsedOrderItemForValidation[],
   explicit: ParsedOrderItemForValidation,
 ): boolean {
   return items.some((item) => {
-    try {
-      return exactAmountUnitMatchV17_90L22(item, explicit as any);
-    } catch {
-      return (
-        Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) < 0.001 &&
-        Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) < 0.01 &&
-        String(item.unit || "").trim().toLowerCase() === String(explicit.unit || "").trim().toLowerCase()
-      );
-    }
+    const amountAndUnitMatch = (() => {
+      try {
+        return exactAmountUnitMatchV17_90L22(item, explicit as any);
+      } catch {
+        return (
+          Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) < 0.001 &&
+          Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) < 0.01 &&
+          String(item.unit || "").trim().toLowerCase() === String(explicit.unit || "").trim().toLowerCase()
+        );
+      }
+    })();
+
+    return (
+      amountAndUnitMatch &&
+      recognitionServiceNamesCompatibleV17_90L69(
+        item.serviceName,
+        explicit.serviceName,
+      )
+    );
   });
+}
+
+function preferStrongRecognitionCandidatesV17_90L69(
+  explicitItems: ParsedOrderItemForValidation[],
+  originalText: string,
+): ParsedOrderItemForValidation[] {
+  const hasExplicitCurrency = (item: ParsedOrderItemForValidation) =>
+    new RegExp(CURRENCY_WORDS, "i").test(
+      String(item.sourceText || item.evidence || item.description || ""),
+    );
+  const signature = (item: ParsedOrderItemForValidation) =>
+    [
+      unitTypeFromDisplayUnit(item.unit) || normalizeCompare(item.unit),
+      Number(item.quantity || 0).toFixed(4),
+      Number(item.unitPrice || 0).toFixed(4),
+    ].join("|");
+
+  const normalizedOriginal = normalizeText(originalText);
+  const hasExactSourceEvidence = (item: ParsedOrderItemForValidation) => {
+    const evidence = normalizeText(
+      item.sourceText || item.evidence || item.description || "",
+    );
+    return Boolean(evidence && normalizedOriginal.includes(evidence));
+  };
+
+  return explicitItems.filter((item, index, all) => {
+    const sameSignature = all.filter(
+      (other, otherIndex) =>
+        otherIndex !== index && signature(other) === signature(item),
+    );
+
+    // A generated cross-line fragment is weaker than an exact source line
+    // with the same numeric signature. This prevents a following amount from
+    // being attached to the preceding service label.
+    if (
+      !hasExactSourceEvidence(item) &&
+      sameSignature.some(hasExactSourceEvidence)
+    ) {
+      return false;
+    }
+
+    if (hasExplicitCurrency(item)) return true;
+    return !sameSignature.some(hasExplicitCurrency);
+  });
+}
+
+type RecognitionReviewPayloadV17_90L69 = {
+  kind: "missing_or_mismatched";
+  serviceName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  sourceText: string;
+};
+
+function encodeRecognitionReviewWarningV17_90L69(
+  explicit: ParsedOrderItemForValidation,
+): string {
+  const payload: RecognitionReviewPayloadV17_90L69 = {
+    kind: "missing_or_mismatched",
+    serviceName: String(explicit.serviceName || "Leistung")
+      .replace(/[\s,;:.-]+$/g, "")
+      .trim(),
+    quantity: Number(explicit.quantity || 0),
+    unit: String(explicit.unit || "").trim(),
+    unitPrice: Number(explicit.unitPrice || 0),
+    sourceText: String(
+      explicit.sourceText || explicit.evidence || explicit.description || "",
+    )
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 320),
+  };
+
+  return `recognition_review:${encodeURIComponent(JSON.stringify(payload))}`;
 }
 
 function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInput): string[] {
@@ -216,10 +332,37 @@ function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInpu
   if (items.some((item) => normalizeRiskText(item.serviceName || "") === "leistung pruefen" || normalizeRiskText(item.serviceName || "") === "unbekannte leistung")) warnings.push("service_name_unresolved");
   if (items.some((item) => Number(item.unitPrice || 0) > 0 && Number(item.quantity || 0) > 0 && Number(item.totalPrice || 0) <= 0)) warnings.push("priced_item_total_blocked");
 
-  const explicitItems = extractStrictLineLocalPricedItemsV17_90L22(input.originalText, finalCurrency);
+  const explicitItems = preferStrongRecognitionCandidatesV17_90L69(
+    [
+      ...extractStrictLineLocalPricedItemsV17_90L22(
+        input.originalText,
+        finalCurrency,
+      ),
+      ...extractCountOnlyPricedRecognitionItemsV17_90L69(
+        input.originalText,
+        finalCurrency,
+      ),
+    ],
+    input.originalText,
+  );
   if (explicitItems.length >= 2) {
-    const coveredCount = explicitItems.filter((explicit) => exactExplicitPricedLineCoveredV17_90L24(items, explicit)).length;
-    if (coveredCount < explicitItems.length) warnings.push("priced_service_line_missing_or_mismatched");
+    const uncoveredExplicitItems = explicitItems.filter(
+      (explicit) =>
+        !exactExplicitPricedLineCoveredV17_90L24(items, explicit),
+    );
+
+    if (uncoveredExplicitItems.length > 0) {
+      // Fail closed, but never silently: every explicit priced source line that
+      // is missing or bound to the wrong service becomes a concrete red
+      // "Erkennung prüfen" reason. The payload is only evidence metadata; this
+      // read-only validator still does not add, rename or price any service.
+      warnings.push("priced_service_line_missing_or_mismatched");
+      warnings.push(
+        ...uncoveredExplicitItems
+          .slice(0, 12)
+          .map(encodeRecognitionReviewWarningV17_90L69),
+      );
+    }
   }
 
   const calculatedTotal = items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
@@ -293,7 +436,7 @@ export function runReadOnlyIntakeRiskValidator(
 
   const riskLevel: ReadOnlyIntakeRiskValidatorResult["riskLevel"] =
     hasMultipleCurrencies || hasUnsupportedCurrency || warnings.some((warning) =>
-      /^(special_notes_polluted|appointment_note_incomplete|appointment_hint_missing|item_evidence_not_line_local|service_name_unresolved|priced_item_total_blocked|priced_service_line_missing_or_mismatched|order_total_mismatch)$/.test(warning),
+      /^(special_notes_polluted|appointment_note_incomplete|appointment_hint_missing|item_evidence_not_line_local|service_name_unresolved|priced_item_total_blocked|priced_service_line_missing_or_mismatched|recognition_review:|order_total_mismatch)/.test(warning),
     )
       ? "critical"
       : warnings.length > 0
@@ -354,7 +497,7 @@ const CURRENCY_WORDS =
   "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|£)";
 
 const UNIT_WORDS =
-  "(?:stueck|stück|stuck|stk|pcs|pc|pezzi|pezzo|pezza|pezze|einheit|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
+  "(?:stueck|stück|stuck|stk|pcs|pc|pezzi|pezzo|pezza|pezze|einheit|einheiten|garnitur|garnituren|set|sets|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
 
 const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 
@@ -704,7 +847,7 @@ const unitTypeFromText = (value?: string | null): string | null => {
   if (!source) return null;
 
   if (
-    /\b(stueck|stuck|stück|stk|pcs|pc|pezzi|pezzo|pezza|pezze|piece|pieces|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten)\b/i.test(
+    /\b(stueck|stuck|stück|stk|pcs|pc|pezzi|pezzo|pezza|pezze|piece|pieces|piece|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|einheit|einheiten|garnitur|garnituren|set|sets)\b/i.test(
       source,
     )
   )
@@ -10159,6 +10302,94 @@ function extractStrictLineLocalPricedItemsV17_90L22(
     }
   }
 
+  return Array.from(byKey.values());
+}
+
+function extractCountOnlyPricedRecognitionItemsV17_90L69(
+  originalText: string,
+  fallbackCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const raw = String(originalText || "");
+  const originalOnly = raw
+    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "");
+  const translated = raw
+    .split(/---\s*(?:Übersetzung|Uebersetzung) \(automatisch\)\s*---/i)
+    .slice(1)
+    .join("\n");
+  const sources = unique([
+    normalizeText(originalOnly),
+    normalizeText(translated),
+    normalizeText(preferredSemanticLineSourceV17_41(raw)),
+  ]).filter(Boolean);
+  const result: ExplicitServiceLineItem[] = [];
+
+  const pattern = new RegExp(
+    `^\\s*[-–—•]*\\s*(${QUANTITY_NUMBER_OR_WORD})\\s+(.{3,140}?)\\s*,?\\s*(?:je|each|à|a|po|pro|per|x|mal)\\s*(?:(${CURRENCY_WORDS})\\s*)?(\\d+(?:[.,]\\d{1,2})?)(?:\\s*(${CURRENCY_WORDS}))?\\b`,
+    "i",
+  );
+
+  for (const source of sources) {
+    const lines = source
+      .split(/\n+|;|\s+•\s+|\s+\|\s+/g)
+      .map((line) => normalizeText(line))
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const match = line.match(pattern);
+      if (!match) continue;
+      if (
+        new RegExp(
+          `^${QUANTITY_NUMBER_OR_WORD}\\s*${UNIT_WORDS}\\b`,
+          "i",
+        ).test(line)
+      )
+        continue;
+
+      const quantity = parseQuantityNumber(match[1]);
+      const unitPrice = parsePriceNumber(match[4]);
+      const detectedCurrency = normalizeExplicitCurrency(match[3] || match[5]);
+      if (!quantity || quantity <= 0 || !unitPrice || unitPrice <= 0) continue;
+      if (detectedCurrency && detectedCurrency !== fallbackCurrency) continue;
+
+      const rawLabel = String(match[2] || "")
+        .replace(/[\s,;:.-]+$/g, "")
+        .trim();
+      if (!rawLabel || rawLabel.length < 3) continue;
+
+      const serviceName =
+        cleanExplicitServiceNameFromLine(rawLabel, {}) || rawLabel;
+      if (
+        !serviceName ||
+        normalizeCompare(serviceName) === "unbekannte leistung"
+      )
+        continue;
+
+      result.push({
+        serviceName,
+        description: line,
+        quantity,
+        unit: "Stück",
+        unitPrice,
+        totalPrice: roundMoney(quantity * unitPrice),
+        needsReview: false,
+        reviewReason: null,
+        sourceText: line,
+        evidence: line,
+        detectedCurrency: detectedCurrency || fallbackCurrency,
+      });
+    }
+  }
+
+  const byKey = new Map<string, ExplicitServiceLineItem>();
+  for (const item of result) {
+    const key = [
+      normalizeCompare(item.serviceName),
+      Number(item.quantity || 0).toFixed(4),
+      Number(item.unitPrice || 0).toFixed(4),
+    ].join("|");
+    if (!byKey.has(key)) byKey.set(key, item);
+  }
   return Array.from(byKey.values());
 }
 
