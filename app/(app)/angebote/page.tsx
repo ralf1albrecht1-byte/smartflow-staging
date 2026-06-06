@@ -482,6 +482,82 @@ function uniqueOfferLines(values: Array<string | null | undefined>): string[] {
   return result;
 }
 
+
+type OfferInfoSummary = {
+  safety: string[];
+  primary: string[];
+  additional: string[];
+};
+
+function isOfferPrimaryInfoHint(value: string): boolean {
+  const text = normalizeOfferHint(value);
+  if (!text) return false;
+  return /\b(?:termin|zeitfenster|ankunft|ankommen|vorher|zuerst|kontakt vor ort|kontaktperson|ansprechperson|sms|whatsapp|telefonisch|anrufen|rueckruf|nicht einfach|ankuendigung|empfang|zugang|besucherausweis|melden)\b/.test(text);
+}
+
+function extractOfferAppointmentSnippets(value?: string | null): string[] {
+  const source = String(value ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!source.trim()) return [];
+  const weekday = "(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)";
+  const matches: string[] = [];
+  const patterns = [
+    new RegExp(`(?:^|\\n)\\s*((?:termin|zeitfenster)\\s*[:\\-–—]?\\s*[^\\n]{1,180})`, "gi"),
+    new RegExp(`(?:^|\\n)\\s*((?:am\\s+)?${weekday}[^\\n]{1,180})`, "gi"),
+    /(?:^|\n)\s*((?:genaue\s+ankunft|ankunft)\s+[^\n]{1,180})/gi,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source))) {
+      const line = String(match[1] || "").replace(/\s+/g, " ").trim();
+      if (line) matches.push(line);
+    }
+  }
+  return uniqueOfferLines(matches);
+}
+
+function extractOfferImportantInstructionLines(value?: string | null): string[] {
+  const source = String(value ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!source.trim()) return [];
+  return uniqueOfferLines(
+    source
+      .split(/\n+|(?<=[.!?])\s+/g)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) =>
+        line.length > 0 &&
+        line.length <= 220 &&
+        /\b(?:nichts verschieben|nicht verschieben|keine geraete|keine geräte|nicht ausstecken|nicht bewegen|nicht anfassen|nicht einfach|ankuendigung|ankündigung|empfang|besucherausweis|kontakt vor ort|sms|whatsapp|ankunft)\b/i.test(line),
+      ),
+  );
+}
+
+function buildOfferInfoSummary(
+  data: CommunicationData,
+  parsedNotes = splitSpecialNotes(data.specialNotes),
+  appointmentLabel = "",
+): OfferInfoSummary {
+  const source = [data.specialNotes, data.notes, data.audioTranscript].filter(Boolean).join("\n");
+  const dogHints = (parsedNotes.jobHints || []).filter(isOfferDogHint);
+  const safety = uniqueOfferLines([...(parsedNotes.safetyWarnings || []), ...dogHints]);
+  const safetyKeys = new Set(safety.map(normalizeOfferHint));
+  const importantRawLines = extractOfferImportantInstructionLines(source);
+  const appointmentLines = extractOfferAppointmentSnippets(source);
+  const primary = uniqueOfferLines([
+    ...(parsedNotes.jobHints || []).filter(isOfferPrimaryInfoHint),
+    ...appointmentLines,
+    ...importantRawLines.filter(isOfferPrimaryInfoHint),
+    appointmentLines.length === 0 ? appointmentLabel : "",
+  ]).filter((line) => !safetyKeys.has(normalizeOfferHint(line)));
+  const primaryKeys = new Set(primary.map(normalizeOfferHint));
+  const additional = uniqueOfferLines([
+    ...(parsedNotes.jobHints || []).filter((line) => !isOfferDogHint(line) && !isOfferPrimaryInfoHint(line)),
+    ...importantRawLines.filter((line) => !isOfferPrimaryInfoHint(line)),
+  ]).filter((line) => {
+    const key = normalizeOfferHint(line);
+    return !safetyKeys.has(key) && !primaryKeys.has(key);
+  });
+  return { safety, primary, additional };
+}
+
 function isOfferDogHint(value: string): boolean {
   return /\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros)\b/.test(
     normalizeOfferHint(value),
@@ -493,52 +569,42 @@ function buildOfferOperationalChips(
   jobHints: string[],
 ): OfferOperationalChip[] {
   const result: OfferOperationalChip[] = [];
-  const push = (chip: OfferOperationalChip) => {
-    if (result.some((existing) => existing.key === chip.key)) return;
-    result.push(chip);
-  };
-
-  uniqueOfferLines([
-    ...safetyWarnings,
-    ...jobHints.filter(isOfferDogHint),
-  ]).forEach((line, index) => {
-    if (isOfferDogHint(line)) {
-      push({ key: "dog", title: line, icon: "🐶", tone: "danger" });
+  const pushOrMerge = (chip: OfferOperationalChip) => {
+    const existing = result.find((entry) => entry.key === chip.key);
+    if (!existing) {
+      result.push(chip);
       return;
     }
-    push({
-      key: `danger_${index}_${normalizeOfferHint(line).slice(0, 28)}`,
-      title: line,
-      icon: "⚠️",
-      tone: "danger",
-    });
+    existing.title = uniqueOfferLines([existing.title, chip.title]).join("\n");
+  };
+
+  uniqueOfferLines([...safetyWarnings, ...jobHints.filter(isOfferDogHint)]).forEach((line) => {
+    if (isOfferDogHint(line)) {
+      pushOrMerge({ key: "dog", title: line, icon: "🐶", tone: "danger" });
+      return;
+    }
+    pushOrMerge({ key: "danger", title: line, icon: "⚠️", tone: "danger" });
   });
 
   uniqueOfferLines(jobHints).forEach((line) => {
     const text = normalizeOfferHint(line);
     if (!text || isOfferDogHint(line)) return;
     if (/\b(?:leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)) {
-      push({ key: "ladder", title: line, icon: "🪜", tone: "warning" });
+      pushOrMerge({ key: "ladder", title: line, icon: "🪜", tone: "warning" });
       return;
     }
     if (/\b(?:schluessel|schlussel|key|cle|chiave|llave|code|schluesselbox|schlusselbox)\b/.test(text)) {
-      push({ key: "key", title: line, icon: "🔑", tone: "warning" });
+      pushOrMerge({ key: "key", title: line, icon: "🔑", tone: "warning" });
       return;
     }
     if (/\b(?:zugang|eingang|hintereingang|seiteneingang|tor|door|access|entree|porta|puerta)\b/.test(text)) {
-      push({ key: "access", title: line, icon: "🚪", tone: "warning" });
+      pushOrMerge({ key: "access", title: line, icon: "🚪", tone: "warning" });
       return;
     }
     if (/\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz)\b/.test(text)) {
-      push({
-        key: "parking",
-        title: line.replace(/[.;:,\s]+$/g, "").trim(),
-        icon: "P",
-        tone: "warning",
-      });
+      pushOrMerge({ key: "parking", title: line.replace(/[.;:,\s]+$/g, "").trim(), icon: "P", tone: "warning" });
     }
   });
-
   return result;
 }
 
@@ -710,42 +776,29 @@ function OfferAddressTooltip({ site }: { site: OfferExecutionSite }) {
   );
 }
 
-function OfferInfoTooltip({
-  safetyWarnings,
-  jobHints,
-}: {
-  safetyWarnings: string[];
-  jobHints: string[];
-}) {
-  const safety = uniqueOfferLines(safetyWarnings);
-  const safetyKeys = new Set(safety.map(normalizeOfferHint));
-  const hints = uniqueOfferLines(jobHints).filter(
-    (line) =>
-      !isOfferDogHint(line) && !safetyKeys.has(normalizeOfferHint(line)),
-  );
-  if (safety.length === 0 && hints.length === 0) return null;
+function OfferInfoTooltip({ summary }: { summary: OfferInfoSummary }) {
+  const safety = uniqueOfferLines(summary.safety);
+  const primary = uniqueOfferLines(summary.primary);
+  const additional = uniqueOfferLines(summary.additional);
+  if (safety.length === 0 && primary.length === 0 && additional.length === 0) return null;
   return (
     <span className="pointer-events-none absolute left-0 bottom-full z-[9999] mb-1 hidden w-[min(24rem,calc(100vw-2rem))] max-h-[55vh] overflow-auto rounded-xl border border-slate-200 bg-white p-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
       {safety.length > 0 && (
         <span className="mb-2 block rounded-lg border border-red-300 bg-red-50 p-2 text-red-800">
-          <span className="mb-1 flex items-center gap-1 font-bold">
-            <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
-          </span>
-          {safety.map((line, index) => (
-            <span key={`offer_info_safety_${index}`} className="block break-words">
-              • {line}
-            </span>
-          ))}
+          <span className="mb-1 flex items-center gap-1 font-bold"><AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung</span>
+          {safety.map((line, index) => <span key={`offer_info_safety_${index}`} className="block break-words">• {line}</span>)}
         </span>
       )}
-      {hints.length > 0 && (
+      {primary.length > 0 && (
+        <span className="mb-2 block rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900">
+          <span className="mb-1 flex items-center gap-1 font-bold"><Info className="h-3.5 w-3.5" /> Wichtige Informationen</span>
+          {primary.map((line, index) => <span key={`offer_info_primary_${index}`} className="block break-words">{line}</span>)}
+        </span>
+      )}
+      {additional.length > 0 && (
         <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900">
-          <span className="mb-1 block font-bold">Besonderheiten</span>
-          {hints.map((line, index) => (
-            <span key={`offer_info_hint_${index}`} className="block break-words">
-              {line}
-            </span>
-          ))}
+          <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
+          {additional.map((line, index) => <span key={`offer_info_hint_${index}`} className="block break-words">{line}</span>)}
         </span>
       )}
     </span>
@@ -1070,6 +1123,7 @@ type OfferMobileTooltipState = {
   key: string;
   text?: string;
   safetyWarnings?: string[];
+  primaryHints?: string[];
   jobHints?: string[];
   reviewTitle?: string;
   reviewSections?: OfferServiceReviewSection[];
@@ -1471,13 +1525,31 @@ export default function AngebotePage() {
       setLoading(false);
       return;
     }
-    // Merge customers from offers (they may be soft-deleted and not in /api/customers)
+    // Merge customers from offers without replacing a complete master name
+    // with an abbreviated list payload such as "R".
     const custMap = new Map<string, any>();
-    (cust ?? []).forEach((c: any) => custMap.set(c.id, c));
-    (off ?? []).forEach((o: any) => {
-      if (o.customer && !custMap.has(o.customer.id))
-        custMap.set(o.customer.id, o.customer);
-    });
+    const customerNumberMap = new Map<string, string>();
+    const normalizeCustomerNumber = (value: unknown) =>
+      String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const mergeCustomerRecord = (candidate: any) => {
+      if (!candidate) return;
+      const id = String(candidate.id || "").trim();
+      const numberKey = normalizeCustomerNumber(candidate.customerNumber);
+      const mappedId = numberKey ? customerNumberMap.get(numberKey) : "";
+      const targetId = id || mappedId || numberKey;
+      if (!targetId) return;
+      const existing = custMap.get(targetId) || (mappedId ? custMap.get(mappedId) : null);
+      if (!existing) {
+        custMap.set(targetId, candidate);
+        if (numberKey) customerNumberMap.set(numberKey, targetId);
+        return;
+      }
+      const bestName = pickBestOfferCustomerName(existing.name, candidate.name);
+      custMap.set(targetId, { ...candidate, ...existing, name: bestName });
+      if (numberKey) customerNumberMap.set(numberKey, targetId);
+    };
+    (cust ?? []).forEach(mergeCustomerRecord);
+    (off ?? []).forEach((o: any) => mergeCustomerRecord(o.customer));
     setOffers(off ?? []);
     setCustomers(Array.from(custMap.values()) as any);
     setServices(svc ?? []);
@@ -1741,8 +1813,16 @@ export default function AngebotePage() {
   const parsedLinkedSpecialNotes = splitSpecialNotes(
     linkedOrderData?.specialNotes,
   );
-  const linkedSafetyWarnings = parsedLinkedSpecialNotes.safetyWarnings;
-  const linkedJobHints = parsedLinkedSpecialNotes.jobHints;
+  const linkedInfoSummary = buildOfferInfoSummary(
+    linkedOrderData || ({} as CommunicationData),
+    parsedLinkedSpecialNotes,
+    extractOfferAppointmentLabel(
+      [linkedOrderData?.specialNotes, linkedOrderData?.notes].filter(Boolean).join("\n"),
+    ),
+  );
+  const linkedSafetyWarnings = linkedInfoSummary.safety;
+  const linkedPrimaryHints = linkedInfoSummary.primary;
+  const linkedJobHints = linkedInfoSummary.additional;
 
   const updateExecutionSite = (
     index: number,
@@ -2430,12 +2510,14 @@ export default function AngebotePage() {
   const renderActiveMobileTooltipSheet = () => {
     if (!activeMobileTooltip) return null;
     const safety = uniqueOfferLines(activeMobileTooltip.safetyWarnings || []);
+    const primary = uniqueOfferLines(activeMobileTooltip.primaryHints || []).filter(
+      (line) => !safety.some((warning) => normalizeOfferHint(warning) === normalizeOfferHint(line)),
+    );
+    const primaryKeys = new Set(primary.map(normalizeOfferHint));
     const hints = uniqueOfferLines(activeMobileTooltip.jobHints || []).filter(
       (line) =>
-        !safety.some(
-          (warning) =>
-            normalizeOfferHint(warning) === normalizeOfferHint(line),
-        ),
+        !safety.some((warning) => normalizeOfferHint(warning) === normalizeOfferHint(line)) &&
+        !primaryKeys.has(normalizeOfferHint(line)),
     );
     const textValue = String(activeMobileTooltip.text || "").trim();
     const isServiceReview =
@@ -2507,8 +2589,17 @@ export default function AngebotePage() {
                 ))}
               </div>
             )}
+            {primary.length > 0 && (
+              <div className="mb-2 rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
+                <div className="mb-1 flex items-center gap-1 font-bold"><Info className="h-3.5 w-3.5" /> Wichtige Informationen</div>
+                {primary.map((line, index) => (
+                  <div key={`offer_mobile_compact_primary_${index}`} className="whitespace-pre-wrap break-words">{line}</div>
+                ))}
+              </div>
+            )}
             {hints.length > 0 && (
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                <div className="mb-1 font-bold">Weitere Besonderheiten</div>
                 {hints.map((line, index) => (
                   <div
                     key={`offer_mobile_compact_hint_${index}`}
@@ -2519,7 +2610,7 @@ export default function AngebotePage() {
                 ))}
               </div>
             )}
-            {textValue && safety.length === 0 && hints.length === 0 && (
+            {textValue && safety.length === 0 && primary.length === 0 && hints.length === 0 && (
               <div className="whitespace-pre-wrap break-words">{textValue}</div>
             )}
           </div>
@@ -2748,18 +2839,31 @@ export default function AngebotePage() {
                   ]
                     .map((value) => String(value || "").trim())
                     .filter(Boolean);
+                  const normalizeCustomerNumber = (value: unknown) =>
+                    String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                  const normalizedNumberCandidates = customerNumberCandidates
+                    .map(normalizeCustomerNumber)
+                    .filter(Boolean);
+                  const offerCustomerEmail = String(
+                    off.customer?.email || linkedOrder?.customer?.email || "",
+                  ).trim().toLowerCase();
+                  const offerCustomerAddress = normalizeOfferHint(
+                    off.customer?.address || linkedOrder?.customer?.address || "",
+                  );
                   const customerFromMaster = customers.find((customer) => {
                     const customerId = String(customer?.id || "").trim();
-                    const customerNumber = String(
-                      customer?.customerNumber || "",
-                    ).trim();
+                    const customerNumber = normalizeCustomerNumber(customer?.customerNumber);
+                    const customerEmail = String(customer?.email || "").trim().toLowerCase();
+                    const customerAddress = normalizeOfferHint(customer?.address || "");
                     return (
+                      Boolean(customerId && customerIdCandidates.includes(customerId)) ||
+                      Boolean(customerNumber && normalizedNumberCandidates.includes(customerNumber)) ||
+                      Boolean(offerCustomerEmail && customerEmail === offerCustomerEmail) ||
                       Boolean(
-                        customerId && customerIdCandidates.includes(customerId),
-                      ) ||
-                      Boolean(
-                        customerNumber &&
-                          customerNumberCandidates.includes(customerNumber),
+                        offerCustomerAddress &&
+                        customerAddress === offerCustomerAddress &&
+                        String(customer?.plz || "").trim() ===
+                          String(off.customer?.plz || linkedOrder?.customer?.plz || "").trim(),
                       )
                     );
                   });
@@ -2812,6 +2916,11 @@ export default function AngebotePage() {
                       .filter(Boolean)
                       .join("\n"),
                   );
+                  const infoSummary = buildOfferInfoSummary(
+                    orderCtx,
+                    parsedOfferNotes,
+                    appointmentLabel,
+                  );
                   const contactChipData = buildOfferContactChipData(
                     orderCtx,
                     cardCustomer,
@@ -2831,8 +2940,9 @@ export default function AngebotePage() {
                     (chip) => chip.tone === "warning",
                   );
                   const hasInfoTooltip =
-                    parsedOfferNotes.safetyWarnings.length > 0 ||
-                    parsedOfferNotes.jobHints.length > 0;
+                    infoSummary.safety.length > 0 ||
+                    infoSummary.primary.length > 0 ||
+                    infoSummary.additional.length > 0;
                   const offerCurrency =
                     off.currency === "EUR" ? "EUR" : "CHF";
                   const serviceReview = buildOfferServiceReviewSummary(
@@ -3185,9 +3295,9 @@ export default function AngebotePage() {
                                         toggleOfferMobileTooltip(
                                           {
                                             key: `${off.id}:info`,
-                                            safetyWarnings:
-                                              parsedOfferNotes.safetyWarnings,
-                                            jobHints: parsedOfferNotes.jobHints,
+                                            safetyWarnings: infoSummary.safety,
+                                            primaryHints: infoSummary.primary,
+                                            jobHints: infoSummary.additional,
                                           },
                                           event,
                                         )
@@ -3514,22 +3624,14 @@ export default function AngebotePage() {
                                           openOfferSection(
                                             off,
                                             "details",
-                                            [
-                                              ...parsedOfferNotes.safetyWarnings,
-                                              ...parsedOfferNotes.jobHints,
-                                            ].join("\n"),
+                                            undefined,
                                           );
                                         }}
                                         className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 outline-none hover:bg-blue-100 focus:ring-2 focus:ring-blue-300"
                                         aria-label="Besonderheiten anzeigen"
                                       >
                                         <Info className="h-4 w-4" />
-                                        <OfferInfoTooltip
-                                          safetyWarnings={
-                                            parsedOfferNotes.safetyWarnings
-                                          }
-                                          jobHints={parsedOfferNotes.jobHints}
-                                        />
+                                        <OfferInfoTooltip summary={infoSummary} />
                                       </button>
                                     )}
 
@@ -3539,7 +3641,7 @@ export default function AngebotePage() {
                                         type="button"
                                         onClick={(event) => {
                                           event.stopPropagation();
-                                          openOfferSection(off, "details", chip.title);
+                                          openOfferSection(off, "details");
                                         }}
                                         className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-red-300 bg-red-100 text-[17px] font-semibold text-red-800 outline-none hover:bg-red-200 focus:ring-2 focus:ring-red-300"
                                         aria-label={chip.title}
@@ -3555,7 +3657,7 @@ export default function AngebotePage() {
                                         type="button"
                                         onClick={(event) => {
                                           event.stopPropagation();
-                                          openOfferSection(off, "details", chip.title);
+                                          openOfferSection(off, "details");
                                         }}
                                         className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 text-[17px] font-semibold outline-none focus:ring-2 ${
                                           chip.key === "parking"
@@ -3715,9 +3817,11 @@ export default function AngebotePage() {
                 const cust = form.customerId
                   ? customers.find((c: Customer) => c.id === form.customerId)
                   : null;
-                // Canonical rule — name/address/plz/city required; phone/email optional.
-                const missingData = !!cust && isCustomerDataIncomplete(cust);
-                if (!linkedOrderData?.needsReview && !missingData) return null;
+                // Only real missing billing-customer fields belong in this warning.
+                // Execution-site or intake review flags must not appear as
+                // "Kundendaten prüfen" when the customer master is complete.
+                const missingData = !cust || isCustomerDataIncomplete(cust);
+                if (!missingData) return null;
                 return (
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
@@ -3726,16 +3830,7 @@ export default function AngebotePage() {
                       className="tap-safe inline-flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-md"
                       aria-label="Kundendaten ergänzen — öffnet den Kunde-bearbeiten-Bereich"
                     >
-                      {linkedOrderData?.needsReview && (
-                        <Badge
-                          variant="secondary"
-                          className="text-[11px] px-2 py-0.5 bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200 border border-orange-300"
-                        >
-                          <AlertTriangle className="w-3 h-3 mr-1" />
-                          Kundendaten prüfen
-                        </Badge>
-                      )}
-                      {!linkedOrderData?.needsReview && missingData && (
+                      {missingData && (
                         <MissingCustomerDataBadge variant="standard" />
                       )}
                     </button>
@@ -4795,14 +4890,13 @@ export default function AngebotePage() {
                       </span>
                     </div>
 
-                    {selectedChipDetail && (
+                    {linkedPrimaryHints.length > 0 && (
                       <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
-                        <div className="mb-1 flex items-center gap-2 font-semibold">
-                          <Info className="h-4 w-4" />
-                          Ausgewählter Hinweis
-                        </div>
-                        <div className="whitespace-pre-wrap break-words">
-                          {selectedChipDetail}
+                        <div className="mb-1 flex items-center gap-2 font-semibold"><Info className="h-4 w-4" /> Wichtige Informationen</div>
+                        <div className="space-y-1">
+                          {linkedPrimaryHints.map((line, index) => (
+                            <div key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</div>
+                          ))}
                         </div>
                       </div>
                     )}

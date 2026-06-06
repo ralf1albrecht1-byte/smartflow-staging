@@ -1156,8 +1156,26 @@ const isUnconfirmedCustomerDraft = (customer?: {
   );
 
 const pushUniqueBadge = (badges: ReviewBadge[], badge: ReviewBadge) => {
-  if (badges.some((existing) => existing.key === badge.key)) return;
-  badges.push(badge);
+  const existing = badges.find((entry) => entry.key === badge.key);
+  if (!existing) {
+    badges.push(badge);
+    return;
+  }
+
+  const tooltipLines = [existing.tooltip, badge.tooltip]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(/\n+/g))
+    .map((line) => cleanVisibleTooltipTextV17_35(line))
+    .filter(Boolean);
+  const seen = new Set<string>();
+  existing.tooltip = tooltipLines
+    .filter((line) => {
+      const key = normalizeForMatch(line);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join("\n");
 };
 
 const hasOrderImage = (order: Order) => {
@@ -2573,9 +2591,59 @@ const cleanSpecialNotesSummaryLineV17_91 = (value?: string | null) =>
     .replace(/^[-•*]\s*/g, "")
     .trim();
 
-const buildSpecialNotesSummaryTooltipV17_91 = (
+type OrderInfoSummaryV17_65 = {
+  safety: string[];
+  primary: string[];
+  additional: string[];
+};
+
+const isPrimaryOrderInfoHintV17_65 = (value?: string | null) => {
+  const text = normalizeForMatch(value);
+  if (!text) return false;
+  return /\b(?:termin|zeitfenster|ankunft|ankommen|vorher|zuerst|kontakt vor ort|kontaktperson|ansprechperson|sms|whatsapp|telefonisch|anrufen|rueckruf|nicht einfach|ankuendigung|empfang|zugang|besucherausweis|melden)\b/.test(text);
+};
+
+const extractOrderAppointmentSnippetsV17_65 = (value?: string | null) => {
+  const source = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!source.trim()) return [];
+  const weekday = "(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)";
+  const result: string[] = [];
+  const patterns = [
+    new RegExp(`(?:^|\\n)\\s*((?:termin|zeitfenster)\\s*[:\\-–—]?\\s*[^\\n]{1,180})`, "gi"),
+    new RegExp(`(?:^|\\n)\\s*((?:am\\s+)?${weekday}[^\\n]{1,180})`, "gi"),
+    /(?:^|\n)\s*((?:genaue\s+ankunft|ankunft)\s+[^\n]{1,180})/gi,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source))) {
+      const line = cleanSpecialNotesSummaryLineV17_91(match[1]);
+      if (line) result.push(line);
+    }
+  }
+  return result;
+};
+
+const extractOrderImportantInstructionLinesV17_65 = (value?: string | null) =>
+  String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map(cleanSpecialNotesSummaryLineV17_91)
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        line.length <= 220 &&
+        /\b(?:nichts verschieben|nicht verschieben|keine geraete|keine geräte|nicht ausstecken|nicht bewegen|nicht anfassen|nicht einfach|ankuendigung|ankündigung|empfang|besucherausweis|kontakt vor ort|sms|whatsapp|ankunft)\b/i.test(line),
+    );
+
+const buildOrderInfoSummaryV17_65 = (
+  order: {
+    specialNotes?: string | null;
+    notes?: string | null;
+    audioTranscript?: string | null;
+  },
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
-) => {
+): OrderInfoSummaryV17_65 => {
   const seen = new Set<string>();
   const uniqueLines = (lines: string[]) =>
     lines
@@ -2587,30 +2655,58 @@ const buildSpecialNotesSummaryTooltipV17_91 = (
         seen.add(key);
         return true;
       });
-
-  const isDogSafetyLine = (line: string) =>
-    /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
-
+  const isDogLine = (line: string) => /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
+  const source = [order.specialNotes, order.notes, order.audioTranscript].filter(Boolean).join("\n");
   const safety = uniqueLines([
     ...(parsedNotes.safetyWarnings || []),
-    ...(parsedNotes.jobHints || []).filter(isDogSafetyLine),
+    ...(parsedNotes.jobHints || []).filter(isDogLine),
   ]);
-  const hints = uniqueLines((parsedNotes.jobHints || []).filter((line) => !isDogSafetyLine(line)));
+  const safetyKeys = new Set(safety.map(normalizeForMatch));
+  const appointmentLines = extractOrderAppointmentSnippetsV17_65(source);
+  const importantRawLines = extractOrderImportantInstructionLinesV17_65(source);
+  const primary = uniqueLines([
+    ...(parsedNotes.jobHints || []).filter(isPrimaryOrderInfoHintV17_65),
+    ...appointmentLines,
+    ...importantRawLines.filter(isPrimaryOrderInfoHintV17_65),
+  ]).filter((line) => !safetyKeys.has(normalizeForMatch(line)));
+  const primaryKeys = new Set(primary.map(normalizeForMatch));
+  const additional = uniqueLines([
+    ...(parsedNotes.jobHints || []).filter(
+      (line) => !isDogLine(line) && !isPrimaryOrderInfoHintV17_65(line),
+    ),
+    ...importantRawLines.filter((line) => !isPrimaryOrderInfoHintV17_65(line)),
+  ]).filter((line) => {
+    const key = normalizeForMatch(line);
+    return !safetyKeys.has(key) && !primaryKeys.has(key);
+  });
+  return { safety, primary, additional };
+};
 
-  const sections = [
-    safety.length ? ["Gefahr / Achtung", ...safety].join("\n") : "",
-    hints.length ? ["Besonderheiten", ...hints].join("\n") : "",
-  ].filter(Boolean);
-
-  return sections.join("\n---\n");
+const buildSpecialNotesSummaryTooltipV17_91 = (
+  order: {
+    specialNotes?: string | null;
+    notes?: string | null;
+    audioTranscript?: string | null;
+  },
+  parsedNotes: ReturnType<typeof splitSpecialNotes>,
+) => {
+  const summary = buildOrderInfoSummaryV17_65(order, parsedNotes);
+  return [
+    summary.safety.length ? ["Gefahr / Achtung", ...summary.safety].join("\n") : "",
+    summary.primary.length ? ["Wichtige Informationen", ...summary.primary].join("\n") : "",
+    summary.additional.length ? ["Weitere Besonderheiten", ...summary.additional].join("\n") : "",
+  ]
+    .filter(Boolean)
+    .join("\n---\n");
 };
 
 const splitSpecialNotesSummaryTooltipV17_91 = (tooltip: string) => {
-  const result: { safety: string[]; hints: string[] } = {
+  const result: { safety: string[]; primary: string[]; hints: string[] } = {
     safety: [],
+    primary: [],
     hints: [],
   };
-  let section: "safety" | "hints" | null = null;
+  let section: "safety" | "primary" | "hints" | null = null;
 
   tooltip.split(/\n+/g).forEach((rawLine) => {
     const line = compactText(rawLine);
@@ -2619,11 +2715,16 @@ const splitSpecialNotesSummaryTooltipV17_91 = (tooltip: string) => {
       section = "safety";
       return;
     }
-    if (/^Besonderheiten$/i.test(line)) {
+    if (/^(?:Wichtige Informationen|Ausgewählter Hinweis)$/i.test(line)) {
+      section = "primary";
+      return;
+    }
+    if (/^(?:Weitere Besonderheiten|Besonderheiten)$/i.test(line)) {
       section = "hints";
       return;
     }
     if (section === "safety") result.safety.push(line);
+    if (section === "primary") result.primary.push(line);
     if (section === "hints") result.hints.push(line);
   });
 
@@ -2651,8 +2752,8 @@ const getOperationalBadges = (
 
   const addDanger = (key: string, label: string, tooltip?: string) =>
     pushUniqueBadge(badges, {
-      key,
-      label,
+      key: label === "Hund" ? "danger_dog" : "danger_warning",
+      label: label === "Hund" ? "Hund" : "Achtung",
       className: redWarningClass,
       icon: true,
       tooltip,
@@ -2673,7 +2774,7 @@ const getOperationalBadges = (
       focusTarget: "specialNotes",
     });
 
-  const specialNotesSummaryTooltip = buildSpecialNotesSummaryTooltipV17_91(parsedNotes);
+  const specialNotesSummaryTooltip = buildSpecialNotesSummaryTooltipV17_91(order, parsedNotes);
   if (specialNotesSummaryTooltip) {
     pushUniqueBadge(badges, {
       key: "special_notes_summary",
@@ -5530,8 +5631,9 @@ const renderSpecialNotesSummaryTooltipV17_91 = (
   const alignClass = align === "right" ? "right-0" : "left-0";
   const sections = splitSpecialNotesSummaryTooltipV17_91(tooltip);
   const hasSafety = sections.safety.length > 0;
+  const hasPrimary = sections.primary.length > 0;
   const hasHints = sections.hints.length > 0;
-  if (!hasSafety && !hasHints) return null;
+  if (!hasSafety && !hasPrimary && !hasHints) return null;
 
   return (
     <span
@@ -5550,9 +5652,18 @@ const renderSpecialNotesSummaryTooltipV17_91 = (
         </span>
       )}
 
+      {hasPrimary && (
+        <span className="mb-2 block rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
+          <span className="mb-1 flex items-center gap-1 font-bold"><Info className="h-3.5 w-3.5" /> Wichtige Informationen</span>
+          {sections.primary.map((line, index) => (
+            <span key={`summary_primary_${index}`} className="block whitespace-pre-wrap break-words">{line}</span>
+          ))}
+        </span>
+      )}
+
       {hasHints && (
         <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
-          <span className="mb-1 block font-bold">Besonderheiten</span>
+          <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
           {sections.hints.map((line, index) => (
             <span key={`summary_hint_${index}`} className="block whitespace-pre-wrap break-words">
               {line}
@@ -5892,8 +6003,9 @@ const renderMobileSpecialNotesSummaryTooltipV17_91 = (
   if (!tooltip) return null;
   const sections = splitSpecialNotesSummaryTooltipV17_91(tooltip);
   const hasSafety = sections.safety.length > 0;
+  const hasPrimary = sections.primary.length > 0;
   const hasHints = sections.hints.length > 0;
-  if (!hasSafety && !hasHints) return null;
+  if (!hasSafety && !hasPrimary && !hasHints) return null;
 
   return (
     <span
@@ -5917,9 +6029,17 @@ const renderMobileSpecialNotesSummaryTooltipV17_91 = (
           ))}
         </span>
       )}
+      {hasPrimary && (
+        <span className="mb-2 block rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
+          <span className="mb-1 flex items-center gap-1 font-bold"><Info className="h-4 w-4" /> Wichtige Informationen</span>
+          {sections.primary.map((line, index) => (
+            <span key={`mobile_summary_primary_${index}`} className="block whitespace-pre-wrap break-words">{line}</span>
+          ))}
+        </span>
+      )}
       {hasHints && (
         <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
-          <span className="mb-1 block font-bold">Besonderheiten</span>
+          <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
           {sections.hints.map((line, index) => (
             <span key={`mobile_summary_hint_${index}`} className="block whitespace-pre-wrap break-words">
               {line}
@@ -9569,9 +9689,24 @@ export default function AuftraegePage() {
     : [];
 
   const parsedFormSpecialNotes = splitSpecialNotes(form.specialNotes);
-  const dangerNoteLines = parsedFormSpecialNotes.safetyWarnings;
+  const formInfoSummary = buildOrderInfoSummaryV17_65(
+    {
+      specialNotes: form.specialNotes,
+      notes: currentEditOrder?.notes || form.notes,
+      audioTranscript: currentEditOrder?.audioTranscript || null,
+    },
+    parsedFormSpecialNotes,
+  );
+  const dangerNoteLines = formInfoSummary.safety;
+  const primaryInfoLines = formInfoSummary.primary;
+  const editablePrimaryJobHints = parsedFormSpecialNotes.jobHints.filter(
+    isPrimaryOrderInfoHintV17_65,
+  );
+  const editableAdditionalJobHints = parsedFormSpecialNotes.jobHints.filter(
+    (line) => !isPrimaryOrderInfoHintV17_65(line),
+  );
   const normalSpecialNotesText = formatSpecialNotesForDisplay(
-    parsedFormSpecialNotes.jobHints,
+    editableAdditionalJobHints,
   );
 
   const updateNormalSpecialNotes = (value: string) => {
@@ -9587,7 +9722,7 @@ export default function AuftraegePage() {
         ...prev,
         specialNotes: buildSpecialNotes({
           safetyWarnings: previousNotes.safetyWarnings,
-          jobHints: nextJobHints,
+          jobHints: [...editablePrimaryJobHints, ...nextJobHints],
         }),
       };
     });
@@ -11289,8 +11424,17 @@ export default function AuftraegePage() {
                     ))}
                   </div>
                 )}
+                {specialSummarySections.primary.length > 0 && (
+                  <div className="rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
+                    <div className="mb-1 flex items-center gap-1 font-bold"><Info className="h-3.5 w-3.5" /> Wichtige Informationen</div>
+                    {specialSummarySections.primary.map((line, index) => (
+                      <div key={`active_mobile_compact_summary_primary_${index}`} className="whitespace-pre-wrap break-words">{line}</div>
+                    ))}
+                  </div>
+                )}
                 {specialSummarySections.hints.length > 0 && (
                   <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                    <div className="mb-1 font-bold">Weitere Besonderheiten</div>
                     {specialSummarySections.hints.map((line, index) => (
                       <div
                         key={`active_mobile_compact_summary_hint_${index}`}
@@ -14818,6 +14962,15 @@ export default function AuftraegePage() {
                         </Badge>
                       )}
                     </div>
+
+                    {primaryInfoLines.length > 0 && (
+                      <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 space-y-1">
+                        <div className="font-semibold flex items-center gap-2"><Info className="w-4 h-4" /> Wichtige Informationen</div>
+                        {primaryInfoLines.map((line, index) => (
+                          <div key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</div>
+                        ))}
+                      </div>
+                    )}
 
                     {dangerNoteLines.length > 0 && (
                       <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 space-y-1">
