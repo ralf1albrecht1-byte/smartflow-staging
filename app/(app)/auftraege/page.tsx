@@ -2951,6 +2951,8 @@ const AMOUNT_REVIEW_BADGE_KEYS = new Set([
   "price_quantity",
   "unit_conflict",
   "currency_review",
+  "recognition_review",
+  "order_review_summary",
   "price_deviation",
   "catalog_missing",
   "catalog_review_combined",
@@ -3071,6 +3073,26 @@ const hasRecognitionReviewV17_90L69 = (
     order?.reviewReasons?.some(isRecognitionReviewReasonV17_90L69),
   );
 
+const recognitionReviewDetailKeyV17_90L70 = (
+  detail?: RecognitionReviewPayloadV17_90L69 | null,
+) =>
+  [
+    normalizeForMatch(detail?.serviceName),
+    Number(detail?.quantity || 0).toFixed(4),
+    normalizePriceUnitForCompare(detail?.unit),
+    Number(detail?.unitPrice || 0).toFixed(4),
+  ].join("|");
+
+const recognitionReviewReasonKeyV17_90L70 = (reason?: string | null) => {
+  const value = String(reason || "").trim();
+  const detail = parseRecognitionReviewReasonV17_90L69(value);
+  if (detail) return recognitionReviewDetailKeyV17_90L70(detail);
+  if (value === RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69) {
+    return RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69;
+  }
+  return "";
+};
+
 const formatRecognitionReviewLineV17_90L69 = (
   detail: RecognitionReviewPayloadV17_90L69,
 ) => {
@@ -3090,22 +3112,15 @@ const formatRecognitionReviewLineV17_90L69 = (
 
 const formatRecognitionReviewTooltipV17_90L69 = (order: Order) => {
   const details = getRecognitionReviewDetailsV17_90L69(order);
-  const lines = [
-    "Erkennung prüfen",
-    details.length === 1
-      ? "Eine mögliche Leistung wurde nicht sicher übernommen oder falsch zugeordnet:"
-      : "Mögliche Leistungen wurden nicht sicher übernommen oder falsch zugeordnet:",
-  ];
+  const lines = ["Erkennung prüfen"];
 
   if (details.length > 0) {
     lines.push(...details.slice(0, 8).map(formatRecognitionReviewLineV17_90L69));
   } else {
-    lines.push("• Mindestens eine bepreiste Leistungszeile stimmt nicht sicher mit den gespeicherten Positionen überein.");
+    lines.push("• Mögliche fehlende oder falsch zugeordnete Leistung.");
   }
 
-  lines.push(
-    "Auftrag öffnen, Positionen kontrollieren und ergänzen oder ausdrücklich als geprüft bestätigen.",
-  );
+  lines.push("Auftrag öffnen und Vorschlag übernehmen oder verwerfen.");
   return lines.join("\n");
 };
 
@@ -4388,11 +4403,16 @@ const formatExecutionAddressTooltip = (order: Order) => {
 const combineCatalogReviewBadges = (badges: ReviewBadge[]) => badges;
 
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
-  const currencyBadges = badges.filter(
-    (badge) => badge.key === "currency_review",
-  );
-  const blockingBadges = badges.filter((badge) =>
-    ["price_quantity", "unit_conflict"].includes(badge.key),
+  const redReviewKeys = new Set([
+    "currency_review",
+    "recognition_review",
+    "price_quantity",
+    "unit_conflict",
+  ]);
+  const redBadges = badges.filter(
+    (badge) =>
+      redReviewKeys.has(badge.key) &&
+      /(?:^|\s)(?:bg|text|border)-red-/.test(badge.className || ""),
   );
   const catalogBadges = combineCatalogReviewBadges(
     badges.filter((badge) =>
@@ -4402,28 +4422,36 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
     ),
   );
 
-  // Währungsfehler und normale Katalog-/Preisabweichungen sind getrennte
-  // Prüfarten. Außen müssen beide sichtbar bleiben: rot für echte
-  // Währungsblocker, gelb für weiterhin berechenbare Preisabweichungen.
-  if (currencyBadges.length > 0) {
-    return [...currencyBadges, ...catalogBadges];
-  }
+  if (redBadges.length > 1) {
+    const tooltipLines = ["Auftrag prüfen"];
+    redBadges.forEach((badge, index) => {
+      if (index > 0) tooltipLines.push("---");
+      tooltipLines.push(badge.label);
+      const detailLines = cleanVisibleTooltipTextV17_35(badge.tooltip)
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(
+          (line) =>
+            Boolean(line) &&
+            normalizeForMatch(line) !== normalizeForMatch(badge.label),
+        );
+      tooltipLines.push(...detailLines);
+    });
 
-  if (blockingBadges.length > 1) {
     return [
       {
-        key: "price_inputs_review",
-        label: "Preisangaben prüfen",
+        key: "order_review_summary",
+        label: `Auftrag prüfen · ${redBadges.length}`,
         className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
-        tooltip:
-          "Mehrere Preis-/Mengenprobleme gefunden. Bitte vor Angebot/Rechnung korrigieren.",
+        tooltip: tooltipLines.join("\n"),
+        focusTarget: "items",
       },
       ...catalogBadges,
     ];
   }
 
-  return [...blockingBadges, ...catalogBadges];
+  return [...redBadges, ...catalogBadges];
 };
 
 const MERGED_CONTACT_DATA_PATTERN =
@@ -6075,7 +6103,7 @@ const ViewportAwareOrderServiceTooltip = ({
   if (!tooltip) return null;
   const tooltipLines = tooltip.split("\n");
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
 
   return (
     <>
@@ -6160,7 +6188,7 @@ const renderBadgeTooltip = (
   const tooltipLines = tooltip.split("\n");
   const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
 
   return (
     <span
@@ -6280,7 +6308,7 @@ const renderMobileSafeBadgeTooltip = (
   const tooltipLines = tooltip.split("\n");
   const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
 
   return (
     <span
@@ -6392,6 +6420,7 @@ const renderOrderCardBadge = (
     "catalog_missing",
     "catalog_review_combined",
     "service_review_summary",
+    "order_review_summary",
   ].includes(badge.key);
 
   return renderReviewBadge(
@@ -7022,8 +7051,8 @@ export default function AuftraegePage() {
   const [saving, setSaving] = useState(false);
   const [manualResidualCurrencyAcknowledged, setManualResidualCurrencyAcknowledged] =
     useState(false);
-  const [manualRecognitionReviewAcknowledged, setManualRecognitionReviewAcknowledged] =
-    useState(false);
+  const [discardedRecognitionReviewKeys, setDiscardedRecognitionReviewKeys] =
+    useState<string[]>([]);
 
   // New customer inline / edit customer
   const [showNewCustomer, setShowNewCustomer] = useState(false);
@@ -7400,7 +7429,7 @@ export default function AuftraegePage() {
       setForm(newForm);
       setFormItems([createEmptyItem()]);
       setManualResidualCurrencyAcknowledged(false);
-      setManualRecognitionReviewAcknowledged(false);
+      setDiscardedRecognitionReviewKeys([]);
       setFormWorkSites([]);
       setExpandedWorkSiteIds([]);
       setCustomerMessagesExpanded(false);
@@ -7504,7 +7533,7 @@ export default function AuftraegePage() {
     setForm(emptyForm);
     setFormItems([createEmptyItem()]);
     setManualResidualCurrencyAcknowledged(false);
-    setManualRecognitionReviewAcknowledged(false);
+    setDiscardedRecognitionReviewKeys([]);
     setFormWorkSites([]);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(null);
@@ -7539,7 +7568,7 @@ export default function AuftraegePage() {
       effectiveOrderReviewReasonsV17_90L37(o);
     setEditId(o.id);
     setManualResidualCurrencyAcknowledged(false);
-    setManualRecognitionReviewAcknowledged(false);
+    setDiscardedRecognitionReviewKeys([]);
     setServiceActionMenuKey(null);
     setDupCheckOpen(false);
     setUndoPreviousAddress(null);
@@ -8731,10 +8760,90 @@ export default function AuftraegePage() {
 
   const currentEditReviewReasons =
     effectiveOrderReviewReasonsV17_90L37(currentEditOrder);
-  const currentRecognitionReviewDetailsV17_90L69 =
+  const allCurrentRecognitionReviewDetailsV17_90L69 =
     getRecognitionReviewDetailsV17_90L69(currentEditOrder);
-  const hasCurrentRecognitionReviewV17_90L69 =
-    currentEditReviewReasons.some(isRecognitionReviewReasonV17_90L69);
+  const currentRecognitionReviewDetailsV17_90L69 =
+    allCurrentRecognitionReviewDetailsV17_90L69.filter((detail) => {
+      const key = recognitionReviewDetailKeyV17_90L70(detail);
+      if (discardedRecognitionReviewKeys.includes(key)) return false;
+      return !formItems.some((item) =>
+        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+      );
+    });
+  const hasGenericRecognitionReviewV17_90L70 =
+    currentEditReviewReasons.includes(
+      RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69,
+    ) &&
+    !discardedRecognitionReviewKeys.includes(
+      RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69,
+    );
+  const hasCurrentRecognitionReviewV17_90L69 = Boolean(
+    currentRecognitionReviewDetailsV17_90L69.length > 0 ||
+      (hasGenericRecognitionReviewV17_90L70 &&
+        allCurrentRecognitionReviewDetailsV17_90L69.length === 0),
+  );
+
+  const takeOverRecognitionReviewDetailV17_90L70 = (
+    detail: RecognitionReviewPayloadV17_90L69,
+  ) => {
+    if (
+      formItems.some((item) =>
+        recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+      )
+    ) {
+      toast.info("Leistung ist bereits vorhanden.");
+      return;
+    }
+
+    const serviceName =
+      canonicalServiceNameForOrderItem(detail.serviceName) ||
+      compactText(detail.serviceName) ||
+      "Leistung prüfen";
+    const unit = compactText(detail.unit) || "Einheit prüfen";
+    const quantity = Number(detail.quantity || 0);
+    const unitPrice = Number(detail.unitPrice || 0);
+    const defaultWorkSiteId =
+      activeWorkSiteId ||
+      (formWorkSites.length === 1 ? formWorkSites[0]?.id || null : null);
+
+    setFormItems((previous) => [
+      ...previous.filter(
+        (item) =>
+          item.serviceName.trim() ||
+          item.unitPrice.trim() ||
+          item.quantity.trim(),
+      ),
+      {
+        key: Math.random().toString(36).slice(2),
+        serviceName,
+        unit,
+        unitPrice: unitPrice > 0 ? String(unitPrice) : "",
+        quantity: quantity > 0 ? String(quantity) : "",
+        aiWarning: compactText(detail.sourceText)
+          ? `Text: ${compactText(detail.sourceText)}`
+          : "",
+        catalogReviewConfirmed: false,
+        manualCurrencyConfirmed: false,
+        manualUnitConfirmed: Boolean(
+          unit && !/(?:prüfen|pruefen|prufen)/i.test(unit),
+        ),
+        workSiteId: defaultWorkSiteId,
+      },
+    ]);
+    toast.success("Leistung übernommen. Bitte prüfen und speichern.");
+  };
+
+  const discardRecognitionReviewDetailV17_90L70 = (
+    detail?: RecognitionReviewPayloadV17_90L69 | null,
+  ) => {
+    const key = detail
+      ? recognitionReviewDetailKeyV17_90L70(detail)
+      : RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69;
+    setDiscardedRecognitionReviewKeys((previous) =>
+      previous.includes(key) ? previous : [...previous, key],
+    );
+    toast.info("Vorschlag verworfen. Bitte Auftrag speichern.");
+  };
   const addressRoleReviewCandidateV17_62 = (() => {
     const primarySite =
       formWorkSites.find((site) => Boolean(site.isPrimary)) ||
@@ -10479,18 +10588,45 @@ export default function AuftraegePage() {
       );
     };
 
-    const recognitionReviewResolvedByCurrentItemsV17_90L69 =
-      areRecognitionReviewDetailsResolvedV17_90L69(
-        currentEditOrder,
-        validItems,
-      );
-
     const cleanedReviewReasons = currentEditReviewReasons.filter((reason) => {
           if (isRecognitionReviewReasonV17_90L69(reason)) {
-            return !(
-              manualRecognitionReviewAcknowledged ||
-              recognitionReviewResolvedByCurrentItemsV17_90L69
-            );
+            const decisionKey = recognitionReviewReasonKeyV17_90L70(reason);
+            if (
+              decisionKey &&
+              discardedRecognitionReviewKeys.includes(decisionKey)
+            ) {
+              return false;
+            }
+
+            const detail = parseRecognitionReviewReasonV17_90L69(reason);
+            if (detail) {
+              return !validItems.some((item) =>
+                recognitionReviewDetailMatchesItemV17_90L69(detail, item),
+              );
+            }
+
+            if (
+              reason === RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69 &&
+              allCurrentRecognitionReviewDetailsV17_90L69.length > 0
+            ) {
+              return allCurrentRecognitionReviewDetailsV17_90L69.some(
+                (candidate) => {
+                  const candidateKey =
+                    recognitionReviewDetailKeyV17_90L70(candidate);
+                  return (
+                    !discardedRecognitionReviewKeys.includes(candidateKey) &&
+                    !validItems.some((item) =>
+                      recognitionReviewDetailMatchesItemV17_90L69(
+                        candidate,
+                        item,
+                      ),
+                    )
+                  );
+                },
+              );
+            }
+
+            return true;
           }
           if (reason.startsWith("unit_mismatch:")) {
             const [, reasonService] = reason.split(":");
@@ -12139,6 +12275,7 @@ export default function AuftraegePage() {
                 "catalog_missing",
                 "catalog_review_combined",
                 "service_review_summary",
+                "order_review_summary",
                 "merged_data_review",
               ].includes(badge.key);
 
@@ -13742,52 +13879,70 @@ export default function AuftraegePage() {
                     {hasCurrentRecognitionReviewV17_90L69 && (
                       <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">
                         <div className="font-semibold">⚠ Erkennung prüfen</div>
-                        <div className="mt-1">
-                          Mindestens eine mögliche Leistungszeile wurde nicht
-                          sicher übernommen oder einer falschen Position
-                          zugeordnet. Angebot und Rechnung bleiben bis zur
-                          Kontrolle gesperrt.
+                        <div className="mt-1 text-red-700 dark:text-red-200">
+                          Vorschlag übernehmen oder verwerfen.
                         </div>
-                        <div className="mt-2 space-y-1 rounded-md border border-red-200 bg-white/80 p-2 dark:border-red-900/60 dark:bg-background/50">
-                          {currentRecognitionReviewDetailsV17_90L69.length > 0 ? (
-                            currentRecognitionReviewDetailsV17_90L69
+
+                        {currentRecognitionReviewDetailsV17_90L69.length > 0 ? (
+                          <div className="mt-2 space-y-2">
+                            {currentRecognitionReviewDetailsV17_90L69
                               .slice(0, 8)
                               .map((detail, index) => (
-                                <div key={`${normalizeForMatch(detail.serviceName)}-${index}`}>
-                                  {formatRecognitionReviewLineV17_90L69(detail)}
+                                <div
+                                  key={`${recognitionReviewDetailKeyV17_90L70(detail)}-${index}`}
+                                  className="rounded-md border border-red-200 bg-white/85 p-2 dark:border-red-900/60 dark:bg-background/50"
+                                >
+                                  <div className="font-medium">
+                                    {formatRecognitionReviewLineV17_90L69(detail).replace(/^•\s*/, "")}
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() =>
+                                        takeOverRecognitionReviewDetailV17_90L70(
+                                          detail,
+                                        )
+                                      }
+                                    >
+                                      Übernehmen
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 border-red-300 bg-white px-2 text-xs text-red-800 hover:bg-red-50 dark:bg-background dark:text-red-100"
+                                      onClick={() =>
+                                        discardRecognitionReviewDetailV17_90L70(
+                                          detail,
+                                        )
+                                      }
+                                    >
+                                      Verwerfen
+                                    </Button>
+                                  </div>
                                 </div>
-                              ))
-                          ) : (
-                            <div>
-                              Mindestens eine bepreiste Leistungszeile stimmt
-                              nicht sicher mit den gespeicherten Positionen
-                              überein.
+                              ))}
+                          </div>
+                        ) : (
+                          <div className="mt-2 rounded-md border border-red-200 bg-white/85 p-2 dark:border-red-900/60 dark:bg-background/50">
+                            <div className="font-medium">
+                              Mögliche fehlende oder falsch zugeordnete Leistung.
                             </div>
-                          )}
-                        </div>
-                        <div className="mt-2">
-                          Fehlende oder falsch zugeordnete Position korrigieren.
-                          Ist die Erkennung nach Ihrer Kontrolle fachlich
-                          vollständig, kann der Hinweis ausdrücklich bestätigt
-                          werden.
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="mt-2 h-7 border-red-300 bg-white px-2 text-xs text-red-800 hover:bg-red-50 disabled:opacity-70 dark:bg-background dark:text-red-100"
-                          disabled={manualRecognitionReviewAcknowledged}
-                          onClick={() => {
-                            setManualRecognitionReviewAcknowledged(true);
-                            toast.info(
-                              "Erkennung als geprüft markiert. Bitte Auftrag speichern.",
-                            );
-                          }}
-                        >
-                          {manualRecognitionReviewAcknowledged
-                            ? "Als geprüft markiert"
-                            : "Geprüft und verstanden"}
-                        </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="mt-2 h-7 border-red-300 bg-white px-2 text-xs text-red-800 hover:bg-red-50 dark:bg-background dark:text-red-100"
+                              onClick={() =>
+                                discardRecognitionReviewDetailV17_90L70(null)
+                              }
+                            >
+                              Verwerfen
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -15317,7 +15472,7 @@ export default function AuftraegePage() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-7 px-2 text-xs"
+                        className="h-7 px-2 text-[11px]"
                         onClick={() =>
                           setServiceOverviewExpanded((prev) => !prev)
                         }
@@ -15422,23 +15577,23 @@ export default function AuftraegePage() {
                       </div>
                     ) : (
                       <div className="rounded-lg border-2 border-slate-300 overflow-x-auto dark:border-slate-700">
-                        <table className="w-full text-sm">
+                        <table className="w-full text-[13px] leading-snug">
                           <thead className="bg-muted/60">
                             <tr className="text-left">
-                              <th className="px-2 py-2 font-medium w-10">
+                              <th className="px-2 py-1.5 font-medium w-10">
                                 Nr.
                               </th>
-                              <th className="px-2 py-2 font-medium">
+                              <th className="px-2 py-1.5 font-medium">
                                 Leistung
                               </th>
-                              <th className="px-2 py-2 font-medium">Einheit</th>
-                              <th className="px-2 py-2 font-medium text-right">
+                              <th className="px-2 py-1.5 font-medium">Einheit</th>
+                              <th className="px-2 py-1.5 font-medium text-right">
                                 Menge
                               </th>
-                              <th className="px-2 py-2 font-medium text-right">
+                              <th className="px-2 py-1.5 font-medium text-right">
                                 Einzelpreis
                               </th>
-                              <th className="px-2 py-2 font-medium text-right">
+                              <th className="px-2 py-1.5 font-medium text-right">
                                 Summe
                               </th>
                             </tr>
@@ -15448,7 +15603,7 @@ export default function AuftraegePage() {
                               <tr>
                                 <td
                                   colSpan={6}
-                                  className="px-2 py-4 text-center text-muted-foreground"
+                                  className="px-2 py-3 text-center text-muted-foreground"
                                 >
                                   Keine Leistung erfasst.
                                 </td>
@@ -15459,17 +15614,17 @@ export default function AuftraegePage() {
                                   key={`${row.index}-${row.serviceName}`}
                                   className="border-t"
                                 >
-                                  <td className="px-2 py-2">{row.index}</td>
-                                  <td className="px-2 py-2 font-medium">
+                                  <td className="px-2 py-1.5">{row.index}</td>
+                                  <td className="px-2 py-1.5 font-medium">
                                     {row.serviceName}
                                   </td>
-                                  <td className="px-2 py-2">{row.unitLabel}</td>
-                                  <td className="px-2 py-2 text-right">
+                                  <td className="px-2 py-1.5">{row.unitLabel}</td>
+                                  <td className="px-2 py-1.5 text-right">
                                     {row.hasQuantity
                                       ? row.quantity
                                       : "Menge prüfen"}
                                   </td>
-                                  <td className="px-2 py-2 text-right">
+                                  <td className="px-2 py-1.5 text-right">
                                     {row.hasPrice ? (
                                       formatCurrency(row.unitPrice, currency)
                                     ) : (
@@ -15478,17 +15633,17 @@ export default function AuftraegePage() {
                                       </span>
                                     )}
                                   </td>
-                                  <td className="px-2 py-2 text-right font-medium">
+                                  <td className="px-2 py-1.5 text-right font-medium">
                                     {formatCurrency(row.sum, currency)}
                                   </td>
                                 </tr>
                               ))
                             )}
                             <tr className="border-t-2 bg-muted/40 font-semibold">
-                              <td className="px-2 py-2" colSpan={5}>
+                              <td className="px-2 py-1.5" colSpan={5}>
                                 Gesamt
                               </td>
-                              <td className="px-2 py-2 text-right text-primary">
+                              <td className="px-2 py-1.5 text-right text-primary">
                                 {formatCurrency(itemsTotal, currency)}
                               </td>
                             </tr>

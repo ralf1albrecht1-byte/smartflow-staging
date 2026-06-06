@@ -5022,7 +5022,7 @@ export default function AngebotePage() {
                           size="sm"
                           variant="outline"
                           onClick={() => setServiceOverviewOpen((current) => !current)}
-                          className="h-8 w-full sm:w-auto"
+                          className="h-7 w-full px-2 text-[11px] sm:w-auto"
                         >
                           {serviceOverviewOpen ? "Einklappen" : "Anzeigen"}
                         </Button>
@@ -5043,16 +5043,16 @@ export default function AngebotePage() {
                       )}
 
                       {serviceOverviewOpen && (
-                        <div className="mt-3 overflow-x-auto rounded-xl border-2 border-slate-300 dark:border-slate-700">
-                          <table className="w-full min-w-[720px] border-collapse text-sm">
+                        <div className="mt-2 overflow-x-auto rounded-lg border-2 border-slate-300 dark:border-slate-700">
+                          <table className="w-full min-w-[680px] border-collapse text-[13px] leading-snug">
                             <thead className="bg-slate-50 text-left dark:bg-slate-900/70">
                               <tr className="border-b border-slate-300 dark:border-slate-700">
-                                <th className="w-14 px-3 py-2 font-semibold">Nr.</th>
-                                <th className="px-3 py-2 font-semibold">Leistung</th>
-                                <th className="w-32 px-3 py-2 font-semibold">Einheit</th>
-                                <th className="w-24 px-3 py-2 text-right font-semibold">Menge</th>
-                                <th className="w-36 px-3 py-2 text-right font-semibold">Einzelpreis</th>
-                                <th className="w-36 px-3 py-2 text-right font-semibold">Summe</th>
+                                <th className="w-12 px-2 py-1.5 font-semibold">Nr.</th>
+                                <th className="px-2 py-1.5 font-semibold">Leistung</th>
+                                <th className="w-32 px-2 py-1.5 font-semibold">Einheit</th>
+                                <th className="w-20 px-2 py-1.5 text-right font-semibold">Menge</th>
+                                <th className="w-32 px-2 py-1.5 text-right font-semibold">Einzelpreis</th>
+                                <th className="w-32 px-2 py-1.5 text-right font-semibold">Summe</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -5068,23 +5068,23 @@ export default function AngebotePage() {
                                       key={`offer-overview-${index}`}
                                       className="border-b border-slate-200 last:border-b-0 dark:border-slate-800"
                                     >
-                                      <td className="px-3 py-2 align-top">{index + 1}</td>
-                                      <td className="px-3 py-2 align-top font-medium">
+                                      <td className="px-2 py-1.5 align-top">{index + 1}</td>
+                                      <td className="px-2 py-1.5 align-top font-medium">
                                         {item.description}
                                       </td>
-                                      <td className="px-3 py-2 align-top">
+                                      <td className="px-2 py-1.5 align-top">
                                         {String(item.unit || "–")}
                                       </td>
-                                      <td className="px-3 py-2 text-right align-top font-mono">
+                                      <td className="px-2 py-1.5 text-right align-top font-mono">
                                         {Number.isFinite(quantity) ? quantity : 0}
                                       </td>
-                                      <td className="px-3 py-2 text-right align-top font-mono">
+                                      <td className="px-2 py-1.5 text-right align-top font-mono">
                                         {formatCurrency(
                                           Number.isFinite(unitPrice) ? unitPrice : 0,
                                           currency,
                                         )}
                                       </td>
-                                      <td className="px-3 py-2 text-right align-top font-mono">
+                                      <td className="px-2 py-1.5 text-right align-top font-mono">
                                         {formatCurrency(
                                           (Number.isFinite(quantity) ? quantity : 0) *
                                             (Number.isFinite(unitPrice) ? unitPrice : 0),
@@ -5097,10 +5097,10 @@ export default function AngebotePage() {
                             </tbody>
                             <tfoot>
                               <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold dark:border-slate-700 dark:bg-slate-900/70">
-                                <td colSpan={5} className="px-3 py-3">
+                                <td colSpan={5} className="px-2 py-2">
                                   Gesamt
                                 </td>
-                                <td className="px-3 py-3 text-right font-mono text-emerald-700 dark:text-emerald-300">
+                                <td className="px-2 py-2 text-right font-mono text-emerald-700 dark:text-emerald-300">
                                   {formatCurrency(subtotal, currency)}
                                 </td>
                               </tr>
