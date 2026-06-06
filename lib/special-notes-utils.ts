@@ -95,9 +95,17 @@ const isWorkSiteOnlySpecialNoteLineV17_33 = (value: string): boolean => {
 
   const startsAsWorkSite = /^\s*(?:arbeitsort|ausfuehrungsort|ausführungsort|einsatzort|objekt|baustelle)\s*:/i.test(body);
   const hasAddressEvidence = /\b\d{4,5}\b/.test(body) || /\b(?:strasse|straße|str\.?|weg|gasse|platz|allee|ring|rain|halde|steig|route|rue|avenue|av\.?|chemin|via|viale|street|road|lane)\s+\d+[a-z]?\b/i.test(body);
-  const hasActionableSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|hund|dog|chien|leiter|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
+  const hasActionableSignal = /\b(?:schluessel|schlussel|schlüssel|key|code|torcode|zugangscode|schluesselbox|schlusselbox|schlüsselbox|briefkasten|hund|dog|chien|leiter|parkplatz|parken|parkieren|parking|stellplatz|sms|whatsapp|telefon|anrufen|nicht\s+einfach|vorher|termin)\b/.test(text);
 
-  return (startsAsWorkSite || hasAddressEvidence) && !hasActionableSignal;
+  const isNarrativeWorkSiteOnly =
+    /^(?:die\s+)?arbeiten\s+(?:sind|finden\s+statt)\s+(?:im|in|bei|am)\s+.+/i.test(
+      body,
+    );
+
+  return (
+    (startsAsWorkSite || hasAddressEvidence || isNarrativeWorkSiteOnly) &&
+    !hasActionableSignal
+  );
 };
 
 const isNonSafetyConditionLineV17_33 = (value: string): boolean => {
@@ -126,6 +134,55 @@ const isEquipmentOnlyWarningLineV17_34 = (value: string): boolean => {
 
 const stripNoteSentencePunctuationV17_34 = (value: string): string =>
   String(value || "").replace(/[.;:,\s]+$/g, "").trim();
+
+// V17.90L57: Auftrag und daraus erzeugtes Angebot müssen dieselben
+// kompakten, sichtbaren Besonderheiten verwenden. Diese Normalisierung
+// verändert keine fachliche Aussage, sondern entfernt nur doppelte Labels
+// und kürzt Parkplatzhinweise auf die tatsächlich benötigte Information.
+const normalizeParkingDisplayV17_90L57 = (value: string): string => {
+  const raw = stripNoteSentencePunctuationV17_34(stripKnownMarker(value));
+  if (!raw) return "";
+
+  const visitor = raw.match(
+    /\bBesucherparkplatz\s*(?:Nr\.?|Nummer)?\s*([A-Za-z0-9-]+)?/i,
+  );
+  const generic = raw.match(
+    /\bParkplatz\s*(?:Nr\.?|Nummer)?\s*([A-Za-z0-9-]+)?/i,
+  );
+  const match = visitor || generic;
+  if (!match) return raw;
+
+  const number = String(match[1] || "").trim();
+  const label = visitor ? "Besucherparkplatz" : "Parkplatz";
+  const parking = `${label}${number ? ` ${number}` : ""}`;
+  const mentionsVehicle =
+    /\b(?:lieferwagen|fahrzeug|transporter|auto|van)\b/i.test(raw);
+
+  return mentionsVehicle ? `Lieferwagen auf ${parking}` : parking;
+};
+
+const normalizeOnSiteContactV17_90L57 = (value: string): string => {
+  const raw = stripNoteSentencePunctuationV17_34(stripKnownMarker(value));
+  if (!/^Kontakt vor Ort\s*:/i.test(raw)) return raw;
+
+  const body = raw.replace(/^Kontakt vor Ort\s*:\s*(?:ist\s+)?/i, "");
+  const phoneMatches = Array.from(
+    body.matchAll(/\+?\d[\d\s()./-]{6,}\d/g),
+  ).map((match) => match[0].replace(/\s+/g, " ").trim());
+  const uniquePhones = phoneMatches.filter(
+    (phone, index, all) =>
+      all.findIndex((candidate) => candidate.replace(/\D/g, "") === phone.replace(/\D/g, "")) ===
+      index,
+  );
+  const name = body
+    .replace(/\b(?:Tel(?:efon)?|Mobile|Mobil)\.?\s*:?\s*/gi, "")
+    .replace(/\+?\d[\d\s()./-]{6,}\d/g, "")
+    .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return `Kontakt vor Ort: ${[name, uniquePhones[0]].filter(Boolean).join(", ")}`;
+};
 
 const isNoWhatsappOnlyLineV17_34 = (value: string): boolean => {
   const text = normalizeDedupeText(value);
@@ -258,6 +315,11 @@ const canonicalSpecialNoteBodyV17_32 = (value: string): string => {
     .replace(/\s+/g, " ")
     .trim();
 
+  body = normalizeOnSiteContactV17_90L57(body);
+  if (/park|parking|stellplatz/i.test(body)) {
+    body = normalizeParkingDisplayV17_90L57(body);
+  }
+
   const normalized = normalizeDedupeText(body);
   const code = extractAccessCodeV17_32(body);
 
@@ -349,6 +411,16 @@ const noteSpecificityScore = (value: string) => {
   let score = text.length;
 
   if (/frei|laeuft frei|läuft frei|achtung|gefahr|warnung/.test(text)) score += 100;
+  if (/\b(?:hund|dog|chien)\b/.test(text)) {
+    const hasConcreteBehaviour =
+      /laeuft frei|lauft frei|läuft frei|frei herum|nicht angeleint|bellt|beisst|beißt/.test(
+        text,
+      );
+    if (hasConcreteBehaviour) score += 180;
+    if (/gefaehrlich|gefahrlich|gefährlich/.test(text) && !hasConcreteBehaviour) {
+      score -= 170;
+    }
+  }
   if (/benoetigt|benötigt|noetig|nötig/.test(text)) score += 80;
   if (/bitte|nur|nicht anrufen|nicht telefonisch|keine telefonische|pas d appel|pas appeler|mail reicht|whatsapp|sms|nicht einfach|vor arbeitsbeginn|vor start|vor ankunft|nach \d{1,2}|ab \d{1,2}|erst nach \d{1,2}/.test(text)) score += 90;
   if (/\+\d|\b0\d{2,}\b/.test(text)) score += 80;
@@ -389,6 +461,14 @@ const dedupeSemanticLines = (values: string[]) => {
   const hasSpecificKey = semanticKeys.some((key) => key.startsWith("key:"));
   if (hasSpecificKey) {
     byKey.delete("key");
+  }
+
+  // A more precise communication instruction replaces its generic duplicate.
+  if (byKey.has("communication_whatsapp_no_call")) {
+    byKey.delete("communication_whatsapp");
+  }
+  if (byKey.has("communication_sms_no_call")) {
+    byKey.delete("communication_sms");
   }
 
   return Array.from(byKey.values());
@@ -463,8 +543,19 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
   const dedupedJobHints = dedupeSemanticLines(jobHints).filter(
     (line) => !safetyKeys.has(semanticNoteKey(line)),
   );
+  const hasExplicitNoCall = dedupedJobHints.some((line) =>
+    [
+      "communication_no_call",
+      "communication_whatsapp_no_call",
+      "communication_sms_no_call",
+      "communication_email_no_call",
+    ].includes(semanticNoteKey(line)),
+  );
+  const contradictionFreeJobHints = hasExplicitNoCall
+    ? dedupedJobHints.filter((line) => semanticNoteKey(line) !== "callback")
+    : dedupedJobHints;
   const cleanedJobHints = mergePreArrivalInstructionLinesV17_34(
-    mergeCommunicationLinesV17_33(dedupedJobHints),
+    mergeCommunicationLinesV17_33(contradictionFreeJobHints),
   )
     .map(stripKnownMarker)
     .map(normalizeLine)

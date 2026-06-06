@@ -1405,7 +1405,7 @@ const isPositiveSemanticHint = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
 
-  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
+  return /park(?:platz|ieren|en)?.*(reserviert|innenhof|vorhanden|frei|erlaubt|moeglich|möglich)|besucherparkplatz|parkplatz im innenhof|parkplatz vor ort|parken moeglich|parken möglich|parking available|parking allowed/.test(
     text,
   );
 };
@@ -1663,8 +1663,15 @@ const formatOperationalHintTooltip = (
     );
   }
 
+  if (kind === "parking") {
+    const compactParking = entries
+      .map((entry) => compactText(entry.hint).replace(/[.;:,\s]+$/g, ""))
+      .find(Boolean);
+    if (compactParking) return compactParking;
+  }
+
   if (formatted.length > 0) return formatted.join("\n\n");
-  return compactText(fallbackLine);
+  return compactText(fallbackLine).replace(/[.;:,\s]+$/g, "");
 };
 
 const getParkingConflictBadge = (
@@ -3682,25 +3689,23 @@ const formatServiceReviewSummaryTooltip = (input: {
     (item) => compactText(item.serviceName),
   );
   if (priceItems.length > 0) {
-    const lines = ["Preis abweichend · Preis aus Text übernommen"];
+    const lines = ["Preis oder Einheit abweichend"];
     priceItems.slice(0, 6).forEach((item) => {
       const catalog = findCatalogServiceForName(
         input.services,
         item.serviceName,
       );
-      const itemPrice = Number(item.unitPrice || 0);
-      const itemPriceLabel =
-        itemPrice > 0
-          ? formatCurrency(itemPrice, safeCurrency)
-          : "Preis prüfen";
-      const catalogLabel = catalog
+      const catalogPrice = catalog
         ? formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)
         : "kein Katalogpreis";
+      const catalogUnit = formatReviewUnitLabel(catalog?.unit || "") || "–";
       const calculation = formatServiceReviewCalculation(item, input.currency);
       lines.push(
-        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — Text ${itemPriceLabel}, Katalog ${catalogLabel}`,
+        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
       );
-      if (calculation) lines.push(`  Berechnung: ${calculation}`);
+      if (calculation) lines.push(`  Aktuell: ${calculation}`);
+      lines.push(`  Katalogpreis: ${catalogPrice} / ${catalogUnit}`);
+      lines.push("  Preis weicht vom Katalog ab.");
     });
     if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
@@ -3710,9 +3715,14 @@ const formatServiceReviewSummaryTooltip = (input: {
     input.missingItems || [],
   ).filter((item) => compactText(item.serviceName));
   if (missingItems.length > 0) {
-    const lines = ["Nicht im Katalog"];
+    const lines = ["Nicht im Leistungskatalog"];
     missingItems.slice(0, 6).forEach((item) => {
-      lines.push(formatServiceReviewItemLine(item, input.currency));
+      const calculation = formatServiceReviewCalculation(item, input.currency);
+      lines.push(
+        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
+      );
+      if (calculation) lines.push(`  Aktuell: ${calculation}`);
+      lines.push("  Nicht im Leistungskatalog.");
     });
     if (missingItems.length > 6)
       lines.push(`+${missingItems.length - 6} weitere`);
@@ -4823,7 +4833,21 @@ const getSystemBadges = (
     compactServiceReviewKeys.has(badge.key),
   );
 
-  if (compactServiceReviewBadges.length >= 2) {
+  if (compactServiceReviewBadges.length > 0) {
+    const reviewedServiceKeys = new Set(
+      [
+        ...unitConflictServices.map((value) => value.split(":")[0]),
+        ...manualUnitItems.map((item) => item.serviceName),
+        ...priceReviewItems.map((item) => item.serviceName),
+        ...catalogMissingItems.map((item) => item.serviceName),
+      ]
+        .map((value) => normalizeForMatch(canonicalServiceNameForOrderItem(value)))
+        .filter(Boolean),
+    );
+    const serviceReviewCount = Math.max(
+      reviewedServiceKeys.size,
+      compactServiceReviewBadges.length,
+    );
     const serviceReviewTooltip = formatServiceReviewSummaryTooltip({
       unitConflictServices,
       manualUnitItems,
@@ -4838,7 +4862,7 @@ const getSystemBadges = (
       ...badges.filter((badge) => !compactServiceReviewKeys.has(badge.key)),
       {
         key: "service_review_summary",
-        label: `Leistungen prüfen · ${compactServiceReviewBadges.length}`,
+        label: `Leistungen prüfen · ${serviceReviewCount}`,
         className:
           "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
         tooltip: serviceReviewTooltip || "Leistungen prüfen.",
@@ -5526,13 +5550,19 @@ const renderBadgeTooltip = (
   const alignClass = align === "right" ? "right-0" : "left-0";
 
   const tooltipLines = tooltip.split("\n");
+  const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
 
   return (
     <span
       className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 w-max max-w-[min(22rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-hover:block group-focus:block"}`}
     >
+      {isServiceReviewSummary && (
+        <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+          {badge.label}
+        </span>
+      )}
       {tooltipLines.map((line, index) => {
         const trimmed = line.trim();
         if (/^[-─—–_]{6,}$/.test(trimmed)) {
@@ -5545,7 +5575,10 @@ const renderBadgeTooltip = (
         }
 
         const emphasizeLine =
-          headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed);
+          headingPattern.test(trimmed) ||
+          /^•\s+/.test(trimmed) ||
+          /^Katalogpreis:/i.test(trimmed) ||
+          /—\s*Text\s+/i.test(trimmed);
 
         return (
           <span
@@ -5628,8 +5661,9 @@ const renderMobileSafeBadgeTooltip = (
   if (!tooltip) return null;
 
   const tooltipLines = tooltip.split("\n");
+  const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
+    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen)$/;
 
   return (
     <span
@@ -5641,6 +5675,11 @@ const renderMobileSafeBadgeTooltip = (
       }}
       className={`pointer-events-auto fixed top-1/2 z-[10000] block max-h-[62vh] -translate-y-1/2 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-focus:block group-hover:block"}`}
     >
+      {isServiceReviewSummary && (
+        <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+          {badge.label}
+        </span>
+      )}
       {tooltipLines.map((line, index) => {
         const trimmed = line.trim();
         if (/^[-─—–_]{6,}$/.test(trimmed)) {
@@ -5653,7 +5692,10 @@ const renderMobileSafeBadgeTooltip = (
         }
 
         const emphasizeLine =
-          headingPattern.test(trimmed) || /—\s*Text\s+/i.test(trimmed);
+          headingPattern.test(trimmed) ||
+          /^•\s+/.test(trimmed) ||
+          /^Katalogpreis:/i.test(trimmed) ||
+          /—\s*Text\s+/i.test(trimmed);
 
         return (
           <span

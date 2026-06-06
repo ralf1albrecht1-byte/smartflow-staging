@@ -488,8 +488,13 @@ function buildOfferOperationalChips(
       push({ key: "access", title: line, icon: "🚪", tone: "warning" });
       return;
     }
-    if (/\b(?:park|parkplatz|parking|stellplatz)\b/.test(text)) {
-      push({ key: "parking", title: line, icon: "🅿️", tone: "warning" });
+    if (/\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz)\b/.test(text)) {
+      push({
+        key: "parking",
+        title: line.replace(/[.;:,\s]+$/g, "").trim(),
+        icon: "🅿️",
+        tone: "warning",
+      });
     }
   });
 
@@ -780,8 +785,8 @@ function buildOfferServiceReviewSummary(
       missingCatalog.push({
         title: name,
         details: [
-          `Angebot: ${currentCalculation}`,
-          "Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen.",
+          `Aktuell: ${currentCalculation}`,
+          "Nicht im Leistungskatalog.",
         ],
       });
       return;
@@ -797,15 +802,13 @@ function buildOfferServiceReviewSummary(
         !sameUnit
           ? `Einheit weicht ab: ${unit || "–"} statt ${catalogUnit || "–"}`
           : "",
-        !samePrice
-          ? `Preis weicht ab: ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`
-          : "",
+        !samePrice ? "Preis weicht vom Katalog ab." : "",
       ].filter(Boolean);
       deviations.push({
         title: name,
         details: [
-          `Angebot: ${currentCalculation}`,
-          `Katalog: ${catalogUnit || "–"} · ${formatCurrency(catalogPrice, currency)}`,
+          `Aktuell: ${currentCalculation}`,
+          `Katalogpreis: ${formatCurrency(catalogPrice, currency)} / ${catalogUnit || "–"}`,
           ...differences,
         ],
       });
@@ -865,14 +868,21 @@ function OfferServiceReviewTooltip({
               className={`${itemIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
             >
               <span className="block break-words font-bold">{item.title}</span>
-              {item.details.map((detail, detailIndex) => (
-                <span
-                  key={`${item.title}_${detailIndex}`}
-                  className="block break-words text-slate-600 dark:text-slate-300"
-                >
-                  {detail}
-                </span>
-              ))}
+              {item.details.map((detail, detailIndex) => {
+                const isCatalogPrice = /^Katalogpreis:/i.test(detail.trim());
+                return (
+                  <span
+                    key={`${item.title}_${detailIndex}`}
+                    className={`block break-words ${
+                      isCatalogPrice
+                        ? "font-bold text-slate-950 dark:text-slate-50"
+                        : "text-slate-600 dark:text-slate-300"
+                    }`}
+                  >
+                    {detail}
+                  </span>
+                );
+              })}
             </span>
           ))}
         </span>
@@ -2254,14 +2264,23 @@ export default function AngebotePage() {
                           <div className="font-bold text-slate-950 dark:text-slate-50">
                             {item.title}
                           </div>
-                          {item.details.map((detail, detailIndex) => (
-                            <div
-                              key={`offer_mobile_review_detail_${detailIndex}`}
-                              className="break-words text-[12px] text-slate-600 dark:text-slate-300"
-                            >
-                              {detail}
-                            </div>
-                          ))}
+                          {item.details.map((detail, detailIndex) => {
+                            const isCatalogPrice = /^Katalogpreis:/i.test(
+                              detail.trim(),
+                            );
+                            return (
+                              <div
+                                key={`offer_mobile_review_detail_${detailIndex}`}
+                                className={`break-words text-[12px] ${
+                                  isCatalogPrice
+                                    ? "font-bold text-slate-950 dark:text-slate-50"
+                                    : "text-slate-600 dark:text-slate-300"
+                                }`}
+                              >
+                                {detail}
+                              </div>
+                            );
+                          })}
                         </div>
                       ))}
                     </div>

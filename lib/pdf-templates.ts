@@ -44,8 +44,11 @@ const DEFAULT_COMPANY: CompanyInfo = {
 const getCurrency = (c?: CompanyInfo | null): "CHF" | "EUR" =>
   c?.currency === "EUR" ? "EUR" : "CHF";
 
+const roundMoneyForPdf = (amount: number): number =>
+  Math.round((Number(amount ?? 0) + Number.EPSILON) * 100) / 100;
+
 const formatMoney = (amount: number, c?: CompanyInfo | null) =>
-  `${getCurrency(c)} ${(amount ?? 0).toFixed(2)}`;
+  `${getCurrency(c)} ${roundMoneyForPdf(amount).toFixed(2)}`;
 const formatDate = (date: string | Date | null | undefined) => {
   if (!date) return "";
   const d = new Date(date);
@@ -89,6 +92,53 @@ function renderOfferPdfTextBlock(offer: any): string {
   }
   return `<div class="notes"><strong>Bemerkungen:</strong><br/>${body}</div>`;
 }
+
+const offerDocumentStyles = `
+  body.offer-document { box-sizing: border-box; padding-bottom: 34px !important; }
+  body.offer-document .container,
+  body.offer-document .wrap { padding-bottom: 34px !important; }
+  body.offer-document .footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0 !important;
+    padding-top: 8px !important;
+    background: white;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.offer-document .notes,
+  body.offer-document .execution-address {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.offer-document .execution-address {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(100, 116, 139, 0.24);
+  }
+  body.offer-document .execution-address-title {
+    margin: 0 0 5px 0;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  body.offer-document .execution-address p { margin: 2px 0; }
+
+  /* Offer pages are intentionally slightly tighter so a footer never becomes
+     the only content on a second page. Invoice layouts remain unchanged. */
+  body.offer-document .brand { padding-bottom: 10px; margin-bottom: 14px; }
+  body.offer-document .brand .logo { margin-bottom: 6px; }
+  body.offer-document .center-title { margin: 6px 0 18px 0; }
+  body.offer-document .two-col { margin-bottom: 18px; }
+  body.offer-document table { margin-bottom: 14px; }
+  body.offer-document th { padding-top: 8px; padding-bottom: 8px; }
+  body.offer-document td { padding-top: 7px; padding-bottom: 7px; }
+  body.offer-document .totals-row { padding-top: 5px; padding-bottom: 5px; }
+  body.offer-document .notes { margin-top: 18px; padding-top: 11px; padding-bottom: 11px; }
+`;
 
 function pickTemplate(company?: CompanyInfo | null): DocumentTemplate {
   const raw = (company?.documentTemplate || "").toLowerCase();
@@ -233,7 +283,7 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
     ? "Die Preise verstehen sich inkl. MwSt."
     : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
 
-  return `<!DOCTYPE html><html><head><style>${classicStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${classicStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     <div class="header">
       <div>
         <div class="doc-title">Angebot</div>
@@ -245,6 +295,7 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
       <p><strong>${customer?.name ?? ""}</strong></p>
       ${customer?.address ? `<p>${customer.address}</p>` : ""}
       ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+      ${renderOfferExecutionAddress(offer)}
     </div>
     <div class="meta-grid">
       <div class="meta-item"><span class="meta-label">Angebotsdatum:</span> ${formatDate(offer?.offerDate)}</div>
@@ -321,6 +372,72 @@ function getItemWorkSiteLabel(item: any): string {
 function hasMultipleItemWorkSites(items: any[]): boolean {
   const keys = new Set((items || []).map(getItemWorkSiteKey).filter(Boolean));
   return keys.size > 1;
+}
+
+function normalizeAddressCompare(value: unknown): string {
+  return cleanWorkSiteValue(String(value ?? ""))
+    .toLocaleLowerCase("de-CH")
+    .replace(/[^a-z0-9äöüß]+/g, "");
+}
+
+function getUniqueOfferWorkSites(offer: any): any[] {
+  const unique = new Map<string, any>();
+  for (const item of offer?.items ?? []) {
+    const key = getItemWorkSiteKey(item);
+    if (!key || unique.has(key)) continue;
+    unique.set(key, item);
+  }
+  return Array.from(unique.values());
+}
+
+function offerWorkSiteDiffersFromBilling(item: any, customer: any): boolean {
+  const hasNameOrNote = Boolean(
+    cleanWorkSiteValue(item?.siteName) || cleanWorkSiteValue(item?.siteNote),
+  );
+  const siteStreet = normalizeAddressCompare(item?.siteAddress);
+  const billingStreet = normalizeAddressCompare(customer?.address);
+  const sitePlace = normalizeAddressCompare(
+    [item?.sitePlz, item?.siteCity].filter(Boolean).join(" "),
+  );
+  const billingPlace = normalizeAddressCompare(
+    [customer?.plz, customer?.city].filter(Boolean).join(" "),
+  );
+  return (
+    hasNameOrNote ||
+    (siteStreet && siteStreet !== billingStreet) ||
+    (sitePlace && sitePlace !== billingPlace)
+  );
+}
+
+function renderOfferExecutionAddress(offer: any): string {
+  const customer = offer?.customer ?? {};
+  const sites = getUniqueOfferWorkSites(offer).filter((item) =>
+    offerWorkSiteDiffersFromBilling(item, customer),
+  );
+  if (sites.length === 0) return "";
+
+  const rows = sites
+    .map((item, index) => {
+      const name = cleanWorkSiteValue(item?.siteName);
+      const street = cleanWorkSiteValue(item?.siteAddress);
+      const place = [item?.sitePlz, item?.siteCity]
+        .map(cleanWorkSiteValue)
+        .filter(Boolean)
+        .join(" ");
+      const note = cleanWorkSiteValue(item?.siteNote);
+      const title = name || (sites.length > 1 ? `Ausführungsort ${index + 1}` : "");
+      return `
+        <div${index > 0 ? ' style="margin-top:7px;"' : ""}>
+          ${title ? `<p><strong>${title}</strong></p>` : ""}
+          ${street ? `<p>${street}</p>` : ""}
+          ${place ? `<p>${place}</p>` : ""}
+          ${note && note !== name ? `<p>${note}</p>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+
+  return `<div class="execution-address"><div class="execution-address-title">Ausführungsadresse</div>${rows}</div>`;
 }
 
 function buildPlainItemRow(item: any, c: CompanyInfo): string {
@@ -523,12 +640,12 @@ function renderModernOffer(offer: any, c: CompanyInfo): string {
   const priceNote = c.mwstAktiv
     ? "Die Preise verstehen sich inkl. MwSt."
     : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
-  return `<!DOCTYPE html><html><head><style>${modernStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${modernStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     ${renderModernHeader("ANGEBOT", offer?.offerNumber ?? "", c)}
     <div class="container">
       <div class="top-grid">
         ${renderModernCompanyBlock(c)}
-        ${renderModernCustomerBlock(offer?.customer ?? {})}
+        <div>${renderModernCustomerBlock(offer?.customer ?? {})}${renderOfferExecutionAddress(offer)}</div>
       </div>
       <div class="meta-row">
         <div><span class="label">Angebotsdatum:</span>${formatDate(offer?.offerDate)}</div>
@@ -647,7 +764,7 @@ function renderMinimalOffer(offer: any, c: CompanyInfo): string {
   const priceNote = c.mwstAktiv
     ? "Die Preise verstehen sich inkl. MwSt."
     : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
-  return `<!DOCTYPE html><html><head><style>${minimalStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${minimalStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     ${renderMinimalHeader("Angebot", offer?.offerNumber ?? "", c)}
     <div class="columns">
       <div>
@@ -655,6 +772,7 @@ function renderMinimalOffer(offer: any, c: CompanyInfo): string {
         <p><strong>${customer?.name ?? ""}</strong></p>
         ${customer?.address ? `<p>${customer.address}</p>` : ""}
         ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+        ${renderOfferExecutionAddress(offer)}
       </div>
       <div>
         <h5>Details</h5>
@@ -780,7 +898,7 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
   const priceNote = c.mwstAktiv
     ? "Die Preise verstehen sich inkl. MwSt."
     : (c.mwstHinweis || "Nicht MWST-pflichtig") + ".";
-  return `<!DOCTYPE html><html><head><style>${elegantStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${elegantStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     <div class="wrap">
       ${renderElegantHead(c)}
       <div class="center-title">
@@ -793,6 +911,7 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
           <p><strong>${customer?.name ?? ""}</strong></p>
           ${customer?.address ? `<p>${customer.address}</p>` : ""}
           ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+          ${renderOfferExecutionAddress(offer)}
         </div>
         <div>
           <h4>Details</h4>
