@@ -10736,7 +10736,14 @@ function applyLineLocalEvidenceDescriptionCleanupV17_90L26(
       ),
     ],
     originalText,
-  ).map(canonicalLineLocalItemV17_90L23);
+  ).map((item): ExplicitServiceLineItem =>
+    canonicalLineLocalItemV17_90L23({
+      ...item,
+      sourceText: String(
+        item.sourceText || item.evidence || item.description || "",
+      ),
+    }),
+  );
   if (explicitItems.length === 0) {
     return {
       items: items.map((item) => ({
