@@ -2895,6 +2895,8 @@ Regeln:
 - Echte Eigennamen, Firmennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten, wenn sie als Namen gemeint sind. Nicht aus "Sala Verde" automatisch "Grüner Saal" machen, nicht aus "Bâtiment Les Cèdres" automatisch "Gebäude Les Cèdres" machen.
 - Nur frei beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie keine Eigennamen sind und die Bedeutung eindeutig ist. Im Zweifel Originalnamen behalten.
 - Leistungszeilen müssen in der Arbeitsfassung als klare fachliche Standard-${targetLanguage}-Arbeitszeilen erscheinen, mit sauberem Verb, z.B. "... reinigen", "... abstauben", "... entfernen", "... streichen" usw., wenn die Handlung aus dem Text hervorgeht.
+- Jeder sichtbare Leistungsname muss vollständig und grammatikalisch korrekt auf Standard-Deutsch formuliert sein. Mischformen aus Deutsch und Fremdsprache sind unzulässig. Ausnahmen gelten nur für echte Eigennamen von Firmen, Gebäuden, Räumen oder Orten.
+- Wenn eine Leistungszeile semantisch nicht sicher vollständig auf Deutsch formuliert werden kann, keine halb übersetzte Mischform erzeugen. Die Zahlen und Originalzeile unverändert erhalten, damit der nachfolgende Prüfer die Position rot zur Kontrolle markieren kann.
 - Arbeitsobjekt und Kontext dürfen nicht vertauscht werden: Wenn die Zeile Fenster/Tische/Vitrinen im Gang/Sitzungszimmer nennt, muss der sichtbare Leistungsname das Arbeitsobjekt behalten und darf nicht zu einem allgemeinen Bereich wie "Gangbereich reinigen" oder "Besprechungsbereich reinigen" verflachen.
 - Ausführungsort-/Arbeitsort-Zeilen dürfen nur Objekt, Räume und Adresse enthalten. Kontaktwege, WhatsApp/SMS/Telefon, Zeitfenster, Zugang, Gefahren und Sonderhinweise bleiben eigene Hinweiszeilen und dürfen nicht an den Ortsnamen angehängt werden.
 - Keine neuen Leistungen erfinden. Keine Mengen/Preise ändern. Keine Zeilen zusammenmischen.
@@ -7658,7 +7660,8 @@ FÜR JEDE ARBEITSPOSITION MUSST DU TRENNEN:
   Wenn nicht eindeutig: service_id = null, service_name = null, confidence = "niedrig".
 
 LEISTUNGSNAMEN / SICHTBARE ARBEITEN:
-- Alle sichtbaren Leistungsnamen und action_name-Werte IMMER auf ${hauptsprache} zurückgeben.
+- Alle sichtbaren Leistungsnamen und action_name-Werte IMMER vollständig auf Deutsch zurückgeben, unabhängig von der Sprache des Kundentexts.
+- Mischsprachige Leistungsnamen sind ungültig. Erlaubt bleiben nur echte Eigennamen von Firmen, Gebäuden, Räumen oder Orten.
 - Nicht einfach Originalwörter abschreiben, wenn der Kundentext fremdsprachig, mundartlich oder unprofessionell formuliert ist.
 - Erkenne die Bedeutung semantisch und formuliere daraus einen kurzen professionellen deutschen Leistungsnamen.
 - Bei handwerklichen Neben-/Vorbereitungsleistungen die Form "...arbeiten" bevorzugen, wenn fachlich passend.

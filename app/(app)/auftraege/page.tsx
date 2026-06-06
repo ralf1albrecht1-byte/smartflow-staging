@@ -4402,6 +4402,46 @@ const formatExecutionAddressTooltip = (order: Order) => {
 
 const combineCatalogReviewBadges = (badges: ReviewBadge[]) => badges;
 
+const compactRedReviewDetailLinesV17_90L72 = (badge: ReviewBadge) => {
+  const labelKey = normalizeForMatch(badge.label);
+  const actionLine = /auftrag öffnen|positionen kontrollieren|vorschlag übernehmen|vorschlag verwerfen|rote punkte bearbeiten|angebot|rechnung bleiben/i;
+  const boilerplateLine = /wurde erkannt und wird bis zur bestätigung|bestätigten positionen|mindestens eine mögliche leistungszeile|nicht sicher übernommen oder einer falschen position zugeordnet/i;
+
+  const lines = cleanVisibleTooltipTextV17_35(badge.tooltip)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => normalizeForMatch(line) !== labelKey)
+    .filter((line) => !/^[-–—]{3,}$/.test(line))
+    .filter((line) => !actionLine.test(line))
+    .filter((line) => !boilerplateLine.test(line))
+    .map((line) => line.replace(/^•\s*/, "").trim())
+    .filter(Boolean)
+    .map((line) => (line.length > 118 ? `${line.slice(0, 115).trim()}…` : line));
+
+  const fallback =
+    badge.key === "recognition_review"
+      ? "Leistung nicht sicher erkannt oder falsch zugeordnet."
+      : badge.key === "currency_review"
+        ? "Fremdwährung oder Preis noch nicht bestätigt."
+        : badge.key === "price_quantity"
+          ? "Preis oder Menge einer Leistung kontrollieren."
+          : badge.key === "unit_conflict"
+            ? "Einheit einer Leistung kontrollieren."
+            : "Offenen roten Prüfpunkt kontrollieren.";
+
+  return (lines.length > 0 ? lines : [fallback]).slice(0, 3);
+};
+
+const compactSingleRedReviewTooltipV17_90L72 = (badge: ReviewBadge) => {
+  const details = compactRedReviewDetailLinesV17_90L72(badge);
+  return [
+    badge.label,
+    ...details.map((line) => `• ${line}`),
+    "Auftrag öffnen und roten Prüfpunkt bearbeiten.",
+  ].join("\n");
+};
+
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const redReviewKeys = new Set([
     "currency_review",
@@ -4423,20 +4463,13 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
 
   if (redBadges.length > 1) {
-    const tooltipLines = ["Auftrag prüfen"];
-    redBadges.forEach((badge, index) => {
-      if (index > 0) tooltipLines.push("---");
-      tooltipLines.push(badge.label);
-      const detailLines = cleanVisibleTooltipTextV17_35(badge.tooltip)
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(
-          (line) =>
-            Boolean(line) &&
-            normalizeForMatch(line) !== normalizeForMatch(badge.label),
-        );
-      tooltipLines.push(...detailLines);
-    });
+    const summaryLines = redBadges
+      .flatMap((badge) =>
+        compactRedReviewDetailLinesV17_90L72(badge).map(
+          (line) => `• ${badge.label}: ${line}`,
+        ),
+      )
+      .slice(0, 6);
 
     return [
       {
@@ -4444,14 +4477,24 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
         label: `Auftrag prüfen · ${redBadges.length}`,
         className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
-        tooltip: tooltipLines.join("\n"),
+        tooltip: [
+          "Auftrag prüfen",
+          ...summaryLines,
+          "Auftrag öffnen und rote Prüfpunkte bearbeiten.",
+        ].join("\n"),
         focusTarget: "items",
       },
       ...catalogBadges,
     ];
   }
 
-  return [...redBadges, ...catalogBadges];
+  return [
+    ...redBadges.map((badge) => ({
+      ...badge,
+      tooltip: compactSingleRedReviewTooltipV17_90L72(badge),
+    })),
+    ...catalogBadges,
+  ];
 };
 
 const MERGED_CONTACT_DATA_PATTERN =

@@ -332,18 +332,21 @@ function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInpu
   if (items.some((item) => normalizeRiskText(item.serviceName || "") === "leistung pruefen" || normalizeRiskText(item.serviceName || "") === "unbekannte leistung")) warnings.push("service_name_unresolved");
   if (items.some((item) => Number(item.unitPrice || 0) > 0 && Number(item.quantity || 0) > 0 && Number(item.totalPrice || 0) <= 0)) warnings.push("priced_item_total_blocked");
 
-  const explicitItems = preferStrongRecognitionCandidatesV17_90L69(
-    [
-      ...extractStrictLineLocalPricedItemsV17_90L22(
-        input.originalText,
-        finalCurrency,
-      ),
-      ...extractCountOnlyPricedRecognitionItemsV17_90L69(
-        input.originalText,
-        finalCurrency,
-      ),
-    ],
+  const explicitItems = normalizeHighGermanServiceNamesFromTranslatedTextV17_35(
     input.originalText,
+    preferStrongRecognitionCandidatesV17_90L69(
+      [
+        ...extractStrictLineLocalPricedItemsV17_90L22(
+          input.originalText,
+          finalCurrency,
+        ),
+        ...extractCountOnlyPricedRecognitionItemsV17_90L69(
+          input.originalText,
+          finalCurrency,
+        ),
+      ],
+      input.originalText,
+    ),
   );
   if (explicitItems.length >= 2) {
     const uncoveredExplicitItems = explicitItems.filter(
@@ -7348,11 +7351,15 @@ function numberEvidencePatternV17_35(value: number): RegExp | null {
 }
 
 function hasUnitEvidenceForItemV17_35(line: string, item: ParsedOrderItemForValidation): boolean {
-  const unit = normalizeCompare(item.unit);
-  if (/quadratmeter|m2|qm/.test(unit)) return /\b(?:m2|m²|qm|quadratmeter)\b/i.test(line);
-  if (/stueck|stück|stuck/.test(unit)) return /\b(?:stück|stueck|stk|pcs?|pieces?)\b/i.test(line);
-  if (/pauschal/.test(unit)) return true;
-  return true;
+  // V17.90L72: structural unit matching only. Countable synonyms such as
+  // Garnitur/Set remain the same unit type as Stück. This is not a service-word
+  // list; it only binds the translated line to the same numeric item safely.
+  const expectedUnitType = unitTypeFromDisplayUnit(item.unit);
+  if (!expectedUnitType || expectedUnitType === "flat") return true;
+
+  const translatedLineUnitType = unitTypeFromText(line);
+  if (!translatedLineUnitType) return false;
+  return translatedLineUnitType === expectedUnitType;
 }
 
 function translatedServicePrefixFromLineV17_35(line: string, item: ParsedOrderItemForValidation): string | null {
@@ -7463,6 +7470,25 @@ function shouldUseTranslatedServiceNameV17_35(item: ParsedOrderItemForValidation
   const currentHasAction = hasVisibleGermanWorkActionV17_37(item.serviceName);
   const translatedHasAction = hasVisibleGermanWorkActionV17_37(translatedName);
   if (!currentHasAction && translatedHasAction) return true;
+
+  // V17.90L72: the dedicated normalisation line is already bound to this
+  // exact quantity, structural unit type and unit price. Prefer its complete
+  // German label when it is not less informative than the current label. This
+  // removes mixed forms such as "la salle ... reinigen" without a service
+  // vocabulary list and still protects more specific existing German names.
+  const currentInformationTokens = current
+    .split(/\s+/g)
+    .filter((token) => token.length >= 4);
+  const translatedInformationTokens = translated
+    .split(/\s+/g)
+    .filter((token) => token.length >= 4);
+  if (
+    translatedHasAction &&
+    translatedScore >= currentScore - 5 &&
+    translatedInformationTokens.length >= currentInformationTokens.length
+  ) {
+    return true;
+  }
 
   const currentTokens = current.split(/\s+/g).filter((token) => token.length >= 5);
   const translatedKeepsCurrentMeaning =
@@ -11350,6 +11376,15 @@ export function validateAndRepairParsedOrderItems(
   items = rawForeignCurrencyFallbackV17_90L41.items;
   reviewReasons.push(...rawForeignCurrencyFallbackV17_90L41.reviewReasons);
   items = applyFinalServiceAmountSuffixCleanupV17_90L70(items);
+  // V17.90L72: final language-only pass after every line-local repair. Later
+  // cleanup steps may restore a raw/mixed source label even when the German
+  // translation was already available. Re-bind by the same quantity, unit
+  // type and price so only the visible name changes; amounts and evidence stay
+  // untouched.
+  items = normalizeHighGermanServiceNamesFromTranslatedTextV17_35(
+    input.originalText,
+    items,
+  );
   hasRealCurrencyProblem = items.some((item) => {
     const rawDetectedCurrency = String(item.detectedCurrency || "")
       .trim()
