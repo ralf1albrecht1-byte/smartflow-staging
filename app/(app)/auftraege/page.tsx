@@ -4402,6 +4402,58 @@ const formatExecutionAddressTooltip = (order: Order) => {
 
 const combineCatalogReviewBadges = (badges: ReviewBadge[]) => badges;
 
+const compactRedReviewLinesV17_90L71 = (badge: ReviewBadge): string[] => {
+  const lines = cleanVisibleTooltipTextV17_35(badge.tooltip)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (badge.key === "recognition_review") {
+    const details = lines
+      .filter((line) => line.startsWith("•"))
+      .map((line) =>
+        line
+          .replace(/\s+—\s+/g, " · ")
+          .replace(/\s+à\s+/gi, " · ")
+          .replace(/\s+/g, " ")
+          .trim(),
+      );
+    return details.length ? details.slice(0, 6) : ["• Erkannte Leistung kontrollieren"];
+  }
+
+  if (badge.key === "currency_review") {
+    const seen = new Set<string>();
+    const details: string[] = [];
+    for (const line of lines) {
+      if (!line.startsWith("•")) continue;
+      const compact = line
+        .replace(/\s*·\s*nicht berechnet.*$/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const semanticPart = normalizeForMatch(compact.split(/\s+—\s+/).slice(1).join(" — ") || compact);
+      if (!semanticPart || seen.has(semanticPart)) continue;
+      seen.add(semanticPart);
+      details.push(compact);
+    }
+    return details.length ? details.slice(0, 5) : ["• Fremdwährungsposition kontrollieren"];
+  }
+
+  if (badge.key === "price_quantity") {
+    return ["• Preis, Menge oder Einheit ergänzen"];
+  }
+  if (badge.key === "unit_conflict") {
+    return ["• Einheit kontrollieren"];
+  }
+
+  const firstUseful = lines.find(
+    (line) =>
+      normalizeForMatch(line) !== normalizeForMatch(badge.label) &&
+      !/^[-─—–_]{3,}$/.test(line) &&
+      !/^Text:/i.test(line),
+  );
+  return [`• ${firstUseful || badge.label}`];
+};
+
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const redReviewKeys = new Set([
     "currency_review",
@@ -4424,18 +4476,8 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
 
   if (redBadges.length > 1) {
     const tooltipLines = ["Auftrag prüfen"];
-    redBadges.forEach((badge, index) => {
-      if (index > 0) tooltipLines.push("---");
-      tooltipLines.push(badge.label);
-      const detailLines = cleanVisibleTooltipTextV17_35(badge.tooltip)
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(
-          (line) =>
-            Boolean(line) &&
-            normalizeForMatch(line) !== normalizeForMatch(badge.label),
-        );
-      tooltipLines.push(...detailLines);
+    redBadges.forEach((badge) => {
+      tooltipLines.push(...compactRedReviewLinesV17_90L71(badge));
     });
 
     return [
@@ -6036,9 +6078,13 @@ const ViewportAwareOrderServiceTooltip = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = availableAbove < 260 && availableBelow > availableAbove;
+    const lineCount = Math.max(1, tooltip.split("\n").filter(Boolean).length);
+    const estimatedHeight = Math.min(360, 54 + lineCount * 22);
+    const openBelow =
+      availableBelow >= estimatedHeight ||
+      (availableAbove < estimatedHeight && availableBelow >= availableAbove);
     const available = openBelow ? availableBelow : availableAbove;
-    const maxHeight = Math.max(96, Math.min(560, available));
+    const maxHeight = Math.max(72, Math.min(estimatedHeight, available));
 
     return openBelow
       ? { left, width, maxHeight, top: rect.bottom + gap }
@@ -6101,7 +6147,12 @@ const ViewportAwareOrderServiceTooltip = ({
   }, [open, align]);
 
   if (!tooltip) return null;
-  const tooltipLines = tooltip.split("\n");
+  const tooltipLines = tooltip
+    .split("\n")
+    .filter(
+      (line, index) =>
+        !(index === 0 && normalizeForMatch(line) === normalizeForMatch(badge.label.replace(/\s*·\s*\d+$/, ""))),
+    );
   const headingPattern =
     /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
 
@@ -6179,7 +6230,10 @@ const renderBadgeTooltip = (
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
   if (!tooltip) return null;
 
-  if (badge.key === "service_review_summary" && !forceVisible) {
+  if (
+    ["service_review_summary", "order_review_summary"].includes(badge.key) &&
+    !forceVisible
+  ) {
     return <ViewportAwareOrderServiceTooltip badge={badge} align={align} />;
   }
 

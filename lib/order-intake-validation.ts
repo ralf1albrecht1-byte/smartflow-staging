@@ -215,6 +215,33 @@ function recognitionServiceNamesCompatibleV17_90L69(
   return shared > 0 && shared / Math.min(aTokens.length, bTokens.length) >= 0.6;
 }
 
+function recognitionEvidenceCompatibleV17_90L71(
+  item: ParsedOrderItemForValidation,
+  explicit: ParsedOrderItemForValidation,
+): boolean {
+  const left = normalizeCompare(
+    [item.sourceText, item.evidence, item.description].filter(Boolean).join(" "),
+  );
+  const right = normalizeCompare(
+    [explicit.sourceText, explicit.evidence, explicit.description]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (!left || !right) return false;
+  if (left === right || left.includes(right) || right.includes(left)) return true;
+
+  const usefulTokens = (value: string) =>
+    value
+      .split(/\s+/g)
+      .filter((token) => token.length >= 5)
+      .filter((token) => !/^(?:chf|eur|franken|euro|stueck|stück|quadratmeter)$/.test(token));
+  const leftTokens = usefulTokens(left);
+  const rightTokens = usefulTokens(right);
+  if (leftTokens.length === 0 || rightTokens.length === 0) return false;
+  const shared = leftTokens.filter((token) => rightTokens.includes(token));
+  return shared.length >= 2;
+}
+
 function exactExplicitPricedLineCoveredV17_90L24(
   items: ParsedOrderItemForValidation[],
   explicit: ParsedOrderItemForValidation,
@@ -234,10 +261,10 @@ function exactExplicitPricedLineCoveredV17_90L24(
 
     return (
       amountAndUnitMatch &&
-      recognitionServiceNamesCompatibleV17_90L69(
+      (recognitionServiceNamesCompatibleV17_90L69(
         item.serviceName,
         explicit.serviceName,
-      )
+      ) || recognitionEvidenceCompatibleV17_90L71(item, explicit))
     );
   });
 }
@@ -264,16 +291,22 @@ function preferStrongRecognitionCandidatesV17_90L69(
     );
     return Boolean(evidence && normalizedOriginal.includes(evidence));
   };
+  const quality = (item: ParsedOrderItemForValidation) => {
+    const name = cleanGermanSpatialGrammarV17_90L71(item.serviceName);
+    let score = serviceNameLooksLikeUntranslatedRawV17_90(name) ? -100 : 0;
+    if (hasVisibleGermanWorkActionV17_37(name)) score += 60;
+    score += meaningfulServiceTokens(name).length * 8;
+    if (hasExactSourceEvidence(item)) score += 30;
+    if (hasExplicitCurrency(item)) score += 10;
+    return score;
+  };
 
-  return explicitItems.filter((item, index, all) => {
+  const filtered = explicitItems.filter((item, index, all) => {
     const sameSignature = all.filter(
       (other, otherIndex) =>
         otherIndex !== index && signature(other) === signature(item),
     );
 
-    // A generated cross-line fragment is weaker than an exact source line
-    // with the same numeric signature. This prevents a following amount from
-    // being attached to the preceding service label.
     if (
       !hasExactSourceEvidence(item) &&
       sameSignature.some(hasExactSourceEvidence)
@@ -284,6 +317,27 @@ function preferStrongRecognitionCandidatesV17_90L69(
     if (hasExplicitCurrency(item)) return true;
     return !sameSignature.some(hasExplicitCurrency);
   });
+
+  const kept: ParsedOrderItemForValidation[] = [];
+  for (const candidate of filtered) {
+    const duplicateIndex = kept.findIndex(
+      (existing) =>
+        signature(existing) === signature(candidate) &&
+        recognitionEvidenceCompatibleV17_90L71(existing, candidate),
+    );
+    if (duplicateIndex < 0) {
+      kept.push(candidate);
+      continue;
+    }
+    if (quality(candidate) > quality(kept[duplicateIndex])) {
+      kept[duplicateIndex] = candidate;
+    }
+  }
+
+  return kept.map((item) => ({
+    ...item,
+    serviceName: cleanGermanSpatialGrammarV17_90L71(item.serviceName),
+  }));
 }
 
 type RecognitionReviewPayloadV17_90L69 = {
@@ -502,7 +556,7 @@ const UNIT_WORDS =
 const PRICE_NUMBER = "(\\d+(?:[.,]\\d{1,2})?)";
 
 const QUANTITY_NUMBER_OR_WORD =
-  "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|viertel|halbe|halb|dreiviertel|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)";
+  "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|viertel|halbe|halb|dreiviertel|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn|tri|cetiri|četiri)";
 
 
 function isPricedServiceLine(line: string): boolean {
@@ -564,6 +618,10 @@ const QUANTITY_WORD_VALUES: Record<string, number> = {
   neun: 9,
   neuneinhalb: 9.5,
   zehn: 10,
+  // Häufige Zahlwörter aus gemischtsprachigen WhatsApp-Nachrichten.
+  // Nur Mengenparser, keine Leistungs-/Service-Wortliste.
+  tri: 3,
+  cetiri: 4,
 };
 
 const GENERIC_SERVICE_WORDS = new Set([
@@ -2580,6 +2638,23 @@ function cleanLineLocalServiceLabelGrammarV17_60(value?: string | null): string 
   return text.replace(/\s+/g, " ").replace(/\s*[\(\[\{]+\s*$/g, "").trim();
 }
 
+function cleanGermanSpatialGrammarV17_90L71(value?: string | null): string {
+  return normalizeText(value || "")
+    // Structural German grammar only: compound place nouns ending in
+    // -raum/-bereich/-gang/-trakt/-saal are masculine. This repairs AI output
+    // such as "in der Pausenraum" without mapping any service vocabulary.
+    .replace(
+      /\bin\s+der\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß'’-]+(?:raum|bereich|gang|trakt|saal))\b/giu,
+      "im $1",
+    )
+    .replace(
+      /\bin\s+dem\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß'’-]+(?:raum|bereich|gang|trakt|saal))\b/giu,
+      "im $1",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function cleanValidationServiceDisplayName(value?: string | null): string {
   if (isPriceAnchorOnlyServiceName(value)) return "Unbekannte Leistung";
 
@@ -2660,7 +2735,8 @@ function cleanValidationServiceDisplayName(value?: string | null): string {
     return "Unbekannte Leistung";
   }
 
-  return grammarCleaned.replace(/^./, (char) => char.toUpperCase());
+  const grammarSafe = cleanGermanSpatialGrammarV17_90L71(grammarCleaned);
+  return grammarSafe.replace(/^./, (char) => char.toUpperCase());
 }
 
 function normalizeParsedServiceNames(
@@ -2725,9 +2801,22 @@ function serviceNameHasForbiddenSentencePartsV17_90(value?: string | null): bool
 function serviceNameLooksLikeUntranslatedRawV17_90(value?: string | null): boolean {
   const key = serviceNameSafetyKeyV17_90(value || "");
   if (!key) return true;
-  // Sprach-/Rohmarker, keine fachliche Service-Wortliste. Wenn eine deutsche
-  // Arbeitsfassung existiert, sollen diese Rohformen nicht sichtbar bleiben.
-  return /\b(?:cave|vitres?|fenetres?|fenêtres?|couloir|sol|nettoyage|deplacement|déplacement|local\s+technique|immeuble|chantier|pcs|piece|pieces|pi[eè]ces)\b/.test(key);
+
+  // Language guard, not a service dictionary. Two or more foreign grammar
+  // particles in one visible label are enough to fail closed. This catches
+  // mixed labels such as "La salle de pause komplett reinigen" while leaving
+  // genuine company/object names alone.
+  const foreignGrammarTokens = new Set([
+    "la", "le", "les", "de", "des", "du", "dans", "et", "avec",
+    "el", "los", "las", "del", "y", "con",
+    "il", "gli", "della", "nella", "e",
+  ]);
+  const tokens = key.split(/\s+/g).filter(Boolean);
+  const foreignGrammarHits = tokens.filter((token) => foreignGrammarTokens.has(token)).length;
+  if (foreignGrammarHits >= 2) return true;
+
+  // A few strong raw-language markers remain useful as a final safety net.
+  return /\b(?:nettoyage|deplacement|déplacement|pi[eè]ces|pcs)\b/.test(key);
 }
 
 function lineHasSameQuantityAndPriceV17_90(
@@ -2760,6 +2849,7 @@ function candidateServiceNameFromLineV17_90(line: string): string {
   const candidate = cleanValidationServiceDisplayName(line);
   if (!candidate || normalizeCompare(candidate) === "unbekannte leistung") return "";
   if (serviceNameHasForbiddenSentencePartsV17_90(candidate)) return "";
+  if (serviceNameLooksLikeUntranslatedRawV17_90(candidate)) return "";
   return candidate;
 }
 
@@ -2812,7 +2902,6 @@ function applyFailClosedServiceNameSafetyGuardV17_90(
   items: ParsedOrderItemForValidation[],
 ): { items: ParsedOrderItemForValidation[]; reviewReasons: string[] } {
   const reviewReasons: string[] = [];
-  const hasTranslation = Boolean(automaticTranslationBlockV17_90(originalText));
 
   const guarded = items.map((item) => {
     const cleanedCurrent = cleanValidationServiceDisplayName(item.serviceName);
@@ -2822,7 +2911,7 @@ function applyFailClosedServiceNameSafetyGuardV17_90(
     const currentUnsafe =
       serviceNameHasForbiddenSentencePartsV17_90(cleanedCurrent) ||
       normalizeCompare(cleanedCurrent) === "unbekannte leistung" ||
-      (hasTranslation && serviceNameLooksLikeUntranslatedRawV17_90(cleanedCurrent));
+      serviceNameLooksLikeUntranslatedRawV17_90(cleanedCurrent);
 
     if (!currentUnsafe) {
       return { ...item, serviceName: cleanedCurrent };
@@ -7629,9 +7718,21 @@ function hasResolvedCompleteItemForReason(
 
 function hasOpenAmountReview(items: ParsedOrderItemForValidation[]): boolean {
   return items.some((item) => {
+    const reason = String(item.reviewReason || "");
+    const isCurrencyReview =
+      reason === "currency_review" ||
+      reason === "currency_conflict" ||
+      reason === "currency_unsupported" ||
+      reason.startsWith("item_currency_mismatch:") ||
+      reason.startsWith("currency_conflict_item:");
+
+    // Eine bewusst blockierte Fremdwährungsposition ist kein gelber
+    // Preis-/Mengenfehler. Sie wird ausschließlich über den roten
+    // Währungsblocker behandelt.
+    if (isCurrencyReview) return false;
+
     if (Number(item.unitPrice || 0) <= 0) return true;
     if (!isFlatUnit(item.unit) && Number(item.quantity || 0) <= 0) return true;
-    const reason = item.reviewReason || "";
     return (
       item.needsReview &&
       (reason.startsWith("price_unclear:") ||
@@ -10601,6 +10702,298 @@ function cleanFinalServiceAmountSuffixV17_90L70(
   return cleaned || normalizeText(value || "");
 }
 
+function isOpenReviewServiceNameV17_90L71(value?: string | null): boolean {
+  const key = normalizeCompare(value);
+  return (
+    !key ||
+    key === "leistung pruefen" ||
+    key === "unbekannte leistung" ||
+    key.includes("leistung suchen") ||
+    key.includes("leistung eingeben")
+  );
+}
+
+function removeOpenReviewItemsCoveredByCompleteItemsV17_90L71(
+  items: ParsedOrderItemForValidation[],
+): ParsedOrderItemForValidation[] {
+  return items.filter((item, index) => {
+    if (!isOpenReviewServiceNameV17_90L71(item.serviceName)) return true;
+    const quantity = Number(item.quantity || 0);
+    const price = Number(item.unitPrice || 0);
+    if (!(quantity > 0 && price > 0)) return true;
+
+    const candidates = items.filter((other, otherIndex) => {
+      if (otherIndex === index || isOpenReviewServiceNameV17_90L71(other.serviceName)) return false;
+      if (Number(other.quantity || 0) <= 0 || Number(other.unitPrice || 0) <= 0) return false;
+      if (Number(other.totalPrice || 0) <= 0) return false;
+      const sameQuantity = Math.abs(Number(other.quantity || 0) - quantity) < 0.001;
+      const samePrice = Math.abs(Number(other.unitPrice || 0) - price) < 0.01;
+      const itemUnit = unitTypeFromDisplayUnit(item.unit);
+      const otherUnit = unitTypeFromDisplayUnit(other.unit);
+      const unitCompatible = !itemUnit || !otherUnit || itemUnit === otherUnit;
+      return sameQuantity && samePrice && unitCompatible;
+    });
+
+    // Remove only when the numeric signature points to exactly one complete
+    // named row. This avoids deleting a legitimate second service that happens
+    // to share the same price.
+    return candidates.length !== 1;
+  });
+}
+
+function clearResolvedLineLocalPriceReviewsV17_90L71(
+  items: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const explicit = preferStrongRecognitionCandidatesV17_90L69(
+    [
+      ...extractStrictLineLocalPricedItemsV17_90L22(originalText, finalCurrency),
+      ...extractCountOnlyPricedRecognitionItemsV17_90L69(originalText, finalCurrency),
+      ...extractBareFlatTravelEvidenceV17_90L70(originalText, finalCurrency),
+    ],
+    originalText,
+  );
+
+  return items.map((item) => {
+    if (Number(item.quantity || 0) <= 0 || Number(item.unitPrice || 0) <= 0) return item;
+    if (!isFlatUnit(item.unit) && !unitTypeFromDisplayUnit(item.unit)) return item;
+    const match = explicit.find(
+      (candidate) =>
+        exactAmountUnitMatchV17_90L22(item, candidate as any) &&
+        (recognitionServiceNamesCompatibleV17_90L69(item.serviceName, candidate.serviceName) ||
+          recognitionEvidenceCompatibleV17_90L71(item, candidate)),
+    );
+    if (!match) return item;
+
+    const reason = String(item.reviewReason || "");
+    const canClear =
+      reason.startsWith("price_unclear:") ||
+      reason.startsWith("price_repaired_from_text:") ||
+      reason === "unit_price_review" ||
+      reason === "quantity_review";
+    return {
+      ...item,
+      serviceName: cleanGermanSpatialGrammarV17_90L71(item.serviceName),
+      description: String(item.description || "")
+        .replace(/Preis im Text unklar\.?/gi, "")
+        .replace(/Bitte Preis bestätigen\.?/gi, "")
+        .replace(/\s+/g, " ")
+        .trim() || String(match.sourceText || match.description || item.description || ""),
+      needsReview: canClear ? false : item.needsReview,
+      reviewReason: canClear ? null : item.reviewReason,
+      totalPrice: calculateSafeLineTotal(item),
+    };
+  });
+}
+
+function exactForeignCurrencySegmentsV17_90L71(
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): Array<{ currency: string; amount: number; line: string; serviceName: string }> {
+  const source = String(originalText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  const segments = source
+    .split(/\n+|(?<=[.!?])\s+|;/g)
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+  const result: Array<{ currency: string; amount: number; line: string; serviceName: string }> = [];
+
+  for (const line of segments) {
+    for (const currency of ["CHF", "EUR"] as const) {
+      if (currency === finalCurrency) continue;
+      const token = currency === "CHF" ? "(?:chf|franken|fr\.?|sfr\.?|stutz)" : "(?:eur|euro|€)";
+      const before = line.match(new RegExp(`\\b${token}\\b\\s*(${PRICE_NUMBER})`, "i"));
+      const after = line.match(new RegExp(`(${PRICE_NUMBER})\\s*${token}\\b`, "i"));
+      const rawAmount = before?.[1] || after?.[1];
+      const amount = parsePriceNumber(rawAmount);
+      if (!amount || amount <= 0) continue;
+      const serviceName =
+        canonicalGermanServiceNameFromText(line) ||
+        normalizeFlatServiceNameFromText(line) ||
+        "Leistung prüfen";
+      result.push({ currency, amount, line, serviceName });
+    }
+  }
+
+  const byKey = new Map<string, { currency: string; amount: number; line: string; serviceName: string }>();
+  for (const entry of result) {
+    const key = `${entry.currency}|${entry.amount.toFixed(2)}|${normalizeCompare(entry.line)}`;
+    if (!byKey.has(key)) byKey.set(key, entry);
+  }
+  return Array.from(byKey.values());
+}
+
+function normalizeForeignCurrencyReviewItemsV17_90L71(
+  originalText: string,
+  items: ParsedOrderItemForValidation[],
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const segments = exactForeignCurrencySegmentsV17_90L71(originalText, finalCurrency);
+  if (segments.length === 0) return items;
+  const used = new Set<number>();
+
+  const normalized = items.map((item) => {
+    const reason = String(item.reviewReason || "");
+    const currency = String(item.detectedCurrency || reason.split(":")[2] || "").toUpperCase();
+    if (!currency || currency === finalCurrency) return item;
+    const matchIndex = segments.findIndex((segment, index) => {
+      if (used.has(index) || segment.currency !== currency) return false;
+      const evidence = normalizeCompare([item.sourceText, item.evidence, item.description].filter(Boolean).join(" "));
+      return !evidence || evidence.includes(String(segment.amount)) || normalizeCompare(segment.line).includes(evidence);
+    });
+    const fallbackIndex = matchIndex >= 0 ? matchIndex : segments.findIndex((segment, index) => !used.has(index) && segment.currency === currency);
+    if (fallbackIndex < 0) return item;
+    used.add(fallbackIndex);
+    const segment = segments[fallbackIndex];
+    const serviceName = cleanGermanSpatialGrammarV17_90L71(segment.serviceName);
+    const nextReason = `item_currency_mismatch:${serviceName}:${currency}:${finalCurrency}`;
+    return {
+      ...item,
+      serviceName,
+      description: segment.line,
+      sourceText: segment.line,
+      evidence: segment.line,
+      unit: item.unit || "Pauschal",
+      quantity: Number(item.quantity || 0) > 0 ? Number(item.quantity) : 1,
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: nextReason,
+      detectedCurrency: currency,
+    };
+  });
+
+  const amountFromEvidence = (value?: string | null): number => {
+    const source = String(value || "");
+    for (const currency of ["CHF", "EUR"] as const) {
+      const token = currency === "CHF" ? "(?:chf|franken|fr\.?|sfr\.?|stutz)" : "(?:eur|euro|€)";
+      const before = source.match(new RegExp(`\b${token}\b\s*(${PRICE_NUMBER})`, "i"));
+      const after = source.match(new RegExp(`(${PRICE_NUMBER})\s*${token}\b`, "i"));
+      const amount = parsePriceNumber(before?.[1] || after?.[1]);
+      if (amount && amount > 0) return amount;
+    }
+    return 0;
+  };
+
+  const seen = new Set<string>();
+  return normalized.filter((item) => {
+    const reason = String(item.reviewReason || "");
+    const currency = String(item.detectedCurrency || reason.split(":")[2] || "").toUpperCase();
+    if (!currency || currency === finalCurrency) return true;
+    const evidence = String(item.sourceText || item.evidence || item.description || "");
+    const amount = amountFromEvidence(evidence);
+    const key = `${currency}|${amount.toFixed(2)}|${normalizeCompare(item.serviceName)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function restoreSafeCompleteInputItemsV17_90L71(
+  originalItems: ParsedOrderItemForValidation[],
+  currentItems: ParsedOrderItemForValidation[],
+  originalText: string,
+  finalCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const explicit = preferStrongRecognitionCandidatesV17_90L69(
+    [
+      ...extractStrictLineLocalPricedItemsV17_90L22(originalText, finalCurrency),
+      ...extractCountOnlyPricedRecognitionItemsV17_90L69(originalText, finalCurrency),
+      ...extractBareFlatTravelEvidenceV17_90L70(originalText, finalCurrency),
+    ],
+    originalText,
+  );
+  const next = currentItems.slice();
+
+  for (const original of originalItems || []) {
+    const quantity = Number(original.quantity || 0);
+    const unitPrice = Number(original.unitPrice || 0);
+    const detectedCurrency = String(original.detectedCurrency || finalCurrency).toUpperCase();
+    if (!(quantity > 0 && unitPrice > 0) || detectedCurrency !== finalCurrency) continue;
+    const unitType = unitTypeFromDisplayUnit(original.unit);
+    if (!isFlatUnit(original.unit) && !unitType) continue;
+
+    const safeName = cleanGermanSpatialGrammarV17_90L71(
+      cleanValidationServiceDisplayName(original.serviceName),
+    );
+    if (
+      !safeName ||
+      isOpenReviewServiceNameV17_90L71(safeName) ||
+      serviceNameHasForbiddenSentencePartsV17_90(safeName) ||
+      serviceNameLooksLikeUntranslatedRawV17_90(safeName)
+    ) {
+      continue;
+    }
+
+    const exact = explicit.find(
+      (candidate) =>
+        exactAmountUnitMatchV17_90L22(original, candidate as any) &&
+        (recognitionServiceNamesCompatibleV17_90L69(safeName, candidate.serviceName) ||
+          recognitionEvidenceCompatibleV17_90L71(original, candidate)),
+    );
+    const ownEvidence = String(
+      original.sourceText || original.evidence || original.description || "",
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+    const ownEvidenceIsExplicit = Boolean(
+      ownEvidence &&
+        normalizeText(originalText).includes(normalizeText(ownEvidence)) &&
+        lineHasSameQuantityAndPriceV17_90(ownEvidence, original),
+    );
+    if (!exact && !ownEvidenceIsExplicit) continue;
+
+    const sameAmountIndexes = next
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => exactAmountUnitMatchV17_90L22(item, original as any));
+
+    const compatible = sameAmountIndexes.find(({ item }) =>
+      recognitionServiceNamesCompatibleV17_90L69(item.serviceName, safeName) ||
+      recognitionEvidenceCompatibleV17_90L71(item, original),
+    );
+
+    const restored: ParsedOrderItemForValidation = {
+      ...original,
+      serviceName: safeName,
+      description:
+        exact?.sourceText || exact?.description || ownEvidence || original.description,
+      sourceText:
+        exact?.sourceText || ownEvidence || original.sourceText || original.description,
+      evidence:
+        exact?.evidence || exact?.sourceText || ownEvidence || original.evidence || original.description,
+      quantity,
+      unit: original.unit,
+      unitPrice,
+      totalPrice: roundMoney(quantity * unitPrice),
+      needsReview: false,
+      reviewReason: null,
+      detectedCurrency: finalCurrency,
+    };
+
+    if (compatible) {
+      const currentName = String(compatible.item.serviceName || "");
+      const currentUnsafe =
+        serviceNameLooksLikeUntranslatedRawV17_90(currentName) ||
+        serviceNameHasForbiddenSentencePartsV17_90(currentName) ||
+        isOpenReviewServiceNameV17_90L71(currentName);
+      if (currentUnsafe || safeName.length >= currentName.length) {
+        next[compatible.index] = restored;
+      }
+      continue;
+    }
+
+    // A unique numeric signature that vanished during later repair passes is
+    // restored only when its own source/evidence is explicit and line-local.
+    if (sameAmountIndexes.length === 0) next.push(restored);
+  }
+
+  // Do not use the generic name/unit deduper here: a valid CHF Anfahrt and a
+  // separate EUR travel-review position intentionally share name/unit/quantity.
+  return removeOpenReviewItemsCoveredByCompleteItemsV17_90L71(next);
+}
+
 function applyFinalServiceAmountSuffixCleanupV17_90L70(
   items: ParsedOrderItemForValidation[],
 ): ParsedOrderItemForValidation[] {
@@ -11349,7 +11742,33 @@ export function validateAndRepairParsedOrderItems(
     );
   items = rawForeignCurrencyFallbackV17_90L41.items;
   reviewReasons.push(...rawForeignCurrencyFallbackV17_90L41.reviewReasons);
+  items = normalizeForeignCurrencyReviewItemsV17_90L71(
+    input.originalText,
+    items,
+    finalCurrency,
+  );
+  items = removeOpenReviewItemsCoveredByCompleteItemsV17_90L71(items);
+  items = clearResolvedLineLocalPriceReviewsV17_90L71(
+    items,
+    input.originalText,
+    finalCurrency,
+  );
+  items = restoreSafeCompleteInputItemsV17_90L71(
+    input.items,
+    items,
+    input.originalText,
+    finalCurrency,
+  );
   items = applyFinalServiceAmountSuffixCleanupV17_90L70(items);
+
+  // V17.90L71: letzte Sprach-Schranke direkt vor Ergebnis/Persistenz.
+  // Spätere Repair-/Restore-Pfade dürfen keine gemischtsprachige sichtbare
+  // Leistung wieder einführen. Entweder sauber deutsch oder rot blockiert.
+  const finalServiceLanguageSafetyV17_90L71 =
+    applyFailClosedServiceNameSafetyGuardV17_90(input.originalText, items);
+  items = finalServiceLanguageSafetyV17_90L71.items;
+  reviewReasons.push(...finalServiceLanguageSafetyV17_90L71.reviewReasons);
+
   hasRealCurrencyProblem = items.some((item) => {
     const rawDetectedCurrency = String(item.detectedCurrency || "")
       .trim()
@@ -11386,6 +11805,10 @@ export function validateAndRepairParsedOrderItems(
     )
     .filter((reason) => {
       if (!reason.startsWith("price_repaired_from_text:")) return true;
+      // Reparaturprotokolle sind interne Diagnosewerte. Sobald nach der
+      // finalen Konsolidierung keine echte gelbe Preis-/Mengenprüfung mehr
+      // offen ist, dürfen sie keinen sichtbaren Prüfchip erzeugen.
+      if (!hasOpenAmountReview(items)) return false;
       const [, serviceName = ""] = reason.split(":");
       const serviceKey = normalizeCompare(serviceName);
       const currentItemIsCurrencyReview = items.some((item) => {
@@ -11444,7 +11867,26 @@ export function validateAndRepairParsedOrderItems(
     })
     .filter((reason) => {
       if (!reason.startsWith("price_unclear:")) return true;
-      return !hasResolvedCompleteItemForReason(items, reason);
+      if (hasResolvedCompleteItemForReason(items, reason)) return false;
+      const serviceName = reason.split(":")[1] || "";
+      const target = items.find(
+        (item) => normalizeCompare(item.serviceName) === normalizeCompare(serviceName),
+      );
+      if (!target || Number(target.quantity || 0) <= 0 || Number(target.unitPrice || 0) <= 0) return true;
+      const explicit = preferStrongRecognitionCandidatesV17_90L69(
+        [
+          ...extractStrictLineLocalPricedItemsV17_90L22(input.originalText, finalCurrency),
+          ...extractCountOnlyPricedRecognitionItemsV17_90L69(input.originalText, finalCurrency),
+          ...extractBareFlatTravelEvidenceV17_90L70(input.originalText, finalCurrency),
+        ],
+        input.originalText,
+      );
+      return !explicit.some(
+        (candidate) =>
+          exactAmountUnitMatchV17_90L22(target, candidate as any) &&
+          (recognitionServiceNamesCompatibleV17_90L69(target.serviceName, candidate.serviceName) ||
+            recognitionEvidenceCompatibleV17_90L71(target, candidate)),
+      );
     })
     .filter((reason) => {
       if (reason !== "unit_price_review" && reason !== "quantity_review") {
