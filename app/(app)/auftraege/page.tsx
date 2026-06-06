@@ -3426,6 +3426,49 @@ const getCurrencyMismatchReviewDetails = (
   return details;
 };
 
+const getActiveCurrencyMismatchReviewDetailsV17_90L78 = (
+  order: Pick<Order, "items"> | null | undefined,
+  reviewReasons?: string[] | null,
+): CurrencyMismatchDetail[] => {
+  const items = order?.items || [];
+  return getCurrencyMismatchReviewDetails(reviewReasons).filter((detail) => {
+    const detailKey = normalizeForMatch(
+      canonicalServiceNameForOrderItem(detail.serviceName),
+    );
+    if (!detailKey) return false;
+
+    const matchingItem = items.find(
+      (item) =>
+        normalizeForMatch(
+          canonicalServiceNameForOrderItem(item.serviceName),
+        ) === detailKey,
+    );
+    if (!matchingItem) return false;
+
+    const serviceKey = normalizeForMatch(matchingItem.serviceName);
+    const unitKey = normalizeForMatch(matchingItem.unit);
+    const serviceStillOpen =
+      !serviceKey ||
+      serviceKey === "leistung pruefen" ||
+      serviceKey === "leistung prufen" ||
+      serviceKey.includes("leistung suchen") ||
+      serviceKey.includes("eingeben");
+    const unitStillOpen =
+      !unitKey ||
+      unitKey === "pruefen" ||
+      unitKey === "prufen" ||
+      unitKey === "einheit pruefen" ||
+      unitKey === "einheit prufen";
+
+    return (
+      Number(matchingItem.unitPrice || 0) <= 0 ||
+      Number(matchingItem.quantity || 0) <= 0 ||
+      serviceStillOpen ||
+      unitStillOpen
+    );
+  });
+};
+
 const hasItemLevelCurrencyReviewReasons = (reviewReasons?: string[] | null) =>
   getCurrencyMismatchReviewDetails(reviewReasons).length > 0;
 
@@ -4259,7 +4302,10 @@ const formatCurrencyReviewTooltip = (order: Order, services: ServiceDef[]) => {
     .filter(Boolean)
     .join("\n");
   const sections: string[] = [];
-  const mismatchDetails = getCurrencyMismatchReviewDetails(order.reviewReasons);
+  const mismatchDetails = getActiveCurrencyMismatchReviewDetailsV17_90L78(
+    order,
+    order.reviewReasons,
+  );
 
   const currencyLines = [
     "Währung prüfen",
@@ -5221,6 +5267,19 @@ const getSystemBadges = (
     });
   };
 
+  const effectiveCurrencyReviewReasons =
+    effectiveOrderReviewReasonsV17_90L37(order);
+  const activeCurrencyReviewServiceKeys = new Set(
+    getActiveCurrencyMismatchReviewDetailsV17_90L78(
+      order,
+      effectiveCurrencyReviewReasons,
+    ).map((detail) =>
+      normalizeForMatch(
+        canonicalServiceNameForOrderItem(detail.serviceName),
+      ),
+    ),
+  );
+
   const hasPriceQuantityReview =
     order.items && order.items.length > 0
       ? order.items.some((it) => {
@@ -5255,14 +5314,20 @@ const getSystemBadges = (
               /preis\s+(?:fehlt|offen|unklar|pr[üu]fen)/i.test(text) ||
               /price\s+(?:missing|open|unknown|unclear|review)/i.test(text) ||
               /nicht\s+in\s+(?:netto|mwst|total)/i.test(text));
+          const itemServiceKey = normalizeForMatch(
+            canonicalServiceNameForOrderItem(it.serviceName),
+          );
+          const isCurrencyOnlyBlocker =
+            activeCurrencyReviewServiceKeys.has(itemServiceKey) &&
+            !serviceIsOpen &&
+            !isUnitMissingReviewItem(it);
+
+          if (isCurrencyOnlyBlocker) return false;
+
           return (
             quantity <= 0 ||
             unitPrice <= 0 ||
-            explicitReviewZeroTotal ||
-            hasCurrencyMismatchReviewForService(
-              order.reviewReasons,
-              it.serviceName,
-            )
+            explicitReviewZeroTotal
           );
         })
       : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
@@ -5376,11 +5441,16 @@ const getSystemBadges = (
   // "Auftrag prüfen"-Chip erzeugen. Aktuelle harte Fehler werden bereits
   // konkret als Kunde, Ausführadresse, Währung, Betrag oder Einheit angezeigt.
 
-  const effectiveCurrencyReviewReasons =
-    effectiveOrderReviewReasonsV17_90L37(order);
-  const hasCurrencyReview = hasAnyCurrencyReviewReason(
-    effectiveCurrencyReviewReasons,
-  );
+  const activeCurrencyMismatchDetails =
+    getActiveCurrencyMismatchReviewDetailsV17_90L78(
+      order,
+      effectiveCurrencyReviewReasons,
+    );
+  const hasCurrencyReview =
+    activeCurrencyMismatchDetails.length > 0 ||
+    hasGlobalCurrencyReviewWithoutItemDetails(
+      effectiveCurrencyReviewReasons,
+    );
 
   if (hasCurrencyReview) {
     pushUniqueBadge(badges, {
@@ -6406,6 +6476,149 @@ const ViewportAwareOrderServiceTooltip = ({
   );
 };
 
+const ViewportAwareOrderRedTooltipV17_90L78 = ({
+  badge,
+  align = "left",
+}: {
+  badge: ReviewBadge;
+  align?: "left" | "right";
+}) => {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    width: number;
+    maxHeight: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+  const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const calculatePosition = () => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger || typeof window === "undefined") return null;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 8;
+    const width = Math.max(280, Math.min(384, window.innerWidth - 24));
+    const desiredLeft = align === "right" ? rect.right - width : rect.left;
+    const left = Math.min(
+      Math.max(viewportPadding, desiredLeft),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+    const availableAbove = Math.max(
+      0,
+      rect.top - gap - viewportPadding,
+    );
+    const availableBelow = Math.max(
+      0,
+      window.innerHeight - rect.bottom - gap - viewportPadding,
+    );
+    const openBelow = availableBelow > availableAbove;
+    const available = openBelow ? availableBelow : availableAbove;
+    const maxHeight = Math.max(112, Math.min(480, available));
+
+    return openBelow
+      ? { left, width, maxHeight, top: rect.bottom + gap }
+      : {
+          left,
+          width,
+          maxHeight,
+          bottom: window.innerHeight - rect.top + gap,
+        };
+  };
+
+  const showTooltip = () => {
+    clearHideTimer();
+    const nextPosition = calculatePosition();
+    if (nextPosition) setPosition(nextPosition);
+    setOpen(true);
+  };
+
+  const scheduleHideTooltip = () => {
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+  };
+
+  useEffect(() => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger) return;
+
+    const handleFocusOut = (event: FocusEvent) => {
+      if (!trigger.contains(event.relatedTarget as Node | null)) {
+        scheduleHideTooltip();
+      }
+    };
+
+    trigger.addEventListener("pointerenter", showTooltip);
+    trigger.addEventListener("pointerleave", scheduleHideTooltip);
+    trigger.addEventListener("focusin", showTooltip);
+    trigger.addEventListener("focusout", handleFocusOut);
+
+    return () => {
+      trigger.removeEventListener("pointerenter", showTooltip);
+      trigger.removeEventListener("pointerleave", scheduleHideTooltip);
+      trigger.removeEventListener("focusin", showTooltip);
+      trigger.removeEventListener("focusout", handleFocusOut);
+      clearHideTimer();
+    };
+  }, [align]);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const nextPosition = calculatePosition();
+      if (nextPosition) setPosition(nextPosition);
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, align]);
+
+  if (!tooltip) return null;
+
+  return (
+    <>
+      <span ref={anchorRef} className="hidden" aria-hidden="true" />
+      {open && position && (
+        <span
+          role="tooltip"
+          onPointerEnter={clearHideTimer}
+          onPointerLeave={scheduleHideTooltip}
+          style={{
+            left: position.left,
+            width: position.width,
+            maxHeight: position.maxHeight,
+            top: position.top,
+            bottom: position.bottom,
+          }}
+          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        >
+          <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+            {badge.label}
+          </span>
+          {renderStructuredRedReviewTooltipV17_90L73(
+            tooltip,
+            `viewport_red_${badge.key}`,
+          )}
+        </span>
+      )}
+    </>
+  );
+};
+
 const renderBadgeTooltip = (
   badge: ReviewBadge,
   align: "left" | "right" = "left",
@@ -6426,14 +6639,6 @@ const renderBadgeTooltip = (
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
   if (!tooltip) return null;
 
-  if (badge.key === "service_review_summary" && !forceVisible) {
-    return <ViewportAwareOrderServiceTooltip badge={badge} align={align} />;
-  }
-
-  const alignClass = align === "right" ? "right-0" : "left-0";
-
-  const tooltipLines = tooltip.split("\n");
-  const isServiceReviewSummary = badge.key === "service_review_summary";
   const isStructuredRedReview =
     [
       "order_review_summary",
@@ -6443,6 +6648,18 @@ const renderBadgeTooltip = (
       "unit_conflict",
     ].includes(badge.key) &&
     /(?:^|\s)(?:bg|text|border)-red-/.test(badge.className || "");
+
+  if (badge.key === "service_review_summary" && !forceVisible) {
+    return <ViewportAwareOrderServiceTooltip badge={badge} align={align} />;
+  }
+  if (isStructuredRedReview && !forceVisible) {
+    return <ViewportAwareOrderRedTooltipV17_90L78 badge={badge} align={align} />;
+  }
+
+  const alignClass = align === "right" ? "right-0" : "left-0";
+
+  const tooltipLines = tooltip.split("\n");
+  const isServiceReviewSummary = badge.key === "service_review_summary";
   const headingPattern =
     /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
 
