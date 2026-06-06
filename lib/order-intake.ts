@@ -3398,10 +3398,7 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
   if (!rawText) return { safetyWarnings: [], jobHints: [] };
 
   const normalizedLines = rawText
-    // Special-note detection works clause-local. A negative access clause must
-    // not suppress a later positive danger clause in the same sentence, e.g.
-    // "Hintertor nicht allein öffnen, dort läuft ein Hund frei".
-    .split(/\n+|(?<=[.!?])\s+|[,;](?=\s*[^\d])/g)
+    .split(/\n+|(?<=[.!?])\s+/g)
     .map((line) => normalizeSemanticText(line))
     .filter(Boolean);
 
@@ -3567,10 +3564,6 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     .split(/\n+|(?<=[.!?])\s+/g)
     .map((line) => line.trim())
     .filter(Boolean);
-  const rawOperationalClauses = rawOperationalLines
-    .flatMap((line) => line.split(/[,;](?=\s*[^\d])/g))
-    .map((line) => line.trim())
-    .filter(Boolean);
 
   for (const rawLine of rawOperationalLines) {
     const line = normalizeSemanticText(rawLine);
@@ -3705,27 +3698,6 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     }
   }
 
-  for (const rawClause of rawOperationalClauses) {
-    const clause = normalizeSemanticText(rawClause);
-    if (!clause) continue;
-    const hasAccessObject =
-      /\b(?:hintertor|seitentor|gartentor|tor|hintereingang|seiteneingang)\b/i.test(
-        clause,
-      );
-    const hasDoNotOpenAlone =
-      /\b(?:nicht|nie)\s+(?:allein|alleine|selbst)\s+(?:oeffnen|offnen|öffnen|aufmachen)\b|\b(?:nicht|nie)\s+(?:oeffnen|offnen|öffnen|aufmachen)\b/i.test(
-        clause,
-      );
-    if (hasAccessObject && hasDoNotOpenAlone) {
-      jobHints.push(
-        rawClause
-          .replace(/\s+/g, " ")
-          .replace(/[.;:,\s]+$/g, "")
-          .trim(),
-      );
-    }
-  }
-
   const specificParkingLine = normalizedLines.find(
     (line) =>
       /\b(?:parkieren|parken|parking)\b/i.test(line) &&
@@ -3765,11 +3737,11 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     jobHints.push("Parkplatz schwierig");
   }
 
-  for (const rawLine of rawOperationalClauses) {
+  for (const rawLine of rawOperationalLines) {
     const line = normalizeSemanticText(rawLine);
     if (!line) continue;
     const isAccessOrCodeHint =
-      /\b(?:zugang|zufahrt|eingang|hintertor|seitentor|gartentor|torcode|codebox|code|schluessel|schlüssel|briefkasten|garage)\b/i.test(
+      /\b(?:zugang|zufahrt|eingang|seitentor|gartentor|torcode|codebox|code|schluessel|schlüssel|briefkasten|garage)\b/i.test(
         line,
       );
     const isPricingOrServiceLine =
