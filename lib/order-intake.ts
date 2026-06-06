@@ -25,6 +25,114 @@ import {
   validateAndRepairParsedOrderItems,
 } from "@/lib/order-intake-validation";
 
+
+// V17.90L74 — TEST-only diagnostic trace for intake language/service flow.
+// No business rule is changed here. The trace only records how service names,
+// own evidence, amounts and review states evolve through the existing pipeline.
+type IntakeDiagnosticTraceItem = {
+  index: number;
+  serviceName: string;
+  quantity: number | null;
+  unit: string;
+  unitPrice: number | null;
+  totalPrice: number | null;
+  currency: string;
+  confidence: string;
+  needsReview: boolean | null;
+  reviewReason: string;
+  sourceText: string;
+};
+
+function createIntakeDiagnosticTraceId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function redactIntakeDiagnosticText(value: unknown, maxLength = 1800): string {
+  return String(value || "")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[EMAIL]")
+    .replace(/\+?\d[\d\s()./-]{6,}\d/g, "[PHONE]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function summarizeIntakeDiagnosticItems(
+  values: unknown,
+): IntakeDiagnosticTraceItem[] {
+  if (!Array.isArray(values)) return [];
+
+  return values.slice(0, 30).map((rawItem: any, index) => {
+    const quantityValue = Number(rawItem?.quantity ?? rawItem?.menge);
+    const priceValue = Number(
+      rawItem?.unitPrice ?? rawItem?.unit_price ?? rawItem?.price,
+    );
+    const totalValue = Number(rawItem?.totalPrice ?? rawItem?.total_price);
+    const sourceText =
+      rawItem?.sourceText ??
+      rawItem?.source_text ??
+      rawItem?.evidence ??
+      rawItem?.raw ??
+      rawItem?.description ??
+      "";
+
+    return {
+      index: index + 1,
+      serviceName: redactIntakeDiagnosticText(
+        rawItem?.serviceName ??
+          rawItem?.name ??
+          rawItem?.service_name ??
+          rawItem?.matched_service_name ??
+          "",
+        180,
+      ),
+      quantity: Number.isFinite(quantityValue) ? quantityValue : null,
+      unit: redactIntakeDiagnosticText(
+        rawItem?.unit ?? rawItem?.einheit ?? "",
+        80,
+      ),
+      unitPrice: Number.isFinite(priceValue) ? priceValue : null,
+      totalPrice: Number.isFinite(totalValue) ? totalValue : null,
+      currency: redactIntakeDiagnosticText(
+        rawItem?.detectedCurrency ?? rawItem?.currency ?? "",
+        20,
+      ),
+      confidence: redactIntakeDiagnosticText(
+        rawItem?.confidence ?? rawItem?.service_confidence ?? "",
+        30,
+      ),
+      needsReview:
+        typeof rawItem?.needsReview === "boolean"
+          ? rawItem.needsReview
+          : null,
+      reviewReason: redactIntakeDiagnosticText(
+        rawItem?.reviewReason ?? rawItem?.review_reason ?? "",
+        220,
+      ),
+      sourceText: redactIntakeDiagnosticText(sourceText, 420),
+    };
+  });
+}
+
+function logIntakeDiagnosticTrace(
+  enabled: boolean,
+  traceId: string,
+  stage: string,
+  payload: Record<string, unknown>,
+): void {
+  if (!enabled) return;
+
+  try {
+    console.log(
+      `[INTAKE_TRACE:${traceId}] ${stage} ${JSON.stringify(payload)}`,
+    );
+  } catch (error: any) {
+    console.warn(
+      `[INTAKE_TRACE:${traceId}] ${stage} serialization_failed`,
+      error?.message || error,
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Block R — Self-introduction safety-net for voice/text intake.
 //
@@ -2895,8 +3003,6 @@ Regeln:
 - Echte Eigennamen, Firmennamen, Gebäudenamen, Straßennamen, Haus-/Trakt-/Raumnamen und Standortnamen exakt behalten, wenn sie als Namen gemeint sind. Nicht aus "Sala Verde" automatisch "Grüner Saal" machen, nicht aus "Bâtiment Les Cèdres" automatisch "Gebäude Les Cèdres" machen.
 - Nur frei beschreibende Funktions-/Raumbegriffe normalisieren, wenn sie keine Eigennamen sind und die Bedeutung eindeutig ist. Im Zweifel Originalnamen behalten.
 - Leistungszeilen müssen in der Arbeitsfassung als klare fachliche Standard-${targetLanguage}-Arbeitszeilen erscheinen, mit sauberem Verb, z.B. "... reinigen", "... abstauben", "... entfernen", "... streichen" usw., wenn die Handlung aus dem Text hervorgeht.
-- Jeder sichtbare Leistungsname muss vollständig und grammatikalisch korrekt auf Standard-Deutsch formuliert sein. Mischformen aus Deutsch und Fremdsprache sind unzulässig. Ausnahmen gelten nur für echte Eigennamen von Firmen, Gebäuden, Räumen oder Orten.
-- Wenn eine Leistungszeile semantisch nicht sicher vollständig auf Deutsch formuliert werden kann, keine halb übersetzte Mischform erzeugen. Die Zahlen und Originalzeile unverändert erhalten, damit der nachfolgende Prüfer die Position rot zur Kontrolle markieren kann.
 - Arbeitsobjekt und Kontext dürfen nicht vertauscht werden: Wenn die Zeile Fenster/Tische/Vitrinen im Gang/Sitzungszimmer nennt, muss der sichtbare Leistungsname das Arbeitsobjekt behalten und darf nicht zu einem allgemeinen Bereich wie "Gangbereich reinigen" oder "Besprechungsbereich reinigen" verflachen.
 - Ausführungsort-/Arbeitsort-Zeilen dürfen nur Objekt, Räume und Adresse enthalten. Kontaktwege, WhatsApp/SMS/Telefon, Zeitfenster, Zugang, Gefahren und Sonderhinweise bleiben eigene Hinweiszeilen und dürfen nicht an den Ortsnamen angehängt werden.
 - Keine neuen Leistungen erfinden. Keine Mengen/Preise ändern. Keine Zeilen zusammenmischen.
@@ -7660,8 +7766,7 @@ FÜR JEDE ARBEITSPOSITION MUSST DU TRENNEN:
   Wenn nicht eindeutig: service_id = null, service_name = null, confidence = "niedrig".
 
 LEISTUNGSNAMEN / SICHTBARE ARBEITEN:
-- Alle sichtbaren Leistungsnamen und action_name-Werte IMMER vollständig auf Deutsch zurückgeben, unabhängig von der Sprache des Kundentexts.
-- Mischsprachige Leistungsnamen sind ungültig. Erlaubt bleiben nur echte Eigennamen von Firmen, Gebäuden, Räumen oder Orten.
+- Alle sichtbaren Leistungsnamen und action_name-Werte IMMER auf ${hauptsprache} zurückgeben.
 - Nicht einfach Originalwörter abschreiben, wenn der Kundentext fremdsprachig, mundartlich oder unprofessionell formuliert ist.
 - Erkenne die Bedeutung semantisch und formuliere daraus einen kurzen professionellen deutschen Leistungsnamen.
 - Bei handwerklichen Neben-/Vorbereitungsleistungen die Form "...arbeiten" bevorzugen, wenn fachlich passend.
@@ -8079,7 +8184,19 @@ export async function processIncomingMessage(
     return null;
   }
   const dataScope = await getActiveDataScope(userId);
+  const intakeDiagnosticTraceEnabled = dataScope === "TEST";
+  const intakeDiagnosticTraceId = createIntakeDiagnosticTraceId();
   const _intakeStartTime = Date.now();
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "01_input",
+    {
+      source,
+      textLength: messageText.length,
+      originalText: redactIntakeDiagnosticText(messageText, 3200),
+    },
+  );
   console.log(
     `[${source}] Processing message for userId: ${userId} (textLength=${messageText.length}chars, hasImage=${!!imageBase64}, hasMedia=${!!savedMediaPath})`,
   );
@@ -8139,6 +8256,16 @@ export async function processIncomingMessage(
   const translationText = intakeNormalization.translationText;
   const showTranslationInCustomerMessage =
     intakeNormalization.showTranslationInCustomerMessage;
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "02_normalization",
+    {
+      hasTranslation: Boolean(translationText),
+      showTranslationInCustomerMessage,
+      translationText: redactIntakeDiagnosticText(translationText, 3200),
+    },
+  );
 
   // Resolve default VAT rate from CompanySettings.
   // If MwSt is active and a rate is configured → use that rate.
@@ -8461,6 +8588,21 @@ export async function processIncomingMessage(
       prioritaet: parsed.system?.prioritaet,
       needs_review: parsed.system?.needs_review,
     }),
+  );
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "03_llm_structured",
+    {
+      title: redactIntakeDiagnosticText(parsed.auftrag?.titel, 220),
+      description: redactIntakeDiagnosticText(
+        parsed.auftrag?.beschreibung,
+        700,
+      ),
+      workItems: summarizeIntakeDiagnosticItems(
+        parsed.auftrag?.arbeitspositionen,
+      ),
+    },
   );
 
   // --- Customer resolution based on kundenabgleich.status ---
@@ -10042,6 +10184,12 @@ export async function processIncomingMessage(
     finalOrderItems,
     messageText,
   );
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "04_pre_validation_items",
+    { items: summarizeIntakeDiagnosticItems(finalOrderItems) },
+  );
 
   const validationSourceText = [
     messageText,
@@ -10058,6 +10206,17 @@ export async function processIncomingMessage(
     originalText: validationSourceText,
     fallbackCurrency: intakeCurrency,
   });
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "05_validation_result",
+    {
+      finalCurrency: intakeValidation.finalCurrency,
+      needsReview: intakeValidation.needsReview,
+      reviewReasons: intakeValidation.reviewReasons.slice(0, 40),
+      items: summarizeIntakeDiagnosticItems(intakeValidation.items),
+    },
+  );
 
   finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
     intakeValidation.items,
@@ -10711,6 +10870,17 @@ export async function processIncomingMessage(
           ? "info"
           : "none";
 
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "06_pre_persist",
+    {
+      needsReview,
+      reviewReasons: allReviewReasons.slice(0, 60),
+      items: summarizeIntakeDiagnosticItems(finalOrderItems),
+    },
+  );
+
   // --- Create order ---
   const order = await prisma.order.create({
     data: {
@@ -10797,6 +10967,18 @@ export async function processIncomingMessage(
   // V16.39: Final order path deliberately does not re-parse raw text for
   // billing data. If the AI-structured billing evidence failed validation, the
   // customer remains review-required instead of being rescued by marker words.
+
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "07_persisted_order",
+    {
+      orderId: order.id,
+      itemCount: order.items.length,
+      items: summarizeIntakeDiagnosticItems(order.items),
+      durationMs: Date.now() - _intakeStartTime,
+    },
+  );
 
   console.log(
     `[${source}] Order created: ${order.id} | Customer: ${order.customer?.name} (${order.customer?.customerNumber}) | Service: ${serviceName} | Abgleich: ${abgleichStatus} (confidence: ${abgleich.confidence || 0}) | Priorität: ${parsed.system?.prioritaet || "normal"}${duplicateWarning ? " | ⚠️ WARNING" : ""}`,
