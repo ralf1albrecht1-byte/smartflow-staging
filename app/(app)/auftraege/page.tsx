@@ -3950,12 +3950,12 @@ const formatCompactWorkSiteChipLabelV17_49 = (value?: string | null) => {
   const cleaned = cleanWorkSiteDisplayName(value);
   if (!cleaned) return "";
 
-  const firstSegment = cleaned
-    .split(/\s*,\s*|\s+und\s+|\s+and\s+|\s+et\s+/i)
-    .map((part) => compactText(part))
-    .find(Boolean);
-
-  return compactText(firstSegment || cleaned).slice(0, 42);
+  // Keep the complete semantic object/site name. The chip itself already
+  // truncates visually where space is limited, while hover/tap shows the full
+  // structured execution address. Splitting at commas previously turned
+  // "Wohnüberbauung Sonnenhof, Häuser A bis D" into only
+  // "Wohnüberbauung Sonnenhof" and made Auftrag/Angebot inconsistent.
+  return compactText(cleaned).slice(0, 96);
 };
 
 const looksLikeExecutionAddressLine = (value?: string | null) => {

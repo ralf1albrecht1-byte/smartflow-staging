@@ -2709,17 +2709,38 @@ export default function AngebotePage() {
               {filteredOffers
                 .slice(0, visibleCount)
                 .map((off: Offer, i: number) => {
-                  const customerNumberFromOffer = String(
-                    off.customer?.customerNumber || "",
-                  ).trim();
-                  const customerFromMaster = customers.find(
-                    (customer) =>
-                      customer.id === off.customerId ||
+                  const linkedOrder = (off.orders?.[0] || null) as any;
+                  const customerIdCandidates = [
+                    off.customerId,
+                    (off.customer as any)?.id,
+                    linkedOrder?.customerId,
+                    linkedOrder?.customer?.id,
+                  ]
+                    .map((value) => String(value || "").trim())
+                    .filter(Boolean);
+                  const customerNumberCandidates = [
+                    off.customer?.customerNumber,
+                    (off as any)?.customerNumber,
+                    linkedOrder?.customerNumber,
+                    linkedOrder?.customer?.customerNumber,
+                  ]
+                    .map((value) => String(value || "").trim())
+                    .filter(Boolean);
+                  const customerFromMaster = customers.find((customer) => {
+                    const customerId = String(customer?.id || "").trim();
+                    const customerNumber = String(
+                      customer?.customerNumber || "",
+                    ).trim();
+                    return (
                       Boolean(
-                        customerNumberFromOffer &&
-                          customer.customerNumber === customerNumberFromOffer,
-                      ),
-                  );
+                        customerId && customerIdCandidates.includes(customerId),
+                      ) ||
+                      Boolean(
+                        customerNumber &&
+                          customerNumberCandidates.includes(customerNumber),
+                      )
+                    );
+                  });
                   const linkedOrderCustomer = (off.orders || [])
                     .map((order: any) => order?.customer)
                     .find((customer: any) =>
@@ -2730,14 +2751,22 @@ export default function AngebotePage() {
                       ? off.customer
                       : customerFromMaster || linkedOrderCustomer) ||
                     off.customer ||
+                    linkedOrder?.customer ||
                     null;
                   const cardCustomerName =
                     String(cardCustomer?.name || "").trim() ||
-                    String((off.orders?.[0] as any)?.customerName || "").trim() ||
+                    String((off as any)?.customerName || "").trim() ||
+                    String(customerFromMaster?.name || "").trim() ||
+                    String(linkedOrderCustomer?.name || "").trim() ||
+                    String(linkedOrder?.customerName || "").trim() ||
+                    String(linkedOrder?.customer?.name || "").trim() ||
                     "–";
                   const cardCustomerNumber =
                     String(cardCustomer?.customerNumber || "").trim() ||
-                    String((off.orders?.[0] as any)?.customerNumber || "").trim();
+                    String((off as any)?.customerNumber || "").trim() ||
+                    String(customerFromMaster?.customerNumber || "").trim() ||
+                    String(linkedOrder?.customerNumber || "").trim() ||
+                    String(linkedOrder?.customer?.customerNumber || "").trim();
                   const itemNames =
                     off.items
                       ?.map((it: any) => it.description)
