@@ -5513,7 +5513,11 @@ function extractTranslatedPricedServiceSegmentsV17_66(
           .trim();
         const serviceName = cleanTranslatedServiceLabelFromLineV17_90L(labelSource);
         if (
+          typeof quantity === "number" &&
+          Number.isFinite(quantity) &&
           quantity > 0 &&
+          typeof price === "number" &&
+          Number.isFinite(price) &&
           price > 0 &&
           serviceName &&
           isUsableGermanServiceLabelV17_90L(serviceName)
