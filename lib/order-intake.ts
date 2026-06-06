@@ -5627,6 +5627,14 @@ function cleanStructuredAiServiceNameV17_90L76(
     .replace(/\s+/g, " ")
     .trim();
 
+  // V17.90L77: Generic German grammar repair for room compounds. This is
+  // structural (all nouns ending in "-raum" are masculine), not a service
+  // vocabulary list. It repairs both "in Pausenraum" and "in der Pausenraum".
+  cleaned = cleaned.replace(
+    /\bin(?:\s+der|\s+dem)?\s+([\p{L}-]*raum)\b/giu,
+    "im $1",
+  );
+
   if (!cleaned) return "Unbekannte Leistung";
   const firstLetter = cleaned.search(/[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]/u);
   if (firstLetter >= 0) {
@@ -5816,6 +5824,56 @@ function cleanVisibleReviewInstructionSuffixV17_90L76<
       ? reason.replace(originalName, cleanedName)
       : item.reviewReason;
     return { ...item, serviceName: cleanedName, reviewReason } as T;
+  });
+}
+
+
+// V17.90L77: A generated internal review row must not survive when the exact
+// same source line, quantity and unit price are already represented by a real
+// service row. This removes only proven duplicates and leaves genuinely
+// unresolved review rows untouched.
+function removeGeneratedReviewDuplicatesByEvidenceV17_90L77<
+  T extends StructuredOrderItemSnapshotV17_90L76,
+>(items: T[]): T[] {
+  const normalizedEvidence = (item: T) =>
+    normalizeServiceLineForMatchV17_90L(
+      compactText(item.sourceText || item.evidence || item.description || ""),
+    );
+
+  const concreteItems = items.filter(
+    (item) =>
+      !isInternalReviewServiceNameV17_90L(item.serviceName || "") &&
+      Number(item.quantity || 0) > 0 &&
+      Number(item.unitPrice || 0) > 0,
+  );
+
+  return items.filter((item) => {
+    if (!isInternalReviewServiceNameV17_90L(item.serviceName || "")) {
+      return true;
+    }
+
+    const evidence = normalizedEvidence(item);
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    if (!evidence || quantity <= 0 || unitPrice <= 0) return true;
+
+    const duplicatesConcreteItem = concreteItems.some((candidate) => {
+      const candidateEvidence = normalizedEvidence(candidate);
+      if (!candidateEvidence) return false;
+
+      const sameNumbers =
+        Math.abs(Number(candidate.quantity || 0) - quantity) < 0.0001 &&
+        Math.abs(Number(candidate.unitPrice || 0) - unitPrice) < 0.0001;
+      if (!sameNumbers) return false;
+
+      return (
+        candidateEvidence === evidence ||
+        (candidateEvidence.length >= 18 && evidence.includes(candidateEvidence)) ||
+        (evidence.length >= 18 && candidateEvidence.includes(evidence))
+      );
+    });
+
+    return !duplicatesConcreteItem;
   });
 }
 
@@ -10304,9 +10362,11 @@ export async function processIncomingMessage(
               detectedName || "Unbekannte Leistung",
             );
 
+      // V17.90L77: Do not reject a valid structured service name merely
+      // because it contains more than six words. Longer room/context labels are
+      // legitimate. Only empty/implausibly long labels fail closed.
       const finalServiceName =
-        cleanedDetectedName.length < 4 ||
-        cleanedDetectedName.split(" ").length > 6
+        cleanedDetectedName.length < 4 || cleanedDetectedName.length > 120
           ? "Unbekannte Leistung"
           : cleanedDetectedName;
 
@@ -10830,6 +10890,9 @@ export async function processIncomingMessage(
     intakeValidation.finalCurrency,
   );
   finalOrderItems = cleanVisibleReviewInstructionSuffixV17_90L76(
+    finalOrderItems,
+  );
+  finalOrderItems = removeGeneratedReviewDuplicatesByEvidenceV17_90L77(
     finalOrderItems,
   );
   finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
