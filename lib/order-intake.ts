@@ -10037,6 +10037,30 @@ export async function processIncomingMessage(
     intakeValidation.finalCurrency,
   );
 
+  // V17.90L61: Absolute line-local persistence guard. Some later validator
+  // passes can still merge two explicit source rows with the same price or
+  // transfer quantity/price evidence to a neighbouring service. Rebuild the
+  // explicitly priced rows one final time immediately before totals and
+  // persistence, then re-apply currency blockers. This guarantees one saved
+  // position per explicit source line without reviving foreign-currency rows.
+  finalOrderItems = reconcileExplicitPricedServiceLinesV17_90L60(
+    finalOrderItems,
+    messageText,
+  );
+  finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
+    finalOrderItems,
+    validationSourceText,
+  );
+  finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
+    detectedCurrencies: intakeValidation.detectedCurrencies,
+    finalCurrency: intakeValidation.finalCurrency,
+  });
+  finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
+    finalOrderItems,
+    messageText,
+    intakeValidation.finalCurrency,
+  );
+
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {
     customerAddress: addr.street,
@@ -10084,21 +10108,11 @@ export async function processIncomingMessage(
   // such as "Ausführungsadresse" must not replace a real property name.
   const explicitExecutionSiteDescriptor =
     originalExecutionSiteDescriptorFromTextV17_50(validationSourceText);
-  const currentExecutionSiteNameKey = normalizeUnitText(
-    extractedExecutionAddress?.siteName || "",
-  );
-  const hasOnlyGenericExecutionSiteName =
-    !currentExecutionSiteNameKey ||
-    currentExecutionSiteNameKey === "ausfuehrungsadresse" ||
-    currentExecutionSiteNameKey === "ausfuehrungsort" ||
-    currentExecutionSiteNameKey === "arbeitsort" ||
-    currentExecutionSiteNameKey === "objektadresse";
-
-  if (
-    extractedExecutionAddress &&
-    explicitExecutionSiteDescriptor &&
-    hasOnlyGenericExecutionSiteName
-  ) {
+  if (extractedExecutionAddress && explicitExecutionSiteDescriptor) {
+    // The explicit object/site line from the original customer message is the
+    // authoritative display name. Prefer it not only over generic placeholders,
+    // but also over shortened AI variants such as "Wohnüberbauung Sonnenhof"
+    // when the source says "Wohnüberbauung Sonnenhof, Häuser A bis D".
     extractedExecutionAddress = {
       ...extractedExecutionAddress,
       siteName: explicitExecutionSiteDescriptor,

@@ -294,6 +294,7 @@ function cleanOfferPdfTextForEditor(
   offer: Offer,
   linkedOrder?: NonNullable<Offer["orders"]>[number],
 ) {
+  if (!String(offer.notes || "").startsWith(OFFER_PDF_META_PREFIX)) return "";
   const cleanNotes = stripForwardedMessage(
     offer.notes,
     linkedOrder?.notes,
@@ -409,7 +410,7 @@ function decodeOfferPdfMeta(value?: string | null): OfferPdfMeta {
   const raw = String(value ?? "").trim();
   if (!raw) return { title: "", text: "" };
   if (!raw.startsWith(OFFER_PDF_META_PREFIX)) {
-    return { title: "", text: raw };
+    return { title: "", text: "" };
   }
   try {
     const parsed = JSON.parse(raw.slice(OFFER_PDF_META_PREFIX.length));
@@ -1050,6 +1051,15 @@ type OfferMobileTooltipState = {
   jobHints?: string[];
   reviewTitle?: string;
   reviewSections?: OfferServiceReviewSection[];
+  kind?: "service_review" | "default";
+  anchorRect?: {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+    width: number;
+    height: number;
+  };
 };
 
 type OfferCatalogDecision = {
@@ -1134,7 +1144,12 @@ export default function AngebotePage() {
   };
 
   useEffect(() => {
-    if (!activeMobileTooltip || typeof document === "undefined") return;
+    if (
+      !activeMobileTooltip ||
+      activeMobileTooltip.kind !== "service_review" ||
+      typeof document === "undefined"
+    )
+      return;
     const previousOverflow = document.body.style.overflow;
     const previousOverscrollBehavior = document.body.style.overscrollBehavior;
     document.body.style.overflow = "hidden";
@@ -1777,8 +1792,28 @@ export default function AngebotePage() {
   ) => {
     event.preventDefault();
     event.stopPropagation();
+    const rect = event.currentTarget?.getBoundingClientRect?.();
+    const kind =
+      payload.kind ||
+      (payload.reviewSections && payload.reviewSections.length > 0
+        ? "service_review"
+        : "default");
+    const nextPayload: OfferMobileTooltipState = {
+      ...payload,
+      kind,
+      anchorRect: rect
+        ? {
+            top: rect.top,
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+            width: rect.width,
+            height: rect.height,
+          }
+        : undefined,
+    };
     setActiveMobileTooltip((current) =>
-      current?.key === payload.key ? null : payload,
+      current?.key === payload.key ? null : nextPayload,
     );
   };
 
@@ -2374,14 +2409,104 @@ export default function AngebotePage() {
     if (!activeMobileTooltip) return null;
     const safety = uniqueOfferLines(activeMobileTooltip.safetyWarnings || []);
     const hints = uniqueOfferLines(activeMobileTooltip.jobHints || []).filter(
-      (line) => !safety.some((warning) => normalizeOfferHint(warning) === normalizeOfferHint(line)),
+      (line) =>
+        !safety.some(
+          (warning) =>
+            normalizeOfferHint(warning) === normalizeOfferHint(line),
+        ),
     );
     const textValue = String(activeMobileTooltip.text || "").trim();
-    const sheetTitle =
-      activeMobileTooltip.reviewTitle ||
-      (safety.length > 0 || hints.length > 0 ? "Informationen" : "Hinweis");
-
+    const isServiceReview =
+      activeMobileTooltip.kind === "service_review" ||
+      Boolean(
+        activeMobileTooltip.reviewSections &&
+          activeMobileTooltip.reviewSections.length > 0,
+      );
     const closeSheet = () => setActiveMobileTooltip(null);
+
+    if (!isServiceReview) {
+      const viewportWidth =
+        typeof window !== "undefined" ? window.innerWidth : 390;
+      const popoverWidth = Math.min(352, Math.max(240, viewportWidth - 16));
+      const rect = activeMobileTooltip.anchorRect;
+      const rawCenter = rect
+        ? rect.left + rect.width / 2
+        : viewportWidth / 2;
+      const half = popoverWidth / 2;
+      const center = Math.min(
+        Math.max(rawCenter, half + 8),
+        viewportWidth - half - 8,
+      );
+      const placeBelow = !rect || rect.top < 180;
+      const positionStyle = rect
+        ? {
+            left: `${center}px`,
+            top: placeBelow ? `${rect.bottom + 8}px` : `${rect.top - 8}px`,
+            width: `${popoverWidth}px`,
+            transform: placeBelow
+              ? "translate(-50%, 0)"
+              : "translate(-50%, -100%)",
+          }
+        : {
+            left: "50%",
+            top: "50%",
+            width: `${popoverWidth}px`,
+            transform: "translate(-50%, -50%)",
+          };
+
+      return (
+        <div className="fixed inset-0 z-[12000] sm:hidden">
+          <button
+            type="button"
+            aria-label="Hinweis schließen"
+            className="absolute inset-0 cursor-default bg-transparent"
+            onClick={(event) => {
+              event.stopPropagation();
+              closeSheet();
+            }}
+          />
+          <div
+            className="fixed max-h-[45vh] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            style={positionStyle}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {safety.length > 0 && (
+              <div className="mb-2 rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+                <div className="mb-1 flex items-center gap-1 font-bold">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
+                </div>
+                {safety.map((line, index) => (
+                  <div
+                    key={`offer_mobile_compact_safety_${index}`}
+                    className="whitespace-pre-wrap break-words"
+                  >
+                    • {line}
+                  </div>
+                ))}
+              </div>
+            )}
+            {hints.length > 0 && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                {hints.map((line, index) => (
+                  <div
+                    key={`offer_mobile_compact_hint_${index}`}
+                    className="whitespace-pre-wrap break-words"
+                  >
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+            {textValue && safety.length === 0 && hints.length === 0 && (
+              <div className="whitespace-pre-wrap break-words">{textValue}</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const sheetTitle =
+      activeMobileTooltip.reviewTitle || "Leistungen prüfen";
 
     return (
       <div className="fixed inset-0 z-[12000] sm:hidden">
@@ -2417,77 +2542,54 @@ export default function AngebotePage() {
           </div>
 
           <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-3 py-3 pb-6">
-            {safety.length > 0 && (
-              <div className="mb-2 rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
-                <div className="mb-1 flex items-center gap-1 font-bold">
-                  <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
-                </div>
-                {safety.map((line, index) => (
-                  <div key={`offer_mobile_safety_${index}`} className="whitespace-pre-wrap break-words">
-                    • {line}
-                  </div>
-                ))}
-              </div>
-            )}
-            {hints.length > 0 && (
-              <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
-                <div className="mb-1 font-bold">Besonderheiten</div>
-                {hints.map((line, index) => (
-                  <div key={`offer_mobile_hint_${index}`} className="whitespace-pre-wrap break-words">
-                    {line}
-                  </div>
-                ))}
-              </div>
-            )}
             {activeMobileTooltip.reviewSections &&
               activeMobileTooltip.reviewSections.length > 0 && (
                 <div className="space-y-3">
-                  {activeMobileTooltip.reviewSections.map((section, sectionIndex) => (
-                    <div
-                      key={`offer_mobile_review_section_${sectionIndex}`}
-                      className={`${sectionIndex > 0 ? "border-t border-slate-200 pt-3 dark:border-slate-700" : ""}`}
-                    >
-                      <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
-                        {section.title}
-                      </div>
-                      <div className="space-y-2">
-                        {section.items.map((item, itemIndex) => (
-                          <div
-                            key={`offer_mobile_review_item_${sectionIndex}_${itemIndex}`}
-                            className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
-                          >
-                            <div className="font-bold text-slate-950 dark:text-slate-50">
-                              {item.title}
+                  {activeMobileTooltip.reviewSections.map(
+                    (section, sectionIndex) => (
+                      <div
+                        key={`offer_mobile_review_section_${sectionIndex}`}
+                        className={`${
+                          sectionIndex > 0
+                            ? "border-t border-slate-200 pt-3 dark:border-slate-700"
+                            : ""
+                        }`}
+                      >
+                        <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
+                          {section.title}
+                        </div>
+                        <div className="space-y-2">
+                          {section.items.map((item, itemIndex) => (
+                            <div
+                              key={`offer_mobile_review_item_${sectionIndex}_${itemIndex}`}
+                              className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
+                            >
+                              <div className="font-bold text-slate-950 dark:text-slate-50">
+                                {item.title}
+                              </div>
+                              {item.details.map((detail, detailIndex) => {
+                                const isCatalogPrice = /^Katalogpreis:/i.test(
+                                  detail.trim(),
+                                );
+                                return (
+                                  <div
+                                    key={`offer_mobile_review_detail_${detailIndex}`}
+                                    className={`break-words text-[13px] ${
+                                      isCatalogPrice
+                                        ? "font-bold text-slate-950 dark:text-slate-50"
+                                        : "text-slate-600 dark:text-slate-300"
+                                    }`}
+                                  >
+                                    {detail}
+                                  </div>
+                                );
+                              })}
                             </div>
-                            {item.details.map((detail, detailIndex) => {
-                              const isCatalogPrice = /^Katalogpreis:/i.test(
-                                detail.trim(),
-                              );
-                              return (
-                                <div
-                                  key={`offer_mobile_review_detail_${detailIndex}`}
-                                  className={`break-words text-[13px] ${
-                                    isCatalogPrice
-                                      ? "font-bold text-slate-950 dark:text-slate-50"
-                                      : "text-slate-600 dark:text-slate-300"
-                                  }`}
-                                >
-                                  {detail}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            {textValue &&
-              (!activeMobileTooltip.reviewSections ||
-                activeMobileTooltip.reviewSections.length === 0) && (
-                <div className="whitespace-pre-wrap break-words">
-                  {textValue}
+                    ),
+                  )}
                 </div>
               )}
           </div>
@@ -2607,6 +2709,12 @@ export default function AngebotePage() {
               {filteredOffers
                 .slice(0, visibleCount)
                 .map((off: Offer, i: number) => {
+                  const cardCustomer =
+                    (off.customer && String(off.customer.name || "").trim()
+                      ? off.customer
+                      : customers.find((customer) => customer.id === off.customerId)) ||
+                    off.customer ||
+                    null;
                   const itemNames =
                     off.items
                       ?.map((it: any) => it.description)
@@ -2629,11 +2737,11 @@ export default function AngebotePage() {
                   );
                   const contactChipData = buildOfferContactChipData(
                     orderCtx,
-                    off.customer,
+                    cardCustomer,
                   );
                   const callbackChip = buildOfferCallbackChip(
                     orderCtx,
-                    off.customer,
+                    cardCustomer,
                   );
                   const operationalChips = buildOfferOperationalChips(
                     parsedOfferNotes.safetyWarnings,
@@ -2797,13 +2905,13 @@ export default function AngebotePage() {
 
                                 <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
                                   <span className="min-w-0 truncate text-[15px] font-semibold text-foreground">
-                                    {isFallbackCustomerName(off?.customer?.name)
+                                    {isFallbackCustomerName(cardCustomer?.name)
                                       ? "Kunde nicht zugeordnet"
-                                      : off?.customer?.name || "–"}
+                                      : cardCustomer?.name || "–"}
                                   </span>
-                                  {off?.customer?.customerNumber && (
+                                  {cardCustomer?.customerNumber && (
                                     <span className="shrink-0 text-[11px] text-muted-foreground">
-                                      ({off.customer.customerNumber})
+                                      ({cardCustomer.customerNumber})
                                     </span>
                                   )}
                                 </div>
@@ -3158,13 +3266,13 @@ export default function AngebotePage() {
                                     </span>
                                     <span className="shrink-0 text-muted-foreground">·</span>
                                     <span className="min-w-0 max-w-[220px] truncate font-medium text-foreground">
-                                      {isFallbackCustomerName(off?.customer?.name)
+                                      {isFallbackCustomerName(cardCustomer?.name)
                                         ? "⚠️ Kunde nicht zugeordnet"
-                                        : off?.customer?.name || "–"}
+                                        : cardCustomer?.name || "–"}
                                     </span>
-                                    {off?.customer?.customerNumber && (
+                                    {cardCustomer?.customerNumber && (
                                       <span className="shrink-0 text-muted-foreground">
-                                        ({off.customer.customerNumber})
+                                        ({cardCustomer.customerNumber})
                                       </span>
                                     )}
                                     {off?.offerNumber && (
@@ -3193,7 +3301,7 @@ export default function AngebotePage() {
                                       </button>
                                     )}
 
-                                    {isCustomerDataIncomplete(off.customer) && (
+                                    {isCustomerDataIncomplete(cardCustomer) && (
                                       <MissingCustomerDataBadge
                                         variant="compact"
                                         onClick={() =>

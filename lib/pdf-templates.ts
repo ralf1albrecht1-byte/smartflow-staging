@@ -84,13 +84,19 @@ function decodeOfferPdfMeta(value: unknown): OfferPdfMeta {
 }
 
 function renderOfferPdfTextBlock(offer: any): string {
-  const meta = decodeOfferPdfMeta(offer?.notes);
+  const raw = String(offer?.notes ?? "").trim();
+  // V17.90L61: Only text explicitly entered in the dedicated offer-PDF fields
+  // may appear in the customer PDF. Legacy/plain notes can contain generated
+  // service summaries or internal order text and must not become a Bemerkungen
+  // block automatically.
+  if (!raw.startsWith(OFFER_PDF_META_PREFIX)) return "";
+  const meta = decodeOfferPdfMeta(raw);
   if (!meta.title && !meta.text) return "";
   const body = meta.text ? meta.text.replace(/\n/g, "<br/>") : "";
   if (meta.title) {
     return `<div class="notes"><strong>${meta.title}</strong>${body ? `<br/>${body}` : ""}</div>`;
   }
-  return `<div class="notes"><strong>Bemerkungen:</strong><br/>${body}</div>`;
+  return `<div class="notes">${body}</div>`;
 }
 
 const offerDocumentStyles = `

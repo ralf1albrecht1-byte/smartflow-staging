@@ -3720,6 +3720,95 @@ const formatServiceReviewSummaryTooltip = (input: {
   return sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
 };
 
+const buildUnifiedServiceReviewSummaryV17_90L61 = (input: {
+  items: OrderItem[];
+  services: ServiceDef[];
+  currency?: "CHF" | "EUR" | null;
+}) => {
+  const safeCurrency = input.currency === "EUR" ? "EUR" : "CHF";
+  const deviations: Array<{
+    item: OrderItem;
+    catalog: ServiceDef;
+    sameUnit: boolean;
+    samePrice: boolean;
+  }> = [];
+  const missing: OrderItem[] = [];
+
+  (input.items || []).forEach((item) => {
+    const name = canonicalServiceNameForOrderItem(item.serviceName || "");
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    const unit = compactText(item.unit || "");
+    if (
+      !name ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0 ||
+      !Number.isFinite(unitPrice) ||
+      unitPrice <= 0 ||
+      !unit ||
+      /(?:prüfen|pruefen|prufen)/i.test(unit)
+    )
+      return;
+
+    const nameKey = normalizeForMatch(name);
+    const catalog = (input.services || []).find(
+      (service) => normalizeForMatch(service?.name || "") === nameKey,
+    );
+    if (!catalog) {
+      missing.push(item);
+      return;
+    }
+
+    const catalogUnit = compactText(catalog.unit || "");
+    const catalogPrice = Number(catalog.defaultPrice || 0);
+    const sameUnit = !catalogUnit || unit === catalogUnit;
+    const samePrice = Math.abs(unitPrice - catalogPrice) < 0.001;
+    if (!sameUnit || !samePrice) {
+      deviations.push({ item, catalog, sameUnit, samePrice });
+    }
+  });
+
+  const sections: string[] = [];
+  if (deviations.length > 0) {
+    const lines = ["Preis oder Einheit abweichend"];
+    deviations.forEach(({ item, catalog, sameUnit, samePrice }) => {
+      const calculation = formatServiceReviewCalculation(item, safeCurrency);
+      lines.push(
+        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
+      );
+      if (calculation) lines.push(`  Aktuell: ${calculation}`);
+      lines.push(
+        `  Katalogpreis: ${formatCurrency(Number(catalog.defaultPrice || 0), safeCurrency)} / ${formatReviewUnitLabel(catalog.unit || "") || "–"}`,
+      );
+      if (!sameUnit) {
+        lines.push(
+          `  Einheit weicht ab: ${formatReviewUnitLabel(item.unit || "") || "–"} statt ${formatReviewUnitLabel(catalog.unit || "") || "–"}`,
+        );
+      }
+      if (!samePrice) lines.push("  Preis weicht vom Katalog ab.");
+    });
+    sections.push(lines.join("\n"));
+  }
+
+  if (missing.length > 0) {
+    const lines = ["Nicht im Leistungskatalog"];
+    missing.forEach((item) => {
+      const calculation = formatServiceReviewCalculation(item, safeCurrency);
+      lines.push(
+        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
+      );
+      if (calculation) lines.push(`  Aktuell: ${calculation}`);
+      lines.push("  Nicht im Leistungskatalog.");
+    });
+    sections.push(lines.join("\n"));
+  }
+
+  return {
+    count: deviations.length + missing.length,
+    tooltip: sections.join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`),
+  };
+};
+
 const formatCurrencyReviewTooltip = (order: Order, services: ServiceDef[]) => {
   const orderCurrency = order.currency === "EUR" ? "EUR" : "CHF";
   const sourceText = [order.notes, order.description, order.audioTranscript]
@@ -4852,19 +4941,26 @@ const getSystemBadges = (
       else if (serviceKey) reviewedPositionKeys.add(`${serviceKey}|unit-conflict`);
     });
 
-    const serviceReviewCount = Math.max(
-      reviewedPositionKeys.size,
-      compactServiceReviewBadges.length,
-    );
-    const serviceReviewTooltip = formatServiceReviewSummaryTooltip({
-      unitConflictServices,
-      manualUnitItems,
-      priceItems: priceReviewItems,
-      missingItems: catalogMissingItems,
+    const unifiedServiceReview = buildUnifiedServiceReviewSummaryV17_90L61({
       items: order.items || [],
       services,
       currency: order.currency,
     });
+    const serviceReviewCount =
+      unifiedServiceReview.count > 0
+        ? unifiedServiceReview.count
+        : Math.max(reviewedPositionKeys.size, compactServiceReviewBadges.length);
+    const serviceReviewTooltip =
+      unifiedServiceReview.tooltip ||
+      formatServiceReviewSummaryTooltip({
+        unitConflictServices,
+        manualUnitItems,
+        priceItems: priceReviewItems,
+        missingItems: catalogMissingItems,
+        items: order.items || [],
+        services,
+        currency: order.currency,
+      });
 
     return [
       ...badges.filter((badge) => !compactServiceReviewKeys.has(badge.key)),
@@ -6732,6 +6828,14 @@ export default function AuftraegePage() {
     tooltip: string;
     title?: string;
     kind?: "service_review" | "default";
+    anchorRect?: {
+      top: number;
+      bottom: number;
+      left: number;
+      right: number;
+      width: number;
+      height: number;
+    };
   } | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
 
@@ -6749,7 +6853,12 @@ export default function AuftraegePage() {
   >(null);
 
   useEffect(() => {
-    if (!activeMobileTooltip || typeof document === "undefined") return;
+    if (
+      !activeMobileTooltip ||
+      activeMobileTooltip.kind !== "service_review" ||
+      typeof document === "undefined"
+    )
+      return;
     const previousOverflow = document.body.style.overflow;
     const previousOverscrollBehavior = document.body.style.overscrollBehavior;
     document.body.style.overflow = "hidden";
@@ -10238,7 +10347,10 @@ export default function AuftraegePage() {
       toast.success("Auftrag gespeichert");
 
       // Build items for offer
-      const orderItems = mergeEquivalentOrderItems(
+      // V17.90L61: An offer must receive the exact saved order positions.
+      // Do not merge "equivalent" rows here: separate work areas can share the
+      // same quantity/price and still be distinct contractual positions.
+      const orderItems =
         saved.items && saved.items.length > 0
           ? saved.items
           : [
@@ -10249,8 +10361,7 @@ export default function AuftraegePage() {
                 unit: saved.priceType ?? "Stunde",
                 unitPrice: saved.unitPrice ?? 0,
               },
-            ],
-      );
+            ];
       const offerItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 1),
@@ -10763,7 +10874,8 @@ export default function AuftraegePage() {
     const sourceOrder = o;
 
     // Direct API create — no extra dialog
-    const orderItems = mergeEquivalentOrderItems(
+    // V17.90L61: Preserve every source order item one-to-one in the offer.
+    const orderItems =
       sourceOrder.items && sourceOrder.items.length > 0
         ? sourceOrder.items
         : [
@@ -10775,13 +10887,17 @@ export default function AuftraegePage() {
               unit: sourceOrder.priceType ?? "Stunde",
               unitPrice: sourceOrder.unitPrice ?? 0,
             },
-          ],
-    );
+          ];
     const offerItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 1),
       unit: i.unit ?? "Stunde",
       unitPrice: String(i.unitPrice ?? 0),
+      siteName: i.workSite?.siteName || null,
+      siteAddress: i.workSite?.siteAddress || null,
+      sitePlz: i.workSite?.sitePlz || null,
+      siteCity: i.workSite?.siteCity || null,
+      siteNote: i.workSite?.siteNote || null,
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
     const fwdVatRate =
@@ -11092,14 +11208,7 @@ export default function AuftraegePage() {
                 items.push(current);
                 return;
               }
-              if (/^\+\d+\s+weitere/i.test(line)) {
-                items.push({ title: line, details: [] });
-                current = null;
-                return;
-              }
-              if (current) {
-                current.details.push(line);
-              }
+              if (current) current.details.push(line);
             });
 
             return { title, items };
@@ -11107,16 +11216,96 @@ export default function AuftraegePage() {
           .filter((section) => section.items.length > 0)
       : [];
 
-    const tooltipLines = tooltip.split("\n");
-    const headingPattern =
-      /^(?:Einheit fehlt im Kundentext|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Nicht im Katalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Adresse prüfen|Ausführadresse unklar|Ausführungsadresse unklar|Kunde prüfen)$/;
-    const sheetTitle = activeMobileTooltip.title || "Information";
-
     const closeSheet = () => {
       setActiveMobileTooltipKey(null);
       setActiveMobileTooltip(null);
     };
 
+    if (!isServiceReview) {
+      const viewportWidth =
+        typeof window !== "undefined" ? window.innerWidth : 390;
+      const popoverWidth = Math.min(352, Math.max(240, viewportWidth - 16));
+      const rect = activeMobileTooltip.anchorRect;
+      const rawCenter = rect
+        ? rect.left + rect.width / 2
+        : viewportWidth / 2;
+      const half = popoverWidth / 2;
+      const center = Math.min(
+        Math.max(rawCenter, half + 8),
+        viewportWidth - half - 8,
+      );
+      const placeBelow = !rect || rect.top < 180;
+      const positionStyle = rect
+        ? {
+            left: `${center}px`,
+            top: placeBelow ? `${rect.bottom + 8}px` : `${rect.top - 8}px`,
+            width: `${popoverWidth}px`,
+            transform: placeBelow
+              ? "translate(-50%, 0)"
+              : "translate(-50%, -100%)",
+          }
+        : {
+            left: "50%",
+            top: "50%",
+            width: `${popoverWidth}px`,
+            transform: "translate(-50%, -50%)",
+          };
+
+      return (
+        <div className="fixed inset-0 z-[12000] sm:hidden">
+          <button
+            type="button"
+            aria-label="Hinweis schließen"
+            className="absolute inset-0 cursor-default bg-transparent"
+            onClick={(event) => {
+              event.stopPropagation();
+              closeSheet();
+            }}
+          />
+          <div
+            className="fixed max-h-[45vh] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[13px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            style={positionStyle}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {isSpecialNotesSummary && specialSummarySections ? (
+              <div className="space-y-2">
+                {specialSummarySections.safety.length > 0 && (
+                  <div className="rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+                    <div className="mb-1 flex items-center gap-1 font-bold">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
+                    </div>
+                    {specialSummarySections.safety.map((line, index) => (
+                      <div
+                        key={`active_mobile_compact_summary_safety_${index}`}
+                        className="whitespace-pre-wrap break-words"
+                      >
+                        • {line}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {specialSummarySections.hints.length > 0 && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                    {specialSummarySections.hints.map((line, index) => (
+                      <div
+                        key={`active_mobile_compact_summary_hint_${index}`}
+                        className="whitespace-pre-wrap break-words"
+                      >
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap break-words">{tooltip}</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const sheetTitle = activeMobileTooltip.title || "Leistungen prüfen";
     return (
       <div className="fixed inset-0 z-[12000] sm:hidden">
         <button
@@ -11149,116 +11338,50 @@ export default function AuftraegePage() {
               <X className="h-5 w-5" />
             </button>
           </div>
-
           <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-3 pb-6">
-            {isSpecialNotesSummary && specialSummarySections ? (
-              <div className="space-y-2">
-                {specialSummarySections.safety.length > 0 && (
-                  <div className="rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
-                    <div className="mb-1 flex items-center gap-1 font-bold">
-                      <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
-                    </div>
-                    {specialSummarySections.safety.map((line, index) => (
-                      <div
-                        key={`active_mobile_summary_safety_${index}`}
-                        className="whitespace-pre-wrap break-words"
-                      >
-                        • {line}
-                      </div>
-                    ))}
+            <div className="space-y-3">
+              {serviceReviewSections.map((section, sectionIndex) => (
+                <div
+                  key={`order_mobile_review_section_${sectionIndex}`}
+                  className={`${
+                    sectionIndex > 0
+                      ? "border-t border-slate-200 pt-3 dark:border-slate-700"
+                      : ""
+                  }`}
+                >
+                  <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
+                    {section.title}
                   </div>
-                )}
-
-                {specialSummarySections.hints.length > 0 && (
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
-                    <div className="mb-1 font-bold">Besonderheiten</div>
-                    {specialSummarySections.hints.map((line, index) => (
+                  <div className="space-y-2">
+                    {section.items.map((item, itemIndex) => (
                       <div
-                        key={`active_mobile_summary_hint_${index}`}
-                        className="whitespace-pre-wrap break-words"
+                        key={`order_mobile_review_item_${sectionIndex}_${itemIndex}`}
+                        className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
                       >
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {specialSummarySections.safety.length === 0 &&
-                  specialSummarySections.hints.length === 0 && (
-                    <div className="whitespace-pre-wrap break-words rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
-                      {tooltip}
-                    </div>
-                  )}
-              </div>
-            ) : isServiceReview && serviceReviewSections.length > 0 ? (
-              <div className="space-y-3">
-                {serviceReviewSections.map((section, sectionIndex) => (
-                  <div
-                    key={`order_mobile_review_section_${sectionIndex}`}
-                    className={`${sectionIndex > 0 ? "border-t border-slate-200 pt-3 dark:border-slate-700" : ""}`}
-                  >
-                    <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
-                      {section.title}
-                    </div>
-                    <div className="space-y-2">
-                      {section.items.map((item, itemIndex) => (
-                        <div
-                          key={`order_mobile_review_item_${sectionIndex}_${itemIndex}`}
-                          className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
-                        >
-                          <div className="font-bold text-slate-950 dark:text-slate-50">
-                            {item.title}
-                          </div>
-                          {item.details.map((detail, detailIndex) => {
-                            const isCatalogPrice = /^Katalogpreis:/i.test(detail);
-                            return (
-                              <div
-                                key={`order_mobile_review_detail_${detailIndex}`}
-                                className={`break-words text-[13px] ${
-                                  isCatalogPrice
-                                    ? "font-bold text-slate-950 dark:text-slate-50"
-                                    : "text-slate-600 dark:text-slate-300"
-                                }`}
-                              >
-                                {detail}
-                              </div>
-                            );
-                          })}
+                        <div className="font-bold text-slate-950 dark:text-slate-50">
+                          {item.title}
                         </div>
-                      ))}
-                    </div>
+                        {item.details.map((detail, detailIndex) => {
+                          const isCatalogPrice = /^Katalogpreis:/i.test(detail);
+                          return (
+                            <div
+                              key={`order_mobile_review_detail_${detailIndex}`}
+                              className={`break-words text-[13px] ${
+                                isCatalogPrice
+                                  ? "font-bold text-slate-950 dark:text-slate-50"
+                                  : "text-slate-600 dark:text-slate-300"
+                              }`}
+                            >
+                              {detail}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="whitespace-pre-wrap break-words">
-                {tooltipLines.map((line, index) => {
-                  const trimmed = line.trim();
-                  if (/^[-─—–_]{6,}$/.test(trimmed)) {
-                    return (
-                      <span
-                        key={`active_mobile_sep_${index}`}
-                        className="my-1 block border-t border-slate-200 dark:border-slate-700"
-                      />
-                    );
-                  }
-
-                  const emphasizeLine =
-                    headingPattern.test(trimmed) ||
-                    /—\s*Text\s+/i.test(trimmed) ||
-                    /^Warum:/i.test(trimmed);
-
-                  return (
-                    <span
-                      key={`active_mobile_line_${index}`}
-                      className={`block min-w-0 whitespace-pre-wrap break-words ${emphasizeLine ? "font-bold text-slate-950 dark:text-slate-50" : ""}`}
-                    >
-                      {line}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -11549,6 +11672,7 @@ export default function AuftraegePage() {
               const title = String(badge.tooltip || "").trim() || badge.label;
               if (!compactText(title)) return;
               const key = mobileTooltipKey(badge, slot);
+              const rect = event.currentTarget?.getBoundingClientRect?.();
               setActiveMobileTooltipKey((current) => {
                 const next = current === key ? null : key;
                 setActiveMobileTooltip(
@@ -11561,6 +11685,16 @@ export default function AuftraegePage() {
                           badge.key === "service_review_summary"
                             ? "service_review"
                             : "default",
+                        anchorRect: rect
+                          ? {
+                              top: rect.top,
+                              bottom: rect.bottom,
+                              left: rect.left,
+                              right: rect.right,
+                              width: rect.width,
+                              height: rect.height,
+                            }
+                          : undefined,
                       }
                     : null,
                 );
