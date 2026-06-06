@@ -2717,6 +2717,142 @@ const buildOrderInfoSummaryV17_65 = (
   return { safety, primary, additional };
 };
 
+const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
+  const source = Array.from(
+    new Set(
+      (lines || [])
+        .map((line) => compactText(line))
+        .filter(Boolean),
+    ),
+  );
+  if (source.length === 0) return [];
+
+  const joined = source.join(" ");
+  const result: string[] = [];
+  const pushUnique = (value: string) => {
+    const cleaned = compactText(value)
+      .replace(/\s+([,.;:])/g, "$1")
+      .replace(/\s*[|]\s*/g, " · ")
+      .trim();
+    if (!cleaned) return;
+    if (
+      !result.some(
+        (existing) => normalizeForMatch(existing) === normalizeForMatch(cleaned),
+      )
+    ) {
+      result.push(cleaned);
+    }
+  };
+
+  const phoneMatches = joined.match(/\+?\d[\d\s().\/-]{6,}\d/g) || [];
+  const phone =
+    phoneMatches
+      .map((value) => value.replace(/\s+/g, " ").trim())
+      .find((value) => {
+        const digits = value.replace(/\D/g, "");
+        return digits.length >= 7 && digits.length <= 15;
+      }) || "";
+  const contactLine =
+    source.find((line) => phone && line.includes(phone)) ||
+    source.find((line) =>
+      /\b(?:kontakt\s+vor\s+ort|vor\s+ort|whatsapp|sms|telefon|anrufen|anruf)\b/i.test(
+        line,
+      ),
+    );
+  if (contactLine || phone) {
+    const line = contactLine || joined;
+    const nameMatch = line.match(
+      /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){1,2})\s+(?=\+?\d)/u,
+    );
+    const contactParts = [nameMatch?.[1]?.trim() || "", phone];
+    if (/\bwhatsapp\b/i.test(joined)) contactParts.push("nur WhatsApp");
+    else if (/\bsms\b/i.test(joined)) contactParts.push("nur SMS");
+    if (/\b(?:nicht\s+telefonisch|nicht\s+(?:im\s+büro\s+)?anrufen|kein\s+anruf)\b/i.test(joined)) {
+      contactParts.push("nicht telefonisch");
+    }
+    pushUnique(`Kontakt: ${contactParts.filter(Boolean).join(" · ")}`);
+  }
+
+  const appointmentLine = source.find((line) =>
+    /\b(?:termin|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(
+      line,
+    ) && /\b\d{1,2}(?::\d{2})?\b/.test(line),
+  );
+  if (appointmentLine) {
+    const weekday = appointmentLine.match(
+      /\b(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\b/i,
+    )?.[1];
+    const dateRaw = appointmentLine.match(/\b\d{1,2}\.\d{1,2}\.?/)?.[0];
+    const date = dateRaw ? `${dateRaw.replace(/\.$/, "")}.` : "";
+    const times = appointmentLine.match(/\b\d{1,2}:\d{2}\b/g) || [];
+    const appointmentParts = [weekday, date]
+      .filter(Boolean)
+      .join(" ");
+    const timePart = times.length >= 2 ? `${times[0]}–${times[1]}` : times[0] || "";
+    const notice = /\b(?:vorher|vor\s+ankunft|ankunft\s+vorher|genaue\s+zeit)\b/i.test(
+      appointmentLine,
+    )
+      ? /\bwhatsapp\b/i.test(appointmentLine)
+        ? "Ankunft vorher per WhatsApp mitteilen"
+        : /\bsms\b/i.test(appointmentLine)
+          ? "Ankunft vorher per SMS mitteilen"
+          : "Ankunft vorher mitteilen"
+      : "";
+    pushUnique(
+      `Termin: ${[appointmentParts, timePart, notice].filter(Boolean).join(" · ")}`,
+    );
+  }
+
+  const accessLines = source.filter((line) =>
+    /\b(?:schlüssel|schluessel|code|empfang|besucherausweis|zugang|schlüsselbox|schluesselbox)\b/i.test(
+      line,
+    ),
+  );
+  if (accessLines.length > 0) {
+    const accessValue = accessLines
+      .map((line) =>
+        line
+          .replace(/^\s*zugang\s*:?\s*/i, "")
+          .replace(/[.;]+$/g, "")
+          .trim(),
+      )
+      .filter(Boolean)
+      .join(" · ");
+    pushUnique(`Zugang: ${accessValue}`);
+  }
+
+  const senderLine = source.find((line) =>
+    /\b(?:nicht\s+als\s+kunde\s+speichern|leite\w*\s+(?:das\s+)?nur\s+weiter|schickt\s+das\s+nur\s+weiter)\b/i.test(
+      line,
+    ),
+  );
+  if (senderLine) {
+    const senderName = senderLine.match(
+      /\b(?:ich\s+bin|abssender\s*:?|absender\s*:?)\s+([A-ZÄÖÜ][\p{L}'’\-]+)/iu,
+    )?.[1];
+    const senderParts = [
+      senderName ? `${senderName} leitet nur weiter` : "Leitet nur weiter",
+      /nicht\s+als\s+kunde\s+speichern/i.test(senderLine)
+        ? "nicht als Kunde speichern"
+        : "",
+    ].filter(Boolean);
+    pushUnique(`Absender: ${senderParts.join(" · ")}`);
+  }
+
+  source.forEach((line) => {
+    if (
+      /\b(?:kontakt\s+vor\s+ort|vor\s+ort|whatsapp|sms|telefon|anrufen|anruf|termin|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|schlüssel|schluessel|code|empfang|besucherausweis|zugang|nicht\s+als\s+kunde\s+speichern|leite\w*\s+(?:das\s+)?nur\s+weiter|schickt\s+das\s+nur\s+weiter)\b/i.test(
+        line,
+      )
+    ) {
+      return;
+    }
+    pushUnique(`Hinweis: ${line.length > 150 ? `${line.slice(0, 147).trim()}…` : line}`);
+  });
+
+  return result.slice(0, 8);
+};
+
 const buildSpecialNotesSummaryTooltipV17_91 = (
   order: {
     specialNotes?: string | null;
@@ -2726,9 +2862,10 @@ const buildSpecialNotesSummaryTooltipV17_91 = (
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
 ) => {
   const summary = buildOrderInfoSummaryV17_65(order, parsedNotes);
+  const compactPrimary = compactImportantInfoLinesV17_90L73(summary.primary);
   return [
     summary.safety.length ? ["Gefahr / Achtung", ...summary.safety].join("\n") : "",
-    summary.primary.length ? ["Wichtige Informationen", ...summary.primary].join("\n") : "",
+    compactPrimary.length ? ["Wichtige Informationen", ...compactPrimary].join("\n") : "",
     summary.additional.length ? ["Weitere Besonderheiten", ...summary.additional].join("\n") : "",
   ]
     .filter(Boolean)
@@ -4402,12 +4539,12 @@ const formatExecutionAddressTooltip = (order: Order) => {
 
 const combineCatalogReviewBadges = (badges: ReviewBadge[]) => badges;
 
-const compactRedReviewDetailLinesV17_90L72 = (badge: ReviewBadge) => {
+const compactRedReviewDetailLinesV17_90L73 = (badge: ReviewBadge) => {
   const labelKey = normalizeForMatch(badge.label);
   const actionLine = /auftrag öffnen|positionen kontrollieren|vorschlag übernehmen|vorschlag verwerfen|rote punkte bearbeiten|angebot|rechnung bleiben/i;
-  const boilerplateLine = /wurde erkannt und wird bis zur bestätigung|bestätigten positionen|mindestens eine mögliche leistungszeile|nicht sicher übernommen oder einer falschen position zugeordnet/i;
+  const boilerplateLine = /wurde erkannt und wird bis zur bestätigung|bestätigten positionen|mindestens eine mögliche leistungszeile|nicht sicher übernommen oder einer falschen position zugeordnet|unterschiedliche währungen im kundentext erkannt/i;
 
-  const lines = cleanVisibleTooltipTextV17_35(badge.tooltip)
+  return cleanVisibleTooltipTextV17_35(badge.tooltip)
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
@@ -4415,31 +4552,99 @@ const compactRedReviewDetailLinesV17_90L72 = (badge: ReviewBadge) => {
     .filter((line) => !/^[-–—]{3,}$/.test(line))
     .filter((line) => !actionLine.test(line))
     .filter((line) => !boilerplateLine.test(line))
+    .filter((line) => !/^Text:/i.test(line))
     .map((line) => line.replace(/^•\s*/, "").trim())
     .filter(Boolean)
-    .map((line) => (line.length > 118 ? `${line.slice(0, 115).trim()}…` : line));
-
-  const fallback =
-    badge.key === "recognition_review"
-      ? "Leistung nicht sicher erkannt oder falsch zugeordnet."
-      : badge.key === "currency_review"
-        ? "Fremdwährung oder Preis noch nicht bestätigt."
-        : badge.key === "price_quantity"
-          ? "Preis oder Menge einer Leistung kontrollieren."
-          : badge.key === "unit_conflict"
-            ? "Einheit einer Leistung kontrollieren."
-            : "Offenen roten Prüfpunkt kontrollieren.";
-
-  return (lines.length > 0 ? lines : [fallback]).slice(0, 3);
+    .map((line) => (line.length > 128 ? `${line.slice(0, 125).trim()}…` : line))
+    .slice(0, 6);
 };
 
-const compactSingleRedReviewTooltipV17_90L72 = (badge: ReviewBadge) => {
-  const details = compactRedReviewDetailLinesV17_90L72(badge);
+const compactSingleRedReviewTooltipV17_90L73 = (badge: ReviewBadge) => {
+  const details = compactRedReviewDetailLinesV17_90L73(badge);
   return [
     badge.label,
-    ...details.map((line) => `• ${line}`),
-    "Auftrag öffnen und roten Prüfpunkt bearbeiten.",
+    ...(details.length > 0
+      ? details.map((line) => `• ${line}`)
+      : ["• Offenen Prüfpunkt kontrollieren."]),
   ].join("\n");
+};
+
+const RED_REVIEW_SECTION_TITLES_V17_90L73 = new Set([
+  "erkennung pruefen",
+  "waehrung pruefen",
+  "preis pruefen",
+  "betrag pruefen",
+  "preis oder menge pruefen",
+  "preis menge oder einheit ergaenzen",
+  "einheit pruefen",
+]);
+
+const isRedReviewSectionTitleV17_90L73 = (value?: string | null) =>
+  RED_REVIEW_SECTION_TITLES_V17_90L73.has(normalizeForMatch(value));
+
+const renderStructuredRedReviewTooltipV17_90L73 = (
+  tooltip: string,
+  keyPrefix: string,
+) => {
+  const lines = cleanVisibleTooltipTextV17_35(tooltip)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => normalizeForMatch(line) !== "auftrag pruefen");
+
+  const sections: Array<{ title: string; rows: string[] }> = [];
+  let current: { title: string; rows: string[] } | null = null;
+
+  lines.forEach((line) => {
+    if (/^[-─—–_]{3,}$/.test(line)) {
+      current = null;
+      return;
+    }
+    if (isRedReviewSectionTitleV17_90L73(line)) {
+      current = { title: line, rows: [] };
+      sections.push(current);
+      return;
+    }
+    if (!current) {
+      current = { title: "Prüfung", rows: [] };
+      sections.push(current);
+    }
+    current.rows.push(line);
+  });
+
+  return (
+    <span className="block space-y-2">
+      {sections.map((section, sectionIndex) => (
+        <span
+          key={`${keyPrefix}_section_${sectionIndex}`}
+          className={`block ${sectionIndex > 0 ? "border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+        >
+          <span className="mb-1 block font-bold text-slate-950 dark:text-slate-50">
+            {section.title}
+          </span>
+          <span className="block space-y-1">
+            {section.rows.map((rawRow, rowIndex) => {
+              const row = rawRow.replace(/^•\s*/, "").trim();
+              const [title, ...detailParts] = row.split(/\s+—\s+/);
+              const detail = detailParts.join(" — ").trim();
+              return (
+                <span key={`${keyPrefix}_row_${sectionIndex}_${rowIndex}`} className="block pl-2">
+                  <span className="block font-bold text-slate-950 dark:text-slate-50">
+                    • {title || row}
+                  </span>
+                  {detail && (
+                    <span className="block pl-3 font-normal text-slate-600 dark:text-slate-300">
+                      {detail}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
 };
 
 const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
@@ -4463,13 +4668,16 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
 
   if (redBadges.length > 1) {
-    const summaryLines = redBadges
-      .flatMap((badge) =>
-        compactRedReviewDetailLinesV17_90L72(badge).map(
-          (line) => `• ${badge.label}: ${line}`,
-        ),
-      )
-      .slice(0, 6);
+    const summarySections = redBadges.flatMap((badge, index) => {
+      const details = compactRedReviewDetailLinesV17_90L73(badge);
+      return [
+        badge.label,
+        ...(details.length > 0
+          ? details.map((line) => `• ${line}`)
+          : ["• Offenen Prüfpunkt kontrollieren."]),
+        ...(index < redBadges.length - 1 ? ["------"] : []),
+      ];
+    });
 
     return [
       {
@@ -4477,11 +4685,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
         label: `Auftrag prüfen · ${redBadges.length}`,
         className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
-        tooltip: [
-          "Auftrag prüfen",
-          ...summaryLines,
-          "Auftrag öffnen und rote Prüfpunkte bearbeiten.",
-        ].join("\n"),
+        tooltip: ["Auftrag prüfen", ...summarySections].join("\n"),
         focusTarget: "items",
       },
       ...catalogBadges,
@@ -4491,7 +4695,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   return [
     ...redBadges.map((badge) => ({
       ...badge,
-      tooltip: compactSingleRedReviewTooltipV17_90L72(badge),
+      tooltip: compactSingleRedReviewTooltipV17_90L73(badge),
     })),
     ...catalogBadges,
   ];
@@ -6230,6 +6434,15 @@ const renderBadgeTooltip = (
 
   const tooltipLines = tooltip.split("\n");
   const isServiceReviewSummary = badge.key === "service_review_summary";
+  const isStructuredRedReview =
+    [
+      "order_review_summary",
+      "recognition_review",
+      "currency_review",
+      "price_quantity",
+      "unit_conflict",
+    ].includes(badge.key) &&
+    /(?:^|\s)(?:bg|text|border)-red-/.test(badge.className || "");
   const headingPattern =
     /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
 
@@ -6237,12 +6450,17 @@ const renderBadgeTooltip = (
     <span
       className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-1 w-max max-w-[min(22rem,calc(100vw-2rem))] max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 ${forceVisible ? "block" : "hidden group-hover:block group-focus:block"}`}
     >
-      {isServiceReviewSummary && (
+      {(isServiceReviewSummary || isStructuredRedReview) && (
         <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
           {badge.label}
         </span>
       )}
-      {tooltipLines.map((line, index) => {
+      {isStructuredRedReview
+        ? renderStructuredRedReviewTooltipV17_90L73(
+            tooltip,
+            `desktop_red_${badge.key}`,
+          )
+        : tooltipLines.map((line, index) => {
         const trimmed = line.trim();
         if (/^[-─—–_]{6,}$/.test(trimmed)) {
           return (
@@ -7237,7 +7455,7 @@ export default function AuftraegePage() {
     key: string;
     tooltip: string;
     title?: string;
-    kind?: "service_review" | "default";
+    kind?: "service_review" | "order_review" | "default";
     anchorRect?: {
       top: number;
       bottom: number;
@@ -10071,6 +10289,9 @@ export default function AuftraegePage() {
   );
   const dangerNoteLines = formInfoSummary.safety;
   const primaryInfoLines = formInfoSummary.primary;
+  const compactPrimaryInfoLines = compactImportantInfoLinesV17_90L73(
+    primaryInfoLines,
+  );
   const editablePrimaryJobHints = parsedFormSpecialNotes.jobHints.filter(
     isPrimaryOrderInfoHintV17_65,
   );
@@ -11736,6 +11957,7 @@ export default function AuftraegePage() {
       ? splitSpecialNotesSummaryTooltipV17_91(tooltip)
       : null;
     const isServiceReview = activeMobileTooltip.kind === "service_review";
+    const isOrderReview = activeMobileTooltip.kind === "order_review";
     const serviceReviewSections = isServiceReview
       ? tooltip
           .split(SERVICE_REVIEW_TOOLTIP_SEPARATOR)
@@ -11866,6 +12088,16 @@ export default function AuftraegePage() {
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+            ) : isOrderReview ? (
+              <div>
+                <div className="mb-2 text-sm font-bold text-slate-950 dark:text-slate-50">
+                  {activeMobileTooltip.title || "Auftrag prüfen"}
+                </div>
+                {renderStructuredRedReviewTooltipV17_90L73(
+                  tooltip,
+                  "mobile_red_review",
                 )}
               </div>
             ) : (
@@ -12255,7 +12487,18 @@ export default function AuftraegePage() {
                         kind:
                           badge.key === "service_review_summary"
                             ? "service_review"
-                            : "default",
+                            : [
+                                  "order_review_summary",
+                                  "recognition_review",
+                                  "currency_review",
+                                  "price_quantity",
+                                  "unit_conflict",
+                                ].includes(badge.key) &&
+                                /(?:^|\s)(?:bg|text|border)-red-/.test(
+                                  badge.className || "",
+                                )
+                              ? "order_review"
+                              : "default",
                         anchorRect: rect
                           ? {
                               top: rect.top,
@@ -15456,12 +15699,19 @@ export default function AuftraegePage() {
                       )}
                     </div>
 
-                    {primaryInfoLines.length > 0 && (
-                      <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 space-y-1">
+                    {compactPrimaryInfoLines.length > 0 && (
+                      <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 space-y-1.5">
                         <div className="font-semibold flex items-center gap-2"><Info className="w-4 h-4" /> Wichtige Informationen</div>
-                        {primaryInfoLines.map((line, index) => (
-                          <div key={`${line}-${index}`} className="whitespace-pre-wrap break-words">{line}</div>
-                        ))}
+                        {compactPrimaryInfoLines.map((line, index) => {
+                          const [label, ...valueParts] = line.split(/:\s+/);
+                          const value = valueParts.join(": ").trim();
+                          return (
+                            <div key={`${line}-${index}`} className="grid grid-cols-[auto_1fr] gap-x-2 break-words">
+                              <span className="font-semibold">{value ? `${label}:` : "•"}</span>
+                              <span>{value || line}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
 
