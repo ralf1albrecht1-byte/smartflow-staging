@@ -2709,12 +2709,35 @@ export default function AngebotePage() {
               {filteredOffers
                 .slice(0, visibleCount)
                 .map((off: Offer, i: number) => {
+                  const customerNumberFromOffer = String(
+                    off.customer?.customerNumber || "",
+                  ).trim();
+                  const customerFromMaster = customers.find(
+                    (customer) =>
+                      customer.id === off.customerId ||
+                      Boolean(
+                        customerNumberFromOffer &&
+                          customer.customerNumber === customerNumberFromOffer,
+                      ),
+                  );
+                  const linkedOrderCustomer = (off.orders || [])
+                    .map((order: any) => order?.customer)
+                    .find((customer: any) =>
+                      Boolean(String(customer?.name || "").trim()),
+                    );
                   const cardCustomer =
                     (off.customer && String(off.customer.name || "").trim()
                       ? off.customer
-                      : customers.find((customer) => customer.id === off.customerId)) ||
+                      : customerFromMaster || linkedOrderCustomer) ||
                     off.customer ||
                     null;
+                  const cardCustomerName =
+                    String(cardCustomer?.name || "").trim() ||
+                    String((off.orders?.[0] as any)?.customerName || "").trim() ||
+                    "–";
+                  const cardCustomerNumber =
+                    String(cardCustomer?.customerNumber || "").trim() ||
+                    String((off.orders?.[0] as any)?.customerNumber || "").trim();
                   const itemNames =
                     off.items
                       ?.map((it: any) => it.description)
@@ -2905,13 +2928,13 @@ export default function AngebotePage() {
 
                                 <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
                                   <span className="min-w-0 truncate text-[15px] font-semibold text-foreground">
-                                    {isFallbackCustomerName(cardCustomer?.name)
+                                    {isFallbackCustomerName(cardCustomerName)
                                       ? "Kunde nicht zugeordnet"
-                                      : cardCustomer?.name || "–"}
+                                      : cardCustomerName}
                                   </span>
-                                  {cardCustomer?.customerNumber && (
+                                  {cardCustomerNumber && (
                                     <span className="shrink-0 text-[11px] text-muted-foreground">
-                                      ({cardCustomer.customerNumber})
+                                      ({cardCustomerNumber})
                                     </span>
                                   )}
                                 </div>
@@ -3266,13 +3289,13 @@ export default function AngebotePage() {
                                     </span>
                                     <span className="shrink-0 text-muted-foreground">·</span>
                                     <span className="min-w-0 max-w-[220px] truncate font-medium text-foreground">
-                                      {isFallbackCustomerName(cardCustomer?.name)
+                                      {isFallbackCustomerName(cardCustomerName)
                                         ? "⚠️ Kunde nicht zugeordnet"
-                                        : cardCustomer?.name || "–"}
+                                        : cardCustomerName}
                                     </span>
-                                    {cardCustomer?.customerNumber && (
+                                    {cardCustomerNumber && (
                                       <span className="shrink-0 text-muted-foreground">
-                                        ({cardCustomer.customerNumber})
+                                        ({cardCustomerNumber})
                                       </span>
                                     )}
                                     {off?.offerNumber && (
@@ -4414,6 +4437,7 @@ export default function AngebotePage() {
                                   <option value="Quadratmeter">Quadratmeter</option>
                                   <option value="Kubikmeter">Kubikmeter</option>
                                   <option value="Stück">Stück</option>
+                                  <option value="Räume">Räume</option>
                                   <option value="Kilogramm">Kilogramm</option>
                                   <option value="Tonne">Tonne</option>
                                   <option value="Liter">Liter</option>

@@ -329,6 +329,7 @@ const priceTypes = [
   "Quadratmeter",
   "Kubikmeter",
   "Stück",
+  "Räume",
   "Kilogramm",
   "Tonne",
   "Liter",
@@ -1079,6 +1080,10 @@ const mergeEquivalentFormItems = (items: FormItem[]) => {
       unitPriceKey,
       warningKey,
       confirmedKey,
+      // V17.90L62: Same catalog label/price does not mean the same contractual
+      // position. Separate source lines/work areas must stay separate in the
+      // editor (e.g. Kellergänge 180 m² and Eingangsbereich 65 m²).
+      normalizeForMatch(normalizedItem.sourceDescription || ""),
       normalizedItem.workSiteId || "",
     ].join("|");
 

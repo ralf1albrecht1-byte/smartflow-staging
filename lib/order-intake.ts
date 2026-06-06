@@ -6870,9 +6870,29 @@ function cleanExplicitServiceLabelV17_90L60(value: string): string {
     .replace(/[,:;\-–—]+\s*$/, "")
     .trim();
   if (!cleaned) return "Leistung prüfen";
-  return formatWorkNameForDisplay(
+
+  // V17.90L62: Explicit priced source lines are contractual positions. Keep
+  // the complete work area/object from the customer line instead of reducing
+  // every floor/window row to a generic catalog label. Only the amount/unit
+  // fragments are removed here; semantic area words remain intact.
+  const lineLocalLabel = cleanGermanServiceLabelGrammarV17_90L(
     stripMeasureAndPriceFromVisibleServiceNameV17_90L(cleaned),
-  );
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!lineLocalLabel) return "Leistung prüfen";
+
+  // Travel flat fees are the one structural category intentionally normalized
+  // to the established visible document label.
+  if (
+    /^(?:anfahrt|anfahrt\s+pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|reisepauschale|travel(?:\s+(?:cost|fee|flat\s+fee))?|d[ée]placement|trasferta|viaje)\b/i.test(
+      lineLocalLabel,
+    )
+  ) {
+    return "Anfahrt";
+  }
+
+  return lineLocalLabel.charAt(0).toUpperCase() + lineLocalLabel.slice(1);
 }
 
 function parseExplicitPricedServiceLinesV17_90L60(
@@ -6990,7 +7010,11 @@ function findAggregateEntrySubsetV17_90L60(
   entries: ExplicitPricedServiceLineV17_90L60[],
   targetQuantity: number,
 ): ExplicitPricedServiceLineV17_90L60[] | null {
-  const candidates = entries.slice(0, 12);
+  // V17.90L62: Do not cap this search to the first twelve rows. In long
+  // orders the second half of an accidental aggregate can be near the end of
+  // the message (for example row 7 + row 18). The caller already prefilters
+  // candidates to the same price and unit, so the complete set is safe here.
+  const candidates = entries;
   let found: ExplicitPricedServiceLineV17_90L60[] | null = null;
   const walk = (
     start: number,
