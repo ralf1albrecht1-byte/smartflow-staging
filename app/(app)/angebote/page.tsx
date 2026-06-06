@@ -3515,7 +3515,7 @@ export default function AngebotePage() {
                               {/* Desktop/tablet */}
                               <div className="hidden min-w-0 items-stretch gap-3 md:flex">
                                 <div className="min-w-0 flex-1 overflow-visible">
-                                  <div className="flex min-w-0 items-center gap-x-1.5 text-xs">
+                                  <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
                                     <span className="shrink-0 text-muted-foreground">
                                       {(() => {
                                         const dt = off.orders?.[0]?.createdAt || off.createdAt;
@@ -3525,7 +3525,7 @@ export default function AngebotePage() {
                                       })()}
                                     </span>
                                     <span className="shrink-0 text-muted-foreground">·</span>
-                                    <span className="min-w-[12rem] max-w-[20rem] shrink-0 truncate font-medium text-foreground">
+                                    <span className="min-w-0 max-w-full flex-[0_1_auto] truncate font-medium text-foreground sm:max-w-[18rem] lg:max-w-[24rem] xl:max-w-[30rem]">
                                       {isFallbackCustomerName(cardCustomerName)
                                         ? "⚠️ Kunde nicht zugeordnet"
                                         : cardCustomerName}
@@ -3548,7 +3548,7 @@ export default function AngebotePage() {
                                           event.stopPropagation();
                                           openOfferSection(off, "execution");
                                         }}
-                                        className="group relative inline-flex max-w-[18rem] shrink-0 items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800 outline-none hover:bg-cyan-100 focus:ring-2 focus:ring-cyan-300"
+                                        className="group relative inline-flex min-w-0 max-w-full flex-[0_1_auto] items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800 outline-none hover:bg-cyan-100 focus:ring-2 focus:ring-cyan-300 sm:max-w-[18rem] lg:max-w-[24rem]"
                                         aria-label="Ausführungsadresse anzeigen"
                                       >
                                         <MapPin className="h-3 w-3 shrink-0" />

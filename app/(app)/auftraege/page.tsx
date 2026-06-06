@@ -4648,21 +4648,31 @@ const getSystemBadges = (
 ): ReviewBadge[] => {
   const badges: ReviewBadge[] = [];
 
+  const workSiteCount = Array.isArray(order.workSites)
+    ? order.workSites.length
+    : 0;
+  const primaryWorkSite =
+    (order.workSites ?? []).find((site) => Boolean(site?.isPrimary)) ||
+    (order.workSites ?? [])[0] ||
+    null;
+  const explicitExecutionSiteTitle =
+    cleanWorkSiteDisplayName(primaryWorkSite?.siteName) ||
+    cleanWorkSiteDisplayName(order.siteName);
+  const executionSiteTitle =
+    explicitExecutionSiteTitle || inferOrderExecutionSiteName(order);
+  const executionSiteChipLabel =
+    formatCompactWorkSiteChipLabelV17_49(executionSiteTitle) ||
+    executionSiteTitle;
+
+  // L67: Ein fachlich benannter Arbeitsbereich (z. B. „Gemeinschaftsraum
+  // und Keller“) bleibt auf der Karte sichtbar, auch wenn Rechnungs- und
+  // Ausführungsadresse identisch sind. Nur eine echte offene Adressprüfung
+  // unterdrückt den normalen cyanfarbenen Ausführungsort-Chip.
   if (
-    hasDifferentExecutionAddressForBadge(order) &&
+    (hasDifferentExecutionAddressForBadge(order) ||
+      Boolean(compactText(explicitExecutionSiteTitle))) &&
     !hasActiveAddressRoleReviewV17_90K(order)
   ) {
-    const workSiteCount = Array.isArray(order.workSites)
-      ? order.workSites.length
-      : 0;
-    const primaryWorkSite = (order.workSites ?? [])[0] || null;
-    const executionSiteTitle =
-      cleanWorkSiteDisplayName(primaryWorkSite?.siteName) ||
-      cleanWorkSiteDisplayName(order.siteName) ||
-      inferOrderExecutionSiteName(order);
-    const executionSiteChipLabel =
-      formatCompactWorkSiteChipLabelV17_49(executionSiteTitle) ||
-      executionSiteTitle;
     pushUniqueBadge(badges, {
       key: "site_address",
       label:
@@ -6182,7 +6192,7 @@ const renderReviewBadge = (
           target.focus();
         }
       }}
-      className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "rounded-lg" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${visualClassName} ${
+      className={`group relative inline-flex max-w-full items-center gap-1 ${isCompactIcon ? "rounded-lg" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${visualClassName} ${
         options.strong
           ? getStrongerCardBadgeClassName(badge.className)
           : badge.className
@@ -6203,7 +6213,7 @@ const renderReviewBadge = (
           {badge.icon && badge.key !== "callback_request" && (
             <AlertTriangle className="w-3 h-3" />
           )}
-          {badge.label}
+          <span className="min-w-0 truncate">{badge.label}</span>
         </>
       )}
       {renderBadgeTooltip(badge, options.tooltipAlign || "left")}
@@ -12362,7 +12372,7 @@ export default function AuftraegePage() {
                               )}
 
                             {leftSystemBadges.length > 0 && (
-                              <span className="inline-flex max-w-full flex-nowrap items-center gap-1 shrink-0">
+                              <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
                                 {leftSystemBadges.map((badge) =>
                                   renderInteractiveOrderCardBadge(badge),
                                 )}
