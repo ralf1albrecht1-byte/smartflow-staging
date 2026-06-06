@@ -185,6 +185,28 @@ const compactOfferValue = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const pickBestOfferCustomerName = (...values: unknown[]) => {
+  const candidates = values
+    .map((value) => compactOfferValue(value))
+    .filter(Boolean);
+
+  const completeNames = candidates.filter((name) => {
+    if (name.length <= 1) return false;
+    if (/^[–—-]+$/.test(name)) return false;
+    return !isFallbackCustomerName(name);
+  });
+
+  const pool = completeNames.length > 0 ? completeNames : candidates;
+  return (
+    pool.sort((left, right) => {
+      const leftWords = left.split(/\s+/).filter(Boolean).length;
+      const rightWords = right.split(/\s+/).filter(Boolean).length;
+      if (rightWords !== leftWords) return rightWords - leftWords;
+      return right.length - left.length;
+    })[0] || "–"
+  );
+};
+
 const offerSiteKey = (site: OfferExecutionSite) =>
   [site.siteName, site.siteAddress, site.sitePlz, site.siteCity, site.siteNote]
     .map((value) => compactOfferValue(value).toLowerCase())
@@ -2746,21 +2768,24 @@ export default function AngebotePage() {
                     .find((customer: any) =>
                       Boolean(String(customer?.name || "").trim()),
                     );
+                  // Prefer the authoritative customer master/linked order over
+                  // the compact offer relation. Some list payloads only contain an
+                  // abbreviated one-letter customer name (for example "R").
                   const cardCustomer =
-                    (off.customer && String(off.customer.name || "").trim()
-                      ? off.customer
-                      : customerFromMaster || linkedOrderCustomer) ||
-                    off.customer ||
+                    customerFromMaster ||
+                    linkedOrderCustomer ||
                     linkedOrder?.customer ||
+                    off.customer ||
                     null;
-                  const cardCustomerName =
-                    String(cardCustomer?.name || "").trim() ||
-                    String((off as any)?.customerName || "").trim() ||
-                    String(customerFromMaster?.name || "").trim() ||
-                    String(linkedOrderCustomer?.name || "").trim() ||
-                    String(linkedOrder?.customerName || "").trim() ||
-                    String(linkedOrder?.customer?.name || "").trim() ||
-                    "–";
+                  const cardCustomerName = pickBestOfferCustomerName(
+                    customerFromMaster?.name,
+                    linkedOrderCustomer?.name,
+                    linkedOrder?.customer?.name,
+                    linkedOrder?.customerName,
+                    (off as any)?.customerName,
+                    off.customer?.name,
+                    cardCustomer?.name,
+                  );
                   const cardCustomerNumber =
                     String(cardCustomer?.customerNumber || "").trim() ||
                     String((off as any)?.customerNumber || "").trim() ||
