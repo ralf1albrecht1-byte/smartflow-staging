@@ -404,8 +404,8 @@ function offerWorkSiteDiffersFromBilling(item: any, customer: any): boolean {
   );
   return (
     hasNameOrNote ||
-    (siteStreet && siteStreet !== billingStreet) ||
-    (sitePlace && sitePlace !== billingPlace)
+    (siteStreet.length > 0 && siteStreet !== billingStreet) ||
+    (sitePlace.length > 0 && sitePlace !== billingPlace)
   );
 }
 
