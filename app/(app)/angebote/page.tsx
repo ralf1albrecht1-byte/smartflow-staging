@@ -1122,7 +1122,16 @@ export default function AngebotePage() {
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
+  const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
 
+  const toggleMobileServiceCard = (id: string) => {
+    setExpandedMobileServiceCards((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!activeMobileTooltip || typeof document === "undefined") return;
@@ -2505,9 +2514,7 @@ export default function AngebotePage() {
             <FileCheck className="w-7 h-7 text-primary" /> Angebote
           </h1>
           <p className="text-muted-foreground mt-1">
-            {offers?.filter((o: Offer) => o.status !== "Angenommen").length ??
-              0}{" "}
-            Angebote
+            {offers?.length ?? 0} Angebote
           </p>
         </div>
         <Button onClick={openNewOffer}>
@@ -2553,11 +2560,7 @@ export default function AngebotePage() {
         {(() => {
           const filteredOffers = offers
             .filter((off: Offer) => {
-              // "Alle" = active workflow offers only (matches Dashboard count logic).
-              // "Angenommen" offers have been forwarded to Rechnungen — hide them
-              // from the default view but keep them accessible via explicit filter.
-              if (statusFilter === "Alle" && off.status === "Angenommen")
-                return false;
+              // "Alle" zeigt wirklich alle Angebotsstatus, einschließlich Angenommen.
               if (statusFilter !== "Alle" && off.status !== statusFilter)
                 return false;
               const s = searchText?.toLowerCase() ?? "";
@@ -2651,6 +2654,18 @@ export default function AngebotePage() {
                     off,
                     services,
                     offerCurrency,
+                  );
+                  const mobileOfferServiceNames = (off.items || [])
+                    .map((item: any) => String(item?.description || "").trim())
+                    .filter(Boolean);
+                  const mobileOfferServicesExpanded =
+                    expandedMobileServiceCards.has(off.id);
+                  const visibleMobileOfferServices = mobileOfferServicesExpanded
+                    ? mobileOfferServiceNames
+                    : mobileOfferServiceNames.slice(0, 3);
+                  const hiddenMobileOfferServiceCount = Math.max(
+                    0,
+                    mobileOfferServiceNames.length - 3,
                   );
                   return (
                     <motion.div
@@ -2762,270 +2777,294 @@ export default function AngebotePage() {
 
                             {/* Main info — mirrored from the order-card layout */}
                             <div className="min-w-0 flex-1">
-                              {/* Mobile — same two-column structure as orders */}
-                              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_112px] gap-2 md:hidden">
-                                <div className="min-w-0 overflow-visible">
-                                  <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
-                                    <span className="shrink-0">
-                                      {(() => {
-                                        const dt = off.orders?.[0]?.createdAt || off.createdAt;
-                                        return dt
-                                          ? `${new Date(dt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} · ${new Date(dt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
-                                          : "";
-                                      })()}
+                              {/* Mobile — shared one-column card for Auftrag/Angebot */}
+                              <div className="min-w-0 md:hidden">
+                                <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                                  <span className="shrink-0">
+                                    {(() => {
+                                      const dt = off.orders?.[0]?.createdAt || off.createdAt;
+                                      return dt
+                                        ? `${new Date(dt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} · ${new Date(dt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
+                                        : "";
+                                    })()}
+                                  </span>
+                                  {off?.offerNumber && (
+                                    <span className="min-w-0 truncate font-mono text-[10px]">
+                                      {off.offerNumber}
                                     </span>
-                                  </div>
+                                  )}
+                                </div>
 
-                                  <div className="mt-0.5 flex min-w-0 items-center gap-1 overflow-hidden">
-                                    <span className="min-w-0 truncate text-[13px] font-semibold text-foreground">
-                                      {isFallbackCustomerName(off?.customer?.name)
-                                        ? "Kunde nicht zugeordnet"
-                                        : off?.customer?.name || "–"}
+                                <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                                  <span className="min-w-0 truncate text-[15px] font-semibold text-foreground">
+                                    {isFallbackCustomerName(off?.customer?.name)
+                                      ? "Kunde nicht zugeordnet"
+                                      : off?.customer?.name || "–"}
+                                  </span>
+                                  {off?.customer?.customerNumber && (
+                                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                                      ({off.customer.customerNumber})
                                     </span>
-                                    {off?.customer?.customerNumber && (
-                                      <span className="shrink-0 text-[11px] text-muted-foreground">
-                                        ({off.customer.customerNumber})
-                                      </span>
-                                    )}
-                                    {primaryExecutionSite && (
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          toggleOfferMobileTooltip(
-                                            {
-                                              key: `${off.id}:execution`,
-                                              text: [
-                                                "Ausführungsadresse",
-                                                primaryExecutionSite.siteName,
-                                                primaryExecutionSite.siteAddress,
-                                                [primaryExecutionSite.sitePlz, primaryExecutionSite.siteCity]
-                                                  .filter(Boolean)
-                                                  .join(" "),
-                                                primaryExecutionSite.siteNote,
-                                              ]
-                                                .filter(Boolean)
-                                                .join("\n"),
-                                            },
-                                            event,
-                                          )
-                                        }
-                                        className="inline-flex min-w-0 max-w-[8.5rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-800"
-                                        aria-label="Ausführungsadresse anzeigen"
-                                      >
-                                        <MapPin className="h-3 w-3 shrink-0" />
-                                        <span className="truncate">
-                                          {primaryExecutionSite.siteName ||
-                                            primaryExecutionSite.siteAddress ||
-                                            "Ausführungsadresse"}
-                                        </span>
-                                      </button>
-                                    )}
-                                  </div>
+                                  )}
+                                </div>
 
-                                  <p
-                                    className={`mt-1 line-clamp-2 text-[13px] font-medium leading-snug ${
-                                      isSonstiges
-                                        ? "text-red-600 dark:text-red-400"
-                                        : "text-foreground"
-                                    }`}
+                                {primaryExecutionSite && (
+                                  <button
+                                    type="button"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onTouchStart={(event) => event.stopPropagation()}
+                                    onClick={(event) =>
+                                      toggleOfferMobileTooltip(
+                                        {
+                                          key: `${off.id}:execution`,
+                                          text: [
+                                            "Ausführungsadresse",
+                                            primaryExecutionSite.siteName,
+                                            primaryExecutionSite.siteAddress,
+                                            [primaryExecutionSite.sitePlz, primaryExecutionSite.siteCity]
+                                              .filter(Boolean)
+                                              .join(" "),
+                                            primaryExecutionSite.siteNote,
+                                          ]
+                                            .filter(Boolean)
+                                            .join("\n"),
+                                        },
+                                        event,
+                                      )
+                                    }
+                                    className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-[11px] font-medium text-cyan-800"
+                                    aria-label="Ausführungsadresse anzeigen"
                                   >
-                                    {isSonstiges && "⚠ "}
-                                    {itemNames}
-                                  </p>
-
-                                  <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
-                                    <select
-                                      onClick={(event) => event.stopPropagation()}
-                                      className="h-7 shrink-0 rounded-lg border px-1.5 text-[11px] font-medium"
-                                      style={getStatusStyle(
-                                        OFFER_STATUS_STYLES,
-                                        off?.status ?? "",
-                                      )}
-                                      value={off?.status ?? ""}
-                                      onChange={(event: any) => {
-                                        event.stopPropagation();
-                                        updateStatus(
-                                          off?.id,
-                                          event?.target?.value ?? "",
-                                        );
-                                      }}
-                                    >
-                                      {offerStatuses.map((status) => (
-                                        <option
-                                          key={status}
-                                          style={getStatusStyle(
-                                            OFFER_STATUS_STYLES,
-                                            status,
-                                          )}
-                                        >
-                                          {status}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                                      {off?.offerNumber ?? ""}
+                                    <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="truncate">
+                                      {primaryExecutionSite.siteName ||
+                                        primaryExecutionSite.siteAddress ||
+                                        "Ausführungsadresse"}
                                     </span>
+                                  </button>
+                                )}
 
-                                    <div
-                                      className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
+                                  <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
+                                    Leistungen · {mobileOfferServiceNames.length}
+                                  </div>
+                                  <div className="space-y-1">
+                                    {visibleMobileOfferServices.map((serviceName, serviceIndex) => (
+                                      <div
+                                        key={`${off.id}:mobile-service:${serviceIndex}`}
+                                        className="flex min-w-0 items-start gap-2 text-[12px] leading-snug text-foreground"
+                                      >
+                                        <span className="mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                                        <span className="min-w-0 break-words">{serviceName}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {hiddenMobileOfferServiceCount > 0 && (
+                                    <button
+                                      type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onTouchStart={(event) => event.stopPropagation()}
                                       onClick={(event) => {
-                                        const actionHref =
-                                          findOfferCommunicationActionHref(
-                                            event.target,
-                                          );
-                                        if (actionHref) {
-                                          event.stopPropagation();
-                                          setActiveMobileTooltip(null);
-                                          return;
-                                        }
-                                        const element = (
-                                          event.target as HTMLElement
-                                        ).closest<HTMLElement>(
-                                          "[aria-label], [title], button, a",
-                                        );
-                                        const detail =
-                                          element?.getAttribute("aria-label") ||
-                                          element?.getAttribute("title") ||
-                                          "Kontakt";
-                                        toggleOfferMobileTooltip(
-                                          {
-                                            key: `${off.id}:contact:${detail}`,
-                                            text: detail,
-                                          },
-                                          event,
-                                        );
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        toggleMobileServiceCard(off.id);
                                       }}
+                                      className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-[11px] font-semibold text-blue-700 active:scale-[0.99]"
                                     >
-                                      <CommunicationChips
-                                        data={contactChipData}
-                                        compact
-                                        onAudioClick={() =>
-                                          orderCtx.mediaUrl &&
-                                          openMedia(orderCtx.mediaUrl, "audio")
-                                        }
-                                        onImageClick={() => {
-                                          const imgs = orderCtx.imageUrls;
-                                          if (imgs && imgs.length > 0)
-                                            openImageGallery(imgs);
-                                          else if (orderCtx.mediaUrl)
-                                            openMedia(orderCtx.mediaUrl, "image");
-                                        }}
-                                      />
-                                    </div>
-
-                                    {callbackChip &&
-                                      (callbackChip.href ? (
-                                        <a
-                                          href={callbackChip.href}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            setActiveMobileTooltip(null);
-                                          }}
-                                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
-                                          aria-label={callbackChip.title}
-                                        >
-                                          <Phone className="h-4 w-4" />
-                                        </a>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onPointerDown={(event) => event.stopPropagation()}
-                                          onTouchStart={(event) => event.stopPropagation()}
-                                          onClick={(event) =>
-                                            toggleOfferMobileTooltip(
-                                              {
-                                                key: `${off.id}:callback`,
-                                                text: callbackChip.title,
-                                              },
-                                              event,
-                                            )
-                                          }
-                                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
-                                          aria-label={callbackChip.title}
-                                        >
-                                          <Phone className="h-4 w-4" />
-                                        </button>
-                                      ))}
-
-                                    {hasInfoTooltip && (
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          toggleOfferMobileTooltip(
-                                            {
-                                              key: `${off.id}:info`,
-                                              safetyWarnings:
-                                                parsedOfferNotes.safetyWarnings,
-                                              jobHints: parsedOfferNotes.jobHints,
-                                            },
-                                            event,
-                                          )
-                                        }
-                                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
-                                        aria-label="Besonderheiten anzeigen"
-                                      >
-                                        <Info className="h-4 w-4" />
-                                      </button>
-                                    )}
-
-                                    {dangerChips.map((chip) => (
-                                      <button
-                                        key={`mobile_${chip.key}`}
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          toggleOfferMobileTooltip(
-                                            {
-                                              key: `${off.id}:${chip.key}`,
-                                              text: chip.title,
-                                            },
-                                            event,
-                                          )
-                                        }
-                                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 border-red-300 bg-red-100 text-[16px] text-red-800"
-                                        aria-label={chip.title}
-                                      >
-                                        {renderOfferOperationalChipIcon(chip)}
-                                      </button>
-                                    ))}
-
-                                    {warningChips.map((chip) => (
-                                      <button
-                                        key={`mobile_${chip.key}`}
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          toggleOfferMobileTooltip(
-                                            {
-                                              key: `${off.id}:${chip.key}`,
-                                              text: chip.title,
-                                            },
-                                            event,
-                                          )
-                                        }
-                                        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 text-[16px] ${
-                                          chip.key === "parking"
-                                            ? "border-blue-300 bg-blue-50 font-semibold text-blue-700"
-                                            : "border-amber-300 bg-amber-100 text-amber-800"
-                                        }`}
-                                        aria-label={chip.title}
-                                      >
-                                        {renderOfferOperationalChipIcon(chip)}
-                                      </button>
-                                    ))}
-                                  </div>
+                                      {mobileOfferServicesExpanded
+                                        ? "Weniger Leistungen anzeigen"
+                                        : `+ ${hiddenMobileOfferServiceCount} weitere Leistungen`}
+                                    </button>
+                                  )}
                                 </div>
 
-                                <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
-                                  <div className="flex w-full flex-col items-end gap-1">
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
+                                  <select
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                    style={getStatusStyle(
+                                      OFFER_STATUS_STYLES,
+                                      off?.status ?? "",
+                                    )}
+                                    value={off?.status ?? ""}
+                                    onChange={(event: any) => {
+                                      event.stopPropagation();
+                                      updateStatus(
+                                        off?.id,
+                                        event?.target?.value ?? "",
+                                      );
+                                    }}
+                                  >
+                                    {offerStatuses.map((status) => (
+                                      <option
+                                        key={status}
+                                        style={getStatusStyle(
+                                          OFFER_STATUS_STYLES,
+                                          status,
+                                        )}
+                                      >
+                                        {status}
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <div
+                                    className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onTouchStart={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      const actionHref =
+                                        findOfferCommunicationActionHref(
+                                          event.target,
+                                        );
+                                      if (actionHref) {
+                                        event.stopPropagation();
+                                        setActiveMobileTooltip(null);
+                                        return;
+                                      }
+                                      const element = (
+                                        event.target as HTMLElement
+                                      ).closest<HTMLElement>(
+                                        "[aria-label], [title], button, a",
+                                      );
+                                      const detail =
+                                        element?.getAttribute("aria-label") ||
+                                        element?.getAttribute("title") ||
+                                        "Kontakt";
+                                      toggleOfferMobileTooltip(
+                                        {
+                                          key: `${off.id}:contact:${detail}`,
+                                          text: detail,
+                                        },
+                                        event,
+                                      );
+                                    }}
+                                  >
+                                    <CommunicationChips
+                                      data={contactChipData}
+                                      compact
+                                      onAudioClick={() =>
+                                        orderCtx.mediaUrl &&
+                                        openMedia(orderCtx.mediaUrl, "audio")
+                                      }
+                                      onImageClick={() => {
+                                        const imgs = orderCtx.imageUrls;
+                                        if (imgs && imgs.length > 0)
+                                          openImageGallery(imgs);
+                                        else if (orderCtx.mediaUrl)
+                                          openMedia(orderCtx.mediaUrl, "image");
+                                      }}
+                                    />
+                                  </div>
+
+                                  {callbackChip &&
+                                    (callbackChip.href ? (
+                                      <a
+                                        href={callbackChip.href}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setActiveMobileTooltip(null);
+                                        }}
+                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
+                                        aria-label={callbackChip.title}
+                                      >
+                                        <Phone className="h-4 w-4" />
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:callback`,
+                                              text: callbackChip.title,
+                                            },
+                                            event,
+                                          )
+                                        }
+                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
+                                        aria-label={callbackChip.title}
+                                      >
+                                        <Phone className="h-4 w-4" />
+                                      </button>
+                                    ))}
+
+                                  {hasInfoTooltip && (
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) =>
+                                        toggleOfferMobileTooltip(
+                                          {
+                                            key: `${off.id}:info`,
+                                            safetyWarnings:
+                                              parsedOfferNotes.safetyWarnings,
+                                            jobHints: parsedOfferNotes.jobHints,
+                                          },
+                                          event,
+                                        )
+                                      }
+                                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                                      aria-label="Besonderheiten anzeigen"
+                                    >
+                                      <Info className="h-4 w-4" />
+                                    </button>
+                                  )}
+
+                                  {dangerChips.map((chip) => (
+                                    <button
+                                      key={`mobile_${chip.key}`}
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) =>
+                                        toggleOfferMobileTooltip(
+                                          {
+                                            key: `${off.id}:${chip.key}`,
+                                            text: chip.title,
+                                          },
+                                          event,
+                                        )
+                                      }
+                                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-red-300 bg-red-100 text-[17px] text-red-800"
+                                      aria-label={chip.title}
+                                    >
+                                      {renderOfferOperationalChipIcon(chip)}
+                                    </button>
+                                  ))}
+
+                                  {warningChips.map((chip) => (
+                                    <button
+                                      key={`mobile_${chip.key}`}
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) =>
+                                        toggleOfferMobileTooltip(
+                                          {
+                                            key: `${off.id}:${chip.key}`,
+                                            text: chip.title,
+                                          },
+                                          event,
+                                        )
+                                      }
+                                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 text-[17px] ${
+                                        chip.key === "parking"
+                                          ? "border-blue-300 bg-blue-50 font-semibold text-blue-700"
+                                          : "border-amber-300 bg-amber-100 text-amber-800"
+                                      }`}
+                                      aria-label={chip.title}
+                                    >
+                                      {renderOfferOperationalChipIcon(chip)}
+                                    </button>
+                                  ))}
+                                </div>
+
+                                <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
+                                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                                     {appointmentLabel && (
                                       <button
                                         type="button"
@@ -3040,7 +3079,7 @@ export default function AngebotePage() {
                                             event,
                                           )
                                         }
-                                        className="inline-flex max-w-full shrink-0 items-center rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700"
+                                        className="inline-flex max-w-full items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700"
                                       >
                                         <span className="truncate">{appointmentLabel}</span>
                                       </button>
@@ -3061,7 +3100,7 @@ export default function AngebotePage() {
                                             event,
                                           )
                                         }
-                                        className="inline-flex max-w-full rounded-full border border-red-300 bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800"
+                                        className="inline-flex max-w-full rounded-full border border-red-300 bg-red-100 px-2 py-1 text-[10px] font-semibold text-red-800"
                                       >
                                         Preis/Menge prüfen
                                       </button>
@@ -3082,15 +3121,15 @@ export default function AngebotePage() {
                                             event,
                                           )
                                         }
-                                        className="inline-flex max-w-full rounded-full border border-yellow-400 bg-yellow-100 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
+                                        className="inline-flex max-w-full rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
                                       >
                                         Leistungen prüfen · {serviceReview.reviewCount}
                                       </button>
                                     )}
                                   </div>
 
-                                  <div className="whitespace-nowrap text-right leading-tight">
-                                    <div className="font-mono text-[15px] font-bold tabular-nums">
+                                  <div className="shrink-0 whitespace-nowrap text-right leading-tight">
+                                    <div className="font-mono text-[16px] font-bold tabular-nums">
                                       {formatCurrency(
                                         Number(off?.total ?? 0),
                                         offerCurrency,
@@ -3166,6 +3205,9 @@ export default function AngebotePage() {
                                     )}
                                   </div>
 
+                                  <div className="mt-0.5 text-[10px] font-semibold text-muted-foreground">
+                                    {mobileOfferServiceNames.length} Leistungen
+                                  </div>
                                   <p
                                     className={`mt-0.5 whitespace-normal break-words text-sm font-medium ${
                                       isSonstiges
@@ -4086,7 +4128,7 @@ export default function AngebotePage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="text-base font-semibold">
-                          Leistungen *
+                          Leistungen · {items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *
                         </Label>
                         <p className="text-xs text-muted-foreground">
                           Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.

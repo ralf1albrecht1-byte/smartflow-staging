@@ -1882,7 +1882,7 @@ function extractExecutionBlockFromText(
   if (lines.length === 0) return null;
 
   const startRegex =
-    /^\s*(?:arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+    /^\s*(?:(?:die\s+)?arbeiten\s+(?:werden\s+)?(?:an\s+einer\s+anderen\s+adresse\s+)?ausgef(?:ü|ue)hrt|arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
@@ -3752,6 +3752,12 @@ function getServiceUnitType(serviceUnit?: string | null): string {
       "anzahl",
       "einheit",
       "einheiten",
+      "raum",
+      "raeume",
+      "räume",
+      "zimmer",
+      "room",
+      "rooms",
     ],
   };
 
@@ -6812,6 +6818,300 @@ function logIntakeAudit(payload: {
   }
 }
 
+
+// V17.90L60: Generic line-local reconciliation for long structured messages.
+// Every explicitly priced service line remains its own position. This prevents
+// the AI from merging separate work areas with equal unit prices and prevents
+// quantity/price evidence from leaking from one line into another.
+type ExplicitPricedServiceLineV17_90L60 = {
+  index: number;
+  raw: string;
+  serviceName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  detectedCurrency: string | null;
+};
+
+function displayUnitFromExplicitLineV17_90L60(rawUnit: string): string {
+  const unit = normalizeUnitText(rawUnit);
+  if (["m2", "m²", "qm", "quadratmeter", "quadradmeter"].includes(unit))
+    return "Quadratmeter";
+  if (["laufmeter", "lfm", "meter", "m"].includes(unit)) return "Meter";
+  if (["stunde", "stunden", "std", "h"].includes(unit)) return "Stunde";
+  if (["tag", "tage", "arbeitstag", "arbeitstage"].includes(unit)) return "Tag";
+  if (["liter", "ltr", "l"].includes(unit)) return "Liter";
+  if (["kilogramm", "kg"].includes(unit)) return "Kilogramm";
+  if (["tonne", "tonnen", "to", "t"].includes(unit)) return "Tonne";
+  if (["raum", "raeume", "räume", "zimmer", "rooms", "room"].includes(unit))
+    return /^r/i.test(rawUnit.trim()) ? "Räume" : "Zimmer";
+  if (
+    [
+      "stueck",
+      "stück",
+      "stuck",
+      "stk",
+      "anzahl",
+      "einheit",
+      "einheiten",
+      "piece",
+      "pieces",
+      "pcs",
+    ].includes(unit)
+  )
+    return "Stück";
+  return compactText(rawUnit) || "Einheit prüfen";
+}
+
+function cleanExplicitServiceLabelV17_90L60(value: string): string {
+  const cleaned = compactText(value)
+    .replace(/^[-–—•*]+\s*/, "")
+    .replace(/^(?:folgende\s+arbeiten\s+ausf(?:ü|ue)hren|leistungen?)\s*:?\s*/i, "")
+    .replace(/[,:;\-–—]+\s*$/, "")
+    .trim();
+  if (!cleaned) return "Leistung prüfen";
+  return formatWorkNameForDisplay(
+    stripMeasureAndPriceFromVisibleServiceNameV17_90L(cleaned),
+  );
+}
+
+function parseExplicitPricedServiceLinesV17_90L60(
+  sourceText: string | null | undefined,
+): ExplicitPricedServiceLineV17_90L60[] {
+  const originalPart = String(sourceText || "").split(
+    /---\s*Übersetzung\s*\(automatisch\)\s*---/i,
+  )[0];
+  const lines = splitIntakeLines(originalPart);
+  const unitPattern =
+    String.raw`m²|m2|qm|quadratmeter|quadradmeter|laufmeter|lfm|meter|stunden?|std\.?|h|tage?|arbeitstage?|stücke?|stueck|stuck|stk|anzahl|einheiten?|räume?|raeume|raum|zimmer|rooms?|pieces?|piece|pcs|liter|ltr\.?|l|kilogramm|kg|tonnen?|to`;
+  const currencyPattern = String.raw`CHF|Fr\.?|SFr\.?|EUR|Euro|€|USD|\$|GBP|£`;
+  const numberPattern = String.raw`\d+(?:[.,]\d+)?`;
+  const result: ExplicitPricedServiceLineV17_90L60[] = [];
+
+  lines.forEach((rawLine, index) => {
+    const raw = compactText(rawLine);
+    if (!raw) return;
+
+    const pricedPatterns = [
+      new RegExp(
+        `^(.*?)\\s*,?\\s*(${numberPattern})\\s*(${unitPattern})\\s*(?:à|a|je|pro|per|zu|at)\\s*(?:(${currencyPattern})\\s*)?(${numberPattern})(?:\\s*(${currencyPattern}))?\\s*$`,
+        "i",
+      ),
+      new RegExp(
+        `^(.*?)\\s*,?\\s*(${numberPattern})\\s*(${unitPattern})\\s*(?:à|a|je|pro|per|zu|at)\\s*(${numberPattern})\\s*(${currencyPattern})\\s*$`,
+        "i",
+      ),
+    ];
+
+    for (const pattern of pricedPatterns) {
+      const match = raw.match(pattern);
+      if (!match) continue;
+      const quantity = parseIntakeDecimalNumber(match[2]);
+      const unit = displayUnitFromExplicitLineV17_90L60(match[3]);
+      const firstPattern = match.length >= 7;
+      const price = parseIntakeDecimalNumber(firstPattern ? match[5] : match[4]);
+      const currencyRaw = firstPattern ? match[4] || match[6] : match[5];
+      if (!quantity || !price) return;
+      result.push({
+        index,
+        raw,
+        serviceName: cleanExplicitServiceLabelV17_90L60(match[1]),
+        quantity,
+        unit,
+        unitPrice: price,
+        detectedCurrency: currencyRaw
+          ? normalizeCurrencyTokenV17_90L43(String(currencyRaw))
+          : null,
+      });
+      return;
+    }
+
+    const flatMatch = raw.match(
+      new RegExp(
+        `^(.*?)\\s*,?\\s*(?:pauschal|pauschale|fixpreis|festpreis)\\s*(?:(${currencyPattern})\\s*)?(${numberPattern})(?:\\s*(${currencyPattern}))?\\s*$`,
+        "i",
+      ),
+    );
+    if (!flatMatch) return;
+    const price = parseIntakeDecimalNumber(flatMatch[3]);
+    if (!price) return;
+    const currencyRaw = flatMatch[2] || flatMatch[4];
+    result.push({
+      index,
+      raw,
+      serviceName: cleanExplicitServiceLabelV17_90L60(flatMatch[1]),
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: price,
+      detectedCurrency: currencyRaw
+        ? normalizeCurrencyTokenV17_90L43(String(currencyRaw))
+        : null,
+    });
+  });
+
+  return result;
+}
+
+function explicitLineItemFingerprintV17_90L60(input: {
+  quantity?: any;
+  unitPrice?: any;
+  unit?: any;
+}): string {
+  return [
+    Number(input.quantity || 0).toFixed(4),
+    Number(input.unitPrice || 0).toFixed(4),
+    getServiceUnitType(String(input.unit || "")),
+  ].join("|");
+}
+
+function evidenceTokenScoreV17_90L60(left: string, right: string): number {
+  const stop = new Set([
+    "reinigen",
+    "reinigung",
+    "komplett",
+    "innen",
+    "aussen",
+    "außen",
+    "und",
+    "der",
+    "die",
+    "das",
+  ]);
+  const tokens = (value: string) =>
+    normalizeUnitText(value)
+      .replace(/\b\d+(?:[.,]\d+)?\b/g, " ")
+      .split(/\s+/g)
+      .filter((token) => token.length >= 4 && !stop.has(token));
+  const rightSet = new Set(tokens(right));
+  return tokens(left).filter((token) => rightSet.has(token)).length;
+}
+
+function findAggregateEntrySubsetV17_90L60(
+  entries: ExplicitPricedServiceLineV17_90L60[],
+  targetQuantity: number,
+): ExplicitPricedServiceLineV17_90L60[] | null {
+  const candidates = entries.slice(0, 12);
+  let found: ExplicitPricedServiceLineV17_90L60[] | null = null;
+  const walk = (
+    start: number,
+    current: ExplicitPricedServiceLineV17_90L60[],
+    sum: number,
+  ) => {
+    if (found) return;
+    if (current.length >= 2 && Math.abs(sum - targetQuantity) < 0.0001) {
+      found = [...current];
+      return;
+    }
+    if (sum >= targetQuantity || current.length >= 6) return;
+    for (let index = start; index < candidates.length; index += 1) {
+      walk(index + 1, [...current, candidates[index]], sum + candidates[index].quantity);
+      if (found) return;
+    }
+  };
+  walk(0, [], 0);
+  return found;
+}
+
+function reconcileExplicitPricedServiceLinesV17_90L60<
+  T extends {
+    serviceName: string;
+    description: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    totalPrice: number;
+    needsReview: boolean;
+    reviewReason: string | null;
+    sourceText?: string | null;
+    evidence?: string | null;
+    detectedCurrency?: string | null;
+  },
+>(items: T[], sourceText: string | null | undefined): T[] {
+  const entries = parseExplicitPricedServiceLinesV17_90L60(sourceText);
+  if (entries.length < 2) return items;
+
+  const usedItemIndexes = new Set<number>();
+  const removedAggregateIndexes = new Set<number>();
+  const assigned = new Map<number, T>();
+
+  const materialize = (entry: ExplicitPricedServiceLineV17_90L60, base?: T): T =>
+    ({
+      ...(base || ({} as T)),
+      serviceName: entry.serviceName,
+      description: entry.raw,
+      quantity: entry.quantity,
+      unit: entry.unit,
+      unitPrice: entry.unitPrice,
+      totalPrice: roundIntakeMoney(entry.quantity * entry.unitPrice),
+      needsReview: base?.needsReview ?? true,
+      reviewReason: base?.reviewReason || "line_local_service_reconciled",
+      sourceText: entry.raw,
+      evidence: entry.raw,
+      detectedCurrency: entry.detectedCurrency || base?.detectedCurrency || null,
+    }) as T;
+
+  entries.forEach((entry, entryIndex) => {
+    const fingerprint = explicitLineItemFingerprintV17_90L60(entry);
+    const candidates = items
+      .map((item, itemIndex) => ({ item, itemIndex }))
+      .filter(({ item, itemIndex }) =>
+        !usedItemIndexes.has(itemIndex) &&
+        explicitLineItemFingerprintV17_90L60(item) === fingerprint,
+      )
+      .map(({ item, itemIndex }) => ({
+        item,
+        itemIndex,
+        score: evidenceTokenScoreV17_90L60(
+          entry.serviceName,
+          [item.serviceName, item.description, item.sourceText, item.evidence]
+            .filter(Boolean)
+            .join(" "),
+        ),
+      }))
+      .sort((a, b) => b.score - a.score || a.itemIndex - b.itemIndex);
+    const best = candidates[0];
+    if (!best) return;
+    usedItemIndexes.add(best.itemIndex);
+    assigned.set(entryIndex, materialize(entry, best.item));
+  });
+
+  items.forEach((item, itemIndex) => {
+    if (usedItemIndexes.has(itemIndex)) return;
+    const targetQuantity = Number(item.quantity || 0);
+    const targetPrice = Number(item.unitPrice || 0);
+    const targetUnitType = getServiceUnitType(item.unit);
+    if (!targetQuantity || !targetPrice || targetUnitType === "unknown") return;
+
+    const unresolved = entries.filter((entry, entryIndex) =>
+      !assigned.has(entryIndex) &&
+      Math.abs(entry.unitPrice - targetPrice) < 0.0001 &&
+      getServiceUnitType(entry.unit) === targetUnitType,
+    );
+    if (unresolved.length < 2) return;
+    const subset = findAggregateEntrySubsetV17_90L60(unresolved, targetQuantity);
+    if (!subset) return;
+    removedAggregateIndexes.add(itemIndex);
+    subset.forEach((entry) => {
+      const entryIndex = entries.indexOf(entry);
+      assigned.set(entryIndex, materialize(entry, item));
+    });
+  });
+
+  entries.forEach((entry, entryIndex) => {
+    if (!assigned.has(entryIndex)) assigned.set(entryIndex, materialize(entry));
+  });
+
+  const lineItems = entries
+    .map((_entry, entryIndex) => assigned.get(entryIndex))
+    .filter((item): item is T => Boolean(item));
+  const remaining = items.filter(
+    (_item, itemIndex) =>
+      !usedItemIndexes.has(itemIndex) && !removedAggregateIndexes.has(itemIndex),
+  );
+
+  return [...lineItems, ...remaining];
+}
+
 // ---------- Types ----------
 export interface IntakeResult {
   orderId: string;
@@ -9397,6 +9697,13 @@ export async function processIncomingMessage(
           },
         ];
 
+  // V17.90L60: Rebuild explicit priced service rows from their own source
+  // lines before validation. This keeps every source line independent.
+  finalOrderItems = reconcileExplicitPricedServiceLinesV17_90L60(
+    finalOrderItems,
+    messageText,
+  );
+
   const validationSourceText = [
     messageText,
     fullWorkText,
@@ -9771,6 +10078,32 @@ export async function processIncomingMessage(
             : null),
     validationSourceText,
   );
+
+  // V17.90L60: Preserve the explicit object/site descriptor that appears
+  // directly before the structured execution address. Generic placeholders
+  // such as "Ausführungsadresse" must not replace a real property name.
+  const explicitExecutionSiteDescriptor =
+    originalExecutionSiteDescriptorFromTextV17_50(validationSourceText);
+  const currentExecutionSiteNameKey = normalizeUnitText(
+    extractedExecutionAddress?.siteName || "",
+  );
+  const hasOnlyGenericExecutionSiteName =
+    !currentExecutionSiteNameKey ||
+    currentExecutionSiteNameKey === "ausfuehrungsadresse" ||
+    currentExecutionSiteNameKey === "ausfuehrungsort" ||
+    currentExecutionSiteNameKey === "arbeitsort" ||
+    currentExecutionSiteNameKey === "objektadresse";
+
+  if (
+    extractedExecutionAddress &&
+    explicitExecutionSiteDescriptor &&
+    hasOnlyGenericExecutionSiteName
+  ) {
+    extractedExecutionAddress = {
+      ...extractedExecutionAddress,
+      siteName: explicitExecutionSiteDescriptor,
+    };
+  }
 
   if (
     extractedExecutionAddress &&

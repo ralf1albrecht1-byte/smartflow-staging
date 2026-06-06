@@ -3454,7 +3454,7 @@ const formatCatalogPriceDeviationTooltip = (
 
   const lines = [`${reviewItems.length} Preisabweichungen:`];
 
-  reviewItems.slice(0, 6).forEach((item, index) => {
+  reviewItems.forEach((item, index) => {
     const catalog = findCatalogServiceForName(services, item.serviceName);
     const itemQuantity = Number(item.quantity || 0);
     const itemPrice = Number(item.unitPrice || 0);
@@ -3479,9 +3479,6 @@ const formatCatalogPriceDeviationTooltip = (
     }
   });
 
-  if (reviewItems.length > 6) {
-    lines.push(`+${reviewItems.length - 6} weitere Preisabweichungen`);
-  }
 
   return lines.join("\n");
 };
@@ -3499,7 +3496,7 @@ const formatCatalogMissingTooltip = (
     items.length > 1
       ? `${items.length} Leistungen nicht im Katalog:`
       : "1 Leistung nicht im Katalog:",
-    ...items.slice(0, 5).map((item) => {
+    ...items.map((item) => {
       const quantity = Number(item.quantity || 0);
       const unitPrice = Number(item.unitPrice || 0);
       const quantityLabel =
@@ -3514,9 +3511,6 @@ const formatCatalogMissingTooltip = (
     }),
   ];
 
-  if (items.length > 5) {
-    lines.push(`+${items.length - 5} weitere`);
-  }
 
   return lines.filter(Boolean).join("\n");
 };
@@ -3637,7 +3631,7 @@ const formatServiceReviewSummaryTooltip = (input: {
   );
   if (unitServices.length > 0) {
     const lines = ["Einheit abweichend · Einheit aus Text übernommen"];
-    unitServices.slice(0, 6).forEach((service) => {
+    unitServices.forEach((service) => {
       const parts = service.split(":").map(compactText).filter(Boolean);
       const serviceName = canonicalServiceNameForOrderItem(parts[0] || service);
       const textUnit = parts[1] ? formatReviewUnitLabel(parts[1]) : "";
@@ -3661,8 +3655,6 @@ const formatServiceReviewSummaryTooltip = (input: {
         if (calculation) lines.push(`  Berechnung: ${calculation}`);
       }
     });
-    if (unitServices.length > 6)
-      lines.push(`+${unitServices.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
@@ -3671,7 +3663,7 @@ const formatServiceReviewSummaryTooltip = (input: {
   );
   if (manualUnitItems.length > 0) {
     const lines = ["Einheit ergänzt"];
-    manualUnitItems.slice(0, 6).forEach((item) => {
+    manualUnitItems.forEach((item) => {
       const unitLabel = formatReviewUnitLabel(
         getManualUnitConfirmedUnitForItem(item) || item.unit || "",
       );
@@ -3681,8 +3673,6 @@ const formatServiceReviewSummaryTooltip = (input: {
       );
       if (calculation) lines.push(`  Berechnung: ${calculation}`);
     });
-    if (manualUnitItems.length > 6)
-      lines.push(`+${manualUnitItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
@@ -3691,7 +3681,7 @@ const formatServiceReviewSummaryTooltip = (input: {
   );
   if (priceItems.length > 0) {
     const lines = ["Preis oder Einheit abweichend"];
-    priceItems.slice(0, 6).forEach((item) => {
+    priceItems.forEach((item) => {
       const catalog = findCatalogServiceForName(
         input.services,
         item.serviceName,
@@ -3708,7 +3698,6 @@ const formatServiceReviewSummaryTooltip = (input: {
       lines.push(`  Katalogpreis: ${catalogPrice} / ${catalogUnit}`);
       lines.push("  Preis weicht vom Katalog ab.");
     });
-    if (priceItems.length > 6) lines.push(`+${priceItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
@@ -3717,7 +3706,7 @@ const formatServiceReviewSummaryTooltip = (input: {
   ).filter((item) => compactText(item.serviceName));
   if (missingItems.length > 0) {
     const lines = ["Nicht im Leistungskatalog"];
-    missingItems.slice(0, 6).forEach((item) => {
+    missingItems.forEach((item) => {
       const calculation = formatServiceReviewCalculation(item, input.currency);
       lines.push(
         `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
@@ -3725,8 +3714,6 @@ const formatServiceReviewSummaryTooltip = (input: {
       if (calculation) lines.push(`  Aktuell: ${calculation}`);
       lines.push("  Nicht im Leistungskatalog.");
     });
-    if (missingItems.length > 6)
-      lines.push(`+${missingItems.length - 6} weitere`);
     sections.push(lines.join("\n"));
   }
 
@@ -4835,18 +4822,38 @@ const getSystemBadges = (
   );
 
   if (compactServiceReviewBadges.length > 0) {
-    const reviewedServiceKeys = new Set(
-      [
-        ...unitConflictServices.map((value) => value.split(":")[0]),
-        ...manualUnitItems.map((item) => item.serviceName),
-        ...priceReviewItems.map((item) => item.serviceName),
-        ...catalogMissingItems.map((item) => item.serviceName),
-      ]
-        .map((value) => normalizeForMatch(canonicalServiceNameForOrderItem(value)))
-        .filter(Boolean),
-    );
+    const reviewedPositionKeys = new Set<string>();
+    const addReviewedPosition = (
+      item: Pick<OrderItem, "serviceName" | "unit" | "unitPrice" | "quantity">,
+    ) => {
+      reviewedPositionKeys.add(
+        [
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)),
+          normalizePriceUnitForCompare(item.unit),
+          Number(item.unitPrice || 0).toFixed(4),
+          Number(item.quantity || 0).toFixed(4),
+        ].join("|"),
+      );
+    };
+
+    manualUnitItems.forEach(addReviewedPosition);
+    priceReviewItems.forEach(addReviewedPosition);
+    catalogMissingItems.forEach(addReviewedPosition);
+    unitConflictServices.forEach((value) => {
+      const serviceKey = normalizeForMatch(
+        canonicalServiceNameForOrderItem(value.split(":")[0]),
+      );
+      const matchingItems = (order.items || []).filter(
+        (item) =>
+          normalizeForMatch(canonicalServiceNameForOrderItem(item.serviceName)) ===
+          serviceKey,
+      );
+      if (matchingItems.length > 0) matchingItems.forEach(addReviewedPosition);
+      else if (serviceKey) reviewedPositionKeys.add(`${serviceKey}|unit-conflict`);
+    });
+
     const serviceReviewCount = Math.max(
-      reviewedServiceKeys.size,
+      reviewedPositionKeys.size,
       compactServiceReviewBadges.length,
     );
     const serviceReviewTooltip = formatServiceReviewSummaryTooltip({
@@ -6726,6 +6733,17 @@ export default function AuftraegePage() {
     title?: string;
     kind?: "service_review" | "default";
   } | null>(null);
+  const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
+
+  const toggleMobileServiceCard = (id: string) => {
+    setExpandedMobileServiceCards((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const [serviceActionMenuKey, setServiceActionMenuKey] = useState<
     string | null
   >(null);
@@ -11390,6 +11408,25 @@ export default function AuftraegePage() {
                 ));
             const serviceLine = getOrderCardServiceSummary(o);
             const mobileServiceLine = getMobileOrderCardServiceSummary(o);
+            const mobileOrderServiceNames = (o.items || [])
+              .map((item) =>
+                canonicalServiceNameForOrderItem(item.serviceName || ""),
+              )
+              .filter(Boolean);
+            if (mobileOrderServiceNames.length === 0 && o.serviceName) {
+              mobileOrderServiceNames.push(
+                canonicalServiceNameForOrderItem(o.serviceName),
+              );
+            }
+            const mobileOrderServicesExpanded =
+              expandedMobileServiceCards.has(o.id);
+            const visibleMobileOrderServices = mobileOrderServicesExpanded
+              ? mobileOrderServiceNames
+              : mobileOrderServiceNames.slice(0, 3);
+            const hiddenMobileOrderServiceCount = Math.max(
+              0,
+              mobileOrderServiceNames.length - 3,
+            );
             const parsedCardNotes = splitSpecialNotes(o.specialNotes);
             const systemBadges = getSystemBadges(o, services);
             const amountReviewBadges = buildAmountReviewBadges(
@@ -11807,138 +11844,144 @@ export default function AuftraegePage() {
                         )}
                       </div>
 
-                      {/* Mobile: compact two-column card like selected mockup */}
-                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_112px] gap-2 md:hidden">
-                        <div className="min-w-0 overflow-visible">
-                          <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
-                            <span className="shrink-0">
-                              {o.createdAt
-                                ? new Date(o.createdAt).toLocaleDateString(
-                                    "de-CH",
-                                    { day: "2-digit", month: "2-digit" },
-                                  ) +
-                                  " · " +
-                                  new Date(o.createdAt).toLocaleTimeString(
-                                    "de-CH",
-                                    { hour: "2-digit", minute: "2-digit" },
-                                  )
-                                : ""}
-                            </span>
-                          </div>
-
-                          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1">
-                            <span
-                              className={`min-w-0 truncate text-[13px] font-semibold ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
-                            >
-                              {isFallbackCustomerName(o.customer?.name)
-                                ? "Kunde nicht zugeordnet"
-                                : o.customer?.name || "–"}
-                            </span>
-                            {!isFallbackCustomerName(o.customer?.name) &&
-                              o.customer?.customerNumber && (
-                                <span className="shrink-0 text-[11px] text-muted-foreground">
-                                  ({o.customer.customerNumber})
-                                </span>
-                              )}
-                            {mobileSystemBadges
-                              .slice(0, 3)
-                              .map((badge) =>
-                                renderInteractiveMobileTextBadge(
-                                  badge,
-                                  "mobile_system",
-                                  "left",
-                                ),
-                              )}
-                          </div>
-
-                          <p
-                            className={`mt-1 line-clamp-2 text-[13px] font-medium leading-snug ${
-                              isSonstiges
-                                ? "text-red-600 dark:text-red-400"
-                                : "text-foreground"
-                            }`}
-                          >
-                            {isSonstiges && "⚠ "}
-                            {mobileServiceLine}
-                          </p>
-
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
-                            <select
-                              onClick={(e) => e.stopPropagation()}
-                              className="h-7 shrink-0 rounded-lg border px-1.5 text-[11px] font-medium"
-                              style={getStatusStyle(
-                                ORDER_STATUS_STYLES,
-                                o?.status ?? "",
-                              )}
-                              value={o?.status ?? ""}
-                              onChange={(e: any) =>
-                                updateOrderStatus(
-                                  e,
-                                  o?.id,
-                                  e?.target?.value ?? "",
-                                )
-                              }
-                            >
-                              {orderStatuses.map((s) => (
-                                <option
-                                  key={s}
-                                  style={getStatusStyle(ORDER_STATUS_STYLES, s)}
-                                >
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
-
-                            {!hasMultipleMergedData && (
-                              <div
-                                className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
-                                onPointerDown={(event) =>
-                                  event.stopPropagation()
-                                }
-                                onTouchStart={(event) =>
-                                  event.stopPropagation()
-                                }
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <CommunicationChips
-                                  compact
-                                  data={buildCommunicationChipDataV17_52(cardOrderForChips)}
-                                  onAudioClick={() => openMedia(o)}
-                                  onImageClick={() => openMedia(o)}
-                                />
-                              </div>
-                            )}
-
-                            {mobileVisibleActionBadges.map((badge) =>
-                              renderInteractiveMobileActionBadge(badge),
-                            )}
-                            {mobileOverflowBadge(mobileHiddenActionCount)}
-                          </div>
+                      {/* Mobile — shared one-column card for Auftrag/Angebot */}
+                      <div className="min-w-0 flex-1 md:hidden">
+                        <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                          <span className="shrink-0">
+                            {o.createdAt
+                              ? `${new Date(o.createdAt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} · ${new Date(o.createdAt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
+                              : ""}
+                          </span>
                         </div>
 
-                        <div className="flex min-w-0 flex-col items-end justify-between gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
-                          <div className="flex w-full flex-col items-end gap-1">
+                        <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                          <span
+                            className={`min-w-0 truncate text-[15px] font-semibold ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                          >
+                            {isFallbackCustomerName(o.customer?.name)
+                              ? "Kunde nicht zugeordnet"
+                              : o.customer?.name || "–"}
+                          </span>
+                          {!isFallbackCustomerName(o.customer?.name) &&
+                            o.customer?.customerNumber && (
+                              <span className="shrink-0 text-[11px] text-muted-foreground">
+                                ({o.customer.customerNumber})
+                              </span>
+                            )}
+                        </div>
+
+                        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+                          {mobileSystemBadges
+                            .slice(0, 3)
+                            .map((badge) =>
+                              renderInteractiveMobileTextBadge(
+                                badge,
+                                "mobile_system",
+                                "left",
+                              ),
+                            )}
+                        </div>
+
+                        <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
+                          <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
+                            Leistungen · {mobileOrderServiceNames.length}
+                          </div>
+                          <div className="space-y-1">
+                            {visibleMobileOrderServices.map((serviceName, serviceIndex) => (
+                              <div
+                                key={`${o.id}:mobile-service:${serviceIndex}`}
+                                className="flex min-w-0 items-start gap-2 text-[12px] leading-snug text-foreground"
+                              >
+                                <span className="mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                                <span className="min-w-0 break-words">{serviceName}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {hiddenMobileOrderServiceCount > 0 && (
+                            <button
+                              type="button"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onTouchStart={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                toggleMobileServiceCard(o.id);
+                              }}
+                              className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-[11px] font-semibold text-blue-700 active:scale-[0.99]"
+                            >
+                              {mobileOrderServicesExpanded
+                                ? "Weniger Leistungen anzeigen"
+                                : `+ ${hiddenMobileOrderServiceCount} weitere Leistungen`}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
+                          <select
+                            onClick={(event) => event.stopPropagation()}
+                            className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                            style={getStatusStyle(
+                              ORDER_STATUS_STYLES,
+                              o?.status ?? "",
+                            )}
+                            value={o?.status ?? ""}
+                            onChange={(event: any) =>
+                              updateOrderStatus(
+                                event,
+                                o?.id,
+                                event?.target?.value ?? "",
+                              )
+                            }
+                          >
+                            {orderStatuses.map((status) => (
+                              <option
+                                key={status}
+                                style={getStatusStyle(ORDER_STATUS_STYLES, status)}
+                              >
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+
+                          {!hasMultipleMergedData && (
+                            <div
+                              className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onTouchStart={(event) => event.stopPropagation()}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <CommunicationChips
+                                compact
+                                data={buildCommunicationChipDataV17_52(cardOrderForChips)}
+                                onAudioClick={() => openMedia(o)}
+                                onImageClick={() => openMedia(o)}
+                              />
+                            </div>
+                          )}
+
+                          {mobileActionBadges.map((badge) =>
+                            renderInteractiveMobileActionBadge(badge),
+                          )}
+                        </div>
+
+                        <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                             {appointmentBadges
                               .slice(0, 1)
                               .map((badge) =>
                                 renderInteractiveMobileTextBadge(
                                   badge,
                                   "mobile_appointment",
-                                  "right",
+                                  "left",
                                 ),
                               )}
-                            {mobilePrimaryRightBadges.map((badge) =>
+                            {rightSideBadges.map((badge) =>
                               renderInteractiveMobileRightReviewBadge(badge),
-                            )}
-                            {mobileRightHiddenCount > 0 && (
-                              <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                                +{mobileRightHiddenCount}
-                              </span>
                             )}
                           </div>
 
-                          <div className="whitespace-nowrap text-right leading-tight">
-                            <div className="font-mono text-[15px] font-bold tabular-nums">
+                          <div className="shrink-0 whitespace-nowrap text-right leading-tight">
+                            <div className="font-mono text-[16px] font-bold tabular-nums">
                               {formatCurrency(
                                 getSafeOrderTotal(o),
                                 o.currency === "EUR" ? "EUR" : "CHF",
@@ -12005,6 +12048,9 @@ export default function AuftraegePage() {
                           </div>
 
                           {/* Row 2: compact service-only preview */}
+                          <div className="mt-0.5 text-[10px] font-semibold text-muted-foreground">
+                            {mobileOrderServiceNames.length} Leistungen
+                          </div>
                           <p
                             className={`text-sm font-medium mt-0.5 whitespace-normal break-words max-md:line-clamp-5 max-md:overflow-hidden max-md:leading-snug ${
                               isSonstiges
@@ -13112,8 +13158,8 @@ export default function AuftraegePage() {
                       <div className="min-w-0">
                         <Label className="text-base font-semibold">
                           {hasMultipleEditWorkSites
-                            ? "Arbeitsorte & Leistungen *"
-                            : "Leistungen *"}
+                            ? `Arbeitsorte & Leistungen · ${formItems.filter((item) => item.serviceName.trim()).length} *`
+                            : `Leistungen · ${formItems.filter((item) => item.serviceName.trim()).length} *`}
                         </Label>
                         <p className="text-xs text-muted-foreground">
                           {hasMultipleEditWorkSites

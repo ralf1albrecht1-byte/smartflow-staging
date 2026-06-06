@@ -138,6 +138,81 @@ const offerDocumentStyles = `
   body.offer-document td { padding-top: 7px; padding-bottom: 7px; }
   body.offer-document .totals-row { padding-top: 5px; padding-bottom: 5px; }
   body.offer-document .notes { margin-top: 18px; padding-top: 11px; padding-bottom: 11px; }
+  body.offer-document .offer-page-break {
+    break-before: page;
+    page-break-before: always;
+  }
+  body.offer-document .offer-continuation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 0 0 10px 0;
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.32);
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+  body.offer-document .offer-continuation-brand {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+  body.offer-document .offer-continuation-logo {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+  }
+  body.offer-document .offer-continuation-logo img {
+    max-height: 40px !important;
+    max-width: 110px !important;
+  }
+  body.offer-document .offer-continuation-company {
+    min-width: 0;
+    font-size: 8.5px;
+    line-height: 1.35;
+    color: #64748b;
+  }
+  body.offer-document .offer-continuation-company strong {
+    display: block;
+    color: #1f2937;
+    font-size: 10px;
+  }
+  body.offer-document .offer-continuation-meta {
+    flex: 0 0 auto;
+    text-align: right;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 8.5px;
+    line-height: 1.45;
+    color: #64748b;
+  }
+  body.offer-document .offer-continuation-meta strong {
+    display: block;
+    color: #1f2937;
+    font-size: 10px;
+  }
+  body.offer-document .offer-continuation-title {
+    margin: 0 0 9px 0;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #64748b;
+  }
+  body.offer-document .offer-summary-clear { clear: both; }
+  body.offer-document .offer-summary-clear::after {
+    content: '';
+    display: block;
+    clear: both;
+  }
+  @media print {
+    body.offer-document thead { display: table-header-group; }
+    body.offer-document tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+  }
 `;
 
 function pickTemplate(company?: CompanyInfo | null): DocumentTemplate {
@@ -227,8 +302,6 @@ function buildClassicMwstNote(c: CompanyInfo): string {
 function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
   const items = invoice?.items ?? [];
   const customer = invoice?.customer ?? {};
-  const itemsHtml = buildItemsRows(items, c);
-
   const vatLabel =
     c.mwstAktiv === false
       ? c.mwstHinweis || "Nicht MWST-pflichtig"
@@ -270,9 +343,7 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
 }
 
 function renderClassicOffer(offer: any, c: CompanyInfo): string {
-  const items = offer?.items ?? [];
   const customer = offer?.customer ?? {};
-  const itemsHtml = buildItemsRows(items, c);
 
   const vatLabel =
     c.mwstAktiv === false
@@ -301,17 +372,7 @@ function renderClassicOffer(offer: any, c: CompanyInfo): string {
       <div class="meta-item"><span class="meta-label">Angebotsdatum:</span> ${formatDate(offer?.offerDate)}</div>
       <div class="meta-item"><span class="meta-label">Gültig bis:</span> ${formatDate(offer?.validUntil)}</div>
     </div>
-    <table>
-      <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-      <tbody>${itemsHtml}</tbody>
-    </table>
-    <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
-      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
-      <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
-    </div>
-    ${renderOfferPdfTextBlock(offer)}
-    <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
+    ${renderOfferItemsAndSummary(offer, c, vatLabel, priceNote)}
     ${buildClassicFooterBlock(c)}
   </body></html>`;
 }
@@ -529,6 +590,105 @@ function letterheadImg(
   return `<img src="${url}" alt="${c.firmenname || "Logo"}" style="max-height:${h};max-width:260px;object-fit:contain;" />`;
 }
 
+
+function renderOfferTableHead(): string {
+  return `<thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>`;
+}
+
+function renderOfferContinuationHeader(
+  offer: any,
+  c: CompanyInfo,
+  pageNumber: number,
+  totalPages: number,
+): string {
+  const customerName = cleanWorkSiteValue(offer?.customer?.name) || "–";
+  const companyAddress = [addrLineHelper(c), plzLineHelper(c)]
+    .filter(Boolean)
+    .join(" · ");
+  return `
+    <div class="offer-continuation-header">
+      <div class="offer-continuation-brand">
+        ${letterheadVisible(c) ? `<div class="offer-continuation-logo">${letterheadImg(c, "sm")}</div>` : ""}
+        <div class="offer-continuation-company">
+          <strong>${c.firmenname || ""}</strong>
+          ${companyAddress ? `<div>${companyAddress}</div>` : ""}
+          ${c.telefon ? `<div>Tel. ${c.telefon}</div>` : ""}
+        </div>
+      </div>
+      <div class="offer-continuation-meta">
+        <strong>Angebot ${offer?.offerNumber ?? ""}</strong>
+        <div>Kunde: ${customerName}</div>
+        <div>Seite ${pageNumber} von ${totalPages}</div>
+      </div>
+    </div>
+    <div class="offer-continuation-title">Leistungen – Fortsetzung</div>
+  `;
+}
+
+function renderOfferTotalsAndNotes(
+  offer: any,
+  c: CompanyInfo,
+  vatLabel: string,
+  priceNote: string,
+): string {
+  return `
+    <div class="offer-summary-clear">
+      <div class="totals">
+        <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
+        ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
+        <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
+      </div>
+    </div>
+    ${renderOfferPdfTextBlock(offer)}
+    <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
+  `;
+}
+
+function renderOfferItemsAndSummary(
+  offer: any,
+  c: CompanyInfo,
+  vatLabel: string,
+  priceNote: string,
+): string {
+  const items = Array.isArray(offer?.items) ? offer.items : [];
+
+  // A normal offer stays on one page. For long offers we deliberately reserve
+  // enough content for the continuation page instead of leaving only one line
+  // plus totals on page two.
+  if (items.length <= 14) {
+    return `
+      <table>
+        ${renderOfferTableHead()}
+        <tbody>${buildItemsRows(items, c)}</tbody>
+      </table>
+      ${renderOfferTotalsAndNotes(offer, c, vatLabel, priceNote)}
+    `;
+  }
+
+  const pageSize = 12;
+  const chunks: any[][] = [];
+  for (let index = 0; index < items.length; index += pageSize) {
+    chunks.push(items.slice(index, index + pageSize));
+  }
+  const totalPages = chunks.length;
+
+  return chunks
+    .map((chunk, index) => {
+      const pageNumber = index + 1;
+      const isFirstPage = index === 0;
+      const isLastPage = index === chunks.length - 1;
+      return `
+        ${isFirstPage ? "" : `<div class="offer-page-break"></div>${renderOfferContinuationHeader(offer, c, pageNumber, totalPages)}`}
+        <table>
+          ${renderOfferTableHead()}
+          <tbody>${buildItemsRows(chunk, c)}</tbody>
+        </table>
+        ${isLastPage ? renderOfferTotalsAndNotes(offer, c, vatLabel, priceNote) : ""}
+      `;
+    })
+    .join("");
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // MODERN TEMPLATE — slate header bar, full-width, modern sans
 // ──────────────────────────────────────────────────────────────────────────────
@@ -651,19 +811,7 @@ function renderModernOffer(offer: any, c: CompanyInfo): string {
         <div><span class="label">Angebotsdatum:</span>${formatDate(offer?.offerDate)}</div>
         <div><span class="label">Gültig bis:</span>${formatDate(offer?.validUntil)}</div>
       </div>
-      <table>
-        <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
-      </table>
-      <div class="clearfix">
-        <div class="totals">
-          <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
-          ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
-          <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
-        </div>
-      </div>
-      ${renderOfferPdfTextBlock(offer)}
-      <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
+      ${renderOfferItemsAndSummary(offer, c, vatLabel, priceNote)}
       <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
@@ -780,17 +928,7 @@ function renderMinimalOffer(offer: any, c: CompanyInfo): string {
         <p><strong>Gültig bis</strong> ${formatDate(offer?.validUntil)}</p>
       </div>
     </div>
-    <table>
-      <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-      <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
-    </table>
-    <div class="totals">
-      <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
-      ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
-      <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
-    </div>
-    ${renderOfferPdfTextBlock(offer)}
-    <div class="notes"><strong>Hinweis</strong><br/>Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
+    ${renderOfferItemsAndSummary(offer, c, vatLabel, priceNote)}
     <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
   </body></html>`;
 }
@@ -919,17 +1057,7 @@ function renderElegantOffer(offer: any, c: CompanyInfo): string {
           <p><em>Gültig bis:</em> ${formatDate(offer?.validUntil)}</p>
         </div>
       </div>
-      <table>
-        <thead><tr><th>Beschreibung</th><th>Menge</th><th>Einheit</th><th>Einzelpreis</th><th>Gesamt</th></tr></thead>
-        <tbody>${buildItemsRows(offer?.items ?? [], c)}</tbody>
-      </table>
-      <div class="totals">
-        <div class="totals-row"><span>Netto</span><span>${formatMoney(Number(offer?.subtotal ?? 0), c)}</span></div>
-        ${Number(offer?.vatRate ?? 0) > 0 ? `<div class="totals-row"><span>${vatLabel}</span><span>${formatMoney(Number(offer?.vatAmount ?? 0), c)}</span></div>` : ""}
-        <div class="totals-row total"><span>Total</span><span>${formatMoney(Number(offer?.total ?? 0), c)}</span></div>
-      </div>
-      ${renderOfferPdfTextBlock(offer)}
-      <div class="notes"><strong>Hinweis:</strong> Dieses Angebot ist gültig bis ${formatDate(offer?.validUntil)}. ${priceNote}</div>
+      ${renderOfferItemsAndSummary(offer, c, vatLabel, priceNote)}
       <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
