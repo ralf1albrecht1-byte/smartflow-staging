@@ -301,6 +301,7 @@ function buildClassicMwstNote(c: CompanyInfo): string {
 
 function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
   const items = invoice?.items ?? [];
+  const itemsHtml = buildItemsRows(items, c);
   const customer = invoice?.customer ?? {};
   const vatLabel =
     c.mwstAktiv === false
