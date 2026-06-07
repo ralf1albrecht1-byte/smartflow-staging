@@ -734,17 +734,28 @@ function mergeCommunicationLinesV17_33(lines: string[]): string[] {
 
   if (smsLines.length > 0) {
     const mergedSmsSource = [...smsLines, ...noWhatsappOnlyLines];
-    const phone = mergedSmsSource.map(extractPhoneFromNoteV17_33).find(Boolean) || "";
-    const time = mergedSmsSource.map(extractContactTimeFromNoteV17_33).find(Boolean) || "";
-    const hasOnlySms = mergedSmsSource.some((line) => /\b(?:nur|only|seulement)\s+(?:per\s+)?sms\b/i.test(stripKnownMarker(line)));
-    const noWhatsapp = mergedSmsSource.some((line) => /(?:kein|keine|no|pas)\s+whatsapp|pas\s+whatsapp/i.test(stripKnownMarker(line)));
+    const structuredContact = smsLines
+      .map((line) => stripKnownMarker(line).replace(/\s+/g, " ").trim())
+      .filter((line) => /^Kontakt vor Ort\s*:/i.test(line))
+      .sort((a, b) => b.length - a.length)[0] || "";
 
-    const parts = [hasOnlySms ? "Nur SMS als Kontakt" : "SMS-Kontakt bevorzugt"];
-    if (phone) parts[0] += `: ${phone}`;
-    if (time) parts.push(`bevorzugt ${time}`);
-    if (noWhatsapp) parts.push("keine WhatsApp");
+    // V17.90L88: A structured onsite contact is canonical business data.
+    // Keep name, phone and channel instead of collapsing it to "Nur SMS".
+    if (structuredContact) {
+      out.push(`[HINWEIS] ${structuredContact}`);
+    } else {
+      const phone = mergedSmsSource.map(extractPhoneFromNoteV17_33).find(Boolean) || "";
+      const time = mergedSmsSource.map(extractContactTimeFromNoteV17_33).find(Boolean) || "";
+      const hasOnlySms = mergedSmsSource.some((line) => /\b(?:nur|only|seulement)\s+(?:per\s+)?sms\b/i.test(stripKnownMarker(line)));
+      const noWhatsapp = mergedSmsSource.some((line) => /(?:kein|keine|no|pas)\s+whatsapp|pas\s+whatsapp/i.test(stripKnownMarker(line)));
 
-    out.push(`[HINWEIS] ${parts.join("; ")}.`);
+      const parts = [hasOnlySms ? "Nur SMS als Kontakt" : "SMS-Kontakt bevorzugt"];
+      if (phone) parts[0] += `: ${phone}`;
+      if (time) parts.push(`bevorzugt ${time}`);
+      if (noWhatsapp) parts.push("keine WhatsApp");
+
+      out.push(`[HINWEIS] ${parts.join("; ")}.`);
+    }
   } else {
     out.push(...noWhatsappOnlyLines);
   }

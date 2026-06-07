@@ -15,7 +15,7 @@ import {
   findNearExactDeterministicMatch,
 } from "@/lib/exact-customer-match";
 import { maskPhoneForLog } from "@/lib/phone";
-import { buildSpecialNotes } from "@/lib/special-notes-utils";
+import { buildSpecialNotes, splitSpecialNotes } from "@/lib/special-notes-utils";
 import { repairZeroQuantityHourItemsFromText } from "@/lib/order-hour-line-repair";
 import { getActiveDataScope } from "@/lib/data-scope";
 import {
@@ -6412,6 +6412,411 @@ function restoreUniqueStructuredOrderItemsV17_90L76(
   return restored;
 }
 
+
+// V17.90L88: The structured LLM result is the canonical intake source.
+// Later validators may add review state, but they must not silently remove,
+// rename or rebind a correctly structured position to another evidence line.
+type CanonicalAiOrderItemV17_90L88 = StructuredOrderItemSnapshotV17_90L76 & {
+  canonicalOrder: number;
+  confidence: string;
+};
+
+function canonicalEvidenceKeyV17_90L88(value: unknown): string {
+  return normalizeServiceLineForMatchV17_90L(compactText(value));
+}
+
+function canonicalServiceKeyV17_90L88(value: unknown): string {
+  return normalizeUnitText(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildCanonicalAiOrderItemsV17_90L88(
+  rawItems: any[],
+): CanonicalAiOrderItemV17_90L88[] {
+  if (!Array.isArray(rawItems)) return [];
+
+  return rawItems
+    .map((raw, canonicalOrder) => {
+      const sourceText = compactText(
+        raw?.evidence || raw?.source_text || raw?.raw || "",
+      );
+      const rawServiceName = compactText(
+        raw?.name || raw?.action_name || raw?.service_name || "",
+      );
+      const serviceName = rawServiceName
+        ? `${rawServiceName.charAt(0).toUpperCase()}${rawServiceName.slice(1)}`
+        : "";
+      const confidenceKey = normalizeUnitText(raw?.confidence || "");
+      const confidence = confidenceKey.includes("niedrig") || confidenceKey.includes("low")
+        ? "niedrig"
+        : confidenceKey.includes("mittel") || confidenceKey.includes("medium")
+          ? "mittel"
+          : "hoch";
+      const unitPriceValue = Number(
+        String(raw?.unit_price ?? "").replace("'", "").replace(",", "."),
+      );
+      const unitPrice = Number.isFinite(unitPriceValue) && unitPriceValue > 0
+        ? unitPriceValue
+        : 0;
+      const quantityValue = Number(
+        String(raw?.menge ?? "").replace("'", "").replace(",", "."),
+      );
+      const sourceQuantity = detectAllQuantityUnitsFromText(sourceText)[0] || null;
+      const unitType = getServiceUnitType(raw?.einheit || null) !== "unknown"
+        ? getServiceUnitType(raw?.einheit || null)
+        : sourceQuantity?.unit ||
+          (/\b(?:pauschal|fixpreis|festpreis|flat)\b/i.test(sourceText)
+            ? "flat"
+            : "unknown");
+      const unit = unitType !== "unknown"
+        ? unitTypeToDisplayUnit(unitType)
+        : compactText(raw?.einheit || "");
+      let quantity = Number.isFinite(quantityValue) && quantityValue > 0
+        ? quantityValue
+        : sourceQuantity?.value || 0;
+      if (quantity <= 0 && unitType === "flat" && unitPrice > 0) quantity = 1;
+
+      const detectedCurrency = compactText(raw?.currency || "").toUpperCase() || null;
+      const safeName = Boolean(
+        serviceName &&
+          serviceName.length >= 4 &&
+          serviceName.length <= 120 &&
+          !isInternalReviewServiceNameV17_90L(serviceName) &&
+          !/\b(?:CHF|EUR|USD|GBP)\b/i.test(serviceName),
+      );
+      const safeEvidence = Boolean(
+        sourceText && sourceText.length <= 420 && !/[\r\n]/.test(sourceText),
+      );
+
+      if (!safeName || !safeEvidence || confidence === "niedrig") return null;
+
+      const missingPrice = unitPrice <= 0;
+      const missingQuantity = quantity <= 0;
+      const missingUnit = !unit || isReviewUnitV17_90L(unit);
+      const needsReview = missingPrice || missingQuantity || missingUnit;
+      const reviewReason = missingPrice
+        ? `price_unclear:${serviceName}`
+        : missingQuantity
+          ? `quantity_review:${serviceName}`
+          : missingUnit
+            ? `unit_missing_in_text:${serviceName}`
+            : null;
+
+      return {
+        serviceName,
+        description: sourceText,
+        quantity,
+        unit: unit || "Einheit prüfen",
+        unitPrice,
+        totalPrice: unitPrice > 0 && quantity > 0 ? roundIntakeMoney(unitPrice * quantity) : 0,
+        needsReview,
+        reviewReason,
+        sourceText,
+        evidence: sourceText,
+        detectedCurrency,
+        canonicalOrder,
+        confidence,
+      } as CanonicalAiOrderItemV17_90L88;
+    })
+    .filter(Boolean) as CanonicalAiOrderItemV17_90L88[];
+}
+
+function canonicalItemMatchScoreV17_90L88(
+  canonical: CanonicalAiOrderItemV17_90L88,
+  candidate: StructuredOrderItemSnapshotV17_90L76,
+  fallbackCurrency: string,
+): number {
+  const canonicalEvidence = canonicalEvidenceKeyV17_90L88(
+    canonical.sourceText || canonical.evidence,
+  );
+  const candidateEvidence = canonicalEvidenceKeyV17_90L88(
+    candidate.sourceText || candidate.evidence || candidate.description,
+  );
+  let score = 0;
+  if (canonicalEvidence && candidateEvidence) {
+    if (canonicalEvidence === candidateEvidence) score += 100;
+    else if (
+      canonicalEvidence.length >= 12 &&
+      candidateEvidence.length >= 12 &&
+      (canonicalEvidence.includes(candidateEvidence) ||
+        candidateEvidence.includes(canonicalEvidence))
+    ) {
+      score += 55;
+    }
+  }
+
+  const cq = Number(canonical.quantity || 0);
+  const cp = Number(canonical.unitPrice || 0);
+  const q = Number(candidate.quantity || 0);
+  const p = Number(candidate.unitPrice || 0);
+  if (cq > 0 && q > 0 && Math.abs(cq - q) < 0.0001) score += 16;
+  if (cp > 0 && p > 0 && Math.abs(cp - p) < 0.0001) score += 18;
+
+  const canonicalCurrency = String(
+    canonical.detectedCurrency || fallbackCurrency || "",
+  ).toUpperCase();
+  const candidateCurrency = String(
+    candidate.detectedCurrency || fallbackCurrency || "",
+  ).toUpperCase();
+  if (canonicalCurrency && candidateCurrency === canonicalCurrency) score += 6;
+
+  const canonicalName = canonicalServiceKeyV17_90L88(canonical.serviceName);
+  const candidateName = canonicalServiceKeyV17_90L88(candidate.serviceName);
+  if (canonicalName && candidateName) {
+    if (canonicalName === candidateName) score += 30;
+    else {
+      const left = new Set(canonicalName.split(/\s+/g).filter((v) => v.length >= 4));
+      const right = new Set(candidateName.split(/\s+/g).filter((v) => v.length >= 4));
+      const overlap = [...left].filter((token) => right.has(token)).length;
+      if (overlap >= 1) score += overlap * 8;
+    }
+  }
+  return score;
+}
+
+
+function findOwnSourceLineForServiceV17_90L88(
+  serviceName: string,
+  originalText: string,
+): string | null {
+  const stop = new Set([
+    "reinigen", "pruefen", "prüfen", "kontrollieren", "warten", "einsetzen",
+    "nach", "aufwand", "pauschal", "bitte", "separat", "leistung",
+  ]);
+  const tokens = canonicalServiceKeyV17_90L88(serviceName)
+    .split(/\s+/g)
+    .filter((token) => token.length >= 4 && !stop.has(token));
+  if (!tokens.length) return null;
+
+  const lines = splitSourceEvidenceLinesV17_90L3(originalText)
+    .map((line) => compactText(line))
+    .filter(Boolean);
+  let best: string | null = null;
+  let bestScore = 0;
+  for (const line of lines) {
+    const key = canonicalServiceKeyV17_90L88(line);
+    const score = tokens.filter((token) => key.includes(token)).length;
+    if (score > bestScore) {
+      best = line;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+function reconcileWithCanonicalAiItemsV17_90L88(
+  canonicalItems: CanonicalAiOrderItemV17_90L88[],
+  currentItems: StructuredOrderItemSnapshotV17_90L76[],
+  finalCurrency: string,
+  originalText: string,
+): StructuredOrderItemSnapshotV17_90L76[] {
+  if (!canonicalItems.length) return currentItems;
+
+  const remaining = [...currentItems];
+  const result: StructuredOrderItemSnapshotV17_90L76[] = [];
+
+  for (const canonical of [...canonicalItems].sort(
+    (a, b) => a.canonicalOrder - b.canonicalOrder,
+  )) {
+    let selectedIndex = -1;
+    let selectedScore = -1;
+    remaining.forEach((candidate, index) => {
+      const score = canonicalItemMatchScoreV17_90L88(
+        canonical,
+        candidate,
+        finalCurrency,
+      );
+      if (score > selectedScore) {
+        selectedScore = score;
+        selectedIndex = index;
+      }
+    });
+
+    const selected = selectedScore >= 36 && selectedIndex >= 0
+      ? remaining.splice(selectedIndex, 1)[0]
+      : null;
+    const canonicalCurrency = String(
+      canonical.detectedCurrency || finalCurrency || "",
+    ).toUpperCase();
+    const isForeignCurrency = Boolean(
+      canonicalCurrency &&
+        finalCurrency &&
+        canonicalCurrency !== String(finalCurrency).toUpperCase(),
+    );
+    const quantity = canonical.quantity > 0
+      ? canonical.quantity
+      : Number(selected?.quantity || 0);
+    const unit = !isReviewUnitV17_90L(canonical.unit)
+      ? canonical.unit
+      : selected?.unit || canonical.unit;
+    const unitPrice = canonical.unitPrice > 0
+      ? canonical.unitPrice
+      : Number(selected?.unitPrice || 0);
+    const missingPrice = unitPrice <= 0;
+    const missingQuantity = quantity <= 0;
+    const missingUnit = !unit || isReviewUnitV17_90L(unit);
+    const reviewReason = isForeignCurrency
+      ? `item_currency_mismatch:${canonical.serviceName}:${canonicalCurrency}:${finalCurrency}`
+      : missingPrice
+        ? `price_unclear:${canonical.serviceName}`
+        : missingQuantity
+          ? `quantity_review:${canonical.serviceName}`
+          : missingUnit
+            ? `unit_missing_in_text:${canonical.serviceName}`
+            : selected?.reviewReason || canonical.reviewReason || null;
+    const needsReview = Boolean(
+      isForeignCurrency ||
+        missingPrice ||
+        missingQuantity ||
+        missingUnit ||
+        selected?.needsReview ||
+        canonical.needsReview,
+    );
+
+    result.push({
+      ...(selected || canonical),
+      serviceName: canonical.serviceName,
+      description: canonical.sourceText || canonical.description,
+      quantity,
+      unit: unit || "Einheit prüfen",
+      unitPrice: isForeignCurrency ? 0 : unitPrice,
+      totalPrice:
+        !isForeignCurrency && !missingPrice && !missingQuantity && !missingUnit
+          ? roundIntakeMoney(quantity * unitPrice)
+          : 0,
+      needsReview,
+      reviewReason,
+      sourceText: canonical.sourceText,
+      evidence: canonical.evidence || canonical.sourceText,
+      detectedCurrency: canonicalCurrency || selected?.detectedCurrency || null,
+    });
+
+    const canonicalEvidence = canonicalEvidenceKeyV17_90L88(
+      canonical.sourceText || canonical.evidence,
+    );
+    for (let index = remaining.length - 1; index >= 0; index -= 1) {
+      const candidateEvidence = canonicalEvidenceKeyV17_90L88(
+        remaining[index].sourceText ||
+          remaining[index].evidence ||
+          remaining[index].description,
+      );
+      if (
+        canonicalEvidence &&
+        candidateEvidence &&
+        (canonicalEvidence === candidateEvidence ||
+          (canonicalEvidence.length >= 16 &&
+            (canonicalEvidence.includes(candidateEvidence) ||
+              candidateEvidence.includes(canonicalEvidence))))
+      ) {
+        const candidateName = canonicalServiceKeyV17_90L88(
+          remaining[index].serviceName,
+        );
+        const canonicalName = canonicalServiceKeyV17_90L88(
+          canonical.serviceName,
+        );
+        const sameSemanticService = Boolean(
+          candidateName &&
+            canonicalName &&
+            (candidateName === canonicalName ||
+              candidateName.includes(canonicalName) ||
+              canonicalName.includes(candidateName)),
+        );
+        if (
+          sameSemanticService ||
+          isInternalReviewServiceNameV17_90L(remaining[index].serviceName || "")
+        ) {
+          remaining.splice(index, 1);
+        }
+      }
+    }
+  }
+
+  for (const item of remaining) {
+    let nextItem = item;
+    let evidence = canonicalEvidenceKeyV17_90L88(
+      nextItem.sourceText || nextItem.evidence || nextItem.description,
+    );
+    let duplicatesCanonical = canonicalItems.some((canonical) => {
+      const canonicalEvidence = canonicalEvidenceKeyV17_90L88(
+        canonical.sourceText || canonical.evidence,
+      );
+      return Boolean(
+        evidence &&
+          canonicalEvidence &&
+          (evidence === canonicalEvidence ||
+            (evidence.length >= 16 &&
+              canonicalEvidence.length >= 16 &&
+              (evidence.includes(canonicalEvidence) ||
+                canonicalEvidence.includes(evidence)))),
+      );
+    });
+
+    if (duplicatesCanonical) {
+      const ownLine = findOwnSourceLineForServiceV17_90L88(
+        nextItem.serviceName,
+        originalText,
+      );
+      const ownEvidence = canonicalEvidenceKeyV17_90L88(ownLine);
+      if (ownLine && ownEvidence && ownEvidence !== evidence) {
+        nextItem = {
+          ...nextItem,
+          description: ownLine,
+          sourceText: ownLine,
+          evidence: ownLine,
+        };
+        evidence = ownEvidence;
+        duplicatesCanonical = canonicalItems.some((canonical) =>
+          evidence === canonicalEvidenceKeyV17_90L88(
+            canonical.sourceText || canonical.evidence,
+          ),
+        );
+      }
+    }
+
+    if (!duplicatesCanonical) result.push(nextItem);
+  }
+
+  return dedupeEquivalentSourceRowsV17_90L81(result);
+}
+
+function preserveCanonicalStructuredRolesV17_90L88(args: {
+  specialNotes: string | null;
+  onsiteContact: OnsiteContactHint;
+  appointmentHints: string[];
+  structuredRoleHints: string[];
+}): string | null {
+  const parsed = splitSpecialNotes(args.specialNotes || "");
+  const protectedHints = dedupeSpecialNoteLines([
+    args.onsiteContact.hint || "",
+    ...args.appointmentHints,
+    ...args.structuredRoleHints,
+  ]).filter(Boolean);
+
+  const safetyWarnings = parsed.safetyWarnings.filter(
+    (line) =>
+      !protectedHints.some((hint) => semanticRoleOverlapV17_90L87(line, hint)) &&
+      !lineMatchesOnsiteContactIdentityV17_90L87(line, args.onsiteContact),
+  );
+  const ordinaryHints = parsed.jobHints.filter(
+    (line) =>
+      !protectedHints.some((hint) => semanticRoleOverlapV17_90L87(line, hint)) &&
+      !lineMatchesOnsiteContactIdentityV17_90L87(line, args.onsiteContact),
+  );
+
+  const rebuiltBase = buildSpecialNotes({
+    safetyWarnings,
+    jobHints: ordinaryHints,
+  });
+  const baseLines = String(rebuiltBase || "")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const protectedLines = protectedHints.map((hint) => `[HINWEIS] ${hint}`);
+  return dedupeSpecialNoteLines([...baseLines, ...protectedLines]).join("\n") || null;
+}
+
 function cleanVisibleReviewInstructionSuffixV17_90L76<
   T extends StructuredOrderItemSnapshotV17_90L76,
 >(items: T[]): T[] {
@@ -9728,6 +10133,55 @@ export async function processIncomingMessage(
     }
   }
 
+
+  // V17.90L88: A model-proposed customer id is never allowed to contradict
+  // the structured customer name. Validate the pair before any reuse path.
+  // If the message explicitly requests reuse and exactly one stored customer
+  // has that exact full name, use that identity instead of the conflicting id.
+  if (matchId) {
+    const proposed = allCustomers.find(
+      (customer: any) => String(customer?.id || "") === String(matchId),
+    );
+    const structuredNameKey = normalizeCustomerIdentityV17_90L87(
+      kundeData.name || "",
+    );
+    const proposedNameKey = normalizeCustomerIdentityV17_90L87(
+      proposed?.name || "",
+    );
+    if (
+      structuredNameKey &&
+      proposedNameKey &&
+      structuredNameKey !== proposedNameKey
+    ) {
+      console.warn(
+        `[${source}] 🛡️ CUSTOMER ID/NAME MISMATCH → discarded proposed id ${matchId} (${proposed?.name || "unknown"}) for ${kundeData.name}`,
+      );
+      matchId = "";
+      abgleichStatus = "moeglicher_treffer";
+    }
+  }
+
+  if (
+    !matchId &&
+    hasExplicitStoredCustomerReuseIntentV17_90L87(
+      messageText,
+      parsed.kundenabgleich?.reuse_requested,
+    )
+  ) {
+    const mentionedCustomer = findUniqueMentionedCustomerV17_90L87(
+      messageText,
+      allCustomers,
+    );
+    if (mentionedCustomer) {
+      matchId = mentionedCustomer.id;
+      abgleichStatus = "moeglicher_treffer";
+      kundeData.name = mentionedCustomer.name;
+      console.log(
+        `[${source}] 🎯 CANONICAL CUSTOMER REUSE → ${mentionedCustomer.name} (${mentionedCustomer.id})`,
+      );
+    }
+  }
+
   // Block R — Safety-Net: Wenn die LLM keinen Namen extrahiert hat, aber der
   // Text eine eindeutige Selbstvorstellung enthält ("mein Name ist Aida",
   // "Ich heisse X", "Ich bin X" etc.), den Namen aus dem Text übernehmen.
@@ -10666,7 +11120,12 @@ export async function processIncomingMessage(
     jobHints: hinweisItems,
   });
 
-  const finalSpecialNotes = finalSpecialNotesText || null;
+  let finalSpecialNotes = preserveCanonicalStructuredRolesV17_90L88({
+    specialNotes: finalSpecialNotesText || null,
+    onsiteContact: onsiteContactHint,
+    appointmentHints: structuredAppointmentHintsV17_90L86,
+    structuredRoleHints: structuredRoleHintsV17_90L86,
+  });
 
   // --- Map services / AI work items, strict per-position matching ---
 
@@ -10727,6 +11186,10 @@ export async function processIncomingMessage(
 
   const aiWorkItems: AiWorkItem[] =
     aiWorkItemsRaw.length > 0 ? aiWorkItemsRaw : fallbackSegments;
+
+
+  const canonicalAiOrderItemsV17_90L88 =
+    buildCanonicalAiOrderItemsV17_90L88(aiWorkItemsRaw);
 
   const getWorkItemUnitType = (item: AiWorkItem): string => {
     const text = normalizeUnitText(
@@ -11903,6 +12366,27 @@ export async function processIncomingMessage(
   finalOrderItems = applyLineLocalCurrenciesFromEvidenceV17_90L4(
     finalOrderItems,
     validationSourceText,
+  );
+  finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
+    detectedCurrencies: intakeValidation.detectedCurrencies,
+    finalCurrency: intakeValidation.finalCurrency,
+  });
+  finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
+    finalOrderItems,
+    messageText,
+    intakeValidation.finalCurrency,
+  );
+
+
+  // V17.90L88: Absolute persistence boundary. Restore the validated semantic
+  // LLM rows after every legacy repair/validator pass. The later pipeline may
+  // keep review flags, but it may no longer silently delete Anfahrt, shorten
+  // service actions or attach a neighbouring source line.
+  finalOrderItems = reconcileWithCanonicalAiItemsV17_90L88(
+    canonicalAiOrderItemsV17_90L88,
+    finalOrderItems,
+    intakeValidation.finalCurrency,
+    messageText,
   );
   finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
     detectedCurrencies: intakeValidation.detectedCurrencies,

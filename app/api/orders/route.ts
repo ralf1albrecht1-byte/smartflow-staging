@@ -2026,24 +2026,26 @@ function detectSemanticNotes(source: unknown) {
 function normalizeOrderSpecialNotes(data: any) {
   const parsed = splitSpecialNotes(data?.specialNotes);
   const exactOperationalHints = extractExactOperationalHints(data);
+  const hasStructuredStoredRoles =
+    parsed.safetyWarnings.length > 0 || parsed.jobHints.length > 0;
   const detectedSemanticNotes = detectSemanticNotes(
-    [data?.specialNotes, data?.audioTranscript, ...exactOperationalHints]
+    [
+      ...(hasStructuredStoredRoles
+        ? []
+        : [data?.specialNotes, data?.audioTranscript]),
+      ...exactOperationalHints,
+    ]
       .filter(Boolean)
       .join("\n"),
   );
   const detectedSafetyOnly = detectedSemanticNotes.safetyWarnings;
   const detectedJobHints = detectedSemanticNotes.jobHints;
 
-  const existingSafety = parsed.safetyWarnings.flatMap((line) => {
-    const detectedLine = detectSemanticNotes(line).safetyWarnings;
-    return detectedLine.length > 0 ? detectedLine : [line];
-  });
-
-  const existingJobHints = parsed.jobHints.flatMap((line) => {
-    const detectedLine = detectSemanticNotes(line);
-    if (detectedLine.safetyWarnings.length > 0) return [];
-    return detectedLine.jobHints.length > 0 ? detectedLine.jobHints : [line];
-  });
+  // V17.90L88: Existing marker-based roles are canonical. Saving an order may
+  // add exact new hints, but must not reinterpret a normal hint as a danger or
+  // replace a structured onsite contact with a generic channel label.
+  const existingSafety = [...parsed.safetyWarnings];
+  const existingJobHints = [...parsed.jobHints];
 
   const nextSafetyWarnings = Array.from(
     new Set([...existingSafety, ...detectedSafetyOnly]),
