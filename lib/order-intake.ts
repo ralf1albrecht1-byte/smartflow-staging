@@ -5638,6 +5638,7 @@ function cleanStructuredAiServiceNameV17_90L76(
       /\s+(?:(?:bitte\s+)?separat|bitte|manuell)\s+(?:prüfen|pruefen|kontrollieren)\s*$/iu,
       "",
     )
+    .replace(/\s*[,;:\-–—]?\s*(?:ca\.?|circa|ungefähr|ungefaehr|etwa|approx\.?)\s*$/iu, "")
     .replace(/[\s,;:\-–—]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -6150,6 +6151,7 @@ function stripMeasureAndPriceFromVisibleServiceNameV17_90L(
       /\s*,?\s+\d+(?:[.,]\d+)?\s*(?:m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|stücke?|stueck|stück|stk|pcs?|pi[eè]ces?|s[aä]cke|saecke|kg|kilogramm|liter)\b.*$/i,
       "",
     )
+    .replace(/\s*[,;:\-–—]?\s*(?:ca\.?|circa|ungefähr|ungefaehr|etwa|approx\.?)\s*$/iu, "")
     .replace(/\s+/g, " ")
     .replace(/[\s,;:.\-–—]+$/g, "")
     .trim();

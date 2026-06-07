@@ -639,7 +639,7 @@ const isPreArrivalInstructionLine = (value?: string | null) => {
   return new RegExp(
     `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+einfach\\s+(?:kommen|vorbeikommen|cho|verbi\\s+cho)|` +
       `(?:nicht|${SWISS_NEGATION_PATTERN})\\s+ohne\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)|` +
-      `(?:nicht\\s+vor|nicht\\s+vorher\\s+als|erst\\s+ab|fruehestens|frühestens)\\s+\\d{1,2}(?:[:.]\\d{2})?\\s*(?:uhr|h)?\\s*(?:kommen|erscheinen|starten|beginnen|da\\s+sein|vor\\s+ort)?|` +
+      `(?:nicht\\s+vor|nicht\\s+vorher\\s+als|erst\\s+ab|fruehestens|frühestens)\\s+\\d{1,2}(?:[:.]\\d{2})?\\s*(?:uhr|h)?\\s*(?:kommen|erscheinen|starten|beginnen|da\\s+sein|vor\\s+ort)|` +
       `vor\\s+\\d{1,2}(?:[:.]\\d{2})?\\s*(?:uhr|h)?\\s+(?:nicht|${SWISS_NEGATION_PATTERN})\\s+(?:kommen|erscheinen|starten|beginnen|vorbeikommen|cho)|` +
       `vor\\s+(?:start|arbeitsbeginn|ankunft)\\s+(?:kurz\\s+)?(?:telefonisch\\s+)?(?:melden|anrufen|kontaktieren)|` +
       `erst\\s+nach\\s+(?:ruecksprache|rucksprache|absprache)\\s+(?:kommen|vorbeikommen|cho)`,
@@ -4916,6 +4916,11 @@ const compactRedReviewDetailLinesV17_90L73 = (badge: ReviewBadge) => {
     .slice(0, 6);
 };
 
+const concreteRedReviewCountV17_90L82 = (badge: ReviewBadge) => {
+  const details = compactRedReviewDetailLinesV17_90L73(badge);
+  return Math.max(1, details.length);
+};
+
 const compactSingleRedReviewTooltipV17_90L73 = (badge: ReviewBadge) => {
   const details = compactRedReviewDetailLinesV17_90L73(badge);
   return [
@@ -5025,6 +5030,10 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   );
 
   if (redBadges.length > 1) {
+    const concreteReviewCount = redBadges.reduce(
+      (sum, badge) => sum + concreteRedReviewCountV17_90L82(badge),
+      0,
+    );
     const summarySections = redBadges.flatMap((badge, index) => {
       const details = compactRedReviewDetailLinesV17_90L73(badge);
       return [
@@ -5039,7 +5048,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
     return [
       {
         key: "order_review_summary",
-        label: `Auftrag prüfen · ${redBadges.length}`,
+        label: `Auftrag prüfen · ${concreteReviewCount}`,
         className: "bg-red-100 text-red-700 border border-red-300",
         icon: true,
         tooltip: ["Auftrag prüfen", ...summarySections].join("\n"),
