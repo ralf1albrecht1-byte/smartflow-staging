@@ -527,7 +527,8 @@ function extractOperationalContactV17_90L85(
     markerLength = markerMatch[0].length;
   }
 
-  let phoneCandidate = validPhoneMatches(scoped)[0];
+  let phoneCandidate: ReturnType<typeof validPhoneMatches>[number] | undefined =
+    validPhoneMatches(scoped)[0];
   if (
     isGenericMarker &&
     phoneCandidate &&
