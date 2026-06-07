@@ -8244,8 +8244,8 @@ export default function AuftraegePage() {
   const [customerMessageImagePreviewUrls, setCustomerMessageImagePreviewUrls] =
     useState<string[]>([]);
 
-  // Dropdown menu for create offer/invoice
-  const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
+  // Native action menus do not touch React state. This keeps large lists from
+  // re-rendering when the three-dot menu is opened.
   const [activeMobileTooltipKey, setActiveMobileTooltipKey] = useState<
     string | null
   >(null);
@@ -8305,13 +8305,21 @@ export default function AuftraegePage() {
   }>(null);
   const [catalogDecisionSaving, setCatalogDecisionSaving] = useState(false);
 
-  // Close dropdown on outside click
+  // Close native action menus on outside click without re-rendering the list.
   useEffect(() => {
-    if (!dropdownOpenId) return;
-    const handler = () => setDropdownOpenId(null);
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      document
+        .querySelectorAll<HTMLDetailsElement>(
+          "details[data-order-action-menu][open]",
+        )
+        .forEach((menu) => {
+          if (!target || !menu.contains(target)) menu.open = false;
+        });
+    };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
-  }, [dropdownOpenId]);
+  }, []);
 
   // Close manual-service action menu when the user clicks anywhere outside it.
   useEffect(() => {
@@ -12401,24 +12409,48 @@ export default function AuftraegePage() {
   };
 
   const confirmArchive = async () => {
-    if (!archiveId) return;
+    const targetId = archiveId;
+    if (!targetId) return;
+
+    const removedIndex = orders.findIndex((order) => order.id === targetId);
+    const removedOrder = removedIndex >= 0 ? orders[removedIndex] : null;
+    const restoreOrder = () => {
+      if (!removedOrder) return;
+      setOrders((current) => {
+        if (current.some((order) => order.id === removedOrder.id)) return current;
+        const next = [...current];
+        next.splice(Math.min(Math.max(removedIndex, 0), next.length), 0, removedOrder);
+        return next;
+      });
+    };
+
+    // Close immediately and remove locally. The server request continues in the
+    // background; a failure restores the exact card at its former position.
+    setArchiveId(null);
+    setOrders((current) => current.filter((order) => order.id !== targetId));
+
     try {
-      const res = await fetch(`/api/orders/${archiveId}`, { method: "DELETE" });
+      const res = await fetch(`/api/orders/${targetId}`, { method: "DELETE" });
       const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        restoreOrder();
         toast.error(result?.error || "Auftrag konnte nicht verschoben werden");
         return;
       }
 
+      if (result?.removedEmptyCustomer && removedOrder?.customerId) {
+        setCustomers((current) =>
+          current.filter((customer) => customer.id !== removedOrder.customerId),
+        );
+      }
       toast.success(
         result?.removedEmptyCustomer
           ? "Auftrag in Papierkorb verschoben, leerer Kunde entfernt"
           : "Auftrag in Papierkorb verschoben",
       );
-      setArchiveId(null);
-      load();
     } catch {
+      restoreOrder();
       toast.error("Fehler beim Verschieben in den Papierkorb");
     }
   };
@@ -13165,11 +13197,7 @@ export default function AuftraegePage() {
       </div>
 
       <div className="space-y-1.5">
-        {dialogOpen ? (
-          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Liste pausiert während der Bearbeitung, damit Eingaben auch bei vielen Aufträgen flüssig bleiben.
-          </div>
-        ) : filtered?.length === 0 ? (
+        {archiveId ? null : filtered?.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">
             Keine Aufträge gefunden
           </p>
@@ -13601,72 +13629,70 @@ export default function AuftraegePage() {
                         </div>
                       )}
                       {/* Left: 3-dot menu */}
-                      <div
-                        className="relative shrink-0"
+                      <details
+                        data-order-action-menu
+                        className="relative shrink-0 group"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDropdownOpenId(
-                              dropdownOpenId === o.id ? null : o.id,
-                            );
-                          }}
-                          className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted"
+                        <summary
+                          className="list-none cursor-pointer p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted [&::-webkit-details-marker]:hidden"
                           title="Aktionen"
+                          aria-label="Aktionen"
                         >
                           <MoreVertical className="w-3.5 h-3.5" />
-                        </button>
-                        {dropdownOpenId === o.id && (
-                          <div className="absolute left-0 top-full mt-1 z-[9999] bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDropdownOpenId(null);
-                                openEdit(o);
-                              }}
-                              className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                            >
-                              <ClipboardList className="w-3.5 h-3.5 text-primary" />
-                              Bearbeiten
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDropdownOpenId(null);
-                                createOffer(o);
-                              }}
-                              className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                            >
-                              <FileCheck className="w-3.5 h-3.5 text-orange-600" />
-                              Zu Angebot
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDropdownOpenId(null);
-                                createInvoice(o);
-                              }}
-                              className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                            >
-                              <FileText className="w-3.5 h-3.5 text-blue-600" />
-                              Zu Rechnung
-                            </button>
-                            <div className="border-t my-0.5" />
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDropdownOpenId(null);
-                                remove(o.id);
-                              }}
-                              className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              Papierkorb
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                        </summary>
+                        <div className="hidden group-open:block absolute left-0 top-full mt-1 z-[9999] bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const menu = e.currentTarget.closest("details");
+                              if (menu instanceof HTMLDetailsElement) menu.open = false;
+                              openEdit(o);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                          >
+                            <ClipboardList className="w-3.5 h-3.5 text-primary" />
+                            Bearbeiten
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const menu = e.currentTarget.closest("details");
+                              if (menu instanceof HTMLDetailsElement) menu.open = false;
+                              createOffer(o);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                          >
+                            <FileCheck className="w-3.5 h-3.5 text-orange-600" />
+                            Zu Angebot
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const menu = e.currentTarget.closest("details");
+                              if (menu instanceof HTMLDetailsElement) menu.open = false;
+                              createInvoice(o);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-blue-600" />
+                            Zu Rechnung
+                          </button>
+                          <div className="border-t my-0.5" />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const menu = e.currentTarget.closest("details");
+                              if (menu instanceof HTMLDetailsElement) menu.open = false;
+                              remove(o.id);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Papierkorb
+                          </button>
+                        </div>
+                      </details>
 
                       {/* Mobile — shared one-column card for Auftrag/Angebot */}
                       <div className="min-w-0 flex-1 md:hidden">
@@ -13990,7 +14016,7 @@ export default function AuftraegePage() {
           })
         )}
 
-        {!dialogOpen && filtered.length > visibleCount && (
+        {filtered.length > visibleCount && (
           <div className="text-center pt-4">
             <Button
               variant="outline"

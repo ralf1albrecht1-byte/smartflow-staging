@@ -202,7 +202,7 @@ export default function RechnungenPage() {
   const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
-  const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
+  // Native action menus avoid a full invoice-list render on open/close.
   const [vatRate, setVatRate] = useState(8.1);
   const [defaultVatRate, setDefaultVatRate] = useState(8.1);
   const [currency, setCurrency] = useState<"CHF" | "EUR">("CHF");
@@ -526,13 +526,21 @@ export default function RechnungenPage() {
 
   // editId logic removed — flow buttons now redirect to list only
 
-  // Close dropdown on outside click
+  // Close native action menus on outside click without touching React state.
   useEffect(() => {
-    if (!dropdownOpenId) return;
-    const handler = () => setDropdownOpenId(null);
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      document
+        .querySelectorAll<HTMLDetailsElement>(
+          "details[data-invoice-action-menu][open]",
+        )
+        .forEach((menu) => {
+          if (!target || !menu.contains(target)) menu.open = false;
+        });
+    };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
-  }, [dropdownOpenId]);
+  }, []);
   useEffect(() => {
     if (
       searchParams?.get("new") === "1" &&
@@ -669,7 +677,6 @@ export default function RechnungenPage() {
     inv: Invoice,
     opts?: { openCustomerSection?: boolean },
   ) => {
-    setDropdownOpenId(null);
     setEditingInvoice(inv);
     setDupCheckOpen(false);
     // Reset customer form to prevent stale data leaking between records
@@ -1096,18 +1103,48 @@ export default function RechnungenPage() {
       title: "In Papierkorb verschieben?",
       message: "Die Rechnung wird in den Papierkorb verschoben.",
       action: async () => {
-        const inv = invoices.find((i) => i.id === id);
-        if (inv?.sourceOfferId) {
-          await fetch(`/api/offers/${inv.sourceOfferId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "Angenommen" }),
+        const removedIndex = invoices.findIndex((invoice) => invoice.id === id);
+        const removedInvoice =
+          removedIndex >= 0 ? invoices[removedIndex] : null;
+        const restoreInvoice = () => {
+          if (!removedInvoice) return;
+          setInvoices((current) => {
+            if (current.some((invoice) => invoice.id === removedInvoice.id))
+              return current;
+            const next = [...current];
+            next.splice(
+              Math.min(Math.max(removedIndex, 0), next.length),
+              0,
+              removedInvoice,
+            );
+            return next;
           });
-          toast.info("Angebot-Status zurückgesetzt");
+        };
+
+        setInvoices((current) =>
+          current.filter((invoice) => invoice.id !== id),
+        );
+        try {
+          if (removedInvoice?.sourceOfferId) {
+            await fetch(`/api/offers/${removedInvoice.sourceOfferId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "Angenommen" }),
+            });
+            toast.info("Angebot-Status zurückgesetzt");
+          }
+          const res = await fetch(`/api/invoices/${id}`, { method: "DELETE" });
+          if (!res.ok) {
+            const result = await res.json().catch(() => ({}));
+            restoreInvoice();
+            toast.error(result?.error || "Rechnung konnte nicht verschoben werden");
+            return;
+          }
+          toast.success("Rechnung in Papierkorb verschoben");
+        } catch {
+          restoreInvoice();
+          toast.error("Fehler beim Verschieben in den Papierkorb");
         }
-        await fetch(`/api/invoices/${id}`, { method: "DELETE" });
-        toast.success("Rechnung in Papierkorb verschoben");
-        load();
       },
     });
   };
@@ -1229,11 +1266,7 @@ export default function RechnungenPage() {
       </div>
 
       <div className="space-y-1.5">
-        {dialogOpen ? (
-          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Liste pausiert während der Bearbeitung, damit Eingaben auch bei vielen Rechnungen flüssig bleiben.
-          </div>
-        ) : (() => {
+        {(() => {
           const filteredInv = sorted.filter((inv: Invoice) => {
             if (filterStatus === "Offen" && inv.status === "Bezahlt")
               return false;
@@ -1261,7 +1294,7 @@ export default function RechnungenPage() {
               inv?.customer?.customerNumber?.toLowerCase()?.includes(s)
             );
           });
-          return filteredInv.length === 0 ? (
+          return confirmDialog ? null : filteredInv.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
               Keine Rechnungen gefunden
             </p>
@@ -1297,104 +1330,104 @@ export default function RechnungenPage() {
                         <CardContent className="px-3 py-1.5">
                           <div className="flex items-start gap-1.5">
                             {/* Left: 3-dot menu */}
-                            <div
-                              className="relative shrink-0 pt-0.5"
+                            <details
+                              data-invoice-action-menu
+                              className="relative shrink-0 pt-0.5 group"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDropdownOpenId(
-                                    dropdownOpenId === inv.id ? null : inv.id,
-                                  );
-                                }}
-                                className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted"
+                              <summary
+                                className="list-none cursor-pointer p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted [&::-webkit-details-marker]:hidden"
                                 title="Aktionen"
+                                aria-label="Aktionen"
                               >
                                 <MoreVertical className="w-3.5 h-3.5" />
-                              </button>
-                              {dropdownOpenId === inv.id && (
-                                <div className="absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                              </summary>
+                              <div className="hidden group-open:block absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    openEditInvoice(inv);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-primary" />
+                                  Bearbeiten
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    downloadPdf(
+                                      { stopPropagation: () => {} } as any,
+                                      inv.id,
+                                    );
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-green-600" />
+                                  PDF herunterladen
+                                </button>
+                                {whatsappEnabled && (
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      openEditInvoice(inv);
+                                      const menu = e.currentTarget.closest("details");
+                                      if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                      sendPdfToWhatsApp(inv);
                                     }}
                                     className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
                                   >
-                                    <FileText className="w-3.5 h-3.5 text-primary" />
-                                    Bearbeiten
+                                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                                    PDF an WhatsApp senden
                                   </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      downloadPdf(
-                                        { stopPropagation: () => {} } as any,
-                                        inv.id,
-                                      );
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                  >
-                                    <Download className="w-3.5 h-3.5 text-green-600" />
-                                    PDF herunterladen
-                                  </button>
-                                  {whatsappEnabled && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setDropdownOpenId(null);
-                                        sendPdfToWhatsApp(inv);
-                                      }}
-                                      className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                    >
-                                      <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                                      PDF an WhatsApp senden
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      updateStatus(e, inv.id, "Erledigt");
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                  >
-                                    <Archive className="w-3.5 h-3.5 text-amber-600" />
-                                    Archivieren
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      revertToOffer(inv);
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                  >
-                                    <Undo2 className="w-3.5 h-3.5 text-amber-600" />
-                                    {inv.sourceOfferId
-                                      ? "Zurück zu Angebot"
-                                      : "Zurück zu Auftrag"}
-                                  </button>
-                                  <div className="border-t my-1" />
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      remove(
-                                        { stopPropagation: () => {} } as any,
-                                        inv.id,
-                                      );
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    Papierkorb
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    updateStatus(e, inv.id, "Erledigt");
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                >
+                                  <Archive className="w-3.5 h-3.5 text-amber-600" />
+                                  Archivieren
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    revertToOffer(inv);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                >
+                                  <Undo2 className="w-3.5 h-3.5 text-amber-600" />
+                                  {inv.sourceOfferId
+                                    ? "Zurück zu Angebot"
+                                    : "Zurück zu Auftrag"}
+                                </button>
+                                <div className="border-t my-1" />
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    remove(
+                                      { stopPropagation: () => {} } as any,
+                                      inv.id,
+                                    );
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Papierkorb
+                                </button>
+                              </div>
+                            </details>
 
                             {/* Center: Main info */}
                             <div
@@ -2520,8 +2553,9 @@ export default function RechnungenPage() {
               variant="destructive"
               size="sm"
               onClick={async () => {
-                await confirmDialog?.action();
+                const action = confirmDialog?.action;
                 setConfirmDialog(null);
+                await action?.();
               }}
             >
               Bestätigen

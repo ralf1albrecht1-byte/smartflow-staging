@@ -1510,18 +1510,21 @@ export default function AngebotePage() {
   const [mediaType, setMediaType] = useState<string | null>(null);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIdx, setGalleryIdx] = useState(0);
-  const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
-
-  // Close dropdown on outside click
+  // Native action menus avoid a full offer-list render on every open/close.
   useEffect(() => {
-    if (!dropdownOpenId) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest("[data-offer-dropdown]")) setDropdownOpenId(null);
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      document
+        .querySelectorAll<HTMLDetailsElement>(
+          "details[data-offer-action-menu][open]",
+        )
+        .forEach((menu) => {
+          if (!target || !menu.contains(target)) menu.open = false;
+        });
     };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
-  }, [dropdownOpenId]);
+  }, []);
 
   useEffect(() => {
     if (serviceActionMenuIndex === null) return;
@@ -2471,9 +2474,32 @@ export default function AngebotePage() {
       title: "In Papierkorb verschieben?",
       message: "Das Angebot wird in den Papierkorb verschoben.",
       action: async () => {
-        await fetch(`/api/offers/${id}`, { method: "DELETE" });
-        toast.success("Angebot in Papierkorb verschoben");
-        load();
+        const removedIndex = offers.findIndex((offer) => offer.id === id);
+        const removedOffer = removedIndex >= 0 ? offers[removedIndex] : null;
+        const restoreOffer = () => {
+          if (!removedOffer) return;
+          setOffers((current) => {
+            if (current.some((offer) => offer.id === removedOffer.id)) return current;
+            const next = [...current];
+            next.splice(Math.min(Math.max(removedIndex, 0), next.length), 0, removedOffer);
+            return next;
+          });
+        };
+
+        setOffers((current) => current.filter((offer) => offer.id !== id));
+        try {
+          const res = await fetch(`/api/offers/${id}`, { method: "DELETE" });
+          if (!res.ok) {
+            const result = await res.json().catch(() => ({}));
+            restoreOffer();
+            toast.error(result?.error || "Angebot konnte nicht verschoben werden");
+            return;
+          }
+          toast.success("Angebot in Papierkorb verschoben");
+        } catch {
+          restoreOffer();
+          toast.error("Fehler beim Verschieben in den Papierkorb");
+        }
       },
     });
   };
@@ -2848,11 +2874,7 @@ export default function AngebotePage() {
       </div>
 
       <div className="space-y-1.5">
-        {dialogOpen ? (
-          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Liste pausiert während der Bearbeitung, damit Eingaben auch bei vielen Angeboten flüssig bleiben.
-          </div>
-        ) : (() => {
+        {(() => {
           const filteredOffers = offers
             .filter((off: Offer) => {
               // "Alle" zeigt wirklich alle Angebotsstatus, einschließlich Angenommen.
@@ -2893,7 +2915,7 @@ export default function AngebotePage() {
                   );
               }
             });
-          return filteredOffers.length === 0 ? (
+          return confirmDialog ? null : filteredOffers.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
               Keine Angebote gefunden
             </p>
@@ -3059,96 +3081,96 @@ export default function AngebotePage() {
                         <CardContent className="px-3 py-2">
                           <div className="flex items-start gap-2">
                             {/* Left: 3-dot menu */}
-                            <div
-                              className="relative shrink-0"
+                            <details
+                              data-offer-action-menu
+                              className="relative shrink-0 group"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDropdownOpenId(
-                                    dropdownOpenId === off.id ? null : off.id,
-                                  );
-                                }}
-                                className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted"
+                              <summary
+                                className="list-none cursor-pointer p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted [&::-webkit-details-marker]:hidden"
                                 title="Aktionen"
+                                aria-label="Aktionen"
                               >
                                 <MoreVertical className="w-3.5 h-3.5" />
-                              </button>
-                              {dropdownOpenId === off.id && (
-                                <div className="absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                              </summary>
+                              <div className="hidden group-open:block absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    openEditOffer(off);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                >
+                                  <FileCheck className="w-3.5 h-3.5 text-primary" />
+                                  Bearbeiten
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    createInvoiceDirectly(off);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                                  Zur Rechnung
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    downloadPdf(off.id);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-green-600" />
+                                  PDF herunterladen
+                                </button>
+                                {whatsappEnabled && (
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      openEditOffer(off);
+                                      const menu = e.currentTarget.closest("details");
+                                      if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                      sendPdfToWhatsApp(off);
                                     }}
                                     className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
                                   >
-                                    <FileCheck className="w-3.5 h-3.5 text-primary" />
-                                    Bearbeiten
+                                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                                    PDF an WhatsApp senden
                                   </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      createInvoiceDirectly(off);
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                  >
-                                    <FileText className="w-3.5 h-3.5 text-blue-600" />
-                                    Zur Rechnung
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      downloadPdf(off.id);
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                  >
-                                    <Download className="w-3.5 h-3.5 text-green-600" />
-                                    PDF herunterladen
-                                  </button>
-                                  {whatsappEnabled && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setDropdownOpenId(null);
-                                        sendPdfToWhatsApp(off);
-                                      }}
-                                      className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                    >
-                                      <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                                      PDF an WhatsApp senden
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      revertToOrder(off);
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                  >
-                                    <Undo2 className="w-3.5 h-3.5 text-amber-600" />
-                                    Zurück zu Auftrag
-                                  </button>
-                                  <div className="border-t my-0.5" />
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDropdownOpenId(null);
-                                      remove(off.id);
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    Papierkorb
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    revertToOrder(off);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                >
+                                  <Undo2 className="w-3.5 h-3.5 text-amber-600" />
+                                  Zurück zu Auftrag
+                                </button>
+                                <div className="border-t my-0.5" />
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    remove(off.id);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Papierkorb
+                                </button>
+                              </div>
+                            </details>
 
                             {/* Main info — mirrored from the order-card layout */}
                             <div className="min-w-0 flex-1">
@@ -5439,8 +5461,9 @@ export default function AngebotePage() {
               variant="destructive"
               size="sm"
               onClick={async () => {
-                await confirmDialog?.action();
+                const action = confirmDialog?.action;
                 setConfirmDialog(null);
+                await action?.();
               }}
             >
               Bestätigen

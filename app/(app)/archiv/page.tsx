@@ -20,8 +20,8 @@ export default function ArchivPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [visibleCount, setVisibleCount] = useState(30);
   const [sortBy, setSortBy] = useState('newest');
+  const [visibleCount, setVisibleCount] = useState(30);
   const [yearFilter, setYearFilter] = useState<string>('all');
   const [downloading, setDownloading] = useState<string | null>(null);
 
@@ -50,21 +50,27 @@ export default function ArchivPage() {
 const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' ? 'EUR' : 'CHF';
 
   // Derive available years from archived invoices (descending, newest year first)
-  const availableYears = Array.from(
-    new Set(
-      invoices
-        .map((inv) => {
-          if (!inv.invoiceDate) return null;
-          const d = new Date(inv.invoiceDate);
-          if (isNaN(d.getTime())) return null;
-          return d.getFullYear();
-        })
-        .filter((y): y is number => y !== null)
-    )
-  ).sort((a, b) => b - a);
+  const availableYears = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          invoices
+            .map((inv) => {
+              if (!inv.invoiceDate) return null;
+              const d = new Date(inv.invoiceDate);
+              if (isNaN(d.getTime())) return null;
+              return d.getFullYear();
+            })
+            .filter((y): y is number => y !== null),
+        ),
+      ).sort((a, b) => b - a),
+    [invoices],
+  );
 
-  const filtered = invoices
-    .filter((inv) => {
+  const filtered = useMemo(
+    () =>
+      invoices
+        .filter((inv) => {
       // Year filter (applied first)
       if (yearFilter !== 'all') {
         if (!inv.invoiceDate) return false;
@@ -83,29 +89,31 @@ const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' 
         inv.items?.some((it: any) => (it.description ?? '').toLowerCase().includes(s))
       );
     })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'oldest':
-          return new Date(a.invoiceDate ?? 0).getTime() - new Date(b.invoiceDate ?? 0).getTime();
-        case 'amount_desc':
-          return Number(b.total ?? 0) - Number(a.total ?? 0);
-        case 'amount_asc':
-          return Number(a.total ?? 0) - Number(b.total ?? 0);
-        case 'customer_az':
-          return (a.customer?.name ?? '').localeCompare(b.customer?.name ?? '');
-        case 'customer_za':
-          return (b.customer?.name ?? '').localeCompare(a.customer?.name ?? '');
-        case 'newest':
-        default:
-          return new Date(b.invoiceDate ?? 0).getTime() - new Date(a.invoiceDate ?? 0).getTime();
-      }
-    });
-
-  const isFilterActive = yearFilter !== 'all' || search.trim().length > 0;
+        .sort((a, b) => {
+          switch (sortBy) {
+            case 'oldest':
+              return new Date(a.invoiceDate ?? 0).getTime() - new Date(b.invoiceDate ?? 0).getTime();
+            case 'amount_desc':
+              return Number(b.total ?? 0) - Number(a.total ?? 0);
+            case 'amount_asc':
+              return Number(a.total ?? 0) - Number(b.total ?? 0);
+            case 'customer_az':
+              return (a.customer?.name ?? '').localeCompare(b.customer?.name ?? '');
+            case 'customer_za':
+              return (b.customer?.name ?? '').localeCompare(a.customer?.name ?? '');
+            case 'newest':
+            default:
+              return new Date(b.invoiceDate ?? 0).getTime() - new Date(a.invoiceDate ?? 0).getTime();
+          }
+        }),
+    [invoices, yearFilter, search, sortBy],
+  );
 
   useEffect(() => {
     setVisibleCount(30);
-  }, [search, sortBy, yearFilter]);
+  }, [search, yearFilter, sortBy]);
+
+  const isFilterActive = yearFilter !== 'all' || search.trim().length > 0;
 
   // --- Export logic (independent from list filters) ---
   // Derive available months for the selected export year
@@ -259,19 +267,34 @@ const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' 
   // deletedAt=null) automatically exclude this invoice afterwards, so the
   // customer can be deleted if this archived invoice was the only blocker.
   const deleteArchivedInvoice = async () => {
-    if (!deleteTarget) return;
+    const target = deleteTarget;
+    if (!target) return;
+    const removedIndex = invoices.findIndex((invoice) => invoice.id === target.id);
+    const restoreInvoice = () => {
+      setInvoices((current) => {
+        if (current.some((invoice) => invoice.id === target.id)) return current;
+        const next = [...current];
+        next.splice(Math.min(Math.max(removedIndex, 0), next.length), 0, target);
+        return next;
+      });
+    };
+
     setDeleting(true);
+    setDeleteTarget(null);
+    setInvoices((current) =>
+      current.filter((invoice) => invoice.id !== target.id),
+    );
     try {
-      const res = await fetch(`/api/invoices/${deleteTarget.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/invoices/${target.id}`, { method: 'DELETE' });
       if (res.ok) {
         toast.success('Archivierte Rechnung gelöscht');
-        setDeleteTarget(null);
-        load();
       } else {
         const data = await res.json().catch(() => null);
+        restoreInvoice();
         toast.error(data?.error || 'Fehler beim Löschen');
       }
     } catch {
+      restoreInvoice();
       toast.error('Fehler beim Löschen');
     } finally {
       setDeleting(false);
@@ -470,7 +493,7 @@ const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' 
       )}
 
       <div className="space-y-1">
-        {filtered.length === 0 ? <p className="text-center text-muted-foreground py-8">{invoices.length === 0 ? 'Keine archivierten Rechnungen vorhanden' : 'Keine Treffer für die aktuelle Auswahl'}</p> :
+        {deleteTarget ? null : filtered.length === 0 ? <p className="text-center text-muted-foreground py-8">{invoices.length === 0 ? 'Keine archivierten Rechnungen vorhanden' : 'Keine Treffer für die aktuelle Auswahl'}</p> :
           filtered.slice(0, visibleCount).map((inv, i) => {
             const itemDescs = inv.items?.map((it: any) => it.description).filter(Boolean).join(', ') || '–';
             return (
@@ -541,14 +564,19 @@ const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' 
               </motion.div>
             );
           })}
-        {filtered.length > visibleCount && (
-          <div className="text-center pt-4">
-            <Button variant="outline" onClick={() => setVisibleCount((v) => v + 30)}>
-              Mehr laden ({filtered.length - visibleCount} weitere)
-            </Button>
-          </div>
-        )}
       </div>
+
+      {!deleteTarget && filtered.length > visibleCount && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setVisibleCount((count) => count + 30)}
+          >
+            Mehr laden ({filtered.length - visibleCount} weitere)
+          </Button>
+        </div>
+      )}
 
       {/* Stage L (2026-04-25) — confirmation dialog for permanent invoice delete */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
