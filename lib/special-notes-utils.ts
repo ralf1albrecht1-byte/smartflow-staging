@@ -119,9 +119,68 @@ const isNonSafetyConditionLineV17_33 = (value: string): boolean => {
   return isDirtOrConditionOnly && hasCleaningContext && !hasRealSafetyRisk;
 };
 
+const hasExplicitSafetyRiskV17_90L92 = (value: string): boolean => {
+  const text = normalizeDedupeText(value);
+  if (!text) return false;
+
+  return (
+    /\b(?:unter spannung|stromschlag|elektrisch|heisse? leitungen?|heisse? rohre?|nicht anfassen|nicht oeffnen|nicht öffnen|rutschgefahr|glatt|absturz|einsturz|instabil|giftig|aetzend|ätzend|explosiv|brandgefahr|feuer|gas|asbest|scherben|glasbruch|schimmel|schwerer? \w+.{0,35}nicht alleine|niedrige leitungen|niedrige decke|kopfhoehe|kopfhöhe)\b/.test(
+      text,
+    ) ||
+    /\b(?:hund|dog|chien)\b/.test(text)
+  );
+};
+
+const isClearlyOperationalNotSafetyV17_90L92 = (value: string): boolean => {
+  const text = normalizeDedupeText(value);
+  if (!text || hasExplicitSafetyRiskV17_90L92(text)) return false;
+
+  const accessOrCredential =
+    /\b(?:zugang|zufahrt|eingang|badge|besucherausweis|schluessel|schlussel|schlüssel|key|code|zugangscode|torcode|empfang|rezeption|rampe)\b/.test(
+      text,
+    );
+  const parkingOrTimeLimit =
+    /\b(?:parkplatz|besucherfeld|besucherparkplatz|parken|parkieren|parking|stellplatz|anlieferung)\b/.test(
+      text,
+    );
+  const courtesyOrWorkflow =
+    /\b(?:bewohner|patienten|gaeste|gaste|kinder|serverteam|mitarbeiter|arbeitsplaetze|arbeitsplätze)\b/.test(
+      text,
+    ) &&
+    /\b(?:nicht stoeren|nicht storen|ruhig|leise|schlafen|weiterarbeiten|arbeitet weiter|nicht blockieren|freihalten|ruecksicht|rücksicht)\b/.test(
+      text,
+    );
+  const equipmentAvailabilityOrShutdown =
+    /\b(?:darf|soll|muss|kann|erst ab|erst nach|nur ab|nur nach|reserviert|verfuegbar|verfügbar)\b/.test(
+      text,
+    ) &&
+    /\b(?:abschalten|ausgeschaltet|ausschalten|einschalten|betrieb|lift|aufzug|anlage|maschine|geraet|gerät)\b/.test(
+      text,
+    );
+  const materialOrMethodPreference =
+    /\b(?:reiniger|reinigungsmittel|mittel|produkt|material|geruchsarm|duftfrei|schonend|vorsichtig|nicht verschieben|nicht ausstecken)\b/.test(
+      text,
+    );
+  const communicationOrArrival =
+    /\b(?:sms|whatsapp|telefon|anrufen|kontakt|vorher melden|vor ankunft|nicht einfach kommen)\b/.test(
+      text,
+    );
+
+  return (
+    accessOrCredential ||
+    parkingOrTimeLimit ||
+    courtesyOrWorkflow ||
+    equipmentAvailabilityOrShutdown ||
+    materialOrMethodPreference ||
+    communicationOrArrival
+  );
+};
+
 const isEquipmentOnlyWarningLineV17_34 = (value: string): boolean => {
   const text = normalizeDedupeText(value);
   if (!text) return false;
+
+  if (isClearlyOperationalNotSafetyV17_90L92(text)) return true;
 
   // Ausrüstung, Parkierung und Ruhehinweise sind operative Besonderheiten,
   // keine roten Gefahren. Echte Risiken bleiben unverändert rot.
@@ -879,15 +938,25 @@ export function buildSpecialNotes(input: {
   // not demote, promote, split or discard those values. They are allowed only
   // on legacy/unstructured call paths.
   if (input.preserveStructuredRoles) {
+    // V17.90L92: Die erste KI bleibt die Hauptquelle. Eine spätere, rein
+    // strukturelle Rollenkontrolle darf jedoch eindeutig operative Aussagen
+    // aus dem roten Gefahrenbereich in normale Hinweise verschieben. Der Text
+    // selbst wird dabei weder verändert noch neu interpretiert.
+    const structuredSafetyLines = (input.safetyWarnings ?? [])
+      .map(canonicalizeSpecialNoteLineV17_32)
+      .map(stripKnownMarker)
+      .filter(Boolean);
+    const demotedOperationalHints = structuredSafetyLines.filter(
+      isClearlyOperationalNotSafetyV17_90L92,
+    );
     const safetyWarnings = dedupeSemanticLines(
-      (input.safetyWarnings ?? [])
-        .map(canonicalizeSpecialNoteLineV17_32)
-        .map(stripKnownMarker)
-        .filter(Boolean),
+      structuredSafetyLines.filter(
+        (line) => !isClearlyOperationalNotSafetyV17_90L92(line),
+      ),
     );
     const safetyKeys = new Set(safetyWarnings.map(semanticNoteKey));
     const jobHints = dedupeSemanticLines(
-      (input.jobHints ?? [])
+      [...(input.jobHints ?? []), ...demotedOperationalHints]
         .map(canonicalizeSpecialNoteLineV17_32)
         .map(stripKnownMarker)
         .filter(Boolean),
