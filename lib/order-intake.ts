@@ -1966,6 +1966,8 @@ function cleanExecutionSiteNameCandidate(
     .trim();
 
   if (!candidate || /^[-–—]+$/.test(candidate)) return null;
+  // Telefonnummern sind Kontakt-Evidence und niemals Teil eines Objekt-/Ortsnamens.
+  if (extractPhoneFromText(candidate)) return null;
 
   // Titel-Zeilen sind reine Auftrags-/Karten-Titel und niemals Objekt-/Ortsnamen.
   // Beispiel: "[Titel: Fenster Kontakt vor Ort]" darf nicht als Ausführungsadresse-Label gespeichert werden.
@@ -2061,9 +2063,9 @@ function extractExecutionBlockFromText(
   if (lines.length === 0) return null;
 
   const startRegex =
-    /^\s*(?:(?:die\s+)?arbeiten\s+(?:werden\s+)?(?:an\s+einer\s+anderen\s+adresse\s+)?ausgef(?:ü|ue)hrt|arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|vor\s+ort|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+    /^\s*(?:(?:die\s+)?arbeiten\s+(?:werden\s+)?(?:an\s+einer\s+anderen\s+adresse\s+)?ausgef(?:ü|ue)hrt|arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
   const stopRegex =
-    /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
+    /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\b|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(startRegex);
@@ -2669,6 +2671,34 @@ type OnsiteContactHint = {
   noPhoneCall: boolean;
 };
 
+type AiOnsiteContactV17_90L86 = {
+  vorhanden?: boolean | null;
+  name?: string | null;
+  telefon?: string | null;
+  phone?: string | null;
+  kanal?: string | null;
+  channel?: string | null;
+  nicht_anrufen?: boolean | null;
+  no_phone_call?: boolean | null;
+  evidence?: string | null;
+};
+
+type AiAppointmentV17_90L86 = {
+  art?: string | null;
+  type?: string | null;
+  datum?: string | null;
+  date?: string | null;
+  von?: string | null;
+  start?: string | null;
+  bis?: string | null;
+  end?: string | null;
+  ankuendigung_minuten?: number | string | null;
+  announcement_minutes?: number | string | null;
+  ankuendigung_kanal?: string | null;
+  announcement_channel?: string | null;
+  evidence?: string | null;
+};
+
 function normalizePhoneDigits(value: string | null | undefined): string {
   return String(value || "").replace(/\D/g, "");
 }
@@ -2714,9 +2744,172 @@ function extractEmailFromText(value: string | null | undefined): string | null {
   return match?.[0]?.trim() || null;
 }
 
+function normalizeContactEvidenceV17_90L86(value?: string | null): string {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeAiContactChannelV17_90L86(
+  value?: string | null,
+): OnsiteContactChannel {
+  const key = normalizeContactEvidenceV17_90L86(value);
+  if (!key) return null;
+  if (/\b(?:sms|text message|kurznachricht)\b/.test(key)) return "sms";
+  if (/\b(?:whatsapp|whats app)\b/.test(key)) return "whatsapp";
+  if (/\b(?:call|phone|telefon|anruf|anrufen)\b/.test(key)) return "call";
+  return null;
+}
+
+function sourceContainsPhoneV17_90L86(
+  source: string,
+  phone?: string | null,
+): boolean {
+  const digits = normalizePhoneDigits(phone);
+  if (!digits) return false;
+  return Array.from(source.matchAll(/\+?\d[\d\s()./-]{6,}\d/g)).some(
+    (match) => {
+      const candidate = normalizePhoneDigits(match[0]);
+      return Boolean(
+        candidate &&
+          (candidate === digits ||
+            candidate.endsWith(digits) ||
+            digits.endsWith(candidate)),
+      );
+    },
+  );
+}
+
+function sourceSupportsContactNameV17_90L86(
+  source: string,
+  name?: string | null,
+): boolean {
+  const normalizedName = normalizeContactEvidenceV17_90L86(name);
+  if (!normalizedName) return false;
+  const normalizedSource = normalizeContactEvidenceV17_90L86(source);
+  if (normalizedSource.includes(normalizedName)) return true;
+  const tokens = normalizedName
+    .split(/\s+/g)
+    .filter((token) => token.length >= 2 && !/^(?:herr|frau|mr|mrs|ms|mme|m)$/.test(token));
+  return tokens.length >= 1 && tokens.every((token) => normalizedSource.includes(token));
+}
+
+function cleanLikelyContactNameV17_90L86(value?: string | null): string | null {
+  let cleaned = String(value || "")
+    .replace(/^[\s:.,;\-–—]+|[\s:.,;\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+
+  // Structural fallback: discard leading filler until the first proper-name-like
+  // token. The semantic AI field remains the primary source; this only handles
+  // one-line variants such as "this time Frau Laura Graf" without a phrase list.
+  const parts = cleaned.split(/\s+/g);
+  const properIndex = parts.findIndex((part) =>
+    /^[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*$/u.test(part),
+  );
+  if (properIndex > 0) cleaned = parts.slice(properIndex).join(" ");
+
+  cleaned = cleaned
+    .replace(/\b(?:erreichbar|available|reachable)\s*(?:unter|at|via)?\s*$/i, "")
+    .replace(/\b(?:tel\.?|telefon|phone|mobile|handy|natel|unter)\s*[:.]?\s*$/i, "")
+    .replace(/^[\s:.,;\-–—]+|[\s:.,;\-–—]+$/g, "")
+    .trim();
+
+  if (!cleaned || cleaned.length > 100) return null;
+  return cleaned;
+}
+
+function buildOnsiteContactHintV17_90L86(args: {
+  source: string;
+  candidateCustomerPhone?: string | null;
+  phone?: string | null;
+  contactName?: string | null;
+  preferredChannel?: OnsiteContactChannel;
+  noPhoneCall?: boolean;
+}): OnsiteContactHint {
+  const phone = args.phone || null;
+  const phoneDigits = normalizePhoneDigits(phone);
+  const candidateDigits = normalizePhoneDigits(args.candidateCustomerPhone);
+  const contactName = cleanLikelyContactNameV17_90L86(args.contactName);
+  const preferredChannel = args.preferredChannel || null;
+  const noPhoneCall = Boolean(args.noPhoneCall);
+  const channelLabel =
+    preferredChannel === "sms"
+      ? "nur SMS"
+      : preferredChannel === "whatsapp"
+        ? "nur WhatsApp"
+        : preferredChannel === "call"
+          ? "anrufen"
+          : null;
+  const parts = [
+    contactName ? `Kontakt vor Ort: ${contactName}` : "Kontakt vor Ort",
+    phone ? `Tel. ${phone}` : null,
+    channelLabel,
+    noPhoneCall && preferredChannel !== "call" ? "nicht telefonisch" : null,
+  ].filter(Boolean);
+
+  return {
+    hint: phone || contactName || preferredChannel ? parts.join(", ") : null,
+    phone,
+    phoneBelongsToSiteContact: Boolean(
+      candidateDigits &&
+        phoneDigits &&
+        (phoneDigits === candidateDigits ||
+          phoneDigits.endsWith(candidateDigits) ||
+          candidateDigits.endsWith(phoneDigits)),
+    ),
+    contactName,
+    preferredChannel,
+    noPhoneCall,
+  };
+}
+
+function extractAiOnsiteContactHintV17_90L86(
+  rawText: string,
+  candidateCustomerPhone: string | null | undefined,
+  aiContact?: AiOnsiteContactV17_90L86 | null,
+): OnsiteContactHint | null {
+  if (!aiContact || aiContact.vorhanden === false) return null;
+
+  const rawPhone = aiContact.telefon || aiContact.phone || null;
+  const phone = sourceContainsPhoneV17_90L86(rawText, rawPhone)
+    ? String(rawPhone || "").replace(/\s+/g, " ").trim()
+    : null;
+  const rawName = cleanLikelyContactNameV17_90L86(aiContact.name);
+  const contactName = sourceSupportsContactNameV17_90L86(rawText, rawName)
+    ? rawName
+    : null;
+  const preferredChannel = normalizeAiContactChannelV17_90L86(
+    aiContact.kanal || aiContact.channel,
+  );
+  const noPhoneCall = Boolean(
+    aiContact.nicht_anrufen ?? aiContact.no_phone_call ?? false,
+  );
+
+  if (!phone && !contactName && !preferredChannel) return null;
+  return buildOnsiteContactHintV17_90L86({
+    source: rawText,
+    candidateCustomerPhone,
+    phone,
+    contactName,
+    preferredChannel,
+    noPhoneCall,
+  });
+}
+
 function extractOnsiteContactHint(
   rawText: string | null | undefined,
   candidateCustomerPhone: string | null | undefined,
+  aiContact?: AiOnsiteContactV17_90L86 | null,
 ): OnsiteContactHint {
   const source = String(rawText || "")
     .replace(/\r\n/g, "\n")
@@ -2727,101 +2920,122 @@ function extractOnsiteContactHint(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  const emptyResult: OnsiteContactHint = {
-    hint: null,
-    phone: null,
-    phoneBelongsToSiteContact: false,
-    contactName: null,
-    preferredChannel: null,
-    noPhoneCall: false,
-  };
-
-  const candidateDigits = normalizePhoneDigits(candidateCustomerPhone);
+  const emptyResult = buildOnsiteContactHintV17_90L86({
+    source,
+    candidateCustomerPhone,
+  });
   if (!source) return emptyResult;
 
+  const aiResult = extractAiOnsiteContactHintV17_90L86(
+    source,
+    candidateCustomerPhone,
+    aiContact,
+  );
   const lines = source
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter(Boolean);
 
-  // Structural contact markers only. The service vocabulary is deliberately
-  // irrelevant here: once a marker is found, phone/name/channel are resolved
-  // from the local marker scope instead of from the complete customer message.
   const explicitMarkerRe =
-    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
+    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|on[-\s]?site\s+contact|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
+  const genericLocalMarkerRe =
+    /\b(vor\s+ort|on[-\s]?site|sur\s+place|sul\s+posto|en\s+sitio)\b/i;
   const roleMarkerRe =
     /\b(hauswart|hausmeister|hausdienst|concierge|caretaker|gardien|facility\s+manager)\b/i;
   const anyMarkerRe = new RegExp(
-    `${explicitMarkerRe.source}|${roleMarkerRe.source}`,
+    `${explicitMarkerRe.source}|${genericLocalMarkerRe.source}|${roleMarkerRe.source}`,
     "i",
   );
   const stopRe =
     /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
 
-  const cleanContactName = (value: string, stripExplicitMarker: boolean) =>
-    String(value || "")
-      .replace(stripExplicitMarker ? explicitMarkerRe : /^\b$/i, "")
-      .replace(roleMarkerRe, (match) => match)
-      .replace(/^\s*(?:diesmal|heute|aktuell|current(?:ly)?)\s+/i, "")
-      .replace(/^\s*(?:ist|is|heisst|heißt|name\s+is)\s+/i, "")
-      .replace(
-        /\b(?:erreichbar|zu\s+erreichen|available|reachable)\s*(?:unter|at|via)?\s*$/i,
-        "",
-      )
-      .replace(
-        /\b(?:tel\.?|telefon|phone|mobile|handy|natel|unter)\s*[:.]?\s*$/i,
-        "",
-      )
-      .replace(/^[\s:.,-]+|[\s:.,-]+$/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+  const mergeWithAi = (fallback: OnsiteContactHint): OnsiteContactHint => {
+    if (!aiResult) return fallback;
+    return buildOnsiteContactHintV17_90L86({
+      source,
+      candidateCustomerPhone,
+      phone: aiResult.phone || fallback.phone,
+      contactName: aiResult.contactName || fallback.contactName,
+      preferredChannel:
+        aiResult.preferredChannel || fallback.preferredChannel,
+      noPhoneCall:
+        aiResult.preferredChannel || aiResult.phone || aiResult.contactName
+          ? aiResult.noPhoneCall
+          : fallback.noPhoneCall,
+    });
+  };
 
   for (let index = 0; index < lines.length; index += 1) {
     const markerMatch = lines[index].match(anyMarkerRe);
     if (!markerMatch || markerMatch.index == null) continue;
 
-    const hasExplicitMarker = explicitMarkerRe.test(markerMatch[0]);
     const scopedFirstLine = lines[index].slice(markerMatch.index);
     const blockLines: string[] = [scopedFirstLine];
-
     for (let offset = 1; offset <= 3; offset += 1) {
       const line = lines[index + offset];
       if (!line || stopRe.test(line)) break;
       blockLines.push(line);
     }
 
-    const scopedBlock = blockLines.join(" ").replace(/\s+/g, " ").trim();
+    const scopedBlock = blockLines
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 700);
     const phoneMatch = extractPhoneMatchFromTextV17_90L85(scopedBlock);
-    const phone = phoneMatch?.phone || null;
-    const phoneDigits = normalizePhoneDigits(phone);
 
-    // Name evidence is the text between the local contact marker and the first
-    // local phone. This prevents a billing-office phone appearing earlier in a
-    // one-line message from being assigned to the on-site person.
+    // A generic location phrase such as "vor Ort" is a contact marker only
+    // when a local phone is actually attached. This prevents worksite text from
+    // being reclassified as a person.
+    const isGenericMarker = genericLocalMarkerRe.test(markerMatch[0]);
+    if (isGenericMarker && !phoneMatch && !aiResult?.phone) continue;
+    // A bare location phrase must not capture a later, unrelated telephone
+    // from another section. The AI result may still supply the verified local
+    // contact because its phone/name/evidence are validated against the source.
+    if (isGenericMarker && phoneMatch && phoneMatch.index > 240 && !aiResult?.phone) {
+      continue;
+    }
+
+    const phone = phoneMatch?.phone || null;
     const localNameSource = phoneMatch
-      ? scopedBlock.slice(0, phoneMatch.index)
-      : scopedFirstLine;
-    const contactName =
-      cleanContactName(localNameSource, hasExplicitMarker) || null;
+      ? scopedBlock.slice(markerMatch[0].length, phoneMatch.index)
+      : scopedFirstLine.slice(markerMatch[0].length);
+    const contactName = cleanLikelyContactNameV17_90L86(localNameSource);
+    const properNameTokenCount = String(contactName || "")
+      .split(/\s+/g)
+      .filter((part) => /^[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*$/u.test(part))
+      .length;
+    // For a bare location phrase, the deterministic fallback needs a visible
+    // person-name structure. Otherwise a later invoice or office phone could
+    // be attached to the worksite. Verified AI contact data remains primary.
+    if (
+      isGenericMarker &&
+      !aiResult &&
+      (properNameTokenCount < 2 || /\d/.test(String(contactName || "")))
+    ) {
+      continue;
+    }
 
     const channelScope = scopedBlock.slice(
       0,
-      Math.min(
-        scopedBlock.length,
-        phoneMatch ? phoneMatch.end + 180 : 260,
-      ),
+      Math.min(scopedBlock.length, phoneMatch ? phoneMatch.end + 220 : 300),
     );
     const hasSms = /\b(?:sms|text\s+message|kurznachricht)\b/i.test(
       channelScope,
     );
     const hasWhatsapp = /\bwhats\s*app|\bwhatsapp\b/i.test(channelScope);
-    const hasCall =
-      /\b(?:anrufen|telefonieren|call|phone\s+call)\b/i.test(channelScope);
+    const hasCall = /\b(?:anrufen|telefonieren|call|phone\s+call)\b/i.test(
+      channelScope,
+    );
+    const excludesOnlyStoredOfficeNumber =
+      /\b(?:nicht|do\s+not|don['’]?t)\b.{0,55}\b(?:normal|gespeichert|firma|firmen|büro|buero|office|customer)\b.{0,45}\b(?:nummer|telefon|phone)\b/i.test(
+        channelScope,
+      );
     const noPhoneCall =
+      !excludesOnlyStoredOfficeNumber &&
       /\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|keine?n?\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/i.test(
         channelScope,
       );
-
     const preferredChannel: OnsiteContactChannel = hasSms
       ? "sms"
       : hasWhatsapp
@@ -2830,39 +3044,156 @@ function extractOnsiteContactHint(
           ? "call"
           : null;
 
-    const channelLabel =
-      preferredChannel === "sms"
-        ? "nur SMS"
-        : preferredChannel === "whatsapp"
-          ? "nur WhatsApp"
-          : preferredChannel === "call"
-            ? "telefonisch"
-            : null;
-
-    const parts = [
-      contactName ? `Kontakt vor Ort: ${contactName}` : "Kontakt vor Ort",
-      phone ? `Tel. ${phone}` : null,
-      channelLabel,
-      noPhoneCall && preferredChannel !== "call" ? "nicht telefonisch" : null,
-    ].filter(Boolean);
-
-    return {
-      hint: parts.join(", "),
-      phone,
-      phoneBelongsToSiteContact: Boolean(
-        candidateDigits &&
-          phoneDigits &&
-          (phoneDigits.endsWith(candidateDigits) ||
-            candidateDigits.endsWith(phoneDigits) ||
-            phoneDigits === candidateDigits),
-      ),
-      contactName,
-      preferredChannel,
-      noPhoneCall,
-    };
+    return mergeWithAi(
+      buildOnsiteContactHintV17_90L86({
+        source,
+        candidateCustomerPhone,
+        phone,
+        contactName,
+        preferredChannel,
+        noPhoneCall,
+      }),
+    );
   }
 
-  return emptyResult;
+  return aiResult || emptyResult;
+}
+
+function normalizeStructuredAppointmentDateV17_90L86(
+  value?: string | null,
+): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const iso = raw.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (iso) return `${String(iso[3]).padStart(2, "0")}.${String(iso[2]).padStart(2, "0")}.${iso[1]}`;
+  const local = raw.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+  if (!local) return null;
+  const year = local[3]
+    ? local[3].length === 2
+      ? `20${local[3]}`
+      : local[3]
+    : "";
+  return `${String(local[1]).padStart(2, "0")}.${String(local[2]).padStart(2, "0")}${year ? `.${year}` : "."}`;
+}
+
+function normalizeStructuredAppointmentTimeV17_90L86(
+  value?: string | null,
+): string | null {
+  const match = String(value || "").match(/\b([01]?\d|2[0-3])(?::|\.)(\d{2})\b|\b([01]?\d|2[0-3])\s*(?:uhr|h)\b/i);
+  if (!match) return null;
+  const hour = match[1] || match[3];
+  const minute = match[2] || "00";
+  return `${String(hour).padStart(2, "0")}:${minute}`;
+}
+
+function sourceSupportsAppointmentPartV17_90L86(
+  source: string,
+  value?: string | null,
+): boolean {
+  const rawSource = String(source || "");
+  const rawValue = String(value || "").trim();
+  if (!rawSource || !rawValue) return false;
+
+  const sourceDigits = rawSource.replace(/\D/g, "");
+  const normalized = rawValue.replace(/\D/g, "");
+  if (normalized && sourceDigits.includes(normalized)) return true;
+
+  // An AI date may add a year although the customer only wrote day/month.
+  // Validate the local day/month pair instead of comparing one long digit blob.
+  const isoDate = rawValue.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  const localDate = rawValue.match(/\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/);
+  const day = isoDate?.[3] || localDate?.[1] || "";
+  const month = isoDate?.[2] || localDate?.[2] || "";
+  if (day && month) {
+    const dayValue = String(Number(day));
+    const monthValue = String(Number(month));
+    const datePattern = new RegExp(
+      `(?:^|\\D)0?${dayValue}[.\\/-]0?${monthValue}(?:[.\\/-]\\d{2,4})?(?:$|\\D)`,
+    );
+    if (datePattern.test(rawSource)) return true;
+  }
+
+  const time = rawValue.match(/\b([01]?\d|2[0-3])(?::|\.)(\d{2})\b/);
+  if (time) {
+    const hourValue = String(Number(time[1]));
+    const minuteValue = time[2];
+    const timePattern = new RegExp(
+      `(?:^|\\D)0?${hourValue}(?::|\\.)${minuteValue}(?:$|\\D)`,
+    );
+    if (timePattern.test(rawSource)) return true;
+  }
+
+  return false;
+}
+
+function buildStructuredAppointmentHintsV17_90L86(
+  appointments: AiAppointmentV17_90L86[] | null | undefined,
+  rawText: string,
+): string[] {
+  if (!Array.isArray(appointments)) return [];
+  const result: string[] = [];
+
+  for (const appointment of appointments) {
+    const kind = normalizeContactEvidenceV17_90L86(
+      appointment?.art || appointment?.type,
+    );
+    if (kind && !/\b(?:ausfuehrung|ausführung|execution|work|auftrag|termin)\b/.test(kind)) {
+      continue;
+    }
+
+    const rawDate = appointment?.datum || appointment?.date || null;
+    const rawStart = appointment?.von || appointment?.start || null;
+    const rawEnd = appointment?.bis || appointment?.end || null;
+    const date = normalizeStructuredAppointmentDateV17_90L86(rawDate);
+    const start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
+    const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
+
+    if (!date && !start) continue;
+    if (date && !sourceSupportsAppointmentPartV17_90L86(rawText, rawDate)) continue;
+    if (start && !sourceSupportsAppointmentPartV17_90L86(rawText, rawStart)) continue;
+    if (end && !sourceSupportsAppointmentPartV17_90L86(rawText, rawEnd)) continue;
+
+    const minutesRaw = Number(
+      appointment?.ankuendigung_minuten ??
+        appointment?.announcement_minutes ??
+        0,
+    );
+    const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 && minutesRaw <= 240
+      ? Math.round(minutesRaw)
+      : 0;
+    const announcementChannel = normalizeAiContactChannelV17_90L86(
+      appointment?.ankuendigung_kanal || appointment?.announcement_channel,
+    );
+    const notice = minutes
+      ? `${minutes} Minuten vorher${
+          announcementChannel === "sms"
+            ? " per SMS melden"
+            : announcementChannel === "whatsapp"
+              ? " per WhatsApp melden"
+              : announcementChannel === "call"
+                ? " anrufen"
+                : " melden"
+        }`
+      : "";
+    const timeRange = start && end ? `${start}–${end}` : start || "";
+    const line = `Termin: ${[date, timeRange, notice].filter(Boolean).join(" · ")}`;
+    if (!result.some((existing) => normalizeContactEvidenceV17_90L86(existing) === normalizeContactEvidenceV17_90L86(line))) {
+      result.push(line);
+    }
+  }
+
+  return result;
+}
+
+function collectStructuredRoleHintsV17_90L86(auftrag: any): string[] {
+  const values = [
+    ...(Array.isArray(auftrag?.zugangshinweise) ? auftrag.zugangshinweise : []),
+    ...(Array.isArray(auftrag?.parkhinweise) ? auftrag.parkhinweise : []),
+    ...(Array.isArray(auftrag?.sonstige_hinweise) ? auftrag.sonstige_hinweise : []),
+  ];
+  return values
+    .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+    .filter((value) => value.length >= 3 && value.length <= 240);
 }
 
 function compactText(value: any): string {
@@ -8098,6 +8429,23 @@ ZIELE
   (IMMER auf ${hauptsprache} übersetzen, auch wenn die Nachricht in einer anderen Sprache ist.)
   (WICHTIG: Erkenne Gefahren, Rückruf, Zugang und Parken semantisch nach Bedeutung, NICHT nur über feste deutsche Wörter. Auch Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischte Nachrichten müssen in deutsche gefahren/besonderheiten übersetzt werden.)
 
+2a. Strukturierte Rollen – verbindlich und sprachunabhängig:
+- kontakt_vor_ort ist ausschließlich die Person, die für DIESEN Auftrag vor Ort kontaktiert werden soll.
+- kontakt_vor_ort.name, telefon, kanal und evidence müssen aus derselben lokalen Textstelle stammen.
+- kanal ist nur: "sms", "whatsapp", "anruf" oder null.
+- Wenn der Text ausdrücklich eine neue Vor-Ort-Nummer nennt, hat sie für diesen Auftrag Vorrang vor der gespeicherten Firmennummer. Die Kundentelefonnummer wird dadurch nicht geändert.
+- Eine Aussage wie "nicht die normale Firmennummer anrufen, sondern Herr X unter 079..." bedeutet: Herr X / 079... ist der Auftragskontakt; nicht_anrufen = false, kanal = "anruf".
+- Eine Aussage wie "nur SMS, nicht anrufen" bedeutet: kanal = "sms", nicht_anrufen = true.
+- Name, Telefon und Kommunikationskanal dürfen niemals in die Ausführungsadresse gelangen.
+- termine enthält pro realem Ausführungstermin genau einen Eintrag mit:
+  art = "ausfuehrung", datum, von, bis, ankuendigung_minuten, ankuendigung_kanal, evidence.
+- Kontaktzeiten und Ressourcenzeiten (z.B. Lift erst ab 13 Uhr) sind KEINE Ausführungstermine. Dann art = "kontaktzeit" bzw. "ressourcenzeit" und sie dürfen keinen Terminchip erzeugen.
+- Zugang/Schlüssel/Code jeweils als kurze einzelne Einträge in zugangshinweise.
+- Parkplatz/Rampe/Anlieferung jeweils als kurze einzelne Einträge in parkhinweise.
+- Normale Ruhe-, Bewohner-, Kunden- oder Ablaufhinweise in sonstige_hinweise.
+- Höflichkeits- und Ruhehinweise wie Bewohner nicht stören, leise arbeiten oder Schlafzeiten beachten sind keine Gefahren.
+- Jede Rolleninformation muss eine konkrete lokale Evidence haben. Keine komplette Nachricht als Evidence verwenden.
+
 3. Service erkennen:
 - passende Leistung aus "leistungen"
 - KEIN Service erfinden
@@ -8350,6 +8698,18 @@ AUSGABEFORMAT
   "beschreibung": null,
   "gefahren": [],
   "besonderheiten": [],
+  "kontakt_vor_ort": {
+    "vorhanden": false,
+    "name": null,
+    "telefon": null,
+    "kanal": null,
+    "nicht_anrufen": false,
+    "evidence": null
+  },
+  "termine": [],
+  "zugangshinweise": [],
+  "parkhinweise": [],
+  "sonstige_hinweise": [],
   "ausfuehrungsadresse": {
     "ist_abweichend": false,
     "name": null,
@@ -9148,6 +9508,18 @@ export async function processIncomingMessage(
       workItems: summarizeIntakeDiagnosticItems(
         parsed.auftrag?.arbeitspositionen,
       ),
+      onsiteContact: parsed.auftrag?.kontakt_vor_ort
+        ? redactIntakeDiagnosticText(
+            JSON.stringify(parsed.auftrag.kontakt_vor_ort),
+            420,
+          )
+        : null,
+      appointments: Array.isArray(parsed.auftrag?.termine)
+        ? redactIntakeDiagnosticText(
+            JSON.stringify(parsed.auftrag.termine),
+            620,
+          )
+        : null,
     },
   );
 
@@ -9169,6 +9541,7 @@ export async function processIncomingMessage(
   const onsiteContactHint = extractOnsiteContactHint(
     messageText,
     kundeData.telefon || null,
+    parsed.auftrag?.kontakt_vor_ort || null,
   );
   if (onsiteContactHint.phoneBelongsToSiteContact) {
     console.log(
@@ -10015,6 +10388,15 @@ export async function processIncomingMessage(
     return null;
   };
 
+  const structuredRoleHintsV17_90L86 = collectStructuredRoleHintsV17_90L86(
+    parsed.auftrag,
+  );
+  const structuredAppointmentHintsV17_90L86 =
+    buildStructuredAppointmentHintsV17_90L86(
+      parsed.auftrag?.termine,
+      messageText,
+    );
+
   const semanticFallbackNotes = extractSemanticSpecialNotesFallback(
     [
       messageText,
@@ -10046,6 +10428,8 @@ export async function processIncomingMessage(
   let hinweisItems = reconcileCommunicationSpecialNoteLines(
     dedupeSpecialNoteLines(
       [
+        ...structuredRoleHintsV17_90L86,
+        ...structuredAppointmentHintsV17_90L86,
         ...baseHinweisItems,
         ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
         onsiteContactHint.hint || "",

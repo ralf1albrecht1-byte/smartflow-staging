@@ -500,8 +500,13 @@ function extractOperationalContactV17_90L85(
   if (!source) return empty;
 
   const markerRe =
-    /\b(?:kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet)|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
+    /\b(?:kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
+  const genericMarkerRe =
+    /^(?:vor\s+ort|on[-\s]?site|sur\s+place|sul\s+posto|en\s+sitio)$/i;
   const markerMatch = source.match(markerRe);
+  const isGenericMarker = Boolean(
+    markerMatch && genericMarkerRe.test(markerMatch[0]),
+  );
 
   const validPhoneMatches = (value: string) =>
     Array.from(value.matchAll(/\+?\d[\d\s()./-]{6,}\d/g))
@@ -523,6 +528,13 @@ function extractOperationalContactV17_90L85(
   }
 
   let phoneCandidate = validPhoneMatches(scoped)[0];
+  if (
+    isGenericMarker &&
+    phoneCandidate &&
+    phoneCandidate.index > 240
+  ) {
+    phoneCandidate = undefined;
+  }
   if (!phoneCandidate) {
     const channelMatch = source.match(
       /\b(?:whats\s*app|whatsapp|sms|text\s+message|kurznachricht|anrufen|telefonieren|call)\b/i,
@@ -543,7 +555,7 @@ function extractOperationalContactV17_90L85(
   const beforePhone = phoneCandidate
     ? scoped.slice(markerLength, phoneCandidate.index)
     : "";
-  const name = beforePhone
+  let name = beforePhone
     .replace(/^\s*(?:[:.,-]|ist\b|diesmal\b|heute\b)+/i, "")
     .replace(
       /\b(?:erreichbar|zu\s+erreichen|available|reachable)\s*(?:unter|at|via)?\s*$/i,
@@ -553,6 +565,23 @@ function extractOperationalContactV17_90L85(
     .replace(/^[\s:.,-]+|[\s:.,-]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
+  const nameParts = name.split(/\s+/g);
+  const properNameIndex = nameParts.findIndex((part) =>
+    /^[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*$/u.test(part),
+  );
+  if (properNameIndex > 0) name = nameParts.slice(properNameIndex).join(" ");
+  const properNameTokenCount = name
+    .split(/\s+/g)
+    .filter((part) => /^[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*$/u.test(part))
+    .length;
+  // A bare "vor Ort" can describe only a location. Without at least a
+  // two-token person structure, do not bind a later phone to that marker.
+  if (
+    isGenericMarker &&
+    (properNameTokenCount < 2 || /\d/.test(name))
+  ) {
+    return empty;
+  }
 
   const contextEnd = phoneCandidate
     ? Math.min(scoped.length, phoneCandidate.end + 180)

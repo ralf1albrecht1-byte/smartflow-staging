@@ -131,6 +131,18 @@ const isEquipmentOnlyWarningLineV17_34 = (value: string): boolean => {
     );
   if (isParkingOrQuietHint) return true;
 
+  // V17.90L86: Ruhe-/Rücksichtsanweisungen betreffen den Arbeitsablauf,
+  // nicht die Arbeitssicherheit. Die Entscheidung basiert auf der semantischen
+  // Kombination Personengruppe + Ruhe/Rücksicht und nicht auf einem Kundenfall.
+  const isOccupantCourtesyHint =
+    /\b(?:bewohner|patienten|gaeste|gaste|kinder|residents?|occupants?|patients?|guests?)\b/.test(
+      text,
+    ) &&
+    /\b(?:nicht stoeren|nicht storen|ruhe|ruhig|leise|schlafen|do not disturb|dont disturb|quiet|sleeping)\b/.test(
+      text,
+    );
+  if (isOccupantCourtesyHint) return true;
+
   // V17.90L84: Ressourcen-/Zugangszeiten und Kommunikationsanweisungen sind
   // wichtige operative Hinweise, aber keine roten Gefahren.
   const isOperationalScheduleOrCommunicationHint =

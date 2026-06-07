@@ -2410,7 +2410,10 @@ const cleanAppointmentReason = (value?: string | null) =>
     .trim();
 
 const appointmentDetailKey = (detail: AppointmentDetail) =>
-  normalizeForMatch([detail.site, detail.address, detail.label].join(" "));
+  // V17.90L86: The same execution appointment may appear once in the semantic
+  // notes and once in the raw customer text. The date/time identity is the
+  // authoritative key; address/access context must not create duplicate chips.
+  normalizeForMatch(detail.label);
 
 const extractEmbeddedAppointmentLinesV17_90L80 = (
   value?: string | null,
@@ -2558,19 +2561,48 @@ const extractAppointmentDetailsFromGroupedNotes = (
   return details;
 };
 
+const compactAppointmentNoticeV17_90L86 = (
+  value?: string | null,
+): string => {
+  const raw = compactText(value);
+  if (!raw) return "";
+  const minuteMatch = raw.match(/\b(\d{1,3})\s*Minuten?\s+(?:vorher|vor\s+Ankunft)\b/i);
+  const channel = /\bSMS\b/i.test(raw)
+    ? "per SMS melden"
+    : /\bWhats\s*App|WhatsApp\b/i.test(raw)
+      ? "per WhatsApp melden"
+      : /\b(?:anrufen|telefonieren)\b/i.test(raw)
+        ? "anrufen"
+        : /\b(?:vorher|vor\s+Ankunft|Ankunft\s+vorher)\b/i.test(raw)
+          ? "vorher melden"
+          : "";
+  if (minuteMatch?.[1]) {
+    return `${minuteMatch[1]} Minuten vorher${channel ? ` ${channel}` : " melden"}`;
+  }
+  return channel;
+};
+
 const formatAppointmentDetailsTooltip = (details: AppointmentDetail[]) =>
   details
     .map((detail, index) => {
-      const header = [detail.site, detail.address].filter(Boolean).join(" · ");
-      return [
-        `${index + 1}. ${header || "Termin"}`,
-        `   ${detail.label}`,
-        detail.reason ? `   ${detail.reason}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
+      const notice = compactAppointmentNoticeV17_90L86(detail.reason);
+      return `${index + 1}. ${[detail.label, notice].filter(Boolean).join(" · ")}`;
     })
-    .join("\n\n");
+    .join("\n");
+
+const compactSingleAppointmentTooltipV17_90L86 = (
+  sourceLine: string,
+  fallbackLabel: string,
+) => {
+  const date = normalizeAppointmentDateLabel(sourceLine);
+  const times = Array.from(
+    sourceLine.matchAll(/\b([01]?\d|2[0-3])(?::|\.)(\d{2})\b/g),
+  ).map((match) => formatAppointmentTime(match[1], match[2]));
+  const timeRange =
+    times.length >= 2 ? `${times[0]}–${times[1]}` : times[0] || "";
+  const notice = compactAppointmentNoticeV17_90L86(sourceLine);
+  return [date, timeRange, notice].filter(Boolean).join(" · ") || fallbackLabel;
+};
 
 const mergeAppointmentDetail = (
   existing: AppointmentDetail,
@@ -2645,14 +2677,19 @@ const getMultipleAppointmentBadge = (
   const callbackTimeKey = normalizeForMatch(callbackTime);
   const callbackTimeDigits = callbackTimeKey.replace(/[^0-9]/g, "");
 
-  const details = dedupeAppointmentDetails([
-    ...extractAppointmentDetailsFromRawText(
-      order.notes,
-      order.audioTranscript,
-      order.specialNotes,
-    ),
+  const structuredDetails = dedupeAppointmentDetails([
+    ...extractAppointmentDetailsFromRawText(order.specialNotes),
     ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
-  ]).filter((detail) => {
+  ]);
+  const fallbackRawDetails = structuredDetails.length
+    ? []
+    : dedupeAppointmentDetails([
+        ...extractAppointmentDetailsFromRawText(
+          order.notes,
+          order.audioTranscript,
+        ),
+      ]);
+  const details = [...structuredDetails, ...fallbackRawDetails].filter((detail) => {
     const source = [detail.site, detail.address, detail.label, detail.reason]
       .filter(Boolean)
       .join(" ");
@@ -6334,14 +6371,23 @@ const getBottomBadges = (
   // Do not add an extra SMS review badge here; otherwise SMS appears twice.
 
   const appointmentBaseDate = order.createdAt || order.date;
-  const appointmentSourceLines = splitAppointmentSources(
+  const semanticAppointmentSourceLines = splitAppointmentSources(
     ...parsedNotes.jobHints,
     order.specialNotes,
+  ).filter(
+    (line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line),
+  );
+  const rawAppointmentSourceLines = splitAppointmentSources(
     order.notes,
     order.audioTranscript,
   ).filter(
     (line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line),
   );
+  const appointmentSourceLines = semanticAppointmentSourceLines.some((line) =>
+    hasExplicitAppointmentBadgeSignalV17_90L10(line),
+  )
+    ? semanticAppointmentSourceLines
+    : rawAppointmentSourceLines;
 
   const multipleAppointmentBadge = getMultipleAppointmentBadge(
     order,
@@ -6369,7 +6415,10 @@ const getBottomBadges = (
       icon: appointmentBadge.icon,
       tooltip: multipleAppointmentBadge
         ? multipleAppointmentBadge.tooltip
-        : compactText(appointmentBadgeLine) || appointmentBadge.label,
+        : compactSingleAppointmentTooltipV17_90L86(
+            appointmentBadgeLine,
+            appointmentBadge.label,
+          ),
     });
   } else {
     const appointmentClarification = detectAppointmentClarificationHint(
@@ -7599,7 +7648,6 @@ const renderCallbackCardBadge = (
       key={badge.key}
       href={`tel:${phone}`}
       onClick={(event) => event.stopPropagation()}
-      title={clickableBadge.tooltip}
       aria-label={clickableBadge.tooltip}
       className={`group relative inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 hover:underline ${getStrongerCardBadgeClassName(clickableBadge.className)}`}
     >
