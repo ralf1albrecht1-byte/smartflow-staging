@@ -5450,6 +5450,77 @@ const orderExecutionAddressEvidenceSourceV17_90L38 = (order?: Order | null) =>
     ),
   ).join("\n");
 
+const SAME_ADDRESS_EXECUTION_INTENT_PATTERNS_V17_90L94 = [
+  /\b(?:gleiche(?:n|r|s|m)?|derselbe(?:n|r|s|m)?|identische(?:n|r|s|m)?)\s+(?:rechnungs)?adresse\b/i,
+  /\bsame\s+(?:street\s+)?address\b/i,
+  /\b(?:même|meme)\s+adresse\b/i,
+  /\bstesso\s+indirizzo\b/i,
+  /\bmisma\s+direcci[oó]n\b/i,
+  /\b(?:keine|kein)\s+(?:abweichende|separate)\s+(?:ausführungs|ausfuehrungs|arbeits|einsatz)?adresse\b/i,
+  /\bno\s+(?:separate|different)\s+(?:execution|work|job)?\s*(?:street\s+)?address\b/i,
+  /\b(?:pas|aucune)\s+d['’]?adresse\s+(?:d['’]?)?(?:exécution|execution|travail)\s+(?:séparée|separee|différente|differente)\b/i,
+  /\bnessun\s+indirizzo\s+(?:di\s+lavoro\s+)?(?:separato|diverso)\b/i,
+];
+
+const SAME_ADDRESS_POSITIVE_PATTERN_V17_90L94 =
+  /\b(?:gleiche(?:n|r|s|m)?|derselbe(?:n|r|s|m)?|identische(?:n|r|s|m)?)\s+(?:rechnungs)?adresse\b|\bsame\s+(?:street\s+)?address\b|\b(?:même|meme)\s+adresse\b|\bstesso\s+indirizzo\b|\bmisma\s+direcci[oó]n\b/i;
+
+const inferSameAddressExecutionReviewCandidateV17_90L94 = (
+  order?: Order | null,
+): AddressReviewCandidateV17_90L36 | null => {
+  if (!order?.customer) return null;
+
+  const billingAddress = compactText(order.customer.address);
+  const billingPlz = compactText(order.customer.plz);
+  const billingCity = compactText(order.customer.city);
+  if (!billingAddress || !billingPlz || !billingCity) return null;
+
+  const source = orderExecutionAddressEvidenceSourceV17_90L38(order);
+  if (!source) return null;
+
+  const hasSameAddressIntent = SAME_ADDRESS_EXECUTION_INTENT_PATTERNS_V17_90L94.some(
+    (pattern) => pattern.test(source),
+  );
+  if (!hasSameAddressIntent) return null;
+
+  let siteName = "";
+  const segments = source
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((part) => compactText(part))
+    .filter(Boolean);
+
+  for (const segment of segments) {
+    const match = segment.match(SAME_ADDRESS_POSITIVE_PATTERN_V17_90L94);
+    if (!match || match.index == null) continue;
+
+    const tail = segment
+      .slice(match.index + match[0].length)
+      .replace(
+        /^\s*(?:statt|stattfindet|findet\s+statt|befindet\s+sich|located|is\s+located|are\s+located|si\s+trova|se\s+trouve)?\s*[,;:\-–—]?\s*/i,
+        "",
+      )
+      .replace(/^(?:im|in|am|auf|at|dans|au|aux|nel|nella|al|en)\s+/i, "")
+      .replace(/[.;]+$/g, "")
+      .trim();
+
+    const cleaned = cleanWorkSiteDisplayName(tail);
+    if (cleaned && !looksLikeExecutionAddressLine(cleaned)) {
+      siteName = cleaned;
+      break;
+    }
+  }
+
+  return {
+    siteName,
+    siteAddress: billingAddress,
+    sitePlz: billingPlz,
+    siteCity: billingCity,
+    siteNote: "",
+  };
+};
+
 const getExecutionAddressReviewCandidateFromOrderV17_90L38 = (
   order?: Order | null,
 ): AddressReviewCandidateV17_90L36 => {
@@ -5466,23 +5537,29 @@ const getExecutionAddressReviewCandidateFromOrderV17_90L38 = (
         },
       )
     : null;
+  const sameAddressFallback =
+    inferSameAddressExecutionReviewCandidateV17_90L94(order);
 
   return repairInlineAddressReviewCandidateV17_90L36({
     siteName:
       cleanWorkSiteDisplayName(primarySite?.siteName || order?.siteName) ||
       cleanWorkSiteDisplayName(extracted?.siteName) ||
+      cleanWorkSiteDisplayName(sameAddressFallback?.siteName) ||
       "",
     siteAddress:
       compactText(primarySite?.siteAddress || order?.siteAddress) ||
       compactText(extracted?.siteAddress) ||
+      compactText(sameAddressFallback?.siteAddress) ||
       "",
     sitePlz:
       compactText(primarySite?.sitePlz || order?.sitePlz) ||
       compactText(extracted?.sitePlz) ||
+      compactText(sameAddressFallback?.sitePlz) ||
       "",
     siteCity:
       compactText(primarySite?.siteCity || order?.siteCity) ||
       compactText(extracted?.siteCity) ||
+      compactText(sameAddressFallback?.siteCity) ||
       "",
     siteNote:
       compactText(primarySite?.siteNote || order?.siteNote) ||
@@ -9981,10 +10058,23 @@ export default function AuftraegePage() {
         repairedCandidate.siteCity,
     );
 
+    const sameAsBillingAddress = Boolean(
+      repairedCandidate.siteAddress &&
+        repairedCandidate.sitePlz &&
+        repairedCandidate.siteCity &&
+        normalizeAddressPartForCompare(repairedCandidate.siteAddress) ===
+          normalizeAddressPartForCompare(currentEditOrder?.customer?.address) &&
+        normalizeAddressPartForCompare(repairedCandidate.sitePlz) ===
+          normalizeAddressPartForCompare(currentEditOrder?.customer?.plz) &&
+        normalizeAddressPartForCompare(repairedCandidate.siteCity) ===
+          normalizeAddressPartForCompare(currentEditOrder?.customer?.city),
+    );
+
     return {
       ...repairedCandidate,
       hasAny,
       hasCompleteAddress,
+      sameAsBillingAddress,
     };
   })();
 
@@ -10083,7 +10173,6 @@ export default function AuftraegePage() {
     currentEditOrder &&
     hasAddressRoleReviewReasonV17_61(currentEditOrder) &&
     !hasCompleteSameExecutionAddressAsCustomerV17_90L28(currentEditOrder) &&
-    addressRoleReviewCandidateV17_62.hasAny &&
     !isAddressRoleReviewAlreadyAssignedV17_90K,
   );
   const hasCurrentEditCurrencyReview = hasAnyCurrencyReviewReason(
@@ -10262,6 +10351,81 @@ export default function AuftraegePage() {
     }, 40);
     toast.info(
       "Rechnungsadresse vorbereitet. Namen ergänzen und Kunde aktualisieren – der Auftrag wird danach automatisch gespeichert.",
+    );
+  };
+
+  const editAddressReviewSuggestionV17_90L94 = () => {
+    const candidate = addressRoleReviewCandidateV17_62;
+    const existingSite =
+      formWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      formWorkSites[0] ||
+      null;
+    const siteId = existingSite?.id || `local-site-${Date.now().toString(36)}`;
+    const nextSite: OrderWorkSite = {
+      ...(existingSite || {}),
+      id: siteId,
+      siteName:
+        cleanWorkSiteDisplayName(candidate.siteName) ||
+        cleanWorkSiteDisplayName(existingSite?.siteName) ||
+        null,
+      siteAddress:
+        compactText(candidate.siteAddress) ||
+        compactText(existingSite?.siteAddress) ||
+        null,
+      sitePlz:
+        compactText(candidate.sitePlz) ||
+        compactText(existingSite?.sitePlz) ||
+        null,
+      siteCity:
+        compactText(candidate.siteCity) ||
+        compactText(existingSite?.siteCity) ||
+        null,
+      siteNote:
+        compactText(candidate.siteNote) ||
+        compactText(existingSite?.siteNote) ||
+        null,
+      isPrimary: true,
+      sortOrder: 0,
+    };
+    const nextWorkSites = existingSite
+      ? formWorkSites.map((site) =>
+          site.id === existingSite.id
+            ? nextSite
+            : { ...site, isPrimary: false },
+        )
+      : [nextSite];
+
+    setForm((prev) => ({
+      ...prev,
+      siteAddressDifferent: true,
+      siteName: cleanWorkSiteDisplayName(nextSite.siteName) || "",
+      siteAddress: nextSite.siteAddress || "",
+      sitePlz: nextSite.sitePlz || "",
+      siteCity: nextSite.siteCity || "",
+      siteNote: nextSite.siteNote || "",
+    }));
+    setFormWorkSites(nextWorkSites);
+    setFormItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        workSiteId: item.workSiteId || siteId,
+      })),
+    );
+    setActiveWorkSiteId(siteId);
+    setExpandedWorkSiteIds((prev) =>
+      prev.includes(siteId) ? prev : [siteId, ...prev],
+    );
+    setSiteAddressEditing(true);
+    window.setTimeout(() => {
+      executionAddressRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 40);
+    toast.info(
+      candidate.hasAny
+        ? "Adressvorschlag geöffnet. Bitte kontrollieren und ausdrücklich übernehmen."
+        : "Ausführungsadresse geöffnet. Bitte manuell eintragen und ausdrücklich speichern.",
     );
   };
 
@@ -11573,21 +11737,6 @@ export default function AuftraegePage() {
       isServiceInCatalog(item.serviceName),
     );
 
-    const currentCustomerForAddressReview = customers.find(
-      (c: Customer) => c.id === form.customerId,
-    );
-    const hasResolvedBillingAddressForReview = Boolean(
-      currentCustomerForAddressReview?.name?.trim() &&
-      currentCustomerForAddressReview?.address?.trim() &&
-      currentCustomerForAddressReview?.plz?.trim() &&
-      currentCustomerForAddressReview?.city?.trim(),
-    );
-    const hasResolvedExecutionAddressForReview = cleanWorkSites.some(
-      (site) =>
-        site.siteAddress?.trim() &&
-        site.sitePlz?.trim() &&
-        site.siteCity?.trim(),
-    );
     const isAddressRoleReviewReasonV17_61 = (reason: string) =>
       reason === "address_role_uncertain" ||
       reason === "customer_address_quarantined_ambiguous_role_v17_61" ||
@@ -11642,21 +11791,6 @@ export default function AuftraegePage() {
           (!hasUnresolvedEditableCurrencyItem &&
             manualResidualCurrencyAcknowledged)),
     );
-
-    const hasExecutionAddressEvidenceForReview = Boolean(
-      addressRoleReviewCandidateV17_62.hasAny ||
-        form.siteAddressDifferent ||
-        cleanWorkSites.some(
-          (site) =>
-            site.siteName?.trim() ||
-            site.siteAddress?.trim() ||
-            site.sitePlz?.trim() ||
-            site.siteCity?.trim(),
-        ),
-    );
-    const hasResolvedAddressRoleForReview = hasExecutionAddressEvidenceForReview
-      ? hasResolvedExecutionAddressForReview
-      : hasResolvedBillingAddressForReview;
 
     const isReviewReasonResolvedByManualUnit = (reason: string) => {
       const key = String(reason || "");
@@ -11769,11 +11903,11 @@ export default function AuftraegePage() {
             return false;
           }
 
-          if (
-            isAddressRoleReviewReasonV17_61(reason) &&
-            hasResolvedAddressRoleForReview
-          ) {
-            return false;
+          // L94: Eine offene Adressrollen-Prüfung darf durch normales Speichern
+          // niemals still verschwinden. Sie wird nur über Übernehmen,
+          // Verwerfen oder das ausdrückliche Speichern im Adresseditor gelöst.
+          if (isAddressRoleReviewReasonV17_61(reason)) {
+            return true;
           }
 
           return true;
@@ -11874,7 +12008,23 @@ export default function AuftraegePage() {
 
     setSaving(true);
     try {
-      const saved = await saveOrder();
+      const hasOpenAddressRoleReview = Boolean(
+        currentEditOrder && hasAddressRoleReviewReasonV17_61(currentEditOrder),
+      );
+      const saved = hasOpenAddressRoleReview
+        ? await persistAddressReviewPatchV17_64(
+            {
+              siteAddressDifferent: true,
+              siteName: cleanWorkSiteDisplayName(form.siteName) || "",
+              siteAddress: form.siteAddress.trim(),
+              sitePlz: form.sitePlz.trim(),
+              siteCity: form.siteCity.trim(),
+              siteNote: form.siteNote.trim(),
+            },
+            formWorkSites,
+            { resolveAddressReview: true },
+          )
+        : await saveOrder();
       if (!saved) return;
 
       setOrders((prev) => {
@@ -14579,7 +14729,7 @@ export default function AuftraegePage() {
                         Ausführungsadresse unklar
                       </div>
                       <p className="text-xs text-red-700/90 dark:text-red-200/80">
-                        Bitte Ausführungsadresse kontrollieren: übernehmen, bearbeiten oder leer speichern, wenn keine abweichende Adresse nötig ist.
+                        Bitte Vorschlag bewusst übernehmen, bearbeiten oder verwerfen. Normales Speichern löst diese Prüfung nicht.
                       </p>
                     </div>
                   </div>
@@ -14588,26 +14738,39 @@ export default function AuftraegePage() {
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Erkannte Ausführungsadresse
                     </div>
-                    {addressRoleReviewCandidateV17_62.siteName && (
-                      <div className="font-medium">
-                        {addressRoleReviewCandidateV17_62.siteName}
+                    {addressRoleReviewCandidateV17_62.sameAsBillingAddress && (
+                      <div className="mb-1 inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200">
+                        Gleiche Adresse wie Rechnungsadresse
                       </div>
                     )}
-                    <div>
-                      {addressRoleReviewCandidateV17_62.siteAddress ||
-                        "Strasse fehlt"}
-                    </div>
-                    <div>
-                      {[
-                        addressRoleReviewCandidateV17_62.sitePlz,
-                        addressRoleReviewCandidateV17_62.siteCity,
-                      ]
-                        .filter(Boolean)
-                        .join(" ") || "PLZ / Ort fehlt"}
-                    </div>
-                    {addressRoleReviewCandidateV17_62.siteNote && (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {addressRoleReviewCandidateV17_62.siteNote}
+                    {addressRoleReviewCandidateV17_62.hasAny ? (
+                      <>
+                        {addressRoleReviewCandidateV17_62.siteName && (
+                          <div className="font-medium">
+                            {addressRoleReviewCandidateV17_62.siteName}
+                          </div>
+                        )}
+                        <div>
+                          {addressRoleReviewCandidateV17_62.siteAddress ||
+                            "Strasse fehlt"}
+                        </div>
+                        <div>
+                          {[
+                            addressRoleReviewCandidateV17_62.sitePlz,
+                            addressRoleReviewCandidateV17_62.siteCity,
+                          ]
+                            .filter(Boolean)
+                            .join(" ") || "PLZ / Ort fehlt"}
+                        </div>
+                        {addressRoleReviewCandidateV17_62.siteNote && (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {addressRoleReviewCandidateV17_62.siteNote}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-sm text-red-700 dark:text-red-200">
+                        Kein vollständiger Vorschlag erkannt. Bitte Ausführungsadresse manuell eintragen oder den Hinweis verwerfen.
                       </div>
                     )}
                   </div>
@@ -14639,7 +14802,16 @@ export default function AuftraegePage() {
                       onClick={applyAddressReviewAsExecutionV17_62}
                       className="justify-center"
                     >
-                      Als Ausführungsadresse übernehmen
+                      Übernehmen
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={editAddressReviewSuggestionV17_90L94}
+                      className="justify-center"
+                    >
+                      Bearbeiten
                     </Button>
                     <Button
                       type="button"
@@ -14649,11 +14821,11 @@ export default function AuftraegePage() {
                       disabled={saving}
                       className="justify-center"
                     >
-                      Vorschlag verwerfen
+                      Verwerfen
                     </Button>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Wenn Strasse, PLZ oder Ort fehlen: Ausführungsadresse manuell bearbeiten und speichern.
+                    Bei manueller Bearbeitung wird die Prüfung erst durch „Ausführungsort speichern“ gelöst.
                   </p>
                 </div>
               )}
