@@ -617,6 +617,10 @@ function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInpu
           input.originalText,
           finalCurrency,
         ),
+        ...extractExplicitFlatFeeServiceItemsV17_90L95(
+          input.originalText,
+          finalCurrency,
+        ),
       ],
       input.originalText,
     ),
@@ -792,6 +796,12 @@ const unique = (values: string[]) =>
 
 const CURRENCY_WORDS =
   "(?:chf|franken|fr\\.?|sfr\\.?|stutz|eur|euro|€|usd|us-dollar|dollar|us\\$|\\$|gbp|pfund|pound|£)";
+
+// V17.90L95: pricing-language marker only, not a service vocabulary. It lets
+// the read-only completeness check understand flat-fee rows across languages
+// without guessing the service itself.
+const FLAT_FEE_PRICE_MARKER_V17_90L95 =
+  String.raw`(?:pauschal(?:e)?|fixpreis|festpreis|flat\s*(?:fee|rate|price)?|fixed\s*(?:fee|rate|price)|forfait(?:aire)?|prezzo\s+fisso|tarifa\s+(?:fija|plana))`;
 
 const UNIT_WORDS =
   "(?:stueck|stück|stuck|stk|pcs|pc|pezzi|pezzo|pezza|pezze|einheit|einheiten|garnitur|garnituren|set|sets|piece|pieces|pi[eè]ce|pi[eè]ces|vitre|vitres|fenetre|fenetres|window|windows|quadratmeter|quadratmetern|qm|m2|m²|sqm|kubikmeter|kubikmetern|cbm|laufende\\s+meter|laufenden\\s+meter|laufmeter|lfm|meter|stunde|stunden|std\\.?|hour|hours|tag|tage|day|days|kg|kilogramm|tonne|tonnen|liter|ltr|l)";
@@ -2855,32 +2865,14 @@ function cleanGermanServiceNounArtifactsV17_48(value: string): string {
 
 
 function cleanLineLocalServiceLabelGrammarV17_60(value?: string | null): string {
-  let text = normalizeText(value || "").replace(/\s+/g, " ").trim();
-  if (!text) return "";
-
-  // V17.60: purely grammatical cleanup for line-local labels. This is not a
-  // service mapping: it only removes punctuation before a final infinitive-like
-  // action and moves a trailing spatial modifier before the location phrase.
-  text = text
+  return normalizeText(value || "")
+    .replace(/\s+/g, " ")
     .replace(/\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu, " ")
     .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
     .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
+    .replace(/\s*[\(\[\{]+\s*$/g, "")
     .replace(/\s+/g, " ")
     .trim();
-
-  text = text.replace(
-    /^(.*?)\s+((?:im|in\s+der|in\s+dem|am|an\s+der)\s+.+?)\s+(innen|aussen|außen|oben|unten|vorne|hinten)\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln))\s*$/iu,
-    (_match, prefix: string, locationPhrase: string, modifier: string, action: string) => {
-      const left = String(prefix || "").trim();
-      const location = String(locationPhrase || "").trim();
-      const mod = String(modifier || "").trim();
-      const verb = String(action || "").trim();
-      if (!left || !location || !mod || !verb) return text;
-      return `${left} ${mod} ${location} ${verb}`.replace(/\s+/g, " ").trim();
-    },
-  );
-
-  return text.replace(/\s+/g, " ").replace(/\s*[\(\[\{]+\s*$/g, "").trim();
 }
 
 function cleanValidationServiceDisplayName(value?: string | null): string {
@@ -4249,6 +4241,7 @@ function findExplicitFlatPriceInLine(
   raw: string;
 } | null {
   const allowStandaloneFlatPrice = isLikelyStandaloneFlatServiceLine(line);
+  const marker = FLAT_FEE_PRICE_MARKER_V17_90L95;
   const patterns: Array<{
     re: RegExp;
     currencyGroup?: number;
@@ -4256,7 +4249,7 @@ function findExplicitFlatPriceInLine(
   }> = [
     {
       re: new RegExp(
-        `\\b(?:pauschal|pauschale|pauschale\\s+fuer|pauschale\\s+für|pauschale\\s+fuer\\s+anfahrt|pauschale\\s+für\\s+anfahrt|fixpreis|festpreis|forfait|flat)\\b(?:\\s+(?:fuer|für|von|zur|zum|fuer\\s+anfahrt|für\\s+anfahrt|anfahrt|reise|reiseaufwand|anfahrtskosten|anfahrts\\s*kosten))*\\s*(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        `\\b${marker}\\b[^\\n.;|]{0,32}?(?:ist|von|zu|=|:)?\\s*(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
         "i",
       ),
       currencyGroup: 1,
@@ -4264,7 +4257,7 @@ function findExplicitFlatPriceInLine(
     },
     {
       re: new RegExp(
-        `\\b(?:pauschal|pauschale|pauschale\\s+fuer|pauschale\\s+für|pauschale\\s+fuer\\s+anfahrt|pauschale\\s+für\\s+anfahrt|fixpreis|festpreis|forfait|flat)\\b(?:\\s+(?:fuer|für|von|zur|zum|fuer\\s+anfahrt|für\\s+anfahrt|anfahrt|reise|reiseaufwand|anfahrtskosten|anfahrts\\s*kosten))*\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        `\\b${marker}\\b[^\\n.;|]{0,32}?(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
         "i",
       ),
       currencyGroup: 2,
@@ -4272,14 +4265,17 @@ function findExplicitFlatPriceInLine(
     },
     {
       re: new RegExp(
-        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\\b`,
+        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*${marker}\\b`,
         "i",
       ),
       currencyGroup: 1,
       priceGroup: 2,
     },
     {
-      re: /\b(?:pauschal|pauschale|fixpreis|festpreis|forfait|flat)\s*(?:ist|von|zu|=|:)?\s*(\d+(?:[.,]\d{1,2})?)\b/i,
+      re: new RegExp(
+        `\\b${marker}\\b\\s*(?:ist|von|zu|=|:)?\\s*${PRICE_NUMBER}\\b`,
+        "i",
+      ),
       priceGroup: 1,
     },
   ];
@@ -10621,12 +10617,10 @@ function extractStrictLineLocalPricedItemsV17_90L22(
       if (!segment) continue;
       const flatPrice = findExplicitFlatPriceInLine(segment, fallbackCurrency);
       if (!flatPrice || flatPrice.amount <= 0 || flatPrice.currency !== fallbackCurrency) continue;
-      const serviceName = resolveExplicitServiceNameFromContext(
-        originalText,
-        segment,
-        cleanExplicitServiceNameFromLine(segment, { priceRaw: flatPrice.raw }),
-      );
-      if (!serviceName || normalizeCompare(serviceName) === "unbekannte leistung") continue;
+      // This branch is entered only by the travel/arrival flat-fee pattern
+      // above. Keep the canonical role instead of exposing language variants
+      // such as "Travel" as a second, apparently missing service.
+      const serviceName = "Anfahrt";
       result.push({
         serviceName,
         description: segment,
@@ -10654,6 +10648,176 @@ function extractStrictLineLocalPricedItemsV17_90L22(
     ].join("|");
     const existing = byKey.get(key);
     if (!existing || String(item.sourceText || "").length > String(existing.sourceText || "").length) {
+      byKey.set(key, item);
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
+
+// V17.90L95: Detect explicit flat-fee service rows that the first AI may have
+// omitted. This is a read-only completeness check. It never creates or edits an
+// order item; an uncovered row becomes the existing red recognition proposal.
+// The parser is structural: local service label + flat-fee marker + one amount.
+function extractExplicitFlatFeeServiceItemsV17_90L95(
+  originalText: string,
+  fallbackCurrency: IntakeCurrency,
+): ExplicitServiceLineItem[] {
+  const raw = String(originalText || "");
+  const originalOnly = raw
+    .replace(/\n+---\s*Übersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Uebersetzung \(automatisch\)\s*---[\s\S]*$/i, "")
+    .replace(/\n+---\s*Automatic translation\s*---[\s\S]*$/i, "");
+  const translated = raw
+    .split(/---\s*(?:Übersetzung|Uebersetzung) \(automatisch\)\s*---/i)
+    .slice(1)
+    .join("\n");
+  const sources = unique([
+    normalizeText(originalOnly),
+    normalizeText(translated),
+    normalizeText(preferredSemanticLineSourceV17_41(raw)),
+  ]).filter(Boolean);
+
+  const marker = FLAT_FEE_PRICE_MARKER_V17_90L95;
+  const patterns: Array<{
+    re: RegExp;
+    currencyGroup: number;
+    priceGroup: number;
+  }> = [
+    {
+      re: new RegExp(
+        `\\b${marker}\\b[^\\n.;|]{0,24}?(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\b`,
+        "gi",
+      ),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+    {
+      re: new RegExp(
+        `\\b${marker}\\b[^\\n.;|]{0,24}?${PRICE_NUMBER}\\s*(${CURRENCY_WORDS})\\b`,
+        "gi",
+      ),
+      currencyGroup: 2,
+      priceGroup: 1,
+    },
+    {
+      re: new RegExp(
+        `(${CURRENCY_WORDS})\\s*${PRICE_NUMBER}\\s*${marker}\\b`,
+        "gi",
+      ),
+      currencyGroup: 1,
+      priceGroup: 2,
+    },
+  ];
+
+  const result: ExplicitServiceLineItem[] = [];
+  for (const source of sources) {
+    const lines = unique([
+      ...splitRawIntakeLines(source),
+      ...source.split(/\n+|;|\s+•\s+|\s+\|\s+/g).map(normalizeText),
+    ]).filter((line) => line.length >= 6);
+
+    for (const line of lines) {
+      for (const pattern of patterns) {
+        pattern.re.lastIndex = 0;
+        for (const match of line.matchAll(pattern.re)) {
+          const matchStart = match.index ?? 0;
+          const rawPrefix = normalizeText(line.slice(0, matchStart));
+          let boundary = 0;
+          const priorAmountPattern = new RegExp(
+            `(?:${CURRENCY_WORDS})\\s*${PRICE_NUMBER}|${PRICE_NUMBER}\\s*(?:${CURRENCY_WORDS})`,
+            "gi",
+          );
+          for (const prior of rawPrefix.matchAll(priorAmountPattern)) {
+            boundary = Math.max(
+              boundary,
+              (prior.index ?? 0) + String(prior[0] || "").length,
+            );
+          }
+          const afterAmount = rawPrefix.slice(boundary);
+          const hardParts = afterAmount.split(/[.!?;|]+/g);
+          let localPrefix = normalizeText(hardParts[hardParts.length - 1] || "")
+            .replace(/^\s*(?:and|und|plus|then|dann|danach|services?|leistungen?)\s*[:：,;+-]?\s*/i, "")
+            .replace(/^\d+(?:[.,]\d+)?\s+(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß])/u, "")
+            .replace(/^[-–—•,;:\s]+/, "")
+            .trim();
+          const localWords = localPrefix.split(/\s+/g).filter(Boolean);
+          if (localWords.length > 10) {
+            localPrefix = localWords.slice(-10).join(" ");
+          }
+          if (!localPrefix || localPrefix.length < 3) continue;
+
+          const amount = parsePriceNumber(match[pattern.priceGroup]);
+          const currency = normalizeExplicitCurrency(match[pattern.currencyGroup]);
+          if (!amount || amount <= 0 || !currency) continue;
+          if (currency !== fallbackCurrency) continue;
+
+          const segment = normalizeText(`${localPrefix} ${match[0]}`);
+          const cleaned = cleanExplicitServiceNameFromLine(segment, {
+            priceRaw: match[0],
+          });
+          const localLabel = normalizeText(localPrefix)
+            .replace(/^[-–—•,;:\s]+/, "")
+            .replace(/\s+/g, " ")
+            .trim();
+          const cleanedKey = normalizeCompare(cleaned);
+          const localKey = normalizeCompare(localLabel);
+          const preserveBoundedLocalLabel = Boolean(
+            localLabel &&
+              localLabel.length <= 100 &&
+              cleanedKey &&
+              localKey.endsWith(cleanedKey) &&
+              localKey !== cleanedKey,
+          );
+          const serviceName = resolveExplicitServiceNameFromContext(
+            originalText,
+            segment,
+            preserveBoundedLocalLabel ? localLabel : cleaned,
+          );
+          const serviceKey = normalizeCompare(serviceName);
+          const isTravelFlatFee =
+            /\b(?:anfahrt|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|reisepauschale|deplacement|déplacement|travel|trip|transport|trasferta|viaje)\b/i.test(
+              serviceKey,
+            );
+          if (
+            !serviceName ||
+            serviceName === "Unbekannte Leistung" ||
+            serviceKey.length < 4 ||
+            isTravelFlatFee ||
+            isPriceAnchorOnlyServiceName(serviceName) ||
+            /^(?:rechnung|invoice|facture|fattura|adresse|address|kontakt|contact|termin|appointment|datum|date|telefon|phone|email|e mail|hinweis|note|zugang|access|schluessel|schlüssel|key|parkplatz|parking)\b/i.test(serviceKey)
+          ) {
+            continue;
+          }
+
+          result.push({
+            serviceName,
+            description: segment,
+            quantity: 1,
+            unit: "Pauschal",
+            unitPrice: amount,
+            totalPrice: roundMoney(amount),
+            needsReview: false,
+            reviewReason: null,
+            sourceText: segment,
+            evidence: segment,
+            detectedCurrency: currency,
+          });
+        }
+      }
+    }
+  }
+
+  const byKey = new Map<string, ExplicitServiceLineItem>();
+  for (const item of result) {
+    const key = [
+      normalizeCompare(item.serviceName),
+      Number(item.unitPrice || 0).toFixed(4),
+      item.detectedCurrency || fallbackCurrency,
+    ].join("|");
+    const existing = byKey.get(key);
+    if (!existing || String(item.sourceText || "").length < String(existing.sourceText || "").length) {
       byKey.set(key, item);
     }
   }
@@ -11127,6 +11291,10 @@ function applyLineLocalEvidenceDescriptionCleanupV17_90L26(
         finalCurrency,
       ),
       ...extractCountOnlyPricedRecognitionItemsV17_90L69(
+        originalText,
+        finalCurrency,
+      ),
+      ...extractExplicitFlatFeeServiceItemsV17_90L95(
         originalText,
         finalCurrency,
       ),

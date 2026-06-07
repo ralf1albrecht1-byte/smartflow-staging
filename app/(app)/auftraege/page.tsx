@@ -941,47 +941,16 @@ const getCompactStoredItemEvidenceV17_90L81 = (
     : `${candidate.slice(0, 217).trim()}…`;
 };
 
-const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) => {
-  let text = cleanServiceLabelContextNoiseV17_90L27(value)
-    .replace(/^\s*(?:text|kundentext|quelle|source|evidence)\s*[:：]\s*/i, "")
-    .trim();
-  if (!text) return "";
-
-  // V17.60: purely grammatical cleanup for line-local labels. This is not a
-  // service mapping: it only removes punctuation before a final infinitive-like
-  // action and moves a trailing spatial modifier before the location phrase.
-  text = text
-    .replace(
-      /\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu,
-      " ",
-    )
-    .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
-    .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  text = text.replace(
-    /^(.*?)\s+((?:im|in\s+der|in\s+dem|am|an\s+der)\s+.+?)\s+(innen|aussen|außen|oben|unten|vorne|hinten)\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln))\s*$/iu,
-    (
-      _match,
-      prefix: string,
-      locationPhrase: string,
-      modifier: string,
-      action: string,
-    ) => {
-      const left = String(prefix || "").trim();
-      const location = String(locationPhrase || "").trim();
-      const mod = String(modifier || "").trim();
-      const verb = String(action || "").trim();
-      if (!left || !location || !mod || !verb) return text;
-      return `${left} ${mod} ${location} ${verb}`.replace(/\s+/g, " ").trim();
-    },
+const cleanLineLocalServiceLabelGrammarV17_60 = (value?: string | null) =>
+  compactText(
+    cleanServiceLabelContextNoiseV17_90L27(value)
+      .replace(/^\s*(?:text|kundentext|quelle|source|evidence)\s*[:：]\s*/i, "")
+      .replace(/\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu, " ")
+      .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
+      .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
+      .replace(/\s*[\(\[\{]+\s*$/g, "")
+      .trim(),
   );
-
-  return compactText(text)
-    .replace(/\s*[\(\[\{]+\s*$/g, "")
-    .trim();
-};
 
 const cleanVisibleServiceAmountFragmentsV17_90L30 = (value?: string | null) =>
   compactText(value)
@@ -992,93 +961,14 @@ const cleanVisibleServiceAmountFragmentsV17_90L30 = (value?: string | null) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const canonicalServiceNameForOrderItem = (value?: string | null) => {
-  const name = cleanVisibleServiceAmountFragmentsV17_90L30(
-    cleanLineLocalServiceLabelGrammarV17_60(cleanServiceLabelContextNoiseV17_90L27(value)),
+// V17.90L95: The editor must display and submit the canonical structured
+// service name. It may remove visible amount fragments, but it must not perform
+// a second semantic mapping. Correct names therefore remain stable through
+// opening, editing and saving the order.
+const canonicalServiceNameForOrderItem = (value?: string | null) =>
+  cleanVisibleServiceAmountFragmentsV17_90L30(
+    cleanLineLocalServiceLabelGrammarV17_60(value),
   );
-  const key = normalizeForMatch(name);
-
-  if (/\b(?:local\s+technique|technikraum|technical\s+room|serverraum)\b/.test(key) && /\b(?:depoussier|abstaub|entstaub|dust)\b/.test(key)) {
-    return "Technikraum abstauben";
-  }
-  if (/\b(?:tables?\s+(?:terrasse|terasse)|tische?\s+(?:auf\s+)?(?:der\s+)?terrasse)\b/.test(key) || (/\bterrasse\b/.test(key) && /\b(?:tables?|tische?)\b/.test(key))) {
-    return "Tische auf Terrasse reinigen";
-  }
-  if (/\b(?:tapis|teppiche?)\b/.test(key) && /\b(?:couloir|gang|flur)\b/.test(key)) {
-    return "Teppiche im Gang reinigen";
-  }
-  if (/\b(?:lavanderia|waescherei|wascherei|wäsche|waesche)\b/.test(key) && /\b(?:pavimento|boden|floor|sol)\b/.test(key)) {
-    return "Wäschereiboden reinigen";
-  }
-  if (/\b(?:glastuer|glastur|glastür|porte\s+vitree|vetri\s+porta)\b/.test(key)) {
-    return "Glastür reinigen";
-  }
-
-  // V17.59: preserve already line-local, explicit service labels from the
-  // validator. The editor must not collapse concrete customer-line services
-  // such as "Tische im Sitzungszimmer reinigen" into broad area labels such
-  // as "Besprechungsbereich reinigen". This is action-based, not a fixed
-  // service-word mapping.
-  const hasLineLocalWorkAction =
-    /(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)/.test(
-      key,
-    );
-  const wordCount = key.split(/\s+/g).filter(Boolean).length;
-  if (hasLineLocalWorkAction && wordCount >= 2 && name.length > 12) {
-    return cleanLineLocalServiceLabelGrammarV17_60(name);
-  }
-
-  const hasDescriptiveCleaningObject =
-    /boden|floor|sol|paviment|suelo|fenster|vitrin|vitre|window|fenetre|finestr|glastuer|glastur|glastür|glas|schreibtisch|regal|theke|maschine|geländer|gelaender/.test(
-      key,
-    ) &&
-    /reinig|putz|saeuber|säuber|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug/.test(
-      key,
-    );
-  if (hasDescriptiveCleaningObject && name.length > 12) {
-    return name;
-  }
-
-  if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
-    return "Archivraum reinigen";
-  }
-  if (
-    /glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)
-  ) {
-    return "Glastür reinigen";
-  }
-  if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
-    return "Technikraum reinigen";
-  }
-  if (
-    /meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(
-      key,
-    )
-  ) {
-    return "Besprechungsbereich reinigen";
-  }
-  if (/kontrollgang/.test(key)) {
-    return "Kontrollgang reinigen";
-  }
-  if (/gangbereich|corridor|couloir|flur/.test(key)) {
-    return "Gangbereich reinigen";
-  }
-
-  // Display safety: only normalize clear travel flat-fee labels here.
-  // Do NOT collapse descriptive service names like "Archivboden reinigen",
-  // "Glasvitrinen Saal 3 reinigen" or "Personalraum Fenster reinigen" to
-  // generic catalog labels. The validator/AI evidence already carries the
-  // precise customer line; the UI must preserve that detail.
-  if (
-    /(^|\b)(anfahrt|anfahrt pauschal|fahrtkosten|fahrkosten|fahrpauschale|wegpauschale|reisepauschale|deplacement|déplacement|frais de deplacement|travel|travel flat fee|travel fee|travel cost|travel costs|trip fee|transport fee|trasferta|transferta|viaje)(\b|$)/i.test(
-      key,
-    )
-  ) {
-    return "Anfahrt";
-  }
-
-  return name;
-};
 
 const formatMergedNumberString = (value: number) => {
   if (!Number.isFinite(value)) return "";

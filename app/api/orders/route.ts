@@ -496,120 +496,24 @@ function inferExplicitCurrencyFromPayload(
 }
 
 function cleanLineLocalServiceLabelGrammarV17_60(value?: string | null) {
-  let text = String(value || "")
+  return String(value || "")
     .replace(/\s+/g, " ")
     .replace(/^\s*(?:text|kundentext|quelle|source|evidence)\s*[:：]\s*/i, "")
-    .trim();
-  if (!text) return "";
-
-  // V17.60: purely grammatical cleanup for line-local labels. This is not a
-  // service mapping: it only removes punctuation before a final infinitive-like
-  // action and moves a trailing spatial modifier before the location phrase.
-  text = text
-    .replace(
-      /\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu,
-      " ",
-    )
+    .replace(/\s*[,;:]\s*(?=[A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln)\b\s*$)/giu, " ")
     .replace(/\bsauber\s+machen\s+reinigen\b/gi, "sauber machen")
     .replace(/\bsaubermachen\s+reinigen\b/gi, "saubermachen")
+    .replace(/\s*[\(\[\{]+\s*$/g, "")
     .replace(/\s+/g, " ")
     .trim();
-
-  text = text.replace(
-    /^(.*?)\s+((?:im|in\s+der|in\s+dem|am|an\s+der)\s+.+?)\s+(innen|aussen|außen|oben|unten|vorne|hinten)\s+([A-Za-zÀ-ÖØ-öø-ÿÄÖÜäöüß]{3,}(?:en|ern|eln))\s*$/iu,
-    (
-      _match,
-      prefix: string,
-      locationPhrase: string,
-      modifier: string,
-      action: string,
-    ) => {
-      const left = String(prefix || "").trim();
-      const location = String(locationPhrase || "").trim();
-      const mod = String(modifier || "").trim();
-      const verb = String(action || "").trim();
-      if (!left || !location || !mod || !verb) return text;
-      return `${left} ${mod} ${location} ${verb}`.replace(/\s+/g, " ").trim();
-    },
-  );
-
-  return text.replace(/\s+/g, " ").replace(/\s*[\(\[\{]+\s*$/g, "").trim();
 }
 
+// V17.90L95: The API is not a second semantic interpreter. The structured
+// intake/editor name is already the canonical service name. Persist and return
+// it unchanged apart from harmless whitespace/marker cleanup. This prevents a
+// correct AI result from being shortened, reordered or mapped to a generic
+// label during GET/POST/PUT.
 function normalizeServiceNameForDisplay(value?: string | null) {
-  const name = cleanLineLocalServiceLabelGrammarV17_60(value);
-  const key = normalizeSearchText(name);
-  if (!name) return "";
-
-  // V17.59: API persistence must preserve concrete, line-local service names
-  // coming from the semantic intake. Do not collapse "Tische im Sitzungszimmer
-  // reinigen" to "Besprechungsbereich reinigen" or "Technikraum abstauben" to
-  // "Technikraum reinigen". This is action-based and structural, not a fixed
-  // service-word mapping.
-  const hasLineLocalWorkAction =
-    /(?:reinig|putz|saeuber|säuber|sauber\s+machen|saubermachen|clean|nettoyage|pulizia|limpieza|wisch|abstaub|desinfizier|entfett|saug|entfern|schneid|streichen|malen|montier|demontier|reparier|liefer|umstell)/.test(
-      key,
-    );
-  const wordCount = key.split(/\s+/g).filter(Boolean).length;
-  if (hasLineLocalWorkAction && wordCount >= 2 && name.length > 12) {
-    return cleanLineLocalServiceLabelGrammarV17_60(name);
-  }
-
-  if (/archive\s+room|archivraum|\barchiv\b/.test(key)) {
-    return "Archivraum reinigen";
-  }
-  if (
-    /glass\s+door|glastuer|glastur|glastuere|glastüren|porte\s+vitree/.test(key)
-  ) {
-    return "Glastür reinigen";
-  }
-  if (/local\s+technique|technikraum|technical\s+room|serverraum/.test(key)) {
-    return "Technikraum reinigen";
-  }
-  if (
-    /meeting\s+(?:area|room)|besprechungsbereich|besprechungsraum|sitzungszimmer|salle\s+de\s+reunion/.test(
-      key,
-    )
-  ) {
-    return "Besprechungsbereich reinigen";
-  }
-  if (/kontrollgang/.test(key)) {
-    return "Kontrollgang reinigen";
-  }
-  if (/gangbereich|corridor|couloir|flur/.test(key)) {
-    return "Gangbereich reinigen";
-  }
-
-  if (
-    /\b(anfahrt|fahrt|fahrtkosten|fahrpauschale|wegpauschale|reisepauschale|deplacement|déplacement|frais\s+de\s+deplacement|travel|travel\s+flat\s+fee|trip|transport|viaje)\b/.test(
-      key,
-    )
-  ) {
-    return "Anfahrt";
-  }
-
-  const hasFloorIntent =
-    /(?:^|\b|[a-z])boden\b|\bbode\b|\bfloor\b|\bsol\b|\bpaviment|\bsuelo\b/.test(
-      key,
-    ) ||
-    /bodenreinigung|floor cleaning|nettoyage du sol|pulizia pavimento|limpieza suelo/.test(
-      key,
-    );
-  const hasCleaningIntent =
-    /reinig|putz|putze|saeuber|clean|nettoyage|pulizia|limpieza|wisch/.test(
-      key,
-    );
-  if (hasFloorIntent && hasCleaningIntent) return "Boden reinigen";
-
-  const hasWindowIntent =
-    /fenster|fensterli|vitrin|vitre|window|fenetre|finestr|ventan/.test(key);
-  const hasNonCleaningWindowIntent =
-    /streich|maler|lackier|reparier|ersetzen|montier|einbau|abdicht|dicht/.test(
-      key,
-    );
-  if (hasWindowIntent && !hasNonCleaningWindowIntent) return "Fenster reinigen";
-
-  return name;
+  return cleanLineLocalServiceLabelGrammarV17_60(value);
 }
 
 function cleanWorkSiteDisplayName(value?: string | null) {
@@ -2026,26 +1930,24 @@ function detectSemanticNotes(source: unknown) {
 function normalizeOrderSpecialNotes(data: any) {
   const parsed = splitSpecialNotes(data?.specialNotes);
   const exactOperationalHints = extractExactOperationalHints(data);
-  const hasStructuredStoredRoles =
-    parsed.safetyWarnings.length > 0 || parsed.jobHints.length > 0;
   const detectedSemanticNotes = detectSemanticNotes(
-    [
-      ...(hasStructuredStoredRoles
-        ? []
-        : [data?.specialNotes, data?.audioTranscript]),
-      ...exactOperationalHints,
-    ]
+    [data?.specialNotes, data?.audioTranscript, ...exactOperationalHints]
       .filter(Boolean)
       .join("\n"),
   );
   const detectedSafetyOnly = detectedSemanticNotes.safetyWarnings;
   const detectedJobHints = detectedSemanticNotes.jobHints;
 
-  // V17.90L88: Existing marker-based roles are canonical. Saving an order may
-  // add exact new hints, but must not reinterpret a normal hint as a danger or
-  // replace a structured onsite contact with a generic channel label.
-  const existingSafety = [...parsed.safetyWarnings];
-  const existingJobHints = [...parsed.jobHints];
+  const existingSafety = parsed.safetyWarnings.flatMap((line) => {
+    const detectedLine = detectSemanticNotes(line).safetyWarnings;
+    return detectedLine.length > 0 ? detectedLine : [line];
+  });
+
+  const existingJobHints = parsed.jobHints.flatMap((line) => {
+    const detectedLine = detectSemanticNotes(line);
+    if (detectedLine.safetyWarnings.length > 0) return [];
+    return detectedLine.jobHints.length > 0 ? detectedLine.jobHints : [line];
+  });
 
   const nextSafetyWarnings = Array.from(
     new Set([...existingSafety, ...detectedSafetyOnly]),
