@@ -194,6 +194,31 @@ const normalizeParkingDisplayV17_90L57 = (value: string): string => {
   return mentionsVehicle ? `Lieferwagen auf ${parking}` : parking;
 };
 
+const cleanStructuredContactNameV17_90L91 = (value: string): string => {
+  const compact = String(value || "")
+    .replace(/^[\s,;:·\-–—]+|[\s,;:·\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!compact) return "";
+
+  const tokens = compact.split(/\s+/g);
+  const result: string[] = [];
+  let index = 0;
+  if (/^(?:Herr|Frau|Mr\.?|Mrs\.?|Ms\.?|Mme\.?|M\.)$/i.test(tokens[0] || "")) {
+    result.push(tokens[0]);
+    index = 1;
+  }
+  for (; index < tokens.length && result.length < 5; index += 1) {
+    const token = tokens[index].replace(/^[,;:·]+|[,;:·]+$/g, "");
+    if (!/^[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*$/u.test(token)) break;
+    result.push(token);
+  }
+
+  return result.length >= (result[0] && /^(?:Herr|Frau|Mr|Mrs|Ms|Mme|M)/i.test(result[0]) ? 2 : 1)
+    ? result.join(" ")
+    : compact;
+};
+
 const normalizeOnSiteContactV17_90L57 = (value: string): string => {
   const raw = stripNoteSentencePunctuationV17_34(stripKnownMarker(value));
   if (!/^Kontakt vor Ort\s*:/i.test(raw)) return raw;
@@ -228,16 +253,18 @@ const normalizeOnSiteContactV17_90L57 = (value: string): string => {
   const noCallLabel =
     noCall && !hasSms && !hasWhatsapp ? "nicht telefonisch" : "";
 
-  const name = body
-    .replace(/\b(?:Tel(?:efon)?|Mobile|Mobil|Phone|Handy|Natel)\.?\s*:?\s*/gi, "")
-    .replace(/\+?\d[\d\s()./-]{6,}\d/g, "")
-    .replace(/\b(?:bitte\s+)?(?:nur\s+)?(?:per\s+)?sms\b/gi, "")
-    .replace(/\b(?:bitte\s+)?(?:nur\s+)?(?:per\s+)?whats\s*app\b/gi, "")
-    .replace(/\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|kein(?:e[nm]?)?\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/gi, "")
-    .replace(/\b(?:bitte\s+)?(?:diese\s+nummer\s+)?(?:anrufen|telefonieren|call)\b/gi, "")
-    .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  const name = cleanStructuredContactNameV17_90L91(
+    body
+      .replace(/\b(?:Tel(?:efon)?|Mobile|Mobil|Phone|Handy|Natel)\.?\s*:?\s*/gi, "")
+      .replace(/\+?\d[\d\s()./-]{6,}\d/g, "")
+      .replace(/\b(?:bitte\s+)?(?:nur\s+)?(?:per\s+)?sms\b/gi, "")
+      .replace(/\b(?:bitte\s+)?(?:nur\s+)?(?:per\s+)?whats\s*app\b/gi, "")
+      .replace(/\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|kein(?:e[nm]?)?\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/gi, "")
+      .replace(/\b(?:bitte\s+)?(?:diese\s+nummer\s+)?(?:anrufen|telefonieren|call)\b/gi, "")
+      .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim(),
+  );
 
   return `Kontakt vor Ort: ${[
     name,

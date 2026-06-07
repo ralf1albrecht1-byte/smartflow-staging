@@ -61,6 +61,10 @@ export interface ReadOnlyIntakeRiskValidatorInput {
   // V17.90L24: hard global order gate. The second checker must validate the
   // complete persisted order candidate, not just log customer/address risks.
   orderItems?: ParsedOrderItemForValidation[] | null;
+  // V17.90L91: The read-only validator may surface only explicit
+  // second-pass candidates produced by the existing validation pipeline.
+  // It must not re-parse the complete customer message to invent new roles.
+  recognitionCandidates?: ParsedOrderItemForValidation[] | null;
   specialNotes?: string | null;
   finalTotal?: number | null;
 }
@@ -500,6 +504,59 @@ function extractOpenPriceRecognitionItemsV17_90L90(
   return Array.from(byService.values());
 }
 
+function isSafeSecondaryRecognitionCandidateV17_90L91(
+  candidate: ParsedOrderItemForValidation,
+): boolean {
+  const reviewReason = String(candidate.reviewReason || "").trim();
+  if (!reviewReason.startsWith("price_unclear:")) return false;
+  if (Number(candidate.unitPrice || 0) > 0) return false;
+
+  const source = normalizeText(
+    candidate.sourceText || candidate.evidence || candidate.description,
+  );
+  const serviceName = String(candidate.serviceName || "")
+    .replace(/[\s,;:.-]+$/g, "")
+    .trim();
+  const sourceKey = normalizeCompare(source);
+  const serviceKey = normalizeCompare(serviceName);
+
+  if (
+    !source ||
+    source.length > 240 ||
+    !serviceName ||
+    serviceName === "Unbekannte Leistung" ||
+    serviceKey.length < 4 ||
+    isPriceAnchorOnlyServiceName(serviceName)
+  ) {
+    return false;
+  }
+
+  // L91: only explicit unresolved-price statements may become proposals.
+  // Generic approximation words such as "ungefähr" are intentionally not
+  // sufficient because they commonly describe arrival times, weights or
+  // durations rather than a service price.
+  const hasExplicitOpenPriceSignal =
+    /\b(?:preis\s+(?:noch\s+)?(?:offen|unklar|unbekannt|folgt|zu\s+pruefen|muss\s+(?:noch\s+)?(?:geprueft|abgeklaert)\s+werden)|nach\s+aufwand|price\s+(?:open|unclear|tbd|to\s+check)|prix\s+(?:ouvert|incertain|a\s+verifier)|prezzo\s+(?:aperto|da\s+definire))\b/i.test(
+      sourceKey,
+    );
+  if (!hasExplicitOpenPriceSignal) return false;
+
+  // Structural role guard: a proposed service line must not be a phone,
+  // e-mail, date/time or address sentence. This does not use service-word
+  // mappings; it only blocks non-service data types.
+  if (
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(source) ||
+    /\+?\d[\d\s()./-]{6,}\d/.test(source) ||
+    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(source) ||
+    /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(source) ||
+    /\b\d{4,5}\s+[A-ZÄÖÜÀ-ÖØ-Þ][\p{L}'’ .-]{2,}\b/u.test(source)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function openPriceRecognitionCoveredV17_90L90(
   items: ParsedOrderItemForValidation[],
   candidate: ParsedOrderItemForValidation,
@@ -584,10 +641,15 @@ function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInpu
     }
   }
 
-  const openPriceCandidates = extractOpenPriceRecognitionItemsV17_90L90(
-    input.originalText,
-    finalCurrency,
-  );
+  // V17.90L91: Open-price proposals are no longer reconstructed from the
+  // complete customer message. The caller supplies only explicit candidates
+  // already produced by the second validation pass. This closes the path that
+  // previously converted contact/appointment text into fake services.
+  const openPriceCandidates = (
+    Array.isArray(input.recognitionCandidates)
+      ? input.recognitionCandidates
+      : []
+  ).filter(isSafeSecondaryRecognitionCandidateV17_90L91);
   const uncoveredOpenPriceCandidates = openPriceCandidates.filter(
     (candidate) => !openPriceRecognitionCoveredV17_90L90(items, candidate),
   );

@@ -2863,10 +2863,11 @@ function findPreferredStoredCustomerByExactNameV17_90L88B(
 
   if (exact.length === 0) return null;
 
-  // V17.90L89: Name-identische Kunden dürfen nicht dazu führen, dass ein
-  // unvollständiger Entwurf gewinnt. Die DB-Abfrage ist bereits nach updatedAt
-  // absteigend sortiert. Bei gleichem Qualitätswert gewinnt deshalb
-  // deterministisch der aktuellste vollständige Datensatz.
+  // V17.90L91: If two exact-name records have the same quality, the identity is
+  // genuinely ambiguous and must remain review-only. A complete numbered
+  // customer may, however, deterministically outrank an incomplete draft.
+  if (exact.length > 1 && exact[0].score === exact[1].score) return null;
+
   const selected = exact[0].customer;
   return {
     id: selected.id,
@@ -10952,6 +10953,41 @@ export async function processIncomingMessage(
   let customerId: string | null = null;
   let duplicateWarning = "";
   let customerWasNewlyCreated = false;
+  const autoReuseTags: string[] = [];
+
+  // V17.90L91: An explicit request to reuse a stored customer is part of the
+  // protected AI identity result. A valid exact-name candidate may not later
+  // fall back to "kein_treffer". When duplicate name records exist, only a
+  // clearly better complete master record wins; ambiguous equal-quality
+  // records remain review-only.
+  const explicitReuseRequestedV17_90L91 =
+    abgleichStatus === "reuse_requested" ||
+    hasExplicitStoredCustomerReuseIntentV17_90L87(
+      messageText,
+      parsed.kundenabgleich?.reuse_requested,
+    );
+  if (abgleichStatus === "reuse_requested") {
+    abgleichStatus = "moeglicher_treffer";
+  }
+  if (explicitReuseRequestedV17_90L91) {
+    const preferredCustomerV17_90L91 =
+      findPreferredStoredCustomerByExactNameV17_90L88B(
+        kundeData.name,
+        allCustomers,
+      );
+    if (preferredCustomerV17_90L91) {
+      customerId = preferredCustomerV17_90L91.id;
+      matchId = preferredCustomerV17_90L91.id;
+      abgleichStatus = "gleicher_kunde";
+      duplicateWarning = "";
+      autoReuseTags.push(
+        `AUTO_REUSED_EXPLICIT_NAME:${preferredCustomerV17_90L91.customerNumber || preferredCustomerV17_90L91.id}`,
+      );
+      console.log(
+        `[${source}] 🎯 PROTECTED EXPLICIT CUSTOMER REUSE → ${preferredCustomerV17_90L91.name} (${preferredCustomerV17_90L91.customerNumber || preferredCustomerV17_90L91.id})`,
+      );
+    }
+  }
 
   // ═══ SERVER-SIDE CUSTOMER MATCHING (v2 — hardened) ═══
   // Uses centralized verifyCustomerMatch from lib/customer-matching.ts.
@@ -10960,7 +10996,9 @@ export async function processIncomingMessage(
   // Name + address requires confirmation (not auto-assign).
   // All other signals are review/suggestion only.
 
-  if (abgleichStatus === "gleicher_kunde" && matchId) {
+  if (customerId) {
+    // Protected explicit reuse was already resolved above.
+  } else if (abgleichStatus === "gleicher_kunde" && matchId) {
     const matchResult = await verifyCustomerMatch(matchId, {
       phone: kundeData.telefon || null,
       email: kundeData.email || null,
@@ -11042,7 +11080,6 @@ export async function processIncomingMessage(
   // conflict, archived candidate, incomplete incoming) fall through to the
   // existing create-new-customer path unchanged.
   // Phase 2d: accumulate tags for reviewReasons to surface in the UI banner.
-  const autoReuseTags: string[] = [];
 
   // V17.90L85: A message may intentionally reference an already stored
   // customer without repeating the billing address. If the model returns a
@@ -12558,6 +12595,40 @@ export async function processIncomingMessage(
     },
   );
 
+  // V17.90L91: The second checker receives only concrete candidates already
+  // identified by the validation pass. It no longer re-reads the whole message.
+  // This keeps contact, appointment, address and access text out of service
+  // proposals while still surfacing genuine open-price rows such as
+  // "Ersatzfilter nach Aufwand, Preis noch offen".
+  const secondaryRecognitionCandidatesV17_90L91 = Array.from(
+    new Map(
+      intakeValidation.items
+        .filter((item) => {
+          const reason = String(item.reviewReason || "");
+          const evidence = String(
+            item.sourceText || item.evidence || item.description || "",
+          )
+            .replace(/\s+/g, " ")
+            .trim();
+          return (
+            Number(item.unitPrice || 0) <= 0 &&
+            reason.startsWith("price_unclear:") &&
+            evidence.length > 0 &&
+            evidence.length <= 240
+          );
+        })
+        .map((item) => [
+          [
+            normalizeUnitText(item.serviceName),
+            normalizeUnitText(
+              item.sourceText || item.evidence || item.description || "",
+            ),
+          ].join("|"),
+          { ...item },
+        ] as const),
+    ).values(),
+  );
+
   finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
     intakeValidation.items,
     validationSourceText,
@@ -13116,6 +13187,7 @@ export async function processIncomingMessage(
     detectedCurrencies: intakeValidation.detectedCurrencies,
     finalCurrency: intakeValidation.finalCurrency,
     orderItems: finalOrderItems,
+    recognitionCandidates: secondaryRecognitionCandidatesV17_90L91,
     specialNotes: finalSpecialNotes,
     finalTotal: totalPrice,
   });
