@@ -742,12 +742,44 @@ function compactSpecialNoteLinesV17_27(lines: string[]): string[] {
   return mergePreArrivalInstructionLinesV17_34(mergeCommunicationLinesV17_33(out));
 }
 
+const splitSafetyWarningClausesV17_90L85 = (value: string): string[] => {
+  const body = stripKnownMarker(value);
+  if (!body) return [];
+
+  return body
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(
+      /\n+|;\s+|(?<=[.!?])\s+|(?=\b(?:bewohner|patienten|gäste|gaeste)\b.{0,45}\b(?:schlafen|ruhen|ruhe)\b)|(?=\b(?:lift|aufzug)\b.{0,90}\b(?:reserviert|verfügbar|verfuegbar|erst\s+ab)\b)/i,
+    )
+    .flatMap((part) => {
+      const quietMatch = part.match(/\b(?:bitte\s+)?ruhig\s+arbeiten\b/i);
+      if (!quietMatch || quietMatch.index == null || quietMatch.index <= 0) {
+        return [part];
+      }
+
+      const beforeQuiet = part.slice(0, quietMatch.index);
+      const alreadyResidentContext =
+        /\b(?:bewohner|patienten|gäste|gaeste)\b.{0,45}\b(?:schlafen|ruhen|ruhe)\b/i.test(
+          beforeQuiet,
+        );
+      return alreadyResidentContext
+        ? [part]
+        : [beforeQuiet, part.slice(quietMatch.index)];
+    })
+    .map((part) => part.replace(/^[\s,.;:–—-]+|[\s,.;:–—-]+$/g, "").trim())
+    .filter(Boolean);
+};
+
 export function buildSpecialNotes(input: {
   safetyWarnings?: string[];
   jobHints?: string[];
   systemHints?: string[];
 }) {
-  const rawSafetyWarnings = (input.safetyWarnings ?? []).map(canonicalizeSpecialNoteLineV17_32).filter(Boolean);
+  const rawSafetyWarnings = (input.safetyWarnings ?? [])
+    .flatMap(splitSafetyWarningClausesV17_90L85)
+    .map(canonicalizeSpecialNoteLineV17_32)
+    .filter(Boolean);
   const demotedSafetyHints = rawSafetyWarnings
     .map(stripKnownMarker)
     .filter((line) => isEquipmentOnlyWarningLineV17_34(line));

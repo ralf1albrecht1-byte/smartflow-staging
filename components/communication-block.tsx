@@ -243,6 +243,8 @@ export interface CommunicationData {
   } | null;
   email?: string | null;
   phone?: string | null;
+  customerPhone?: string | null;
+  contactPhone?: string | null;
   // Hint level
   hinweisLevel?: string | null;
   needsReview?: boolean;
@@ -474,28 +476,129 @@ function getContactEmail(data: CommunicationData, sourceText: string): string {
   ).trim();
 }
 
-function getOnsiteContactPhoneFromTextV17_90L80(sourceText: string): string {
-  const patterns = [
-    /(?:kontakt(?:\s+vor\s+ort)?|ansprech(?:person|partner)(?:\s+vor\s+ort)?|vor\s+ort(?:\s+ist)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio|dort)\s*[:.,-]?\s*[^\n.!?]{0,90}?(\+?\d[\d\s()./-]{6,}\d)/iu,
-    /(?:bitte\s+)?(?:nur\s+)?(?:whats\s*app|sms|anrufen|kontaktieren)[^\n.!?]{0,80}?(\+?\d[\d\s()./-]{6,}\d)/iu,
-  ];
-  for (const pattern of patterns) {
-    const match = sourceText.match(pattern)?.[1];
-    if (match) return normalizePhoneForHref(match);
+type OperationalContactV17_90L85 = {
+  phone: string;
+  name: string;
+  channel: "sms" | "whatsapp" | "call" | null;
+  noCall: boolean;
+};
+
+function extractOperationalContactV17_90L85(
+  sourceText: string,
+): OperationalContactV17_90L85 {
+  const source = String(sourceText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+  const empty: OperationalContactV17_90L85 = {
+    phone: "",
+    name: "",
+    channel: null,
+    noCall: false,
+  };
+  if (!source) return empty;
+
+  const markerRe =
+    /\b(?:kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet)|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
+  const markerMatch = source.match(markerRe);
+
+  const validPhoneMatches = (value: string) =>
+    Array.from(value.matchAll(/\+?\d[\d\s()./-]{6,}\d/g))
+      .map((match) => ({
+        phone: String(match[0] || "").replace(/\s+/g, " ").trim(),
+        index: match.index || 0,
+        end: (match.index || 0) + String(match[0] || "").length,
+      }))
+      .filter(({ phone }) => {
+        const digits = phone.replace(/\D/g, "");
+        return digits.length >= 7 && digits.length <= 15;
+      });
+
+  let scoped = source;
+  let markerLength = 0;
+  if (markerMatch && markerMatch.index != null) {
+    scoped = source.slice(markerMatch.index);
+    markerLength = markerMatch[0].length;
   }
-  return '';
+
+  let phoneCandidate = validPhoneMatches(scoped)[0];
+  if (!phoneCandidate) {
+    const channelMatch = source.match(
+      /\b(?:whats\s*app|whatsapp|sms|text\s+message|kurznachricht|anrufen|telefonieren|call)\b/i,
+    );
+    const phones = validPhoneMatches(source);
+    if (channelMatch && channelMatch.index != null && phones.length > 0) {
+      phoneCandidate = phones.sort(
+        (left, right) =>
+          Math.abs(left.index - (channelMatch.index || 0)) -
+          Math.abs(right.index - (channelMatch.index || 0)),
+      )[0];
+      scoped = source;
+      markerLength = 0;
+    }
+  }
+
+  const phone = normalizePhoneForHref(phoneCandidate?.phone || "");
+  const beforePhone = phoneCandidate
+    ? scoped.slice(markerLength, phoneCandidate.index)
+    : "";
+  const name = beforePhone
+    .replace(/^\s*(?:[:.,-]|ist\b|diesmal\b|heute\b)+/i, "")
+    .replace(
+      /\b(?:erreichbar|zu\s+erreichen|available|reachable)\s*(?:unter|at|via)?\s*$/i,
+      "",
+    )
+    .replace(/\b(?:tel\.?|telefon|phone|mobile|handy|natel|unter)\s*[:.]?\s*$/i, "")
+    .replace(/^[\s:.,-]+|[\s:.,-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const contextEnd = phoneCandidate
+    ? Math.min(scoped.length, phoneCandidate.end + 180)
+    : Math.min(scoped.length, 260);
+  const context = scoped.slice(0, contextEnd);
+  const hasSms = /\b(?:sms|text\s+message|kurznachricht)\b/i.test(context);
+  const hasWhatsapp = /\bwhats\s*app|\bwhatsapp\b/i.test(context);
+  const noCall =
+    /\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|keine?n?\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/i.test(
+      context,
+    );
+  const hasCall = /\b(?:anrufen|telefonieren|call|phone\s+call)\b/i.test(
+    context,
+  );
+
+  return {
+    phone,
+    name,
+    channel: hasSms
+      ? "sms"
+      : hasWhatsapp
+        ? "whatsapp"
+        : hasCall && !noCall
+          ? "call"
+          : null,
+    noCall,
+  };
 }
 
 function getContactPhone(data: CommunicationData, sourceText: string): string {
-  const onsitePhone = getOnsiteContactPhoneFromTextV17_90L80(sourceText);
+  const operational = extractOperationalContactV17_90L85(sourceText);
   const explicitPhone =
-    sourceText.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
+    sourceText.match(/(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|text\s+message|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     sourceText.match(/(?:use\s+whats\s*app|whats\s*app\s+if\s+possible|per\s+whats\s*app|via\s+whats\s*app).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     sourceText.match(/(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i)?.[1] ||
     sourceText.match(/(\+\d[\d\s()./-]{7,}\d)/)?.[1] ||
-    '';
+    "";
+
   return normalizePhoneForHref(
-    onsitePhone || explicitPhone || data.customer?.phone || data.phone || '',
+    operational.phone ||
+      data.contactPhone ||
+      explicitPhone ||
+      data.customer?.phone ||
+      data.customerPhone ||
+      data.phone ||
+      "",
   );
 }
 
@@ -513,12 +616,12 @@ type CommunicationChannel = 'mail' | 'whatsapp' | 'sms';
 const COMMUNICATION_CHANNEL_PATTERNS: Record<CommunicationChannel, RegExp> = {
   mail: /\b(?:mail|e\s*mail|e-mail|email|courriel)\b/i,
   whatsapp: /\b(?:whats\s*app|whatsapp)\b/i,
-  sms: /\bsms\b/i,
+  sms: /\b(?:sms|text\s+message|kurznachricht)\b/i,
 };
 
 const channelPatternSource = (channel: CommunicationChannel) => {
   if (channel === 'whatsapp') return '(?:whats\\s*app|whatsapp)';
-  if (channel === 'sms') return 'sms';
+  if (channel === 'sms') return '(?:sms|text\\s+message|kurznachricht)';
   return '(?:mail|e\\s*mail|e-mail|email|courriel)';
 };
 
@@ -610,12 +713,14 @@ function detectCommunicationPreferenceChips(
   parsed: ParsedNotes,
 ): CommunicationPreferenceChip[] {
   const rawSource = [
-    parsed.originalMessage,
-    parsed.translation,
     data.specialNotes,
+    parsed.translation,
+    parsed.originalMessage,
     data.audioTranscript,
     data.customer?.email,
+    data.contactPhone,
     data.customer?.phone,
+    data.customerPhone,
     data.email,
     data.phone,
   ]
@@ -1143,19 +1248,45 @@ export function CommunicationChips({
     () => buildEquipmentChipHints(equipment, data.specialNotes),
     [data.specialNotes, equipment],
   );
-  const callbackNote = detectCallbackRequest(data.specialNotes);
+  const rawCallbackNote = detectCallbackRequest(data.specialNotes);
   const communicationPreferences = useMemo(
     () => detectCommunicationPreferenceChips(data, parsed),
-    [data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.email, data.phone, parsed],
+    [data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.customerPhone, data.contactPhone, data.email, data.phone, parsed],
   );
+  const callbackSourceLines = splitCommunicationSourceLines(
+    [data.specialNotes, parsed.translation, parsed.originalMessage]
+      .filter(Boolean)
+      .join("\n"),
+  );
+  const hasExplicitPositivePhoneCall = callbackSourceLines.some((line) => {
+    const normalized = normalizeCommunicationPreferenceText(line);
+    if (!normalized) return false;
+    const negative =
+      /\b(?:nicht|kein|keine|ohne|no|not|without)\b.{0,35}\b(?:anrufen|telefonieren|rueckruf|ruckruf|call)\b/.test(
+        normalized,
+      );
+    if (negative) return false;
+    return /\b(?:bitte|vorher|zuerst|vor\s+ankunft|vor\s+arbeitsbeginn)\b.{0,45}\b(?:anrufen|telefonieren|rueckruf|ruckruf|call)\b/.test(
+      normalized,
+    );
+  });
+  const hasExclusiveMessageChannel = communicationPreferences.some(
+    (chip) => chip.key === "sms" || chip.key === "whatsapp",
+  );
+  const callbackNote =
+    rawCallbackNote && (!hasExclusiveMessageChannel || hasExplicitPositivePhoneCall)
+      ? rawCallbackNote
+      : null;
   const callbackPhone = getContactPhone(
     data,
     [
-      parsed.originalMessage,
-      parsed.translation,
       data.specialNotes,
+      parsed.translation,
+      parsed.originalMessage,
       data.audioTranscript,
+      data.contactPhone,
       data.customer?.phone,
+      data.customerPhone,
       data.phone,
     ]
       .filter(Boolean)

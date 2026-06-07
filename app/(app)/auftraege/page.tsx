@@ -2901,12 +2901,11 @@ const buildOrderInfoSummaryV17_65 = (
   // operational notes. The full customer message is only a legacy fallback.
   // Mixing audioTranscript back into an already structured order reintroduced
   // English/raw forwarding sentences and duplicated access instructions.
-  const structuredSource = [order.specialNotes, order.notes]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .join("\n");
+  const normalizedSpecialNotes = String(order.specialNotes || "").trim();
   const source =
-    structuredSource || String(order.audioTranscript || "").trim();
+    normalizedSpecialNotes ||
+    String(order.notes || "").trim() ||
+    String(order.audioTranscript || "").trim();
   const inline = extractInlineOrderInfoSnippetsV17_90L80(source);
 
   const splitInfoClausesV17_90L81 = (line: string) =>
@@ -3037,15 +3036,18 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
       /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:|dort\s+)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){0,2})\s*[,;·:\-–—]*\s*(?=\+?\d)/u,
     );
     const contactParts = [nameMatch?.[1]?.trim() || "", phone];
-    if (/\bwhatsapp\b/i.test(joined)) contactParts.push("nur WhatsApp");
-    else if (/\bsms\b/i.test(joined)) contactParts.push("nur SMS");
-    if (/\b(?:nicht\s+telefonisch|nicht\s+(?:im\s+büro\s+)?anrufen|kein\s+anruf)\b/i.test(joined)) {
+    const contactContext = contactLine || line;
+    if (/\bwhatsapp\b/i.test(contactContext)) contactParts.push("nur WhatsApp");
+    else if (/\b(?:sms|text\s+message|kurznachricht)\b/i.test(contactContext)) {
+      contactParts.push("nur SMS");
+    }
+    if (/\b(?:nicht\s+telefonisch|nicht\s+(?:im\s+büro\s+)?anrufen|kein\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/i.test(contactContext)) {
       contactParts.push("nicht telefonisch");
     }
-    if (/\b(?:zuerst|vorher|vor\s+ankunft)\s+(?:kurz\s+)?anrufen\b/i.test(joined)) {
+    if (/\b(?:zuerst|vorher|vor\s+ankunft)\s+(?:kurz\s+)?anrufen\b/i.test(contactContext)) {
       contactParts.push("zuerst anrufen");
     }
-    if (/\bnicht\s+einfach\s+(?:kommen|vorbeikommen)\b/i.test(joined)) {
+    if (/\bnicht\s+einfach\s+(?:kommen|vorbeikommen)\b/i.test(contactContext)) {
       contactParts.push("nicht einfach kommen");
     }
     pushUnique(`Kontakt: ${contactParts.filter(Boolean).join(" · ")}`);
@@ -6234,7 +6236,7 @@ const getBottomBadges = (
     ...parsedNotes.jobHints,
   ]
     .filter(Boolean)
-    .flatMap((part) => String(part).split(/\n+/g))
+    .flatMap((part) => String(part).split(/\n+|(?<=[.!?])\s+/g))
     .map((line) => line.trim())
     .filter(Boolean);
 
@@ -6511,7 +6513,12 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
     ...order,
     phone: (order as any).phone || order.customer?.phone || "",
     customerPhone: order.customer?.phone || "",
-    contactPhone: order.customer?.phone || "",
+    contactPhone:
+      extractOperationalPhoneForHrefV17_90L85(
+        order.specialNotes,
+        order.notes,
+        order.audioTranscript,
+      ) || order.customer?.phone || "",
     email: (order as any).email || order.customer?.email || "",
     customer: order.customer
       ? { ...order.customer }
@@ -7473,7 +7480,7 @@ const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
   const source = values.filter(Boolean).join("\n");
   const explicitPhone =
     source.match(
-      /(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i,
+      /(?:tel\.?|telefon|phone|mobile|handy|natel|whats\s*app(?:\s+nummer)?|sms|text\s+message|kurznachricht|kontakt(?:\s+vor\s+ort)?|anrufen|al[uü]te)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)/i,
     )?.[1] ||
     source.match(
       /(?:bitte\s+)?(?:kurz\s+)?(?:anrufen|telefonieren|zur[uü]ckrufen|rueckrufen|ruckrufen).*?(\+?\d[\d\s()./-]{6,}\d)/i,
@@ -7484,16 +7491,71 @@ const extractPhoneForHref = (...values: Array<string | null | undefined>) => {
   return normalized.length >= 7 ? normalized : "";
 };
 
+const extractOperationalPhoneForHrefV17_90L85 = (
+  ...values: Array<string | null | undefined>
+) => {
+  const source = values
+    .filter(Boolean)
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+  if (!source) return "";
+
+  const phoneMatches = (value: string) =>
+    Array.from(value.matchAll(/\+?\d[\d\s()./-]{6,}\d/g))
+      .map((match) => ({
+        value: String(match[0] || "").trim(),
+        index: match.index || 0,
+      }))
+      .filter(({ value }) => {
+        const digits = value.replace(/\D/g, "");
+        return digits.length >= 7 && digits.length <= 15;
+      });
+
+  const markerRe =
+    /\b(?:kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort\s+(?:ist|öffnet|oeffnet)|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
+  const markerMatch = source.match(markerRe);
+  if (markerMatch?.index != null) {
+    const scoped = source.slice(markerMatch.index);
+    const local = phoneMatches(scoped)[0]?.value || "";
+    const normalized = local.replace(/[^+0-9]/g, "");
+    if (normalized.length >= 7) return normalized;
+  }
+
+  const channelMatch = source.match(
+    /\b(?:whats\s*app|whatsapp|sms|text\s+message|kurznachricht|anrufen|telefonieren|call)\b/i,
+  );
+  if (channelMatch?.index != null) {
+    const closest = phoneMatches(source).sort(
+      (left, right) =>
+        Math.abs(left.index - (channelMatch.index || 0)) -
+        Math.abs(right.index - (channelMatch.index || 0)),
+    )[0]?.value;
+    const normalized = String(closest || "").replace(/[^+0-9]/g, "");
+    if (normalized.length >= 7) return normalized;
+  }
+
+  return "";
+};
+
 const normalizeStoredPhoneForTelHrefV17_90K6 = (value?: string | null) => {
   const normalized = String(value || "").replace(/[^+0-9]/g, "");
   return normalized.length >= 6 ? normalized : "";
 };
 
 const getOrderPhoneForHref = (order: Order) => {
-  // Stored customer phone may be a plain local number like "08888888".
-  // The text extractor intentionally requires phone context for raw message text,
-  // but a saved customer.phone is already a trusted contact field and must be
-  // accepted directly for Rückruf/tel chips.
+  // A contact explicitly named in the current order message is the action
+  // target for SMS/WhatsApp/call chips. The stored customer phone remains a
+  // fallback and is never overwritten by intake.
+  const operationalPhone = extractOperationalPhoneForHrefV17_90L85(
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  );
+  if (operationalPhone) return operationalPhone;
+
   const storedCustomerPhone = normalizeStoredPhoneForTelHrefV17_90K6(
     order.customer?.phone ||
       (order as any).phone ||
@@ -7503,8 +7565,8 @@ const getOrderPhoneForHref = (order: Order) => {
   if (storedCustomerPhone) return storedCustomerPhone;
 
   return extractPhoneForHref(
-    order.notes,
     order.specialNotes,
+    order.notes,
     order.audioTranscript,
   );
 };

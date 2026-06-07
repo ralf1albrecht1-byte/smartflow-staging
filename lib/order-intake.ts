@@ -1887,6 +1887,7 @@ function cleanIntakeCityCandidate(
   value: string | null | undefined,
 ): string | null {
   const city = String(value || "")
+    .replace(/^\s*(?:in|im|bei|am)\s+/i, "")
     .replace(
       /\b(?:kommen|arbeiten|reinigen|melden|montieren|prüfen|pruefen|machen|erledigen)\b.*$/i,
       "",
@@ -2657,32 +2658,54 @@ function applySafeBillingCustomerGuard(args: {
   };
 }
 
+type OnsiteContactChannel = "sms" | "whatsapp" | "call" | null;
+
 type OnsiteContactHint = {
   hint: string | null;
   phone: string | null;
   phoneBelongsToSiteContact: boolean;
+  contactName: string | null;
+  preferredChannel: OnsiteContactChannel;
+  noPhoneCall: boolean;
 };
 
 function normalizePhoneDigits(value: string | null | undefined): string {
   return String(value || "").replace(/\D/g, "");
 }
 
-function extractPhoneFromText(value: string | null | undefined): string | null {
+type PhoneMatchV17_90L85 = {
+  phone: string;
+  index: number;
+  end: number;
+};
+
+function extractPhoneMatchFromTextV17_90L85(
+  value: string | null | undefined,
+): PhoneMatchV17_90L85 | null {
   const source = String(value || "");
-  const explicit = source.match(
-    /\b(?:tel\.?|telefon|phone|mobile|handy|natel)\s*[:.]?\s*(\+?\d[\d\s()./-]{6,}\d)\b/i,
-  );
-  const loose =
-    explicit?.[1] || source.match(/(\+?\d[\d\s()./-]{7,}\d)/)?.[1] || null;
-  if (!loose) return null;
+  const pattern = /\+?\d[\d\s()./-]{6,}\d/g;
+  let match: RegExpExecArray | null;
 
-  const cleanedLoose = loose.replace(/\s+/g, " ").trim();
-  if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(cleanedLoose)) return null;
+  while ((match = pattern.exec(source))) {
+    const candidate = String(match[0] || "").replace(/\s+/g, " ").trim();
+    if (!candidate) continue;
+    if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(candidate)) continue;
 
-  const digits = normalizePhoneDigits(cleanedLoose);
-  if (digits.length < 7 || digits.length > 15) return null;
+    const digits = normalizePhoneDigits(candidate);
+    if (digits.length < 7 || digits.length > 15) continue;
 
-  return cleanedLoose;
+    return {
+      phone: candidate,
+      index: match.index || 0,
+      end: (match.index || 0) + match[0].length,
+    };
+  }
+
+  return null;
+}
+
+function extractPhoneFromText(value: string | null | undefined): string | null {
+  return extractPhoneMatchFromTextV17_90L85(value)?.phone || null;
 }
 
 function extractEmailFromText(value: string | null | undefined): string | null {
@@ -2704,19 +2727,26 @@ function extractOnsiteContactHint(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+  const emptyResult: OnsiteContactHint = {
+    hint: null,
+    phone: null,
+    phoneBelongsToSiteContact: false,
+    contactName: null,
+    preferredChannel: null,
+    noPhoneCall: false,
+  };
+
   const candidateDigits = normalizePhoneDigits(candidateCustomerPhone);
-  if (!source) {
-    return { hint: null, phone: null, phoneBelongsToSiteContact: false };
-  }
+  if (!source) return emptyResult;
 
   const lines = source
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter(Boolean);
 
-  // V17.90L84: Mehrsprachige Vor-Ort-Kontakte strukturell erkennen.
-  // "onsite Sarah Miller ..." und "Vor Ort Ansprechpartnerin: ..." dürfen
-  // nicht auf eine nackte Telefonnummer reduziert werden.
+  // Structural contact markers only. The service vocabulary is deliberately
+  // irrelevant here: once a marker is found, phone/name/channel are resolved
+  // from the local marker scope instead of from the complete customer message.
   const explicitMarkerRe =
     /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
   const roleMarkerRe =
@@ -2728,70 +2758,111 @@ function extractOnsiteContactHint(
   const stopRe =
     /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
 
-  const cleanContactLine = (line: string, stripExplicitMarker: boolean) => {
-    const markerMatch = stripExplicitMarker ? line.match(explicitMarkerRe) : null;
-    const scopedLine =
-      markerMatch && markerMatch.index != null
-        ? line.slice(markerMatch.index)
-        : line;
-
-    return scopedLine
+  const cleanContactName = (value: string, stripExplicitMarker: boolean) =>
+    String(value || "")
       .replace(stripExplicitMarker ? explicitMarkerRe : /^\b$/i, "")
+      .replace(roleMarkerRe, (match) => match)
+      .replace(/^\s*(?:diesmal|heute|aktuell|current(?:ly)?)\s+/i, "")
+      .replace(/^\s*(?:ist|is|heisst|heißt|name\s+is)\s+/i, "")
       .replace(
-        /\b(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?.*$/i,
+        /\b(?:erreichbar|zu\s+erreichen|available|reachable)\s*(?:unter|at|via)?\s*$/i,
         "",
       )
-      .replace(/\+?\d[\d\s()./-]{6,}\d/g, " ")
       .replace(
-        /\b(?:text\s+message|sms|whats\s*app|please\s+(?:text|message|call)|bitte\s+(?:per\s+)?(?:sms|whatsapp|anrufen)|before\s+arrival|vor\s+ankunft|leistungen?|services?)\b.*$/i,
+        /\b(?:tel\.?|telefon|phone|mobile|handy|natel|unter)\s*[:.]?\s*$/i,
         "",
       )
       .replace(/^[\s:.,-]+|[\s:.,-]+$/g, "")
       .replace(/\s+/g, " ")
       .trim();
-  };
 
   for (let index = 0; index < lines.length; index += 1) {
-    if (!anyMarkerRe.test(lines[index])) continue;
+    const markerMatch = lines[index].match(anyMarkerRe);
+    if (!markerMatch || markerMatch.index == null) continue;
 
-    const hasExplicitMarker = explicitMarkerRe.test(lines[index]);
-    const blockLines: string[] = [];
-    for (let offset = 0; offset <= 4; offset += 1) {
+    const hasExplicitMarker = explicitMarkerRe.test(markerMatch[0]);
+    const scopedFirstLine = lines[index].slice(markerMatch.index);
+    const blockLines: string[] = [scopedFirstLine];
+
+    for (let offset = 1; offset <= 3; offset += 1) {
       const line = lines[index + offset];
-      if (!line) continue;
-      if (offset > 0 && stopRe.test(line)) break;
+      if (!line || stopRe.test(line)) break;
       blockLines.push(line);
     }
 
-    const block = blockLines.join(" ");
-    const phone = extractPhoneFromText(block);
+    const scopedBlock = blockLines.join(" ").replace(/\s+/g, " ").trim();
+    const phoneMatch = extractPhoneMatchFromTextV17_90L85(scopedBlock);
+    const phone = phoneMatch?.phone || null;
     const phoneDigits = normalizePhoneDigits(phone);
-    const phoneBelongsToSiteContact =
-      !!candidateDigits &&
-      !!phoneDigits &&
-      (phoneDigits.endsWith(candidateDigits) ||
-        candidateDigits.endsWith(phoneDigits) ||
-        phoneDigits === candidateDigits);
 
-    const contactName = blockLines
-      .map((line, offset) =>
-        cleanContactLine(line, hasExplicitMarker && offset === 0),
-      )
-      .find((line) => line && !/^\+?\d/.test(line));
+    // Name evidence is the text between the local contact marker and the first
+    // local phone. This prevents a billing-office phone appearing earlier in a
+    // one-line message from being assigned to the on-site person.
+    const localNameSource = phoneMatch
+      ? scopedBlock.slice(0, phoneMatch.index)
+      : scopedFirstLine;
+    const contactName =
+      cleanContactName(localNameSource, hasExplicitMarker) || null;
+
+    const channelScope = scopedBlock.slice(
+      0,
+      Math.min(
+        scopedBlock.length,
+        phoneMatch ? phoneMatch.end + 180 : 260,
+      ),
+    );
+    const hasSms = /\b(?:sms|text\s+message|kurznachricht)\b/i.test(
+      channelScope,
+    );
+    const hasWhatsapp = /\bwhats\s*app|\bwhatsapp\b/i.test(channelScope);
+    const hasCall =
+      /\b(?:anrufen|telefonieren|call|phone\s+call)\b/i.test(channelScope);
+    const noPhoneCall =
+      /\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|keine?n?\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/i.test(
+        channelScope,
+      );
+
+    const preferredChannel: OnsiteContactChannel = hasSms
+      ? "sms"
+      : hasWhatsapp
+        ? "whatsapp"
+        : hasCall && !noPhoneCall
+          ? "call"
+          : null;
+
+    const channelLabel =
+      preferredChannel === "sms"
+        ? "nur SMS"
+        : preferredChannel === "whatsapp"
+          ? "nur WhatsApp"
+          : preferredChannel === "call"
+            ? "telefonisch"
+            : null;
 
     const parts = [
       contactName ? `Kontakt vor Ort: ${contactName}` : "Kontakt vor Ort",
       phone ? `Tel. ${phone}` : null,
+      channelLabel,
+      noPhoneCall && preferredChannel !== "call" ? "nicht telefonisch" : null,
     ].filter(Boolean);
 
     return {
       hint: parts.join(", "),
       phone,
-      phoneBelongsToSiteContact,
+      phoneBelongsToSiteContact: Boolean(
+        candidateDigits &&
+          phoneDigits &&
+          (phoneDigits.endsWith(candidateDigits) ||
+            candidateDigits.endsWith(phoneDigits) ||
+            phoneDigits === candidateDigits),
+      ),
+      contactName,
+      preferredChannel,
+      noPhoneCall,
     };
   }
 
-  return { hint: null, phone: null, phoneBelongsToSiteContact: false };
+  return emptyResult;
 }
 
 function compactText(value: any): string {
@@ -3100,7 +3171,7 @@ const COMMUNICATION_NEGATION_TOKEN =
 
 const communicationChannelSource = (channel: "whatsapp" | "sms" | "mail") => {
   if (channel === "whatsapp") return "(?:whats\\s*app|whatsapp)";
-  if (channel === "sms") return "sms";
+  if (channel === "sms") return "(?:sms|text\\s+message|kurznachricht)";
   return "(?:mail|e\\s*mail|e-mail|email|courriel)";
 };
 
@@ -3462,10 +3533,11 @@ function cleanOperationalHintForwarderTailV17_90L70(
   if (!text) return "";
 
   const cutPatterns = [
-    /\s+(?:und|i|and)?\s*(?:bitte\s+)?(?:mich|mene|me)\b.{0,100}?\bnicht\s+als\s+kunden?\s+speichern\b/i,
-    /\s+(?:und|i|and)?\s*(?:ich|ja|i)\s+(?:bin\b.{0,60}?\b(?:leite|schicke|sende)\b|(?:leite|schicke|sende)\b).{0,80}?\bweiter\b/i,
-    /\s+(?:ja\s+)?samo\s+(?:šaljem|saljem)\s+weiter\b/i,
-    /\s+kevin\s+(?:schickt|leitet|sendet)\s+(?:das\s+)?nur\s+weiter\b/i,
+    /(?:^|\s+)(?:und|i|and)?\s*(?:bitte\s+)?(?:mich|mene|me)\b.{0,100}?\bnicht\s+als\s+kunden?\s+speichern\b/i,
+    /(?:^|\s+)(?:und|i|and)?\s*(?:ich|ja|i)\s+(?:bin\b.{0,60}?\b(?:leite|schicke|sende)\b|(?:leite|schicke|sende)\b).{0,80}?\bweiter\b/i,
+    /(?:^|\s+)(?:ja\s+)?samo\s+(?:šaljem|saljem)\s+weiter\b/i,
+    /(?:^|\s+)(?:i\s+am|i['’]?m)\s+[\p{L}'’\-]+(?:\s+[\p{L}'’\-]+){0,4}\s+(?:from\s+[^.!?]{1,80}\s+)?(?:just\s+)?(?:forwarding|passing\s+(?:this|it)\s+on)[^.!?]{0,140}(?:do\s+not|don['’]?t)\s+save[^.!?]{0,80}(?:as\s+)?(?:a\s+)?customer\b/iu,
+    /(?:^|\s+)(?:this\s+is\s+)?[\p{L}'’\-]+(?:\s+[\p{L}'’\-]+){0,4}\s+(?:from\s+[^.!?]{1,80}\s+)?(?:just\s+)?(?:forwards?|forwarding|passes?\s+on)[^.!?]{0,140}(?:not\s+the\s+customer|do\s+not\s+save[^.!?]{0,80}customer)\b/iu,
   ];
 
   for (const pattern of cutPatterns) {
@@ -3527,7 +3599,10 @@ function enrichParkingHintsV17_90L70(
   return enriched;
 }
 
-function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
+function extractSemanticSpecialNotesFallback(
+  text: string | null | undefined,
+  onsiteContact?: OnsiteContactHint | null,
+): {
   safetyWarnings: string[];
   jobHints: string[];
 } {
@@ -3702,13 +3777,40 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
     .map((line) => line.trim())
     .filter(Boolean);
 
+  const nearestCommunicationPhoneV17_90L85 = (rawLine: string) => {
+    if (onsiteContact?.phone && onsiteContact.preferredChannel) {
+      return onsiteContact.phone;
+    }
+
+    const channelMatch = rawLine.match(
+      /\b(?:whats\s*app|whatsapp|sms|text\s+message|kurznachricht|anrufen|telefonieren|call)\b/i,
+    );
+    const phoneMatches = Array.from(
+      rawLine.matchAll(/\+?\d[\d\s()./-]{6,}\d/g),
+    )
+      .map((match) => ({
+        phone: String(match[0] || "").replace(/\s+/g, " ").trim(),
+        index: match.index || 0,
+      }))
+      .filter(({ phone }) => {
+        const digits = normalizePhoneDigits(phone);
+        return digits.length >= 7 && digits.length <= 15;
+      });
+
+    if (phoneMatches.length === 0) return undefined;
+    if (!channelMatch || channelMatch.index == null) return phoneMatches[0].phone;
+
+    return phoneMatches.sort(
+      (left, right) =>
+        Math.abs(left.index - (channelMatch.index || 0)) -
+        Math.abs(right.index - (channelMatch.index || 0)),
+    )[0]?.phone;
+  };
+
   for (const rawLine of rawOperationalLines) {
     const line = normalizeSemanticText(rawLine);
     if (!line) continue;
-    const phone = rawLine
-      .match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]
-      ?.replace(/\s+/g, " ")
-      .trim();
+    const phone = nearestCommunicationPhoneV17_90L85(rawLine);
     const hasNoPhoneInstruction =
       /bitte\s+nicht\s+anrufen|nicht\s+anrufen|nicht\s+telefonisch|keine\s+telefonische\s+rueckfrage|keine\s+telefonische\s+ruckfrage|ne\s+pas\s+appeler|ne\s+pas\s+telephoner|pas\s+d\s+appel(?:s)?|pas\s+d\s+appel(?:s)?\s+telephonique(?:s)?|pas\s+appeler|pas\s+telephoner|sans\s+appel\s+telephonique|do\s+not\s+call|no\s+calls?/i.test(
         line,
@@ -3790,12 +3892,9 @@ function extractSemanticSpecialNotesFallback(text: string | null | undefined): {
       jobHints.push(`WhatsApp bevorzugt: ${phone}`);
     }
 
-    if (
-      /\bsms\b/i.test(line) &&
-      /am\s+besten|best|preferred|bevorzugt|reicht/i.test(line)
-    ) {
+    if (isPositiveChannelInstructionLine(rawLine, "sms")) {
       jobHints.push(
-        phone ? `SMS ist am besten: ${phone}` : "SMS ist am besten",
+        phone ? `SMS bevorzugt: ${phone}` : "SMS bevorzugt",
       );
     }
 
@@ -9391,6 +9490,127 @@ export async function processIncomingMessage(
   // existing create-new-customer path unchanged.
   // Phase 2d: accumulate tags for reviewReasons to surface in the UI banner.
   const autoReuseTags: string[] = [];
+
+  // V17.90L85: A message may intentionally reference an already stored
+  // customer without repeating the billing address. If the model returns a
+  // concrete candidate id, the exact stored customer name is present in the
+  // incoming message, exactly one active customer has that name, and no
+  // structured billing field conflicts, reuse the customer deterministically.
+  // This is identity matching, not vocabulary matching, and it never changes
+  // the stored customer master data.
+  if (!customerId && matchId && abgleichStatus === "moeglicher_treffer") {
+    const candidate = await prisma.customer.findFirst({
+      where: {
+        id: matchId,
+        ...(userId ? { userId } : {}),
+        dataScope,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        customerNumber: true,
+        name: true,
+        address: true,
+        plz: true,
+        city: true,
+        phone: true,
+        email: true,
+      },
+    });
+
+    if (candidate?.name?.trim()) {
+      const normalizeCustomerIdentityV17_90L85 = (value: unknown) =>
+        normalizeUnitText(value)
+          .replace(/[^a-z0-9]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      const candidateNameKey = normalizeCustomerIdentityV17_90L85(
+        candidate.name,
+      );
+      const messageKey = ` ${normalizeCustomerIdentityV17_90L85(messageText)} `;
+      const candidateNameMentioned = Boolean(
+        candidateNameKey && messageKey.includes(` ${candidateNameKey} `),
+      );
+      const incomingNameKey = normalizeCustomerIdentityV17_90L85(
+        kundeData.name || "",
+      );
+      const noNameConflict =
+        !incomingNameKey || incomingNameKey === candidateNameKey;
+      const billingPhoneDigits = normalizePhoneDigits(
+        billingEvidence.phone || null,
+      );
+      const onsitePhoneDigits = normalizePhoneDigits(
+        onsiteContactHint.phone || null,
+      );
+      const billingPhoneIsOnsiteContact = Boolean(
+        billingPhoneDigits &&
+          onsitePhoneDigits &&
+          (billingPhoneDigits === onsitePhoneDigits ||
+            billingPhoneDigits.endsWith(onsitePhoneDigits) ||
+            onsitePhoneDigits.endsWith(billingPhoneDigits)),
+      );
+      const noPhoneConflict =
+        !billingEvidence.phone ||
+        billingPhoneIsOnsiteContact ||
+        !candidate.phone ||
+        billingPhoneDigits === normalizePhoneDigits(candidate.phone);
+      const noEmailConflict =
+        !billingEvidence.email ||
+        !candidate.email ||
+        String(billingEvidence.email).trim().toLowerCase() ===
+          String(candidate.email).trim().toLowerCase();
+      const noStreetConflict =
+        !billingEvidence.street ||
+        !candidate.address ||
+        normalizeUnitText(billingEvidence.street) ===
+          normalizeUnitText(candidate.address);
+      const noPlzConflict =
+        !billingEvidence.plz ||
+        !candidate.plz ||
+        String(billingEvidence.plz).trim() === String(candidate.plz).trim();
+      const normalizedBillingCity = cleanIntakeCityCandidate(
+        billingEvidence.city || null,
+      );
+      const noCityConflict =
+        !normalizedBillingCity ||
+        !candidate.city ||
+        normalizeUnitText(normalizedBillingCity) ===
+          normalizeUnitText(candidate.city);
+
+      const sameNameCandidates = await prisma.customer.findMany({
+        where: {
+          ...(userId ? { userId } : {}),
+          dataScope,
+          deletedAt: null,
+          name: { equals: candidate.name, mode: "insensitive" },
+        },
+        select: { id: true },
+        take: 2,
+      });
+
+      if (
+        candidateNameMentioned &&
+        sameNameCandidates.length === 1 &&
+        noNameConflict &&
+        noPhoneConflict &&
+        noEmailConflict &&
+        noStreetConflict &&
+        noPlzConflict &&
+        noCityConflict
+      ) {
+        customerId = candidate.id;
+        abgleichStatus = "gleicher_kunde";
+        duplicateWarning = "";
+        autoReuseTags.push(
+          `AUTO_REUSED_EXPLICIT_NAME:${candidate.customerNumber || candidate.id}`,
+        );
+        console.log(
+          `[${source}] 🎯 EXPLICIT-NAME REUSE → binding to existing ${candidate.customerNumber || candidate.id} (${candidate.id})`,
+        );
+      }
+    }
+  }
+
   if (!customerId) {
     const exact = await findExactDeterministicMatch(prisma, userId ?? null, {
       name: kundeData.name || null,
@@ -9700,6 +9920,25 @@ export async function processIncomingMessage(
     );
   }
 
+  const resolvedCustomerMaster = customerId
+    ? await prisma.customer.findFirst({
+        where: {
+          id: customerId,
+          ...(userId ? { userId } : {}),
+          dataScope,
+          deletedAt: null,
+        },
+        select: {
+          name: true,
+          address: true,
+          plz: true,
+          city: true,
+          phone: true,
+          email: true,
+        },
+      })
+    : null;
+
   // --- Build specialNotes (marker-based, NO language/keyword guessing in UI) ---
   // System hints (needsReview, duplicateWarning, confidence) are tracked via
   // needsReview boolean and shown dynamically in the UI — not stored in specialNotes.
@@ -9791,6 +10030,7 @@ export async function processIncomingMessage(
     ]
       .filter(Boolean)
       .join("\n"),
+    onsiteContactHint,
   );
 
   let gefahrItems = dedupeSpecialNoteLines([
@@ -11102,9 +11342,9 @@ export async function processIncomingMessage(
 
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {
-    customerAddress: addr.street,
-    customerPlz: addr.plz,
-    customerCity: addr.city,
+    customerAddress: addr.street || resolvedCustomerMaster?.address || null,
+    customerPlz: addr.plz || resolvedCustomerMaster?.plz || null,
+    customerCity: addr.city || resolvedCustomerMaster?.city || null,
   };
 
   const legacyAddressFallbackEnabled =
@@ -11141,6 +11381,40 @@ export async function processIncomingMessage(
             : null),
     validationSourceText,
   );
+
+  // V17.90L85: Complete only missing address fields from the verified reused
+  // customer when street and city identify the same place. This keeps a real
+  // work-area label such as "Treppenhaus Haus B" while preventing "in Baden"
+  // and a missing PLZ from creating an artificial address review.
+  if (extractedExecutionAddress && resolvedCustomerMaster) {
+    const normalizedSiteCity = cleanIntakeCityCandidate(
+      extractedExecutionAddress.siteCity,
+    );
+    const sameStreet = Boolean(
+      extractedExecutionAddress.siteAddress &&
+        resolvedCustomerMaster.address &&
+        normalizeUnitText(extractedExecutionAddress.siteAddress) ===
+          normalizeUnitText(resolvedCustomerMaster.address),
+    );
+    const cityCompatible = Boolean(
+      !normalizedSiteCity ||
+        !resolvedCustomerMaster.city ||
+        normalizeUnitText(normalizedSiteCity) ===
+          normalizeUnitText(resolvedCustomerMaster.city),
+    );
+
+    if (sameStreet && cityCompatible) {
+      extractedExecutionAddress = {
+        ...extractedExecutionAddress,
+        sitePlz:
+          extractedExecutionAddress.sitePlz ||
+          resolvedCustomerMaster.plz ||
+          null,
+        siteCity:
+          normalizedSiteCity || resolvedCustomerMaster.city || null,
+      };
+    }
+  }
 
   // V17.90L60: Preserve the explicit object/site descriptor that appears
   // directly before the structured execution address. Generic placeholders
