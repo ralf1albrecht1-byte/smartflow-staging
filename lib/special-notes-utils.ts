@@ -204,17 +204,49 @@ const normalizeOnSiteContactV17_90L57 = (value: string): string => {
   ).map((match) => match[0].replace(/\s+/g, " ").trim());
   const uniquePhones = phoneMatches.filter(
     (phone, index, all) =>
-      all.findIndex((candidate) => candidate.replace(/\D/g, "") === phone.replace(/\D/g, "")) ===
-      index,
+      all.findIndex(
+        (candidate) =>
+          candidate.replace(/\D/g, "") === phone.replace(/\D/g, ""),
+      ) === index,
   );
+
+  const hasSms = /\b(?:nur\s+)?sms\b|\btext\s+message\b/i.test(body);
+  const hasWhatsapp = /\bwhats\s*app|\bwhatsapp\b/i.test(body);
+  const noCall =
+    /\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|kein(?:e[nm]?)?\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/i.test(
+      body,
+    );
+  const wantsCall =
+    !noCall && /\b(?:anrufen|telefonieren|call|phone\s+call)\b/i.test(body);
+  const channelLabel = hasSms
+    ? "nur SMS"
+    : hasWhatsapp
+      ? "nur WhatsApp"
+      : wantsCall
+        ? "anrufen"
+        : "";
+  const noCallLabel =
+    noCall && !hasSms && !hasWhatsapp ? "nicht telefonisch" : "";
+
   const name = body
-    .replace(/\b(?:Tel(?:efon)?|Mobile|Mobil)\.?\s*:?\s*/gi, "")
+    .replace(/\b(?:Tel(?:efon)?|Mobile|Mobil|Phone|Handy|Natel)\.?\s*:?\s*/gi, "")
     .replace(/\+?\d[\d\s()./-]{6,}\d/g, "")
+    .replace(/\b(?:bitte\s+)?(?:nur\s+)?(?:per\s+)?sms\b/gi, "")
+    .replace(/\b(?:bitte\s+)?(?:nur\s+)?(?:per\s+)?whats\s*app\b/gi, "")
+    .replace(/\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|kein(?:e[nm]?)?\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/gi, "")
+    .replace(/\b(?:bitte\s+)?(?:diese\s+nummer\s+)?(?:anrufen|telefonieren|call)\b/gi, "")
     .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  return `Kontakt vor Ort: ${[name, uniquePhones[0]].filter(Boolean).join(", ")}`;
+  return `Kontakt vor Ort: ${[
+    name,
+    uniquePhones[0],
+    channelLabel,
+    noCallLabel,
+  ]
+    .filter(Boolean)
+    .join(" · ")}`;
 };
 
 const isNoWhatsappOnlyLineV17_34 = (value: string): boolean => {
@@ -407,6 +439,21 @@ const semanticNoteKey = (value: string) => {
     /(?:whatsapp|sms|mail|email|e-mail|telefon|anruf|anrufen|rueckruf|ruckruf|rückruf|termin|uhr|schluessel|schlüssel|zugang|eingang|hauswart|rezeption)/i.test(visibleLine)
   ) {
     return text;
+  }
+
+  if (/^kontakt\s+vor\s+ort\s*:/i.test(visibleLine)) {
+    const phone =
+      visibleLine.match(/\+?\d[\d\s()./-]{6,}\d/)?.[0]?.replace(/\D/g, "") ||
+      "";
+    const identity = normalizeDedupeText(
+      visibleLine
+        .replace(/\+?\d[\d\s()./-]{6,}\d/g, "")
+        .replace(/^kontakt\s+vor\s+ort\s*:\s*/i, ""),
+    )
+      .split(/\s+/g)
+      .slice(0, 5)
+      .join("_");
+    return `onsite_contact:${phone || identity || "unknown"}`;
   }
 
   if (/\bhund\b|\bgartenhund\b|\bdog\b/.test(text)) return "dog";

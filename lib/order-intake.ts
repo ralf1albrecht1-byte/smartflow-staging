@@ -2758,6 +2758,117 @@ function normalizeContactEvidenceV17_90L86(value?: string | null): string {
     .trim();
 }
 
+
+function normalizeCustomerIdentityV17_90L87(value: unknown): string {
+  return normalizeContactEvidenceV17_90L86(String(value || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasExplicitStoredCustomerReuseIntentV17_90L87(
+  source: string,
+  aiRequested?: boolean | null,
+): boolean {
+  if (aiRequested === true) return true;
+  const text = normalizeCustomerIdentityV17_90L87(source);
+  if (!text) return false;
+
+  // Structural identity intent only. This is not a service vocabulary list.
+  // It covers the supported intake languages and is used only as a fail-safe
+  // when the model omits the dedicated reuse_requested field.
+  return (
+    /\b(?:kunde|kundendaten|rechnungsadresse|customer|client|cliente|azienda|societe|société)\b.{0,90}\b(?:bereits|schon|already|existing|stored|gespeichert|vorhanden|deja|déjà|gia|già|existente)\b/.test(text) &&
+    /\b(?:verwenden|wiederverwenden|reuse|use|utiliser|riutilizzare|usar|reutilizar)\b/.test(text)
+  );
+}
+
+function findUniqueMentionedCustomerV17_90L87(
+  source: string,
+  customers: Array<{ id: string; name: string | null }>,
+): { id: string; name: string } | null {
+  const messageKey = ` ${normalizeCustomerIdentityV17_90L87(source)} `;
+  if (!messageKey.trim()) return null;
+
+  const matches = customers
+    .map((customer) => ({
+      id: String(customer.id || ""),
+      name: String(customer.name || "").trim(),
+      key: normalizeCustomerIdentityV17_90L87(customer.name),
+    }))
+    .filter(
+      (customer) =>
+        customer.id &&
+        customer.name &&
+        customer.key.split(/\s+/g).filter(Boolean).length >= 2 &&
+        messageKey.includes(` ${customer.key} `),
+    );
+
+  return matches.length === 1
+    ? { id: matches[0].id, name: matches[0].name }
+    : null;
+}
+
+function semanticRoleOverlapV17_90L87(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  const a = normalizeContactEvidenceV17_90L86(left);
+  const b = normalizeContactEvidenceV17_90L86(right);
+  if (!a || !b) return false;
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+
+  const stop = new Set([
+    "der", "die", "das", "den", "dem", "ein", "eine", "einer", "und",
+    "oder", "mit", "bei", "im", "in", "am", "an", "auf", "zu", "zur",
+    "zum", "von", "vor", "ort", "bitte", "nur", "ist", "sind", "wird",
+  ]);
+  const tokens = (value: string) =>
+    Array.from(
+      new Set(
+        value
+          .split(/\s+/g)
+          .filter((token) => token.length >= 3 && !stop.has(token)),
+      ),
+    );
+  const leftTokens = tokens(a);
+  const rightTokens = tokens(b);
+  if (leftTokens.length === 0 || rightTokens.length === 0) return false;
+
+  const rightSet = new Set(rightTokens);
+  const overlap = leftTokens.filter((token) => rightSet.has(token)).length;
+  const smaller = Math.min(leftTokens.length, rightTokens.length);
+  return overlap >= 3 && overlap / smaller >= 0.6;
+}
+
+function lineMatchesOnsiteContactIdentityV17_90L87(
+  line: string | null | undefined,
+  contact: OnsiteContactHint | null | undefined,
+): boolean {
+  const normalizedLine = normalizeContactEvidenceV17_90L86(line);
+  if (!normalizedLine || !contact) return false;
+
+  const lineDigits = normalizePhoneDigits(line);
+  const contactDigits = normalizePhoneDigits(contact.phone);
+  if (
+    lineDigits &&
+    contactDigits &&
+    (lineDigits === contactDigits ||
+      lineDigits.endsWith(contactDigits) ||
+      contactDigits.endsWith(lineDigits))
+  ) {
+    return true;
+  }
+
+  const nameTokens = normalizeContactEvidenceV17_90L86(contact.contactName)
+    .split(/\s+/g)
+    .filter(
+      (token) =>
+        token.length >= 2 &&
+        !/^(?:herr|frau|mr|mrs|ms|mme|m)$/.test(token),
+    );
+  return nameTokens.length >= 1 && nameTokens.every((token) => normalizedLine.includes(token));
+}
+
 function normalizeAiContactChannelV17_90L86(
   value?: string | null,
 ): OnsiteContactChannel {
@@ -3191,9 +3302,42 @@ function collectStructuredRoleHintsV17_90L86(auftrag: any): string[] {
     ...(Array.isArray(auftrag?.parkhinweise) ? auftrag.parkhinweise : []),
     ...(Array.isArray(auftrag?.sonstige_hinweise) ? auftrag.sonstige_hinweise : []),
   ];
-  return values
-    .map((value) => String(value || "").replace(/\s+/g, " ").trim())
-    .filter((value) => value.length >= 3 && value.length <= 240);
+
+  const atomicHints: string[] = [];
+  for (const value of values) {
+    const sentences = String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split(/\n+|;\s+|(?<=[.!?])\s+/g)
+      .map((part) => String(part || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+
+    for (const sentence of sentences) {
+      const commaParts = sentence
+        .split(/,\s+(?=[\p{L}])/u)
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (commaParts.length <= 1) {
+        atomicHints.push(sentence);
+        continue;
+      }
+
+      for (const part of commaParts) {
+        // A bare access code belongs to the previous key/access fact. All other
+        // comma clauses are independent operational facts and must remain
+        // separately classifiable for key, parking, equipment and info chips.
+        if (/^(?:code|pin)\s*[:#-]?\s*[A-Za-z0-9-]{2,}$/i.test(part) && atomicHints.length > 0) {
+          atomicHints[atomicHints.length - 1] = `${atomicHints[atomicHints.length - 1]}, ${part}`;
+        } else {
+          atomicHints.push(part);
+        }
+      }
+    }
+  }
+
+  return atomicHints.filter(
+    (value) => value.length >= 3 && value.length <= 240,
+  );
 }
 
 function compactText(value: any): string {
@@ -8437,9 +8581,14 @@ ZIELE
 - Eine Aussage wie "nicht die normale Firmennummer anrufen, sondern Herr X unter 079..." bedeutet: Herr X / 079... ist der Auftragskontakt; nicht_anrufen = false, kanal = "anruf".
 - Eine Aussage wie "nur SMS, nicht anrufen" bedeutet: kanal = "sms", nicht_anrufen = true.
 - Name, Telefon und Kommunikationskanal dürfen niemals in die Ausführungsadresse gelangen.
+- Wenn die Nachricht ausdrücklich verlangt, einen bereits gespeicherten/bestehenden Kunden wiederzuverwenden:
+  kundenabgleich.reuse_requested = true und reuse_evidence = die konkrete lokale Textstelle.
+- In diesem Fall die vollständige, im Nachrichtentext genannte Firma mit bestehende_kunden vergleichen.
+  Nur bei genau einem eindeutigen vollständigen Namen bestehende_kunden_id setzen; niemals Stammdaten aus der Liste in kunde kopieren.
 - termine enthält pro realem Ausführungstermin genau einen Eintrag mit:
   art = "ausfuehrung", datum, von, bis, ankuendigung_minuten, ankuendigung_kanal, evidence.
 - Kontaktzeiten und Ressourcenzeiten (z.B. Lift erst ab 13 Uhr) sind KEINE Ausführungstermine. Dann art = "kontaktzeit" bzw. "ressourcenzeit" und sie dürfen keinen Terminchip erzeugen.
+- zugangshinweise, parkhinweise und sonstige_hinweise müssen atomar sein: pro Array-Eintrag genau eine fachliche Aussage. Schlüssel und zugehöriger Code bleiben gemeinsam; Parkplatz, Lift/Ausrüstung und sonstige Hinweise sind getrennte Einträge.
 - Zugang/Schlüssel/Code jeweils als kurze einzelne Einträge in zugangshinweise.
 - Parkplatz/Rampe/Anlieferung jeweils als kurze einzelne Einträge in parkhinweise.
 - Normale Ruhe-, Bewohner-, Kunden- oder Ablaufhinweise in sonstige_hinweise.
@@ -8732,6 +8881,8 @@ AUSGABEFORMAT
   "kundenabgleich": {
     "status": null,
     "bestehende_kunden_id": null,
+    "reuse_requested": false,
+    "reuse_evidence": null,
     "confidence": 0,
     "unterschiede": [],
     "warnung": ""
@@ -9526,7 +9677,7 @@ export async function processIncomingMessage(
   // --- Customer resolution based on kundenabgleich.status ---
   const abgleich = parsed.kundenabgleich || {};
   let abgleichStatus = abgleich.status || "kein_treffer";
-  const matchId = abgleich.bestehende_kunden_id || "";
+  let matchId = abgleich.bestehende_kunden_id || "";
 
   // Ensure address is split properly
   const kundeData = parsed.kunde || {};
@@ -9548,6 +9699,33 @@ export async function processIncomingMessage(
       `[${source}] 🛡️ onsite contact phone removed from customer data: ${maskPhoneForLog(kundeData.telefon || null)}`,
     );
     kundeData.telefon = null;
+  }
+
+  // V17.90L87: The model can occasionally omit kunde.name and matchId even
+  // though the message explicitly asks to reuse one already stored customer.
+  // Resolve only an exact, unique full customer-name mention. No master data is
+  // copied and ambiguous/name-only messages without reuse intent stay fail-closed.
+  if (
+    !matchId &&
+    hasExplicitStoredCustomerReuseIntentV17_90L87(
+      messageText,
+      parsed.kundenabgleich?.reuse_requested,
+    )
+  ) {
+    const mentionedCustomer = findUniqueMentionedCustomerV17_90L87(
+      messageText,
+      allCustomers,
+    );
+    if (mentionedCustomer) {
+      matchId = mentionedCustomer.id;
+      abgleichStatus = "moeglicher_treffer";
+      if (!String(kundeData.name || "").trim()) {
+        kundeData.name = mentionedCustomer.name;
+      }
+      console.log(
+        `[${source}] 🎯 EXPLICIT REUSE FALLBACK → candidate ${mentionedCustomer.name} (${mentionedCustomer.id})`,
+      );
+    }
   }
 
   // Block R — Safety-Net: Wenn die LLM keinen Namen extrahiert hat, aber der
@@ -10415,6 +10593,11 @@ export async function processIncomingMessage(
     onsiteContactHint,
   );
 
+  const structuredNonDangerRoleHintsV17_90L87 = dedupeSpecialNoteLines([
+    ...structuredRoleHintsV17_90L86,
+    onsiteContactHint.hint || "",
+  ]).filter(Boolean);
+
   let gefahrItems = dedupeSpecialNoteLines([
     ...rawGefahrenItems.map(stripSpecialMarker),
     ...gefahrItemsFromBesonderheiten,
@@ -10423,7 +10606,14 @@ export async function processIncomingMessage(
     .map(cleanOperationalHintForwarderTailV17_90L70)
     .filter(Boolean)
     .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
-    .filter((line) => !isNonActionableSpecialNoteCandidate(line));
+    .filter((line) => !isNonActionableSpecialNoteCandidate(line))
+    .filter(
+      (line) =>
+        !lineMatchesOnsiteContactIdentityV17_90L87(line, onsiteContactHint) &&
+        !structuredNonDangerRoleHintsV17_90L87.some((normalRole) =>
+          semanticRoleOverlapV17_90L87(line, normalRole),
+        ),
+    );
 
   let hinweisItems = reconcileCommunicationSpecialNoteLines(
     dedupeSpecialNoteLines(

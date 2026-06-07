@@ -2595,11 +2595,24 @@ const compactSingleAppointmentTooltipV17_90L86 = (
   fallbackLabel: string,
 ) => {
   const date = normalizeAppointmentDateLabel(sourceLine);
+  // Remove calendar dates before scanning times. Otherwise "22.06." is
+  // misread as the clock time 22:06 and produces "22:06–08:30".
+  const sourceWithoutDates = sourceLine.replace(
+    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/g,
+    " ",
+  );
   const times = Array.from(
-    sourceLine.matchAll(/\b([01]?\d|2[0-3])(?::|\.)(\d{2})\b/g),
-  ).map((match) => formatAppointmentTime(match[1], match[2]));
+    sourceWithoutDates.matchAll(
+      /\b([01]?\d|2[0-3]):(\d{2})\b|\b([01]?\d|2[0-3])\.(\d{2})\s*(?:Uhr|h)\b/gi,
+    ),
+  ).map((match) =>
+    formatAppointmentTime(match[1] || match[3], match[2] || match[4]),
+  );
+  const uniqueTimes = Array.from(new Set(times));
   const timeRange =
-    times.length >= 2 ? `${times[0]}–${times[1]}` : times[0] || "";
+    uniqueTimes.length >= 2
+      ? `${uniqueTimes[0]}–${uniqueTimes[1]}`
+      : uniqueTimes[0] || "";
   const notice = compactAppointmentNoticeV17_90L86(sourceLine);
   return [date, timeRange, notice].filter(Boolean).join(" · ") || fallbackLabel;
 };
@@ -3070,7 +3083,7 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
   if (contactLine || phone) {
     const line = contactLine || joined;
     const nameMatch = line.match(
-      /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:|dort\s+)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){0,2})\s*[,;·:\-–—]*\s*(?=\+?\d)/u,
+      /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:|dort\s+)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){0,3})\s*[,;·:\-–—]*\s*(?:(?:tel(?:efon)?|phone|mobile|handy|natel)\.?\s*:?\s*)?(?=\+?\d)/iu,
     );
     const contactParts = [nameMatch?.[1]?.trim() || "", phone];
     const contactContext = contactLine || line;
@@ -6503,6 +6516,17 @@ const isChannelOnlyContactLineForCommunicationChips = (
 
 const sanitizeCommunicationChipLineForCommunicationChips = (line: string) => {
   if (!isChannelOnlyContactLineForCommunicationChips(line)) return line;
+
+  // A structured on-site contact line is the authoritative action target.
+  // Never remove its phone merely because it also contains "nur SMS" or
+  // "nur WhatsApp"; otherwise the chip falls back to the office number.
+  if (
+    /^\s*(?:\[(?:HINWEIS|INFO|NOTIZ)\]\s*)?Kontakt\s+vor\s+Ort\s*:/i.test(
+      line,
+    )
+  ) {
+    return line;
+  }
 
   // V17.90L81: A whole WhatsApp order can arrive as one long line. Removing
   // every phone number from that mixed line also removes the explicit on-site
