@@ -12804,7 +12804,7 @@ export function extractExecutionAddressFromText(
     .split(/\n+|(?<=[.!?])\s+/g)
     .map((line) =>
       line
-        .replaceAll(protectedOrdinalMarker, ".")
+        .split(protectedOrdinalMarker).join(".")
         .trim(),
     )
     .filter(Boolean);
