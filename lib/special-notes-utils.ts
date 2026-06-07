@@ -582,7 +582,7 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
   const lines = text
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((line) => Boolean(line) && !/\[object Object\]/i.test(line));
 
   const systemHints: string[] = [];
   const safetyWarnings: string[] = [];
@@ -875,7 +875,7 @@ export function buildSpecialNotes(input: {
     ...dedupeSemanticLines(systemHints).map(stripKnownMarker),
   ]
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((line) => Boolean(line) && !/\[object Object\]/i.test(line));
 
   return Array.from(new Set(compactSpecialNoteLinesV17_27(lines))).join("\n");
 }

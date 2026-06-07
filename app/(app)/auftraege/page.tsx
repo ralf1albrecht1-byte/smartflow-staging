@@ -2460,6 +2460,10 @@ const extractAppointmentDetailsFromRawText = (
   let lastDetailIndex = -1;
 
   const pushDetail = (line: string) => {
+    // V17.90L88B: Only an explicit execution-appointment statement may create
+    // an appointment detail. A resource/operation time such as "Anlage erst ab
+    // 14:00" remains an ordinary hint and must never become a second Termin.
+    if (!hasExplicitAppointmentBadgeSignalV17_90L10(line)) return;
     const label = extractAppointmentDetailLabel(line);
     if (!label) return;
 
@@ -2538,6 +2542,7 @@ const extractAppointmentDetailsFromGroupedNotes = (
     const value = compactText(groupedMatch?.[2] || line);
     if (groupedMatch) currentSite = site;
 
+    if (!hasExplicitAppointmentBadgeSignalV17_90L10(value)) return;
     const label = extractAppointmentDetailLabel(value);
     if (!label) return;
 

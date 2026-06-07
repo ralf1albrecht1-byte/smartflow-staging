@@ -2808,6 +2808,54 @@ function findUniqueMentionedCustomerV17_90L87(
     : null;
 }
 
+function findPreferredStoredCustomerByExactNameV17_90L88B(
+  requestedName: unknown,
+  customers: Array<{
+    id: string;
+    name: string | null;
+    customerNumber?: string | null;
+    address?: string | null;
+    plz?: string | null;
+    city?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    notes?: string | null;
+  }>,
+): { id: string; name: string; customerNumber?: string | null } | null {
+  const requestedKey = normalizeCustomerIdentityV17_90L87(requestedName);
+  if (!requestedKey) return null;
+  const exact = customers
+    .filter(
+      (customer) =>
+        normalizeCustomerIdentityV17_90L87(customer.name) === requestedKey,
+    )
+    .map((customer) => {
+      const addressComplete = Boolean(
+        String(customer.address || "").trim() &&
+          String(customer.plz || "").trim() &&
+          String(customer.city || "").trim(),
+      );
+      const score =
+        (String(customer.customerNumber || "").trim() ? 100 : 0) +
+        (addressComplete ? 40 : 0) +
+        (String(customer.email || "").trim() ? 10 : 0) +
+        (String(customer.phone || "").trim() ? 8 : 0) -
+        (/entwurf|draft|prüfen|pruefen/i.test(String(customer.notes || ""))
+          ? 30
+          : 0);
+      return { customer, score };
+    })
+    .sort((left, right) => right.score - left.score);
+  if (exact.length === 0) return null;
+  if (exact.length > 1 && exact[0].score === exact[1].score) return null;
+  const selected = exact[0].customer;
+  return {
+    id: selected.id,
+    name: String(selected.name || "").trim(),
+    customerNumber: selected.customerNumber || null,
+  };
+}
+
 function semanticRoleOverlapV17_90L87(
   left: string | null | undefined,
   right: string | null | undefined,
@@ -3015,6 +3063,26 @@ function extractAiOnsiteContactHintV17_90L86(
     preferredChannel,
     noPhoneCall,
   });
+}
+
+function extractBillingPhoneBeforeExecutionMarkerV17_90L88B(
+  sourceValue: string | null | undefined,
+): string | null {
+  const source = String(sourceValue || "").replace(/\s+/g, " ").trim();
+  if (!source) return null;
+  const executionMarker = source.search(
+    /\b(?:arbeitsort|arbeitsadresse|ausführungsort|ausfuehrungsort|ausführungsadresse|ausfuehrungsadresse|einsatzort|job\s*site|work\s*location|work\s*site|chantier|lieu\s+d['’]?intervention|adresse\s+de\s+travail|vor\s+ort|on[-\s]?site|contact\s+sur\s+place)\b/i,
+  );
+  const billingScope = executionMarker > 0 ? source.slice(0, executionMarker) : source;
+  const matches = Array.from(
+    billingScope.matchAll(/\+?\d[\d\s()./-]{6,}\d/g),
+  )
+    .map((match) => String(match[0] || "").replace(/\s+/g, " ").trim())
+    .filter((candidate) => {
+      const digits = normalizePhoneDigits(candidate);
+      return digits.length >= 7 && digits.length <= 15;
+    });
+  return matches.length > 0 ? matches[matches.length - 1] : null;
 }
 
 function extractOnsiteContactHint(
@@ -3255,7 +3323,16 @@ function buildStructuredAppointmentHintsV17_90L86(
     const rawDate = appointment?.datum || appointment?.date || null;
     const rawStart = appointment?.von || appointment?.start || null;
     const rawEnd = appointment?.bis || appointment?.end || null;
-    const date = normalizeStructuredAppointmentDateV17_90L86(rawDate);
+    let date = normalizeStructuredAppointmentDateV17_90L86(rawDate);
+    if (date && /\.\d{4}$/.test(date)) {
+      const dayMonth = date.match(/^(\d{2})\.(\d{2})\./);
+      const sourceHasYear = dayMonth
+        ? new RegExp(
+            `(?:^|\\D)0?${Number(dayMonth[1])}[.\\/-]0?${Number(dayMonth[2])}[.\\/-]\\d{2,4}(?:$|\\D)`,
+          ).test(rawText)
+        : false;
+      if (!sourceHasYear) date = date.replace(/\.\d{4}$/, ".");
+    }
     const start = normalizeStructuredAppointmentTimeV17_90L86(rawStart);
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
 
@@ -3296,16 +3373,57 @@ function buildStructuredAppointmentHintsV17_90L86(
   return result;
 }
 
+function extractStructuredTextValuesV17_90L88B(
+  value: unknown,
+  depth = 0,
+): string[] {
+  if (depth > 3 || value == null) return [];
+  if (typeof value === "string") {
+    const text = value.replace(/\s+/g, " ").trim();
+    return text && text !== "[object Object]" ? [text] : [];
+  }
+  if (typeof value === "number" || typeof value === "boolean") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) =>
+      extractStructuredTextValuesV17_90L88B(entry, depth + 1),
+    );
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const preferredKeys = [
+      "text",
+      "hinweis",
+      "note",
+      "beschreibung",
+      "description",
+      "value",
+      "label",
+      "evidence",
+      "raw",
+      "sourceText",
+      "source_text",
+    ];
+    const preferred = preferredKeys.flatMap((key) =>
+      extractStructuredTextValuesV17_90L88B(record[key], depth + 1),
+    );
+    if (preferred.length > 0) return preferred;
+    return Object.values(record).flatMap((entry) =>
+      extractStructuredTextValuesV17_90L88B(entry, depth + 1),
+    );
+  }
+  return [];
+}
+
 function collectStructuredRoleHintsV17_90L86(auftrag: any): string[] {
   const values = [
-    ...(Array.isArray(auftrag?.zugangshinweise) ? auftrag.zugangshinweise : []),
-    ...(Array.isArray(auftrag?.parkhinweise) ? auftrag.parkhinweise : []),
-    ...(Array.isArray(auftrag?.sonstige_hinweise) ? auftrag.sonstige_hinweise : []),
+    ...extractStructuredTextValuesV17_90L88B(auftrag?.zugangshinweise),
+    ...extractStructuredTextValuesV17_90L88B(auftrag?.parkhinweise),
+    ...extractStructuredTextValuesV17_90L88B(auftrag?.sonstige_hinweise),
   ];
 
   const atomicHints: string[] = [];
   for (const value of values) {
-    const sentences = String(value || "")
+    const sentences = value
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n")
       .split(/\n+|;\s+|(?<=[.!?])\s+/g)
@@ -6440,10 +6558,20 @@ function buildCanonicalAiOrderItemsV17_90L88(
   return rawItems
     .map((raw, canonicalOrder) => {
       const sourceText = compactText(
-        raw?.evidence || raw?.source_text || raw?.raw || "",
+        raw?.sourceText ||
+          raw?.source_text ||
+          raw?.evidence ||
+          raw?.raw ||
+          raw?.description ||
+          "",
       );
       const rawServiceName = compactText(
-        raw?.name || raw?.action_name || raw?.service_name || "",
+        raw?.serviceName ||
+          raw?.name ||
+          raw?.action_name ||
+          raw?.service_name ||
+          raw?.matched_service_name ||
+          "",
       );
       const serviceName = rawServiceName
         ? `${rawServiceName.charAt(0).toUpperCase()}${rawServiceName.slice(1)}`
@@ -6455,24 +6583,31 @@ function buildCanonicalAiOrderItemsV17_90L88(
           ? "mittel"
           : "hoch";
       const unitPriceValue = Number(
-        String(raw?.unit_price ?? "").replace("'", "").replace(",", "."),
+        String(
+          raw?.unitPrice ?? raw?.unit_price ?? raw?.price ?? "",
+        )
+          .replace("'", "")
+          .replace(",", "."),
       );
       const unitPrice = Number.isFinite(unitPriceValue) && unitPriceValue > 0
         ? unitPriceValue
         : 0;
       const quantityValue = Number(
-        String(raw?.menge ?? "").replace("'", "").replace(",", "."),
+        String(raw?.quantity ?? raw?.menge ?? "")
+          .replace("'", "")
+          .replace(",", "."),
       );
       const sourceQuantity = detectAllQuantityUnitsFromText(sourceText)[0] || null;
-      const unitType = getServiceUnitType(raw?.einheit || null) !== "unknown"
-        ? getServiceUnitType(raw?.einheit || null)
+      const rawUnit = raw?.unit ?? raw?.einheit ?? null;
+      const unitType = getServiceUnitType(rawUnit) !== "unknown"
+        ? getServiceUnitType(rawUnit)
         : sourceQuantity?.unit ||
           (/\b(?:pauschal|fixpreis|festpreis|flat)\b/i.test(sourceText)
             ? "flat"
             : "unknown");
       const unit = unitType !== "unknown"
         ? unitTypeToDisplayUnit(unitType)
-        : compactText(raw?.einheit || "");
+        : compactText(rawUnit || "");
       let quantity = Number.isFinite(quantityValue) && quantityValue > 0
         ? quantityValue
         : sourceQuantity?.value || 0;
@@ -6733,49 +6868,69 @@ function reconcileWithCanonicalAiItemsV17_90L88(
     }
   }
 
+  // V17.90L88B: Once structured AI rows exist, later priced rows may not be
+  // appended. They are legacy reinterpretations and were the source of false
+  // duplicates such as a second 6 x CHF 28 row. A later row may survive only
+  // as a genuinely unresolved, line-local supplement (for example "Preis noch
+  // offen") that the model omitted from its workItems array.
+  const supplementalSeen = new Set<string>();
   for (const item of remaining) {
-    let nextItem = item;
-    let evidence = canonicalEvidenceKeyV17_90L88(
-      nextItem.sourceText || nextItem.evidence || nextItem.description,
-    );
-    let duplicatesCanonical = canonicalItems.some((canonical) => {
+    const price = Number(item.unitPrice || 0);
+    const quantity = Number(item.quantity || 0);
+    const total = Number(item.totalPrice || 0);
+    const isIncomplete =
+      Boolean(item.needsReview) &&
+      (price <= 0 || quantity <= 0 || total <= 0 || isReviewUnitV17_90L(item.unit));
+    if (!isIncomplete) continue;
+
+    const ownLine =
+      findOwnSourceLineForServiceV17_90L88(item.serviceName, originalText) ||
+      compactText(item.sourceText || item.evidence || item.description || "");
+    const ownEvidence = canonicalEvidenceKeyV17_90L88(ownLine);
+    if (!ownLine || !ownEvidence || ownLine.length > 420) continue;
+
+    const duplicatesCanonical = canonicalItems.some((canonical) => {
       const canonicalEvidence = canonicalEvidenceKeyV17_90L88(
         canonical.sourceText || canonical.evidence,
       );
       return Boolean(
-        evidence &&
-          canonicalEvidence &&
-          (evidence === canonicalEvidence ||
-            (evidence.length >= 16 &&
+        canonicalEvidence &&
+          (ownEvidence === canonicalEvidence ||
+            (ownEvidence.length >= 16 &&
               canonicalEvidence.length >= 16 &&
-              (evidence.includes(canonicalEvidence) ||
-                canonicalEvidence.includes(evidence)))),
+              (ownEvidence.includes(canonicalEvidence) ||
+                canonicalEvidence.includes(ownEvidence)))),
       );
     });
+    if (duplicatesCanonical || supplementalSeen.has(ownEvidence)) continue;
 
-    if (duplicatesCanonical) {
-      const ownLine = findOwnSourceLineForServiceV17_90L88(
-        nextItem.serviceName,
-        originalText,
+    // Fail closed: only a concrete unresolved source statement may be carried
+    // forward. A complete priced line omitted by the AI remains a recognition
+    // review instead of being silently injected by a legacy parser.
+    const explicitlyUnresolved =
+      /(?:preis|betrag|price|prix|prezzo|precio)\s*(?:noch\s*)?(?:offen|fehlt|unklar|missing|open|unknown|tbd)|(?:nach\s+aufwand|on\s+request|sur\s+demande)|(?:währung|waehrung|currency)\s*(?:prüfen|pruefen|check)/iu.test(
+        ownLine,
+      ) ||
+      Boolean(
+        item.detectedCurrency &&
+          finalCurrency &&
+          String(item.detectedCurrency).toUpperCase() !==
+            String(finalCurrency).toUpperCase(),
       );
-      const ownEvidence = canonicalEvidenceKeyV17_90L88(ownLine);
-      if (ownLine && ownEvidence && ownEvidence !== evidence) {
-        nextItem = {
-          ...nextItem,
-          description: ownLine,
-          sourceText: ownLine,
-          evidence: ownLine,
-        };
-        evidence = ownEvidence;
-        duplicatesCanonical = canonicalItems.some((canonical) =>
-          evidence === canonicalEvidenceKeyV17_90L88(
-            canonical.sourceText || canonical.evidence,
-          ),
-        );
-      }
-    }
+    if (!explicitlyUnresolved) continue;
 
-    if (!duplicatesCanonical) result.push(nextItem);
+    supplementalSeen.add(ownEvidence);
+    result.push({
+      ...item,
+      description: ownLine,
+      sourceText: ownLine,
+      evidence: ownLine,
+      quantity: quantity > 0 ? quantity : 1,
+      unit: !item.unit || isReviewUnitV17_90L(item.unit) ? "Pauschal" : item.unit,
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+    });
   }
 
   return dedupeEquivalentSourceRowsV17_90L81(result);
@@ -6788,11 +6943,31 @@ function preserveCanonicalStructuredRolesV17_90L88(args: {
   structuredRoleHints: string[];
 }): string | null {
   const parsed = splitSpecialNotes(args.specialNotes || "");
+  const canonicalContactParts = [
+    args.onsiteContact.contactName
+      ? `Kontakt vor Ort: ${args.onsiteContact.contactName}`
+      : args.onsiteContact.phone || args.onsiteContact.preferredChannel
+        ? "Kontakt vor Ort"
+        : "",
+    args.onsiteContact.phone ? `Tel. ${args.onsiteContact.phone}` : "",
+    args.onsiteContact.preferredChannel === "sms"
+      ? "nur SMS"
+      : args.onsiteContact.preferredChannel === "whatsapp"
+        ? "nur WhatsApp"
+        : args.onsiteContact.preferredChannel === "call"
+          ? "anrufen"
+          : "",
+    args.onsiteContact.noPhoneCall &&
+    args.onsiteContact.preferredChannel !== "call"
+      ? "nicht telefonisch"
+      : "",
+  ].filter(Boolean);
+  const canonicalContactHint = canonicalContactParts.join(", ");
   const protectedHints = dedupeSpecialNoteLines([
-    args.onsiteContact.hint || "",
+    canonicalContactHint || args.onsiteContact.hint || "",
     ...args.appointmentHints,
     ...args.structuredRoleHints,
-  ]).filter(Boolean);
+  ]).filter((hint) => hint && hint !== "[object Object]");
 
   const safetyWarnings = parsed.safetyWarnings.filter(
     (line) =>
@@ -6814,7 +6989,11 @@ function preserveCanonicalStructuredRolesV17_90L88(args: {
     .map((line) => line.trim())
     .filter(Boolean);
   const protectedLines = protectedHints.map((hint) => `[HINWEIS] ${hint}`);
-  return dedupeSpecialNoteLines([...baseLines, ...protectedLines]).join("\n") || null;
+  return (
+    dedupeSpecialNoteLines([...baseLines, ...protectedLines])
+      .filter((line) => !/\[object Object\]/i.test(line))
+      .join("\n") || null
+  );
 }
 
 function cleanVisibleReviewInstructionSuffixV17_90L76<
@@ -9686,7 +9865,17 @@ export async function processIncomingMessage(
   // that information to decide "gleicher_kunde" / "moeglicher_treffer".
   const allCustomers = await prisma.customer.findMany({
     where: { deletedAt: null, dataScope, ...userFilter },
-    select: { id: true, name: true },
+    select: {
+      id: true,
+      name: true,
+      customerNumber: true,
+      address: true,
+      plz: true,
+      city: true,
+      phone: true,
+      email: true,
+      notes: true,
+    },
     orderBy: { updatedAt: "desc" },
     take: 200,
   });
@@ -10182,6 +10371,30 @@ export async function processIncomingMessage(
     }
   }
 
+  if (
+    hasExplicitStoredCustomerReuseIntentV17_90L87(
+      messageText,
+      parsed.kundenabgleich?.reuse_requested,
+    )
+  ) {
+    const preferredStoredCustomerV17_90L88B =
+      findPreferredStoredCustomerByExactNameV17_90L88B(
+        kundeData.name,
+        allCustomers,
+      );
+    if (
+      preferredStoredCustomerV17_90L88B &&
+      preferredStoredCustomerV17_90L88B.id !== matchId
+    ) {
+      matchId = preferredStoredCustomerV17_90L88B.id;
+      abgleichStatus = "moeglicher_treffer";
+      kundeData.name = preferredStoredCustomerV17_90L88B.name;
+      console.log(
+        `[${source}] 🎯 PREFERRED COMPLETE CUSTOMER REUSE → ${preferredStoredCustomerV17_90L88B.name} (${preferredStoredCustomerV17_90L88B.customerNumber || preferredStoredCustomerV17_90L88B.id})`,
+      );
+    }
+  }
+
   // Block R — Safety-Net: Wenn die LLM keinen Namen extrahiert hat, aber der
   // Text eine eindeutige Selbstvorstellung enthält ("mein Name ist Aida",
   // "Ich heisse X", "Ich bin X" etc.), den Namen aus dem Text übernehmen.
@@ -10268,6 +10481,31 @@ export async function processIncomingMessage(
     customerGuardReviewReasons.push(customerGuard.reviewReason);
     parsed.system = parsed.system || {};
     parsed.system.needs_review = true;
+  }
+
+  // V17.90L88B: The operational contact must never become customer master
+  // data. Prefer a phone found inside the billing section before the first
+  // execution/contact marker; otherwise clear a phone that equals the onsite
+  // contact. Existing customer master data remains untouched later in the flow.
+  const billingSectionPhoneV17_90L88B =
+    extractBillingPhoneBeforeExecutionMarkerV17_90L88B(messageText);
+  const onsitePhoneDigitsV17_90L88B = normalizePhoneDigits(
+    onsiteContactHint.phone,
+  );
+  const guardedCustomerPhoneDigitsV17_90L88B = normalizePhoneDigits(
+    kundeData.telefon,
+  );
+  if (
+    billingSectionPhoneV17_90L88B &&
+    normalizePhoneDigits(billingSectionPhoneV17_90L88B) !==
+      onsitePhoneDigitsV17_90L88B
+  ) {
+    kundeData.telefon = billingSectionPhoneV17_90L88B;
+  } else if (
+    onsitePhoneDigitsV17_90L88B &&
+    guardedCustomerPhoneDigitsV17_90L88B === onsitePhoneDigitsV17_90L88B
+  ) {
+    kundeData.telefon = null;
   }
 
   function looksLikeWeakCityOnlyFromWorkText(
@@ -10953,20 +11191,15 @@ export async function processIncomingMessage(
   // [HINWEIS] = normal operational special note in the UI
   //
   // This avoids brittle language-specific keyword lists in the UI.
-  const toNoteArray = (value: any): string[] => {
-    if (Array.isArray(value)) {
-      return value.map((item) => String(item || "").trim()).filter(Boolean);
-    }
-
-    if (typeof value === "string" && value.trim()) {
-      return value
-        .split(/[,\n]+/)
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }
-
-    return [];
-  };
+  const toNoteArray = (value: any): string[] =>
+    extractStructuredTextValuesV17_90L88B(value)
+      .flatMap((text) =>
+        text
+          .split(/\n+/g)
+          .map((item) => item.trim())
+          .filter(Boolean),
+      )
+      .filter((item) => item !== "[object Object]");
 
   const safetyMarkerRe = /^\s*\[(GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i;
   const hintMarkerRe = /^\s*\[(HINWEIS|INFO|NOTIZ)\]\s*/i;
@@ -10987,13 +11220,13 @@ export async function processIncomingMessage(
   );
 
   const gefahrItemsFromBesonderheiten = rawBesonderheitenItems
-    .filter((line) => safetyMarkerRe.test(line) || isLikelySafetyWarning(line))
+    .filter((line) => safetyMarkerRe.test(line))
     .map(stripSpecialMarker)
     .filter(Boolean);
 
   const baseHinweisItems = rawBesonderheitenItems
     .filter(
-      (line) => !safetyMarkerRe.test(line) && !isLikelySafetyWarning(line),
+      (line) => !safetyMarkerRe.test(line),
     )
     .map(stripSpecialMarker)
     .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
@@ -11052,10 +11285,18 @@ export async function processIncomingMessage(
     onsiteContactHint.hint || "",
   ]).filter(Boolean);
 
+  const hasStructuredSafetyRoles =
+    rawGefahrenItems.length > 0 || gefahrItemsFromBesonderheiten.length > 0;
+  const hasStructuredOrdinaryRoles =
+    rawBesonderheitenItems.length > 0 ||
+    structuredRoleHintsV17_90L86.length > 0 ||
+    structuredAppointmentHintsV17_90L86.length > 0 ||
+    Boolean(onsiteContactHint.hint);
+
   let gefahrItems = dedupeSpecialNoteLines([
     ...rawGefahrenItems.map(stripSpecialMarker),
     ...gefahrItemsFromBesonderheiten,
-    ...semanticFallbackNotes.safetyWarnings,
+    ...(hasStructuredSafetyRoles ? [] : semanticFallbackNotes.safetyWarnings),
   ])
     .map(cleanOperationalHintForwarderTailV17_90L70)
     .filter(Boolean)
@@ -11075,7 +11316,9 @@ export async function processIncomingMessage(
         ...structuredRoleHintsV17_90L86,
         ...structuredAppointmentHintsV17_90L86,
         ...baseHinweisItems,
-        ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
+        ...(hasStructuredOrdinaryRoles
+          ? []
+          : semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine)),
         onsiteContactHint.hint || "",
       ]
         .map(canonicalizeSpecialNoteLine)
