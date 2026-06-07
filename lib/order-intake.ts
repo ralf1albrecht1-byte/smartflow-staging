@@ -7176,6 +7176,9 @@ function filterReadOnlyRiskWarningsV17_90L89(
   );
 
   return warnings.filter((warning) => {
+    // L98: shadow findings are log-only diagnostics and never become review
+    // reasons, chips or document blockers.
+    if (warning.startsWith("shadow_")) return false;
     if (recognitionWarningCoveredByCanonicalV17_90L89(warning, finalItems)) {
       return false;
     }
@@ -7310,10 +7313,23 @@ function preserveCanonicalStructuredRolesV17_90L88(args: {
   const baseLines = String(rebuiltBase || "")
     .split(/\n+/g)
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((line) => {
+      if (!canonicalContactHint) return true;
+      const cleaned = line.replace(/^\s*\[(?:HINWEIS|INFO|NOTIZ)\]\s*/i, "").trim();
+      const role = classifySpecialNoteRoleV17_90L93(cleaned);
+      if (role !== "communication") return true;
+      return (
+        semanticRoleOverlapV17_90L87(cleaned, canonicalContactHint) ||
+        lineMatchesOnsiteContactIdentityV17_90L87(cleaned, args.onsiteContact)
+      );
+    });
   const protectedLines = protectedHints.map((hint) => `[HINWEIS] ${hint}`);
   return (
-    dedupeSpecialNoteLines([...baseLines, ...protectedLines])
+    // Canonical first-AI roles come first. This makes the verified on-site
+    // contact the deterministic source for list chips and the info summary;
+    // later appointment/channel fragments cannot outrank it.
+    dedupeSpecialNoteLines([...protectedLines, ...baseLines])
       .filter((line) => !/\[object Object\]/i.test(line))
       .join("\n") || null
   );
@@ -13066,6 +13082,57 @@ export async function processIncomingMessage(
     intakeValidation.finalCurrency,
   );
 
+  // V17.90L98: Final source-of-truth invariant. No step after the canonical
+  // lock may silently alter a first-AI row. If a later amount/currency guard
+  // changed one, restore the canonical set once more. Only a still-unresolved
+  // invariant becomes a visible blocker; no wrong values are persisted quietly.
+  let canonicalPersistenceViolationV17_90L98 = false;
+  if (
+    canonicalAiOrderItemsV17_90L88.length > 0 &&
+    !canonicalItemsStableAfterValidationV17_90L89(
+      canonicalAiOrderItemsV17_90L88,
+      finalOrderItems,
+      intakeValidation.finalCurrency,
+    )
+  ) {
+    finalOrderItems = reconcileWithCanonicalAiItemsV17_90L88(
+      canonicalAiOrderItemsV17_90L88,
+      finalOrderItems,
+      intakeValidation.finalCurrency,
+      messageText,
+    );
+    finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
+      detectedCurrencies: intakeValidation.detectedCurrencies,
+      finalCurrency: intakeValidation.finalCurrency,
+    });
+    finalOrderItems = dedupeForeignCurrencyReviewItemsByOriginalSourceV17_90L43(
+      finalOrderItems,
+      messageText,
+      intakeValidation.finalCurrency,
+    );
+    canonicalPersistenceViolationV17_90L98 =
+      !canonicalItemsStableAfterValidationV17_90L89(
+        canonicalAiOrderItemsV17_90L88,
+        finalOrderItems,
+        intakeValidation.finalCurrency,
+      );
+  }
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "05c_final_source_of_truth",
+    {
+      canonicalCount: canonicalAiOrderItemsV17_90L88.length,
+      stable: !canonicalPersistenceViolationV17_90L98,
+      items: summarizeIntakeDiagnosticItems(finalOrderItems),
+    },
+  );
+  if (canonicalPersistenceViolationV17_90L98) {
+    console.error(
+      `[${source}] canonical persistence invariant unresolved; order remains blocked for manual review`,
+    );
+  }
+
   const aiExecutionAddress = parsed.auftrag?.ausfuehrungsadresse;
   const executionAddressCustomerContext = {
     customerAddress: addr.street || resolvedCustomerMaster?.address || null,
@@ -13401,6 +13468,9 @@ export async function processIncomingMessage(
     ...filteredValidationReviewReasonsV17_90L89,
     ...unitlessQuantityGuardBeforePersist.reviewReasons,
     ...structuralRiskReviewReasons,
+    ...(canonicalPersistenceViolationV17_90L98
+      ? ["canonical_persistence_violation"]
+      : []),
     ...(extractedExecutionAddress ? ["execution_address_detected"] : []),
   ]));
 
@@ -13416,7 +13486,8 @@ export async function processIncomingMessage(
       ["multi_image_overflow", "image_only_no_text"].includes(reason) ||
       reason.startsWith("unit_mismatch:") ||
       reason.startsWith("currency_") ||
-      reason.startsWith("intake_risk:"),
+      reason.startsWith("intake_risk:") ||
+      reason === "canonical_persistence_violation",
   )
     ? "warning"
     : needsReview

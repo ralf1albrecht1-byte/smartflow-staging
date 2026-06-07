@@ -427,6 +427,19 @@ function encodeRecognitionReviewWarningV17_90L69(
   return `recognition_review:${encodeURIComponent(JSON.stringify(payload))}`;
 }
 
+// V17.90L98: Fully priced rows discovered only by the legacy whole-message
+// checker are diagnostic shadow findings. They may be logged for comparison,
+// but they must never create visible review chips or alter the first AI result.
+function encodeShadowRecognitionWarningV17_90L98(
+  explicit: ParsedOrderItemForValidation,
+): string {
+  return `shadow_${encodeRecognitionReviewWarningV17_90L69(explicit)}`;
+}
+
+function isShadowOnlyRiskWarningV17_90L98(warning: string): boolean {
+  return warning.startsWith("shadow_");
+}
+
 // V17.90L90: The second checker may surface a plausible service with an
 // explicitly open price as a read-only recognition proposal. It must never add
 // the service automatically. The user resolves it through Übernehmen or
@@ -535,11 +548,19 @@ function isSafeSecondaryRecognitionCandidateV17_90L91(
   // Generic approximation words such as "ungefähr" are intentionally not
   // sufficient because they commonly describe arrival times, weights or
   // durations rather than a service price.
-  const hasExplicitOpenPriceSignal =
-    /\b(?:preis\s+(?:noch\s+)?(?:offen|unklar|unbekannt|folgt|zu\s+pruefen|muss\s+(?:noch\s+)?(?:geprueft|abgeklaert)\s+werden)|nach\s+aufwand|price\s+(?:open|unclear|tbd|to\s+check)|prix\s+(?:ouvert|incertain|a\s+verifier)|prezzo\s+(?:aperto|da\s+definire))\b/i.test(
-      sourceKey,
-    );
-  if (!hasExplicitOpenPriceSignal) return false;
+  const openPriceSignalPattern =
+    /\b(?:preis\s+(?:noch\s+)?(?:offen|unklar|unbekannt|folgt|zu\s+pruefen|muss\s+(?:noch\s+)?(?:geprueft|abgeklaert)\s+werden)|nach\s+aufwand|price\s+(?:open|unclear|tbd|to\s+check)|prix\s+(?:ouvert|incertain|a\s+verifier)|prezzo\s+(?:aperto|da\s+definire))\b/i;
+  const openPriceMatch = sourceKey.match(openPriceSignalPattern);
+  if (!openPriceMatch) return false;
+
+  // A safe proposal must describe one line-local service. A comma/semicolon
+  // list of several already parsed services followed by one open-price phrase
+  // is a broad summary, not evidence for a single missing position.
+  const openSignalIndex = openPriceMatch.index ?? sourceKey.length;
+  const serviceScope = sourceKey.slice(0, openSignalIndex);
+  const structuralSeparators = serviceScope.match(/[,;|]/g)?.length || 0;
+  const nameSeparators = serviceName.match(/[,;|]/g)?.length || 0;
+  if (structuralSeparators >= 2 || nameSeparators >= 2) return false;
 
   // Structural role guard: a proposed service line must not be a phone,
   // e-mail, date/time or address sentence. This does not use service-word
@@ -632,15 +653,15 @@ function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInpu
     );
 
     if (uncoveredExplicitItems.length > 0) {
-      // Fail closed, but never silently: every explicit priced source line that
-      // is missing or bound to the wrong service becomes a concrete red
-      // "Erkennung prüfen" reason. The payload is only evidence metadata; this
-      // read-only validator still does not add, rename or price any service.
-      warnings.push("priced_service_line_missing_or_mismatched");
+      // L98 shadow mode: the old whole-message checker remains observable in
+      // logs, but it can no longer challenge or duplicate a complete first-AI
+      // result. Only explicit open-price candidates from the validated
+      // secondary-candidate channel remain user-actionable below.
+      warnings.push("shadow_priced_service_line_missing_or_mismatched");
       warnings.push(
         ...uncoveredExplicitItems
           .slice(0, 12)
-          .map(encodeRecognitionReviewWarningV17_90L69),
+          .map(encodeShadowRecognitionWarningV17_90L98),
       );
     }
   }
@@ -735,12 +756,15 @@ export function runReadOnlyIntakeRiskValidator(
 
   warnings.push(...globalOrderGateWarningsV17_90L24(input));
 
+  const actionableWarnings = warnings.filter(
+    (warning) => !isShadowOnlyRiskWarningV17_90L98(warning),
+  );
   const riskLevel: ReadOnlyIntakeRiskValidatorResult["riskLevel"] =
-    hasMultipleCurrencies || hasUnsupportedCurrency || warnings.some((warning) =>
+    hasMultipleCurrencies || hasUnsupportedCurrency || actionableWarnings.some((warning) =>
       /^(special_notes_polluted|appointment_note_incomplete|appointment_hint_missing|item_evidence_not_line_local|service_name_unresolved|priced_item_total_blocked|priced_service_line_missing_or_mismatched|recognition_review:|order_total_mismatch)/.test(warning),
     )
       ? "critical"
-      : warnings.length > 0
+      : actionableWarnings.length > 0
         ? "warning"
         : "none";
 
