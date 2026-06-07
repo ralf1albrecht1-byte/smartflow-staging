@@ -2005,7 +2005,7 @@ function cleanExecutionSiteNameCandidate(
   if (blockedExact.has(normalized)) return null;
 
   const looksLikeOperationalOrSafetyInstruction =
-    /\b(?:kein(?:e|en|em)?\s+(?:hund|tiere?|tier)|keine\s+tiere|hund\s+(?:vor\s+ort|befindet|ist|laeuft|läuft|frei|im)|dog\s+(?:is|runs|free)|chien|perro|cane|tor\s+(?:bitte|geschlossen|schliessen|schließen|zu)|tiere?\s+(?:im\s+gebaeude|im\s+gebäude|erlaubt|verboten)|ankunft|empfang|anmelden|melden|nicht\s+einfach|vorher|zuerst|kontakt|whatsapp|sms|telefon|phone|schluessel|schlussel|schlüssel|code|zugang|hinweis|achtung|warnung|gefahr)\b/i.test(
+    /\b(?:kein(?:e|en|em)?\s+(?:hund|tiere?|tier)|keine\s+tiere|hund\s+(?:vor\s+ort|befindet|ist|laeuft|läuft|frei|im)|dog\s+(?:is|runs|free)|chien|perro|cane|tor\s+(?:bitte|geschlossen|schliessen|schließen|zu)|tiere?\s+(?:im\s+gebaeude|im\s+gebäude|erlaubt|verboten)|ankunft|(?:beim|am|zum)\s+empfang|empfang\s+(?:schluessel|schlussel|schlüssel|key|code|kontakt|telefon)|anmelden|melden|nicht\s+einfach|vorher|zuerst|kontakt|whatsapp|sms|telefon|phone|schluessel|schlussel|schlüssel|code|zugang|hinweis|achtung|warnung|gefahr)\b/i.test(
       normalized,
     );
 
@@ -2456,8 +2456,11 @@ function repairExecutionSiteNameFromText(args: {
 }
 
 
+// V17.90L84: "Empfang" kann ein echter Teil des Objekt-/Bereichsnamens sein
+// (z. B. "Konferenzraum und Empfang"). Nur ein klarer Zugangskontext am
+// Empfang beendet den Adress-/Objektblock.
 const EXECUTION_ADDRESS_OPERATIONAL_BOUNDARY_V17_90L39 =
-  /\b(?:schlüssel|schluessel|schlussel|key|zugang|zutritt|eingang|vor\s+ort|rezeption|reception|empfang|concierge|hauswart|hausmeister|code|torcode|zugangscode|schlüsselbox|schluesselbox|briefkasten|parkieren|parken|parkplatz|parking|termin|datum|uhrzeit|kontakt(?:person)?|ansprechperson|telefon|tel\.?|handy|natel|whatsapp|sms|e-?mail)\b/i;
+  /\b(?:schlüssel|schluessel|schlussel|key|zugang|zutritt|eingang|vor\s+ort|rezeption|reception|(?:beim|am|zum)\s+empfang|empfang\s+(?:schlüssel|schluessel|schlussel|key|code|kontakt|telefon)|concierge|hauswart|hausmeister|code|torcode|zugangscode|schlüsselbox|schluesselbox|briefkasten|parkieren|parken|parkplatz|parking|termin|datum|uhrzeit|kontakt(?:person)?|ansprechperson|telefon|tel\.?|handy|natel|whatsapp|sms|e-?mail)\b/i;
 
 function stripExecutionOperationalTailV17_90L39(
   value?: string | null,
@@ -2711,8 +2714,11 @@ function extractOnsiteContactHint(
     .map((line) => line.trim())
     .filter(Boolean);
 
+  // V17.90L84: Mehrsprachige Vor-Ort-Kontakte strukturell erkennen.
+  // "onsite Sarah Miller ..." und "Vor Ort Ansprechpartnerin: ..." dürfen
+  // nicht auf eine nackte Telefonnummer reduziert werden.
   const explicitMarkerRe =
-    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht))\b/i;
+    /\b(kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort\s+(?:öffnet|oeffnet|ist|macht)|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
   const roleMarkerRe =
     /\b(hauswart|hausmeister|hausdienst|concierge|caretaker|gardien|facility\s+manager)\b/i;
   const anyMarkerRe = new RegExp(
@@ -2722,16 +2728,28 @@ function extractOnsiteContactHint(
   const stopRe =
     /^(besonderheiten|leistungsübersicht|leistungsuebersicht|leistungen|titel|rechnung|rechnungsadresse|kunde|arbeitsort|objekt|termin|datum|fecha|date|data\s+lavoro|date\s+souhaitée|date\s+souhaitee)\s*:?/i;
 
-  const cleanContactLine = (line: string, stripExplicitMarker: boolean) =>
-    line
+  const cleanContactLine = (line: string, stripExplicitMarker: boolean) => {
+    const markerMatch = stripExplicitMarker ? line.match(explicitMarkerRe) : null;
+    const scopedLine =
+      markerMatch && markerMatch.index != null
+        ? line.slice(markerMatch.index)
+        : line;
+
+    return scopedLine
       .replace(stripExplicitMarker ? explicitMarkerRe : /^\b$/i, "")
       .replace(
         /\b(?:tel\.?|telefon|phone|mobile|handy|natel)\b\s*[:.]?.*$/i,
         "",
       )
-      .replace(/^[\s:.-]+|[\s:.-]+$/g, "")
+      .replace(/\+?\d[\d\s()./-]{6,}\d/g, " ")
+      .replace(
+        /\b(?:text\s+message|sms|whats\s*app|please\s+(?:text|message|call)|bitte\s+(?:per\s+)?(?:sms|whatsapp|anrufen)|before\s+arrival|vor\s+ankunft|leistungen?|services?)\b.*$/i,
+        "",
+      )
+      .replace(/^[\s:.,-]+|[\s:.,-]+$/g, "")
       .replace(/\s+/g, " ")
       .trim();
+  };
 
   for (let index = 0; index < lines.length; index += 1) {
     if (!anyMarkerRe.test(lines[index])) continue;

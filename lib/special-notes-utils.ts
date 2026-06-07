@@ -131,6 +131,14 @@ const isEquipmentOnlyWarningLineV17_34 = (value: string): boolean => {
     );
   if (isParkingOrQuietHint) return true;
 
+  // V17.90L84: Ressourcen-/Zugangszeiten und Kommunikationsanweisungen sind
+  // wichtige operative Hinweise, aber keine roten Gefahren.
+  const isOperationalScheduleOrCommunicationHint =
+    /\b(?:genaue\s+zeit\b.{0,80}\b(?:mitteilen|melden)|(?:lift|aufzug)\b.{0,100}\b(?:reserviert|verfuegbar|verfügbar|erst\s+ab|ab\s+\d{1,2}(?::\d{2})?\s*uhr))\b/.test(
+      text,
+    );
+  if (isOperationalScheduleOrCommunicationHint) return true;
+
   // Eine Leiter ist Ausrüstung/Arbeitsmittel, kein roter Gefahrenhinweis.
   // Echte Gefahren wie Gas, Rauch, Strom, Rutschgefahr usw. bleiben rot.
   const hasLadder = /\bleiter\b|\bladder\b|\bechelle\b|\bescalera\b|\bscala\b|\bescada\b/.test(text);
@@ -152,17 +160,22 @@ const normalizeParkingDisplayV17_90L57 = (value: string): string => {
   if (!raw) return "";
 
   const visitor = raw.match(
-    /\bBesucherparkplatz\s*(?:Nr\.?|Nummer)?\s*([A-Za-z0-9-]+)?/i,
+    /\bBesucherparkplatz\s*(?:Nr\.?|Nummer)?\s*([A-Za-z-]*\d+[A-Za-z0-9-]*)?/i,
   );
   const generic = raw.match(
-    /\bParkplatz\s*(?:Nr\.?|Nummer)?\s*([A-Za-z0-9-]+)?/i,
+    /\bParkplatz\s*(?:Nr\.?|Nummer)?\s*([A-Za-z-]*\d+[A-Za-z0-9-]*)?/i,
   );
   const match = visitor || generic;
   if (!match) return raw;
 
   const number = String(match[1] || "").trim();
+  // V17.90L84: Ein Wort nach "Parkplatz" ist nicht automatisch eine
+  // Platznummer. "Parkplatz Anlieferung maximal 30 Minuten" muss vollständig
+  // erhalten bleiben; nur echte Nummern/IDs werden kompakt normalisiert.
+  if (!number) return raw;
+
   const label = visitor ? "Besucherparkplatz" : "Parkplatz";
-  const parking = `${label}${number ? ` ${number}` : ""}`;
+  const parking = `${label} ${number}`;
   const mentionsVehicle =
     /\b(?:lieferwagen|fahrzeug|transporter|auto|van)\b/i.test(raw);
 

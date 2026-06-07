@@ -1995,6 +1995,14 @@ const splitAppointmentSources = (
     // split after the date dot and the real time stays visible on the chip.
     const compactRaw = compactText(raw);
     if (compactRaw) sources.push(compactRaw);
+
+    // V17.90L84: In chaotischen Einzeilern kann der echte Termin mitten in
+    // Kontakt-/Zugangstext stehen. Den expliziten Terminabschnitt zusätzlich
+    // isolieren, damit ein anderer Kontaktzeit-Hinweis nicht die ganze Zeile
+    // als Rückrufzeit ausfiltert.
+    extractEmbeddedAppointmentLinesV17_90L80(raw).forEach((line) =>
+      sources.push(line),
+    );
   });
 
   return Array.from(new Set(sources));
@@ -2084,6 +2092,7 @@ const extractAppointmentBadge = (
   if (
     !text ||
     isCallbackTimeLine(raw) ||
+    isResourceAvailabilityTimeLineV17_90L84(raw) ||
     (isPreArrivalInstructionLine(raw) && !hasConcreteAppointmentSignal) ||
     isNonActionableSemanticHint(raw) ||
     isNonActionableAppointmentHint(raw) ||
@@ -2297,6 +2306,27 @@ const hasExplicitAppointmentBadgeSignalV17_90L10 = (value?: string | null) => {
   return hasExplicitIntent || ((hasRelativeDay || hasWeekday) && hasExecutionAction);
 };
 
+const isResourceAvailabilityTimeLineV17_90L84 = (
+  value?: string | null,
+) => {
+  const text = normalizeForMatch(value);
+  if (!text || hasAppointmentIntentWord(value)) return false;
+
+  const hasTime = /\b(?:[01]?\d|2[0-3])(?::|\.)?\d{0,2}\s*(?:uhr|h)?\b/.test(
+    text,
+  );
+  if (!hasTime) return false;
+
+  return (
+    /\b(?:lift|aufzug|rampe|empfang|rezeption|reception|zugang|badge|schluessel|schlussel|schlüssel)\b/.test(
+      text,
+    ) &&
+    /\b(?:reserviert|verfuegbar|verfügbar|offen|oeffnet|öffnet|erst\s+ab|ab|nach)\b/.test(
+      text,
+    )
+  );
+};
+
 const hasValidAppointmentDateParts = (day?: string, month?: string) => {
   const d = Number(day);
   const m = Number(month);
@@ -2342,7 +2372,8 @@ const extractAppointmentDetailLabel = (value: string) => {
   if (
     !raw ||
     isAppointmentContactTimeLine(raw) ||
-    isPreArrivalInstructionLine(raw)
+    isPreArrivalInstructionLine(raw) ||
+    isResourceAvailabilityTimeLineV17_90L84(raw)
   )
     return "";
   if (
@@ -2625,7 +2656,11 @@ const getMultipleAppointmentBadge = (
     const source = [detail.site, detail.address, detail.label, detail.reason]
       .filter(Boolean)
       .join(" ");
-    if (isAppointmentContactTimeLine(source)) return false;
+    if (
+      isAppointmentContactTimeLine(source) ||
+      isResourceAvailabilityTimeLineV17_90L84(source)
+    )
+      return false;
 
     // Do not show a bare time as appointment if the same time is already used
     // by the callback/contact chip.
@@ -2723,7 +2758,7 @@ type OrderInfoSummaryV17_65 = {
 const isPrimaryOrderInfoHintV17_65 = (value?: string | null) => {
   const text = normalizeForMatch(value);
   if (!text) return false;
-  return /\b(?:termin|zeitfenster|ankunft|ankommen|vorher|zuerst|kontakt vor ort|kontaktperson|ansprechperson|sms|whatsapp|telefonisch|anrufen|rueckruf|nicht einfach|ankuendigung|empfang|zugang|besucherausweis|melden)\b/.test(text);
+  return /\b(?:termin|zeitfenster|ankunft|ankommen|vorher|zuerst|genaue\s+zeit|kontakt vor ort|kontaktperson|ansprechperson|sms|whatsapp|telefonisch|anrufen|rueckruf|nicht einfach|ankuendigung|empfang|zugang|besucherausweis|melden|(?:lift|aufzug)\b.{0,80}\b(?:reserviert|verfuegbar|verfügbar|erst\s+ab))\b/.test(text);
 };
 
 const extractOrderAppointmentSnippetsV17_65 = (value?: string | null) => {
@@ -3070,20 +3105,38 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
           .filter(Boolean),
       ),
     );
-    const badgeAtReception = normalizedAccessLines.some((line) =>
+    const accessKeyV17_90L84 = (line: string) =>
+      normalizeForMatch(line)
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    const dedupedAccessLines = Array.from(
+      normalizedAccessLines.reduce((map, line) => {
+        const key = accessKeyV17_90L84(line);
+        if (!key) return map;
+        const existing = map.get(key);
+        // Behalte bei gleicher Aussage die besser lesbare Variante mit
+        // Satzzeichen, aber zeige sie nur einmal.
+        if (!existing || (/[,:;]/.test(line) && !/[,:;]/.test(existing))) {
+          map.set(key, line);
+        }
+        return map;
+      }, new Map<string, string>()),
+    ).map(([, line]) => line);
+    const badgeAtReception = dedupedAccessLines.some((line) =>
       /\bbadge\b/i.test(line) && /\bempfang\b/i.test(line),
     );
-    const noCode = normalizedAccessLines.some((line) =>
+    const noCode = dedupedAccessLines.some((line) =>
       /\b(?:kein\s+code|code\s+gibt\s+es\s+keinen|ohne\s+code)\b/i.test(
         line,
       ),
     );
-    const badgeTarget = normalizedAccessLines
+    const badgeTarget = dedupedAccessLines
       .map((line) => line.match(/\b([A-ZÄÖÜ][\p{L}'’\-]*raum)\b/u)?.[1] || "")
       .find(Boolean);
     const accessValue = badgeAtReception
       ? `${badgeTarget ? `${badgeTarget}: ` : ""}Badge beim Empfang${noCode ? ", kein Code" : ""}`
-      : normalizedAccessLines.join(" · ");
+      : dedupedAccessLines.join(" · ");
     pushUnique(`Zugang: ${accessValue}`);
   }
 
