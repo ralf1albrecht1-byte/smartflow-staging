@@ -2848,7 +2848,11 @@ export default function AngebotePage() {
       </div>
 
       <div className="space-y-1.5">
-        {(() => {
+        {dialogOpen ? (
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Liste pausiert während der Bearbeitung, damit Eingaben auch bei vielen Angeboten flüssig bleiben.
+          </div>
+        ) : (() => {
           const filteredOffers = offers
             .filter((off: Offer) => {
               // "Alle" zeigt wirklich alle Angebotsstatus, einschließlich Angenommen.

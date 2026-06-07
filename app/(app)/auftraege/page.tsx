@@ -13165,7 +13165,11 @@ export default function AuftraegePage() {
       </div>
 
       <div className="space-y-1.5">
-        {filtered?.length === 0 ? (
+        {dialogOpen ? (
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Liste pausiert während der Bearbeitung, damit Eingaben auch bei vielen Aufträgen flüssig bleiben.
+          </div>
+        ) : filtered?.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">
             Keine Aufträge gefunden
           </p>
@@ -13986,7 +13990,7 @@ export default function AuftraegePage() {
           })
         )}
 
-        {filtered.length > visibleCount && (
+        {!dialogOpen && filtered.length > visibleCount && (
           <div className="text-center pt-4">
             <Button
               variant="outline"

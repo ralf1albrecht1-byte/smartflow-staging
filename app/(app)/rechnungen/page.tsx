@@ -1229,7 +1229,11 @@ export default function RechnungenPage() {
       </div>
 
       <div className="space-y-1.5">
-        {(() => {
+        {dialogOpen ? (
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Liste pausiert während der Bearbeitung, damit Eingaben auch bei vielen Rechnungen flüssig bleiben.
+          </div>
+        ) : (() => {
           const filteredInv = sorted.filter((inv: Invoice) => {
             if (filterStatus === "Offen" && inv.status === "Bezahlt")
               return false;

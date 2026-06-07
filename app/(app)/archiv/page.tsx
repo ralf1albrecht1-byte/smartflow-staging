@@ -20,6 +20,7 @@ export default function ArchivPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [visibleCount, setVisibleCount] = useState(30);
   const [sortBy, setSortBy] = useState('newest');
   const [yearFilter, setYearFilter] = useState<string>('all');
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -101,6 +102,10 @@ const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' 
     });
 
   const isFilterActive = yearFilter !== 'all' || search.trim().length > 0;
+
+  useEffect(() => {
+    setVisibleCount(30);
+  }, [search, sortBy, yearFilter]);
 
   // --- Export logic (independent from list filters) ---
   // Derive available months for the selected export year
@@ -466,7 +471,7 @@ const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' 
 
       <div className="space-y-1">
         {filtered.length === 0 ? <p className="text-center text-muted-foreground py-8">{invoices.length === 0 ? 'Keine archivierten Rechnungen vorhanden' : 'Keine Treffer für die aktuelle Auswahl'}</p> :
-          filtered.map((inv, i) => {
+          filtered.slice(0, visibleCount).map((inv, i) => {
             const itemDescs = inv.items?.map((it: any) => it.description).filter(Boolean).join(', ') || '–';
             return (
               <motion.div key={inv.id} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}>
@@ -536,6 +541,13 @@ const invoiceCurrency = (inv: Invoice): 'CHF' | 'EUR' => inv.currency === 'EUR' 
               </motion.div>
             );
           })}
+        {filtered.length > visibleCount && (
+          <div className="text-center pt-4">
+            <Button variant="outline" onClick={() => setVisibleCount((v) => v + 30)}>
+              Mehr laden ({filtered.length - visibleCount} weitere)
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Stage L (2026-04-25) — confirmation dialog for permanent invoice delete */}
