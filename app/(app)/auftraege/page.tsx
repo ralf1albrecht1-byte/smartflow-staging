@@ -2862,9 +2862,16 @@ const buildOrderInfoSummaryV17_65 = (
 ): OrderInfoSummaryV17_65 => {
   const isDogLine = (line: string) =>
     /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
-  const source = [order.specialNotes, order.notes, order.audioTranscript]
+  // V17.90L83: The Info chip/dialog must be built from the normalized
+  // operational notes. The full customer message is only a legacy fallback.
+  // Mixing audioTranscript back into an already structured order reintroduced
+  // English/raw forwarding sentences and duplicated access instructions.
+  const structuredSource = [order.specialNotes, order.notes]
+    .map((value) => String(value || "").trim())
     .filter(Boolean)
     .join("\n");
+  const source =
+    structuredSource || String(order.audioTranscript || "").trim();
   const inline = extractInlineOrderInfoSnippetsV17_90L80(source);
 
   const splitInfoClausesV17_90L81 = (line: string) =>
@@ -3054,11 +3061,13 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
   });
   if (accessLines.length > 0) {
     const normalizedAccessLines = uniqueOrderInfoLinesV17_66(
-      accessLines.map((line) =>
+      accessLines.flatMap((line) =>
         line
           .replace(/^\s*zugang\s*:?\s*/i, "")
           .replace(/[.;]+$/g, "")
-          .trim(),
+          .split(/\s+[·|]\s+/g)
+          .map((part) => part.trim())
+          .filter(Boolean),
       ),
     );
     const badgeAtReception = normalizedAccessLines.some((line) =>

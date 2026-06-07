@@ -12605,7 +12605,21 @@ function isSameAddress(args: {
 function getExecutionAddressCandidates(lines: string[], markerIndex: number) {
   const blockLines: string[] = [];
   const markerLine = lines[markerIndex] || "";
-  const sameLine = stripMarker(markerLine);
+
+  // V17.90L83: Scope the first candidate to the explicit execution marker.
+  // A compact message can contain the billing address before "work location"
+  // on the same line. Keeping that prefix allowed the billing street/name to
+  // win over the later, correct execution address.
+  const hardMarkerIndex = markerLine.search(EXECUTION_ADDRESS_MARKER);
+  const softMarkerIndex = markerLine.search(SOFT_EXECUTION_ADDRESS_LINE_PATTERN);
+  const scopedMarkerIndex =
+    hardMarkerIndex >= 0
+      ? hardMarkerIndex
+      : softMarkerIndex >= 0
+        ? softMarkerIndex
+        : 0;
+  const markerScopedLine = markerLine.slice(scopedMarkerIndex);
+  const sameLine = stripMarker(markerScopedLine);
 
   if (sameLine && !STOP_MARKER.test(sameLine)) blockLines.push(sameLine);
 
@@ -12777,9 +12791,22 @@ export function extractExecutionAddressFromText(
   )
     return null;
 
-  const lines = source
+  // V17.90L83: Protect ordinal floor notation such as "4. Stock" from the
+  // sentence splitter. Otherwise a one-line work-location block is cut before
+  // its street, and the fallback can accidentally reuse the earlier billing
+  // address from the same message.
+  const protectedOrdinalMarker = "__EXECUTION_ORDINAL_DOT_V17_90L83__";
+  const protectedSource = source.replace(
+    /\b(\d{1,2})\.\s+(?=(?:stock|etage|geschoss|ober(?:geschoss)?|unter(?:geschoss)?|og|ug)\b)/giu,
+    `$1${protectedOrdinalMarker} `,
+  );
+  const lines = protectedSource
     .split(/\n+|(?<=[.!?])\s+/g)
-    .map((line) => line.trim())
+    .map((line) =>
+      line
+        .replaceAll(protectedOrdinalMarker, ".")
+        .trim(),
+    )
     .filter(Boolean);
 
   for (let index = 0; index < lines.length; index += 1) {
