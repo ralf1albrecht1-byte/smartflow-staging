@@ -2824,30 +2824,49 @@ function findPreferredStoredCustomerByExactNameV17_90L88B(
 ): { id: string; name: string; customerNumber?: string | null } | null {
   const requestedKey = normalizeCustomerIdentityV17_90L87(requestedName);
   if (!requestedKey) return null;
+
   const exact = customers
+    .map((customer, sourceOrder) => ({ customer, sourceOrder }))
     .filter(
-      (customer) =>
+      ({ customer }) =>
         normalizeCustomerIdentityV17_90L87(customer.name) === requestedKey,
     )
-    .map((customer) => {
+    .map(({ customer, sourceOrder }) => {
       const addressComplete = Boolean(
         String(customer.address || "").trim() &&
           String(customer.plz || "").trim() &&
           String(customer.city || "").trim(),
       );
+      const masterComplete = Boolean(
+        String(customer.customerNumber || "").trim() && addressComplete,
+      );
       const score =
+        (masterComplete ? 200 : 0) +
         (String(customer.customerNumber || "").trim() ? 100 : 0) +
         (addressComplete ? 40 : 0) +
         (String(customer.email || "").trim() ? 10 : 0) +
         (String(customer.phone || "").trim() ? 8 : 0) -
         (/entwurf|draft|prüfen|pruefen/i.test(String(customer.notes || ""))
-          ? 30
+          ? 60
           : 0);
-      return { customer, score };
+
+      return { customer, score, sourceOrder };
     })
-    .sort((left, right) => right.score - left.score);
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.sourceOrder - right.sourceOrder ||
+        String(left.customer.customerNumber || "").localeCompare(
+          String(right.customer.customerNumber || ""),
+        ),
+    );
+
   if (exact.length === 0) return null;
-  if (exact.length > 1 && exact[0].score === exact[1].score) return null;
+
+  // V17.90L89: Name-identische Kunden dürfen nicht dazu führen, dass ein
+  // unvollständiger Entwurf gewinnt. Die DB-Abfrage ist bereits nach updatedAt
+  // absteigend sortiert. Bei gleichem Qualitätswert gewinnt deshalb
+  // deterministisch der aktuellste vollständige Datensatz.
   const selected = exact[0].customer;
   return {
     id: selected.id,
@@ -3415,47 +3434,50 @@ function extractStructuredTextValuesV17_90L88B(
 }
 
 function collectStructuredRoleHintsV17_90L86(auftrag: any): string[] {
-  const values = [
-    ...extractStructuredTextValuesV17_90L88B(auftrag?.zugangshinweise),
-    ...extractStructuredTextValuesV17_90L88B(auftrag?.parkhinweise),
-    ...extractStructuredTextValuesV17_90L88B(auftrag?.sonstige_hinweise),
-  ];
+  const splitAtomic = (values: string[]) =>
+    values.flatMap((value) =>
+      String(value || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split(/\n+|;\s+|(?<=[.!?])\s+/g)
+        .map((part) => String(part || "").replace(/\s+/g, " ").trim())
+        .filter(Boolean),
+    );
 
-  const atomicHints: string[] = [];
-  for (const value of values) {
-    const sentences = value
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .split(/\n+|;\s+|(?<=[.!?])\s+/g)
-      .map((part) => String(part || "").replace(/\s+/g, " ").trim())
-      .filter(Boolean);
+  const accessHints = splitAtomic(
+    extractStructuredTextValuesV17_90L88B(auftrag?.zugangshinweise),
+  );
+  const parkingHints = splitAtomic(
+    extractStructuredTextValuesV17_90L88B(auftrag?.parkhinweise),
+  );
+  const ordinaryHints = splitAtomic(
+    extractStructuredTextValuesV17_90L88B(auftrag?.sonstige_hinweise),
+  );
 
-    for (const sentence of sentences) {
-      const commaParts = sentence
-        .split(/,\s+(?=[\p{L}])/u)
-        .map((part) => part.trim())
-        .filter(Boolean);
-      if (commaParts.length <= 1) {
-        atomicHints.push(sentence);
-        continue;
-      }
-
-      for (const part of commaParts) {
-        // A bare access code belongs to the previous key/access fact. All other
-        // comma clauses are independent operational facts and must remain
-        // separately classifiable for key, parking, equipment and info chips.
-        if (/^(?:code|pin)\s*[:#-]?\s*[A-Za-z0-9-]{2,}$/i.test(part) && atomicHints.length > 0) {
-          atomicHints[atomicHints.length - 1] = `${atomicHints[atomicHints.length - 1]}, ${part}`;
-        } else {
-          atomicHints.push(part);
-        }
-      }
+  // V17.90L89: Die KI-Rollen sind kanonisch. Kommas innerhalb einer bereits
+  // strukturierten Rolle werden nicht mehr blind zerlegt. Dadurch bleiben
+  // "Schlüssel beim Empfang, Zugangscode 7719" und
+  // "Parkplatz Besucherfeld 6, maximal 30 Minuten" jeweils eine Aussage.
+  const mergedAccessHints: string[] = [];
+  for (const hint of accessHints) {
+    if (
+      /^(?:(?:zugangs?|tor|schlüssel|schluessel)?code|pin)\s*[:#-]?\s*[A-Za-z0-9-]{2,}$/i.test(
+        hint,
+      ) &&
+      mergedAccessHints.length > 0
+    ) {
+      mergedAccessHints[mergedAccessHints.length - 1] =
+        `${mergedAccessHints[mergedAccessHints.length - 1]}, ${hint}`;
+    } else {
+      mergedAccessHints.push(hint);
     }
   }
 
-  return atomicHints.filter(
-    (value) => value.length >= 3 && value.length <= 240,
-  );
+  return dedupeSpecialNoteLines([
+    ...mergedAccessHints,
+    ...parkingHints,
+    ...ordinaryHints,
+  ]).filter((value) => value.length >= 3 && value.length <= 240);
 }
 
 function compactText(value: any): string {
@@ -6531,12 +6553,21 @@ function restoreUniqueStructuredOrderItemsV17_90L76(
 }
 
 
-// V17.90L88: The structured LLM result is the canonical intake source.
-// Later validators may add review state, but they must not silently remove,
-// rename or rebind a correctly structured position to another evidence line.
+// V17.90L89: The structured LLM result is the canonical intake source.
+// Legacy validators are read-only advisers from this point on. They may create
+// review suggestions, but they may not replace a value that the first model
+// supplied with line-local evidence.
+type CanonicalUnitSourceV17_90L89 =
+  | "ai"
+  | "evidence"
+  | "structural_piece"
+  | "structural_flat"
+  | "missing";
+
 type CanonicalAiOrderItemV17_90L88 = StructuredOrderItemSnapshotV17_90L76 & {
   canonicalOrder: number;
   confidence: string;
+  unitSource: CanonicalUnitSourceV17_90L89;
 };
 
 function canonicalEvidenceKeyV17_90L88(value: unknown): string {
@@ -6548,6 +6579,63 @@ function canonicalServiceKeyV17_90L88(value: unknown): string {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function parsePositiveCanonicalNumberV17_90L89(value: unknown): number {
+  const parsed = Number(
+    String(value ?? "")
+      .replace(/'/g, "")
+      .replace(",", "."),
+  );
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function extractLeadingCountFromEvidenceV17_90L89(
+  value: unknown,
+): number {
+  const source = compactText(value);
+  const match = source.match(
+    /^\s*[-•]?\s*(\d+(?:[.,]\d+)?)\s+(?=[\p{L}])/u,
+  );
+  return parsePositiveCanonicalNumberV17_90L89(match?.[1]);
+}
+
+function evidenceSupportsStructuralPieceUnitV17_90L89(
+  sourceText: string,
+  quantity: number,
+): boolean {
+  const leadingCount = extractLeadingCountFromEvidenceV17_90L89(sourceText);
+  if (
+    leadingCount <= 0 ||
+    quantity <= 0 ||
+    Math.abs(leadingCount - quantity) >= 0.0001
+  ) {
+    return false;
+  }
+
+  if (/\b(?:pauschal|fixpreis|festpreis|flat\s*fee)\b/i.test(sourceText)) {
+    return false;
+  }
+
+  // A leading count plus its own price relation is a general count structure,
+  // independent of the service vocabulary: "18 X à CHF 14", "6 Y je CHF 28".
+  return /(?:\b(?:je|each|per|pro)\b|à)\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?)\s*)?\d/i.test(
+    sourceText,
+  );
+}
+
+function evidenceSupportsStructuralFlatUnitV17_90L89(
+  sourceText: string,
+  quantity: number,
+  unitPrice: number,
+): boolean {
+  if (quantity > 0 || unitPrice <= 0) return false;
+  if (extractLeadingCountFromEvidenceV17_90L89(sourceText) > 0) return false;
+
+  const moneyMatches = sourceText.match(
+    /(?:CHF|EUR|USD|GBP|SFR|Fr\.?|€|\$)\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:CHF|EUR|USD|GBP|SFR|Fr\.?|€|\$)/gi,
+  );
+  return (moneyMatches?.length || 0) === 1;
 }
 
 function buildCanonicalAiOrderItemsV17_90L88(
@@ -6577,43 +6665,77 @@ function buildCanonicalAiOrderItemsV17_90L88(
         ? `${rawServiceName.charAt(0).toUpperCase()}${rawServiceName.slice(1)}`
         : "";
       const confidenceKey = normalizeUnitText(raw?.confidence || "");
-      const confidence = confidenceKey.includes("niedrig") || confidenceKey.includes("low")
-        ? "niedrig"
-        : confidenceKey.includes("mittel") || confidenceKey.includes("medium")
-          ? "mittel"
-          : "hoch";
-      const unitPriceValue = Number(
-        String(
-          raw?.unitPrice ?? raw?.unit_price ?? raw?.price ?? "",
-        )
-          .replace("'", "")
-          .replace(",", "."),
+      const confidence =
+        confidenceKey.includes("niedrig") || confidenceKey.includes("low")
+          ? "niedrig"
+          : confidenceKey.includes("mittel") ||
+              confidenceKey.includes("medium")
+            ? "mittel"
+            : "hoch";
+
+      const unitPrice = parsePositiveCanonicalNumberV17_90L89(
+        raw?.unitPrice ?? raw?.unit_price ?? raw?.price,
       );
-      const unitPrice = Number.isFinite(unitPriceValue) && unitPriceValue > 0
-        ? unitPriceValue
-        : 0;
-      const quantityValue = Number(
-        String(raw?.quantity ?? raw?.menge ?? "")
-          .replace("'", "")
-          .replace(",", "."),
+      const rawQuantity = parsePositiveCanonicalNumberV17_90L89(
+        raw?.quantity ?? raw?.menge,
       );
-      const sourceQuantity = detectAllQuantityUnitsFromText(sourceText)[0] || null;
+      const sourceQuantity =
+        detectAllQuantityUnitsFromText(sourceText)[0] || null;
+      const leadingCount =
+        extractLeadingCountFromEvidenceV17_90L89(sourceText);
+      let quantity =
+        rawQuantity || sourceQuantity?.value || leadingCount || 0;
+
       const rawUnit = raw?.unit ?? raw?.einheit ?? null;
-      const unitType = getServiceUnitType(rawUnit) !== "unknown"
-        ? getServiceUnitType(rawUnit)
-        : sourceQuantity?.unit ||
-          (/\b(?:pauschal|fixpreis|festpreis|flat)\b/i.test(sourceText)
-            ? "flat"
-            : "unknown");
-      const unit = unitType !== "unknown"
-        ? unitTypeToDisplayUnit(unitType)
-        : compactText(rawUnit || "");
-      let quantity = Number.isFinite(quantityValue) && quantityValue > 0
-        ? quantityValue
-        : sourceQuantity?.value || 0;
+      const rawUnitType = getServiceUnitType(rawUnit);
+      const sourceUnitType = sourceQuantity?.unit || "unknown";
+      let unitType =
+        rawUnitType !== "unknown"
+          ? rawUnitType
+          : sourceUnitType !== "unknown"
+            ? sourceUnitType
+            : "unknown";
+      let unitSource: CanonicalUnitSourceV17_90L89 =
+        rawUnitType !== "unknown"
+          ? "ai"
+          : sourceUnitType !== "unknown"
+            ? "evidence"
+            : "missing";
+
+      if (
+        unitType === "unknown" &&
+        /\b(?:pauschal|fixpreis|festpreis|flat\s*fee)\b/i.test(sourceText)
+      ) {
+        unitType = "flat";
+        unitSource = "evidence";
+      } else if (
+        unitType === "unknown" &&
+        evidenceSupportsStructuralPieceUnitV17_90L89(sourceText, quantity)
+      ) {
+        unitType = "piece";
+        unitSource = "structural_piece";
+      } else if (
+        unitType === "unknown" &&
+        evidenceSupportsStructuralFlatUnitV17_90L89(
+          sourceText,
+          quantity,
+          unitPrice,
+        )
+      ) {
+        unitType = "flat";
+        unitSource = "structural_flat";
+      }
+
       if (quantity <= 0 && unitType === "flat" && unitPrice > 0) quantity = 1;
 
-      const detectedCurrency = compactText(raw?.currency || "").toUpperCase() || null;
+      const unit =
+        unitType !== "unknown"
+          ? unitTypeToDisplayUnit(unitType)
+          : compactText(rawUnit || "");
+      const detectedCurrency =
+        compactText(raw?.currency || detectCurrencyFromText(sourceText) || "")
+          .toUpperCase() || null;
+
       const safeName = Boolean(
         serviceName &&
           serviceName.length >= 4 &&
@@ -6645,7 +6767,10 @@ function buildCanonicalAiOrderItemsV17_90L88(
         quantity,
         unit: unit || "Einheit prüfen",
         unitPrice,
-        totalPrice: unitPrice > 0 && quantity > 0 ? roundIntakeMoney(unitPrice * quantity) : 0,
+        totalPrice:
+          unitPrice > 0 && quantity > 0 && !missingUnit
+            ? roundIntakeMoney(unitPrice * quantity)
+            : 0,
         needsReview,
         reviewReason,
         sourceText,
@@ -6653,6 +6778,7 @@ function buildCanonicalAiOrderItemsV17_90L88(
         detectedCurrency,
         canonicalOrder,
         confidence,
+        unitSource,
       } as CanonicalAiOrderItemV17_90L88;
     })
     .filter(Boolean) as CanonicalAiOrderItemV17_90L88[];
@@ -6755,6 +6881,8 @@ function reconcileWithCanonicalAiItemsV17_90L88(
   for (const canonical of [...canonicalItems].sort(
     (a, b) => a.canonicalOrder - b.canonicalOrder,
   )) {
+    // The legacy list is consulted only to consume duplicates. Its values and
+    // review flags are never copied into the canonical row.
     let selectedIndex = -1;
     let selectedScore = -1;
     remaining.forEach((candidate, index) => {
@@ -6768,10 +6896,10 @@ function reconcileWithCanonicalAiItemsV17_90L88(
         selectedIndex = index;
       }
     });
+    if (selectedScore >= 36 && selectedIndex >= 0) {
+      remaining.splice(selectedIndex, 1);
+    }
 
-    const selected = selectedScore >= 36 && selectedIndex >= 0
-      ? remaining.splice(selectedIndex, 1)[0]
-      : null;
     const canonicalCurrency = String(
       canonical.detectedCurrency || finalCurrency || "",
     ).toUpperCase();
@@ -6780,15 +6908,9 @@ function reconcileWithCanonicalAiItemsV17_90L88(
         finalCurrency &&
         canonicalCurrency !== String(finalCurrency).toUpperCase(),
     );
-    const quantity = canonical.quantity > 0
-      ? canonical.quantity
-      : Number(selected?.quantity || 0);
-    const unit = !isReviewUnitV17_90L(canonical.unit)
-      ? canonical.unit
-      : selected?.unit || canonical.unit;
-    const unitPrice = canonical.unitPrice > 0
-      ? canonical.unitPrice
-      : Number(selected?.unitPrice || 0);
+    const quantity = Number(canonical.quantity || 0);
+    const unit = canonical.unit || "Einheit prüfen";
+    const unitPrice = Number(canonical.unitPrice || 0);
     const missingPrice = unitPrice <= 0;
     const missingQuantity = quantity <= 0;
     const missingUnit = !unit || isReviewUnitV17_90L(unit);
@@ -6800,22 +6922,16 @@ function reconcileWithCanonicalAiItemsV17_90L88(
           ? `quantity_review:${canonical.serviceName}`
           : missingUnit
             ? `unit_missing_in_text:${canonical.serviceName}`
-            : selected?.reviewReason || canonical.reviewReason || null;
+            : null;
     const needsReview = Boolean(
-      isForeignCurrency ||
-        missingPrice ||
-        missingQuantity ||
-        missingUnit ||
-        selected?.needsReview ||
-        canonical.needsReview,
+      isForeignCurrency || missingPrice || missingQuantity || missingUnit,
     );
 
     result.push({
-      ...(selected || canonical),
       serviceName: canonical.serviceName,
       description: canonical.sourceText || canonical.description,
       quantity,
-      unit: unit || "Einheit prüfen",
+      unit,
       unitPrice: isForeignCurrency ? 0 : unitPrice,
       totalPrice:
         !isForeignCurrency && !missingPrice && !missingQuantity && !missingUnit
@@ -6825,7 +6941,7 @@ function reconcileWithCanonicalAiItemsV17_90L88(
       reviewReason,
       sourceText: canonical.sourceText,
       evidence: canonical.evidence || canonical.sourceText,
-      detectedCurrency: canonicalCurrency || selected?.detectedCurrency || null,
+      detectedCurrency: canonicalCurrency || null,
     });
 
     const canonicalEvidence = canonicalEvidenceKeyV17_90L88(
@@ -6845,34 +6961,14 @@ function reconcileWithCanonicalAiItemsV17_90L88(
             (canonicalEvidence.includes(candidateEvidence) ||
               candidateEvidence.includes(canonicalEvidence))))
       ) {
-        const candidateName = canonicalServiceKeyV17_90L88(
-          remaining[index].serviceName,
-        );
-        const canonicalName = canonicalServiceKeyV17_90L88(
-          canonical.serviceName,
-        );
-        const sameSemanticService = Boolean(
-          candidateName &&
-            canonicalName &&
-            (candidateName === canonicalName ||
-              candidateName.includes(canonicalName) ||
-              canonicalName.includes(candidateName)),
-        );
-        if (
-          sameSemanticService ||
-          isInternalReviewServiceNameV17_90L(remaining[index].serviceName || "")
-        ) {
-          remaining.splice(index, 1);
-        }
+        remaining.splice(index, 1);
       }
     }
   }
 
-  // V17.90L88B: Once structured AI rows exist, later priced rows may not be
-  // appended. They are legacy reinterpretations and were the source of false
-  // duplicates such as a second 6 x CHF 28 row. A later row may survive only
-  // as a genuinely unresolved, line-local supplement (for example "Preis noch
-  // offen") that the model omitted from its workItems array.
+  // A later parser may contribute only a genuinely unresolved line that the
+  // first model omitted. Complete priced lines become review suggestions via
+  // the read-only risk validator; they are never injected automatically.
   const supplementalSeen = new Set<string>();
   for (const item of remaining) {
     const price = Number(item.unitPrice || 0);
@@ -6880,7 +6976,10 @@ function reconcileWithCanonicalAiItemsV17_90L88(
     const total = Number(item.totalPrice || 0);
     const isIncomplete =
       Boolean(item.needsReview) &&
-      (price <= 0 || quantity <= 0 || total <= 0 || isReviewUnitV17_90L(item.unit));
+      (price <= 0 ||
+        quantity <= 0 ||
+        total <= 0 ||
+        isReviewUnitV17_90L(item.unit));
     if (!isIncomplete) continue;
 
     const ownLine =
@@ -6904,9 +7003,6 @@ function reconcileWithCanonicalAiItemsV17_90L88(
     });
     if (duplicatesCanonical || supplementalSeen.has(ownEvidence)) continue;
 
-    // Fail closed: only a concrete unresolved source statement may be carried
-    // forward. A complete priced line omitted by the AI remains a recognition
-    // review instead of being silently injected by a legacy parser.
     const explicitlyUnresolved =
       /(?:preis|betrag|price|prix|prezzo|precio)\s*(?:noch\s*)?(?:offen|fehlt|unklar|missing|open|unknown|tbd)|(?:nach\s+aufwand|on\s+request|sur\s+demande)|(?:währung|waehrung|currency)\s*(?:prüfen|pruefen|check)/iu.test(
         ownLine,
@@ -6926,7 +7022,10 @@ function reconcileWithCanonicalAiItemsV17_90L88(
       sourceText: ownLine,
       evidence: ownLine,
       quantity: quantity > 0 ? quantity : 1,
-      unit: !item.unit || isReviewUnitV17_90L(item.unit) ? "Pauschal" : item.unit,
+      unit:
+        !item.unit || isReviewUnitV17_90L(item.unit)
+          ? "Pauschal"
+          : item.unit,
       unitPrice: 0,
       totalPrice: 0,
       needsReview: true,
@@ -6934,6 +7033,216 @@ function reconcileWithCanonicalAiItemsV17_90L88(
   }
 
   return dedupeEquivalentSourceRowsV17_90L81(result);
+}
+
+function canonicalItemsStableAfterValidationV17_90L89(
+  canonicalItems: CanonicalAiOrderItemV17_90L88[],
+  finalItems: StructuredOrderItemSnapshotV17_90L76[],
+  finalCurrency: string,
+): boolean {
+  if (canonicalItems.length === 0) return false;
+
+  return canonicalItems.every((canonical) => {
+    const evidenceKey = canonicalEvidenceKeyV17_90L88(
+      canonical.sourceText || canonical.evidence,
+    );
+    const expectedCurrency = String(
+      canonical.detectedCurrency || finalCurrency || "",
+    ).toUpperCase();
+
+    return finalItems.some((item) => {
+      const itemEvidenceKey = canonicalEvidenceKeyV17_90L88(
+        item.sourceText || item.evidence || item.description,
+      );
+      const sameEvidence = Boolean(
+        evidenceKey &&
+          itemEvidenceKey &&
+          (evidenceKey === itemEvidenceKey ||
+            (evidenceKey.length >= 16 &&
+              itemEvidenceKey.length >= 16 &&
+              (evidenceKey.includes(itemEvidenceKey) ||
+                itemEvidenceKey.includes(evidenceKey)))),
+      );
+      const sameName =
+        canonicalServiceKeyV17_90L88(item.serviceName) ===
+        canonicalServiceKeyV17_90L88(canonical.serviceName);
+      const sameQuantity =
+        Math.abs(
+          Number(item.quantity || 0) - Number(canonical.quantity || 0),
+        ) < 0.0001;
+      const foreignCurrency =
+        expectedCurrency &&
+        finalCurrency &&
+        expectedCurrency !== String(finalCurrency).toUpperCase();
+      const samePrice = foreignCurrency
+        ? Number(item.unitPrice || 0) === 0
+        : Math.abs(
+            Number(item.unitPrice || 0) -
+              Number(canonical.unitPrice || 0),
+          ) < 0.0001;
+      const sameUnit =
+        isReviewUnitV17_90L(canonical.unit) ||
+        getServiceUnitType(item.unit) === getServiceUnitType(canonical.unit);
+
+      return sameEvidence && sameName && sameQuantity && samePrice && sameUnit;
+    });
+  });
+}
+
+function recognitionWarningCoveredByCanonicalV17_90L89(
+  warning: string,
+  finalItems: StructuredOrderItemSnapshotV17_90L76[],
+): boolean {
+  if (!warning.startsWith("recognition_review:")) return false;
+  try {
+    const raw = decodeURIComponent(warning.slice("recognition_review:".length));
+    const payload = JSON.parse(raw) as {
+      serviceName?: string;
+      quantity?: number;
+      unitPrice?: number;
+      sourceText?: string;
+    };
+    const serviceKey = canonicalServiceKeyV17_90L88(payload.serviceName);
+    const evidenceKey = canonicalEvidenceKeyV17_90L88(payload.sourceText);
+    return finalItems.some((item) => {
+      const itemServiceKey = canonicalServiceKeyV17_90L88(item.serviceName);
+      const itemEvidenceKey = canonicalEvidenceKeyV17_90L88(
+        item.sourceText || item.evidence || item.description,
+      );
+      const sameService =
+        serviceKey &&
+        itemServiceKey &&
+        (serviceKey === itemServiceKey ||
+          serviceKey.includes(itemServiceKey) ||
+          itemServiceKey.includes(serviceKey));
+      const sameEvidence =
+        !evidenceKey ||
+        !itemEvidenceKey ||
+        evidenceKey === itemEvidenceKey ||
+        evidenceKey.includes(itemEvidenceKey) ||
+        itemEvidenceKey.includes(evidenceKey);
+      const sameQuantity =
+        Number(payload.quantity || 0) <= 0 ||
+        Math.abs(
+          Number(item.quantity || 0) - Number(payload.quantity || 0),
+        ) < 0.0001;
+      const samePrice =
+        Number(payload.unitPrice || 0) <= 0 ||
+        Math.abs(
+          Number(item.unitPrice || 0) - Number(payload.unitPrice || 0),
+        ) < 0.0001;
+      return Boolean(
+        sameService &&
+          sameEvidence &&
+          sameQuantity &&
+          samePrice &&
+          !isReviewUnitV17_90L(item.unit) &&
+          Number(item.totalPrice || 0) > 0,
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+function filterReadOnlyRiskWarningsV17_90L89(
+  warnings: string[],
+  canonicalItems: CanonicalAiOrderItemV17_90L88[],
+  finalItems: StructuredOrderItemSnapshotV17_90L76[],
+  finalCurrency: string,
+): string[] {
+  const stable = canonicalItemsStableAfterValidationV17_90L89(
+    canonicalItems,
+    finalItems,
+    finalCurrency,
+  );
+  const remainingRecognitionWarnings = warnings.filter(
+    (warning) =>
+      warning.startsWith("recognition_review:") &&
+      !recognitionWarningCoveredByCanonicalV17_90L89(warning, finalItems),
+  );
+
+  return warnings.filter((warning) => {
+    if (recognitionWarningCoveredByCanonicalV17_90L89(warning, finalItems)) {
+      return false;
+    }
+    if (
+      stable &&
+      (warning === "item_evidence_not_line_local" ||
+        warning === "priced_service_line_missing_or_mismatched")
+    ) {
+      return false;
+    }
+    if (
+      stable &&
+      warning === "recognition_review" &&
+      remainingRecognitionWarnings.length === 0
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function filterLegacyValidationReviewReasonsV17_90L89(
+  reasons: string[],
+  finalItems: StructuredOrderItemSnapshotV17_90L76[],
+  finalCurrency: string,
+): string[] {
+  const hasForeignCurrencyItem = finalItems.some((item) => {
+    const detected = String(item.detectedCurrency || "").toUpperCase();
+    return Boolean(
+      detected &&
+        finalCurrency &&
+        detected !== String(finalCurrency).toUpperCase(),
+    );
+  });
+  const hasOpenPrice = finalItems.some(
+    (item) => Number(item.unitPrice || 0) <= 0,
+  );
+  const hasOpenQuantity = finalItems.some(
+    (item) =>
+      !isReviewUnitV17_90L(item.unit) &&
+      getServiceUnitType(item.unit) !== "flat" &&
+      Number(item.quantity || 0) <= 0,
+  );
+
+  const finalItemReasons = new Set(
+    finalItems
+      .map((item) => String(item.reviewReason || ""))
+      .filter(Boolean),
+  );
+
+  return Array.from(new Set(reasons)).filter((reason) => {
+    if (
+      reason === "currency_review" ||
+      reason === "currency_conflict" ||
+      reason === "currency_unsupported"
+    ) {
+      return hasForeignCurrencyItem;
+    }
+    if (
+      reason.startsWith("item_currency_mismatch:") ||
+      reason.startsWith("currency_conflict_item:")
+    ) {
+      return hasForeignCurrencyItem && finalItemReasons.has(reason);
+    }
+    if (reason.startsWith("price_unclear:")) {
+      return hasOpenPrice && finalItemReasons.has(reason);
+    }
+    if (
+      reason.startsWith("quantity_review:") ||
+      reason.startsWith("unit_missing_in_text:")
+    ) {
+      return finalItemReasons.has(reason);
+    }
+    if (reason === "unit_price_review") return hasOpenPrice;
+    if (reason === "quantity_review") return hasOpenQuantity;
+
+    // All repair/canonicalization messages are internal diagnostics. They may
+    // no longer create visible review chips after the canonical lock.
+    return false;
+  });
 }
 
 function preserveCanonicalStructuredRolesV17_90L88(args: {
@@ -6983,6 +7292,7 @@ function preserveCanonicalStructuredRolesV17_90L88(args: {
   const rebuiltBase = buildSpecialNotes({
     safetyWarnings,
     jobHints: ordinaryHints,
+    preserveStructuredRoles: true,
   });
   const baseLines = String(rebuiltBase || "")
     .split(/\n+/g)
@@ -11361,6 +11671,8 @@ export async function processIncomingMessage(
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,
     jobHints: hinweisItems,
+    preserveStructuredRoles:
+      hasStructuredSafetyRoles || hasStructuredOrdinaryRoles,
   });
 
   let finalSpecialNotes = preserveCanonicalStructuredRolesV17_90L88({
@@ -12631,6 +12943,20 @@ export async function processIncomingMessage(
     intakeValidation.finalCurrency,
     messageText,
   );
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "05b_canonical_lock",
+    {
+      canonicalCount: canonicalAiOrderItemsV17_90L88.length,
+      stable: canonicalItemsStableAfterValidationV17_90L89(
+        canonicalAiOrderItemsV17_90L88,
+        finalOrderItems,
+        intakeValidation.finalCurrency,
+      ),
+      items: summarizeIntakeDiagnosticItems(finalOrderItems),
+    },
+  );
   finalOrderItems = applyFinalAmountBlockersBeforePersist(finalOrderItems, {
     detectedCurrencies: intakeValidation.detectedCurrencies,
     finalCurrency: intakeValidation.finalCurrency,
@@ -12801,9 +13127,18 @@ export async function processIncomingMessage(
     );
   }
 
-  const structuralRiskReviewReasons = readOnlyRiskValidator.warnings.map(
-    (warning) => `intake_risk:${warning}`,
-  );
+  const filteredReadOnlyRiskWarningsV17_90L89 =
+    filterReadOnlyRiskWarningsV17_90L89(
+      readOnlyRiskValidator.warnings,
+      canonicalAiOrderItemsV17_90L88,
+      finalOrderItems,
+      intakeValidation.finalCurrency,
+    );
+
+  const structuralRiskReviewReasons =
+    filteredReadOnlyRiskWarningsV17_90L89.map(
+      (warning) => `intake_risk:${warning}`,
+    );
 
   if (structuralRiskReviewReasons.length > 0) {
     parsed.system = parsed.system || {};
@@ -12950,20 +13285,29 @@ export async function processIncomingMessage(
     baseReviewReasons.push("image_only_no_text");
   }
 
-  const allReviewReasons: string[] = [
+  const filteredValidationReviewReasonsV17_90L89 =
+    filterLegacyValidationReviewReasonsV17_90L89(
+      intakeValidation.reviewReasons,
+      finalOrderItems,
+      intakeValidation.finalCurrency,
+    );
+
+  const allReviewReasons: string[] = Array.from(new Set([
     ...(additionalReviewReasons || []),
     ...baseReviewReasons,
     ...customerGuardReviewReasons,
     ...quantityReviewReasons,
     ...unitMismatchReasons,
-    ...intakeValidation.reviewReasons,
+    ...filteredValidationReviewReasonsV17_90L89,
     ...unitlessQuantityGuardBeforePersist.reviewReasons,
     ...structuralRiskReviewReasons,
     ...(extractedExecutionAddress ? ["execution_address_detected"] : []),
-  ];
+  ]));
 
   if (autoReuseTags.length > 0) {
-    allReviewReasons.push(...autoReuseTags);
+    for (const tag of autoReuseTags) {
+      if (!allReviewReasons.includes(tag)) allReviewReasons.push(tag);
+    }
   }
 
   const needsReview = !!forceReview || allReviewReasons.length > 0;

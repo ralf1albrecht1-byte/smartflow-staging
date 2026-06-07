@@ -3056,7 +3056,13 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
     const digits = value.replace(/\D/g, "");
     return digits.length >= 7 && digits.length <= 15;
   };
+  const canonicalContactLine = source.find((line) =>
+    /^\s*(?:\[(?:HINWEIS|INFO|NOTIZ)\]\s*)?Kontakt\s+vor\s+Ort\s*:/i.test(
+      line,
+    ),
+  );
   const contactLine =
+    canonicalContactLine ||
     source
       .filter(
         (line) =>
@@ -3087,10 +3093,32 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
   const phone = contactPhone || fallbackPhone;
   if (contactLine || phone) {
     const line = contactLine || joined;
+    const structuredContactBody = canonicalContactLine
+      ? canonicalContactLine
+          .replace(
+            /^\s*(?:\[(?:HINWEIS|INFO|NOTIZ)\]\s*)?Kontakt\s+vor\s+Ort\s*:\s*/i,
+            "",
+          )
+          .trim()
+      : "";
+    const structuredName =
+      structuredContactBody && phone
+        ? structuredContactBody
+            .slice(0, Math.max(0, structuredContactBody.indexOf(phone)))
+            .replace(
+              /\b(?:tel(?:efon)?|phone|mobile|handy|natel)\.?\s*:?\s*$/i,
+              "",
+            )
+            .replace(/[\s,;·:\-–—]+$/g, "")
+            .trim()
+        : "";
     const nameMatch = line.match(
       /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:|dort\s+)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){0,3})\s*[,;·:\-–—]*\s*(?:(?:tel(?:efon)?|phone|mobile|handy|natel)\.?\s*:?\s*)?(?=\+?\d)/iu,
     );
-    const contactParts = [nameMatch?.[1]?.trim() || "", phone];
+    const contactParts = [
+      structuredName || nameMatch?.[1]?.trim() || "",
+      phone,
+    ];
     const contactContext = contactLine || line;
     if (/\bwhatsapp\b/i.test(contactContext)) contactParts.push("nur WhatsApp");
     else if (/\b(?:sms|text\s+message|kurznachricht)\b/i.test(contactContext)) {

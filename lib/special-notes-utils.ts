@@ -845,7 +845,46 @@ export function buildSpecialNotes(input: {
   safetyWarnings?: string[];
   jobHints?: string[];
   systemHints?: string[];
+  preserveStructuredRoles?: boolean;
 }) {
+  // V17.90L89: When the first KI already returned explicit role arrays,
+  // serialization must be lossless. Later keyword/heuristic classifiers may
+  // not demote, promote, split or discard those values. They are allowed only
+  // on legacy/unstructured call paths.
+  if (input.preserveStructuredRoles) {
+    const safetyWarnings = dedupeSemanticLines(
+      (input.safetyWarnings ?? [])
+        .map(canonicalizeSpecialNoteLineV17_32)
+        .map(stripKnownMarker)
+        .filter(Boolean),
+    );
+    const safetyKeys = new Set(safetyWarnings.map(semanticNoteKey));
+    const jobHints = dedupeSemanticLines(
+      (input.jobHints ?? [])
+        .map(canonicalizeSpecialNoteLineV17_32)
+        .map(stripKnownMarker)
+        .filter(Boolean),
+    ).filter((line) => !safetyKeys.has(semanticNoteKey(line)));
+    const systemHints = dedupeSemanticLines(
+      (input.systemHints ?? [])
+        .map(canonicalizeSpecialNoteLineV17_32)
+        .map(stripKnownMarker)
+        .filter(Boolean),
+    );
+
+    return Array.from(
+      new Set(
+        [
+          ...safetyWarnings.map(formatSafetyWarningLine),
+          ...jobHints.map(formatHintLine),
+          ...systemHints,
+        ]
+          .map((line) => line.trim())
+          .filter((line) => Boolean(line) && !/\[object Object\]/i.test(line)),
+      ),
+    ).join("\n");
+  }
+
   const rawSafetyWarnings = (input.safetyWarnings ?? [])
     .flatMap(splitSafetyWarningClausesV17_90L85)
     .map(canonicalizeSpecialNoteLineV17_32)
