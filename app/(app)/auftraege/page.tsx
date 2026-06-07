@@ -3654,9 +3654,11 @@ const formatRecognitionReviewLineV17_90L69 = (
   const unit = compactText(detail.unit);
   const unitPrice = Number(detail.unitPrice || 0);
   const amount =
-    quantity > 0 && unitPrice > 0
-      ? `${formatMergedNumberString(quantity)} ${unit || "Einheit"} à CHF ${unitPrice.toFixed(2)}`
-      : "Werte unklar";
+    detail.kind === "open_price"
+      ? "Preis offen"
+      : quantity > 0 && unitPrice > 0
+        ? `${formatMergedNumberString(quantity)} ${unit || "Einheit"} à CHF ${unitPrice.toFixed(2)}`
+        : "Werte unklar";
   return `• ${serviceName} — ${amount}`;
 };
 

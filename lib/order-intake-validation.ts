@@ -390,7 +390,7 @@ function preferStrongRecognitionCandidatesV17_90L69(
 }
 
 type RecognitionReviewPayloadV17_90L69 = {
-  kind: "missing_or_mismatched";
+  kind: "missing_or_mismatched" | "open_price";
   serviceName: string;
   quantity: number;
   unit: string;
@@ -402,7 +402,10 @@ function encodeRecognitionReviewWarningV17_90L69(
   explicit: ParsedOrderItemForValidation,
 ): string {
   const payload: RecognitionReviewPayloadV17_90L69 = {
-    kind: "missing_or_mismatched",
+    kind:
+      Number(explicit.unitPrice || 0) > 0
+        ? "missing_or_mismatched"
+        : "open_price",
     serviceName: String(explicit.serviceName || "Leistung")
       .replace(/[\s,;:.-]+$/g, "")
       .trim(),
@@ -418,6 +421,116 @@ function encodeRecognitionReviewWarningV17_90L69(
   };
 
   return `recognition_review:${encodeURIComponent(JSON.stringify(payload))}`;
+}
+
+// V17.90L90: The second checker may surface a plausible service with an
+// explicitly open price as a read-only recognition proposal. It must never add
+// the service automatically. The user resolves it through Übernehmen or
+// Verwerfen in the order editor.
+function extractOpenPriceRecognitionItemsV17_90L90(
+  originalText: string,
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const candidates: ParsedOrderItemForValidation[] = [];
+
+  for (const line of splitRawIntakeLines(originalText)) {
+    if (!hasUnclearPriceSignal(line)) continue;
+
+    // A concrete amount belongs to the normal priced-line validator. This
+    // path is only for service-like lines whose price is expressly unresolved.
+    if (
+      hasExplicitCurrencyAmount(line) ||
+      extractUnitPricesFromSegment(line).length > 0 ||
+      Boolean(detectCurrencylessFlatPriceFromSegment(line, fallbackCurrency))
+    ) {
+      continue;
+    }
+
+    const serviceName = cleanExplicitServiceNameFromLine(line, {});
+    const serviceKey = normalizeCompare(serviceName);
+    if (
+      !serviceName ||
+      serviceName === "Unbekannte Leistung" ||
+      serviceKey.length < 4 ||
+      isPriceAnchorOnlyServiceName(serviceName)
+    ) {
+      continue;
+    }
+
+    candidates.push({
+      serviceName,
+      description: line,
+      quantity: 1,
+      unit: "Pauschal",
+      unitPrice: 0,
+      totalPrice: 0,
+      needsReview: true,
+      reviewReason: `price_unclear:${serviceName}`,
+      sourceText: line,
+      evidence: line,
+      detectedCurrency: fallbackCurrency,
+    });
+  }
+
+  // Raw text and automatic translation can describe the same open-price
+  // service twice. Keep one semantic candidate, preferring the shorter and
+  // therefore more line-local evidence string.
+  const byService = new Map<string, ParsedOrderItemForValidation>();
+  for (const candidate of candidates) {
+    const key = normalizeCompare(candidate.serviceName);
+    const existing = byService.get(key);
+    const candidateEvidence = normalizeText(
+      candidate.sourceText || candidate.evidence || candidate.description,
+    );
+    const existingEvidence = existing
+      ? normalizeText(
+          existing.sourceText || existing.evidence || existing.description,
+        )
+      : "";
+    if (
+      !existing ||
+      (candidateEvidence.length > 0 &&
+        (existingEvidence.length === 0 ||
+          candidateEvidence.length < existingEvidence.length))
+    ) {
+      byService.set(key, candidate);
+    }
+  }
+
+  return Array.from(byService.values());
+}
+
+function openPriceRecognitionCoveredV17_90L90(
+  items: ParsedOrderItemForValidation[],
+  candidate: ParsedOrderItemForValidation,
+): boolean {
+  const candidateEvidence = normalizeCompare(
+    candidate.sourceText || candidate.evidence || candidate.description,
+  );
+
+  return items.some((item) => {
+    if (
+      !recognitionServiceNamesCompatibleV17_90L69(
+        item.serviceName,
+        candidate.serviceName,
+      )
+    ) {
+      return false;
+    }
+
+    const itemEvidence = normalizeCompare(
+      item.sourceText || item.evidence || item.description,
+    );
+    if (!candidateEvidence || !itemEvidence) return true;
+
+    return (
+      candidateEvidence === itemEvidence ||
+      candidateEvidence.includes(itemEvidence) ||
+      itemEvidence.includes(candidateEvidence) ||
+      normalizeCompare(item.serviceName) ===
+        normalizeCompare(candidate.serviceName)
+    );
+  });
 }
 
 function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInput): string[] {
@@ -469,6 +582,22 @@ function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInpu
           .map(encodeRecognitionReviewWarningV17_90L69),
       );
     }
+  }
+
+  const openPriceCandidates = extractOpenPriceRecognitionItemsV17_90L90(
+    input.originalText,
+    finalCurrency,
+  );
+  const uncoveredOpenPriceCandidates = openPriceCandidates.filter(
+    (candidate) => !openPriceRecognitionCoveredV17_90L90(items, candidate),
+  );
+  if (uncoveredOpenPriceCandidates.length > 0) {
+    warnings.push("priced_service_line_missing_or_mismatched");
+    warnings.push(
+      ...uncoveredOpenPriceCandidates
+        .slice(0, 12)
+        .map(encodeRecognitionReviewWarningV17_90L69),
+    );
   }
 
   const calculatedTotal = items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
