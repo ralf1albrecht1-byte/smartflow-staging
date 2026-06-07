@@ -245,6 +245,8 @@ export interface CommunicationData {
   phone?: string | null;
   customerPhone?: string | null;
   contactPhone?: string | null;
+  /** Canonical structured contact/communication context for list chips. */
+  communicationContext?: string | null;
   // Hint level
   hinweisLevel?: string | null;
   needsReview?: boolean;
@@ -468,7 +470,9 @@ function normalizePhoneForHref(value?: string | null): string {
 }
 
 function getContactEmail(data: CommunicationData, sourceText: string): string {
+  const operational = extractOperationalContactV17_90L85(sourceText);
   return (
+    operational.email ||
     firstEmailFromText(sourceText) ||
     data.customer?.email ||
     data.email ||
@@ -478,8 +482,9 @@ function getContactEmail(data: CommunicationData, sourceText: string): string {
 
 type OperationalContactV17_90L85 = {
   phone: string;
+  email: string;
   name: string;
-  channel: "sms" | "whatsapp" | "call" | null;
+  channel: "sms" | "whatsapp" | "mail" | "call" | null;
   noCall: boolean;
 };
 
@@ -493,6 +498,7 @@ function extractOperationalContactV17_90L85(
     .trim();
   const empty: OperationalContactV17_90L85 = {
     phone: "",
+    email: "",
     name: "",
     channel: null,
     noCall: false,
@@ -500,7 +506,7 @@ function extractOperationalContactV17_90L85(
   if (!source) return empty;
 
   const markerRe =
-    /\b(?:kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio)\b/i;
+    /\b(?:kontakt\s+vor\s+ort|kontaktperson\s+vor\s+ort|ansprechperson\s+vor\s+ort|ansprechpartner(?:in)?\s+vor\s+ort|vor\s+ort\s+ansprechpartner(?:in)?|person\s+vor\s+ort|vor\s+ort|on[-\s]?site(?:\s+contact)?|contact\s+sur\s+place|contatto\s+sul\s+posto|contacto\s+en\s+sitio|persona\s+sul\s+posto|person\s+on\s+site|persona\s+en\s+sitio)\b/i;
   const genericMarkerRe =
     /^(?:vor\s+ort|on[-\s]?site|sur\s+place|sul\s+posto|en\s+sitio)$/i;
   const markerMatch = source.match(markerRe);
@@ -520,6 +526,15 @@ function extractOperationalContactV17_90L85(
         return digits.length >= 7 && digits.length <= 15;
       });
 
+  const validEmailMatches = (value: string) =>
+    Array.from(value.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)).map(
+      (match) => ({
+        email: String(match[0] || "").trim(),
+        index: match.index || 0,
+        end: (match.index || 0) + String(match[0] || "").length,
+      }),
+    );
+
   let scoped = source;
   let markerLength = 0;
   if (markerMatch && markerMatch.index != null) {
@@ -529,34 +544,42 @@ function extractOperationalContactV17_90L85(
 
   let phoneCandidate: ReturnType<typeof validPhoneMatches>[number] | undefined =
     validPhoneMatches(scoped)[0];
-  if (
-    isGenericMarker &&
-    phoneCandidate &&
-    phoneCandidate.index > 240
-  ) {
+  let emailCandidate: ReturnType<typeof validEmailMatches>[number] | undefined =
+    validEmailMatches(scoped)[0];
+  if (isGenericMarker && phoneCandidate && phoneCandidate.index > 240) {
     phoneCandidate = undefined;
   }
-  if (!phoneCandidate) {
+  if (isGenericMarker && emailCandidate && emailCandidate.index > 240) {
+    emailCandidate = undefined;
+  }
+  if (!phoneCandidate && !emailCandidate) {
     const channelMatch = source.match(
-      /\b(?:whats\s*app|whatsapp|sms|text\s+message|kurznachricht|anrufen|telefonieren|call)\b/i,
+      /\b(?:whats\s*app|whatsapp|sms|text\s+message|kurznachricht|e\s*mail|email|mail|anrufen|telefonieren|call)\b/i,
     );
-    const phones = validPhoneMatches(source);
-    if (channelMatch && channelMatch.index != null && phones.length > 0) {
-      phoneCandidate = phones.sort(
+    const identities = [
+      ...validPhoneMatches(source).map((item) => ({ ...item, kind: "phone" as const })),
+      ...validEmailMatches(source).map((item) => ({ ...item, kind: "email" as const })),
+    ];
+    if (channelMatch && channelMatch.index != null && identities.length > 0) {
+      const closest = identities.sort(
         (left, right) =>
           Math.abs(left.index - (channelMatch.index || 0)) -
           Math.abs(right.index - (channelMatch.index || 0)),
       )[0];
+      if (closest.kind === "phone") phoneCandidate = closest;
+      else emailCandidate = closest;
       scoped = source;
       markerLength = 0;
     }
   }
 
   const phone = normalizePhoneForHref(phoneCandidate?.phone || "");
-  const beforePhone = phoneCandidate
-    ? scoped.slice(markerLength, phoneCandidate.index)
+  const email = String(emailCandidate?.email || "").trim();
+  const identityCandidate = phoneCandidate || emailCandidate;
+  const beforeIdentity = identityCandidate
+    ? scoped.slice(markerLength, identityCandidate.index)
     : "";
-  let name = beforePhone
+  let name = beforeIdentity
     .replace(/^\s*(?:[:.,-]|ist\b|diesmal\b|heute\b)+/i, "")
     .replace(
       /\b(?:erreichbar|zu\s+erreichen|available|reachable)\s*(?:unter|at|via)?\s*$/i,
@@ -579,19 +602,22 @@ function extractOperationalContactV17_90L85(
   // two-token person structure, do not bind a later phone to that marker.
   if (
     isGenericMarker &&
+    !phone &&
+    !email &&
     (properNameTokenCount < 2 || /\d/.test(name))
   ) {
     return empty;
   }
 
-  const contextEnd = phoneCandidate
-    ? Math.min(scoped.length, phoneCandidate.end + 180)
-    : Math.min(scoped.length, 260);
+  const contextEnd = identityCandidate
+    ? Math.min(scoped.length, identityCandidate.end + 220)
+    : Math.min(scoped.length, 300);
   const context = scoped.slice(0, contextEnd);
   const hasSms = /\b(?:sms|text\s+message|kurznachricht)\b/i.test(context);
   const hasWhatsapp = /\bwhats\s*app|\bwhatsapp\b/i.test(context);
+  const hasMail = /\b(?:e\s*mail|e-mail|email|mail|courriel)\b/i.test(context);
   const noCall =
-    /\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|keine?n?\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/i.test(
+    /\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|keine(?:n)?\s+anrufe?|do\s+not\s+call|don['’]?t\s+call|no\s+calls?|ne\s+pas\s+appeler|non\s+chiamare)\b/i.test(
       context,
     );
   const hasCall = /\b(?:anrufen|telefonieren|call|phone\s+call)\b/i.test(
@@ -600,14 +626,17 @@ function extractOperationalContactV17_90L85(
 
   return {
     phone,
+    email,
     name,
     channel: hasSms
       ? "sms"
       : hasWhatsapp
         ? "whatsapp"
-        : hasCall && !noCall
-          ? "call"
-          : null,
+        : hasMail
+          ? "mail"
+          : hasCall && !noCall
+            ? "call"
+            : null,
     noCall,
   };
 }
@@ -743,6 +772,7 @@ function detectCommunicationPreferenceChips(
   parsed: ParsedNotes,
 ): CommunicationPreferenceChip[] {
   const rawSource = [
+    data.communicationContext,
     data.specialNotes,
     parsed.translation,
     parsed.originalMessage,
@@ -760,8 +790,9 @@ function detectCommunicationPreferenceChips(
 
   if (!source) return [];
 
-  const email = getContactEmail(data, rawSource);
-  const phone = getContactPhone(data, rawSource);
+  const operational = extractOperationalContactV17_90L85(rawSource);
+  const email = operational.email || getContactEmail(data, rawSource);
+  const phone = operational.phone || getContactPhone(data, rawSource);
 
   const lines = splitCommunicationSourceLines(rawSource);
   const channelIsForbidden = (channel: CommunicationChannel) =>
@@ -773,9 +804,15 @@ function detectCommunicationPreferenceChips(
   const whatsappTime = getChannelContactTimeHint('whatsapp', rawSource);
   const smsTime = getChannelContactTimeHint('sms', rawSource);
 
-  const mail = !channelIsForbidden('mail') && (channelIsPreferred('mail') || Boolean(mailTime));
-  const whatsapp = !channelIsForbidden('whatsapp') && (channelIsPreferred('whatsapp') || Boolean(whatsappTime));
-  const sms = !channelIsForbidden('sms') && (channelIsPreferred('sms') || Boolean(smsTime));
+  const mail =
+    !channelIsForbidden('mail') &&
+    (operational.channel === 'mail' || channelIsPreferred('mail') || Boolean(mailTime));
+  const whatsapp =
+    !channelIsForbidden('whatsapp') &&
+    (operational.channel === 'whatsapp' || channelIsPreferred('whatsapp') || Boolean(whatsappTime));
+  const sms =
+    !channelIsForbidden('sms') &&
+    (operational.channel === 'sms' || channelIsPreferred('sms') || Boolean(smsTime));
 
   const chips: CommunicationPreferenceChip[] = [];
 
@@ -790,7 +827,7 @@ function detectCommunicationPreferenceChips(
       label: 'Mail',
       color: 'teal',
       href: email ? `mailto:${email}` : undefined,
-      title: appendContactTime(email ? `E-Mail: ${email}` : 'E-Mail bevorzugt · keine E-Mail hinterlegt', mailTime),
+      title: appendContactTime(email ? `${operational.name ? `${operational.name} · ` : ''}E-Mail: ${email}` : 'E-Mail bevorzugt · keine E-Mail hinterlegt', mailTime),
     });
   }
 
@@ -800,7 +837,7 @@ function detectCommunicationPreferenceChips(
       label: 'WhatsApp',
       color: 'green',
       href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined,
-      title: appendContactTime(phone ? `WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden', whatsappTime),
+      title: appendContactTime(phone ? `${operational.name ? `${operational.name} · ` : ''}WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden', whatsappTime),
     });
   }
 
@@ -810,7 +847,7 @@ function detectCommunicationPreferenceChips(
       label: 'SMS',
       color: 'blue',
       href: phone ? `sms:${phone}` : undefined,
-      title: appendContactTime(phone ? `SMS: ${phone}` : 'SMS bevorzugt · keine Telefonnummer vorhanden', smsTime),
+      title: appendContactTime(phone ? `${operational.name ? `${operational.name} · ` : ''}SMS: ${phone}` : 'SMS bevorzugt · keine Telefonnummer vorhanden', smsTime),
     });
   }
 
@@ -1005,6 +1042,7 @@ export function CommunicationBlock({
     () => getContactPhone(
       data,
       [
+        data.communicationContext,
         parsed.originalMessage,
         parsed.translation,
         data.specialNotes,
@@ -1020,7 +1058,7 @@ export function CommunicationBlock({
 
   const communicationPreferences = useMemo(
     () => detectCommunicationPreferenceChips(data, parsed),
-    [data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.email, data.phone, parsed],
+    [data.communicationContext, data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.email, data.phone, parsed],
   );
 
   // Detect customer language from parsed notes
@@ -1281,10 +1319,10 @@ export function CommunicationChips({
   const rawCallbackNote = detectCallbackRequest(data.specialNotes);
   const communicationPreferences = useMemo(
     () => detectCommunicationPreferenceChips(data, parsed),
-    [data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.customerPhone, data.contactPhone, data.email, data.phone, parsed],
+    [data.communicationContext, data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.customerPhone, data.contactPhone, data.email, data.phone, parsed],
   );
   const callbackSourceLines = splitCommunicationSourceLines(
-    [data.specialNotes, parsed.translation, parsed.originalMessage]
+    [data.communicationContext, data.specialNotes, parsed.translation, parsed.originalMessage]
       .filter(Boolean)
       .join("\n"),
   );
@@ -1310,6 +1348,7 @@ export function CommunicationChips({
   const callbackPhone = getContactPhone(
     data,
     [
+      data.communicationContext,
       data.specialNotes,
       parsed.translation,
       parsed.originalMessage,

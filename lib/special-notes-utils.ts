@@ -79,6 +79,97 @@ const normalizeDedupeText = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+export type SpecialNoteSemanticRoleV17_90L93 =
+  | "safety"
+  | "access"
+  | "parking"
+  | "equipment"
+  | "communication"
+  | "appointment"
+  | "operational"
+  | "unknown";
+
+/**
+ * Shared semantic role guard for customer notes. This is deliberately based on
+ * generic roles (risk, access, parking, communication, schedule), not on a
+ * customer- or service-specific vocabulary. All consumers use the same result
+ * so a note cannot be red in one view and yellow in another.
+ */
+export function classifySpecialNoteRoleV17_90L93(
+  value: string | null | undefined,
+): SpecialNoteSemanticRoleV17_90L93 {
+  const raw = stripKnownMarker(String(value || ""));
+  const text = normalizeDedupeText(raw);
+  if (!text) return "unknown";
+
+  // A dog presence always remains a red dog warning in Smartflow. Severity is
+  // conveyed by the full tooltip; ordinary dog presence must not disappear.
+  if (/\b(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros)\b/.test(text)) {
+    return "safety";
+  }
+
+  const explicitPhysicalRisk =
+    /\b(?:unter spannung|sous tension|under voltage|live electrical|stromschlag|elektrisch(?:er|e|es)? schlag|electrical cabinet|electric cabinet|switchboard|quadro elettrico|schaltschrank|sicherungskasten|gasleitung|gas pipe|conduite de gaz|tubo del gas|gasleck|heisse? leitungen?|heisse? rohre?|hot pipes?|hot lines?|conduites? chaudes?|dampfleitung|steam pipe|conduite de vapeur|rutschgefahr|rutschig|slippery|glissant|scivoloso|glatt|absturz|einsturz|instabil|giftig|toxic|aetzend|corrosive|explosiv|brandgefahr|fire hazard|feuer|asbest|asbestos|scherben|glasbruch|broken glass|schimmel|mold|niedrige leitungen|niedrige decke|low pipes?|low ceiling|kopfhoehe|schwerer? \w+.{0,45}nicht alleine|heavy \w+.{0,45}not alone|aggressiv|aggressive|beisst|beißt|bites?|laeuft frei|läuft frei|running freely)\b/.test(
+      text,
+    );
+  const safetyAction =
+    /\b(?:nicht anfassen|nicht beruehren|nicht berühren|do not touch|ne pas toucher|non toccare|nicht oeffnen|nicht öffnen|do not open|ne pas ouvrir|non aprire|nicht alleine bewegen|do not move alone|vorsicht|achtung|gefahr|warnung|warning|danger)\b/.test(
+      text,
+    );
+  if (explicitPhysicalRisk || (safetyAction && /\b(?:strom|elektr|electric|gas|leitung|line|pipe|rohr|dampf|steam|schrank|cabinet|switchboard|glas|glass|chem|maschine|machine|tresor|safe)\b/.test(text))) {
+    return "safety";
+  }
+
+  if (
+    /\b(?:parkplatz|besucherfeld|besucherparkplatz|lieferantenfeld|ladezone|anlieferung|parken|parkieren|parking|stellplatz|parking space|underground parking)\b/.test(
+      text,
+    )
+  ) {
+    return "parking";
+  }
+
+  if (
+    /\b(?:schluessel|schlussel|schlüssel|key|badge|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|zugang|zutritt|eingang|hintereingang|seiteneingang|concierge|schluesselbox|schlusselbox|schlüsselbox|schluesseltresor|schlusseltresor|schlüsseltresor|zugangscode|torcode|code|pin|rampe|lift|aufzug|security desk|nachtportier)\b/.test(
+      text,
+    )
+  ) {
+    return "access";
+  }
+
+  if (/\b(?:leiter|ladder|echelle|scala|escalera|escada|arbeitsbuehne|arbeitsbühne)\b/.test(text)) {
+    return "equipment";
+  }
+
+  if (
+    /\b(?:kontakt|ansprechperson|vor ort|on site|onsite|contact sur place|sms|whatsapp|mail|email|e mail|anrufen|telefon|rueckruf|ruckruf|nicht telefonisch|keine anrufe|do not call|no calls)\b/.test(
+      text,
+    )
+  ) {
+    return "communication";
+  }
+
+  if (
+    /\b(?:termin|zeitfenster|appointment|rendez vous|datum)\b/.test(text) &&
+    /\b(?:\d{1,2}[./-]\d{1,2}|\d{1,2}:\d{2}|vormittag|nachmittag|abend)\b/.test(text)
+  ) {
+    return "appointment";
+  }
+
+  const timedOperatingRule =
+    /\b(?:darf|soll|muss|kann|erst ab|erst nach|nur ab|nur nach|vor \d{1,2}(?::\d{2})?)\b/.test(text) &&
+    /\b(?:abschalten|abgeschaltet|ausgeschaltet|ausschalten|einschalten|reserviert|verfuegbar|verfügbar|betrieb|oeffnen|öffnen|schliessen|schließen)\b/.test(text);
+  const courtesyOrWorkflow =
+    /\b(?:bewohner|patienten|gaeste|gaste|kinder|serverteam|mitarbeiter|arbeitsplaetze|arbeitsplätze|rezeption|empfang|lebensmittel|fluchtweg\w*|laufweg\w*|tor|\w*tuer|\w*tür|\w*tur|reception|guests?|residents?|food|escape route|walkway|gate|door)\b/.test(text) &&
+    /\b(?:nicht stoeren|nicht storen|ruhig|leise|schlafen|weiterarbeiten|arbeitet weiter|nicht blockieren|freihalten|nicht zustellen|nicht abstellen|abstellen|nicht verschieben|wieder schliessen|wieder schließen|zumachen|offen halten|do not disturb|keep quiet|quietly|keep.{0,35}free|do not block|do not move|close again|keep open|ne pas bloquer|non bloccare)\b/.test(text);
+  const materialOrMethod =
+    /\b(?:reiniger|reinigungsmittel|mittel|produkt|material|geruchsarm|duftfrei|schonend|keine stark riechenden|stark riechend|strongly scented|strong scented|low odor|low odour|chemicals?|vorsichtig absaugen)\b/.test(text);
+  if (timedOperatingRule || courtesyOrWorkflow || materialOrMethod) {
+    return "operational";
+  }
+
+  return "unknown";
+}
+
 const extractAccessCodeV17_32 = (value: string): string => {
   const raw = stripKnownMarker(value);
   const match = raw.match(/(?:torcode|zugangscode|code)\D{0,18}(\d{2,8})/i) || raw.match(/\b(\d{3,8})\b/);
@@ -227,30 +318,11 @@ const stripNoteSentencePunctuationV17_34 = (value: string): string =>
 // verändert keine fachliche Aussage, sondern entfernt nur doppelte Labels
 // und kürzt Parkplatzhinweise auf die tatsächlich benötigte Information.
 const normalizeParkingDisplayV17_90L57 = (value: string): string => {
-  const raw = stripNoteSentencePunctuationV17_34(stripKnownMarker(value));
-  if (!raw) return "";
-
-  const visitor = raw.match(
-    /\bBesucherparkplatz\s*(?:Nr\.?|Nummer)?\s*([A-Za-z-]*\d+[A-Za-z0-9-]*)?/i,
-  );
-  const generic = raw.match(
-    /\bParkplatz\s*(?:Nr\.?|Nummer)?\s*([A-Za-z-]*\d+[A-Za-z0-9-]*)?/i,
-  );
-  const match = visitor || generic;
-  if (!match) return raw;
-
-  const number = String(match[1] || "").trim();
-  // V17.90L84: Ein Wort nach "Parkplatz" ist nicht automatisch eine
-  // Platznummer. "Parkplatz Anlieferung maximal 30 Minuten" muss vollständig
-  // erhalten bleiben; nur echte Nummern/IDs werden kompakt normalisiert.
-  if (!number) return raw;
-
-  const label = visitor ? "Besucherparkplatz" : "Parkplatz";
-  const parking = `${label} ${number}`;
-  const mentionsVehicle =
-    /\b(?:lieferwagen|fahrzeug|transporter|auto|van)\b/i.test(raw);
-
-  return mentionsVehicle ? `Lieferwagen auf ${parking}` : parking;
+  // Parking details are operational evidence. Keep field/space identifiers and
+  // time limits verbatim instead of shortening them to a generic label.
+  return stripNoteSentencePunctuationV17_34(stripKnownMarker(value))
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 const cleanStructuredContactNameV17_90L91 = (value: string): string => {
@@ -683,22 +755,27 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
       continue;
     }
 
+    const cleaned = stripKnownMarker(line);
+    const semanticRole = classifySpecialNoteRoleV17_90L93(cleaned);
+
     if (isSafetyWarningLine(line)) {
-      const cleaned = stripKnownMarker(line);
-      if (cleaned && isNonSafetyConditionLineV17_33(cleaned)) {
-        continue;
-      }
-      if (cleaned && isEquipmentOnlyWarningLineV17_34(cleaned)) {
-        if (isOperationalJobHint(cleaned)) jobHints.push(cleaned);
+      if (cleaned && isNonSafetyConditionLineV17_33(cleaned)) continue;
+      // A legacy/LLM [GEFAHR] marker cannot override a clearly structured role.
+      // Unknown marked content remains fail-closed as a warning.
+      if (cleaned && semanticRole !== "safety" && semanticRole !== "unknown") {
+        jobHints.push(cleaned);
         continue;
       }
       if (cleaned) safetyWarnings.push(cleaned);
       continue;
     }
 
-    const cleaned = stripKnownMarker(line);
-    if (cleaned && isDogSafetyNoteV17_90L34(cleaned)) {
+    if (cleaned && semanticRole === "safety") {
       safetyWarnings.push(cleaned);
+      continue;
+    }
+    if (cleaned && semanticRole !== "unknown") {
+      jobHints.push(cleaned);
       continue;
     }
     if (cleaned && isOperationalJobHint(cleaned)) jobHints.push(cleaned);
@@ -743,14 +820,18 @@ export function splitJobHints(jobHints: string[]): SplitJobHints {
     const hint = normalizeLine(canonicalizeSpecialNoteLineV17_32(rawHint));
     if (!hint) continue;
 
-    if (isSafetyWarningLine(hint)) {
-      const cleaned = stripKnownMarker(hint);
-      if (cleaned) hazards.push(cleaned);
+    const cleaned = stripKnownMarker(hint);
+    if (!cleaned) continue;
+    const role = classifySpecialNoteRoleV17_90L93(cleaned);
+    if (role === "safety") {
+      hazards.push(cleaned);
       continue;
     }
-
-    const cleaned = stripKnownMarker(hint);
-    if (cleaned) operational.push(cleaned);
+    if (role === "access" || role === "equipment") {
+      equipment.push(cleaned);
+      continue;
+    }
+    operational.push(cleaned);
   }
 
   return { hazards, equipment, operational };

@@ -65,6 +65,7 @@ import {
   buildSpecialNotes,
   splitSpecialNotes,
   detectCallbackRequest,
+  classifySpecialNoteRoleV17_90L93,
 } from "@/lib/special-notes-utils";
 import { extractExecutionAddressFromText } from "@/lib/order-intake-validation";
 import { fetchAllJSON } from "@/lib/fetch-utils";
@@ -2811,9 +2812,13 @@ type OrderInfoSummaryV17_65 = {
 };
 
 const isPrimaryOrderInfoHintV17_65 = (value?: string | null) => {
+  const role = classifySpecialNoteRoleV17_90L93(value);
+  if (role === "communication" || role === "appointment" || role === "access") {
+    return true;
+  }
   const text = normalizeForMatch(value);
   if (!text) return false;
-  return /\b(?:termin|zeitfenster|ankunft|ankommen|vorher|zuerst|genaue\s+zeit|kontakt vor ort|kontaktperson|ansprechperson|sms|whatsapp|telefonisch|anrufen|rueckruf|nicht einfach|ankuendigung|empfang|zugang|besucherausweis|melden|(?:lift|aufzug)\b.{0,80}\b(?:reserviert|verfuegbar|verfügbar|erst\s+ab))\b/.test(text);
+  return /\b(?:ankunft|ankommen|vorher|zuerst|genaue\s+zeit|ankuendigung|melden)\b/.test(text);
 };
 
 const extractOrderAppointmentSnippetsV17_65 = (value?: string | null) => {
@@ -2927,8 +2932,12 @@ const extractInlineOrderInfoSnippetsV17_90L80 = (
 };
 
 const isAdditionalOrderInfoHintV17_90L80 = (value?: string | null) => {
+  const role = classifySpecialNoteRoleV17_90L93(value);
+  if (role === "parking" || role === "equipment" || role === "operational") {
+    return true;
+  }
   const text = normalizeForMatch(value);
-  return /\b(?:leiter\b.{0,45}\bmitnehmen|parkplatz|besucherparkplatz|bewohner\s+schlafen|ruhig\s+arbeiten)\b/.test(
+  return /\b(?:bewohner\s+schlafen|ruhig\s+arbeiten|nicht\s+blockieren|nicht\s+zustellen)\b/.test(
     text,
   );
 };
@@ -2975,21 +2984,18 @@ const buildOrderInfoSummaryV17_65 = (
     ...(parsedNotes.safetyWarnings || []).flatMap(splitInfoClausesV17_90L81),
     ...(parsedNotes.jobHints || []).filter(isDogLine),
   ]);
-  const reclassifiedPrimary = rawSafety.filter(
-    isOperationalPrimaryOrderInfoHintV17_90L80,
-  );
-  const reclassifiedAdditional = rawSafety.filter(
-    isAdditionalOrderInfoHintV17_90L80,
-  );
-  const safety = rawSafety.filter(
-    (line) =>
-      !reclassifiedPrimary.some((candidate) =>
-        orderInfoLinesEquivalentV17_66(candidate, line),
-      ) &&
-      !reclassifiedAdditional.some((candidate) =>
-        orderInfoLinesEquivalentV17_66(candidate, line),
-      ),
-  );
+  const safety = rawSafety.filter((line) => {
+    const role = classifySpecialNoteRoleV17_90L93(line);
+    return role === "safety" || role === "unknown";
+  });
+  const reclassifiedPrimary = rawSafety.filter((line) => {
+    const role = classifySpecialNoteRoleV17_90L93(line);
+    return role === "communication" || role === "appointment" || role === "access";
+  });
+  const reclassifiedAdditional = rawSafety.filter((line) => {
+    const role = classifySpecialNoteRoleV17_90L93(line);
+    return role === "parking" || role === "equipment" || role === "operational";
+  });
 
   const appointmentLines = extractOrderAppointmentSnippetsV17_65(source);
   const importantRawLines = extractOrderImportantInstructionLinesV17_65(source);
@@ -6658,10 +6664,11 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
       ? { ...order.customer }
       : order.customer,
     // Card-level operational chips are rendered by getOperationalBadges below.
-    // Keep specialNotes out of CommunicationChips here so key/ladder/dog/access
-    // hints do not appear twice. Communication channels still come from notes,
-    // because cleanedNotes contains the cleaned specialNotes text as well.
+    // Keep specialNotes out of hazard/equipment rendering, but pass the canonical
+    // structured contact line separately so SMS/WhatsApp/Mail chips use the
+    // verified on-site target instead of the billing-office contact.
     specialNotes: "",
+    communicationContext: cleanedSpecialNotes,
     notes: cleanedNotes,
     audioTranscript: cleanedAudioTranscript,
   };

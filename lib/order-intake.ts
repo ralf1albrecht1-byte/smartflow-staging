@@ -15,7 +15,11 @@ import {
   findNearExactDeterministicMatch,
 } from "@/lib/exact-customer-match";
 import { maskPhoneForLog } from "@/lib/phone";
-import { buildSpecialNotes, splitSpecialNotes } from "@/lib/special-notes-utils";
+import {
+  buildSpecialNotes,
+  splitSpecialNotes,
+  classifySpecialNoteRoleV17_90L93,
+} from "@/lib/special-notes-utils";
 import { repairZeroQuantityHourItemsFromText } from "@/lib/order-hour-line-repair";
 import { getActiveDataScope } from "@/lib/data-scope";
 import {
@@ -4174,17 +4178,25 @@ function extractParkingTargetV17_90L70(
 ): ParkingTargetV17_90L70 | null {
   const source = String(value || "").replace(/\s+/g, " ");
   const match = source.match(
-    /\b(besucherparkplatz|besucherplatz|parkplatz|platz|rampe)\s*(?:nr\.?|nummer)?\s*(\d+)\b/i,
+    /\b(besucherparkplatz|besucherplatz|besucherfeld|lieferantenfeld|ladezone|parkplatz|parking\s+space|stellplatz|platz|rampe)\s*(?:nr\.?|nummer|number)?\s*([A-Za-z]*\d+[A-Za-z0-9-]*)\b/i,
   );
   if (!match?.[1] || !match?.[2]) return null;
   const rawLabel = match[1].toLowerCase();
   const label = rawLabel.includes("rampe")
     ? "Rampe"
-    : rawLabel.includes("besucher")
-      ? "Besucherparkplatz"
-      : rawLabel === "platz"
-        ? "Platz"
-        : "Parkplatz";
+    : rawLabel.includes("besucherfeld")
+      ? "Besucherfeld"
+      : rawLabel.includes("besucher")
+        ? "Besucherparkplatz"
+        : rawLabel.includes("lieferantenfeld")
+          ? "Lieferantenfeld"
+          : rawLabel.includes("ladezone")
+            ? "Ladezone"
+            : rawLabel.includes("parking space") || rawLabel.includes("stellplatz")
+              ? "Parkplatz"
+              : rawLabel === "platz"
+                ? "Platz"
+                : "Parkplatz";
   return { label, number: match[2] };
 }
 
@@ -4197,7 +4209,7 @@ function enrichParkingHintsV17_90L70(
   const targetText = `${target.label} ${target.number}`;
   let foundParkingHint = false;
   const enriched = lines.map((line) => {
-    if (!/\b(?:parkieren|parken|parkplatz|besucherplatz|besucherparkplatz|parking|rampe)\b/i.test(line)) {
+    if (!/\b(?:parkieren|parken|parkplatz|besucherplatz|besucherparkplatz|besucherfeld|lieferantenfeld|ladezone|parking|stellplatz|rampe)\b/i.test(line)) {
       return line;
     }
     foundParkingHint = true;
@@ -11683,6 +11695,22 @@ export async function processIncomingMessage(
             normalizeSemanticText(danger) === normalizeSemanticText(line),
         ),
     );
+
+  // V17.90L93: The structured role is authoritative. A legacy [GEFAHR]
+  // assignment may not turn access, parking, schedules or work instructions
+  // into red warnings. Unknown marked content remains fail-closed as danger.
+  const operationalLinesFromDangerV17_90L93 = gefahrItems.filter((line) => {
+    const role = classifySpecialNoteRoleV17_90L93(line);
+    return role !== "safety" && role !== "unknown";
+  });
+  gefahrItems = gefahrItems.filter((line) => {
+    const role = classifySpecialNoteRoleV17_90L93(line);
+    return role === "safety" || role === "unknown";
+  });
+  hinweisItems = dedupeSpecialNoteLines([
+    ...hinweisItems,
+    ...operationalLinesFromDangerV17_90L93,
+  ]);
 
   // V17.90L70: Eine E-Mail-Adresse allein ist keine Kommunikationsanweisung.
   // Entferne KI-erfundene Hinweise wie "Mail reicht", sofern der Kunde das
