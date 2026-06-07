@@ -3024,6 +3024,30 @@ const buildOrderInfoSummaryV17_65 = (
   return { safety, primary, additional };
 };
 
+const cleanContactDisplayNameV17_90L91 = (value?: string | null) => {
+  const compact = compactText(value || "")
+    .replace(/^[\s,;:·\-–—]+|[\s,;:·\-–—]+$/g, "")
+    .trim();
+  if (!compact) return "";
+
+  const tokens = compact.split(/\s+/g);
+  const result: string[] = [];
+  let index = 0;
+  if (/^(?:Herr|Frau|Mr\.?|Mrs\.?|Ms\.?|Mme\.?|M\.)$/i.test(tokens[0] || "")) {
+    result.push(tokens[0]);
+    index = 1;
+  }
+  for (; index < tokens.length && result.length < 5; index += 1) {
+    const token = tokens[index].replace(/^[,;:·]+|[,;:·]+$/g, "");
+    if (!/^[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]*$/u.test(token)) break;
+    result.push(token);
+  }
+
+  return result.length >= (result[0] && /^(?:Herr|Frau|Mr|Mrs|Ms|Mme|M)/i.test(result[0]) ? 2 : 1)
+    ? result.join(" ")
+    : compact;
+};
+
 const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
   const source = Array.from(
     new Set(
@@ -3116,7 +3140,9 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
       /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:|dort\s+)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){0,3})\s*[,;·:\-–—]*\s*(?:(?:tel(?:efon)?|phone|mobile|handy|natel)\.?\s*:?\s*)?(?=\+?\d)/iu,
     );
     const contactParts = [
-      structuredName || nameMatch?.[1]?.trim() || "",
+      cleanContactDisplayNameV17_90L91(
+        structuredName || nameMatch?.[1]?.trim() || "",
+      ),
       phone,
     ];
     const contactContext = contactLine || line;
