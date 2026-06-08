@@ -6857,7 +6857,11 @@ function buildCanonicalAiOrderItemsV17_90L88(
         sourceText && sourceText.length <= 420 && !/[\r\n]/.test(sourceText),
       );
 
-      if (!safeName || !safeEvidence || confidence === "niedrig") return null;
+      // V17.90L102: Confidence is advisory only. A structured first-AI row
+      // with a valid service name and line-local evidence is part of the
+      // immutable canonical snapshot even when the model marks it as low
+      // confidence. Later validators may warn, but they may not delete it.
+      if (!safeName || !safeEvidence) return null;
 
       const missingPrice = unitPrice <= 0;
       const missingQuantity = quantity <= 0;
@@ -12741,11 +12745,10 @@ export async function processIncomingMessage(
     },
   );
 
-  // V17.90L91: The second checker receives only concrete candidates already
-  // identified by the validation pass. It no longer re-reads the whole message.
-  // This keeps contact, appointment, address and access text out of service
-  // proposals while still surfacing genuine open-price rows such as
-  // "Ersatzfilter nach Aufwand, Preis noch offen".
+  // V17.90L102: The normal validation pass supplies explicit unresolved
+  // candidates. The read-only second checker may additionally compare strict,
+  // line-local priced/open-price statements against the final canonical list,
+  // but it has no write access to services, amounts or customer data.
   const secondaryRecognitionCandidatesV17_90L91 = Array.from(
     new Map(
       [

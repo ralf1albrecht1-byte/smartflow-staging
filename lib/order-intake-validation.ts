@@ -61,9 +61,9 @@ export interface ReadOnlyIntakeRiskValidatorInput {
   // V17.90L24: hard global order gate. The second checker must validate the
   // complete persisted order candidate, not just log customer/address risks.
   orderItems?: ParsedOrderItemForValidation[] | null;
-  // V17.90L91: The read-only validator may surface only explicit
-  // second-pass candidates produced by the existing validation pipeline.
-  // It must not re-parse the complete customer message to invent new roles.
+  // V17.90L102: Explicit candidates from the normal validation pass. The
+  // read-only checker may also compare strict line-local service statements
+  // from the preferred original/translated source, but it never mutates data.
   recognitionCandidates?: ParsedOrderItemForValidation[] | null;
   specialNotes?: string | null;
   finalTotal?: number | null;
@@ -444,6 +444,44 @@ function isShadowOnlyRiskWarningV17_90L98(warning: string): boolean {
 // explicitly open price as a read-only recognition proposal. It must never add
 // the service automatically. The user resolves it through Übernehmen or
 // Verwerfen in the order editor.
+
+function detectReadOnlyOpenPriceQuantityUnitV17_90L102(
+  line: string,
+): { quantity: number; unit: string } | null {
+  const source = normalizeText(line);
+  const match = source.match(
+    /\b(\d+(?:[.,]\d+)?)\s*(stueck|stück|stk\.?|pcs?|pieces?|pi[eè]ces?|raeume|räume|zimmer|objekte?|einheiten?|m2|m²|qm|quadratmeter|meter|laufmeter|lfm|stunden?|std\.?|h|hours?|heures?|tage?|days?)\b/iu,
+  );
+  if (match?.[1] && match?.[2]) {
+    const quantity = Number(match[1].replace(",", "."));
+    if (!Number.isFinite(quantity) || quantity <= 0) return null;
+
+    const unitKey = normalizeCompare(match[2]);
+    const unit = /^(?:stueck|stk|pcs|piece|pieces|raeume|zimmer|objekte|einheiten)$/.test(unitKey)
+      ? "Stück"
+      : /^(?:m2|qm|quadratmeter)$/.test(unitKey)
+        ? "Quadratmeter"
+        : /^(?:meter|laufmeter|lfm)$/.test(unitKey)
+          ? "Meter"
+          : /^(?:stunden|stunde|std|h|hour|hours|heure|heures)$/.test(unitKey)
+            ? "Stunde"
+            : /^(?:tage|tag|day|days)$/.test(unitKey)
+              ? "Tag"
+              : null;
+
+    return unit ? { quantity, unit } : null;
+  }
+
+  // General count structure without an explicit unit: "2 Kühlschränke ...".
+  // The leading count is line-local and therefore safe to present as Stück in
+  // a read-only proposal. The checker still does not create the service itself.
+  const leadingCount = source.match(/^\s*[-•]?\s*(\d+(?:[.,]\d+)?)\s+(?=[\p{L}])/u);
+  const quantity = Number(String(leadingCount?.[1] || "").replace(",", "."));
+  return Number.isFinite(quantity) && quantity > 0
+    ? { quantity, unit: "Stück" }
+    : null;
+}
+
 function extractOpenPriceRecognitionItemsV17_90L90(
   originalText: string,
   fallbackCurrency: IntakeCurrency,
@@ -474,11 +512,19 @@ function extractOpenPriceRecognitionItemsV17_90L90(
       continue;
     }
 
+    const detectedQuantityUnit =
+      detectReadOnlyOpenPriceQuantityUnitV17_90L102(line);
+    const detectedQuantity = Number(detectedQuantityUnit?.quantity || 0);
+    const detectedUnit = detectedQuantityUnit?.unit || null;
+
     candidates.push({
       serviceName,
       description: line,
-      quantity: 1,
-      unit: "Pauschal",
+      quantity:
+        Number.isFinite(detectedQuantity) && detectedQuantity > 0
+          ? detectedQuantity
+          : 1,
+      unit: detectedUnit || "Pauschal",
       unitPrice: 0,
       totalPrice: 0,
       needsReview: true,
@@ -549,7 +595,7 @@ function isSafeSecondaryRecognitionCandidateV17_90L91(
   // sufficient because they commonly describe arrival times, weights or
   // durations rather than a service price.
   const openPriceSignalPattern =
-    /\b(?:preis\s+(?:noch\s+)?(?:offen|unklar|unbekannt|folgt|zu\s+pruefen|muss\s+(?:noch\s+)?(?:geprueft|abgeklaert)\s+werden)|nach\s+aufwand|price\s+(?:open|unclear|tbd|to\s+check)|prix\s+(?:ouvert|incertain|a\s+verifier)|prezzo\s+(?:aperto|da\s+definire))\b/i;
+    /\b(?:preis\s+(?:wie\s+letztes\s+mal|wie\s+immer|wie\s+gehabt|offen|unklar|unbekannt|folgt|zu\s+pruefen|noch\s+(?:offen|unklar|unbekannt|zu\s+pruefen)|muss\s+(?:noch\s+)?(?:geprueft|abgeklaert)\s+werden)|wie\s+letztes\s+mal|wie\s+immer|wie\s+gehabt|gleicher\s+preis|letzter\s+preis|normaler\s+preis|standardpreis|nach\s+aufwand|price\s+(?:open|unclear|tbd|to\s+check|same\s+as\s+last\s+time|same\s+as\s+always)|same\s+as\s+last\s+time|same\s+as\s+always|prix\s+(?:ouvert|incertain|a\s+verifier|comme\s+la\s+derniere\s+fois)|comme\s+la\s+derniere\s+fois|comme\s+d\s+habitude|prezzo\s+(?:aperto|da\s+definire|come\s+l\s+ultima\s+volta)|come\s+l\s+ultima\s+volta)\b/i;
   const unresolvedWorkSignalPattern =
     /\b(?:(?:unklar|nicht\s+klar|unclear|not\s+clear|incertain|non\s+chiaro)\b.{0,140}\b(?:ob|whether|si|se)\b|(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,100}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)|(?:muss|must|doit|deve)\b.{0,100}\b(?:zuerst|first|d'abord|prima)\b.{0,80}\b(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare)\b)/i;
   const openPriceMatch = sourceKey.match(openPriceSignalPattern);
@@ -745,6 +791,152 @@ export function extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
   return Array.from(bySubject.values()).slice(0, 4);
 }
 
+
+// V17.90L102: The second checker is a read-only alarm layer again. When an
+// automatic German translation exists, use that clean section for completeness
+// comparison instead of parsing original and translation together. This avoids
+// duplicate dialect/translation findings while leaving the first-AI result
+// completely untouched.
+function preferredReadOnlyRecognitionTextV17_90L102(
+  originalText: string,
+): string {
+  const source = String(originalText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return "";
+
+  const parts = source.split(
+    /---\s*(?:Übersetzung|Uebersetzung)\s*\(automatisch\)\s*---|---\s*Automatic translation\s*---/i,
+  );
+  const translated = parts.slice(1).join("\n").trim();
+  return translated || parts[0]?.trim() || source;
+}
+
+function readOnlyRecognitionSignatureV17_90L102(
+  item: ParsedOrderItemForValidation,
+  fallbackCurrency: IntakeCurrency,
+): string {
+  const unit =
+    unitTypeFromDisplayUnit(item.unit) || normalizeCompare(item.unit || "");
+  const quantity = Number(item.quantity || 0);
+  const price = Number(item.unitPrice || 0);
+  const currency = String(
+    item.detectedCurrency || fallbackCurrency || "",
+  ).toUpperCase();
+  return [
+    unit,
+    Number.isFinite(quantity) ? quantity.toFixed(4) : "0.0000",
+    Number.isFinite(price) ? price.toFixed(4) : "0.0000",
+    currency,
+  ].join("|");
+}
+
+function strongReadOnlyRecognitionMatchV17_90L102(
+  item: ParsedOrderItemForValidation,
+  explicit: ParsedOrderItemForValidation,
+): boolean {
+  const amountAndUnitMatch = (() => {
+    try {
+      return exactAmountUnitMatchV17_90L22(item, explicit as any);
+    } catch {
+      return (
+        Math.abs(Number(item.quantity || 0) - Number(explicit.quantity || 0)) <
+          0.001 &&
+        Math.abs(Number(item.unitPrice || 0) - Number(explicit.unitPrice || 0)) <
+          0.01 &&
+        String(item.unit || "").trim().toLowerCase() ===
+          String(explicit.unit || "").trim().toLowerCase()
+      );
+    }
+  })();
+  if (!amountAndUnitMatch) return false;
+
+  if (
+    recognitionServiceNamesCompatibleV17_90L69(
+      item.serviceName,
+      explicit.serviceName,
+    )
+  ) {
+    return true;
+  }
+
+  const itemEvidence = normalizeCompare(
+    item.sourceText || item.evidence || item.description || "",
+  );
+  const explicitEvidence = normalizeCompare(
+    explicit.sourceText || explicit.evidence || explicit.description || "",
+  );
+  return Boolean(
+    itemEvidence &&
+      explicitEvidence &&
+      (itemEvidence === explicitEvidence ||
+        itemEvidence.includes(explicitEvidence) ||
+        explicitEvidence.includes(itemEvidence)),
+  );
+}
+
+function uncoveredReadOnlyPricedCandidatesV17_90L102(
+  items: ParsedOrderItemForValidation[],
+  explicitItems: ParsedOrderItemForValidation[],
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const available = items.map((item) => ({ item, used: false }));
+  const pending: ParsedOrderItemForValidation[] = [];
+
+  // First consume strong service/evidence matches one-to-one.
+  for (const explicit of explicitItems) {
+    const matchIndex = available.findIndex(
+      (entry) =>
+        !entry.used &&
+        strongReadOnlyRecognitionMatchV17_90L102(entry.item, explicit),
+    );
+    if (matchIndex >= 0) {
+      available[matchIndex].used = true;
+    } else {
+      pending.push(explicit);
+    }
+  }
+
+  // Dialect and translated labels can differ while their line-local numeric
+  // identity is exact. Consume remaining rows by signature count. If two real
+  // services share the same values, only the excess candidate remains open.
+  const pendingBySignature = new Map<
+    string,
+    ParsedOrderItemForValidation[]
+  >();
+  for (const explicit of pending) {
+    const signature = readOnlyRecognitionSignatureV17_90L102(
+      explicit,
+      fallbackCurrency,
+    );
+    const group = pendingBySignature.get(signature) || [];
+    group.push(explicit);
+    pendingBySignature.set(signature, group);
+  }
+
+  const uncovered: ParsedOrderItemForValidation[] = [];
+  for (const [signature, group] of pendingBySignature.entries()) {
+    const matchingAvailable = available
+      .map((entry, index) => ({ entry, index }))
+      .filter(
+        ({ entry }) =>
+          !entry.used &&
+          readOnlyRecognitionSignatureV17_90L102(
+            entry.item,
+            fallbackCurrency,
+          ) === signature,
+      );
+    const coveredCount = Math.min(group.length, matchingAvailable.length);
+    for (let index = 0; index < coveredCount; index += 1) {
+      available[matchingAvailable[index].index].used = true;
+    }
+    uncovered.push(...group.slice(coveredCount));
+  }
+
+  return uncovered;
+}
+
 function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInput): string[] {
   const warnings: string[] = [];
   const items = Array.isArray(input.orderItems) ? input.orderItems : [];
@@ -760,55 +952,79 @@ function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInpu
   if (items.some((item) => normalizeRiskText(item.serviceName || "") === "leistung pruefen" || normalizeRiskText(item.serviceName || "") === "unbekannte leistung")) warnings.push("service_name_unresolved");
   if (items.some((item) => Number(item.unitPrice || 0) > 0 && Number(item.quantity || 0) > 0 && Number(item.totalPrice || 0) <= 0)) warnings.push("priced_item_total_blocked");
 
+  const recognitionSourceTextV17_90L102 =
+    preferredReadOnlyRecognitionTextV17_90L102(input.originalText);
   const explicitItems = normalizeHighGermanServiceNamesFromTranslatedTextV17_35(
-    input.originalText,
+    recognitionSourceTextV17_90L102,
     preferStrongRecognitionCandidatesV17_90L69(
       [
         ...extractStrictLineLocalPricedItemsV17_90L22(
-          input.originalText,
+          recognitionSourceTextV17_90L102,
           finalCurrency,
         ),
         ...extractCountOnlyPricedRecognitionItemsV17_90L69(
-          input.originalText,
+          recognitionSourceTextV17_90L102,
           finalCurrency,
         ),
         ...extractExplicitFlatFeeServiceItemsV17_90L95(
-          input.originalText,
+          recognitionSourceTextV17_90L102,
           finalCurrency,
         ),
       ],
-      input.originalText,
+      recognitionSourceTextV17_90L102,
     ),
   );
-  if (explicitItems.length >= 2) {
-    const uncoveredExplicitItems = explicitItems.filter(
-      (explicit) =>
-        !exactExplicitPricedLineCoveredV17_90L24(items, explicit),
-    );
+  if (explicitItems.length >= 1) {
+    const uncoveredExplicitItems =
+      uncoveredReadOnlyPricedCandidatesV17_90L102(
+        items,
+        explicitItems,
+        finalCurrency,
+      );
 
     if (uncoveredExplicitItems.length > 0) {
-      // L98 shadow mode: the old whole-message checker remains observable in
-      // logs, but it can no longer challenge or duplicate a complete first-AI
-      // result. Only explicit open-price candidates from the validated
-      // secondary-candidate channel remain user-actionable below.
-      warnings.push("shadow_priced_service_line_missing_or_mismatched");
+      // V17.90L102: Actionable read-only alarm. The checker never injects,
+      // deletes or edits a service; it only persists an Übernehmen/Verwerfen
+      // proposal with the concrete source line.
+      warnings.push("priced_service_line_missing_or_mismatched");
       warnings.push(
         ...uncoveredExplicitItems
           .slice(0, 12)
-          .map(encodeShadowRecognitionWarningV17_90L98),
+          .map(encodeRecognitionReviewWarningV17_90L69),
       );
     }
   }
 
-  // V17.90L91: Open-price proposals are no longer reconstructed from the
-  // complete customer message. The caller supplies only explicit candidates
-  // already produced by the second validation pass. This closes the path that
-  // previously converted contact/appointment text into fake services.
-  const openPriceCandidates = (
-    Array.isArray(input.recognitionCandidates)
-      ? input.recognitionCandidates
-      : []
-  ).filter(isSafeSecondaryRecognitionCandidateV17_90L91);
+  // V17.90L102: Re-enable open-price completeness checking as read-only.
+  // Prefer the clean translated section when available and merge it with
+  // explicit candidates from the normal validation pass. No candidate is
+  // added to the order automatically.
+  const openPriceCandidates = Array.from(
+    new Map(
+      [
+        ...(Array.isArray(input.recognitionCandidates)
+          ? input.recognitionCandidates
+          : []),
+        ...extractOpenPriceRecognitionItemsV17_90L90(
+          recognitionSourceTextV17_90L102,
+          finalCurrency,
+        ),
+      ]
+        .filter(isSafeSecondaryRecognitionCandidateV17_90L91)
+        .map((candidate) => [
+          [
+            normalizeCompare(candidate.serviceName),
+            normalizeCompare(
+              candidate.sourceText ||
+                candidate.evidence ||
+                candidate.description ||
+                "",
+            ),
+          ].join("|"),
+          candidate,
+        ] as const),
+    ).values(),
+  );
   const uncoveredOpenPriceCandidates = openPriceCandidates.filter(
     (candidate) => !openPriceRecognitionCoveredV17_90L90(items, candidate),
   );
