@@ -8028,7 +8028,12 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         type="button"
         tabIndex={0}
         aria-label={title}
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          const target = event.currentTarget as HTMLElement;
+          if (document.activeElement === target) target.blur();
+          else target.focus();
+        }}
         className={`group relative ${className}`}
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
@@ -8041,11 +8046,19 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
     <a
       key={badge.key}
       href={`tel:${phone}`}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        const target = event.currentTarget as HTMLElement;
+        if (document.activeElement !== target) {
+          event.preventDefault();
+          target.focus();
+        }
+      }}
       aria-label={title}
-      className={className}
+      className={`group relative ${className}`}
     >
       <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+      {renderMobileSafeBadgeTooltip({ ...badge, tooltip: title })}
     </a>
   );
 };
@@ -8196,34 +8209,44 @@ const renderCallbackCardBadge = (
   tooltipAlign: "left" | "right" = "left",
 ) => {
   const phone = getOrderPhoneForHref(order);
+  const callbackInfo = compactText(badge.tooltip);
+  const tooltip = phone
+    ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
+    : callbackInfo || "Rückruf gewünscht · Nummer fehlt";
+  const visualClass = `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(
+    badge,
+  )}`;
+
   if (!phone) {
-    return renderOrderCardBadge(
-      {
-        ...badge,
-        tooltip:
-          compactText(badge.tooltip) || "Rückruf gewünscht · Nummer fehlt",
-      },
-      tooltipAlign,
+    return (
+      <button
+        key={badge.key}
+        type="button"
+        aria-label={tooltip}
+        onClick={(event) => {
+          event.stopPropagation();
+          const target = event.currentTarget as HTMLElement;
+          if (document.activeElement === target) target.blur();
+          else target.focus();
+        }}
+        className={visualClass}
+      >
+        <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
+        {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
+      </button>
     );
   }
-
-  const callbackInfo = compactText(badge.tooltip);
-  const clickableBadge = {
-    ...badge,
-    tooltip: [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · "),
-  };
 
   return (
     <a
       key={badge.key}
       href={`tel:${phone}`}
       onClick={(event) => event.stopPropagation()}
-      aria-label={clickableBadge.tooltip}
-      className={`group relative inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 hover:underline ${getStrongerCardBadgeClassName(clickableBadge.className)}`}
+      aria-label={tooltip}
+      className={visualClass}
     >
-      <span className="text-red-600 leading-none">☎</span>
-      {clickableBadge.label}
-      {renderBadgeTooltip(clickableBadge, tooltipAlign)}
+      <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
+      {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
     </a>
   );
 };
@@ -12437,6 +12460,7 @@ export default function AuftraegePage() {
             (reason.startsWith("price_unclear:") ||
               reason === "unit_price_review" ||
               reason === "quantity_review" ||
+              reason.startsWith("quantity_range_review:") ||
               reason === "manual_flat_service_from_text" ||
               reason === "stunden_arbeitsposition_pruefen")
           ) {
@@ -17136,10 +17160,20 @@ export default function AuftraegePage() {
                                                   </div>
                                                 )}
                                                 {quantityInputReview && (
-                                                  <div>
-                                                    Menge fehlt oder ist
-                                                    unsicher.
-                                                  </div>
+                                                  <>
+                                                    <div>
+                                                      Menge fehlt oder ist
+                                                      unsicher.
+                                                    </div>
+                                                    {sourceLineForItem && (
+                                                      <div>
+                                                        Text:{" "}
+                                                        <span className="font-medium">
+                                                          {sourceLineForItem}
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                  </>
                                                 )}
                                                 <div>
                                                   Vor Angebot/Rechnung ergänzen.

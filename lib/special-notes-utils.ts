@@ -132,6 +132,22 @@ const protectedRoleTokenMatchesV17_90L108 = (left: string, right: string): boole
   );
 };
 
+const protectedRoleNamedIdentityV17_90L110 = (value: string): string[] => {
+  const raw = stripProtectedRoleMarkerV17_90L103(String(value || ""));
+  const matches =
+    raw.match(
+      /\b[A-ZÄÖÜÀ-ÖØ-Þ][\p{L}'’.-]+(?:\s+[A-ZÄÖÜÀ-ÖØ-Þ][\p{L}'’.-]+){1,3}\b/gu,
+    ) || [];
+  return matches
+    .map((match) => normalizeDedupeText(match))
+    .filter((match) => match.split(/\s+/g).length >= 2);
+};
+
+const protectedRoleNumericIdentityV17_90L110 = (value: string): string[] =>
+  stripProtectedRoleMarkerV17_90L103(String(value || "")).match(
+    /\d+(?:[.:/-]\d+)*/g,
+  ) || [];
+
 const protectedRoleSemanticEquivalentV17_90L108 = (
   leftValue: string,
   rightValue: string,
@@ -175,7 +191,55 @@ const protectedRoleSemanticEquivalentV17_90L108 = (
     numericRight.length > 0 &&
     !numericLeft.every((token) => numericRight.includes(token));
 
-  return !numericConflict && matched >= 2 && coverage >= 0.8;
+  if (!numericConflict && matched >= 2 && coverage >= 0.8) {
+    return true;
+  }
+
+  // V17.90L110: Original and automatic translation can describe the same
+  // protected role with different vocabulary. Deduplicate only when the role
+  // is the same and there is a strong structural identity: same person name
+  // or the same concrete number/date/code. Wording is never merged or invented.
+  const leftRole = classifySpecialNoteRoleV17_90L93(leftValue);
+  const rightRole = classifySpecialNoteRoleV17_90L93(rightValue);
+  const sameStableRole =
+    leftRole === rightRole &&
+    ["access", "parking", "communication", "appointment", "equipment"].includes(
+      leftRole,
+    );
+
+  if (sameStableRole) {
+    const leftNames = protectedRoleNamedIdentityV17_90L110(leftValue);
+    const rightNames = protectedRoleNamedIdentityV17_90L110(rightValue);
+    const sharesNamedIdentity = leftNames.some((name) =>
+      rightNames.includes(name),
+    );
+
+    const leftNumbers = protectedRoleNumericIdentityV17_90L110(leftValue);
+    const rightNumbers = protectedRoleNumericIdentityV17_90L110(rightValue);
+    const sharesExactNumericIdentity =
+      leftNumbers.length > 0 &&
+      rightNumbers.length > 0 &&
+      leftNumbers.every((token) => rightNumbers.includes(token)) &&
+      rightNumbers.every((token) => leftNumbers.includes(token));
+    const shorterNumbers =
+      leftNumbers.length <= rightNumbers.length ? leftNumbers : rightNumbers;
+    const longerNumbers =
+      shorterNumbers === leftNumbers ? rightNumbers : leftNumbers;
+    const sharesAppointmentCore =
+      leftRole === "appointment" &&
+      shorterNumbers.length >= 2 &&
+      shorterNumbers.every((token) => longerNumbers.includes(token));
+
+    if (
+      sharesNamedIdentity ||
+      sharesAppointmentCore ||
+      (sharesExactNumericIdentity && matched >= 1)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 const protectedRoleCompletenessScoreV17_90L108 = (value: string) => {
@@ -287,7 +351,7 @@ export function classifySpecialNoteRoleV17_90L93(
   }
 
   if (
-    /\b(?:schluessel|schlussel|schlüssel|key|badge|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|zugang|zutritt|eingang|hintereingang|seiteneingang|concierge|schluesselbox|schlusselbox|schlüsselbox|schluesseltresor|schlusseltresor|schlüsseltresor|zugangscode|torcode|code|pin|rampe|lift|aufzug|security desk|nachtportier)\b/.test(
+    /\b(?:schluessel|schlussel|schlüssel|key|badge|keycard|schluesselkarte|schlusselkarte|schlüsselkarte|zugangsausweis|zugang|zutritt|eingang|hintereingang|seiteneingang|concierge|schluesselbox|schlusselbox|schlüsselbox|schluesseltresor|schlusseltresor|schlüsseltresor|zugangscode|torcode|code|pin|rampe|lift|aufzug|security desk|nachtportier)\b/.test(
       text,
     )
   ) {
@@ -299,18 +363,20 @@ export function classifySpecialNoteRoleV17_90L93(
   }
 
   if (
+    /\b(?:termin|zeitfenster|appointment|rendez[ -]?vous|datum)\b/i.test(raw) &&
+    /(?:\b\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}:\d{2}\b|\b(?:vormittag|nachmittag|abend)\b)/i.test(
+      raw,
+    )
+  ) {
+    return "appointment";
+  }
+
+  if (
     /\b(?:kontakt|ansprechperson|vor ort|on site|onsite|contact sur place|sms|whatsapp|mail|email|e mail|anrufen|telefon|rueckruf|ruckruf|nicht telefonisch|keine anrufe|do not call|no calls)\b/.test(
       text,
     )
   ) {
     return "communication";
-  }
-
-  if (
-    /\b(?:termin|zeitfenster|appointment|rendez vous|datum)\b/.test(text) &&
-    /\b(?:\d{1,2}[./-]\d{1,2}|\d{1,2}:\d{2}|vormittag|nachmittag|abend)\b/.test(text)
-  ) {
-    return "appointment";
   }
 
   const timedOperatingRule =

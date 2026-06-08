@@ -1186,9 +1186,22 @@ const QUANTITY_NUMBER_OR_WORD =
   "(?:\\d+(?:[.,]\\d+)?|ein|eine|einen|einem|einer|eins|viertel|halbe|halb|dreiviertel|anderthalb|eineinhalb|zweieinhalb|dreieinhalb|viereinhalb|fuenfeinhalb|funfeinhalb|sechseinhalb|siebeneinhalb|achteinhalb|neuneinhalb|zwei|drei|vier|fuenf|funf|sechs|sieben|acht|neun|zehn)";
 
 
+const EXPLICIT_QUANTITY_RANGE_V17_90L110 = new RegExp(
+  String.raw`\b\d+(?:[.,]\d+)?\s*(?:-|–|—|bis|to|until|a|à)\s*\d+(?:[.,]\d+)?\s*${UNIT_WORDS}\b`,
+  "i",
+);
+
+function hasExplicitQuantityRangeV17_90L110(
+  value: string | null | undefined,
+): boolean {
+  return EXPLICIT_QUANTITY_RANGE_V17_90L110.test(String(value || ""));
+}
+
+
 function isPricedServiceLine(line: string): boolean {
   const key = normalizeCompare(line);
   if (!key) return false;
+  if (hasExplicitQuantityRangeV17_90L110(line)) return false;
 
   if (/^(?:rechnung|invoice|facture|fattura|kunde|kundin|adresse|ausfuehrung|ausführung|execution|exécution|esecuzione|hinweis|hinweise|kontakt|telefon|tel|email|e-mail|zugang|besonderheiten)\b/i.test(key)) {
     return false;
@@ -6646,6 +6659,7 @@ function extractStructuredGermanServiceSectionLinesV17_43(
   const isPricedServiceLine = (line: string) => {
     const key = normalizeCompare(line);
     if (!key || serviceHeaderRe.test(key) || stopRe.test(key)) return false;
+    if (hasExplicitQuantityRangeV17_90L110(line)) return false;
 
     // Do not let operational notes become service rows just because they contain
     // a time, phone number or code.
@@ -10931,6 +10945,7 @@ function extractStrictLineLocalPricedItemsV17_90L22(
   );
 
   for (const base of bases) {
+    if (hasExplicitQuantityRangeV17_90L110(base)) continue;
     const matches = Array.from(base.matchAll(measuredPattern));
     if (matches.length === 0) continue;
 
@@ -11230,6 +11245,7 @@ function extractCountOnlyPricedRecognitionItemsV17_90L69(
       .filter(Boolean);
 
     for (const line of lines) {
+      if (hasExplicitQuantityRangeV17_90L110(line)) continue;
       const match = line.match(pattern);
       if (!match) continue;
       if (
