@@ -13,6 +13,22 @@ const SYSTEM_KEYWORDS =
 const SAFETY_MARKER = /^\s*\[(GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i;
 const HINT_MARKER = /^\s*\[(HINWEIS|INFO|NOTIZ)\]\s*/i;
 
+
+// V17.90L108: Some legacy/API paths may flatten line breaks while keeping the
+// explicit role markers. Recreate record boundaries before parsing. This is a
+// structural marker split only; wording and roles are not interpreted here.
+const splitProtectedRoleRecordsV17_90L108 = (value: string): string[] =>
+  String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(
+      /\s*(?=\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*)/gi,
+      "\n",
+    )
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
 export interface SplitNotes {
   systemHints: string[];
   safetyWarnings: string[];
@@ -87,28 +103,113 @@ const normalizeDedupeText = (value: string) =>
 // Text and role are preserved. We remove exact formatting duplicates and, only
 // for the same structured access identity, retain the more complete source line
 // (for example the version that also contains its code). No wording is created.
+const protectedRoleTokenStemV17_90L108 = (value: string): string => {
+  const token = String(value || "").replace(/[^a-z0-9]/g, "");
+  if (token.length <= 4 || /^\d+$/.test(token)) return token;
+  return token
+    .replace(/(?:ern|est|enden|ende|ender|endes|ungen|ung|ieren|iert|ische|ischen|licher|liche|lich|ern|en|er|es|e|n|s|t)$/i, "")
+    .slice(0, 18);
+};
+
+const protectedRoleTokenMatchesV17_90L108 = (left: string, right: string): boolean => {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (Math.min(left.length, right.length) >= 5) {
+    if (left.startsWith(right) || right.startsWith(left)) return true;
+  }
+
+  // Generic support for separable/participle forms such as
+  // "abholen" / "abgeholt" without any domain vocabulary.
+  const removeInnerGe = (token: string) =>
+    token.replace(/^([a-z]{1,4})ge(?=[a-z]{3,})/i, "$1");
+  const a = removeInnerGe(left);
+  const b = removeInnerGe(right);
+  return (
+    a === b ||
+    (Math.min(a.length, b.length) >= 5 && (a.startsWith(b) || b.startsWith(a)))
+  );
+};
+
+const protectedRoleSemanticEquivalentV17_90L108 = (
+  leftValue: string,
+  rightValue: string,
+): boolean => {
+  const left = normalizeDedupeText(leftValue);
+  const right = normalizeDedupeText(rightValue);
+  if (!left || !right) return false;
+  if (left === right || left.includes(right) || right.includes(left)) return true;
+
+  const leftTokens = left
+    .split(/\s+/g)
+    .map(protectedRoleTokenStemV17_90L108)
+    .filter((token) => token.length >= 3 || /^\d+$/.test(token));
+  const rightTokens = right
+    .split(/\s+/g)
+    .map(protectedRoleTokenStemV17_90L108)
+    .filter((token) => token.length >= 3 || /^\d+$/.test(token));
+  if (leftTokens.length < 2 || rightTokens.length < 2) return false;
+
+  const shorter = leftTokens.length <= rightTokens.length ? leftTokens : rightTokens;
+  const longer = shorter === leftTokens ? rightTokens : leftTokens;
+  let matched = 0;
+  const used = new Set<number>();
+  for (const token of shorter) {
+    const index = longer.findIndex(
+      (candidate, candidateIndex) =>
+        !used.has(candidateIndex) &&
+        protectedRoleTokenMatchesV17_90L108(token, candidate),
+    );
+    if (index >= 0) {
+      used.add(index);
+      matched += 1;
+    }
+  }
+
+  const coverage = matched / Math.max(1, shorter.length);
+  const numericLeft = left.match(/\d+(?:[.:/-]\d+)*/g) || [];
+  const numericRight = right.match(/\d+(?:[.:/-]\d+)*/g) || [];
+  const numericConflict =
+    numericLeft.length > 0 &&
+    numericRight.length > 0 &&
+    !numericLeft.every((token) => numericRight.includes(token));
+
+  return !numericConflict && matched >= 2 && coverage >= 0.8;
+};
+
+const protectedRoleCompletenessScoreV17_90L108 = (value: string) => {
+  const digitCount = (value.match(/\d/g) || []).length;
+  const tokenCount = normalizeDedupeText(value)
+    .split(/\s+/g)
+    .filter(Boolean).length;
+  return digitCount * 1000 + tokenCount * 10 + value.length;
+};
+
 const dedupeProtectedRoleLinesV17_90L103 = (values: string[]): string[] => {
-  const exactSeen = new Set<string>();
   const ordered: string[] = [];
 
   for (const rawValue of values) {
     const value = stripProtectedRoleMarkerV17_90L103(String(rawValue || ""));
     const exactKey = normalizeDedupeText(value);
-    if (!value || !exactKey || exactSeen.has(exactKey)) continue;
-    exactSeen.add(exactKey);
-    ordered.push(value);
+    if (!value || !exactKey) continue;
+
+    const existingIndex = ordered.findIndex((existing) =>
+      protectedRoleSemanticEquivalentV17_90L108(existing, value),
+    );
+    if (existingIndex < 0) {
+      ordered.push(value);
+      continue;
+    }
+
+    if (
+      protectedRoleCompletenessScoreV17_90L108(value) >
+      protectedRoleCompletenessScoreV17_90L108(ordered[existingIndex])
+    ) {
+      ordered[existingIndex] = value;
+    }
   }
 
   const accessByKey = new Map<string, string>();
   const passthrough: string[] = [];
-  const completenessScore = (value: string) => {
-    const digitCount = (value.match(/\d/g) || []).length;
-    const tokenCount = normalizeDedupeText(value)
-      .split(/\s+/g)
-      .filter(Boolean).length;
-    return digitCount * 1000 + tokenCount * 10 + value.length;
-  };
-
   for (const value of ordered) {
     const semanticKey = semanticNoteKey(value);
     if (!semanticKey.startsWith("key:") && semanticKey !== "key") {
@@ -117,7 +218,7 @@ const dedupeProtectedRoleLinesV17_90L103 = (values: string[]): string[] => {
     }
 
     const existing = accessByKey.get(semanticKey);
-    if (!existing || completenessScore(value) > completenessScore(existing)) {
+    if (!existing || protectedRoleCompletenessScoreV17_90L108(value) > protectedRoleCompletenessScoreV17_90L108(existing)) {
       accessByKey.set(semanticKey, value);
     }
   }
@@ -792,9 +893,7 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     return { systemHints: [], safetyWarnings: [], jobHints: [] };
   }
 
-  const lines = text
-    .split("\n")
-    .map((line) => line.trim())
+  const lines = splitProtectedRoleRecordsV17_90L108(text)
     .filter((line) => Boolean(line) && !/\[object Object\]/i.test(line));
 
   const systemHints: string[] = [];

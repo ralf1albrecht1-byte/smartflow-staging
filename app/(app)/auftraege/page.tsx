@@ -3009,15 +3009,32 @@ const buildOrderInfoSummaryV17_65 = (
   // Mixing audioTranscript back into an already structured order reintroduced
   // English/raw forwarding sentences and duplicated access instructions.
   const normalizedSpecialNotes = String(order.specialNotes || "").trim();
-  const source =
-    normalizedSpecialNotes ||
-    String(order.notes || "").trim() ||
-    String(order.audioTranscript || "").trim();
+  const hasProtectedRoleMarkersV17_90L108 =
+    /\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]/i.test(
+      normalizedSpecialNotes,
+    );
+  const structuredRoleDisplaySourceV17_90L108 = [
+    ...(parsedNotes.safetyWarnings || []),
+    ...(parsedNotes.jobHints || []),
+  ]
+    .map((line) => compactText(line))
+    .filter(Boolean)
+    .join("\n");
+  const source = hasProtectedRoleMarkersV17_90L108
+    ? structuredRoleDisplaySourceV17_90L108
+    : normalizedSpecialNotes ||
+      String(order.notes || "").trim() ||
+      String(order.audioTranscript || "").trim();
   const inline = extractInlineOrderInfoSnippetsV17_90L80(source);
-  const rawOperationalContact = extractOrderOperationalContactLineV17_90L101(
-    order.notes,
-    order.audioTranscript,
+  const hasStructuredContactV17_90L108 = (parsedNotes.jobHints || []).some(
+    (line) => /^\s*Kontakt\s+vor\s+Ort\s*:/i.test(compactText(line)),
   );
+  const rawOperationalContact = hasStructuredContactV17_90L108
+    ? ""
+    : extractOrderOperationalContactLineV17_90L101(
+        order.notes,
+        order.audioTranscript,
+      );
 
   const splitInfoClausesV17_90L81 = (line: string) =>
     compactText(line)
@@ -3044,13 +3061,15 @@ const buildOrderInfoSummaryV17_65 = (
     return role === "equipment" || role === "operational";
   });
 
-  const appointmentSourceV17_90L106 = [
-    normalizedSpecialNotes,
-    String(order.notes || "").trim(),
-    String(order.audioTranscript || "").trim(),
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const appointmentSourceV17_90L106 = hasProtectedRoleMarkersV17_90L108
+    ? (parsedNotes.jobHints || []).join("\n")
+    : [
+        normalizedSpecialNotes,
+        String(order.notes || "").trim(),
+        String(order.audioTranscript || "").trim(),
+      ]
+        .filter(Boolean)
+        .join("\n");
   const appointmentLines = extractOrderAppointmentSnippetsV17_65(
     appointmentSourceV17_90L106,
   );
