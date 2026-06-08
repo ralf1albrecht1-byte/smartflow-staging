@@ -1626,79 +1626,89 @@ const formatOperationalHintTooltip = (
   return compactText(fallbackLine).replace(/[.;:,\s]+$/g, "");
 };
 
-const getParkingConflictBadge = (
+const collectParkingDetailLinesV17_90L99 = (
   values: Array<string | null | undefined>,
-): { label: string; className: string } | null => {
-  const signal = values.reduce(
-    (acc, value) => {
-      const next = getParkingSignal(value);
+): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  values.forEach((value) => {
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split(/\n+|(?<=[.!?])\s+/g)
+      .map((line) =>
+        compactText(
+          stripVisibleNoteMarkerV17_35(line)
+            .replace(/^[-•]\s*/, "")
+            .replace(/[.;:,\s]+$/g, ""),
+        ),
+      )
+      .filter((line) => line && hasParkingReference(line))
+      .forEach((line) => {
+        const key = normalizeForMatch(line);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        result.push(line);
+      });
+  });
+
+  return result;
+};
+
+const getUnifiedParkingBadgeV17_90L99 = (
+  values: Array<string | null | undefined>,
+): { label: string; className: string; tooltip: string } => {
+  const details = collectParkingDetailLinesV17_90L99(values);
+  const signal = details.reduce(
+    (acc, line) => {
+      const next = getParkingSignal(line);
       return {
-        hasParking: acc.hasParking || next.hasParking,
         hasPositive: acc.hasPositive || next.hasPositive,
         hasNoParking: acc.hasNoParking || next.hasNoParking,
         hasDifficult: acc.hasDifficult || next.hasDifficult,
       };
     },
-    {
-      hasParking: false,
-      hasPositive: false,
-      hasNoParking: false,
-      hasDifficult: false,
-    },
+    { hasPositive: false, hasNoParking: false, hasDifficult: false },
   );
 
-  if (!signal.hasParking) return null;
+  // A concrete parking instruction such as "Besucherfeld 6" or "B12 benutzen"
+  // is a positive availability statement even when it does not contain the
+  // literal word "vorhanden". Conflicting information stays fail-closed.
+  const hasConcreteParkingInstruction = details.some((line) => {
+    const text = normalizeForMatch(line);
+    return (
+      !PARKING_NO_PATTERN.test(text) &&
+      !PARKING_DIFFICULT_PATTERN.test(text) &&
+      !/\b(?:unklar|pruefen|prüfen|unknown|not\s+specified)\b/.test(text)
+    );
+  });
+  const positive = signal.hasPositive || hasConcreteParkingInstruction;
+  const negative = signal.hasNoParking || signal.hasDifficult;
+  const status =
+    positive && !negative
+      ? "Parkplatz verfügbar"
+      : negative && !positive
+        ? "Parkplatz nicht verfügbar"
+        : "Parkplatz nicht angegeben";
 
-  // After merging multiple orders, conflicting parking information should not
-  // be shown as a clean "Parken" or "Kein Parkplatz" chip.
-  if (
-    (signal.hasPositive && (signal.hasNoParking || signal.hasDifficult)) ||
-    (signal.hasNoParking && signal.hasDifficult)
-  ) {
-    return {
-      label: "Parken prüfen",
-      className: "bg-amber-100 text-amber-800 border border-amber-300",
-    };
-  }
-
-  return null;
+  const detailText = details.length > 0 ? `\n\n${details.join("\n")}` : "";
+  return {
+    label: "Parken",
+    className: "bg-blue-50 text-blue-700 border border-blue-300",
+    tooltip: `${status}${detailText}`,
+  };
 };
 
+// Kept as a narrow compatibility helper for existing tooltip matching.
 const getParkingBadge = (
   value?: string | null,
-  context?: string | null,
+  _context?: string | null,
 ): { label: string; className: string } | null => {
-  const text = normalizeForMatch(value);
-  const contextSignal = getParkingSignal(context);
-  const ownSignal = getParkingSignal(text);
-  if (!ownSignal.hasParking) return null;
-
-  if (!ownSignal.hasNoParking && contextSignal.hasNoParking) return null;
-
-  if (ownSignal.hasNoParking) {
-    return {
-      label: "Kein Parkplatz",
-      className: "bg-amber-100 text-amber-800 border border-amber-300",
-    };
-  }
-
-  if (ownSignal.hasDifficult) {
-    return {
-      label: "Parkplatz schwierig",
-      className: "bg-amber-100 text-amber-800 border border-amber-300",
-    };
-  }
-
-  if (ownSignal.hasPositive) {
-    return {
-      label: "Parken",
-      className: "bg-blue-50 text-blue-700 border border-blue-300",
-    };
-  }
-
+  if (!getParkingSignal(value).hasParking) return null;
   return {
-    label: "Parken prüfen",
-    className: "bg-amber-100 text-amber-800 border border-amber-300",
+    label: "Parken",
+    className: "bg-blue-50 text-blue-700 border border-blue-300",
   };
 };
 
@@ -1736,6 +1746,7 @@ const dangerBadgeLabel = (value?: string | null) => {
 
 const badgeSortRank = (badge: ReviewBadge) => {
   if (badge.key === "special_notes_summary") return -1;
+  if (badge.key === "hint_parking") return -0.5;
   const className = badge.className || "";
   if (/bg-red-|text-red-|border-red-/.test(className)) return 0;
   if (
@@ -3283,8 +3294,26 @@ const getOperationalBadges = (
     });
   }
 
+  // V17.90L99: Every order has exactly one compact blue parking chip.
+  // The tooltip reports availability and retains all concrete parking details.
+  // Parking lines are excluded from red/yellow operational duplicates below.
+  const unifiedParkingBadge = getUnifiedParkingBadgeV17_90L99([
+    ...parsedNotes.safetyWarnings,
+    ...parsedNotes.jobHints,
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  ]);
+  addHint(
+    "hint_parking",
+    unifiedParkingBadge.label,
+    unifiedParkingBadge.className,
+    unifiedParkingBadge.tooltip,
+  );
+
   parsedNotes.safetyWarnings.forEach((line) => {
     const kind = getSemanticBadgeKind(line);
+    if (kind === "parking" || getParkingSignal(line).hasParking) return;
     if (kind === "care" || kind === "ppe") {
       const label = badgeLabelByKind[kind];
       addHint(
@@ -3306,12 +3335,6 @@ const getOperationalBadges = (
     addDanger(`danger_${normalizeForMatch(label)}`, label, line);
   });
 
-  const parkingConflictBadge = getParkingConflictBadge([
-    ...parsedNotes.jobHints,
-    order.specialNotes,
-    order.notes,
-    order.audioTranscript,
-  ]);
 
   parsedNotes.jobHints.forEach((line) => {
     if (isNonActionableSemanticHint(line, orderBadgeContext)) return;
@@ -3319,24 +3342,7 @@ const getOperationalBadges = (
     const kind = getSemanticBadgeKind(line);
     if (!kind || kind === "warning" || kind === "appointment") return;
 
-    if (kind === "parking") {
-      if (parkingConflictBadge) return;
-      const parkingBadge = getParkingBadge(line, orderBadgeContext);
-      if (!parkingBadge) return;
-      addHint(
-        `hint_parking_${normalizeForMatch(parkingBadge.label)}`,
-        parkingBadge.label,
-        parkingBadge.className,
-        formatOperationalHintTooltip(
-          order,
-          "parking",
-          parsedNotes,
-          line,
-          orderBadgeContext,
-        ),
-      );
-      return;
-    }
+    if (kind === "parking" || getParkingSignal(line).hasParking) return;
 
     const label = badgeLabelByKind[kind];
     if (!label) return;
@@ -3381,20 +3387,6 @@ const getOperationalBadges = (
     );
   });
 
-  if (parkingConflictBadge) {
-    addHint(
-      "hint_parking_review",
-      parkingConflictBadge.label,
-      parkingConflictBadge.className,
-      formatOperationalHintTooltip(
-        order,
-        "parking",
-        parsedNotes,
-        "Es gibt unterschiedliche oder unklare Parkhinweise. Bitte Auftrag öffnen und prüfen.",
-        orderBadgeContext,
-      ),
-    );
-  }
 
   // Unknown operational notes stay inside the order detail. The card only shows short, useful chips.
   // CARD_BADGE_SORT_AND_LIMIT_V15
@@ -6626,7 +6618,11 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
         order.notes,
         order.audioTranscript,
       ) || order.customer?.phone || "",
-    email: (order as any).email || order.customer?.email || "",
+    email:
+      extractOrderContactEmailForCustomerDisplayV17_90K(order) ||
+      (order as any).email ||
+      order.customer?.email ||
+      "",
     customer: order.customer
       ? { ...order.customer }
       : order.customer,

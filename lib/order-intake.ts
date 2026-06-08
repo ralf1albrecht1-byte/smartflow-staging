@@ -25,6 +25,7 @@ import { getActiveDataScope } from "@/lib/data-scope";
 import {
   applyUnitlessQuantityPriceLineGuard,
   extractExecutionAddressFromText,
+  extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99,
   runReadOnlyIntakeRiskValidator,
   validateAndRepairParsedOrderItems,
 } from "@/lib/order-intake-validation";
@@ -1593,44 +1594,67 @@ function sameAddressWorkAreaDescriptorV17_66(
     .join("\n");
   const candidates = [translated, original].filter(Boolean);
   const sameAddressTail =
-    String.raw`(?:gleiche\s+adresse|selbe\s+adresse|dieselbe\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+address|m[eê]me\s+adresse|stesso\s+indirizzo)`;
+    String.raw`(?:gleiche\s+adresse|selbe\s+adresse|dieselbe\s+adresse|adresse\s+(?:ist\s+)?gleich|same\s+(?:street\s+)?address|m[eê]me\s+adresse|stesso\s+indirizzo)`;
   const workMarker =
-    String.raw`(?:die\s+)?(?:arbeit(?:en)?|ausf(?:ü|ue)hrung|arbeitsort|einsatzort)`;
+    String.raw`(?:arbeitsbereich|work\s+area|zone\s+de\s+travail|area\s+di\s+lavoro|die\s+arbeit(?:en)?|ausf(?:ü|ue)hrung|arbeitsort|einsatzort)`;
+  const stopMarker =
+    /^(?:kontakt|contact|vor[-\s]?ort|onsite|leistungen?|services?|termin|appointment|zugang|access|schl[uü]ssel|key|park|gefahr|achtung|invoice|rechnung|rechnungsadresse)\b/i;
 
   for (const candidateSource of candidates) {
     const lines = String(candidateSource)
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n")
+      .split(/\n+/g)
+      .map((line) => compactText(line))
+      .filter(Boolean);
+    const normalizedCandidate = normalizeUnitText(candidateSource);
+    if (!new RegExp(sameAddressTail, "i").test(normalizedCandidate)) continue;
+
+    // Labelled multi-line block, e.g. "Work area:" followed by rooms.
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const markerMatch = line.match(new RegExp(`^${workMarker}\s*(?:ist|:|-)?\s*(.*)$`, "i"));
+      if (!markerMatch) continue;
+      const descriptors: string[] = [];
+      if (markerMatch[1]) descriptors.push(markerMatch[1]);
+      for (let offset = 1; offset <= 6; offset += 1) {
+        const next = lines[index + offset];
+        if (!next || stopMarker.test(next)) break;
+        if (parseBillingStreetLine(next) || parseBillingPlzCityFromLine(next).plz) break;
+        descriptors.push(next);
+      }
+      const cleaned = compactRepeatedExecutionSiteDescriptorsV17_48(
+        descriptors
+          .map((value) => cleanExecutionSiteNameCandidate(value))
+          .filter((value): value is string => Boolean(value)),
+      ).slice(0, 5);
+      if (cleaned.length > 0) return cleaned.join(", ");
+    }
+
+    // Inline sentence, e.g. "Arbeitsbereich ist das 2. Obergeschoss, ...".
+    const sentenceLines = String(candidateSource)
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
       .split(/\n+|(?<=[.!?])\s+/g)
       .map((line) => compactText(line))
       .filter(Boolean);
-    for (const line of lines) {
+    for (const line of sentenceLines) {
+      const inlineWork = line.match(new RegExp(`${workMarker}\s*(?:ist|sind|:|-)?\s*(.+)$`, "i"));
+      if (inlineWork?.[1]) {
+        const descriptor = cleanExecutionSiteNameCandidate(
+          inlineWork[1].replace(/[.;:,\s]+$/g, "").trim(),
+        );
+        if (descriptor) return descriptor;
+      }
       if (!new RegExp(sameAddressTail, "i").test(normalizeUnitText(line))) continue;
-      const match = line.match(
+      const afterSameAddress = line.match(
         new RegExp(
-          `${workMarker}\\s+(?:sind|ist|isch|werden|findet\\s+statt)?\\s*(?:im|in\\s+der|in\\s+dem|in|am|bei|beim)\\s+(.+?)\\s*,?\\s*${sameAddressTail}`,
+          String.raw`${sameAddressTail}\s*(?:,|aber|jedoch|und)?\s*(.+?)(?=\b(?:kontakt|leistungen?|schluessel|schlüssel|termin|sms|whatsapp|telefon|anfahrt|fahrt|$))`,
           "i",
         ),
       );
-      let descriptorSource = match?.[1] || "";
-
-      // V17.90L70: In real voice messages the same-address statement often
-      // comes first: "gleiche Adresse, Werkhalle Ost, Pausenraum und
-      // Bürotrakt". Preserve the following work-area descriptor as well.
-      if (!descriptorSource) {
-        const afterSameAddress = line.match(
-          new RegExp(
-            String.raw`${sameAddressTail}\s*(?:,|aber|jedoch|und)?\s*(.+?)(?=\b(?:kontakt|leistungen?|schluessel|schlüssel|termin|sms|whatsapp|telefon|anfahrt|fahrt|$))`,
-            "i",
-          ),
-        );
-        descriptorSource = afterSameAddress?.[1] || "";
-      }
-
-      if (!descriptorSource) continue;
       const descriptor = cleanExecutionSiteNameCandidate(
-        descriptorSource
-          .replace(/\b(?:und|sowie)\s+(?:im|in\s+der|in\s+dem|am|bei|beim)\s+/gi, "und ")
+        String(afterSameAddress?.[1] || "")
           .replace(/[,:;\-–—]+\s*$/g, "")
           .trim(),
       );
@@ -3683,6 +3707,31 @@ function shouldShowAutomaticTranslationBlockV17_49(args: {
   // with a visible translation block unless the source was truly non-German or
   // dialectal. This is a display gate, not a service/address word list.
   return Boolean(args.modelWantsVisibleTranslation) && !detectedClearlyTarget;
+}
+
+function shouldSkipPaidNormalizationForCleanStandardGermanV17_90L99(args: {
+  text: string;
+  targetLanguage: string;
+}): boolean {
+  if (process.env.SMARTFLOW_FORCE_INTAKE_NORMALIZATION === "1") return false;
+  const target = normalizeSemanticText(args.targetLanguage || "Deutsch");
+  if (!/deutsch|german/.test(target)) return false;
+
+  const text = normalizeSemanticText(args.text || "");
+  if (text.length < 80) return false;
+  const foreignOrMixedSignals = [
+    /\b(?:invoice|work\s+area|onsite|services|appointment|do\s+not|please|travel\s+flat)\b/,
+    /\b(?:facture|chantier|contact\s+sur\s+place|seulement|nettoyage|ne\s+pas)\b/,
+    /\b(?:fattura|cantiere|contatto|solamente|non\s+chiamare|nuovo)\b/,
+    /\b(?:racun|račun|molim|prije|kljuc|ključ|izvodenje|izvođenje)\b/,
+    /\b(?:isch|n[oö]d|kei|gsi|bim|huuswart|chli|öppe|vorhär|nume)\b/,
+  ];
+  if (foreignOrMixedSignals.some((pattern) => pattern.test(text))) return false;
+
+  const germanFunctionWords = text.match(
+    /\b(?:der|die|das|den|dem|des|ein|eine|einen|einem|einer|und|oder|aber|bitte|nicht|keine|bei|beim|vor|nach|wird|werden|ist|sind|liegt|verwenden|anrufen|reinigen|adresse|termin|leistungen)\b/g,
+  ) || [];
+  return new Set(germanFunctionWords).size >= 8;
 }
 
 async function createStandardGermanValidationTranslation(args: {
@@ -10238,11 +10287,16 @@ export async function processIncomingMessage(
   // Ausführungsort oder Hinweis in die Haupt-KI laufen. Die Normalisierung
   // bleibt beweisführend getrennt: Originaltext für Zahlen/Preise,
   // Arbeitsfassung für professionelle deutsche Namen und Rollen.
-  const intakeNormalization = await createStandardGermanValidationTranslation({
+  const intakeNormalization = shouldSkipPaidNormalizationForCleanStandardGermanV17_90L99({
     text: messageText,
     targetLanguage: hauptsprache,
-    source,
-  });
+  })
+    ? EMPTY_INTAKE_NORMALIZATION_V17_49
+    : await createStandardGermanValidationTranslation({
+        text: messageText,
+        targetLanguage: hauptsprache,
+        source,
+      });
   const translationText = intakeNormalization.translationText;
   const showTranslationInCustomerMessage =
     intakeNormalization.showTranslationInCustomerMessage;
@@ -12646,7 +12700,13 @@ export async function processIncomingMessage(
   // "Ersatzfilter nach Aufwand, Preis noch offen".
   const secondaryRecognitionCandidatesV17_90L91 = Array.from(
     new Map(
-      intakeValidation.items
+      [
+        ...intakeValidation.items,
+        ...extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
+          validationSourceText,
+          intakeValidation.finalCurrency,
+        ),
+      ]
         .filter((item) => {
           const reason = String(item.reviewReason || "");
           const evidence = String(

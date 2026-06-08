@@ -550,13 +550,17 @@ function isSafeSecondaryRecognitionCandidateV17_90L91(
   // durations rather than a service price.
   const openPriceSignalPattern =
     /\b(?:preis\s+(?:noch\s+)?(?:offen|unklar|unbekannt|folgt|zu\s+pruefen|muss\s+(?:noch\s+)?(?:geprueft|abgeklaert)\s+werden)|nach\s+aufwand|price\s+(?:open|unclear|tbd|to\s+check)|prix\s+(?:ouvert|incertain|a\s+verifier)|prezzo\s+(?:aperto|da\s+definire))\b/i;
+  const unresolvedWorkSignalPattern =
+    /(?:(?:unklar|nicht\s+klar|unclear|not\s+clear|incertain|non\s+chiaro).{0,140}(?:ob|whether|si|se)|(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,100}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)|(?:muss|must|doit|deve).{0,100}(?:zuerst|first|d'abord|prima).{0,80}(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare))/i;
   const openPriceMatch = sourceKey.match(openPriceSignalPattern);
-  if (!openPriceMatch) return false;
+  const unresolvedWorkMatch = sourceKey.match(unresolvedWorkSignalPattern);
+  const recognitionSignal = openPriceMatch || unresolvedWorkMatch;
+  if (!recognitionSignal) return false;
 
   // A safe proposal must describe one line-local service. A comma/semicolon
-  // list of several already parsed services followed by one open-price phrase
+  // list of several already parsed services followed by one unresolved phrase
   // is a broad summary, not evidence for a single missing position.
-  const openSignalIndex = openPriceMatch.index ?? sourceKey.length;
+  const openSignalIndex = recognitionSignal.index ?? sourceKey.length;
   const serviceScope = sourceKey.slice(0, openSignalIndex);
   const structuralSeparators = serviceScope.match(/[,;|]/g)?.length || 0;
   const nameSeparators = serviceName.match(/[,;|]/g)?.length || 0;
@@ -609,6 +613,101 @@ function openPriceRecognitionCoveredV17_90L90(
         normalizeCompare(candidate.serviceName)
     );
   });
+}
+
+
+// V17.90L99: Strict, deterministic extraction of an explicitly unresolved
+// work scope. This is not a second whole-message service parser: it only emits
+// a proposal when the customer itself says that the work must first be checked
+// and that scope/price/quantity/unit are still unknown. It never creates a
+// confirmed or priced service.
+export function extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
+  originalText: string,
+  fallbackCurrency: IntakeCurrency,
+): ParsedOrderItemForValidation[] {
+  const source = String(originalText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+  if (!source) return [];
+
+  const parts = source
+    .split(/---\s*Übersetzung\s*\(automatisch\)\s*---/i)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reverse(); // Prefer the clean German working translation when available.
+
+  const candidates: ParsedOrderItemForValidation[] = [];
+  for (const part of parts) {
+    const paragraphs = part
+      .split(/\n\s*\n+/g)
+      .map((block) => block.trim())
+      .filter(Boolean);
+
+    for (const paragraph of paragraphs) {
+      const compactParagraph = normalizeText(paragraph).replace(/\s+/g, " ").trim();
+      const normalized = normalizeCompare(compactParagraph);
+      if (!compactParagraph || compactParagraph.length > 900) continue;
+      if (/\b(?:rechnungsadresse|invoice address|leistungen|services|termin|appointment|kontakt|contact sur place|onsite contact)\b/i.test(compactParagraph) && compactParagraph.split(/\n+/g).length > 6) continue;
+
+      const hasUnresolvedScope =
+        /\b(?:unklar|nicht\s+klar|unclear|not\s+clear|incertain|non\s+chiaro)\b.{0,180}\b(?:ob|whether|si|se)\b/i.test(normalized) ||
+        /\b(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,120}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)/i.test(normalized);
+      const hasInspectionFirst =
+        /\b(?:muss|must|doit|deve)\b.{0,120}\b(?:zuerst|first|d'abord|prima)\b.{0,100}\b(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare)\b/i.test(normalized);
+      const explicitlyNotConfirmed =
+        /\b(?:nicht|do\s+not|don['’]?t|ne\s+pas|non)\b.{0,140}\b(?:als\s+bestaetigte|als\s+bestätigte|confirmed|confirmee|confermata)\b/i.test(normalized);
+      if (!(hasUnresolvedScope && (hasInspectionFirst || explicitlyNotConfirmed))) continue;
+
+      const sentences = compactParagraph
+        .split(/(?<=[.!?])\s+|\n+/g)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const signalIndex = sentences.findIndex((line) => {
+        const key = normalizeCompare(line);
+        return /\b(?:unklar|nicht\s+klar|unclear|not\s+clear|kein\s+preis|keine\s+preise|no\s+price|muss.*zuerst.*(?:pruefen|inspect|check)|must.*first.*(?:inspect|check))\b/i.test(key);
+      });
+      const evidenceLines = sentences.slice(Math.max(0, signalIndex - 1), Math.min(sentences.length, signalIndex + 2));
+      const evidence = evidenceLines.join(" ").slice(0, 240).trim();
+      if (!evidence) continue;
+
+      let subject = sentences[Math.max(0, signalIndex - 1)] || sentences[signalIndex] || "";
+      subject = subject
+        .replace(/^\s*(?:im|in\s+der|in\s+dem|there\s+is|there\s+are|es\s+gibt)\s+/i, "")
+        .replace(/^.*?\b(?:befindet\s+sich|gibt\s+es)\s+/i, "")
+        .replace(/[.;:,\s]+$/g, "")
+        .trim();
+      if (!subject || subject.length < 4 || subject.length > 150) continue;
+      if (/\b(?:telefon|phone|email|e-mail|adresse|address|termin|appointment)\b/i.test(subject)) continue;
+
+      const serviceName = /\b(?:pruefen|prüfen|inspect|check|kontrollieren)\b/i.test(subject)
+        ? subject
+        : `${subject} prüfen`;
+      candidates.push({
+        serviceName,
+        description: evidence,
+        quantity: 1,
+        unit: "Pauschal",
+        unitPrice: 0,
+        totalPrice: 0,
+        needsReview: true,
+        reviewReason: `price_unclear:${serviceName}`,
+        sourceText: evidence,
+        evidence,
+        detectedCurrency: fallbackCurrency,
+      });
+    }
+    // When a clean translated block produced candidates, do not emit the same
+    // unresolved scope again from the original foreign-language paragraph.
+    if (candidates.length > 0) break;
+  }
+
+  const byEvidence = new Map<string, ParsedOrderItemForValidation>();
+  candidates.forEach((candidate) => {
+    const key = normalizeCompare(candidate.sourceText || candidate.serviceName);
+    if (!byEvidence.has(key)) byEvidence.set(key, candidate);
+  });
+  return Array.from(byEvidence.values()).slice(0, 4);
 }
 
 function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInput): string[] {

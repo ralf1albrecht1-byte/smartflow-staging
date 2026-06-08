@@ -1338,11 +1338,20 @@ export function CommunicationChips({
       normalized,
     );
   });
+  const hasExplicitNoPhoneCall = callbackSourceLines.some((line) => {
+    const normalized = normalizeCommunicationPreferenceText(line);
+    return /(?:nicht\s+(?:direkt\s+|telefonisch\s+)?anrufen|nicht\s+telefonisch|keine(?:n)?\s+anrufe?|do\s+not\s+call|don['’]?t\s+call|no\s+calls?|ne\s+pas\s+appeler|non\s+chiamare)/.test(
+      normalized,
+    );
+  });
   const hasExclusiveMessageChannel = communicationPreferences.some(
-    (chip) => chip.key === "sms" || chip.key === "whatsapp",
+    (chip) =>
+      chip.key === "sms" || chip.key === "whatsapp" || chip.key === "mail",
   );
   const callbackNote =
-    rawCallbackNote && (!hasExclusiveMessageChannel || hasExplicitPositivePhoneCall)
+    rawCallbackNote &&
+    !hasExplicitNoPhoneCall &&
+    (!hasExclusiveMessageChannel || hasExplicitPositivePhoneCall)
       ? rawCallbackNote
       : null;
   const callbackPhone = getContactPhone(

@@ -626,6 +626,50 @@ function isOfferDogHint(value: string): boolean {
   );
 }
 
+function normalizeOfferParkingDetailsV17_90L99(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  values.forEach((value) => {
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split(/\n+|(?<=[.!?])\s+/g)
+      .map((line) => line.replace(/^\s*(?:\[HINWEIS\]|\[GEFAHR\]|[-•])\s*/i, "").replace(/[.;:,\s]+$/g, "").trim())
+      .filter((line) => /\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage)\b/i.test(line))
+      .forEach((line) => {
+        const key = normalizeOfferHint(line);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        result.push(line);
+      });
+  });
+  return result;
+}
+
+function buildOfferParkingChipV17_90L99(values: string[]): OfferOperationalChip {
+  const details = normalizeOfferParkingDetailsV17_90L99(values);
+  const joined = normalizeOfferHint(details.join(" "));
+  const hasNegative = /\b(?:kein\s+parkplatz|keine\s+parkplaetze|kein\s+parken|parkverbot|no\s+parking|sans\s+parking|sin\s+parking|parken\s+schwierig|parkplatz\s+schwierig)\b/.test(joined);
+  const hasPositive = details.some((line) => {
+    const text = normalizeOfferHint(line);
+    return (
+      !/\b(?:kein|keine|no|sans|sin|schwierig|unklar|pruefen|prüfen|unknown)\b/.test(text) &&
+      /\b(?:park|parking|stellplatz|tiefgarage)\b/.test(text)
+    );
+  });
+  const status = hasPositive && !hasNegative
+    ? "Parkplatz verfügbar"
+    : hasNegative && !hasPositive
+      ? "Parkplatz nicht verfügbar"
+      : "Parkplatz nicht angegeben";
+  return {
+    key: "parking",
+    title: details.length > 0 ? `${status}\n\n${details.join("\n")}` : status,
+    icon: "P",
+    tone: "warning",
+  };
+}
+
 function buildOfferOperationalChips(
   safetyWarnings: string[],
   jobHints: string[],
@@ -640,7 +684,12 @@ function buildOfferOperationalChips(
     existing.title = uniqueOfferLines([existing.title, chip.title]).join("\n");
   };
 
+  // V17.90L99: exactly one blue P chip, including "not specified".
+  pushOrMerge(buildOfferParkingChipV17_90L99([...safetyWarnings, ...jobHints]));
+
   uniqueOfferLines([...safetyWarnings, ...jobHints.filter(isOfferDogHint)]).forEach((line) => {
+    const text = normalizeOfferHint(line);
+    if (/\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage)\b/.test(text)) return;
     if (isOfferDogHint(line)) {
       pushOrMerge({ key: "dog", title: line, icon: "🐶", tone: "danger" });
       return;
@@ -651,6 +700,7 @@ function buildOfferOperationalChips(
   uniqueOfferLines(jobHints).forEach((line) => {
     const text = normalizeOfferHint(line);
     if (!text || isOfferDogHint(line)) return;
+    if (/\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage)\b/.test(text)) return;
     if (/\b(?:leiter|ladder|echelle|scala|escalera|escada)\b/.test(text)) {
       pushOrMerge({ key: "ladder", title: line, icon: "🪜", tone: "warning" });
       return;
@@ -661,10 +711,6 @@ function buildOfferOperationalChips(
     }
     if (/\b(?:zugang|eingang|hintereingang|seiteneingang|tor|door|access|entree|porta|puerta)\b/.test(text)) {
       pushOrMerge({ key: "access", title: line, icon: "🚪", tone: "warning" });
-      return;
-    }
-    if (/\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz)\b/.test(text)) {
-      pushOrMerge({ key: "parking", title: line.replace(/[.;:,\s]+$/g, "").trim(), icon: "P", tone: "warning" });
     }
   });
   return result;
