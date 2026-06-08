@@ -166,8 +166,8 @@ const protectedRoleSemanticEquivalentV17_90L108 = (
   }
 
   const coverage = matched / Math.max(1, shorter.length);
-  const numericLeft = left.match(/\d+(?:[.:/-]\d+)*/g) || [];
-  const numericRight = right.match(/\d+(?:[.:/-]\d+)*/g) || [];
+  const numericLeft: string[] = left.match(/\d+(?:[.:/-]\d+)*/g) ?? [];
+  const numericRight: string[] = right.match(/\d+(?:[.:/-]\d+)*/g) ?? [];
   const numericConflict =
     numericLeft.length > 0 &&
     numericRight.length > 0 &&
