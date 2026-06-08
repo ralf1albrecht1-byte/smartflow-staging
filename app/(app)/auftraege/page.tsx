@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { useSearchParams, useRouter } from "next/navigation";
 import MergeOrdersDialog from "@/components/orders/MergeOrdersDialog";
 import {
@@ -8069,6 +8068,9 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
   );
 };
 
+// V17.90L119: The callback chip is rendered through the compact/mobile card path
+// even on desktop. Use the same chip-anchored tooltip renderer as key/access
+// instead of the viewport-centered mobile sheet.
 const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
   if (badge.key !== "callback_request") return renderMobileIconBadge(badge);
 
@@ -8096,7 +8098,7 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         className={`group relative ${className}`}
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderMobileSafeBadgeTooltip({ ...badge, tooltip: title })}
+        {renderBadgeTooltip({ ...badge, tooltip: title }, "left")}
       </button>
     );
   }
@@ -8117,7 +8119,7 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
       className={`group relative ${className}`}
     >
       <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-      {renderMobileSafeBadgeTooltip({ ...badge, tooltip: title })}
+      {renderBadgeTooltip({ ...badge, tooltip: title }, "left")}
     </a>
   );
 };
@@ -8262,149 +8264,6 @@ const getOrderPhoneForHref = (order: Order) => {
   );
 };
 
-const CallbackPhoneTooltipPortalV17_90L118 = ({
-  tooltip,
-  align = "left",
-}: {
-  tooltip: string;
-  align?: "left" | "right";
-}) => {
-  const anchorRef = useRef<HTMLSpanElement>(null);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<{
-    left: number;
-    width: number;
-    top?: number;
-    bottom?: number;
-  } | null>(null);
-  const visibleTooltip = cleanVisibleTooltipTextV17_35(tooltip);
-
-  const clearHideTimer = () => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-  };
-
-  const calculatePosition = () => {
-    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
-    if (!trigger || typeof window === "undefined") return null;
-
-    const rect = trigger.getBoundingClientRect();
-    const viewportPadding = 12;
-    const gap = 8;
-    const longestLine = Math.max(
-      0,
-      ...visibleTooltip.split("\n").map((line) => line.trim().length),
-    );
-    const width = Math.max(
-      180,
-      Math.min(
-        300,
-        longestLine * 6.4 + 28,
-        window.innerWidth - viewportPadding * 2,
-      ),
-    );
-    const desiredLeft = align === "right" ? rect.right - width : rect.left;
-    const left = Math.min(
-      Math.max(viewportPadding, desiredLeft),
-      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
-    );
-
-    // The tooltip is portalled to document.body. Therefore fixed viewport
-    // coordinates are not affected by the transformed Framer Motion card.
-    if (rect.top >= 52) {
-      return {
-        left,
-        width,
-        bottom: window.innerHeight - rect.top + gap,
-      };
-    }
-
-    return {
-      left,
-      width,
-      top: rect.bottom + gap,
-    };
-  };
-
-  const showTooltip = () => {
-    clearHideTimer();
-    const nextPosition = calculatePosition();
-    if (nextPosition) setPosition(nextPosition);
-    setOpen(true);
-  };
-
-  const scheduleHideTooltip = () => {
-    clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 100);
-  };
-
-  useEffect(() => {
-    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
-    if (!trigger) return;
-
-    const handleFocusOut = (event: FocusEvent) => {
-      if (!trigger.contains(event.relatedTarget as Node | null)) {
-        scheduleHideTooltip();
-      }
-    };
-
-    trigger.addEventListener("pointerenter", showTooltip);
-    trigger.addEventListener("pointerleave", scheduleHideTooltip);
-    trigger.addEventListener("focusin", showTooltip);
-    trigger.addEventListener("focusout", handleFocusOut);
-
-    return () => {
-      trigger.removeEventListener("pointerenter", showTooltip);
-      trigger.removeEventListener("pointerleave", scheduleHideTooltip);
-      trigger.removeEventListener("focusin", showTooltip);
-      trigger.removeEventListener("focusout", handleFocusOut);
-      clearHideTimer();
-    };
-  }, [align, visibleTooltip]);
-
-  useEffect(() => {
-    if (!open) return;
-    const update = () => {
-      const nextPosition = calculatePosition();
-      if (nextPosition) setPosition(nextPosition);
-    };
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    return () => {
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-    };
-  }, [open, align, visibleTooltip]);
-
-  if (!visibleTooltip) return null;
-
-  return (
-    <>
-      <span ref={anchorRef} className="hidden" aria-hidden="true" />
-      {open && position && typeof document !== "undefined"
-        ? createPortal(
-            <span
-              role="tooltip"
-              style={{
-                left: position.left,
-                width: position.width,
-                top: position.top,
-                bottom: position.bottom,
-              }}
-              className="pointer-events-none fixed z-[20000] w-max max-w-[calc(100vw-1.5rem)] whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            >
-              {visibleTooltip}
-            </span>,
-            document.body,
-          )
-        : null}
-    </>
-  );
-};
-
 const renderCallbackCardBadge = (
   order: Order,
   badge: ReviewBadge,
@@ -8435,7 +8294,7 @@ const renderCallbackCardBadge = (
         className={visualClass}
       >
         <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-        <CallbackPhoneTooltipPortalV17_90L118 tooltip={tooltip} align={tooltipAlign} />
+        {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
       </button>
     );
   }
@@ -8458,7 +8317,7 @@ const renderCallbackCardBadge = (
       className={visualClass}
     >
       <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-      <CallbackPhoneTooltipPortalV17_90L118 tooltip={tooltip} align={tooltipAlign} />
+      {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
     </a>
   );
 };
