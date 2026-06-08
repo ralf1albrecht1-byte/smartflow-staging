@@ -10951,13 +10951,9 @@ export async function processIncomingMessage(
     },
   );
 
-  const specialNoteRoleReviewReasonsV17_90L106 =
-    readOnlySpecialNoteRoleFindingsV17_90L106.map(
-      (finding) =>
-        `intake_risk:special_note_role_review:${encodeURIComponent(
-          JSON.stringify(finding),
-        )}`,
-    );
+  // V17.90L109: The second checker is diagnostic only. It continues to run
+  // and write findings to the intake trace, but it may not modify the first
+  // AI result, create a visible chip or block the order workflow.
 
   // --- Customer resolution based on kundenabgleich.status ---
   const abgleich = parsed.kundenabgleich || {};
@@ -13998,7 +13994,6 @@ export async function processIncomingMessage(
     ...filteredValidationReviewReasonsV17_90L89,
     ...unitlessQuantityGuardBeforePersist.reviewReasons,
     ...structuralRiskReviewReasons,
-    ...specialNoteRoleReviewReasonsV17_90L106,
     ...(canonicalPersistenceViolationV17_90L98
       ? ["canonical_persistence_violation"]
       : []),

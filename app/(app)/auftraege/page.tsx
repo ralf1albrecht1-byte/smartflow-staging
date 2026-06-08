@@ -1513,6 +1513,10 @@ const structuredSpecialNoteHints = (order: Order) => {
   const lines = String(order.specialNotes || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
+    .replace(
+      /\s*(?=\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*)/gi,
+      "\n",
+    )
     .split(/\n+/g)
     .map((line) => stripVisibleNoteMarkerV17_35(line))
     .filter(Boolean);
@@ -1626,8 +1630,11 @@ const formatOperationalHintTooltip = (
     seen.add(key);
     seenHint.add(hintKey);
 
+    const showLocation = kind !== "key" && kind !== "access";
     formatted.push(
-      entry.location ? `${entry.location}:\n${entry.hint}` : entry.hint,
+      showLocation && entry.location
+        ? `${entry.location}:\n${entry.hint}`
+        : entry.hint,
     );
   }
 
@@ -3673,51 +3680,6 @@ const RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L69 =
 const RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69 =
   "intake_risk:priced_service_line_missing_or_mismatched";
 
-type SpecialNoteRoleReviewPayloadV17_90L106 = {
-  text?: string;
-  currentRole?: "gefahr" | "hinweis";
-  expectedRole?: "gefahr" | "hinweis";
-  reason?: string;
-};
-
-const SPECIAL_NOTE_ROLE_REVIEW_PREFIX_V17_90L106 =
-  "intake_risk:special_note_role_review:";
-
-const parseSpecialNoteRoleReviewReasonV17_90L106 = (
-  reason?: string | null,
-): SpecialNoteRoleReviewPayloadV17_90L106 | null => {
-  const value = String(reason || "").trim();
-  if (!value.startsWith(SPECIAL_NOTE_ROLE_REVIEW_PREFIX_V17_90L106)) {
-    return null;
-  }
-  try {
-    const payload = JSON.parse(
-      decodeURIComponent(
-        value.slice(SPECIAL_NOTE_ROLE_REVIEW_PREFIX_V17_90L106.length),
-      ),
-    );
-    return payload && typeof payload === "object" ? payload : null;
-  } catch {
-    return null;
-  }
-};
-
-const getSpecialNoteRoleReviewDetailsV17_90L106 = (order?: Order | null) =>
-  Array.from(
-    new Map(
-      (order?.reviewReasons || [])
-        .map(parseSpecialNoteRoleReviewReasonV17_90L106)
-        .filter(
-          (payload): payload is SpecialNoteRoleReviewPayloadV17_90L106 =>
-            Boolean(payload?.text),
-        )
-        .map((payload) => [
-          `${normalizeForMatch(payload.text)}|${payload.expectedRole || ""}`,
-          payload,
-        ] as const),
-    ).values(),
-  );
-
 const isRecognitionReviewReasonV17_90L69 = (reason?: string | null) => {
   const value = String(reason || "").trim();
   return (
@@ -5321,7 +5283,6 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const redReviewKeys = new Set([
     "currency_review",
     "recognition_review",
-    "role_review",
     "price_quantity",
     "unit_conflict",
   ]);
@@ -6129,28 +6090,6 @@ const getSystemBadges = (
           services,
           currency: order.currency,
         }) || "Einheit abweichend.",
-    });
-  }
-
-  const specialNoteRoleReviewDetailsV17_90L106 =
-    getSpecialNoteRoleReviewDetailsV17_90L106(order);
-  if (specialNoteRoleReviewDetailsV17_90L106.length > 0) {
-    pushUniqueBadge(badges, {
-      key: "role_review",
-      label: `Hinweisrolle prüfen · ${specialNoteRoleReviewDetailsV17_90L106.length}`,
-      className: "bg-red-100 text-red-700 border border-red-300",
-      icon: true,
-      tooltip: [
-        "Hinweisrolle prüfen",
-        ...specialNoteRoleReviewDetailsV17_90L106.map((detail) => {
-          const target =
-            detail.expectedRole === "gefahr" ? "Gefahr / Achtung" : "Wichtige Information";
-          return `• ${compactText(detail.text)} — soll laut Lesekontrolle als ${target} geprüft werden${
-            detail.reason ? ` (${compactText(detail.reason)})` : ""
-          }`;
-        }),
-      ].join("\n"),
-      focusTarget: "specialNotes",
     });
   }
 
@@ -12419,6 +12358,13 @@ export default function AuftraegePage() {
     };
 
     const cleanedReviewReasons = currentEditReviewReasons.filter((reason) => {
+          // V17.90L109: Role-checker findings are trace diagnostics only.
+          if (String(reason || "").startsWith(
+            "intake_risk:special_note_role_review:",
+          )) {
+            return false;
+          }
+
           if (isRecognitionReviewReasonV17_90L69(reason)) {
             const decisionKey = recognitionReviewReasonKeyV17_90L70(reason);
             if (
@@ -12583,7 +12529,30 @@ export default function AuftraegePage() {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
-      const saved = await res.json();
+      let saved = await res.json();
+
+      // V17.90L109: The legacy order PUT route still performs broad note
+      // normalization when items are saved. Immediately persist the exact
+      // marker-protected role snapshot from the editor through the dedicated
+      // role-safe endpoint. This changes no service, price, customer or layout.
+      if (saved?.id && payload.specialNotes !== undefined) {
+        const notesResponse = await fetch(
+          `/api/orders/${saved.id}/special-notes`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ specialNotes: payload.specialNotes }),
+          },
+        );
+
+        if (!notesResponse.ok) {
+          toast.error("Hinweise konnten nicht sicher gespeichert werden");
+          return null;
+        }
+
+        saved = await notesResponse.json();
+      }
+
       return saved;
     }
     toast.error("Fehler beim Speichern");
