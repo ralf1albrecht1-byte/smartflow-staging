@@ -7186,12 +7186,19 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     const rect = trigger.getBoundingClientRect();
     const viewportPadding = 12;
     const gap = 8;
-    const preferredWidth =
-      badge.key === "site_address" || badge.key === "special_notes_summary"
+    const isCallbackPopover = badge.key === "callback_request";
+    const callbackLongestLine = Math.max(
+      0,
+      ...tooltip.split("\n").map((line) => line.trim().length),
+    );
+    const preferredWidth = isCallbackPopover
+      ? Math.min(300, Math.max(205, callbackLongestLine * 6.4 + 28))
+      : badge.key === "site_address" || badge.key === "special_notes_summary"
         ? 400
         : 352;
+    const minimumWidth = isCallbackPopover ? 180 : 240;
     const width = Math.max(
-      240,
+      minimumWidth,
       Math.min(preferredWidth, window.innerWidth - viewportPadding * 2),
     );
     const desiredLeft = align === "right" ? rect.right - width : rect.left;
@@ -7208,11 +7215,17 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
     const minimumPreferredSpace = 140;
-    const openBelow =
-      availableAbove < minimumPreferredSpace &&
-      availableBelow > availableAbove;
+    // V17.90L111: The callback popover is intentionally compact and opens
+    // above the phone chip. Other badges keep the viewport-aware fallback.
+    const openBelow = isCallbackPopover
+      ? false
+      : availableAbove < minimumPreferredSpace &&
+        availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
-    const maxHeight = Math.max(1, Math.min(560, available));
+    const maxHeight = Math.max(
+      1,
+      Math.min(isCallbackPopover ? 160 : 560, available),
+    );
 
     return openBelow
       ? { left, width, maxHeight, top: rect.bottom + gap }
@@ -11835,7 +11848,12 @@ export default function AuftraegePage() {
     },
     parsedFormSpecialNotes,
   );
-  const dangerNoteLines = formInfoSummary.safety;
+  // V17.90L111: The red editor block follows the protected role snapshot
+  // directly. Normal [HINWEIS] entries must never be pulled into the red box
+  // by presentation-level text extraction.
+  const dangerNoteLines = uniqueOrderInfoLinesV17_66(
+    parsedFormSpecialNotes.safetyWarnings,
+  );
   const primaryInfoLines = formInfoSummary.primary;
   const compactPrimaryInfoLines = compactImportantInfoLinesV17_90L73(
     primaryInfoLines,
@@ -11846,11 +11864,20 @@ export default function AuftraegePage() {
   const preservedParkingJobHints = parsedFormSpecialNotes.jobHints.filter(
     isParkingOrderInfoLineV17_90L101,
   );
-  const editableAdditionalJobHints = parsedFormSpecialNotes.jobHints.filter(
-    (line) =>
-      !isPrimaryOrderInfoHintV17_65(line) &&
-      !isParkingOrderInfoLineV17_90L101(line),
-  );
+  const editableAdditionalJobHints = parsedFormSpecialNotes.jobHints
+    .filter(
+      (line) =>
+        !isPrimaryOrderInfoHintV17_65(line) &&
+        !isParkingOrderInfoLineV17_90L101(line),
+    )
+    // V17.90L111: Do not show the same access/contact/appointment content a
+    // second time as a yellow free-text hint after it was compacted above.
+    .filter(
+      (line) =>
+        !compactPrimaryInfoLines.some((primaryLine) =>
+          orderInfoLinesEquivalentV17_66(primaryLine, line),
+        ),
+    );
   const normalSpecialNotesText = formatSpecialNotesForDisplay(
     editableAdditionalJobHints,
   );
