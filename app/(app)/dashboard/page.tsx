@@ -94,6 +94,34 @@ const formatDate = (d: string | null | undefined) => {
   );
 };
 
+const TRUE_CUSTOMER_ASSIGNMENT_REVIEW_REASONS = new Set([
+  "possible_customer",
+  "customer_needs_review",
+  "customer_conflict",
+  "customer_data_uncertain_no_billing_block",
+  "intake_risk:billing_customer_missing_or_uncertain",
+]);
+
+const getOrderReviewReasons = (order: any): string[] =>
+  Array.isArray(order?.reviewReasons)
+    ? order.reviewReasons.map((reason: unknown) => String(reason || "").trim()).filter(Boolean)
+    : [];
+
+const hasTrueCustomerAssignmentReview = (order: any): boolean =>
+  getOrderReviewReasons(order).some((reason) =>
+    TRUE_CUSTOMER_ASSIGNMENT_REVIEW_REASONS.has(reason),
+  );
+
+const customerReviewIdentity = (customer: any, fallback: string): string => {
+  const id = String(customer?.id || "").trim();
+  if (id) return `customer:${id}`;
+
+  const fields = [customer?.name, customer?.address, customer?.plz, customer?.city]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .join("|");
+  return fields.replace(/\|/g, "") ? `fields:${fields}` : fallback;
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
@@ -162,14 +190,42 @@ export default function DashboardPage() {
         const visibleOffers = offers?.filter(isVisibleOffer) ?? null;
         const visibleInvoices = invoices?.filter(isVisibleInvoice) ?? null;
 
-        const incompleteCustomers =
-          customers?.filter((customer: any) => isCustomerDataIncomplete(customer))
-            .length ??
-          Number(dashboard?.review?.incompleteCustomers ?? 0);
+        // Keep dashboard review counters aligned with the visible records.
+        // An incomplete billing customer is one case, even when several pages
+        // reference the same draft. Generic order.needsReview is deliberately
+        // not used here because it also includes price, currency and service
+        // reviews and therefore inflated "unsichere Zuordnung".
+        const incompleteCustomerKeys = new Set<string>();
+        customers
+          ?.filter((customer: any) => isCustomerDataIncomplete(customer))
+          .forEach((customer: any, index: number) => {
+            incompleteCustomerKeys.add(
+              customerReviewIdentity(customer, `customer-row:${index}`),
+            );
+          });
+        visibleOrders
+          ?.filter((order: any) => isCustomerDataIncomplete(order?.customer))
+          .forEach((order: any, index: number) => {
+            incompleteCustomerKeys.add(
+              customerReviewIdentity(
+                order?.customer,
+                `order:${String(order?.id || index)}`,
+              ),
+            );
+          });
 
-        const uncertainAssignments =
-          visibleOrders?.filter((order: any) => order?.needsReview === true).length ??
-          Number(dashboard?.review?.uncertainAssignments ?? 0);
+        const incompleteCustomers =
+          customers || visibleOrders
+            ? incompleteCustomerKeys.size
+            : Number(dashboard?.review?.incompleteCustomers ?? 0);
+
+        const uncertainAssignments = visibleOrders
+          ? visibleOrders.filter(
+              (order: any) =>
+                !isCustomerDataIncomplete(order?.customer) &&
+                hasTrueCustomerAssignmentReview(order),
+            ).length
+          : Number(dashboard?.review?.uncertainAssignments ?? 0);
 
         const reviewTotal = incompleteCustomers + uncertainAssignments;
 
@@ -409,7 +465,7 @@ export default function DashboardPage() {
                     <div className="mt-2 space-y-1 border-t pt-2">
                       {review.incompleteCustomers > 0 && (
                         <Link
-                          href="/kunden"
+                          href="/auftraege"
                           className="flex items-center gap-1.5 text-xs text-orange-700 dark:text-orange-300 hover:underline"
                         >
                           <Users className="w-3 h-3" />
