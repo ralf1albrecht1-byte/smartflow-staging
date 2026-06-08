@@ -1214,6 +1214,17 @@ const normalizeOperationalHintDisplay = (
     }
   }
 
+  // V17.90L114: Keep access/door chips visibly German even when the stored
+  // source note is French, English, Spanish or Italian. This changes display
+  // wording only; the stored note and intake data remain untouched.
+  if (kind === "access") {
+    return raw
+      .replace(/\bbadge\s+d[’']?acc[eè]s\b/gi, "Zugangsausweis")
+      .replace(/\baccess\s+badge\b/gi, "Zugangsausweis")
+      .replace(/\bbadge\s+de\s+acceso\b/gi, "Zugangsausweis")
+      .replace(/\bbadge\s+di\s+accesso\b/gi, "Zugangsausweis");
+  }
+
   return raw;
 };
 
@@ -7197,6 +7208,23 @@ const renderOrderSpecialNotesTooltipContentV17_95 = (tooltip: string) => {
   );
 };
 
+// V17.90L114: Callback tooltip is anchored locally to the phone chip.
+// This deliberately mirrors the compact key/access tooltip appearance and
+// avoids detached fixed-position text elsewhere in the card.
+const CallbackChipTooltipV17_90L114 = ({ tooltip }: { tooltip: string }) => {
+  const text = cleanVisibleTooltipTextV17_35(tooltip);
+  if (!text) return null;
+
+  return (
+    <span
+      role="tooltip"
+      className="pointer-events-none absolute bottom-full left-0 z-[14000] mb-2 hidden w-max max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block group-focus-within:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+    >
+      {text}
+    </span>
+  );
+};
+
 const ViewportAwareOrderBadgeTooltipV17_95 = ({
   badge,
   align = "left",
@@ -8260,6 +8288,7 @@ const renderCallbackCardBadge = (
   const tooltip = phone
     ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
     : callbackInfo || "Rückruf gewünscht · Nummer fehlt";
+  void tooltipAlign;
   const visualClass = `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(
     badge,
   )}`;
@@ -8279,7 +8308,7 @@ const renderCallbackCardBadge = (
         className={visualClass}
       >
         <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
+        <CallbackChipTooltipV17_90L114 tooltip={tooltip} />
       </button>
     );
   }
@@ -8288,12 +8317,21 @@ const renderCallbackCardBadge = (
     <a
       key={badge.key}
       href={`tel:${phone}`}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        const target = event.currentTarget as HTMLElement;
+        // First click/focus shows the compact tooltip. A second click can use
+        // the tel: action, matching the existing touch-chip behaviour.
+        if (document.activeElement !== target) {
+          event.preventDefault();
+          target.focus();
+        }
+      }}
       aria-label={tooltip}
       className={visualClass}
     >
       <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-      {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
+      <CallbackChipTooltipV17_90L114 tooltip={tooltip} />
     </a>
   );
 };
