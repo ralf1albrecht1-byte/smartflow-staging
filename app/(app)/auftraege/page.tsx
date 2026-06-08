@@ -3006,6 +3006,7 @@ const buildOrderInfoSummaryV17_65 = (
     /\b(?:hund|dog|chien)\b/i.test(normalizeForMatch(line));
   // V17.90L83: The Info chip/dialog must be built from the normalized
   // operational notes. The full customer message is only a legacy fallback.
+  // V17.90L108B: Render protected role markers directly and avoid raw-text reclassification.
   // Mixing audioTranscript back into an already structured order reintroduced
   // English/raw forwarding sentences and duplicated access instructions.
   const normalizedSpecialNotes = String(order.specialNotes || "").trim();

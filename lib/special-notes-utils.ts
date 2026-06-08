@@ -13,6 +13,8 @@ const SYSTEM_KEYWORDS =
 const SAFETY_MARKER = /^\s*\[(GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i;
 const HINT_MARKER = /^\s*\[(HINWEIS|INFO|NOTIZ)\]\s*/i;
 
+// V17.90L108B: Marker roles remain authoritative; normal hints are never promoted to hazards by the UI.
+
 
 // V17.90L108: Some legacy/API paths may flatten line breaks while keeping the
 // explicit role markers. Recreate record boundaries before parsing. This is a
