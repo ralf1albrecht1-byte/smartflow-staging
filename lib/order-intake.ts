@@ -138,6 +138,170 @@ function logIntakeDiagnosticTrace(
   }
 }
 
+
+type ReadOnlySpecialNoteRoleFindingV17_90L106 = {
+  text: string;
+  currentRole: "gefahr" | "hinweis";
+  expectedRole: "gefahr" | "hinweis";
+  reason: string;
+};
+
+const normalizeRoleReviewTextV17_90L106 = (value: unknown): string =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const extractRoleReviewLinesV17_90L106 = (
+  value: unknown,
+  depth = 0,
+): string[] => {
+  if (depth > 3 || value == null) return [];
+  if (typeof value === "string") {
+    return value
+      .split(/\n+/g)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => Boolean(line) && line !== "[object Object]");
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) =>
+      extractRoleReviewLinesV17_90L106(entry, depth + 1),
+    );
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const preferredKeys = [
+      "text",
+      "hinweis",
+      "note",
+      "beschreibung",
+      "description",
+      "value",
+      "label",
+      "evidence",
+    ];
+    const preferred = preferredKeys.flatMap((key) =>
+      extractRoleReviewLinesV17_90L106(record[key], depth + 1),
+    );
+    return preferred.length > 0
+      ? preferred
+      : Object.values(record).flatMap((entry) =>
+          extractRoleReviewLinesV17_90L106(entry, depth + 1),
+        );
+  }
+  return [];
+};
+
+async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
+  originalText: string;
+  translatedText?: string | null;
+  roles: {
+    gefahren: string[];
+    hinweise: string[];
+  };
+}): Promise<ReadOnlySpecialNoteRoleFindingV17_90L106[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const roleEntries = [
+    ...args.roles.gefahren.map((text) => ({ text, currentRole: "gefahr" as const })),
+    ...args.roles.hinweise.map((text) => ({ text, currentRole: "hinweis" as const })),
+  ];
+  if (!apiKey || roleEntries.length === 0) return [];
+
+  const sourceByKey = new Map<string, { text: string; currentRole: "gefahr" | "hinweis" }>();
+  for (const entry of roleEntries) {
+    const key = normalizeRoleReviewTextV17_90L106(entry.text);
+    if (key && !sourceByKey.has(key)) sourceByKey.set(key, entry);
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        temperature: 0,
+        max_tokens: 900,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: [
+              "Du bist ein strikt read-only Qualitätsprüfer für bereits strukturierte Auftragshinweise.",
+              "Du darfst nichts umformulieren, ergänzen, löschen, verschieben oder korrigieren.",
+              "Prüfe ausschließlich, ob ein vorhandener Text semantisch in Gefahr oder Hinweis einsortiert wurde.",
+              "Gefahr bedeutet: Der Text beschreibt ausdrücklich einen konkreten Zustand mit plausiblem körperlichem Verletzungs-, Gesundheits- oder Sachschadenrisiko.",
+              "Eine Arbeitsanweisung, Schonregel, Kommunikationsregel, Zugangsregel, Reihenfolge, Frist oder Fertigstellungszeit ohne ausdrücklich beschriebenen Gefahrzustand ist ein Hinweis, keine Gefahr.",
+              "Leite aus einem Verbot oder Imperativ niemals automatisch eine verborgene Gefahr ab.",
+              "Produktregel: Jede tatsächlich erwähnte Hundaussage bleibt unabhängig vom Inhalt in Gefahr, damit der rote Hund-Chip erscheint.",
+              "Melde nur eindeutige Hochsicherheits-Abweichungen. Bei Zweifel keine Meldung.",
+              "Gib ausschließlich JSON zurück: {\"findings\":[{\"text\":\"exakt unveränderter Eingabetext\",\"currentRole\":\"gefahr|hinweis\",\"expectedRole\":\"gefahr|hinweis\",\"reason\":\"kurze sachliche Begründung\"}]}",
+            ].join("\n"),
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              originalText: String(args.originalText || "").slice(0, 5000),
+              translatedText: String(args.translatedText || "").slice(0, 5000),
+              roles: args.roles,
+            }),
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `[RoleCheckerV17_90L106] API error ${response.status}; no role finding applied`,
+      );
+      return [];
+    }
+
+    const payload = await response.json();
+    const rawContent = String(payload?.choices?.[0]?.message?.content || "").trim();
+    const parsed = rawContent ? JSON.parse(rawContent) : null;
+    const rawFindings = Array.isArray(parsed?.findings) ? parsed.findings : [];
+    const findings: ReadOnlySpecialNoteRoleFindingV17_90L106[] = [];
+    const seen = new Set<string>();
+
+    for (const raw of rawFindings.slice(0, 8)) {
+      const requestedText = String(raw?.text || "").replace(/\s+/g, " ").trim();
+      const source = sourceByKey.get(normalizeRoleReviewTextV17_90L106(requestedText));
+      const expectedRole = String(raw?.expectedRole || "").toLowerCase();
+      if (!source || (expectedRole !== "gefahr" && expectedRole !== "hinweis")) continue;
+      if (expectedRole === source.currentRole) continue;
+      if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(source.text)) continue;
+
+      const key = `${normalizeRoleReviewTextV17_90L106(source.text)}|${expectedRole}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      findings.push({
+        text: source.text,
+        currentRole: source.currentRole,
+        expectedRole,
+        reason: String(raw?.reason || "Rolle semantisch prüfen")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 220),
+      });
+      if (findings.length >= 4) break;
+    }
+
+    return findings;
+  } catch (error: any) {
+    console.warn(
+      "[RoleCheckerV17_90L106] failed; no role finding applied",
+      error?.message || error,
+    );
+    return [];
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Block R — Self-introduction safety-net for voice/text intake.
 //
@@ -9612,6 +9776,10 @@ ZIELE
 - Parkplatz/Rampe/Anlieferung jeweils als kurze einzelne Einträge in parkhinweise.
 - Normale Ruhe-, Bewohner-, Kunden- oder Ablaufhinweise in sonstige_hinweise.
 - Höflichkeits- und Ruhehinweise wie Bewohner nicht stören, leise arbeiten oder Schlafzeiten beachten sind keine Gefahren.
+- SEMANTISCHE ROLLENENTSCHEIDUNG: Gefahr nur dann, wenn die Nachricht ausdrücklich einen konkreten Zustand mit plausiblem körperlichem Verletzungs-, Gesundheits- oder Sachschadenrisiko beschreibt.
+- Eine Arbeitsanweisung, Schonregel, Kommunikationsregel, Zugangsregel, Reihenfolge, Frist oder Fertigstellungszeit ohne ausdrücklich beschriebenen Gefahrzustand ist sonstige_hinweise, niemals gefahren.
+- Aus einem Verbot, Imperativ oder Zeitdruck keine verborgene Gefahr ableiten. Die Aussage nur nach ihrem tatsächlich beschriebenen Inhalt einordnen.
+- Vor der JSON-Ausgabe jede Rollen-Aussage einmal selbst prüfen: Würde der Text auch ohne Arbeitsanweisung einen konkreten Gefahrzustand beschreiben? Nur dann gefahren; andernfalls Hinweis.
 - Jede Rolleninformation muss eine konkrete lokale Evidence haben. Keine komplette Nachricht als Evidence verwenden.
 
 3. Service erkennen:
@@ -9993,6 +10161,9 @@ sonst → ""
 - Verneinungen müssen am richtigen Bezug hängen: "nicht einfach kommen" / "nicht eintreten" / "nicht ohne Rücksprache" sind Zugangs-/Ablaufhinweise und dürfen niemals als WhatsApp-/SMS-Verbot interpretiert werden, wenn WhatsApp/SMS in derselben Zeile positiv genannt ist.
 - Kontaktzeiten für Mail/SMS/WhatsApp/Telefon sind keine Ausführungstermine und dürfen keinen Terminchip erzeugen.
 - Reine Arbeits-, Ablauf- oder Schonhinweise ohne eigenes körperliches Sicherheitsrisiko gehören in besonderheiten/sonstige_hinweise, nicht in gefahren. Die Rolle nach Bedeutung bestimmen, nicht anhand einzelner Wörter.
+- Ein Verbot oder eine Handlungsanweisung ist für sich allein kein Gefahrzustand. Nur wenn die Nachricht zusätzlich den konkreten gefährlichen Zustand ausdrücklich beschreibt, gehört die Aussage in gefahren.
+- Eine Fertigstellungszeit, Öffnungszeit, Reihenfolge oder Priorität ist Termin/Ablaufhinweis und niemals allein eine Gefahr.
+- Vor Ausgabe einen stillen Rollen-Selbstcheck durchführen und jede nicht eindeutig gefährliche Aussage aus gefahren in sonstige_hinweise einordnen. Textinhalt dabei nicht umformulieren.
 - Ausführungsadresse strikt strukturiert ausgeben: Objekt-/Bereichsname ohne Satzanfang wie "Arbeiten müssen im"; Straße nur Straße/Hausnummer; Ort nur Ortsname. Keine Satzreste wie "ausgeführt werden" an Objekt oder Ort anhängen.
 - Rückruf nur bei echter telefonischer Kontaktaufnahme ausgeben. "Klingeln und warten", "an der Tür melden", "Kunde ist vor Ort", "Schlüssel wird an der Tür übergeben" oder "nicht anrufen" sind KEIN Rückruf.
 - Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie wirklich planungsrelevant sind: Parkplatz reserviert/vorhanden, Schlüssel liegt bereit. Rein neutrale Hinweise wie "Zugang frei", "Tür offen", "Parkplatz kein Thema" oder "direkt halten möglich" nicht als wichtigen Außen-Hinweis erzwingen.
@@ -10711,6 +10882,73 @@ export async function processIncomingMessage(
         : null,
     },
   );
+
+  const firstAiDangerRoleLinesV17_90L106 = extractRoleReviewLinesV17_90L106(
+    parsed.auftrag?.gefahren ??
+      parsed.auftrag?.warnhinweise ??
+      parsed.auftrag?.sicherheitswarnungen,
+  );
+  const firstAiOrdinaryRoleLinesV17_90L106 = [
+    ...extractRoleReviewLinesV17_90L106(parsed.auftrag?.besonderheiten),
+    ...extractRoleReviewLinesV17_90L106(parsed.auftrag?.zugangshinweise),
+    ...extractRoleReviewLinesV17_90L106(parsed.auftrag?.parkhinweise),
+    ...extractRoleReviewLinesV17_90L106(parsed.auftrag?.sonstige_hinweise),
+  ];
+
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "03b_llm_structured_roles",
+    {
+      safetyWarnings: firstAiDangerRoleLinesV17_90L106.map((line) =>
+        redactIntakeDiagnosticText(line, 320),
+      ),
+      ordinaryHints: firstAiOrdinaryRoleLinesV17_90L106.map((line) =>
+        redactIntakeDiagnosticText(line, 320),
+      ),
+      accessHints: extractRoleReviewLinesV17_90L106(
+        parsed.auftrag?.zugangshinweise,
+      ).map((line) => redactIntakeDiagnosticText(line, 320)),
+      parkingHints: extractRoleReviewLinesV17_90L106(
+        parsed.auftrag?.parkhinweise,
+      ).map((line) => redactIntakeDiagnosticText(line, 320)),
+      otherHints: extractRoleReviewLinesV17_90L106(
+        parsed.auftrag?.sonstige_hinweise,
+      ).map((line) => redactIntakeDiagnosticText(line, 320)),
+    },
+  );
+
+  const readOnlySpecialNoteRoleFindingsV17_90L106 =
+    await runReadOnlySpecialNoteRoleCheckerV17_90L106({
+      originalText: messageText,
+      translatedText: translationText || null,
+      roles: {
+        gefahren: firstAiDangerRoleLinesV17_90L106,
+        hinweise: firstAiOrdinaryRoleLinesV17_90L106,
+      },
+    });
+
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "03c_readonly_role_review",
+    {
+      findings: readOnlySpecialNoteRoleFindingsV17_90L106.map((finding) => ({
+        text: redactIntakeDiagnosticText(finding.text, 320),
+        currentRole: finding.currentRole,
+        expectedRole: finding.expectedRole,
+        reason: redactIntakeDiagnosticText(finding.reason, 220),
+      })),
+    },
+  );
+
+  const specialNoteRoleReviewReasonsV17_90L106 =
+    readOnlySpecialNoteRoleFindingsV17_90L106.map(
+      (finding) =>
+        `intake_risk:special_note_role_review:${encodeURIComponent(
+          JSON.stringify(finding),
+        )}`,
+    );
 
   // --- Customer resolution based on kundenabgleich.status ---
   const abgleich = parsed.kundenabgleich || {};
@@ -11894,6 +12132,24 @@ export async function processIncomingMessage(
         appointmentHints: structuredAppointmentHintsV17_90L86,
         structuredRoleHints: structuredRoleHintsV17_90L86,
       });
+
+  logIntakeDiagnosticTrace(
+    intakeDiagnosticTraceEnabled,
+    intakeDiagnosticTraceId,
+    "03d_final_special_note_roles",
+    {
+      safetyWarnings: gefahrItems.map((line) =>
+        redactIntakeDiagnosticText(line, 320),
+      ),
+      ordinaryHints: hinweisItems.map((line) =>
+        redactIntakeDiagnosticText(line, 320),
+      ),
+      appointmentHints: structuredAppointmentHintsV17_90L86.map((line) =>
+        redactIntakeDiagnosticText(line, 320),
+      ),
+      specialNotes: redactIntakeDiagnosticText(finalSpecialNotes, 1800),
+    },
+  );
 
   // --- Map services / AI work items, strict per-position matching ---
 
@@ -13731,6 +13987,7 @@ export async function processIncomingMessage(
     ...filteredValidationReviewReasonsV17_90L89,
     ...unitlessQuantityGuardBeforePersist.reviewReasons,
     ...structuralRiskReviewReasons,
+    ...specialNoteRoleReviewReasonsV17_90L106,
     ...(canonicalPersistenceViolationV17_90L98
       ? ["canonical_persistence_violation"]
       : []),

@@ -3044,7 +3044,16 @@ const buildOrderInfoSummaryV17_65 = (
     return role === "equipment" || role === "operational";
   });
 
-  const appointmentLines = extractOrderAppointmentSnippetsV17_65(source);
+  const appointmentSourceV17_90L106 = [
+    normalizedSpecialNotes,
+    String(order.notes || "").trim(),
+    String(order.audioTranscript || "").trim(),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const appointmentLines = extractOrderAppointmentSnippetsV17_65(
+    appointmentSourceV17_90L106,
+  );
   const importantRawLines = extractOrderImportantInstructionLinesV17_65(source);
   const primary = uniqueOrderInfoLinesV17_66([
     ...inline.primary,
@@ -3630,6 +3639,51 @@ const RECOGNITION_REVIEW_DETAIL_PREFIX_V17_90L69 =
   "intake_risk:recognition_review:";
 const RECOGNITION_REVIEW_GENERIC_REASON_V17_90L69 =
   "intake_risk:priced_service_line_missing_or_mismatched";
+
+type SpecialNoteRoleReviewPayloadV17_90L106 = {
+  text?: string;
+  currentRole?: "gefahr" | "hinweis";
+  expectedRole?: "gefahr" | "hinweis";
+  reason?: string;
+};
+
+const SPECIAL_NOTE_ROLE_REVIEW_PREFIX_V17_90L106 =
+  "intake_risk:special_note_role_review:";
+
+const parseSpecialNoteRoleReviewReasonV17_90L106 = (
+  reason?: string | null,
+): SpecialNoteRoleReviewPayloadV17_90L106 | null => {
+  const value = String(reason || "").trim();
+  if (!value.startsWith(SPECIAL_NOTE_ROLE_REVIEW_PREFIX_V17_90L106)) {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(
+      decodeURIComponent(
+        value.slice(SPECIAL_NOTE_ROLE_REVIEW_PREFIX_V17_90L106.length),
+      ),
+    );
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+};
+
+const getSpecialNoteRoleReviewDetailsV17_90L106 = (order?: Order | null) =>
+  Array.from(
+    new Map(
+      (order?.reviewReasons || [])
+        .map(parseSpecialNoteRoleReviewReasonV17_90L106)
+        .filter(
+          (payload): payload is SpecialNoteRoleReviewPayloadV17_90L106 =>
+            Boolean(payload?.text),
+        )
+        .map((payload) => [
+          `${normalizeForMatch(payload.text)}|${payload.expectedRole || ""}`,
+          payload,
+        ] as const),
+    ).values(),
+  );
 
 const isRecognitionReviewReasonV17_90L69 = (reason?: string | null) => {
   const value = String(reason || "").trim();
@@ -5234,6 +5288,7 @@ const buildAmountReviewBadges = (badges: ReviewBadge[]): ReviewBadge[] => {
   const redReviewKeys = new Set([
     "currency_review",
     "recognition_review",
+    "role_review",
     "price_quantity",
     "unit_conflict",
   ]);
@@ -6041,6 +6096,28 @@ const getSystemBadges = (
           services,
           currency: order.currency,
         }) || "Einheit abweichend.",
+    });
+  }
+
+  const specialNoteRoleReviewDetailsV17_90L106 =
+    getSpecialNoteRoleReviewDetailsV17_90L106(order);
+  if (specialNoteRoleReviewDetailsV17_90L106.length > 0) {
+    pushUniqueBadge(badges, {
+      key: "role_review",
+      label: `Hinweisrolle prüfen · ${specialNoteRoleReviewDetailsV17_90L106.length}`,
+      className: "bg-red-100 text-red-700 border border-red-300",
+      icon: true,
+      tooltip: [
+        "Hinweisrolle prüfen",
+        ...specialNoteRoleReviewDetailsV17_90L106.map((detail) => {
+          const target =
+            detail.expectedRole === "gefahr" ? "Gefahr / Achtung" : "Wichtige Information";
+          return `• ${compactText(detail.text)} — soll laut Lesekontrolle als ${target} geprüft werden${
+            detail.reason ? ` (${compactText(detail.reason)})` : ""
+          }`;
+        }),
+      ].join("\n"),
+      focusTarget: "specialNotes",
     });
   }
 
