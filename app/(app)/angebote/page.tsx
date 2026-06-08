@@ -971,7 +971,10 @@ function OfferViewportTooltipV17_95({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = rect.top + rect.height / 2 <= window.innerHeight / 2;
+    const minimumPreferredSpace = 140;
+    const openBelow =
+      availableAbove < minimumPreferredSpace &&
+      availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(560, available));
     return openBelow
@@ -1331,7 +1334,10 @@ function OfferServiceReviewTooltip({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = rect.top + rect.height / 2 <= window.innerHeight / 2;
+    const minimumPreferredSpace = 140;
+    const openBelow =
+      availableAbove < minimumPreferredSpace &&
+      availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(560, available));
 
@@ -3033,9 +3039,11 @@ export default function AngebotePage() {
         ? Math.max(0, viewportHeight - rect.bottom - edge - gap)
         : viewportHeight - edge * 2;
       const desiredHeight = Math.min(560, Math.floor(viewportHeight * 0.68));
+      const minimumPreferredSpace = Math.min(desiredHeight, 140);
       const placeBelow = rect
-        ? rect.top + rect.height / 2 <= viewportHeight / 2
-        : true;
+        ? availableAbove < minimumPreferredSpace &&
+          availableBelow > availableAbove
+        : false;
       const availableHeight = placeBelow ? availableBelow : availableAbove;
       const maxHeight = Math.max(1, Math.min(desiredHeight, availableHeight || desiredHeight));
       const positionStyle = rect

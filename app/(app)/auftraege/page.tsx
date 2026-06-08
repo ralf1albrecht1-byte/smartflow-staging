@@ -134,6 +134,22 @@ function DangerousDogIcon({
   );
 }
 
+function WarningEmojiIcon({
+  className = "h-4 w-4",
+}: {
+  className?: string;
+  strokeWidth?: number | string;
+}) {
+  return (
+    <span
+      className={`${className} inline-flex items-center justify-center leading-none`}
+      aria-hidden="true"
+    >
+      ⚠️
+    </span>
+  );
+}
+
 function OpenDoorIcon({
   className = "h-4 w-4",
   strokeWidth = 2.2,
@@ -6824,7 +6840,7 @@ const compactIconForBadge = (
     return OpenDoorIcon;
   // Generic red danger chips such as "Achtung" use only the warning symbol,
   // matching the compact presentation already used on offers/mobile.
-  if (badge.icon && badge.focusTarget === "specialNotes") return AlertTriangle;
+  if (badge.icon && badge.focusTarget === "specialNotes") return WarningEmojiIcon;
   return null;
 };
 
@@ -7139,7 +7155,10 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = rect.top + rect.height / 2 <= window.innerHeight / 2;
+    const minimumPreferredSpace = 140;
+    const openBelow =
+      availableAbove < minimumPreferredSpace &&
+      availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(560, available));
 
@@ -7290,7 +7309,10 @@ const ViewportAwareOrderServiceTooltip = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = rect.top + rect.height / 2 <= window.innerHeight / 2;
+    const minimumPreferredSpace = 140;
+    const openBelow =
+      availableAbove < minimumPreferredSpace &&
+      availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(560, available));
 
@@ -7460,7 +7482,10 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = rect.top + rect.height / 2 <= window.innerHeight / 2;
+    const minimumPreferredSpace = 140;
+    const openBelow =
+      availableAbove < minimumPreferredSpace &&
+      availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(480, available));
 
@@ -7888,7 +7913,10 @@ const mobileIconForBadge = (badge: ReviewBadge) => {
 
 const mobileIconBadgeClass = (badge: ReviewBadge) => {
   const className = badge.className || "";
-  if (/red/.test(className)) return "bg-red-50 text-red-700 border-red-300";
+  if (/red/.test(className))
+    return badge.key === "danger_warning"
+      ? "bg-red-100 text-red-800 border-red-300"
+      : "bg-red-50 text-red-700 border-red-300";
   if (/blue/.test(className)) return "bg-blue-50 text-blue-700 border-blue-300";
   if (/cyan/.test(className)) return "bg-cyan-50 text-cyan-700 border-cyan-300";
   if (/emerald|green/.test(className))
@@ -13478,9 +13506,11 @@ export default function AuftraegePage() {
         ? Math.max(0, viewportHeight - rect.bottom - edge - gap)
         : viewportHeight - edge * 2;
       const desiredHeight = Math.min(560, Math.floor(viewportHeight * 0.68));
+      const minimumPreferredSpace = Math.min(desiredHeight, 140);
       const placeBelow = rect
-        ? rect.top + rect.height / 2 <= viewportHeight / 2
-        : true;
+        ? availableAbove < minimumPreferredSpace &&
+          availableBelow > availableAbove
+        : false;
       const availableHeight = placeBelow ? availableBelow : availableAbove;
       const maxHeight = Math.max(1, Math.min(desiredHeight, availableHeight || desiredHeight));
       const positionStyle = rect
@@ -14135,6 +14165,7 @@ export default function AuftraegePage() {
               const Icon = mobileIconForBadge(badge) || AlertTriangle;
               const title = compactText(badge.tooltip) || badge.label;
               const tooltipSlot = "mobile_action";
+              const isGenericDangerWarning = badge.key === "danger_warning";
 
               // V17.80: Auf Handy sollen Besonderheiten-Chips (Hund, Schlüssel,
               // Leiter, Zugang, Nicht-einfach-kommen usw.) beim Antippen die
@@ -14152,9 +14183,16 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, tooltipSlot, event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
+                  className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-semibold focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                    isGenericDangerWarning
+                      ? "border-2 text-[17px]"
+                      : "border text-[13px] shadow-sm"
+                  } ${mobileIconBadgeClass(badge)}`}
                 >
-                  <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  <Icon
+                    className={isGenericDangerWarning ? "h-4 w-4" : "h-3.5 w-3.5"}
+                    strokeWidth={2.2}
+                  />
                   {renderMobileChipTooltip(badge, tooltipSlot, "left")}
                 </button>
               );
