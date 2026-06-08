@@ -2792,7 +2792,7 @@ export default function AngebotePage() {
           };
 
       return (
-        <div className="fixed inset-0 z-[12000] sm:hidden">
+        <div className="fixed inset-0 z-[12000]">
           <button
             type="button"
             aria-label="Hinweis schließen"
@@ -2855,7 +2855,7 @@ export default function AngebotePage() {
       activeMobileTooltip.reviewTitle || "Leistungen prüfen";
 
     return (
-      <div className="fixed inset-0 z-[12000] sm:hidden">
+      <div className="fixed inset-0 z-[12000]">
         <button
           type="button"
           aria-label="Hinweis schließen"
@@ -3306,7 +3306,7 @@ export default function AngebotePage() {
                             {/* Main info — mirrored from the order-card layout */}
                             <div className="min-w-0 flex-1">
                               {/* Mobile — shared one-column card for Auftrag/Angebot */}
-                              <div className="min-w-0 md:hidden">
+                              <div className="min-w-0">
                                 <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
                                   <span className="shrink-0">
                                     {(() => {
@@ -3334,43 +3334,45 @@ export default function AngebotePage() {
                                       ({cardCustomerNumber})
                                     </span>
                                   )}
-                                </div>
-
-                                {primaryExecutionSite && (
-                                  <button
-                                    type="button"
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onTouchStart={(event) => event.stopPropagation()}
-                                    onClick={(event) =>
-                                      toggleOfferMobileTooltip(
-                                        {
-                                          key: `${off.id}:execution`,
-                                          text: [
-                                            "Ausführungsadresse",
-                                            primaryExecutionSite.siteName,
-                                            primaryExecutionSite.siteAddress,
-                                            [primaryExecutionSite.sitePlz, primaryExecutionSite.siteCity]
+                                  {primaryExecutionSite && (
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) =>
+                                        toggleOfferMobileTooltip(
+                                          {
+                                            key: `${off.id}:execution`,
+                                            text: [
+                                              "Ausführungsadresse",
+                                              primaryExecutionSite.siteName,
+                                              primaryExecutionSite.siteAddress,
+                                              [primaryExecutionSite.sitePlz, primaryExecutionSite.siteCity]
+                                                .filter(Boolean)
+                                                .join(" "),
+                                              primaryExecutionSite.siteNote,
+                                            ]
                                               .filter(Boolean)
-                                              .join(" "),
-                                            primaryExecutionSite.siteNote,
-                                          ]
-                                            .filter(Boolean)
-                                            .join("\n"),
-                                        },
-                                        event,
-                                      )
-                                    }
-                                    className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-[11px] font-medium text-cyan-800"
-                                    aria-label="Ausführungsadresse anzeigen"
-                                  >
-                                    <MapPin className="h-3.5 w-3.5 shrink-0" />
-                                    <span className="truncate">
-                                      {primaryExecutionSite.siteName ||
-                                        primaryExecutionSite.siteAddress ||
-                                        "Ausführungsadresse"}
-                                    </span>
-                                  </button>
-                                )}
+                                              .join("\n"),
+                                          },
+                                          event,
+                                        )
+                                      }
+                                      className="group relative inline-flex min-w-0 max-w-full flex-[0_1_auto] items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800 outline-none hover:bg-cyan-100 focus:ring-2 focus:ring-cyan-300"
+                                      aria-label="Ausführungsadresse anzeigen"
+                                    >
+                                      <MapPin className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">
+                                        {primaryExecutionSite.siteName ||
+                                          primaryExecutionSite.siteAddress ||
+                                          "Ausführungsadresse"}
+                                      </span>
+                                      <span className="hidden sm:contents">
+                                        <OfferAddressTooltip site={primaryExecutionSite} />
+                                      </span>
+                                    </button>
+                                  )}
+                                </div>
 
                                 <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
                                   <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
@@ -3493,10 +3495,13 @@ export default function AngebotePage() {
                                           event.stopPropagation();
                                           setActiveMobileTooltip(null);
                                         }}
-                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
+                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
                                         aria-label={callbackChip.title}
                                       >
                                         <Phone className="h-4 w-4" />
+                                        <span className="hidden sm:contents">
+                                          <OfferPlainTooltip text={callbackChip.title} />
+                                        </span>
                                       </a>
                                     ) : (
                                       <button
@@ -3512,10 +3517,13 @@ export default function AngebotePage() {
                                             event,
                                           )
                                         }
-                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
+                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
                                         aria-label={callbackChip.title}
                                       >
                                         <Phone className="h-4 w-4" />
+                                        <span className="hidden sm:contents">
+                                          <OfferPlainTooltip text={callbackChip.title} />
+                                        </span>
                                       </button>
                                     ))}
 
@@ -3535,10 +3543,13 @@ export default function AngebotePage() {
                                           event,
                                         )
                                       }
-                                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                                      className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
                                       aria-label="Besonderheiten anzeigen"
                                     >
                                       <Info className="h-4 w-4" />
+                                      <span className="hidden sm:contents">
+                                        <OfferInfoTooltip summary={infoSummary} />
+                                      </span>
                                     </button>
                                   )}
 
@@ -3557,10 +3568,13 @@ export default function AngebotePage() {
                                           event,
                                         )
                                       }
-                                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-red-300 bg-red-100 text-[17px] text-red-800"
+                                      className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-red-300 bg-red-100 text-[17px] text-red-800"
                                       aria-label={chip.title}
                                     >
                                       {renderOfferOperationalChipIcon(chip)}
+                                      <span className="hidden sm:contents">
+                                        <OfferPlainTooltip text={chip.title} />
+                                      </span>
                                     </button>
                                   ))}
 
@@ -3579,7 +3593,7 @@ export default function AngebotePage() {
                                           event,
                                         )
                                       }
-                                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 text-[17px] ${
+                                      className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 text-[17px] ${
                                         chip.key === "parking"
                                           ? "border-blue-300 bg-blue-50 font-semibold text-blue-700"
                                           : "border-amber-300 bg-amber-100 text-amber-800"
@@ -3587,6 +3601,9 @@ export default function AngebotePage() {
                                       aria-label={chip.title}
                                     >
                                       {renderOfferOperationalChipIcon(chip)}
+                                      <span className="hidden sm:contents">
+                                        <OfferPlainTooltip text={chip.title} />
+                                      </span>
                                     </button>
                                   ))}
                                 </div>
@@ -3607,9 +3624,12 @@ export default function AngebotePage() {
                                             event,
                                           )
                                         }
-                                        className="inline-flex max-w-full items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700"
+                                        className="group relative inline-flex max-w-full items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700"
                                       >
                                         <span className="truncate">{appointmentLabel}</span>
+                                        <span className="hidden sm:contents">
+                                          <OfferPlainTooltip text={appointmentLabel} />
+                                        </span>
                                       </button>
                                     )}
                                     {serviceReview.blockerCount > 0 && (
@@ -3628,9 +3648,12 @@ export default function AngebotePage() {
                                             event,
                                           )
                                         }
-                                        className="inline-flex max-w-full rounded-full border border-red-300 bg-red-100 px-2 py-1 text-[10px] font-semibold text-red-800"
+                                        className="group relative inline-flex max-w-full rounded-full border border-red-300 bg-red-100 px-2 py-1 text-[10px] font-semibold text-red-800"
                                       >
                                         Preis/Menge prüfen
+                                        <span className="hidden sm:contents">
+                                          <OfferPlainTooltip text={serviceReview.blockerTooltip} align="right" />
+                                        </span>
                                       </button>
                                     )}
                                     {serviceReview.reviewCount > 0 && (
@@ -3649,9 +3672,12 @@ export default function AngebotePage() {
                                             event,
                                           )
                                         }
-                                        className="inline-flex max-w-full rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
+                                        className="group relative inline-flex max-w-full rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
                                       >
                                         Leistungen prüfen · {serviceReview.reviewCount}
+                                        <span className="hidden sm:contents">
+                                          <OfferPlainTooltip text={serviceReview.reviewTooltip} align="right" />
+                                        </span>
                                       </button>
                                     )}
                                   </div>
@@ -3673,7 +3699,7 @@ export default function AngebotePage() {
                               </div>
 
                               {/* Desktop/tablet */}
-                              <div className="hidden min-w-0 items-stretch gap-3 md:flex">
+                              <div className="hidden min-w-0 items-stretch gap-3">
                                 <div className="min-w-0 flex-1 overflow-visible">
                                   <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
                                     <span className="shrink-0 text-muted-foreground">

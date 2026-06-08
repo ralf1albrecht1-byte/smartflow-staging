@@ -13083,7 +13083,7 @@ export default function AuftraegePage() {
           };
 
       return (
-        <div className="fixed inset-0 z-[12000] sm:hidden">
+        <div className="fixed inset-0 z-[12000]">
           <button
             type="button"
             aria-label="Hinweis schließen"
@@ -13157,7 +13157,7 @@ export default function AuftraegePage() {
 
     const sheetTitle = activeMobileTooltip.title || "Leistungen prüfen";
     return (
-      <div className="fixed inset-0 z-[12000] sm:hidden">
+      <div className="fixed inset-0 z-[12000]">
         <button
           type="button"
           aria-label="Hinweis schließen"
@@ -13467,10 +13467,14 @@ export default function AuftraegePage() {
                   badge.focusTarget === "customer" ||
                   badge.focusTarget === "executionAddress"),
             );
+            const mobileAddressBadges = leftSystemBadges.filter((badge) =>
+              ["site_address", "address_review"].includes(badge.key),
+            );
             const mobileSystemBadges = leftSystemBadges.filter(
               (badge) =>
-                mobileHeaderBadgeKeys.has(badge.key) ||
-                (badge.key !== "site_address" && !badge.focusTarget),
+                !["site_address", "address_review"].includes(badge.key) &&
+                (mobileHeaderBadgeKeys.has(badge.key) ||
+                  (badge.key !== "site_address" && !badge.focusTarget)),
             );
             // Mobile: do not repeat the address pin as a large action icon.
             // The address remains visible on desktop and in the edit dialog; the
@@ -13565,16 +13569,18 @@ export default function AuftraegePage() {
 
             const renderMobileChipTooltip = (
               badge: ReviewBadge,
-              slot: string,
+              _slot: string,
               _align: "left" | "right" = "left",
             ) => {
               // V17.83: Mobile chip tooltips must be viewport-fixed.
               // The desktop absolute tooltip is anchored to the chip and can run
               // out of the screen on narrow phones. For touch we render the same
               // content as a centered, width-bounded mobile sheet instead.
-              if (activeMobileTooltipKey !== mobileTooltipKey(badge, slot))
-                return null;
-              return null;
+              return (
+                <span className="hidden sm:contents">
+                  {renderBadgeTooltip(badge, _align)}
+                </span>
+              );
             };
 
             const openOrderAtItems = (event: any) => {
@@ -13839,7 +13845,7 @@ export default function AuftraegePage() {
                       </details>
 
                       {/* Mobile — shared one-column card for Auftrag/Angebot */}
-                      <div className="min-w-0 flex-1 md:hidden">
+                      <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
                           <span className="shrink-0">
                             {o.createdAt
@@ -13862,19 +13868,30 @@ export default function AuftraegePage() {
                                 ({o.customer.customerNumber})
                               </span>
                             )}
-                        </div>
-
-                        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
-                          {mobileSystemBadges
-                            .slice(0, 3)
+                          {mobileAddressBadges
+                            .slice(0, 1)
                             .map((badge) =>
                               renderInteractiveMobileTextBadge(
                                 badge,
-                                "mobile_system",
+                                "mobile_header_address",
                                 "left",
                               ),
                             )}
                         </div>
+
+                        {mobileSystemBadges.length > 0 && (
+                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+                            {mobileSystemBadges
+                              .slice(0, 3)
+                              .map((badge) =>
+                                renderInteractiveMobileTextBadge(
+                                  badge,
+                                  "mobile_system",
+                                  "left",
+                                ),
+                              )}
+                          </div>
+                        )}
 
                         <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
                           <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
@@ -13991,7 +14008,7 @@ export default function AuftraegePage() {
                       </div>
 
                       {/* Desktop/tablet: existing dense list layout */}
-                      <div className="hidden min-w-0 flex-1 items-stretch gap-2 sm:gap-3 md:flex">
+                      <div className="hidden min-w-0 flex-1 items-stretch gap-2 sm:gap-3">
                         <div className="flex-1 min-w-0 max-w-full overflow-visible">
                           {/* Row 1: date + customer */}
                           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs min-w-0 max-w-full overflow-visible">
