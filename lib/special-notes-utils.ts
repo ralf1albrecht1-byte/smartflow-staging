@@ -83,34 +83,54 @@ const normalizeDedupeText = (value: string) =>
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-// V17.90L103: Structured role markers are authoritative after the first AI pass.
-// This deduper removes only exact/formatting duplicates. It deliberately does
-// not reinterpret, translate, promote, demote or replace customer statements.
+// V17.90L104: Structured role markers are authoritative after the first AI pass.
+// Text and role are preserved. We remove exact formatting duplicates and, only
+// for the same structured access identity, retain the more complete source line
+// (for example the version that also contains its code). No wording is created.
 const dedupeProtectedRoleLinesV17_90L103 = (values: string[]): string[] => {
-  const seen = new Set<string>();
-  const result: string[] = [];
+  const exactSeen = new Set<string>();
+  const ordered: string[] = [];
 
   for (const rawValue of values) {
-    const value = stripProtectedRoleMarkerV17_90L103(
-      String(rawValue || ""),
-    );
-    const key = value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/ä/g, "ae")
-      .replace(/ö/g, "oe")
-      .replace(/ü/g, "ue")
-      .replace(/ß/g, "ss")
-      .replace(/[^a-z0-9\s]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!value || !key || seen.has(key)) continue;
-    seen.add(key);
-    result.push(value);
+    const value = stripProtectedRoleMarkerV17_90L103(String(rawValue || ""));
+    const exactKey = normalizeDedupeText(value);
+    if (!value || !exactKey || exactSeen.has(exactKey)) continue;
+    exactSeen.add(exactKey);
+    ordered.push(value);
   }
 
-  return result;
+  const accessByKey = new Map<string, string>();
+  const passthrough: string[] = [];
+  const completenessScore = (value: string) => {
+    const digitCount = (value.match(/\d/g) || []).length;
+    const tokenCount = normalizeDedupeText(value)
+      .split(/\s+/g)
+      .filter(Boolean).length;
+    return digitCount * 1000 + tokenCount * 10 + value.length;
+  };
+
+  for (const value of ordered) {
+    const semanticKey = semanticNoteKey(value);
+    if (!semanticKey.startsWith("key:") && semanticKey !== "key") {
+      passthrough.push(value);
+      continue;
+    }
+
+    const existing = accessByKey.get(semanticKey);
+    if (!existing || completenessScore(value) > completenessScore(existing)) {
+      accessByKey.set(semanticKey, value);
+    }
+  }
+
+  const accessKeys = Array.from(accessByKey.keys());
+  if (accessKeys.some((key) => key.startsWith("key:keybox:"))) {
+    accessByKey.delete("key:keybox");
+    accessByKey.delete("key");
+  } else if (accessKeys.some((key) => key !== "key")) {
+    accessByKey.delete("key");
+  }
+
+  return [...passthrough, ...accessByKey.values()];
 };
 
 
@@ -795,7 +815,15 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
     }
     if (isHintLine(line)) {
       const protectedText = stripProtectedRoleMarkerV17_90L103(line);
-      if (protectedText) jobHints.push(protectedText);
+      if (protectedText) {
+        // Product exception: every actual dog mention uses the red dog chip,
+        // while its wording remains unchanged.
+        if (isDogSafetyNoteV17_90L34(protectedText)) {
+          safetyWarnings.push(protectedText);
+        } else {
+          jobHints.push(protectedText);
+        }
+      }
       continue;
     }
 

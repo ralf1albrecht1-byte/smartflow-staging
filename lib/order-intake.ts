@@ -3065,7 +3065,10 @@ function buildOnsiteContactHintV17_90L86(args: {
   ].filter(Boolean);
 
   return {
-    hint: phone || contactName || preferredChannel ? parts.join(", ") : null,
+    // V17.90L104: Stable structured separators. Later UI code reads this
+    // canonical line directly and must not reconstruct a contact from nearby
+    // appointment or customer text.
+    hint: phone || contactName || preferredChannel ? parts.join(" · ") : null,
     phone,
     phoneBelongsToSiteContact: Boolean(
       candidateDigits &&
@@ -6737,50 +6740,6 @@ function evidenceSupportsStructuralFlatUnitV17_90L89(
   return (moneyMatches?.length || 0) === 1;
 }
 
-function enrichCanonicalServiceNameFromEvidenceV17_90L101(
-  rawServiceName: string,
-  sourceText: string,
-): string {
-  const rawName = compactText(rawServiceName);
-  const source = compactText(sourceText);
-  if (!rawName || !source || source.length > 220 || /[\r\n]/.test(source)) {
-    return rawName;
-  }
-
-  let candidate = source
-    .replace(/^\s*[-•]?\s*\d+(?:[.,]\d+)?\s+(?=[\p{L}])/u, "")
-    .replace(
-      /\s+\d+(?:[.,]\d+)?\s*(?:stueck|stück|stk\.?|meter|metre|m2|m²|qm|stunden?|std\.?|hours?)\s*(?:à|je|at|zu|per|each)\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?)\s*)?\d+(?:[.,]\d+)?\s*$/iu,
-      "",
-    )
-    .replace(
-      /\s+(?:à|je|at|zu|per|each)\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?)\s*)?\d+(?:[.,]\d+)?\s*$/iu,
-      "",
-    )
-    .replace(
-      /\s+(?:pauschal|pauschale|flat\s*fee|fixpreis|festpreis)\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?)\s*)?\d+(?:[.,]\d+)?\s*$/iu,
-      "",
-    )
-    .replace(/[.;:,\s]+$/g, "")
-    .trim();
-
-  if (!candidate || candidate.length < 4 || candidate.length > 120) return rawName;
-  if (/\b(?:CHF|EUR|USD|GBP|SFR)\b/i.test(candidate)) return rawName;
-
-  const rawKey = canonicalServiceKeyV17_90L88(rawName);
-  const candidateKey = canonicalServiceKeyV17_90L88(candidate);
-  const rawTokens = rawKey.split(/\s+/g).filter((token) => token.length >= 3);
-  const candidateTokens = new Set(
-    candidateKey.split(/\s+/g).filter((token) => token.length >= 2),
-  );
-  if (rawTokens.length < 2 || !rawTokens.every((token) => candidateTokens.has(token))) {
-    return rawName;
-  }
-  if (candidateKey === rawKey || candidate.length <= rawName.length) return rawName;
-
-  return candidate;
-}
-
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
 ): CanonicalAiOrderItemV17_90L88[] {
@@ -6804,12 +6763,11 @@ function buildCanonicalAiOrderItemsV17_90L88(
           raw?.matched_service_name ||
           "",
       );
-      const enrichedServiceName = enrichCanonicalServiceNameFromEvidenceV17_90L101(
-        rawServiceName,
-        sourceText,
-      );
-      const serviceName = enrichedServiceName
-        ? `${enrichedServiceName.charAt(0).toUpperCase()}${enrichedServiceName.slice(1)}`
+      // V17.90L104: The first-AI service name is authoritative. Evidence is
+      // retained for review, but may never be appended to or used to rewrite
+      // the visible name after the AI pass.
+      const serviceName = rawServiceName
+        ? `${rawServiceName.charAt(0).toUpperCase()}${rawServiceName.slice(1)}`
         : "";
       const confidenceKey = normalizeUnitText(raw?.confidence || "");
       const confidence =
@@ -9621,7 +9579,7 @@ ZIELE
 - besonderheiten: JSON-Array mit normalen organisatorischen Hinweisen oder positiven Arbeitserleichterungen, z.B. ["Leiter benötigt", "Rückruf vor Arbeitsbeginn", "Zugang über Seiteneingang", "Parkplatz im Innenhof reserviert"]
   (GEFAHREN und BESONDERHEITEN strikt trennen.)
   (Leiter allein ist KEINE Gefahr. Leiter nur dann als Gefahr werten, wenn zusätzlich ein echtes Risiko genannt wird, z.B. Absturzgefahr, instabiler Stand, Arbeiten in großer Höhe.)
-  (Hund ist NICHT automatisch Gefahr: freilaufend/aggressiv/ungesichert = gefahr; freundlich/gesichert/Besitzer vor Ort = besonderheit.)
+  (PRODUKTREGEL HUND: Jede tatsächlich erwähnte Hundaussage genau einmal in gefahren ausgeben, damit der rote Hund-Chip erscheint. Den Zustand neutral und originalgetreu auf ${hauptsprache} wiedergeben. Niemals Gefährlichkeit, Freiheit oder Sicherung erfinden.)
   (Parkplatz/Zugang unterscheiden: reserviert/vorhanden/Innenhof = positive besonderheit; schwierig/kein Parkplatz/enge Zufahrt = wichtige besonderheit.)
   (Neutrale oder unwichtige Erleichterungen NICHT als Außen-Hinweis erzwingen: "Parkplatz ist kein Thema", "man kann direkt halten", "Zugang frei", "Tür ist offen".)
   (Rückruf NUR aufnehmen, wenn der Kunde ausdrücklich einen TELEFONISCHEN Rückruf/Anruf verlangt. Klingeln, warten, an der Tür melden, Kunde ist vor Ort, Schlüsselübergabe an der Tür oder "nicht anrufen" sind KEIN Rückruf. Dann höchstens als normaler Hinweis formulieren, z.B. "Vor Arbeitsbeginn klingeln und warten".)
@@ -10034,6 +9992,7 @@ sonst → ""
 - Kommunikationshinweise immer nach Absicht ausgeben, nicht nur zusammenfassen: Kanal verboten / bevorzugt / erlaubt plus Kontaktzeit. Ein verbotener Kanal darf nie als bevorzugter Kanal erscheinen.
 - Verneinungen müssen am richtigen Bezug hängen: "nicht einfach kommen" / "nicht eintreten" / "nicht ohne Rücksprache" sind Zugangs-/Ablaufhinweise und dürfen niemals als WhatsApp-/SMS-Verbot interpretiert werden, wenn WhatsApp/SMS in derselben Zeile positiv genannt ist.
 - Kontaktzeiten für Mail/SMS/WhatsApp/Telefon sind keine Ausführungstermine und dürfen keinen Terminchip erzeugen.
+- Reine Arbeits-, Ablauf- oder Schonhinweise ohne eigenes körperliches Sicherheitsrisiko gehören in besonderheiten/sonstige_hinweise, nicht in gefahren. Die Rolle nach Bedeutung bestimmen, nicht anhand einzelner Wörter.
 - Ausführungsadresse strikt strukturiert ausgeben: Objekt-/Bereichsname ohne Satzanfang wie "Arbeiten müssen im"; Straße nur Straße/Hausnummer; Ort nur Ortsname. Keine Satzreste wie "ausgeführt werden" an Objekt oder Ort anhängen.
 - Rückruf nur bei echter telefonischer Kontaktaufnahme ausgeben. "Klingeln und warten", "an der Tür melden", "Kunde ist vor Ort", "Schlüssel wird an der Tür übergeben" oder "nicht anrufen" sind KEIN Rückruf.
 - Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie wirklich planungsrelevant sind: Parkplatz reserviert/vorhanden, Schlüssel liegt bereit. Rein neutrale Hinweise wie "Zugang frei", "Tür offen", "Parkplatz kein Thema" oder "direkt halten möglich" nicht als wichtigen Außen-Hinweis erzwingen.
@@ -11809,6 +11768,19 @@ export async function processIncomingMessage(
   const hasProtectedStructuredRolesV17_90L103 =
     hasStructuredSafetyRoles || hasStructuredOrdinaryRoles;
 
+  // V17.90L104: Dedicated role arrays outrank the older general
+  // `besonderheiten` array. If both contain the same business fact, keep the
+  // dedicated role text once; do not serialize raw and translated variants.
+  const protectedBaseHinweisItemsV17_90L104 =
+    structuredRoleHintsV17_90L86.length > 0
+      ? baseHinweisItems.filter(
+          (line) =>
+            !structuredRoleHintsV17_90L86.some((structuredLine) =>
+              semanticRoleOverlapV17_90L87(line, structuredLine),
+            ),
+        )
+      : baseHinweisItems;
+
   let gefahrItems: string[];
   let hinweisItems: string[];
 
@@ -11826,7 +11798,7 @@ export async function processIncomingMessage(
     hinweisItems = dedupeProtectedStructuredRoleLinesV17_90L103([
       ...structuredRoleHintsV17_90L86,
       ...structuredAppointmentHintsV17_90L86,
-      ...baseHinweisItems,
+      ...protectedBaseHinweisItemsV17_90L104,
       onsiteContactHint.hint || "",
     ]).filter((line) => !dangerKeys.has(normalizeSemanticText(line)));
   } else {

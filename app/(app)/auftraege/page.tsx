@@ -3119,7 +3119,6 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
   );
   if (source.length === 0) return [];
 
-  const joined = source.join(" ");
   const result: string[] = [];
   const pushUnique = (value: string) => {
     const cleaned = compactText(value)
@@ -3172,13 +3171,12 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
     (contactLine?.match(phonePatternV17_90L81) || [])
       .map((value) => value.replace(/\s+/g, " ").trim())
       .find(isUsablePhoneV17_90L81) || "";
-  const fallbackPhone =
-    (joined.match(phonePatternV17_90L81) || [])
-      .map((value) => value.replace(/\s+/g, " ").trim())
-      .find(isUsablePhoneV17_90L81) || "";
-  const phone = contactPhone || fallbackPhone;
-  if (contactLine || phone) {
-    const line = contactLine || joined;
+  // V17.90L104: A contact summary requires an actual contact line. Do not
+  // borrow a phone/name from the joined appointment text; that produced
+  // displays such as "Kontakt: Termin".
+  const phone = contactPhone;
+  if (contactLine && phone) {
+    const line = contactLine;
     const structuredContactBody = canonicalContactLine
       ? canonicalContactLine
           .replace(
@@ -3283,19 +3281,24 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
         .replace(/[^a-z0-9]+/g, " ")
         .replace(/\s+/g, " ")
         .trim();
-    const dedupedAccessLines = Array.from(
-      normalizedAccessLines.reduce((map, line) => {
+    const dedupedAccessLines = normalizedAccessLines
+      .slice()
+      .sort((left, right) => right.length - left.length)
+      .reduce<string[]>((result, line) => {
         const key = accessKeyV17_90L84(line);
-        if (!key) return map;
-        const existing = map.get(key);
-        // Behalte bei gleicher Aussage die besser lesbare Variante mit
-        // Satzzeichen, aber zeige sie nur einmal.
-        if (!existing || (/[,:;]/.test(line) && !/[,:;]/.test(existing))) {
-          map.set(key, line);
-        }
-        return map;
-      }, new Map<string, string>()),
-    ).map(([, line]) => line);
+        if (!key) return result;
+        const alreadyCovered = result.some((existing) => {
+          const existingKey = accessKeyV17_90L84(existing);
+          return (
+            existingKey === key ||
+            (existingKey.length >= 8 &&
+              key.length >= 8 &&
+              (existingKey.includes(key) || key.includes(existingKey)))
+          );
+        });
+        if (!alreadyCovered) result.push(line);
+        return result;
+      }, []);
     const badgeAtReception = dedupedAccessLines.some((line) =>
       /\bbadge\b/i.test(line) && /\bempfang\b/i.test(line),
     );
