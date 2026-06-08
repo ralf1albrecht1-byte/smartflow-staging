@@ -5532,6 +5532,57 @@ function detectAllQuantityUnitsFromText(
   return matches.filter((m) => Number.isFinite(m.value) && m.value > 0);
 }
 
+type ExplicitQuantityRangeV17_90L121 = {
+  min: number;
+  max: number;
+  unit: string;
+  raw: string;
+};
+
+// V17.90L121: A quantity range is never a confirmed quantity. The first AI
+// may return one boundary, but line-local evidence wins for uncertainty:
+// keep quantity at zero and require an explicit user decision.
+function detectExplicitQuantityRangeV17_90L121(
+  text: string | null | undefined,
+): ExplicitQuantityRangeV17_90L121 | null {
+  const source = normalizeUnitText(text || "");
+  if (!source) return null;
+
+  const unitPatterns: Array<{ unit: string; pattern: string }> = [
+    { unit: "square_meter", pattern: "(?:m2|m²|qm|quadratmeter|quadrat meter|sqm)" },
+    { unit: "cubic_meter", pattern: "(?:m3|m³|cbm|kubikmeter|kubik meter)" },
+    { unit: "hour", pattern: "(?:stunden?|std\.?|h|hours?|heures?|horas?|ore)" },
+    { unit: "day", pattern: "(?:tage?|arbeitstage?|days?|jours?|giorni?)" },
+    { unit: "meter", pattern: "(?:laufmeter|lfm|meter|metres?|mètres?)" },
+    {
+      unit: "piece",
+      pattern: "(?:stueck|stück|stuck|stk|einheiten?|pieces?|pi[eè]ces?|pezzi|unita|unità|anzahl|raeume|räume|stockwerke|abteile|stellen|garnituren?)",
+    },
+    { unit: "kilogram", pattern: "(?:kilogramm|kg)" },
+    { unit: "ton", pattern: "(?:tonnen?|to\.?|t)" },
+    { unit: "liter", pattern: "(?:liter|ltr\.?|l)" },
+  ];
+
+  for (const entry of unitPatterns) {
+    const re = new RegExp(
+      `\\b(\\d+(?:[.,]\\d+)?)\\s*(?:-|–|—|bis|to|until|a|à)\\s*(\\d+(?:[.,]\\d+)?)\\s*${entry.pattern}\\b`,
+      "i",
+    );
+    const match = source.match(re);
+    if (!match) continue;
+
+    const min = Number(String(match[1]).replace(",", "."));
+    const max = Number(String(match[2]).replace(",", "."));
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0 || max <= min) {
+      continue;
+    }
+
+    return { min, max, unit: entry.unit, raw: match[0] };
+  }
+
+  return null;
+}
+
 // V16.95: Final semantic repair for explicit hour lines from the original customer text.
 // This is intentionally line-anchored: a service row is repaired only when the
 
@@ -6956,16 +7007,22 @@ function buildCanonicalAiOrderItemsV17_90L88(
       const rawQuantity = parsePositiveCanonicalNumberV17_90L89(
         raw?.quantity ?? raw?.menge,
       );
+      const explicitQuantityRangeV17_90L121 =
+        detectExplicitQuantityRangeV17_90L121(sourceText);
       const sourceQuantity =
         detectAllQuantityUnitsFromText(sourceText)[0] || null;
       const leadingCount =
         extractLeadingCountFromEvidenceV17_90L89(sourceText);
-      let quantity =
-        rawQuantity || sourceQuantity?.value || leadingCount || 0;
+      let quantity = explicitQuantityRangeV17_90L121
+        ? 0
+        : rawQuantity || sourceQuantity?.value || leadingCount || 0;
 
       const rawUnit = raw?.unit ?? raw?.einheit ?? null;
       const rawUnitType = getServiceUnitType(rawUnit);
-      const sourceUnitType = sourceQuantity?.unit || "unknown";
+      const sourceUnitType =
+        explicitQuantityRangeV17_90L121?.unit ||
+        sourceQuantity?.unit ||
+        "unknown";
       let unitType =
         rawUnitType !== "unknown"
           ? rawUnitType
@@ -7036,11 +7093,13 @@ function buildCanonicalAiOrderItemsV17_90L88(
       const needsReview = missingPrice || missingQuantity || missingUnit;
       const reviewReason = missingPrice
         ? `price_unclear:${serviceName}`
-        : missingQuantity
-          ? `quantity_review:${serviceName}`
-          : missingUnit
-            ? `unit_missing_in_text:${serviceName}`
-            : null;
+        : explicitQuantityRangeV17_90L121
+          ? `quantity_range_review:${explicitQuantityRangeV17_90L121.min}:${explicitQuantityRangeV17_90L121.max}:${serviceName}`
+          : missingQuantity
+            ? `quantity_review:${serviceName}`
+            : missingUnit
+              ? `unit_missing_in_text:${serviceName}`
+              : null;
 
       return {
         serviceName,
@@ -7195,15 +7254,21 @@ function reconcileWithCanonicalAiItemsV17_90L88(
     const missingPrice = unitPrice <= 0;
     const missingQuantity = quantity <= 0;
     const missingUnit = !unit || isReviewUnitV17_90L(unit);
+    const canonicalQuantityRangeReason =
+      String(canonical.reviewReason || "").startsWith("quantity_range_review:")
+        ? String(canonical.reviewReason)
+        : null;
     const reviewReason = isForeignCurrency
       ? `item_currency_mismatch:${canonical.serviceName}:${canonicalCurrency}:${finalCurrency}`
       : missingPrice
         ? `price_unclear:${canonical.serviceName}`
-        : missingQuantity
-          ? `quantity_review:${canonical.serviceName}`
-          : missingUnit
-            ? `unit_missing_in_text:${canonical.serviceName}`
-            : null;
+        : canonicalQuantityRangeReason
+          ? canonicalQuantityRangeReason
+          : missingQuantity
+            ? `quantity_review:${canonical.serviceName}`
+            : missingUnit
+              ? `unit_missing_in_text:${canonical.serviceName}`
+              : null;
     const needsReview = Boolean(
       isForeignCurrency || missingPrice || missingQuantity || missingUnit,
     );
@@ -7571,6 +7636,7 @@ function filterLegacyValidationReviewReasonsV17_90L89(
       return hasOpenPrice && finalItemReasons.has(reason);
     }
     if (
+      reason.startsWith("quantity_range_review:") ||
       reason.startsWith("quantity_review:") ||
       reason.startsWith("unit_missing_in_text:")
     ) {
@@ -10187,6 +10253,7 @@ REGELN
 - Gewicht / kg / Tonnen NIEMALS als Stunden-, Meter-, Quadratmeter-, Stück- oder Pauschalmenge übernehmen
 - Volumen / Liter / Kubikmeter NIEMALS als Stunden-, Meter-, Quadratmeter-, Stück- oder Pauschalmenge übernehmen
 - Wenn Zahl und Einheit nicht zur Leistungseinheit passen → estimated_quantity = null und needs_review = true
+- Mengenbereiche oder Näherungen wie "10 bis 12 Stück", "10–12", "ca. 10 bis 12" oder sprachgleiche Varianten sind niemals eine bestätigte Menge: estimated_quantity = null und needs_review = true. Niemals automatisch Unter- oder Obergrenze wählen.
 - wenn unsicher → estimated_quantity = null
 - sonst null
 
@@ -12707,16 +12774,21 @@ export async function processIncomingMessage(
 
       const detectedUnitTypeFromItem = getWorkItemUnitType(item);
       const detectedQuantityFromItem = getWorkItemQuantity(item);
+      const explicitQuantityRangeV17_90L121 =
+        detectExplicitQuantityRangeV17_90L121(originalSegment);
       const originalQuantityMatch =
         detectAllQuantityUnitsFromText(originalSegment)[0] || null;
 
       const detectedUnitType =
         detectedUnitTypeFromItem !== "unknown"
           ? detectedUnitTypeFromItem
-          : originalQuantityMatch?.unit || "unknown";
+          : explicitQuantityRangeV17_90L121?.unit ||
+            originalQuantityMatch?.unit ||
+            "unknown";
 
-      const detectedQuantity =
-        detectedQuantityFromItem > 0
+      const detectedQuantity = explicitQuantityRangeV17_90L121
+        ? 0
+        : detectedQuantityFromItem > 0
           ? detectedQuantityFromItem
           : originalQuantityMatch?.value || 0;
 
@@ -12806,7 +12878,11 @@ export async function processIncomingMessage(
         }
 
         if (!isFlatServiceUnit && !hasOwnQuantityEvidence) {
-          structuredReviewReasons.push("quantity_review");
+          structuredReviewReasons.push(
+            explicitQuantityRangeV17_90L121
+              ? `quantity_range_review:${explicitQuantityRangeV17_90L121.min}:${explicitQuantityRangeV17_90L121.max}:${serviceNameForReview}`
+              : "quantity_review",
+          );
         }
 
         if (!hasOwnPriceEvidence) {
@@ -12926,7 +13002,10 @@ export async function processIncomingMessage(
       const confidence = normalizeAiConfidence(item.confidence || null);
       const safeUnitPrice =
         confidence === "niedrig" ? 0 : detectedUnitPrice || 0;
-      const safeQuantity = confidence === "niedrig" ? 0 : detectedQuantity || 0;
+      const safeQuantity =
+        confidence === "niedrig" || explicitQuantityRangeV17_90L121
+          ? 0
+          : detectedQuantity || 0;
 
       return {
         serviceName: finalServiceName,
@@ -12938,7 +13017,9 @@ export async function processIncomingMessage(
         unitPrice: safeUnitPrice,
         totalPrice: safeUnitPrice * safeQuantity,
         needsReview: true,
-        reviewReason: "unbekannte_leistung_pruefen",
+        reviewReason: explicitQuantityRangeV17_90L121
+          ? `quantity_range_review:${explicitQuantityRangeV17_90L121.min}:${explicitQuantityRangeV17_90L121.max}:${finalServiceName}`
+          : "unbekannte_leistung_pruefen",
         sourceText: originalSegment || raw || null,
         evidence: item.evidence || item.source_text || null,
         detectedCurrency: item.currency || null,
