@@ -5532,94 +5532,6 @@ function detectAllQuantityUnitsFromText(
   return matches.filter((m) => Number.isFinite(m.value) && m.value > 0);
 }
 
-
-type ExplicitQuantityRangeV17_90L110 = {
-  min: number;
-  max: number;
-  unit: string;
-  raw: string;
-};
-
-// V17.90L110: A numeric range is not a confirmed quantity. Never choose the
-// lower or upper bound automatically. Keep the exact line as evidence and
-// require an explicit user decision before the item contributes to totals.
-function detectExplicitQuantityRangeV17_90L110(
-  text: string | null | undefined,
-): ExplicitQuantityRangeV17_90L110 | null {
-  const source = normalizeUnitText(text || "");
-  if (!source) return null;
-
-  const unitPatterns: Array<{ unit: string; pattern: string }> = [
-    {
-      unit: "square_meter",
-      pattern: "(?:m2|m²|qm|quadratmeter|quadrat meter|sqm)",
-    },
-    {
-      unit: "cubic_meter",
-      pattern: "(?:m3|m³|cbm|kubikmeter|kubik meter)",
-    },
-    {
-      unit: "hour",
-      pattern: "(?:stunden?|std\\.?|h|hours?|heures?|horas?|ore)",
-    },
-    {
-      unit: "day",
-      pattern: "(?:tage?|arbeitstage?|days?|jours?|giorni?)",
-    },
-    {
-      unit: "meter",
-      pattern: "(?:laufmeter|lfm|meter|metres?|mètres?)",
-    },
-    {
-      unit: "piece",
-      pattern:
-        "(?:stueck|stück|stuck|stk|einheiten?|pieces?|pi[eè]ces?|pezzi|unita|unità|anzahl|raeume|räume|stockwerke|abteile|stellen|garnituren?)",
-    },
-    {
-      unit: "kilogram",
-      pattern: "(?:kilogramm|kg)",
-    },
-    {
-      unit: "ton",
-      pattern: "(?:tonnen?|to\\.?|t)",
-    },
-    {
-      unit: "liter",
-      pattern: "(?:liter|ltr\\.?|l)",
-    },
-  ];
-
-  for (const entry of unitPatterns) {
-    const re = new RegExp(
-      `\\b(\\d+(?:[.,]\\d+)?)\\s*(?:-|–|—|bis|to|until|a|à)\\s*(\\d+(?:[.,]\\d+)?)\\s*${entry.pattern}\\b`,
-      "i",
-    );
-    const match = source.match(re);
-    if (!match) continue;
-
-    const min = Number(String(match[1]).replace(",", "."));
-    const max = Number(String(match[2]).replace(",", "."));
-    if (
-      !Number.isFinite(min) ||
-      !Number.isFinite(max) ||
-      min <= 0 ||
-      max <= 0 ||
-      max <= min
-    ) {
-      continue;
-    }
-
-    return {
-      min,
-      max,
-      unit: entry.unit,
-      raw: match[0],
-    };
-  }
-
-  return null;
-}
-
 // V16.95: Final semantic repair for explicit hour lines from the original customer text.
 // This is intentionally line-anchored: a service row is repaired only when the
 
@@ -7044,22 +6956,16 @@ function buildCanonicalAiOrderItemsV17_90L88(
       const rawQuantity = parsePositiveCanonicalNumberV17_90L89(
         raw?.quantity ?? raw?.menge,
       );
-      const explicitQuantityRangeV17_90L110 =
-        detectExplicitQuantityRangeV17_90L110(sourceText);
       const sourceQuantity =
         detectAllQuantityUnitsFromText(sourceText)[0] || null;
       const leadingCount =
         extractLeadingCountFromEvidenceV17_90L89(sourceText);
-      let quantity = explicitQuantityRangeV17_90L110
-        ? 0
-        : rawQuantity || sourceQuantity?.value || leadingCount || 0;
+      let quantity =
+        rawQuantity || sourceQuantity?.value || leadingCount || 0;
 
       const rawUnit = raw?.unit ?? raw?.einheit ?? null;
       const rawUnitType = getServiceUnitType(rawUnit);
-      const sourceUnitType =
-        explicitQuantityRangeV17_90L110?.unit ||
-        sourceQuantity?.unit ||
-        "unknown";
+      const sourceUnitType = sourceQuantity?.unit || "unknown";
       let unitType =
         rawUnitType !== "unknown"
           ? rawUnitType
@@ -7130,13 +7036,11 @@ function buildCanonicalAiOrderItemsV17_90L88(
       const needsReview = missingPrice || missingQuantity || missingUnit;
       const reviewReason = missingPrice
         ? `price_unclear:${serviceName}`
-        : explicitQuantityRangeV17_90L110
-          ? `quantity_range_review:${explicitQuantityRangeV17_90L110.min}:${explicitQuantityRangeV17_90L110.max}:${serviceName}`
-          : missingQuantity
-            ? `quantity_review:${serviceName}`
-            : missingUnit
-              ? `unit_missing_in_text:${serviceName}`
-              : null;
+        : missingQuantity
+          ? `quantity_review:${serviceName}`
+          : missingUnit
+            ? `unit_missing_in_text:${serviceName}`
+            : null;
 
       return {
         serviceName,
@@ -7522,6 +7426,50 @@ function recognitionWarningCoveredByCanonicalV17_90L89(
   }
 }
 
+// V17.90L120: A later read-only validator must never create a second
+// recognition proposal from the same evidence line when the canonical first-AI
+// item already exists as an editable open-price position. The existing item is
+// the only place where the missing price may be resolved.
+function recognitionWarningCoveredByCanonicalOpenPriceV17_90L120(
+  warning: string,
+  canonicalItems: CanonicalAiOrderItemV17_90L88[],
+): boolean {
+  if (!warning.startsWith("recognition_review:")) return false;
+
+  try {
+    const raw = decodeURIComponent(warning.slice("recognition_review:".length));
+    const payload = JSON.parse(raw) as {
+      sourceText?: string;
+      unitPrice?: number;
+    };
+    const evidenceKey = canonicalEvidenceKeyV17_90L88(payload.sourceText);
+    if (!evidenceKey || Number(payload.unitPrice || 0) > 0) return false;
+
+    return canonicalItems.some((canonical) => {
+      const canonicalEvidenceKey = canonicalEvidenceKeyV17_90L88(
+        canonical.sourceText || canonical.evidence || canonical.description,
+      );
+      const sameEvidence = Boolean(
+        canonicalEvidenceKey &&
+          (canonicalEvidenceKey === evidenceKey ||
+            (canonicalEvidenceKey.length >= 12 &&
+              evidenceKey.length >= 12 &&
+              (canonicalEvidenceKey.includes(evidenceKey) ||
+                evidenceKey.includes(canonicalEvidenceKey)))),
+      );
+      const canonicalPriceOpen = Boolean(
+        Number(canonical.unitPrice || 0) <= 0 &&
+          String(canonical.reviewReason || "").startsWith("price_unclear:") &&
+          canonical.serviceName &&
+          !isInternalReviewServiceNameV17_90L(canonical.serviceName),
+      );
+      return sameEvidence && canonicalPriceOpen;
+    });
+  } catch {
+    return false;
+  }
+}
+
 function filterReadOnlyRiskWarningsV17_90L89(
   warnings: string[],
   canonicalItems: CanonicalAiOrderItemV17_90L88[],
@@ -7536,13 +7484,25 @@ function filterReadOnlyRiskWarningsV17_90L89(
   const remainingRecognitionWarnings = warnings.filter(
     (warning) =>
       warning.startsWith("recognition_review:") &&
-      !recognitionWarningCoveredByCanonicalV17_90L89(warning, finalItems),
+      !recognitionWarningCoveredByCanonicalV17_90L89(warning, finalItems) &&
+      !recognitionWarningCoveredByCanonicalOpenPriceV17_90L120(
+        warning,
+        canonicalItems,
+      ),
   );
 
   return warnings.filter((warning) => {
     // L98: shadow findings are log-only diagnostics and never become review
     // reasons, chips or document blockers.
     if (warning.startsWith("shadow_")) return false;
+    if (
+      recognitionWarningCoveredByCanonicalOpenPriceV17_90L120(
+        warning,
+        canonicalItems,
+      )
+    ) {
+      return false;
+    }
     if (recognitionWarningCoveredByCanonicalV17_90L89(warning, finalItems)) {
       return false;
     }
@@ -9883,7 +9843,6 @@ ZIELE
 - SEMANTISCHE ROLLENENTSCHEIDUNG: Gefahr nur dann, wenn die Nachricht ausdrücklich einen konkreten Zustand mit plausiblem körperlichem Verletzungs-, Gesundheits- oder Sachschadenrisiko beschreibt.
 - Eine Arbeitsanweisung, Schonregel, Kommunikationsregel, Zugangsregel, Reihenfolge, Frist oder Fertigstellungszeit ohne ausdrücklich beschriebenen Gefahrzustand ist sonstige_hinweise, niemals gefahren.
 - Aus einem Verbot, Imperativ oder Zeitdruck keine verborgene Gefahr ableiten. Die Aussage nur nach ihrem tatsächlich beschriebenen Inhalt einordnen.
-- Normale Hinweise vollständig und originalgetreu erhalten: keine Tätigkeit umdeuten (z.B. reinigen nicht zu öffnen ändern), keine zweite Satzhälfte verlieren und keine Bedingung wie Tür/Tor geschlossen halten weglassen.
 - Vor der JSON-Ausgabe jede Rollen-Aussage einmal selbst prüfen: Würde der Text auch ohne Arbeitsanweisung einen konkreten Gefahrzustand beschreiben? Nur dann gefahren; andernfalls Hinweis.
 - Jede Rolleninformation muss eine konkrete lokale Evidence haben. Keine komplette Nachricht als Evidence verwenden.
 
@@ -10228,7 +10187,6 @@ REGELN
 - Gewicht / kg / Tonnen NIEMALS als Stunden-, Meter-, Quadratmeter-, Stück- oder Pauschalmenge übernehmen
 - Volumen / Liter / Kubikmeter NIEMALS als Stunden-, Meter-, Quadratmeter-, Stück- oder Pauschalmenge übernehmen
 - Wenn Zahl und Einheit nicht zur Leistungseinheit passen → estimated_quantity = null und needs_review = true
-- Mengenbereiche oder Näherungen wie "10 bis 12 Stück", "10–12", "ca. 10 bis 12" oder sprachgleiche Varianten sind niemals eine bestätigte Menge: estimated_quantity = null und needs_review = true. Niemals automatisch Unter- oder Obergrenze wählen.
 - wenn unsicher → estimated_quantity = null
 - sonst null
 
@@ -12345,10 +12303,6 @@ export async function processIncomingMessage(
     const fromUnit = getServiceUnitType(item.einheit || null);
     if (fromUnit !== "unknown") return fromUnit;
 
-    const explicitRangeV17_90L110 =
-      detectExplicitQuantityRangeV17_90L110(text);
-    if (explicitRangeV17_90L110) return explicitRangeV17_90L110.unit;
-
     const q = detectAllQuantityUnitsFromText(
       [item.source_text, item.evidence, item.raw, item.name, item.context]
         .filter(Boolean)
@@ -12359,20 +12313,6 @@ export async function processIncomingMessage(
   };
 
   const getWorkItemQuantity = (item: AiWorkItem): number => {
-    const ownEvidence = [
-      item.source_text,
-      item.evidence,
-      item.raw,
-      item.name,
-      item.context,
-    ]
-      .filter(Boolean)
-      .join(" ");
-
-    if (detectExplicitQuantityRangeV17_90L110(ownEvidence)) {
-      return 0;
-    }
-
     if (
       typeof item.menge === "number" &&
       isFinite(item.menge) &&
@@ -12381,7 +12321,11 @@ export async function processIncomingMessage(
       return item.menge;
     }
 
-    const q = detectAllQuantityUnitsFromText(ownEvidence)[0];
+    const q = detectAllQuantityUnitsFromText(
+      [item.source_text, item.evidence, item.raw, item.name, item.context]
+        .filter(Boolean)
+        .join(" "),
+    )[0];
 
     return q?.value ?? 0;
   };
@@ -12763,21 +12707,16 @@ export async function processIncomingMessage(
 
       const detectedUnitTypeFromItem = getWorkItemUnitType(item);
       const detectedQuantityFromItem = getWorkItemQuantity(item);
-      const explicitQuantityRangeV17_90L110 =
-        detectExplicitQuantityRangeV17_90L110(originalSegment);
       const originalQuantityMatch =
         detectAllQuantityUnitsFromText(originalSegment)[0] || null;
 
       const detectedUnitType =
         detectedUnitTypeFromItem !== "unknown"
           ? detectedUnitTypeFromItem
-          : explicitQuantityRangeV17_90L110?.unit ||
-            originalQuantityMatch?.unit ||
-            "unknown";
+          : originalQuantityMatch?.unit || "unknown";
 
-      const detectedQuantity = explicitQuantityRangeV17_90L110
-        ? 0
-        : detectedQuantityFromItem > 0
+      const detectedQuantity =
+        detectedQuantityFromItem > 0
           ? detectedQuantityFromItem
           : originalQuantityMatch?.value || 0;
 
@@ -12867,11 +12806,7 @@ export async function processIncomingMessage(
         }
 
         if (!isFlatServiceUnit && !hasOwnQuantityEvidence) {
-          structuredReviewReasons.push(
-            explicitQuantityRangeV17_90L110
-              ? `quantity_range_review:${explicitQuantityRangeV17_90L110.min}:${explicitQuantityRangeV17_90L110.max}:${serviceNameForReview}`
-              : "quantity_review",
-          );
+          structuredReviewReasons.push("quantity_review");
         }
 
         if (!hasOwnPriceEvidence) {
@@ -12991,10 +12926,7 @@ export async function processIncomingMessage(
       const confidence = normalizeAiConfidence(item.confidence || null);
       const safeUnitPrice =
         confidence === "niedrig" ? 0 : detectedUnitPrice || 0;
-      const safeQuantity =
-        confidence === "niedrig" || explicitQuantityRangeV17_90L110
-          ? 0
-          : detectedQuantity || 0;
+      const safeQuantity = confidence === "niedrig" ? 0 : detectedQuantity || 0;
 
       return {
         serviceName: finalServiceName,
@@ -13006,9 +12938,7 @@ export async function processIncomingMessage(
         unitPrice: safeUnitPrice,
         totalPrice: safeUnitPrice * safeQuantity,
         needsReview: true,
-        reviewReason: explicitQuantityRangeV17_90L110
-          ? `quantity_range_review:${explicitQuantityRangeV17_90L110.min}:${explicitQuantityRangeV17_90L110.max}:${finalServiceName}`
-          : "unbekannte_leistung_pruefen",
+        reviewReason: "unbekannte_leistung_pruefen",
         sourceText: originalSegment || raw || null,
         evidence: item.evidence || item.source_text || null,
         detectedCurrency: item.currency || null,
@@ -13250,6 +13180,39 @@ export async function processIncomingMessage(
             evidence.length > 0 &&
             evidence.length <= 240
           );
+        })
+        .filter((item) => {
+          const candidateEvidenceKey = canonicalEvidenceKeyV17_90L88(
+            item.sourceText || item.evidence || item.description,
+          );
+          if (!candidateEvidenceKey) return true;
+
+          const coveredByCanonicalOpenPrice = canonicalAiOrderItemsV17_90L88.some(
+            (canonical) => {
+              const canonicalEvidenceKey = canonicalEvidenceKeyV17_90L88(
+                canonical.sourceText || canonical.evidence || canonical.description,
+              );
+              const sameEvidence = Boolean(
+                canonicalEvidenceKey &&
+                  (canonicalEvidenceKey === candidateEvidenceKey ||
+                    (canonicalEvidenceKey.length >= 12 &&
+                      candidateEvidenceKey.length >= 12 &&
+                      (canonicalEvidenceKey.includes(candidateEvidenceKey) ||
+                        candidateEvidenceKey.includes(canonicalEvidenceKey)))),
+              );
+              const canonicalPriceOpen = Boolean(
+                Number(canonical.unitPrice || 0) <= 0 &&
+                  String(canonical.reviewReason || "").startsWith(
+                    "price_unclear:",
+                  ) &&
+                  canonical.serviceName &&
+                  !isInternalReviewServiceNameV17_90L(canonical.serviceName),
+              );
+              return sameEvidence && canonicalPriceOpen;
+            },
+          );
+
+          return !coveredByCanonicalOpenPrice;
         })
         .map((item) => [
           [
