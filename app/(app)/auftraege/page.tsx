@@ -6965,6 +6965,281 @@ const renderExecutionAddressBadgeTooltipV17_90L56 = (
   );
 };
 
+
+const renderExecutionAddressTooltipContentV17_95 = (tooltip: string) => {
+  const lines = cleanVisibleTooltipTextV17_35(tooltip).split("\n");
+  const heading = lines.shift() || "Ausführungsadresse";
+
+  return (
+    <>
+      <span className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
+        <MapPin className="h-4 w-4" /> {heading}
+      </span>
+      <span className="block space-y-1.5">
+        {lines.map((line, index) => {
+          const trimmed = line.trim();
+          if (!trimmed) return null;
+          if (/^[-─—–_]{3,}$/.test(trimmed)) {
+            return (
+              <span
+                key={`execution_address_viewport_separator_${index}`}
+                className="my-2 block border-t border-sky-100 dark:border-slate-700"
+              />
+            );
+          }
+          if (/^Arbeitsort\s+\d+/i.test(trimmed)) {
+            return (
+              <span
+                key={`execution_address_viewport_site_${index}`}
+                className="mt-2 block font-bold text-slate-950 dark:text-slate-50"
+              >
+                {trimmed}
+              </span>
+            );
+          }
+          const match = trimmed.match(
+            /^(Objekt|Strasse|PLZ \/ Ort|Hinweis):\s*(.*)$/i,
+          );
+          if (match) {
+            const isObject = /^Objekt$/i.test(match[1]);
+            return (
+              <span
+                key={`execution_address_viewport_line_${index}`}
+                className="grid grid-cols-[76px_1fr] gap-x-2"
+              >
+                <span className="text-muted-foreground">{match[1]}:</span>
+                <span
+                  className={`break-words ${
+                    isObject
+                      ? "font-bold text-slate-950 dark:text-slate-50"
+                      : "font-normal"
+                  }`}
+                >
+                  {match[2] || "–"}
+                </span>
+              </span>
+            );
+          }
+          return (
+            <span
+              key={`execution_address_viewport_text_${index}`}
+              className="block break-words"
+            >
+              {trimmed}
+            </span>
+          );
+        })}
+      </span>
+    </>
+  );
+};
+
+const renderOrderSpecialNotesTooltipContentV17_95 = (tooltip: string) => {
+  const sections = splitSpecialNotesSummaryTooltipV17_91(tooltip);
+  return (
+    <span className="block space-y-2">
+      {sections.safety.length > 0 && (
+        <span className="block rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+          <span className="mb-1 flex items-center gap-1 font-bold">
+            <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
+          </span>
+          {sections.safety.map((line, index) => (
+            <span
+              key={`viewport_summary_safety_${index}`}
+              className="block whitespace-pre-wrap break-words"
+            >
+              • {line}
+            </span>
+          ))}
+        </span>
+      )}
+      {sections.primary.length > 0 && (
+        <span className="block rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
+          <span className="mb-1 flex items-center gap-1 font-bold">
+            <Info className="h-3.5 w-3.5" /> Wichtige Informationen
+          </span>
+          {sections.primary.map((line, index) => (
+            <span
+              key={`viewport_summary_primary_${index}`}
+              className="block whitespace-pre-wrap break-words"
+            >
+              {line}
+            </span>
+          ))}
+        </span>
+      )}
+      {sections.hints.length > 0 && (
+        <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+          <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
+          {sections.hints.map((line, index) => (
+            <span
+              key={`viewport_summary_hint_${index}`}
+              className="block whitespace-pre-wrap break-words"
+            >
+              {line}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+};
+
+const ViewportAwareOrderBadgeTooltipV17_95 = ({
+  badge,
+  align = "left",
+}: {
+  badge: ReviewBadge;
+  align?: "left" | "right";
+}) => {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    width: number;
+    maxHeight: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+  const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const calculatePosition = () => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger || typeof window === "undefined") return null;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 8;
+    const preferredWidth =
+      badge.key === "site_address" || badge.key === "special_notes_summary"
+        ? 400
+        : 352;
+    const width = Math.max(
+      240,
+      Math.min(preferredWidth, window.innerWidth - viewportPadding * 2),
+    );
+    const desiredLeft = align === "right" ? rect.right - width : rect.left;
+    const left = Math.min(
+      Math.max(viewportPadding, desiredLeft),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+    const availableAbove = Math.max(
+      0,
+      rect.top - gap - viewportPadding,
+    );
+    const availableBelow = Math.max(
+      0,
+      window.innerHeight - rect.bottom - gap - viewportPadding,
+    );
+    const openBelow = rect.top + rect.height / 2 <= window.innerHeight / 2;
+    const available = openBelow ? availableBelow : availableAbove;
+    const maxHeight = Math.max(1, Math.min(560, available));
+
+    return openBelow
+      ? { left, width, maxHeight, top: rect.bottom + gap }
+      : {
+          left,
+          width,
+          maxHeight,
+          bottom: window.innerHeight - rect.top + gap,
+        };
+  };
+
+  const showTooltip = () => {
+    clearHideTimer();
+    const nextPosition = calculatePosition();
+    if (nextPosition) setPosition(nextPosition);
+    setOpen(true);
+  };
+
+  const scheduleHideTooltip = () => {
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+  };
+
+  useEffect(() => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger) return;
+
+    const handleFocusOut = (event: FocusEvent) => {
+      if (!trigger.contains(event.relatedTarget as Node | null)) {
+        scheduleHideTooltip();
+      }
+    };
+
+    trigger.addEventListener("pointerenter", showTooltip);
+    trigger.addEventListener("pointerleave", scheduleHideTooltip);
+    trigger.addEventListener("focusin", showTooltip);
+    trigger.addEventListener("focusout", handleFocusOut);
+
+    return () => {
+      trigger.removeEventListener("pointerenter", showTooltip);
+      trigger.removeEventListener("pointerleave", scheduleHideTooltip);
+      trigger.removeEventListener("focusin", showTooltip);
+      trigger.removeEventListener("focusout", handleFocusOut);
+      clearHideTimer();
+    };
+  }, [align, badge.key, tooltip]);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const nextPosition = calculatePosition();
+      if (nextPosition) setPosition(nextPosition);
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, align, badge.key, tooltip]);
+
+  if (!tooltip) return null;
+
+  return (
+    <>
+      <span ref={anchorRef} className="hidden" aria-hidden="true" />
+      {open && position && (
+        <span
+          role="tooltip"
+          onPointerEnter={clearHideTimer}
+          onPointerLeave={scheduleHideTooltip}
+          style={{
+            left: position.left,
+            width: position.width,
+            maxHeight: position.maxHeight,
+            top: position.top,
+            bottom: position.bottom,
+          }}
+          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        >
+          {badge.key === "site_address"
+            ? renderExecutionAddressTooltipContentV17_95(tooltip)
+            : badge.key === "special_notes_summary"
+              ? renderOrderSpecialNotesTooltipContentV17_95(tooltip)
+              : tooltip.split("\n").map((line, index) => (
+                  <span
+                    key={`viewport_plain_${badge.key}_${index}`}
+                    className="block whitespace-pre-wrap break-words"
+                  >
+                    {line}
+                  </span>
+                ))}
+        </span>
+      )}
+    </>
+  );
+};
+
 const ViewportAwareOrderServiceTooltip = ({
   badge,
   align = "left",
@@ -7015,9 +7290,9 @@ const ViewportAwareOrderServiceTooltip = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = availableAbove < 260 && availableBelow > availableAbove;
+    const openBelow = rect.top + rect.height / 2 <= window.innerHeight / 2;
     const available = openBelow ? availableBelow : availableAbove;
-    const maxHeight = Math.max(96, Math.min(560, available));
+    const maxHeight = Math.max(1, Math.min(560, available));
 
     return openBelow
       ? { left, width, maxHeight, top: rect.bottom + gap }
@@ -7185,9 +7460,9 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = availableBelow > availableAbove;
+    const openBelow = rect.top + rect.height / 2 <= window.innerHeight / 2;
     const available = openBelow ? availableBelow : availableAbove;
-    const maxHeight = Math.max(112, Math.min(480, available));
+    const maxHeight = Math.max(1, Math.min(480, available));
 
     return openBelow
       ? { left, width, maxHeight, top: rect.bottom + gap }
@@ -7286,6 +7561,27 @@ const renderBadgeTooltip = (
   align: "left" | "right" = "left",
   forceVisible = false,
 ) => {
+  if (!forceVisible) {
+    const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
+    if (!tooltip) return null;
+    const isStructuredRedReview =
+      [
+        "order_review_summary",
+        "recognition_review",
+        "currency_review",
+        "price_quantity",
+        "unit_conflict",
+      ].includes(badge.key) &&
+      /(?:^|\s)(?:bg|text|border)-red-/.test(badge.className || "");
+
+    if (badge.key === "service_review_summary") {
+      return <ViewportAwareOrderServiceTooltip badge={badge} align={align} />;
+    }
+    if (isStructuredRedReview) {
+      return <ViewportAwareOrderRedTooltipV17_90L78 badge={badge} align={align} />;
+    }
+    return <ViewportAwareOrderBadgeTooltipV17_95 badge={badge} align={align} />;
+  }
   if (badge.key === "site_address") {
     return renderExecutionAddressBadgeTooltipV17_90L56(
       badge,
@@ -8176,6 +8472,115 @@ const formatDocumentApiBlockersV17_90L36 = (payload: any): string => {
     .join(", ");
 };
 
+
+function ResponsiveOrderServicePreviewV17_95({
+  orderId,
+  serviceNames,
+  expanded,
+  onToggle,
+}: {
+  orderId: string;
+  serviceNames: string[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [useTwoColumns, setUseTwoColumns] = useState(false);
+  const serviceKey = serviceNames.join("\u241f");
+
+  useEffect(() => {
+    const element = listRef.current;
+    if (!element || typeof window === "undefined") return;
+
+    const measure = () => {
+      const width = element.clientWidth;
+      if (serviceNames.length < 4 || width < 560) {
+        setUseTwoColumns(false);
+        return;
+      }
+
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) {
+        setUseTwoColumns(width >= 760);
+        return;
+      }
+
+      const style = window.getComputedStyle(element);
+      context.font =
+        style.font ||
+        `${style.fontWeight || 400} ${style.fontSize || "12px"} ${
+          style.fontFamily || "sans-serif"
+        }`;
+      const columnWidth = (width - 24) / 2;
+      const longestTextWidth = serviceNames.reduce(
+        (maxWidth, name) => Math.max(maxWidth, context.measureText(name).width),
+        0,
+      );
+      setUseTwoColumns(longestTextWidth + 34 <= columnWidth);
+    };
+
+    measure();
+    const observer =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(measure)
+        : null;
+    observer?.observe(element);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [serviceKey, serviceNames.length]);
+
+  const collapsedLimit = useTwoColumns ? 6 : 3;
+  const visibleServices = expanded
+    ? serviceNames
+    : serviceNames.slice(0, collapsedLimit);
+  const hiddenCount = Math.max(0, serviceNames.length - collapsedLimit);
+
+  return (
+    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
+      <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
+        Leistungen · {serviceNames.length}
+      </div>
+      <div
+        ref={listRef}
+        className="text-[12px] [column-gap:1.5rem]"
+        style={{ columnCount: useTwoColumns ? 2 : 1 }}
+      >
+        {visibleServices.map((serviceName, serviceIndex) => (
+          <div
+            key={`${orderId}:responsive-service:${serviceIndex}`}
+            className="mb-1 flex min-w-0 items-start gap-2 text-[12px] leading-snug text-foreground"
+            style={{ breakInside: "avoid" }}
+          >
+            <span className="mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+            <span className="min-w-0 break-words">{serviceName}</span>
+          </div>
+        ))}
+      </div>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onPointerDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggle();
+          }}
+          className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-[11px] font-semibold text-blue-700 active:scale-[0.99]"
+        >
+          {expanded
+            ? "Weniger Leistungen anzeigen"
+            : `+ ${hiddenCount} weitere Leistungen`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function AuftraegePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -8388,7 +8793,7 @@ export default function AuftraegePage() {
     key: string;
     tooltip: string;
     title?: string;
-    kind?: "service_review" | "order_review" | "default";
+    kind?: "service_review" | "order_review" | "execution_address" | "default";
     anchorRect?: {
       top: number;
       bottom: number;
@@ -8399,6 +8804,17 @@ export default function AuftraegePage() {
     };
   } | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
+
+  const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(pointer: coarse)");
+    const update = () => setUseTouchChipPopovers(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
 
   const toggleMobileServiceCard = (id: string) => {
     setExpandedMobileServiceCards((current) => {
@@ -13005,6 +13421,7 @@ export default function AuftraegePage() {
       : null;
     const isServiceReview = activeMobileTooltip.kind === "service_review";
     const isOrderReview = activeMobileTooltip.kind === "order_review";
+    const isExecutionAddress = activeMobileTooltip.kind === "execution_address";
     const serviceReviewSections = isServiceReview
       ? tooltip
           .split(SERVICE_REVIEW_TOOLTIP_SEPARATOR)
@@ -13062,10 +13479,10 @@ export default function AuftraegePage() {
         : viewportHeight - edge * 2;
       const desiredHeight = Math.min(560, Math.floor(viewportHeight * 0.68));
       const placeBelow = rect
-        ? availableBelow >= Math.min(300, desiredHeight) || availableBelow >= availableAbove
+        ? rect.top + rect.height / 2 <= viewportHeight / 2
         : true;
       const availableHeight = placeBelow ? availableBelow : availableAbove;
-      const maxHeight = Math.max(180, Math.min(desiredHeight, availableHeight || desiredHeight));
+      const maxHeight = Math.max(1, Math.min(desiredHeight, availableHeight || desiredHeight));
       const positionStyle = rect
         ? {
             left: `${center}px`,
@@ -13147,6 +13564,8 @@ export default function AuftraegePage() {
                   "mobile_red_review",
                 )}
               </div>
+            ) : isExecutionAddress ? (
+              <div>{renderExecutionAddressTooltipContentV17_95(tooltip)}</div>
             ) : (
               <div className="whitespace-pre-wrap break-words">{tooltip}</div>
             )}
@@ -13393,13 +13812,6 @@ export default function AuftraegePage() {
             }
             const mobileOrderServicesExpanded =
               expandedMobileServiceCards.has(o.id);
-            const visibleMobileOrderServices = mobileOrderServicesExpanded
-              ? mobileOrderServiceNames
-              : mobileOrderServiceNames.slice(0, 3);
-            const hiddenMobileOrderServiceCount = Math.max(
-              0,
-              mobileOrderServiceNames.length - 3,
-            );
             const parsedCardNotes = splitSpecialNotes(o.specialNotes);
             const systemBadges = getSystemBadges(o, services);
             const amountReviewBadges = buildAmountReviewBadges(
@@ -13536,9 +13948,11 @@ export default function AuftraegePage() {
                         tooltip: title,
                         title: badge.label,
                         kind:
-                          badge.key === "service_review_summary"
-                            ? "service_review"
-                            : [
+                          badge.key === "site_address"
+                            ? "execution_address"
+                            : badge.key === "service_review_summary"
+                              ? "service_review"
+                              : [
                                   "order_review_summary",
                                   "recognition_review",
                                   "currency_review",
@@ -13548,8 +13962,8 @@ export default function AuftraegePage() {
                                 /(?:^|\s)(?:bg|text|border)-red-/.test(
                                   badge.className || "",
                                 )
-                              ? "order_review"
-                              : "default",
+                                ? "order_review"
+                                : "default",
                         anchorRect: rect
                           ? {
                               top: rect.top,
@@ -13576,11 +13990,8 @@ export default function AuftraegePage() {
               // The desktop absolute tooltip is anchored to the chip and can run
               // out of the screen on narrow phones. For touch we render the same
               // content as a centered, width-bounded mobile sheet instead.
-              return (
-                <span className="hidden sm:contents">
-                  {renderBadgeTooltip(badge, _align)}
-                </span>
-              );
+              if (useTouchChipPopovers) return null;
+              return renderBadgeTooltip(badge, _align);
             };
 
             const openOrderAtItems = (event: any) => {
@@ -13588,6 +13999,58 @@ export default function AuftraegePage() {
               setActiveMobileTooltipKey(null);
               setActiveMobileTooltip(null);
               openEdit(o, { focusSection: "items" });
+            };
+
+            const openOrderForBadgeOnDesktop = (
+              badge: ReviewBadge,
+              event: any,
+            ) => {
+              const opensItems =
+                isAmountReviewBadge(badge) ||
+                badge.focusTarget === "items" ||
+                [
+                  "service_review_summary",
+                  "order_review_summary",
+                  "recognition_review",
+                  "currency_review",
+                  "price_quantity",
+                  "unit_conflict",
+                ].includes(badge.key);
+
+              if (opensItems) {
+                openOrderAtItems(event);
+                return;
+              }
+              if (badge.focusTarget === "customer") {
+                openOrderAtCustomer(event);
+                return;
+              }
+              if (
+                badge.focusTarget === "executionAddress" ||
+                badge.key === "site_address" ||
+                badge.key === "address_review"
+              ) {
+                openOrderAtExecutionAddress(event);
+                return;
+              }
+              if (
+                badge.focusTarget === "specialNotes" ||
+                [
+                  "appointment",
+                  "appointments_multiple",
+                  "appointment_clarify",
+                  "special_notes_summary",
+                  "hint_parking",
+                ].includes(badge.key)
+              ) {
+                openOrderAtSpecialNotes(event);
+                return;
+              }
+
+              event.stopPropagation();
+              setActiveMobileTooltipKey(null);
+              setActiveMobileTooltip(null);
+              openEdit(o);
             };
 
             const renderInteractiveOrderCardBadge = (
@@ -13685,7 +14148,9 @@ export default function AuftraegePage() {
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) =>
-                    toggleMobileTooltip(badge, tooltipSlot, event)
+                    useTouchChipPopovers
+                      ? toggleMobileTooltip(badge, tooltipSlot, event)
+                      : openOrderForBadgeOnDesktop(badge, event)
                   }
                   className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(badge)}`}
                 >
@@ -13708,7 +14173,11 @@ export default function AuftraegePage() {
                   aria-label={title}
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
-                  onClick={(event) => toggleMobileTooltip(badge, slot, event)}
+                  onClick={(event) =>
+                    useTouchChipPopovers
+                      ? toggleMobileTooltip(badge, slot, event)
+                      : openOrderForBadgeOnDesktop(badge, event)
+                  }
                   className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   <span className="truncate">{badge.label}</span>
@@ -13729,7 +14198,9 @@ export default function AuftraegePage() {
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) =>
-                    toggleMobileTooltip(badge, "mobile_right", event)
+                    useTouchChipPopovers
+                      ? toggleMobileTooltip(badge, "mobile_right", event)
+                      : openOrderForBadgeOnDesktop(badge, event)
                   }
                   className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
@@ -13846,17 +14317,14 @@ export default function AuftraegePage() {
 
                       {/* Mobile — shared one-column card for Auftrag/Angebot */}
                       <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                          <span className="shrink-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
                             {o.createdAt
                               ? `${new Date(o.createdAt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} · ${new Date(o.createdAt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
                               : ""}
                           </span>
-                        </div>
-
-                        <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
                           <span
-                            className={`min-w-0 truncate text-[15px] font-semibold ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                            className={`min-w-0 max-w-full truncate text-[15px] font-semibold ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
                           >
                             {isFallbackCustomerName(o.customer?.name)
                               ? "Kunde nicht zugeordnet"
@@ -13893,39 +14361,12 @@ export default function AuftraegePage() {
                           </div>
                         )}
 
-                        <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
-                          <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
-                            Leistungen · {mobileOrderServiceNames.length}
-                          </div>
-                          <div className="space-y-1">
-                            {visibleMobileOrderServices.map((serviceName, serviceIndex) => (
-                              <div
-                                key={`${o.id}:mobile-service:${serviceIndex}`}
-                                className="flex min-w-0 items-start gap-2 text-[12px] leading-snug text-foreground"
-                              >
-                                <span className="mt-[0.4rem] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-                                <span className="min-w-0 break-words">{serviceName}</span>
-                              </div>
-                            ))}
-                          </div>
-                          {hiddenMobileOrderServiceCount > 0 && (
-                            <button
-                              type="button"
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onTouchStart={(event) => event.stopPropagation()}
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                toggleMobileServiceCard(o.id);
-                              }}
-                              className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-[11px] font-semibold text-blue-700 active:scale-[0.99]"
-                            >
-                              {mobileOrderServicesExpanded
-                                ? "Weniger Leistungen anzeigen"
-                                : `+ ${hiddenMobileOrderServiceCount} weitere Leistungen`}
-                            </button>
-                          )}
-                        </div>
+                        <ResponsiveOrderServicePreviewV17_95
+                          orderId={o.id}
+                          serviceNames={mobileOrderServiceNames}
+                          expanded={mobileOrderServicesExpanded}
+                          onToggle={() => toggleMobileServiceCard(o.id)}
+                        />
 
                         <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
                           <select
