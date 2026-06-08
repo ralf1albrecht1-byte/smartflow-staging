@@ -29,6 +29,12 @@ import {
   AudioUsageCard,
   type AudioUsageData,
 } from "@/components/audio-usage-card";
+import {
+  isCustomerDataIncomplete,
+  isVisibleInvoice,
+  isVisibleOffer,
+  isVisibleOrder,
+} from "@/lib/customer-links";
 
 interface ReviewData {
   total: number;
@@ -94,30 +100,141 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let retries = 0;
+    let cancelled = false;
+
+    const fetchFreshJson = async (url: string) => {
+      const separator = url.includes("?") ? "&" : "?";
+      const response = await fetch(`${url}${separator}_dashboardTs=${Date.now()}`, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`${url} returned ${response.status}`);
+      }
+
+      return response.json();
+    };
+
     const loadDashboard = async () => {
+      setLoading(true);
+
       try {
-        const res = await fetch("/api/dashboard");
-        const d = await res.json();
-        if (
-          retries < 2 &&
-          d &&
-          d.activeOrders === 0 &&
-          d.activeOffers === 0 &&
-          d.totalInvoices === 0 &&
-          (d.recentOrders?.length ?? 0) === 0
-        ) {
-          retries++;
-          setTimeout(loadDashboard, 1500);
-          return;
-        }
-        setData(d);
-      } catch {
+        const [dashboardResult, ordersResult, offersResult, invoicesResult, customersResult] =
+          await Promise.allSettled([
+            fetchFreshJson("/api/dashboard"),
+            fetchFreshJson("/api/orders"),
+            fetchFreshJson("/api/offers"),
+            fetchFreshJson("/api/invoices"),
+            fetchFreshJson("/api/customers"),
+          ]);
+
+        if (cancelled) return;
+
+        const dashboard =
+          dashboardResult.status === "fulfilled" && dashboardResult.value
+            ? dashboardResult.value
+            : {};
+
+        const orders =
+          ordersResult.status === "fulfilled" && Array.isArray(ordersResult.value)
+            ? ordersResult.value
+            : null;
+        const offers =
+          offersResult.status === "fulfilled" && Array.isArray(offersResult.value)
+            ? offersResult.value
+            : null;
+        const invoices =
+          invoicesResult.status === "fulfilled" && Array.isArray(invoicesResult.value)
+            ? invoicesResult.value
+            : null;
+        const customers =
+          customersResult.status === "fulfilled" && Array.isArray(customersResult.value)
+            ? customersResult.value
+            : null;
+
+        // Canonical visibility rules: exactly the same records that are visible
+        // in Aufträge, Angebote, Rechnungen and Kunden are counted here.
+        const visibleOrders = orders?.filter(isVisibleOrder) ?? null;
+        const visibleOffers = offers?.filter(isVisibleOffer) ?? null;
+        const visibleInvoices = invoices?.filter(isVisibleInvoice) ?? null;
+
+        const incompleteCustomers =
+          customers?.filter((customer: any) => isCustomerDataIncomplete(customer))
+            .length ??
+          Number(dashboard?.review?.incompleteCustomers ?? 0);
+
+        const uncertainAssignments =
+          visibleOrders?.filter((order: any) => order?.needsReview === true).length ??
+          Number(dashboard?.review?.uncertainAssignments ?? 0);
+
+        const reviewTotal = incompleteCustomers + uncertainAssignments;
+
+        const sortNewest = (rows: any[], dateKeys: string[]) =>
+          [...rows]
+            .sort((a: any, b: any) => {
+              const getTime = (row: any) => {
+                for (const key of dateKeys) {
+                  const value = row?.[key];
+                  if (!value) continue;
+                  const time = new Date(value).getTime();
+                  if (Number.isFinite(time)) return time;
+                }
+                return 0;
+              };
+              return getTime(b) - getTime(a);
+            })
+            .slice(0, 5);
+
+        setData({
+          ...dashboard,
+          activeOrders:
+            visibleOrders?.length ?? Number(dashboard?.activeOrders ?? 0),
+          activeOffers:
+            visibleOffers?.length ?? Number(dashboard?.activeOffers ?? 0),
+          totalInvoices:
+            visibleInvoices?.length ?? Number(dashboard?.totalInvoices ?? 0),
+          needsReview: reviewTotal,
+          review: {
+            total: reviewTotal,
+            incompleteCustomers,
+            uncertainAssignments,
+          },
+          recentOrders: visibleOrders
+            ? sortNewest(visibleOrders, ["createdAt", "date"])
+            : dashboard?.recentOrders ?? [],
+          recentOffers: visibleOffers
+            ? sortNewest(visibleOffers, ["createdAt", "offerDate", "intakeTime"])
+            : dashboard?.recentOffers ?? [],
+          recentInvoices: visibleInvoices
+            ? sortNewest(visibleInvoices, ["createdAt", "invoiceDate", "intakeTime"])
+            : dashboard?.recentInvoices ?? [],
+        });
+      } catch (error) {
+        console.error("Dashboard konnte nicht geladen werden", error);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-    loadDashboard();
+
+    void loadDashboard();
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadDashboard();
+    };
+    const refreshOnPageShow = () => void loadDashboard();
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("pageshow", refreshOnPageShow);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("pageshow", refreshOnPageShow);
+    };
   }, []);
 
   const review = data?.review || {
