@@ -774,6 +774,11 @@ function detectCommunicationPreferenceChips(
   const rawSource = [
     data.communicationContext,
     data.specialNotes,
+    // Keep the complete stored customer message available as a direct source.
+    // parseNotesField can intentionally return only metadata for some legacy
+    // or concatenated notes, which previously removed the on-site contact from
+    // SMS/WhatsApp detection and forced a fallback to the office number.
+    data.notes,
     parsed.translation,
     parsed.originalMessage,
     data.audioTranscript,
@@ -1322,7 +1327,13 @@ export function CommunicationChips({
     [data.communicationContext, data.specialNotes, data.notes, data.audioTranscript, data.customer?.email, data.customer?.phone, data.customerPhone, data.contactPhone, data.email, data.phone, parsed],
   );
   const callbackSourceLines = splitCommunicationSourceLines(
-    [data.communicationContext, data.specialNotes, parsed.translation, parsed.originalMessage]
+    [
+      data.communicationContext,
+      data.specialNotes,
+      data.notes,
+      parsed.translation,
+      parsed.originalMessage,
+    ]
       .filter(Boolean)
       .join("\n"),
   );
@@ -1340,7 +1351,7 @@ export function CommunicationChips({
   });
   const hasExplicitNoPhoneCall = callbackSourceLines.some((line) => {
     const normalized = normalizeCommunicationPreferenceText(line);
-    return /(?:nicht\s+(?:direkt\s+|telefonisch\s+)?anrufen|nicht\s+telefonisch|keine(?:n)?\s+anrufe?|do\s+not\s+call|don['’]?t\s+call|no\s+calls?|ne\s+pas\s+appeler|non\s+chiamare)/.test(
+    return /\b(?:nicht\s+(?:direkt\s+|telefonisch\s+)?anrufen|nicht\s+telefonisch|keine(?:n)?\s+anrufe?|do\s+not\s+call|don['’]?t\s+call|no\s+calls?|ne\s+pas\s+appeler|non\s+chiamare)\b/.test(
       normalized,
     );
   });
@@ -1359,6 +1370,7 @@ export function CommunicationChips({
     [
       data.communicationContext,
       data.specialNotes,
+      data.notes,
       parsed.translation,
       parsed.originalMessage,
       data.audioTranscript,

@@ -551,7 +551,7 @@ function isSafeSecondaryRecognitionCandidateV17_90L91(
   const openPriceSignalPattern =
     /\b(?:preis\s+(?:noch\s+)?(?:offen|unklar|unbekannt|folgt|zu\s+pruefen|muss\s+(?:noch\s+)?(?:geprueft|abgeklaert)\s+werden)|nach\s+aufwand|price\s+(?:open|unclear|tbd|to\s+check)|prix\s+(?:ouvert|incertain|a\s+verifier)|prezzo\s+(?:aperto|da\s+definire))\b/i;
   const unresolvedWorkSignalPattern =
-    /(?:(?:unklar|nicht\s+klar|unclear|not\s+clear|incertain|non\s+chiaro).{0,140}(?:ob|whether|si|se)|(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,100}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)|(?:muss|must|doit|deve).{0,100}(?:zuerst|first|d'abord|prima).{0,80}(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare))/i;
+    /\b(?:(?:unklar|nicht\s+klar|unclear|not\s+clear|incertain|non\s+chiaro)\b.{0,140}\b(?:ob|whether|si|se)\b|(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,100}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)|(?:muss|must|doit|deve)\b.{0,100}\b(?:zuerst|first|d'abord|prima)\b.{0,80}\b(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare)\b)/i;
   const openPriceMatch = sourceKey.match(openPriceSignalPattern);
   const unresolvedWorkMatch = sourceKey.match(unresolvedWorkSignalPattern);
   const recognitionSignal = openPriceMatch || unresolvedWorkMatch;
@@ -637,48 +637,83 @@ export function extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
     .filter(Boolean)
     .reverse(); // Prefer the clean German working translation when available.
 
+  const cleanSubject = (value?: string | null) =>
+    normalizeText(value || "")
+      .replace(/^\s*(?:die|der|das|den|dem|eine|einer|einem|ein|the|a|an|one)\s+/i, "")
+      .replace(/\b(?:muss|must|doit|deve)\s+(?:zuerst\s+)?(?:geprueft|geprüft|inspiziert|kontrolliert|checked|inspected)\s+werden\b.*$/i, "")
+      .replace(/[.;:,\s]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const extractSubject = (sentences: string[], signalIndex: number): string => {
+    const signal = sentences[signalIndex] || "";
+    const direct = signal.match(
+      /\b(?:ob|whether|si|se)\s+(?:(?:die|der|das|eine|ein|the|a|an|one)\s+)?(.{3,120}?)(?=\s+(?:(?:muss|must|doit|deve)\s+(?:be\s+|être\s+|essere\s+)?)?(?:geoeffnet|geöffnet|entfernt|getrocknet|ersetzt|repariert|bearbeitet|opened|removed|dried|replaced|repaired|treated|ouvert|retire|retiré|seche|séché|remplace|remplacé|aperto|rimosso|asciugato|sostituito)\b)/iu,
+    );
+    if (direct?.[1]) return cleanSubject(direct[1]);
+
+    const nearby = sentences
+      .slice(Math.max(0, signalIndex - 2), signalIndex + 1)
+      .reverse();
+    for (const sentence of nearby) {
+      const behind = sentence.match(
+        /\b(?:hinter|behind|derriere|derrière|dietro)\s+(?:(?:einer|einem|der|dem|one|a|an|the|une|un)\s+)?(.{3,100}?)(?=\s+(?:ist|sind|befindet|liegt|besteht|is|are|se\s+trouve|si\s+trova)\b|[.;,]|$)/iu,
+      );
+      if (behind?.[1]) return cleanSubject(behind[1]);
+
+      const inspectObject = sentence.match(
+        /(?:(?:techniker|fachperson|technician|specialist|tecnico)\s+)?(?:muss|must|doit|deve)\s+(?:dies|das|es|this|it|cela|questo)\s+(?:zuerst|first|d'abord|prima)\s+(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare)/iu,
+      );
+      if (inspectObject && signalIndex > 0) continue;
+    }
+
+    return "";
+  };
+
   const candidates: ParsedOrderItemForValidation[] = [];
   for (const part of parts) {
-    const paragraphs = part
-      .split(/\n\s*\n+/g)
-      .map((block) => block.trim())
+    const sentences = part
+      .split(/(?<=[.!?])\s+|\n+/g)
+      .map((line) => normalizeText(line).replace(/^[-•]\s*/, "").trim())
       .filter(Boolean);
 
-    for (const paragraph of paragraphs) {
-      const compactParagraph = normalizeText(paragraph).replace(/\s+/g, " ").trim();
-      const normalized = normalizeCompare(compactParagraph);
-      if (!compactParagraph || compactParagraph.length > 900) continue;
-      if (/\b(?:rechnungsadresse|invoice address|leistungen|services|termin|appointment|kontakt|contact sur place|onsite contact)\b/i.test(compactParagraph) && compactParagraph.split(/\n+/g).length > 6) continue;
-
+    for (let index = 0; index < sentences.length; index += 1) {
+      const sentence = sentences[index];
+      const key = normalizeCompare(sentence);
       const hasUnresolvedScope =
-        /\b(?:unklar|nicht\s+klar|unclear|not\s+clear|incertain|non\s+chiaro)\b.{0,180}\b(?:ob|whether|si|se)\b/i.test(normalized) ||
-        /\b(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,120}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)/i.test(normalized);
+        /\b(?:unklar|nicht\s+klar|unclear|not\s+clear|incertain|non\s+chiaro)\b.{0,180}\b(?:ob|whether|si|se)\b/i.test(key) ||
+        /\b(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,140}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)/i.test(key);
+      if (!hasUnresolvedScope) continue;
+
+      const windowLines = sentences.slice(Math.max(0, index - 2), Math.min(sentences.length, index + 4));
+      const windowText = windowLines.join(" ");
+      const windowKey = normalizeCompare(windowText);
       const hasInspectionFirst =
-        /\b(?:muss|must|doit|deve)\b.{0,120}\b(?:zuerst|first|d'abord|prima)\b.{0,100}\b(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare)\b/i.test(normalized);
+        /\b(?:muss|must|doit|deve)\b.{0,140}\b(?:zuerst|first|d'abord|prima)\b.{0,120}\b(?:pruefen|prüfen|inspect|check|verifier|vérifier|controllare)\b/i.test(windowKey);
+      const hasUnknownValues =
+        /\b(?:kein|keine|no)\s+(?:preis|preise|price|prices).{0,160}(?:menge|mengen|quantity|quantities|einheit|einheiten|unit|units)/i.test(windowKey);
       const explicitlyNotConfirmed =
-        /\b(?:nicht|do\s+not|don['’]?t|ne\s+pas|non)\b.{0,140}\b(?:als\s+bestaetigte|als\s+bestätigte|confirmed|confirmee|confermata)\b/i.test(normalized);
-      if (!(hasUnresolvedScope && (hasInspectionFirst || explicitlyNotConfirmed))) continue;
+        /\b(?:nicht|do\s+not|don['’]?t|ne\s+pas|non)\b.{0,160}\b(?:als\s+bestaetigte|als\s+bestätigte|confirmed|confirmee|confermata)\b/i.test(windowKey);
+      if (!(hasInspectionFirst || hasUnknownValues || explicitlyNotConfirmed)) continue;
 
-      const sentences = compactParagraph
-        .split(/(?<=[.!?])\s+|\n+/g)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      const signalIndex = sentences.findIndex((line) => {
-        const key = normalizeCompare(line);
-        return /\b(?:unklar|nicht\s+klar|unclear|not\s+clear|kein\s+preis|keine\s+preise|no\s+price|muss.*zuerst.*(?:pruefen|inspect|check)|must.*first.*(?:inspect|check))\b/i.test(key);
-      });
-      const evidenceLines = sentences.slice(Math.max(0, signalIndex - 1), Math.min(sentences.length, signalIndex + 2));
-      const evidence = evidenceLines.join(" ").slice(0, 240).trim();
+      const subject = extractSubject(sentences, index);
+      if (!subject || subject.length < 4 || subject.length > 120) continue;
+      if (
+        /\b(?:techniker|fachperson|technician|specialist|telefon|phone|email|e-mail|adresse|address|termin|appointment)\b/i.test(
+          subject,
+        )
+      ) {
+        continue;
+      }
+
+      const evidence = windowText.slice(0, 240).trim();
       if (!evidence) continue;
-
-      let subject = sentences[Math.max(0, signalIndex - 1)] || sentences[signalIndex] || "";
-      subject = subject
-        .replace(/^\s*(?:im|in\s+der|in\s+dem|there\s+is|there\s+are|es\s+gibt)\s+/i, "")
-        .replace(/^.*?\b(?:befindet\s+sich|gibt\s+es)\s+/i, "")
-        .replace(/[.;:,\s]+$/g, "")
-        .trim();
-      if (!subject || subject.length < 4 || subject.length > 150) continue;
-      if (/\b(?:telefon|phone|email|e-mail|adresse|address|termin|appointment)\b/i.test(subject)) continue;
+      if (
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(subject) ||
+        /\+?\d[\d\s()./-]{6,}\d/.test(subject)
+      ) {
+        continue;
+      }
 
       const serviceName = /\b(?:pruefen|prüfen|inspect|check|kontrollieren)\b/i.test(subject)
         ? subject
@@ -697,17 +732,17 @@ export function extractExplicitUnresolvedWorkRecognitionCandidatesV17_90L99(
         detectedCurrency: fallbackCurrency,
       });
     }
-    // When a clean translated block produced candidates, do not emit the same
-    // unresolved scope again from the original foreign-language paragraph.
+
+    // Do not duplicate the same unresolved scope from original and translation.
     if (candidates.length > 0) break;
   }
 
-  const byEvidence = new Map<string, ParsedOrderItemForValidation>();
+  const bySubject = new Map<string, ParsedOrderItemForValidation>();
   candidates.forEach((candidate) => {
-    const key = normalizeCompare(candidate.sourceText || candidate.serviceName);
-    if (!byEvidence.has(key)) byEvidence.set(key, candidate);
+    const key = normalizeCompare(candidate.serviceName);
+    if (!bySubject.has(key)) bySubject.set(key, candidate);
   });
-  return Array.from(byEvidence.values()).slice(0, 4);
+  return Array.from(bySubject.values()).slice(0, 4);
 }
 
 function globalOrderGateWarningsV17_90L24(input: ReadOnlyIntakeRiskValidatorInput): string[] {

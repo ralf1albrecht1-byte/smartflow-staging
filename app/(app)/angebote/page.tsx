@@ -505,6 +505,8 @@ function offerInfoTokensV17_66(value: string): Set<string> {
     "bitte", "vorher", "zuerst", "nur", "der", "die", "das", "den", "dem",
     "ein", "eine", "einer", "und", "oder", "mit", "bei", "im", "in", "am",
     "ist", "sind", "wird", "werden", "soll", "sollen", "kontakt", "bevorzugt",
+    "waehrend", "während", "daher", "deshalb", "bleibt", "geoeffnet", "geöffnet",
+    "reinigung",
   ]);
   return new Set(
     normalizeOfferHint(value)
@@ -591,6 +593,12 @@ function extractOfferImportantInstructionLines(value?: string | null): string[] 
   );
 }
 
+function isOfferParkingLineV17_90L101(value?: string | null): boolean {
+  return /\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage|besucherfeld)\b/i.test(
+    normalizeOfferHint(value || ""),
+  );
+}
+
 function buildOfferInfoSummary(
   data: CommunicationData,
   parsedNotes = splitSpecialNotes(data.specialNotes),
@@ -598,11 +606,16 @@ function buildOfferInfoSummary(
 ): OfferInfoSummary {
   const source = [data.specialNotes, data.notes, data.audioTranscript].filter(Boolean).join("\n");
   const dogHints = (parsedNotes.jobHints || []).filter(isOfferDogHint);
-  const safety = uniqueOfferInfoLinesV17_66([...(parsedNotes.safetyWarnings || []), ...dogHints]);
+  const safety = uniqueOfferInfoLinesV17_66([
+    ...(parsedNotes.safetyWarnings || []),
+    ...dogHints,
+  ]).filter((line) => !isOfferParkingLineV17_90L101(line));
   const importantRawLines = extractOfferImportantInstructionLines(source);
   const appointmentLines = extractOfferAppointmentSnippets(source);
   const primary = uniqueOfferInfoLinesV17_66([
-    ...(parsedNotes.jobHints || []).filter(isOfferPrimaryInfoHint),
+    ...(parsedNotes.jobHints || [])
+      .filter(isOfferPrimaryInfoHint)
+      .filter((line) => !isOfferParkingLineV17_90L101(line)),
     ...appointmentLines,
     ...importantRawLines.filter(isOfferPrimaryInfoHint),
     appointmentLines.length === 0 ? appointmentLabel : "",
@@ -610,8 +623,17 @@ function buildOfferInfoSummary(
     (line) => !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)),
   );
   const additional = uniqueOfferInfoLinesV17_66([
-    ...(parsedNotes.jobHints || []).filter((line) => !isOfferDogHint(line) && !isOfferPrimaryInfoHint(line)),
-    ...importantRawLines.filter((line) => !isOfferPrimaryInfoHint(line)),
+    ...(parsedNotes.jobHints || []).filter(
+      (line) =>
+        !isOfferDogHint(line) &&
+        !isOfferPrimaryInfoHint(line) &&
+        !isOfferParkingLineV17_90L101(line),
+    ),
+    ...importantRawLines.filter(
+      (line) =>
+        !isOfferPrimaryInfoHint(line) &&
+        !isOfferParkingLineV17_90L101(line),
+    ),
   ]).filter(
     (line) =>
       !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
@@ -626,45 +648,107 @@ function isOfferDogHint(value: string): boolean {
   );
 }
 
-function normalizeOfferParkingDetailsV17_90L99(values: string[]): string[] {
+type OfferParkingInfoV17_90L101 = {
+  status: "Parkplatz verfügbar" | "Parkplatz nicht verfügbar" | "Parkplatz nicht angegeben";
+  details: string[];
+};
+
+function collectOfferParkingInfoV17_90L101(values: string[]): OfferParkingInfoV17_90L101 {
+  const raw = values.filter(Boolean).join("\n").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const normalized = normalizeOfferHint(raw);
+  const details: string[] = [];
   const seen = new Set<string>();
-  const result: string[] = [];
-  values.forEach((value) => {
-    String(value || "")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .split(/\n+|(?<=[.!?])\s+/g)
-      .map((line) => line.replace(/^\s*(?:\[HINWEIS\]|\[GEFAHR\]|[-•])\s*/i, "").replace(/[.;:,\s]+$/g, "").trim())
-      .filter((line) => /\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage)\b/i.test(line))
-      .forEach((line) => {
-        const key = normalizeOfferHint(line);
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        result.push(line);
-      });
+  const push = (value?: string | null) => {
+    const clean = String(value || "").replace(/\s+/g, " ").replace(/[.;:,\s]+$/g, "").trim();
+    const key = normalizeOfferHint(clean);
+    if (!clean || !key || seen.has(key)) return;
+    seen.add(key);
+    details.push(clean);
+  };
+  const addMatches = (pattern: RegExp, label: (match: RegExpExecArray) => string) => {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(raw))) push(label(match));
+  };
+
+  addMatches(
+    /(?:besucher(?:parkplatz|feld)|visitor\s+parking(?:\s+space)?|parking\s+visiteurs?)\s*(?:nummer|nr\.?|no\.?)?\s*[:#-]?\s*([A-Z]?\d+[A-Z]?)/giu,
+    (match) => /feld/i.test(match[0])
+      ? `Besucherfeld ${String(match[1]).toUpperCase()}`
+      : `Besucherparkplatz ${String(match[1]).toUpperCase()}`,
+  );
+  addMatches(
+    /(?:parkplatz|parking)\s+besucher(?:feld)?\s*(?:nummer|nr\.?|no\.?)?\s*[:#-]?\s*([A-Z]?\d+[A-Z]?)/giu,
+    (match) => `Besucherparkplatz ${String(match[1]).toUpperCase()}`,
+  );
+  addMatches(
+    /(?:tiefgaragen(?:platz|parkplatz)|underground\s+parking(?:\s+space)?|parking\s+souterrain)\s*(?:nummer|nr\.?|no\.?)?\s*[:#-]?\s*([A-Z]?\d+[A-Z]?)/giu,
+    (match) => `Tiefgaragenplatz ${String(match[1]).toUpperCase()}`,
+  );
+  addMatches(
+    /(?:parkplatz|parking\s+space|stellplatz)\s*(?:nummer|nr\.?|no\.?)?\s*[:#-]?\s*([A-Z]\d+[A-Z]?|\d+)/giu,
+    (match) => `Parkplatz ${String(match[1]).toUpperCase()}`,
+  );
+
+  const durationPattern = /(?:maximal|max\.?|höchstens|hoechstens|maximum|up\s+to)\s*(\d+(?:[.,]\d+)?)\s*(minuten?|minutes?|stunden?|hours?|std\.?|h)\b/giu;
+  let durationMatch: RegExpExecArray | null;
+  while ((durationMatch = durationPattern.exec(raw))) {
+    const amount = String(durationMatch[1]).replace(",", ".");
+    const amountNumber = Number(amount);
+    const unitKey = normalizeOfferHint(durationMatch[2]);
+    const unit = /(?:stund|hour|std|^h$)/.test(unitKey)
+      ? amountNumber === 1 ? "Stunde" : "Stunden"
+      : amountNumber === 1 ? "Minute" : "Minuten";
+    push(`Maximale Parkdauer: ${amount} ${unit}`);
+  }
+
+  const hasNegative = /\b(?:kein(?:e[nr]?)?\s+(?:parkplatz|parkmoeglichkeit|stellplatz)|parkverbot|parken\s+verboten|no\s+parking|without\s+parking|sans\s+parking|sin\s+parking)\b/.test(normalized);
+  const hasDifficult = /\b(?:(?:parkplatz|parken|parking)\s+(?:schwierig|problematisch|nicht\s+moeglich)|difficult\s+parking)\b/.test(normalized);
+  const hasPositive = details.some((line) => !/^Maximale Parkdauer:/i.test(line)) ||
+    (/\b(?:parkplatz|parking|stellplatz|tiefgarage)\b/.test(normalized) &&
+      /\b(?:benutzen|verwenden|nutzen|verfuegbar|vorhanden|parken|use|available)\b/.test(normalized));
+
+  const specificLocationCodes = new Set(
+    details
+      .filter((line) => /^(?:Besucherfeld|Besucherparkplatz|Tiefgaragenplatz)\s+/i.test(line))
+      .map((line) => line.match(/([A-Z]?\d+[A-Z]?)$/i)?.[1]?.toUpperCase())
+      .filter((value): value is string => Boolean(value)),
+  );
+  const visitorFieldCodes = new Set(
+    details
+      .filter((line) => /^Besucherfeld\s+/i.test(line))
+      .map((line) => line.match(/([A-Z]?\d+[A-Z]?)$/i)?.[1]?.toUpperCase())
+      .filter((value): value is string => Boolean(value)),
+  );
+  const dedupedDetails = details.filter((line) => {
+    const code = line.match(/([A-Z]?\d+[A-Z]?)$/i)?.[1]?.toUpperCase();
+    if (!code) return true;
+    if (/^Parkplatz\s+/i.test(line) && specificLocationCodes.has(code)) return false;
+    if (/^Besucherparkplatz\s+/i.test(line) && visitorFieldCodes.has(code)) return false;
+    return true;
   });
-  return result;
+
+  return {
+    status: hasPositive && !hasNegative && !hasDifficult
+      ? "Parkplatz verfügbar"
+      : (hasNegative || hasDifficult) && !hasPositive
+        ? "Parkplatz nicht verfügbar"
+        : "Parkplatz nicht angegeben",
+    details: dedupedDetails,
+  };
+}
+
+function normalizeOfferParkingDetailsV17_90L99(values: string[]): string[] {
+  return collectOfferParkingInfoV17_90L101(values).details;
 }
 
 function buildOfferParkingChipV17_90L99(values: string[]): OfferOperationalChip {
-  const details = normalizeOfferParkingDetailsV17_90L99(values);
-  const joined = normalizeOfferHint(details.join(" "));
-  const hasNegative = /\b(?:kein\s+parkplatz|keine\s+parkplaetze|kein\s+parken|parkverbot|no\s+parking|sans\s+parking|sin\s+parking|parken\s+schwierig|parkplatz\s+schwierig)\b/.test(joined);
-  const hasPositive = details.some((line) => {
-    const text = normalizeOfferHint(line);
-    return (
-      !/\b(?:kein|keine|no|sans|sin|schwierig|unklar|pruefen|prüfen|unknown)\b/.test(text) &&
-      /\b(?:park|parking|stellplatz|tiefgarage)\b/.test(text)
-    );
-  });
-  const status = hasPositive && !hasNegative
-    ? "Parkplatz verfügbar"
-    : hasNegative && !hasPositive
-      ? "Parkplatz nicht verfügbar"
-      : "Parkplatz nicht angegeben";
+  const parking = collectOfferParkingInfoV17_90L101(values);
   return {
     key: "parking",
-    title: details.length > 0 ? `${status}\n\n${details.join("\n")}` : status,
+    title: parking.details.length > 0
+      ? `${parking.status}\n\n${parking.details.join("\n")}`
+      : parking.status,
     icon: "P",
     tone: "warning",
   };
@@ -740,6 +824,7 @@ function buildOfferContactChipData(
       ? { email: customer.email || null, phone: customer.phone || null }
       : data.customer,
     specialNotes: "",
+    communicationContext: combinedSource,
     notes: combinedSource,
   };
 }

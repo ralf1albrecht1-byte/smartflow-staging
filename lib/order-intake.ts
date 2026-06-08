@@ -6700,6 +6700,50 @@ function evidenceSupportsStructuralFlatUnitV17_90L89(
   return (moneyMatches?.length || 0) === 1;
 }
 
+function enrichCanonicalServiceNameFromEvidenceV17_90L101(
+  rawServiceName: string,
+  sourceText: string,
+): string {
+  const rawName = compactText(rawServiceName);
+  const source = compactText(sourceText);
+  if (!rawName || !source || source.length > 220 || /[\r\n]/.test(source)) {
+    return rawName;
+  }
+
+  let candidate = source
+    .replace(/^\s*[-•]?\s*\d+(?:[.,]\d+)?\s+(?=[\p{L}])/u, "")
+    .replace(
+      /\s+\d+(?:[.,]\d+)?\s*(?:stueck|stück|stk\.?|meter|metre|m2|m²|qm|stunden?|std\.?|hours?)\s*(?:à|je|at|zu|per|each)\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?)\s*)?\d+(?:[.,]\d+)?\s*$/iu,
+      "",
+    )
+    .replace(
+      /\s+(?:à|je|at|zu|per|each)\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?)\s*)?\d+(?:[.,]\d+)?\s*$/iu,
+      "",
+    )
+    .replace(
+      /\s+(?:pauschal|pauschale|flat\s*fee|fixpreis|festpreis)\s*(?:(?:CHF|EUR|USD|GBP|SFR|Fr\.?)\s*)?\d+(?:[.,]\d+)?\s*$/iu,
+      "",
+    )
+    .replace(/[.;:,\s]+$/g, "")
+    .trim();
+
+  if (!candidate || candidate.length < 4 || candidate.length > 120) return rawName;
+  if (/\b(?:CHF|EUR|USD|GBP|SFR)\b/i.test(candidate)) return rawName;
+
+  const rawKey = canonicalServiceKeyV17_90L88(rawName);
+  const candidateKey = canonicalServiceKeyV17_90L88(candidate);
+  const rawTokens = rawKey.split(/\s+/g).filter((token) => token.length >= 3);
+  const candidateTokens = new Set(
+    candidateKey.split(/\s+/g).filter((token) => token.length >= 2),
+  );
+  if (rawTokens.length < 2 || !rawTokens.every((token) => candidateTokens.has(token))) {
+    return rawName;
+  }
+  if (candidateKey === rawKey || candidate.length <= rawName.length) return rawName;
+
+  return candidate;
+}
+
 function buildCanonicalAiOrderItemsV17_90L88(
   rawItems: any[],
 ): CanonicalAiOrderItemV17_90L88[] {
@@ -6723,8 +6767,12 @@ function buildCanonicalAiOrderItemsV17_90L88(
           raw?.matched_service_name ||
           "",
       );
-      const serviceName = rawServiceName
-        ? `${rawServiceName.charAt(0).toUpperCase()}${rawServiceName.slice(1)}`
+      const enrichedServiceName = enrichCanonicalServiceNameFromEvidenceV17_90L101(
+        rawServiceName,
+        sourceText,
+      );
+      const serviceName = enrichedServiceName
+        ? `${enrichedServiceName.charAt(0).toUpperCase()}${enrichedServiceName.slice(1)}`
         : "";
       const confidenceKey = normalizeUnitText(raw?.confidence || "");
       const confidence =
@@ -12733,8 +12781,47 @@ export async function processIncomingMessage(
     ).values(),
   );
 
+  const recognitionCandidateIdentityV17_90L101 = (item: any) =>
+    [
+      canonicalServiceKeyV17_90L88(item?.serviceName),
+      canonicalEvidenceKeyV17_90L88(
+        item?.sourceText || item?.evidence || item?.description,
+      ),
+    ].join("|");
+
+  const validatorOnlyRecognitionKeysV17_90L101 = new Set(
+    secondaryRecognitionCandidatesV17_90L91
+      .filter((candidate) => {
+        const candidateKey = recognitionCandidateIdentityV17_90L101(candidate);
+        const cameFromValidation = intakeValidation.items.some(
+          (item) => recognitionCandidateIdentityV17_90L101(item) === candidateKey,
+        );
+        if (!cameFromValidation) return false;
+
+        // A complete first-AI position remains a real editable order item.
+        // Only an open-price position invented by the later validator is moved
+        // into the read-only Übernehmen/Verwerfen proposal channel.
+        return !canonicalAiOrderItemsV17_90L88.some(
+          (canonical) =>
+            canonicalItemMatchScoreV17_90L88(
+              canonical,
+              candidate,
+              intakeValidation.finalCurrency,
+            ) >= 55,
+        );
+      })
+      .map(recognitionCandidateIdentityV17_90L101),
+  );
+
+  const validationItemsForPersistV17_90L101 = intakeValidation.items.filter(
+    (item) =>
+      !validatorOnlyRecognitionKeysV17_90L101.has(
+        recognitionCandidateIdentityV17_90L101(item),
+      ),
+  );
+
   finalOrderItems = repairExplicitHourQuantitiesFromOriginalText(
-    intakeValidation.items,
+    validationItemsForPersistV17_90L101,
     validationSourceText,
   );
 
