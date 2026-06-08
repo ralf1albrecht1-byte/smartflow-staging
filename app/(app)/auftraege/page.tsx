@@ -6872,20 +6872,111 @@ const removeCallbackLinesForCommunicationChips = (value?: string | null) =>
     .filter(Boolean)
     .join("\n");
 
-const buildCommunicationChipDataV17_52 = (order: Order): any => {
-  const cleanedSpecialNotes = removeCallbackLinesForCommunicationChips(
-    order.specialNotes,
-  );
-  const cleanedNotes = [
+const cleanCommunicationCardClauseV17_90L123 = (
+  value?: string | null,
+) =>
+  compactText(value)
+    .replace(
+      /^\s*\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildCompactCommunicationContextV17_90L123 = (
+  order: Order,
+): string => {
+  const source = [
+    removeCallbackLinesForCommunicationChips(order.specialNotes),
     removeCallbackLinesForCommunicationChips(order.notes),
-    cleanedSpecialNotes,
     removeCallbackLinesForCommunicationChips(order.audioTranscript),
   ]
     .filter(Boolean)
-    .join("\n");
-  const cleanedAudioTranscript = removeCallbackLinesForCommunicationChips(
-    order.audioTranscript,
+    .join("\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+
+  if (!source.trim()) return "";
+
+  const clauses = source
+    .replace(
+      /\s*(?=\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]\s*)/gi,
+      "\n",
+    )
+    .split(/\n+/g)
+    .map((line) => cleanCommunicationCardClauseV17_90L123(line))
+    .filter(Boolean);
+
+  const hasCommunicationChannel = (value?: string | null) =>
+    /\b(?:whats\s*app|whatsapp|sms|e\s*mail|e-mail|email|mail|courriel)\b/i.test(
+      String(value || ""),
+    );
+
+  const structuredContact = clauses.find(
+    (line) =>
+      /^Kontakt\s+vor\s+Ort\s*:/i.test(line) &&
+      hasCommunicationChannel(line),
   );
+  if (structuredContact) return structuredContact;
+
+  const extractedContact = cleanCommunicationCardClauseV17_90L123(
+    extractOrderOperationalContactLineV17_90L101(
+      order.specialNotes,
+      order.notes,
+      order.audioTranscript,
+    ),
+  );
+  if (extractedContact && hasCommunicationChannel(extractedContact)) {
+    return extractedContact;
+  }
+
+  const channelClause = clauses.find(
+    (line) =>
+      hasCommunicationChannel(line) &&
+      isChannelOnlyContactLineForCommunicationChips(line),
+  );
+  if (!channelClause) return "";
+
+  const phone =
+    extractOperationalPhoneForHrefV17_90L85(
+      order.specialNotes,
+      order.notes,
+      order.audioTranscript,
+    ) || "";
+  const email = extractOrderContactEmailForCustomerDisplayV17_90K(order);
+  const name = phone
+    ? extractContactNameBeforePhoneV17_90L113(channelClause, phone)
+    : "";
+  const parts = [name];
+
+  if (/\b(?:whats\s*app|whatsapp)\b/i.test(channelClause)) {
+    if (phone) parts.push(phone);
+    parts.push("nur WhatsApp");
+  } else if (/\bsms\b/i.test(channelClause)) {
+    if (phone) parts.push(phone);
+    parts.push("nur SMS");
+  } else if (/\b(?:e\s*mail|e-mail|email|mail|courriel)\b/i.test(channelClause)) {
+    if (email) parts.push(email);
+    parts.push("nur E-Mail");
+  }
+
+  if (
+    /\b(?:nicht\s+telefonisch|nicht\s+(?:im\s+büro\s+)?anrufen|kein\s+anruf|do\s+not\s+call|don['’]?t\s+call|no\s+calls?)\b/i.test(
+      channelClause,
+    )
+  ) {
+    parts.push("nicht telefonisch");
+  }
+
+  const compactParts = parts.filter(Boolean);
+  return compactParts.length > 0
+    ? `Kontakt vor Ort: ${compactParts.join(" · ")}`
+    : "";
+};
+
+const buildCommunicationChipDataV17_52 = (order: Order): any => {
+  const compactCommunicationContext =
+    buildCompactCommunicationContextV17_90L123(order);
 
   // V17.90k: Keep stored customer contact data available for SMS/WhatsApp/Mail
   // chip targets. The communication component only creates channel chips from
@@ -6915,9 +7006,12 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
     // structured contact line separately so SMS/WhatsApp/Mail chips use the
     // verified on-site target instead of the billing-office contact.
     specialNotes: "",
-    communicationContext: cleanedSpecialNotes,
-    notes: cleanedNotes,
-    audioTranscript: cleanedAudioTranscript,
+    // V17.90L123: Card communication chips receive only the canonical contact
+    // instruction. Never pass the full customer message or all [HINWEIS]
+    // content into a WhatsApp/SMS tooltip.
+    communicationContext: compactCommunicationContext,
+    notes: compactCommunicationContext,
+    audioTranscript: "",
   };
 };
 
