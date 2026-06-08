@@ -599,10 +599,38 @@ function isOfferParkingLineV17_90L101(value?: string | null): boolean {
   );
 }
 
+function compactOfferPrimaryInfoLinesV17_90L124(
+  values: string[],
+  appointmentLabel: string,
+  contactAction?: OfferContactAction | null,
+): string[] {
+  const retained = values.filter((line) => {
+    const text = normalizeOfferHint(line);
+    if (!text) return false;
+    const isAppointment =
+      /\b(?:termin|zeitfenster|arbeitsbeginn|einsatz|ankunft|ankuendigung)\b/.test(
+        text,
+      ) ||
+      /\b\d{1,3}\s+minuten?\s+vorher\b/.test(text);
+    const isContact =
+      /\b(?:kontakt vor ort|vor ort kontakt|kontaktperson|ansprechperson|whatsapp|sms|anrufen|telefonisch|rueckruf)\b/.test(
+        text,
+      );
+    return !isAppointment && !isContact;
+  });
+
+  return uniqueOfferInfoLinesV17_66([
+    ...retained,
+    appointmentLabel,
+    contactAction?.title || "",
+  ]);
+}
+
 function buildOfferInfoSummary(
   data: CommunicationData,
   parsedNotes = splitSpecialNotes(data.specialNotes),
   appointmentLabel = "",
+  contactAction?: OfferContactAction | null,
 ): OfferInfoSummary {
   const source = [data.specialNotes, data.notes, data.audioTranscript].filter(Boolean).join("\n");
   const dogHints = (parsedNotes.jobHints || []).filter(isOfferDogHint);
@@ -622,6 +650,11 @@ function buildOfferInfoSummary(
   ]).filter(
     (line) => !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)),
   );
+  const compactPrimary = compactOfferPrimaryInfoLinesV17_90L124(
+    primary,
+    appointmentLabel,
+    contactAction,
+  );
   const additional = uniqueOfferInfoLinesV17_66([
     ...(parsedNotes.jobHints || []).filter(
       (line) =>
@@ -639,7 +672,7 @@ function buildOfferInfoSummary(
       !safety.some((warning) => offerInfoLinesEquivalentV17_66(warning, line)) &&
       !primary.some((hint) => offerInfoLinesEquivalentV17_66(hint, line)),
   );
-  return { safety, primary, additional };
+  return { safety, primary: compactPrimary, additional };
 }
 
 function isOfferDogHint(value: string): boolean {
@@ -807,27 +840,19 @@ function renderOfferOperationalChipIcon(chip: OfferOperationalChip) {
   return chip.icon;
 }
 
-function buildOfferContactChipData(
-  data: CommunicationData,
-  customer?: Customer | null,
-): CommunicationData {
-  const combinedSource = [
-    data.notes,
-    data.specialNotes,
-    data.audioTranscript,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  return {
-    ...data,
-    customer: customer
-      ? { email: customer.email || null, phone: customer.phone || null }
-      : data.customer,
-    specialNotes: "",
-    communicationContext: combinedSource,
-    notes: combinedSource,
-  };
-}
+type OfferContactChannel = "phone" | "whatsapp" | "sms" | "mail";
+
+type OfferContactAction = {
+  channel: OfferContactChannel;
+  name: string;
+  phone: string;
+  phoneHref: string;
+  email: string;
+  minutesBefore: number | null;
+  notCall: boolean;
+  title: string;
+  sourceText: string;
+};
 
 type OfferCallbackChip = {
   title: string;
@@ -856,73 +881,341 @@ function normalizeOfferPhoneHref(value?: string | null): string {
   return `${hasLeadingPlus ? "+" : ""}${digits}`;
 }
 
-function extractOfferPhone(value?: string | null): string {
-  const match = String(value || "").match(/(?:\+?\d[\d\s()./-]{6,}\d)/);
-  return normalizeOfferPhoneHref(match?.[0] || "");
+function offerContactPhoneCandidates(value?: string | null): string[] {
+  const matches = Array.from(
+    String(value || "").matchAll(/(?:\+?\d[\d\s()./-]{6,}\d)/g),
+  )
+    .map((match) => String(match[0] || "").replace(/\s+/g, " ").trim())
+    .filter((candidate) => {
+      const digits = candidate.replace(/\D/g, "");
+      return digits.length >= 9 && digits.length <= 15;
+    });
+  return Array.from(new Set(matches));
+}
+
+function offerContactEmailCandidates(value?: string | null): string[] {
+  return Array.from(
+    new Set(
+      Array.from(
+        String(value || "").matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi),
+      ).map((match) => String(match[0] || "").trim()),
+    ),
+  );
+}
+
+function offerContactSourceSegments(
+  data: CommunicationData,
+): Array<{ text: string; weight: number }> {
+  const sources: Array<{ value?: string | null; weight: number }> = [
+    { value: data.specialNotes, weight: 30 },
+    { value: data.audioTranscript, weight: 15 },
+    { value: data.notes, weight: 0 },
+  ];
+  const result: Array<{ text: string; weight: number }> = [];
+  const seen = new Set<string>();
+
+  const push = (text: string, weight: number) => {
+    const clean = text
+      .replace(/^\s*(?:WhatsApp|Telegram|Kundennachricht)\s*:\s*/i, "")
+      .replace(/^\s*[-•*]+\s*/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const key = normalizeOfferHint(clean);
+    if (!clean || !key || seen.has(key)) return;
+    seen.add(key);
+    result.push({ text: clean, weight });
+  };
+
+  for (const source of sources) {
+    const raw = String(source.value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/\[(?:HINWEIS|INFO|NOTIZ|GEFAHR|WARNUNG|WARNHINWEIS)\]/gi, "\n");
+    if (!raw.trim()) continue;
+
+    raw
+      .split(/\n+|(?<=[.!?])\s+/g)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        if (line.length <= 280) {
+          push(line, source.weight);
+          return;
+        }
+        const contactMatches = [
+          ...offerContactPhoneCandidates(line),
+          ...offerContactEmailCandidates(line),
+        ];
+        if (contactMatches.length === 0) {
+          push(line.slice(0, 280), source.weight - 5);
+          return;
+        }
+        contactMatches.forEach((contact) => {
+          const index = line.indexOf(contact);
+          const from = Math.max(0, index - 120);
+          const to = Math.min(line.length, index + contact.length + 150);
+          push(line.slice(from, to), source.weight);
+        });
+      });
+  }
+
+  return result;
+}
+
+function offerContactChannelFromLine(
+  value: string,
+): OfferContactChannel | null {
+  const text = normalizeOfferHint(value);
+  if (!text) return null;
+
+  if (/\bwhatsapp\b/.test(text)) return "whatsapp";
+  if (/\bsms\b/.test(text)) return "sms";
+  if (
+    /\b(?:e mail|email|mail|courriel)\b/.test(text) &&
+    /\b(?:nur|only|per|via|an|senden|schicken|melden|kontaktieren|reicht|bevorzugt)\b/.test(
+      text,
+    )
+  ) {
+    return "mail";
+  }
+
+  const negativeCall =
+    /\b(?:nicht|kein|keine|keinen|ohne|nie|no|not|never|noed|nod|ned|nid|nit)\b.{0,35}\b(?:anrufen|anrufe|rueckruf|rueckrufen|zurueckrufen|telefon|telefonisch|alute|aluete)\b/.test(
+      text,
+    ) ||
+    /\b(?:anrufen|anrufe|rueckruf|rueckrufen|zurueckrufen|telefon|telefonisch|alute|aluete)\b.{0,35}\b(?:nicht|kein|keine|ohne|unerwuenscht)\b/.test(
+      text,
+    );
+  const positiveCall =
+    /\b(?:anrufen|rueckruf|rueckrufen|zurueckrufen|telefonisch\s+melden|alute|aluete)\b/.test(
+      text,
+    );
+  return positiveCall && !negativeCall ? "phone" : null;
+}
+
+function cleanOfferContactNameCandidate(value?: string | null): string {
+  const clean = String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/^[,:;·\-\s]+|[,:;·\-\s]+$/g, "")
+    .replace(
+      /^(?:arbeitsbeginn|termin|einsatz|ankunft|kontakt(?:\s+vor\s+ort)?|vor[- ]ort[- ]kontakt(?:person)?|ansprechperson|kontaktperson)\s+/i,
+      "",
+    )
+    .trim();
+  if (!clean) return "";
+  const normalized = normalizeOfferHint(clean);
+  const blocked = new Set([
+    "kontakt vor ort",
+    "vor ort kontaktperson",
+    "kontaktperson",
+    "ansprechperson",
+    "arbeitsbeginn",
+    "termin",
+    "whatsapp",
+    "sms",
+    "telefon",
+    "email",
+    "mail",
+  ]);
+  if (blocked.has(normalized)) return "";
+  const tokens = clean.split(/\s+/g).filter(Boolean);
+  if (tokens.length < 2 || tokens.length > 4) return "";
+  if (tokens.some((token) => /\d/.test(token))) return "";
+  return clean;
+}
+
+function extractOfferContactName(
+  value: string,
+  contactValue?: string | null,
+): string {
+  const source = String(value || "").replace(/\s+/g, " ").trim();
+  if (!source) return "";
+  const unicodeName =
+    String.raw`[A-ZÄÖÜÀ-Ý][\p{L}'’.-]+(?:\s+[A-ZÄÖÜÀ-Ý][\p{L}'’.-]+){1,3}`;
+  const patterns = [
+    new RegExp(
+      String.raw`(?:kontakt\s+vor\s+ort|vor[- ]ort[- ]kontakt(?:person)?|ansprechperson|kontaktperson)\s*:?\s*(${unicodeName})`,
+      "iu",
+    ),
+    new RegExp(
+      String.raw`(?:an|bei)\s+(?:die\s+)?(?:vor[- ]ort[- ]kontaktperson\s+|ansprechperson\s+|kontaktperson\s+|hauswart(?:in)?\s+|vorarbeiter(?:in)?\s+)?(${unicodeName})(?=\s+(?:\+?\d|0\d))`,
+      "iu",
+    ),
+  ];
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    const candidate = cleanOfferContactNameCandidate(match?.[1]);
+    if (candidate) return candidate;
+  }
+
+  if (contactValue) {
+    const index = source.indexOf(contactValue);
+    if (index >= 0) {
+      const before = source.slice(0, index).replace(/\bunter\s*$/i, "").trim();
+      const match = before.match(
+        new RegExp(String.raw`(${unicodeName})\s*$`, "u"),
+      );
+      const candidate = cleanOfferContactNameCandidate(match?.[1]);
+      if (candidate) return candidate;
+    }
+  }
+  return "";
+}
+
+function buildOfferContactAction(
+  data: CommunicationData,
+  customer?: Customer | null,
+): OfferContactAction | null {
+  const segments = offerContactSourceSegments(data);
+  const candidates = segments
+    .map((segment) => {
+      const channel = offerContactChannelFromLine(segment.text);
+      if (!channel) return null;
+      const phones = offerContactPhoneCandidates(segment.text);
+      const emails = offerContactEmailCandidates(segment.text);
+      const phone = phones[0] || "";
+      const email = emails[0] || "";
+      const normalized = normalizeOfferHint(segment.text);
+      const minutesMatch = segment.text.match(/\b(\d{1,3})\s*Min(?:ute)?n?\s*(?:vorher|vor)\b/i);
+      const minutesBefore = minutesMatch ? Number(minutesMatch[1]) : null;
+      const notCall =
+        channel !== "phone" &&
+        /\b(?:nicht|kein|keine|keinen|ohne|nie|no|not|never|nöd|noed|nod|ned|nid|nit)\b.{0,45}\b(?:anrufen|anrufe|telefon|telefonisch|alüte|aluete|alute)\b/i.test(
+          segment.text,
+        );
+      const contactValue = channel === "mail" ? email : phone;
+      const name = extractOfferContactName(segment.text, contactValue);
+      let score = segment.weight + 50;
+      if (contactValue) score += 30;
+      else score -= 25;
+      if (name) score += 12;
+      if (minutesBefore) score += 8;
+      if (
+        /\b(?:kontakt vor ort|vor ort kontakt|kontaktperson|ansprechperson|hauswart|vorarbeiter)\b/.test(
+          normalized,
+        )
+      ) {
+        score += 15;
+      }
+      if (/\b(?:rechnungsadresse|rechnung|buchhaltung|buero|verwaltung)\b/.test(normalized)) {
+        score -= 30;
+      }
+      return {
+        channel,
+        phone,
+        email,
+        minutesBefore,
+        notCall,
+        name,
+        score,
+        sourceText: segment.text,
+      };
+    })
+    .filter(Boolean) as Array<{
+      channel: OfferContactChannel;
+      phone: string;
+      email: string;
+      minutesBefore: number | null;
+      notCall: boolean;
+      name: string;
+      score: number;
+      sourceText: string;
+    }>;
+
+  const best = candidates.sort((left, right) => right.score - left.score)[0];
+  if (!best) return null;
+
+  const fallbackPhone = String(
+    customer?.phone || data.customer?.phone || data.phone || "",
+  ).trim();
+  const fallbackEmail = String(
+    customer?.email || data.customer?.email || data.email || "",
+  ).trim();
+  const phone = best.phone || (best.channel !== "mail" ? fallbackPhone : "");
+  const email = best.email || (best.channel === "mail" ? fallbackEmail : "");
+  const phoneHref = normalizeOfferPhoneHref(phone);
+  const channelLabel =
+    best.channel === "whatsapp"
+      ? "WhatsApp"
+      : best.channel === "sms"
+        ? "SMS"
+        : best.channel === "mail"
+          ? "E-Mail"
+          : "Anruf";
+  const target = best.channel === "mail" ? email : phone;
+  const title = [
+    best.name,
+    target,
+    channelLabel,
+    best.minutesBefore ? `${best.minutesBefore} Minuten vorher` : "",
+    best.notCall ? "nicht anrufen" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return {
+    channel: best.channel,
+    name: best.name,
+    phone,
+    phoneHref,
+    email,
+    minutesBefore: best.minutesBefore,
+    notCall: best.notCall,
+    title: title || channelLabel,
+    sourceText: best.sourceText,
+  };
+}
+
+function buildOfferContactChipData(
+  data: CommunicationData,
+  customer?: Customer | null,
+  action?: OfferContactAction | null,
+): CommunicationData {
+  const compactContext = !action
+    ? ""
+    : action.channel === "whatsapp"
+      ? `Nur WhatsApp an ${action.phone || "gespeicherte Nummer"}.${
+          action.minutesBefore ? ` ${action.minutesBefore} Minuten vorher.` : ""
+        }${action.notCall ? " Nicht anrufen." : ""}`
+      : action.channel === "sms"
+        ? `Nur SMS an ${action.phone || "gespeicherte Nummer"}.${
+            action.minutesBefore ? ` ${action.minutesBefore} Minuten vorher.` : ""
+          }${action.notCall ? " Nicht anrufen." : ""}`
+        : action.channel === "mail"
+          ? `Nur E-Mail an ${action.email || "gespeicherte E-Mail-Adresse"}.`
+          : `Bitte ${action.phone || "gespeicherte Nummer"} anrufen.${
+              action.minutesBefore ? ` ${action.minutesBefore} Minuten vorher.` : ""
+            }`;
+
+  return {
+    ...data,
+    customer: action
+      ? {
+          email: action.email || null,
+          phone: action.phone || null,
+        }
+      : customer
+        ? { email: customer.email || null, phone: customer.phone || null }
+        : data.customer,
+    email: action?.email || null,
+    phone: action?.phone || null,
+    specialNotes: "",
+    communicationContext: compactContext,
+    notes: compactContext,
+    audioTranscript: "",
+  };
 }
 
 function buildOfferCallbackChip(
-  data: CommunicationData,
-  customer?: Customer | null,
+  action?: OfferContactAction | null,
 ): OfferCallbackChip | null {
-  const source = [data.notes, data.specialNotes, data.audioTranscript]
-    .filter(Boolean)
-    .join("\n");
-  const lines = source
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split(/\n+|(?<=[.!?])\s+/g)
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-
-  const isNegativeCallbackLine = (line: string) => {
-    const text = normalizeOfferHint(line);
-    return (
-      /\b(?:nicht|kein|keine|keinen|ohne|nie)\b.{0,45}\b(?:anrufen|rueckrufen|zurueckrufen|rueckruf|telefon|telefonisch)\b/.test(
-        text,
-      ) ||
-      /\b(?:anrufen|rueckrufen|zurueckrufen|rueckruf|telefon|telefonisch)\b.{0,45}\b(?:nicht|kein|keine|ohne|unerwuenscht)\b/.test(
-        text,
-      )
-    );
-  };
-  const isPositiveCallbackLine = (line: string) => {
-    if (isNegativeCallbackLine(line)) return false;
-    const text = normalizeOfferHint(line);
-    return (
-      /\b(?:rueckruf|rueckrufen|zurueckrufen|anruf\s+erbeten)\b/.test(text) ||
-      /\b(?:bitte|kurz|vorher|zuerst|dringend)\b.{0,35}\b(?:anrufen|telefonisch\s+melden|kontaktieren)\b/.test(
-        text,
-      ) ||
-      /\b(?:anrufen|telefonisch\s+melden)\b.{0,35}\b(?:bitte|erbeten|gewuenscht|bevorzugt)\b/.test(
-        text,
-      )
-    );
-  };
-
-  const callbackIndex = lines.findIndex(isPositiveCallbackLine);
-  if (callbackIndex < 0) return null;
-
-  const nearbyLines = [
-    lines[callbackIndex],
-    lines[callbackIndex - 1],
-    lines[callbackIndex + 1],
-    lines[callbackIndex - 2],
-    lines[callbackIndex + 2],
-  ].filter(Boolean);
-  const phone =
-    nearbyLines.map(extractOfferPhone).find(Boolean) ||
-    extractOfferPhone(source) ||
-    normalizeOfferPhoneHref(customer?.phone || data.customer?.phone || data.phone);
-  const callbackLine = lines[callbackIndex];
-
+  if (!action || action.channel !== "phone") return null;
   return {
-    title: phone ? `Rückruf: ${phone}` : callbackLine || "Rückruf gewünscht",
-    phone,
-    href: phone ? `tel:${phone}` : undefined,
+    title: action.title,
+    phone: action.phoneHref,
+    href: action.phoneHref ? `tel:${action.phoneHref}` : undefined,
   };
 }
-
 
 function OfferViewportTooltipV17_95({
   children,
@@ -2279,12 +2572,20 @@ export default function AngebotePage() {
   const parsedLinkedSpecialNotes = splitSpecialNotes(
     linkedOrderData?.specialNotes,
   );
+  const linkedOfferCustomer = form.customerId
+    ? customers.find((customer) => customer.id === form.customerId) || null
+    : null;
+  const linkedContactAction = buildOfferContactAction(
+    linkedOrderData || ({} as CommunicationData),
+    linkedOfferCustomer,
+  );
   const linkedInfoSummary = buildOfferInfoSummary(
     linkedOrderData || ({} as CommunicationData),
     parsedLinkedSpecialNotes,
     extractOfferAppointmentLabel(
       [linkedOrderData?.specialNotes, linkedOrderData?.notes].filter(Boolean).join("\n"),
     ),
+    linkedContactAction,
   );
   const linkedSafetyWarnings = linkedInfoSummary.safety;
   const linkedPrimaryHints = linkedInfoSummary.primary;
@@ -3459,19 +3760,22 @@ export default function AngebotePage() {
                       .filter(Boolean)
                       .join("\n"),
                   );
+                  const contactAction = buildOfferContactAction(
+                    orderCtx,
+                    cardCustomer,
+                  );
                   const infoSummary = buildOfferInfoSummary(
                     orderCtx,
                     parsedOfferNotes,
                     appointmentLabel,
+                    contactAction,
                   );
                   const contactChipData = buildOfferContactChipData(
                     orderCtx,
                     cardCustomer,
+                    contactAction,
                   );
-                  const callbackChip = buildOfferCallbackChip(
-                    orderCtx,
-                    cardCustomer,
-                  );
+                  const callbackChip = buildOfferCallbackChip(contactAction);
                   const operationalChips = buildOfferOperationalChips(
                     parsedOfferNotes.safetyWarnings,
                     parsedOfferNotes.jobHints,
@@ -3791,7 +4095,7 @@ export default function AngebotePage() {
                                           event.stopPropagation();
                                           setActiveMobileTooltip(null);
                                         }}
-                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
+                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
                                         aria-label={callbackChip.title}
                                       >
                                         <Phone className="h-4 w-4" />
@@ -3819,7 +4123,7 @@ export default function AngebotePage() {
                                                 callbackChip.title,
                                               )
                                         }
-                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700"
+                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
                                         aria-label={callbackChip.title}
                                       >
                                         <Phone className="h-4 w-4" />
@@ -4188,7 +4492,7 @@ export default function AngebotePage() {
                                         <a
                                           href={callbackChip.href}
                                           onClick={(event) => event.stopPropagation()}
-                                          className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700 outline-none hover:bg-rose-100 focus:ring-2 focus:ring-rose-300"
+                                          className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 outline-none hover:bg-blue-100 focus:ring-2 focus:ring-blue-300"
                                           aria-label={callbackChip.title}
                                         >
                                           <Phone className="h-4 w-4" />
@@ -4205,7 +4509,7 @@ export default function AngebotePage() {
                                               callbackChip.title,
                                             );
                                           }}
-                                          className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 text-rose-700 outline-none hover:bg-rose-100 focus:ring-2 focus:ring-rose-300"
+                                          className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 outline-none hover:bg-blue-100 focus:ring-2 focus:ring-blue-300"
                                           aria-label={callbackChip.title}
                                         >
                                           <Phone className="h-4 w-4" />
