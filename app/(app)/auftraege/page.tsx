@@ -552,6 +552,7 @@ type ReviewBadge = {
   className: string;
   icon?: boolean;
   tooltip?: string;
+  actionHref?: string;
   focusTarget?: "specialNotes" | "items" | "customer" | "executionAddress";
 };
 
@@ -6930,6 +6931,7 @@ const compactIconForBadge = (
   // Zugangshinweis aussieht und falsche Tooltips erzeugen kann.
   if (badge.key === "site_address") return null;
   if (badge.key === "special_notes_summary") return Info;
+  if (badge.key === "callback_request") return Phone;
 
   const label = normalizeForMatch(badge.label);
   if (label.includes("hund")) {
@@ -7948,7 +7950,11 @@ const renderReviewBadge = (
         event.stopPropagation();
         const target = event.currentTarget as HTMLElement;
         if (document.activeElement === target) {
-          target.blur();
+          if (badge.actionHref && typeof window !== "undefined") {
+            window.location.href = badge.actionHref;
+          } else {
+            target.blur();
+          }
         } else {
           target.focus();
         }
@@ -8271,51 +8277,18 @@ const renderCallbackCardBadge = (
   const tooltip = phone
     ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
     : callbackInfo || "Rückruf gewünscht · Nummer fehlt";
-  void tooltipAlign;
-  const visualClass = `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(
-    badge,
-  )}`;
 
-  if (!phone) {
-    return (
-      <button
-        key={badge.key}
-        type="button"
-        aria-label={tooltip}
-        onClick={(event) => {
-          event.stopPropagation();
-          const target = event.currentTarget as HTMLElement;
-          if (document.activeElement === target) target.blur();
-          else target.focus();
-        }}
-        className={visualClass}
-      >
-        <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
-      </button>
-    );
-  }
-
-  return (
-    <a
-      key={badge.key}
-      href={`tel:${phone}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        const target = event.currentTarget as HTMLElement;
-        // First click/focus shows the compact tooltip. A second click can use
-        // the tel: action, matching the existing touch-chip behaviour.
-        if (document.activeElement !== target) {
-          event.preventDefault();
-          target.focus();
-        }
-      }}
-      aria-label={tooltip}
-      className={visualClass}
-    >
-      <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-      {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
-    </a>
+  // V17.90L116: The callback chip now goes through the exact same badge and
+  // viewport-aware tooltip path as key/access chips. The previous dedicated
+  // anchor renderer was the remaining source of the detached text line below
+  // the card. First click shows the tooltip; a second click starts the call.
+  return renderOrderCardBadge(
+    {
+      ...badge,
+      tooltip,
+      actionHref: phone ? `tel:${phone}` : undefined,
+    },
+    tooltipAlign,
   );
 };
 
