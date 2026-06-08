@@ -3385,9 +3385,9 @@ function buildStructuredAppointmentHintsV17_90L86(
     const end = normalizeStructuredAppointmentTimeV17_90L86(rawEnd);
 
     if (!date && !start) continue;
-    if (date && !sourceSupportsAppointmentPartV17_90L86(rawText, rawDate)) continue;
-    if (start && !sourceSupportsAppointmentPartV17_90L86(rawText, rawStart)) continue;
-    if (end && !sourceSupportsAppointmentPartV17_90L86(rawText, rawEnd)) continue;
+    // V17.90L103: The first-AI appointment is preserved. Evidence checks may
+    // create a review warning, but must not silently remove the appointment
+    // from the order or its Important information section.
 
     const minutesRaw = Number(
       appointment?.ankuendigung_minuten ??
@@ -3463,50 +3463,19 @@ function extractStructuredTextValuesV17_90L88B(
 }
 
 function collectStructuredRoleHintsV17_90L86(auftrag: any): string[] {
-  const splitAtomic = (values: string[]) =>
-    values.flatMap((value) =>
-      String(value || "")
-        .replace(/\r\n/g, "\n")
-        .replace(/\r/g, "\n")
-        .split(/\n+|;\s+|(?<=[.!?])\s+/g)
-        .map((part) => String(part || "").replace(/\s+/g, " ").trim())
-        .filter(Boolean),
-    );
-
-  const accessHints = splitAtomic(
-    extractStructuredTextValuesV17_90L88B(auftrag?.zugangshinweise),
-  );
-  const parkingHints = splitAtomic(
-    extractStructuredTextValuesV17_90L88B(auftrag?.parkhinweise),
-  );
-  const ordinaryHints = splitAtomic(
-    extractStructuredTextValuesV17_90L88B(auftrag?.sonstige_hinweise),
-  );
-
-  // V17.90L89: Die KI-Rollen sind kanonisch. Kommas innerhalb einer bereits
-  // strukturierten Rolle werden nicht mehr blind zerlegt. Dadurch bleiben
-  // "Schlüssel beim Empfang, Zugangscode 7719" und
-  // "Parkplatz Besucherfeld 6, maximal 30 Minuten" jeweils eine Aussage.
-  const mergedAccessHints: string[] = [];
-  for (const hint of accessHints) {
-    if (
-      /^(?:(?:zugangs?|tor|schlüssel|schluessel)?code|pin)\s*[:#-]?\s*[A-Za-z0-9-]{2,}$/i.test(
-        hint,
-      ) &&
-      mergedAccessHints.length > 0
-    ) {
-      mergedAccessHints[mergedAccessHints.length - 1] =
-        `${mergedAccessHints[mergedAccessHints.length - 1]}, ${hint}`;
-    } else {
-      mergedAccessHints.push(hint);
-    }
-  }
-
-  return dedupeSpecialNoteLines([
-    ...mergedAccessHints,
-    ...parkingHints,
-    ...ordinaryHints,
-  ]).filter((value) => value.length >= 3 && value.length <= 240);
+  // V17.90L103: Dedicated first-AI role arrays are already atomic business
+  // facts. Do not split sentences, merge codes or reclassify them afterwards.
+  return dedupeProtectedStructuredRoleLinesV17_90L103([
+    ...extractProtectedStructuredRoleValuesV17_90L103(
+      auftrag?.zugangshinweise,
+    ),
+    ...extractProtectedStructuredRoleValuesV17_90L103(
+      auftrag?.parkhinweise,
+    ),
+    ...extractProtectedStructuredRoleValuesV17_90L103(
+      auftrag?.sonstige_hinweise,
+    ),
+  ]).filter((value) => value.length >= 3 && value.length <= 320);
 }
 
 function compactText(value: any): string {
@@ -3944,6 +3913,74 @@ function dedupeSpecialNoteLines(lines: string[]): string[] {
   return result.reverse();
 }
 
+// V17.90L103: First-AI structured roles are immutable business data.
+// Downstream code may remove only exact formatting duplicates; it may not
+// translate, rewrite, split, merge, promote or demote a role statement.
+function dedupeProtectedStructuredRoleLinesV17_90L103(
+  lines: string[],
+): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "").replace(/\s+/g, " ").trim();
+    const key = normalizeSemanticText(line);
+    if (!line || !key || seen.has(key) || /\[object Object\]/i.test(line)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(line);
+  }
+
+  return result;
+}
+
+function extractProtectedStructuredRoleValuesV17_90L103(
+  value: unknown,
+  depth = 0,
+): string[] {
+  if (depth > 3 || value == null) return [];
+  if (typeof value === "string") {
+    const text = value.replace(/\s+/g, " ").trim();
+    return text && text !== "[object Object]" ? [text] : [];
+  }
+  if (typeof value === "number" || typeof value === "boolean") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) =>
+      extractProtectedStructuredRoleValuesV17_90L103(entry, depth + 1),
+    );
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const primaryKeys = [
+      "text",
+      "hinweis",
+      "note",
+      "beschreibung",
+      "description",
+      "value",
+      "label",
+    ];
+    for (const key of primaryKeys) {
+      const values = extractProtectedStructuredRoleValuesV17_90L103(
+        record[key],
+        depth + 1,
+      );
+      if (values.length > 0) return values;
+    }
+
+    const evidenceKeys = ["evidence", "raw", "sourceText", "source_text"];
+    for (const key of evidenceKeys) {
+      const values = extractProtectedStructuredRoleValuesV17_90L103(
+        record[key],
+        depth + 1,
+      );
+      if (values.length > 0) return values;
+    }
+  }
+  return [];
+}
+
 function isNonActionableSpecialNoteCandidate(line: string): boolean {
   const normalized = normalizeSemanticText(line);
   if (!normalized) return true;
@@ -4323,16 +4360,16 @@ function extractSemanticSpecialNotesFallback(
   }
 
   const dogSubject = /\b(hund|dog|chien|perro|cane|cao|cão)\b/i;
-  const dangerousDogContext =
-    /\b(frei|frei\s+lauf|laeuft|läuft|free|loose|unleashed|libre|suelto|sciolto|livre|aggressiv|aggressive|bissig|beisst|beißt|unbeaufsichtigt|unguarded)\b/i;
-  const friendlyDogContext =
-    /\b(freundlich|friendly|gentil|amable|docile|brav|bravo|lieb|owner|besitzer|maitre|proprietaire|propietario|presente|vor\s+ort)\b/i;
-  if (actionableLineHas(dogSubject, dangerousDogContext)) {
-    safetyWarnings.push("Hund frei oder ungesichert vor Ort");
-  } else if (actionableLineHas(dogSubject, friendlyDogContext)) {
-    jobHints.push("Hund freundlich vor Ort");
-  } else if (actionableLineHas(dogSubject)) {
-    jobHints.push("Hund vor Ort");
+  const rawDogLine = rawText
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .find((line) => dogSubject.test(line) && !isNegatedSpecialNoteLine(line));
+  if (rawDogLine) {
+    // Product rule: every mentioned dog gets the red dog chip, but the
+    // customer's statement is kept verbatim. No inferred severity.
+    safetyWarnings.push(rawDogLine);
   }
 
   const electricSubject =
@@ -9991,18 +10028,21 @@ sonst → ""
 - auftrag.besonderheiten enthält normale Hinweise zur Ausführung / Organisation.
 - Gefahren semantisch erkennen: Es geht um Bedeutung und Arbeitsrisiko, nicht um feste Wörter.
 - Auch wenn der Kunde in Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Schweizerdeutsch oder gemischt schreibt, müssen gefahren und besonderheiten auf ${hauptsprache} ausgegeben werden.
-- Beispiele für gefahren: freilaufender/ungesicherter/aggressiver Hund, offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
-- Beispiele für besonderheiten: telefonischer Rückruf, Zugang über Seiteneingang, Parkplatz reserviert/schwierig, Schlüssel, fester Terminwunsch, Leiter benötigt, Zufahrt, Kunde nur vormittags erreichbar, Hund freundlich vor Ort.
+- Beispiele für gefahren: offene Stromkabel, Rutschgefahr, Öl auf Boden, Schimmel/Asbest/Chemikalien, Absturzgefahr, instabiler Untergrund, Glasscherben, Brand-/Feuergefahr.
+- PRODUKTREGEL HUND: Sobald ein Hund erwähnt wird, genau EINEN Eintrag in gefahren ausgeben, damit der rote Hund-Chip erscheint. Den tatsächlichen Inhalt originalgetreu und neutral auf ${hauptsprache} wiedergeben, z.B. "Hund ist angeleint", "Hund läuft frei", "Hund hinter Gitter". Niemals Verhalten oder Gefährlichkeit erfinden, verschärfen oder abschwächen. Aus "angeleint" darf niemals "frei oder ungesichert" werden.
+- Beispiele für besonderheiten: telefonischer Rückruf, Zugang über Seiteneingang, Parkplatz reserviert/schwierig, Schlüssel, fester Terminwunsch, Leiter benötigt, Zufahrt, Kunde nur vormittags erreichbar.
 - Kommunikationshinweise immer nach Absicht ausgeben, nicht nur zusammenfassen: Kanal verboten / bevorzugt / erlaubt plus Kontaktzeit. Ein verbotener Kanal darf nie als bevorzugter Kanal erscheinen.
 - Verneinungen müssen am richtigen Bezug hängen: "nicht einfach kommen" / "nicht eintreten" / "nicht ohne Rücksprache" sind Zugangs-/Ablaufhinweise und dürfen niemals als WhatsApp-/SMS-Verbot interpretiert werden, wenn WhatsApp/SMS in derselben Zeile positiv genannt ist.
 - Kontaktzeiten für Mail/SMS/WhatsApp/Telefon sind keine Ausführungstermine und dürfen keinen Terminchip erzeugen.
+- Ausführungsadresse strikt strukturiert ausgeben: Objekt-/Bereichsname ohne Satzanfang wie "Arbeiten müssen im"; Straße nur Straße/Hausnummer; Ort nur Ortsname. Keine Satzreste wie "ausgeführt werden" an Objekt oder Ort anhängen.
 - Rückruf nur bei echter telefonischer Kontaktaufnahme ausgeben. "Klingeln und warten", "an der Tür melden", "Kunde ist vor Ort", "Schlüssel wird an der Tür übergeben" oder "nicht anrufen" sind KEIN Rückruf.
 - Positive Arbeitserleichterungen als besonderheit aufnehmen, wenn sie wirklich planungsrelevant sind: Parkplatz reserviert/vorhanden, Schlüssel liegt bereit. Rein neutrale Hinweise wie "Zugang frei", "Tür offen", "Parkplatz kein Thema" oder "direkt halten möglich" nicht als wichtigen Außen-Hinweis erzwingen.
 - Wichtig: "Leiter benötigt" allein ist besonderheit, NICHT gefahr. "Leiter eventuell benötigt" ist nur Innen-Hinweis und darf keinen festen Außen-Chip erzwingen.
-- Wichtig: "Hund freundlich" ist besonderheit, NICHT gefahr. Nur freilaufend/ungesichert/aggressiv ist gefahr.
+- Wichtig: Jede tatsächlich erwähnte Hundaussage kommt genau einmal in gefahren, ausschließlich wegen des roten Hund-Chips. Inhalt und Zustand des Hundes originalgetreu wiedergeben; niemals bewerten oder umdeuten.
 - Wichtig: "Öl auf dem Boden", "rutschiger Boden", "offene Kabel", "freilaufender Hund", "Asbestverdacht", "Schimmel", "Chemikalien" sind gefahren, auch wenn sie in anderer Sprache beschrieben werden.
 - Verneinte/nicht relevante Hinweise NICHT ausgeben: kein Hund, kein Öl, keine Scherben, keine Leiter nötig, Termin flexibel, Parkplatz kein Thema, kein Anruf / nicht anrufen.
-- Keine Doppelung: Eine Information darf entweder in gefahren ODER in besonderheiten stehen, nicht in beiden.
+- Keine Doppelung: Eine Information darf genau einmal und entweder in gefahren ODER in besonderheiten stehen, nicht in beiden. Originaltext und automatische Übersetzung derselben Aussage sind ein einziger Sachverhalt; gib nur die saubere ${hauptsprache}-Fassung aus.
+- Jede Rollen-Aussage muss ihren Inhalt erhalten. Nicht umformulieren, verschärfen, abschwächen oder mit einer anderen Aussage zusammenführen.
 - Keine Leistung als Gefahr/Besonderheit ausgeben.
 - Keine Gefahren oder Besonderheiten in beschreibung schreiben. Dort nur die Arbeit selbst.
 
@@ -11673,11 +11713,11 @@ export async function processIncomingMessage(
   //
   // This avoids brittle language-specific keyword lists in the UI.
   const toNoteArray = (value: any): string[] =>
-    extractStructuredTextValuesV17_90L88B(value)
+    extractProtectedStructuredRoleValuesV17_90L103(value)
       .flatMap((text) =>
         text
           .split(/\n+/g)
-          .map((item) => item.trim())
+          .map((item) => item.replace(/\s+/g, " ").trim())
           .filter(Boolean),
       )
       .filter((item) => item !== "[object Object]");
@@ -11706,12 +11746,10 @@ export async function processIncomingMessage(
     .filter(Boolean);
 
   const baseHinweisItems = rawBesonderheitenItems
-    .filter(
-      (line) => !safetyMarkerRe.test(line),
-    )
+    .filter((line) => !safetyMarkerRe.test(line))
     .map(stripSpecialMarker)
+    .map((line) => line.replace(/\s+/g, " ").trim())
     .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
-    .map(canonicalizeSpecialNoteLine)
     .filter(Boolean);
 
   const detectMultipleWorksiteReviewHint = (value: string): string | null => {
@@ -11761,11 +11799,6 @@ export async function processIncomingMessage(
     onsiteContactHint,
   );
 
-  const structuredNonDangerRoleHintsV17_90L87 = dedupeSpecialNoteLines([
-    ...structuredRoleHintsV17_90L86,
-    onsiteContactHint.hint || "",
-  ]).filter(Boolean);
-
   const hasStructuredSafetyRoles =
     rawGefahrenItems.length > 0 || gefahrItemsFromBesonderheiten.length > 0;
   const hasStructuredOrdinaryRoles =
@@ -11773,101 +11806,122 @@ export async function processIncomingMessage(
     structuredRoleHintsV17_90L86.length > 0 ||
     structuredAppointmentHintsV17_90L86.length > 0 ||
     Boolean(onsiteContactHint.hint);
+  const hasProtectedStructuredRolesV17_90L103 =
+    hasStructuredSafetyRoles || hasStructuredOrdinaryRoles;
 
-  let gefahrItems = dedupeSpecialNoteLines([
-    ...rawGefahrenItems.map(stripSpecialMarker),
-    ...gefahrItemsFromBesonderheiten,
-    ...(hasStructuredSafetyRoles ? [] : semanticFallbackNotes.safetyWarnings),
-  ])
-    .map(cleanOperationalHintForwarderTailV17_90L70)
-    .filter(Boolean)
-    .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
-    .filter((line) => !isNonActionableSpecialNoteCandidate(line))
-    .filter(
-      (line) =>
-        !lineMatchesOnsiteContactIdentityV17_90L87(line, onsiteContactHint) &&
-        !structuredNonDangerRoleHintsV17_90L87.some((normalRole) =>
-          semanticRoleOverlapV17_90L87(line, normalRole),
-        ),
+  let gefahrItems: string[];
+  let hinweisItems: string[];
+
+  if (hasProtectedStructuredRolesV17_90L103) {
+    // V17.90L103: First-AI role snapshot. No later classifier, cleaner or
+    // keyword path may alter role assignment or wording.
+    gefahrItems = dedupeProtectedStructuredRoleLinesV17_90L103([
+      ...rawGefahrenItems.map(stripSpecialMarker),
+      ...gefahrItemsFromBesonderheiten,
+    ]);
+
+    const dangerKeys = new Set(
+      gefahrItems.map((line) => normalizeSemanticText(line)),
     );
+    hinweisItems = dedupeProtectedStructuredRoleLinesV17_90L103([
+      ...structuredRoleHintsV17_90L86,
+      ...structuredAppointmentHintsV17_90L86,
+      ...baseHinweisItems,
+      onsiteContactHint.hint || "",
+    ]).filter((line) => !dangerKeys.has(normalizeSemanticText(line)));
+  } else {
+    const structuredNonDangerRoleHintsV17_90L87 = dedupeSpecialNoteLines([
+      ...structuredRoleHintsV17_90L86,
+      onsiteContactHint.hint || "",
+    ]).filter(Boolean);
 
-  let hinweisItems = reconcileCommunicationSpecialNoteLines(
-    dedupeSpecialNoteLines(
-      [
-        ...structuredRoleHintsV17_90L86,
-        ...structuredAppointmentHintsV17_90L86,
-        ...baseHinweisItems,
-        ...(hasStructuredOrdinaryRoles
-          ? []
-          : semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine)),
-        onsiteContactHint.hint || "",
-      ]
-        .map(canonicalizeSpecialNoteLine)
-        .map(cleanOperationalHintForwarderTailV17_90L70)
-        .filter(Boolean),
-    ),
-  )
-    .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
-    .filter((line) => !isNonActionableSpecialNoteCandidate(line))
-    .filter((line) => !isNonActionablePlanningHint(line))
-    .filter(
-      (line) =>
-        !gefahrItems.some(
-          (danger) =>
-            normalizeSemanticText(danger) === normalizeSemanticText(line),
-        ),
-    );
+    gefahrItems = dedupeSpecialNoteLines([
+      ...rawGefahrenItems.map(stripSpecialMarker),
+      ...gefahrItemsFromBesonderheiten,
+      ...semanticFallbackNotes.safetyWarnings,
+    ])
+      .map(cleanOperationalHintForwarderTailV17_90L70)
+      .filter(Boolean)
+      .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
+      .filter((line) => !isNonActionableSpecialNoteCandidate(line))
+      .filter(
+        (line) =>
+          !lineMatchesOnsiteContactIdentityV17_90L87(line, onsiteContactHint) &&
+          !structuredNonDangerRoleHintsV17_90L87.some((normalRole) =>
+            semanticRoleOverlapV17_90L87(line, normalRole),
+          ),
+      );
 
-  // V17.90L93: The structured role is authoritative. A legacy [GEFAHR]
-  // assignment may not turn access, parking, schedules or work instructions
-  // into red warnings. Unknown marked content remains fail-closed as danger.
-  const operationalLinesFromDangerV17_90L93 = gefahrItems.filter((line) => {
-    const role = classifySpecialNoteRoleV17_90L93(line);
-    return role !== "safety" && role !== "unknown";
-  });
-  gefahrItems = gefahrItems.filter((line) => {
-    const role = classifySpecialNoteRoleV17_90L93(line);
-    return role === "safety" || role === "unknown";
-  });
-  hinweisItems = dedupeSpecialNoteLines([
-    ...hinweisItems,
-    ...operationalLinesFromDangerV17_90L93,
-  ]);
+    hinweisItems = reconcileCommunicationSpecialNoteLines(
+      dedupeSpecialNoteLines(
+        [
+          ...structuredRoleHintsV17_90L86,
+          ...structuredAppointmentHintsV17_90L86,
+          ...baseHinweisItems,
+          ...semanticFallbackNotes.jobHints.map(canonicalizeSpecialNoteLine),
+          onsiteContactHint.hint || "",
+        ]
+          .map(canonicalizeSpecialNoteLine)
+          .map(cleanOperationalHintForwarderTailV17_90L70)
+          .filter(Boolean),
+      ),
+    )
+      .filter((line) => !isTechnicalIntakeMetaLineV17_90L17(line))
+      .filter((line) => !isNonActionableSpecialNoteCandidate(line))
+      .filter((line) => !isNonActionablePlanningHint(line))
+      .filter(
+        (line) =>
+          !gefahrItems.some(
+            (danger) =>
+              normalizeSemanticText(danger) === normalizeSemanticText(line),
+          ),
+      );
 
-  // V17.90L70: Eine E-Mail-Adresse allein ist keine Kommunikationsanweisung.
-  // Entferne KI-erfundene Hinweise wie "Mail reicht", sofern der Kunde das
-  // nicht ausdrücklich verlangt hat.
-  if (!hasExplicitMailCommunicationInstructionV17_90L70(messageText)) {
-    gefahrItems = gefahrItems.filter(
-      (line) => !isGeneratedMailOnlyHintV17_90L70(line),
-    );
-    hinweisItems = hinweisItems.filter(
-      (line) => !isGeneratedMailOnlyHintV17_90L70(line),
+    const operationalLinesFromDangerV17_90L93 = gefahrItems.filter((line) => {
+      const role = classifySpecialNoteRoleV17_90L93(line);
+      return role !== "safety" && role !== "unknown";
+    });
+    gefahrItems = gefahrItems.filter((line) => {
+      const role = classifySpecialNoteRoleV17_90L93(line);
+      return role === "safety" || role === "unknown";
+    });
+    hinweisItems = dedupeSpecialNoteLines([
+      ...hinweisItems,
+      ...operationalLinesFromDangerV17_90L93,
+    ]);
+
+    if (!hasExplicitMailCommunicationInstructionV17_90L70(messageText)) {
+      gefahrItems = gefahrItems.filter(
+        (line) => !isGeneratedMailOnlyHintV17_90L70(line),
+      );
+      hinweisItems = hinweisItems.filter(
+        (line) => !isGeneratedMailOnlyHintV17_90L70(line),
+      );
+    }
+
+    gefahrItems = dedupeSpecialNoteLines(gefahrItems);
+    hinweisItems = dedupeSpecialNoteLines(
+      enrichParkingHintsV17_90L70(
+        dedupeSpecialNoteLines(hinweisItems),
+        messageText,
+      ),
     );
   }
-
-  gefahrItems = dedupeSpecialNoteLines(gefahrItems);
-  hinweisItems = dedupeSpecialNoteLines(hinweisItems);
-
-  // Parkplatz-/Rampen-Nummern aus dem Originaltext dürfen nicht in einer
-  // verkürzten Übersetzung verloren gehen.
-  hinweisItems = dedupeSpecialNoteLines(
-    enrichParkingHintsV17_90L70(hinweisItems, messageText),
-  );
 
   const finalSpecialNotesText = buildSpecialNotes({
     safetyWarnings: gefahrItems,
     jobHints: hinweisItems,
-    preserveStructuredRoles:
-      hasStructuredSafetyRoles || hasStructuredOrdinaryRoles,
+    preserveStructuredRoles: hasProtectedStructuredRolesV17_90L103,
   });
 
-  let finalSpecialNotes = preserveCanonicalStructuredRolesV17_90L88({
-    specialNotes: finalSpecialNotesText || null,
-    onsiteContact: onsiteContactHint,
-    appointmentHints: structuredAppointmentHintsV17_90L86,
-    structuredRoleHints: structuredRoleHintsV17_90L86,
-  });
+  let finalSpecialNotes = hasProtectedStructuredRolesV17_90L103
+    ? finalSpecialNotesText || null
+    : preserveCanonicalStructuredRolesV17_90L88({
+        specialNotes: finalSpecialNotesText || null,
+        onsiteContact: onsiteContactHint,
+        appointmentHints: structuredAppointmentHintsV17_90L86,
+        structuredRoleHints: structuredRoleHintsV17_90L86,
+      });
 
   // --- Map services / AI work items, strict per-position matching ---
 
@@ -13306,22 +13360,43 @@ export async function processIncomingMessage(
     explicitPartialExecutionAddressFallback?.siteAddress,
   );
 
-  // V17.90L38: Wenn die KI eine ausdrücklich markierte Ausführungsadresse
-  // nicht strukturiert zurückliefert, darf der Auftrag nicht nur einen roten
-  // Chip ohne bearbeitbaren Vorschlag erhalten. Eine strukturell erkannte
-  // Teiladresse mit Strasse und Ort wird übernommen; fehlende PLZ bleibt offen.
-  // V17.90L39: Bei ausdrücklich markierten Ausführungsadressen ist der
-  // deterministische Parser die primäre Quelle. Damit liefert dieselbe Nachricht
-  // nicht je nach KI-Lauf unterschiedliche Adressbestandteile. Die KI bleibt nur
-  // Fallback, wenn der strukturierte Rohtext-Parser keine sichere Strasse+Ort-
-  // Kombination findet.
-  let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
-    hasSafeExplicitPartialExecutionAddress
+  // V17.90L103: The first-AI execution-address object is the protected
+  // source of truth. A deterministic parser may fill fields that the AI left
+  // empty, but may never overwrite a populated AI site name, street, ZIP or
+  // city with sentence fragments from the full message.
+  let protectedExecutionAddressCandidateV17_90L103 =
+    aiStructuredExecutionAddress ||
+    (legacyAddressFallbackEnabled || hasSafeExplicitPartialExecutionAddress
       ? explicitPartialExecutionAddressFallback
-      : aiStructuredExecutionAddress ||
-          (legacyAddressFallbackEnabled
-            ? explicitPartialExecutionAddressFallback
-            : null),
+      : null);
+
+  if (aiStructuredExecutionAddress && explicitPartialExecutionAddressFallback) {
+    protectedExecutionAddressCandidateV17_90L103 = {
+      siteName:
+        aiStructuredExecutionAddress.siteName ||
+        explicitPartialExecutionAddressFallback.siteName ||
+        null,
+      siteAddress:
+        aiStructuredExecutionAddress.siteAddress ||
+        explicitPartialExecutionAddressFallback.siteAddress ||
+        null,
+      sitePlz:
+        aiStructuredExecutionAddress.sitePlz ||
+        explicitPartialExecutionAddressFallback.sitePlz ||
+        null,
+      siteCity:
+        aiStructuredExecutionAddress.siteCity ||
+        explicitPartialExecutionAddressFallback.siteCity ||
+        null,
+      siteNote:
+        aiStructuredExecutionAddress.siteNote ||
+        explicitPartialExecutionAddressFallback.siteNote ||
+        null,
+    };
+  }
+
+  let extractedExecutionAddress = sanitizeExtractedExecutionAddress(
+    protectedExecutionAddressCandidateV17_90L103,
     validationSourceText,
   );
 
@@ -13364,11 +13439,13 @@ export async function processIncomingMessage(
   // such as "Ausführungsadresse" must not replace a real property name.
   const explicitExecutionSiteDescriptor =
     originalExecutionSiteDescriptorFromTextV17_50(validationSourceText);
-  if (extractedExecutionAddress && explicitExecutionSiteDescriptor) {
-    // The explicit object/site line from the original customer message is the
-    // authoritative display name. Prefer it not only over generic placeholders,
-    // but also over shortened AI variants such as "Wohnüberbauung Sonnenhof"
-    // when the source says "Wohnüberbauung Sonnenhof, Häuser A bis D".
+  if (
+    extractedExecutionAddress &&
+    explicitExecutionSiteDescriptor &&
+    !extractedExecutionAddress.siteName
+  ) {
+    // V17.90L103: Original-text parsing may fill a missing object name, but it
+    // may not replace the populated first-AI site name.
     extractedExecutionAddress = {
       ...extractedExecutionAddress,
       siteName: explicitExecutionSiteDescriptor,

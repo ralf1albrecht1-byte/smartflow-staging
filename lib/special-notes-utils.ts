@@ -66,6 +66,11 @@ const stripKnownMarker = (line: string) =>
     normalizeLine(line.replace(SAFETY_MARKER, "").replace(HINT_MARKER, "")),
   );
 
+const stripProtectedRoleMarkerV17_90L103 = (line: string) =>
+  normalizeLine(
+    String(line || "").replace(SAFETY_MARKER, "").replace(HINT_MARKER, ""),
+  );
+
 const normalizeDedupeText = (value: string) =>
   stripKnownMarker(value)
     .toLowerCase()
@@ -78,6 +83,36 @@ const normalizeDedupeText = (value: string) =>
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+// V17.90L103: Structured role markers are authoritative after the first AI pass.
+// This deduper removes only exact/formatting duplicates. It deliberately does
+// not reinterpret, translate, promote, demote or replace customer statements.
+const dedupeProtectedRoleLinesV17_90L103 = (values: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const rawValue of values) {
+    const value = stripProtectedRoleMarkerV17_90L103(
+      String(rawValue || ""),
+    );
+    const key = value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/ä/g, "ae")
+      .replace(/ö/g, "oe")
+      .replace(/ü/g, "ue")
+      .replace(/ß/g, "ss")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!value || !key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+
+  return result;
+};
+
 
 export type SpecialNoteSemanticRoleV17_90L93 =
   | "safety"
@@ -747,44 +782,51 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
   const jobHints: string[] = [];
 
   for (const rawLine of lines) {
-    const line = normalizeLine(canonicalizeSpecialNoteLineV17_32(rawLine));
+    const line = normalizeLine(rawLine);
     if (!line) continue;
 
-    if (SYSTEM_KEYWORDS.test(line)) {
-      systemHints.push(stripKnownMarker(line));
+    // V17.90L103: Explicit markers are the immutable role snapshot written
+    // after the first AI pass. The UI may display them, but must not classify
+    // them again or move/rewrite them.
+    if (isSafetyWarningLine(line)) {
+      const protectedText = stripProtectedRoleMarkerV17_90L103(line);
+      if (protectedText) safetyWarnings.push(protectedText);
+      continue;
+    }
+    if (isHintLine(line)) {
+      const protectedText = stripProtectedRoleMarkerV17_90L103(line);
+      if (protectedText) jobHints.push(protectedText);
       continue;
     }
 
     const cleaned = stripKnownMarker(line);
-    const semanticRole = classifySpecialNoteRoleV17_90L93(cleaned);
+    if (!cleaned) continue;
 
-    if (isSafetyWarningLine(line)) {
-      if (cleaned && isNonSafetyConditionLineV17_33(cleaned)) continue;
-      // A legacy/LLM [GEFAHR] marker cannot override a clearly structured role.
-      // Unknown marked content remains fail-closed as a warning.
-      if (cleaned && semanticRole !== "safety" && semanticRole !== "unknown") {
-        jobHints.push(cleaned);
-        continue;
-      }
-      if (cleaned) safetyWarnings.push(cleaned);
+    // Legacy/unmarked data keeps the old fallback behaviour. This branch may
+    // classify, but it never touches marker-protected structured roles.
+    if (SYSTEM_KEYWORDS.test(line)) {
+      systemHints.push(cleaned);
       continue;
     }
 
-    if (cleaned && semanticRole === "safety") {
+    const semanticRole = classifySpecialNoteRoleV17_90L93(cleaned);
+    if (semanticRole === "safety") {
       safetyWarnings.push(cleaned);
       continue;
     }
-    if (cleaned && semanticRole !== "unknown") {
+    if (semanticRole !== "unknown" || isOperationalJobHint(cleaned)) {
       jobHints.push(cleaned);
-      continue;
     }
-    if (cleaned && isOperationalJobHint(cleaned)) jobHints.push(cleaned);
   }
 
-  const dedupedSafetyWarnings = dedupeSemanticLines(safetyWarnings);
-  const safetyKeys = new Set(dedupedSafetyWarnings.map(semanticNoteKey));
-  const dedupedJobHints = dedupeSemanticLines(jobHints).filter(
-    (line) => !safetyKeys.has(semanticNoteKey(line)),
+  const dedupedSafetyWarnings = dedupeProtectedRoleLinesV17_90L103(
+    safetyWarnings,
+  );
+  const safetyKeys = new Set(
+    dedupedSafetyWarnings.map((line) => normalizeDedupeText(line)),
+  );
+  const dedupedJobHints = dedupeProtectedRoleLinesV17_90L103(jobHints).filter(
+    (line) => !safetyKeys.has(normalizeDedupeText(line)),
   );
   const hasExplicitNoCall = dedupedJobHints.some((line) =>
     [
@@ -797,44 +839,38 @@ export function splitSpecialNotes(text: string | null | undefined): SplitNotes {
   const contradictionFreeJobHints = hasExplicitNoCall
     ? dedupedJobHints.filter((line) => semanticNoteKey(line) !== "callback")
     : dedupedJobHints;
-  const cleanedJobHints = mergePreArrivalInstructionLinesV17_34(
-    mergeCommunicationLinesV17_33(contradictionFreeJobHints),
-  )
-    .map(stripKnownMarker)
-    .map(normalizeLine)
-    .filter(Boolean);
 
   return {
-    systemHints: dedupeSemanticLines(systemHints),
+    systemHints: dedupeProtectedRoleLinesV17_90L103(systemHints),
     safetyWarnings: dedupedSafetyWarnings,
-    jobHints: cleanedJobHints,
+    jobHints: contradictionFreeJobHints,
   };
 }
 
 export function splitJobHints(jobHints: string[]): SplitJobHints {
-  const hazards: string[] = [];
   const equipment: string[] = [];
   const operational: string[] = [];
 
   for (const rawHint of jobHints) {
-    const hint = normalizeLine(canonicalizeSpecialNoteLineV17_32(rawHint));
-    if (!hint) continue;
-
-    const cleaned = stripKnownMarker(hint);
+    const cleaned = normalizeLine(stripKnownMarker(rawHint));
     if (!cleaned) continue;
+
+    // Marker-protected normal hints are never promoted to hazards in the UI.
+    // Role detection here is presentation-only: access/equipment can be shown
+    // together, while every other normal hint stays operational.
     const role = classifySpecialNoteRoleV17_90L93(cleaned);
-    if (role === "safety") {
-      hazards.push(cleaned);
-      continue;
-    }
     if (role === "access" || role === "equipment") {
       equipment.push(cleaned);
-      continue;
+    } else {
+      operational.push(cleaned);
     }
-    operational.push(cleaned);
   }
 
-  return { hazards, equipment, operational };
+  return {
+    hazards: [],
+    equipment: dedupeProtectedRoleLinesV17_90L103(equipment),
+    operational: dedupeProtectedRoleLinesV17_90L103(operational),
+  };
 }
 
 function normalizeSpecialNoteLineV17_27(value: string): string {
@@ -1019,47 +1055,31 @@ export function buildSpecialNotes(input: {
   // not demote, promote, split or discard those values. They are allowed only
   // on legacy/unstructured call paths.
   if (input.preserveStructuredRoles) {
-    // V17.90L92: Die erste KI bleibt die Hauptquelle. Eine spätere, rein
-    // strukturelle Rollenkontrolle darf jedoch eindeutig operative Aussagen
-    // aus dem roten Gefahrenbereich in normale Hinweise verschieben. Der Text
-    // selbst wird dabei weder verändert noch neu interpretiert.
-    const structuredSafetyLines = (input.safetyWarnings ?? [])
-      .map(canonicalizeSpecialNoteLineV17_32)
-      .map(stripKnownMarker)
-      .filter(Boolean);
-    const demotedOperationalHints = structuredSafetyLines.filter(
-      isClearlyOperationalNotSafetyV17_90L92,
+    // V17.90L103: Lossless serialization of the first-AI role snapshot.
+    // No downstream classifier may rewrite text or move a statement between
+    // danger and normal information. Only exact formatting duplicates are
+    // removed.
+    const safetyWarnings = dedupeProtectedRoleLinesV17_90L103(
+      input.safetyWarnings ?? [],
     );
-    const safetyWarnings = dedupeSemanticLines(
-      structuredSafetyLines.filter(
-        (line) => !isClearlyOperationalNotSafetyV17_90L92(line),
-      ),
+    const safetyKeys = new Set(
+      safetyWarnings.map((line) => normalizeDedupeText(line)),
     );
-    const safetyKeys = new Set(safetyWarnings.map(semanticNoteKey));
-    const jobHints = dedupeSemanticLines(
-      [...(input.jobHints ?? []), ...demotedOperationalHints]
-        .map(canonicalizeSpecialNoteLineV17_32)
-        .map(stripKnownMarker)
-        .filter(Boolean),
-    ).filter((line) => !safetyKeys.has(semanticNoteKey(line)));
-    const systemHints = dedupeSemanticLines(
-      (input.systemHints ?? [])
-        .map(canonicalizeSpecialNoteLineV17_32)
-        .map(stripKnownMarker)
-        .filter(Boolean),
+    const jobHints = dedupeProtectedRoleLinesV17_90L103(
+      input.jobHints ?? [],
+    ).filter((line) => !safetyKeys.has(normalizeDedupeText(line)));
+    const systemHints = dedupeProtectedRoleLinesV17_90L103(
+      input.systemHints ?? [],
     );
 
-    return Array.from(
-      new Set(
-        [
-          ...safetyWarnings.map(formatSafetyWarningLine),
-          ...jobHints.map(formatHintLine),
-          ...systemHints,
-        ]
-          .map((line) => line.trim())
-          .filter((line) => Boolean(line) && !/\[object Object\]/i.test(line)),
-      ),
-    ).join("\n");
+    return [
+      ...safetyWarnings.map((line) => `[GEFAHR] ${line}`),
+      ...jobHints.map((line) => `[HINWEIS] ${line}`),
+      ...systemHints,
+    ]
+      .map((line) => line.trim())
+      .filter((line) => Boolean(line) && !/\[object Object\]/i.test(line))
+      .join("\n");
   }
 
   const rawSafetyWarnings = (input.safetyWarnings ?? [])
