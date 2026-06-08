@@ -17,11 +17,12 @@ import {
   ChevronRight,
   Undo2,
   MessageCircle,
+  MapPin,
+  Phone,
+  Mail,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
-  CommunicationBlock,
-  CommunicationChips,
   resolveCommunicationData,
   stripForwardedMessage,
 } from "@/components/communication-block";
@@ -98,6 +99,12 @@ interface Invoice {
     needsReview?: boolean;
     hinweisLevel?: string;
     description?: string | null;
+    siteAddressDifferent?: boolean;
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+    siteNote?: string | null;
   }[];
   subtotal: number;
   vatRate: number;
@@ -122,6 +129,97 @@ interface Customer {
   country?: string | null;
   phone?: string | null;
   email?: string | null;
+}
+
+type InvoiceExecutionSite = {
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  siteNote?: string | null;
+};
+
+const compactInvoiceValue = (value: unknown) =>
+  String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function collectInvoiceExecutionSites(source: {
+  items?: any[] | null;
+  orders?: Invoice["orders"] | null;
+}): InvoiceExecutionSite[] {
+  const sites: InvoiceExecutionSite[] = [];
+  const add = (candidate?: InvoiceExecutionSite | null) => {
+    if (!candidate) return;
+    const site = {
+      siteName: compactInvoiceValue(candidate.siteName) || null,
+      siteAddress: compactInvoiceValue(candidate.siteAddress) || null,
+      sitePlz: compactInvoiceValue(candidate.sitePlz) || null,
+      siteCity: compactInvoiceValue(candidate.siteCity) || null,
+      siteNote: compactInvoiceValue(candidate.siteNote) || null,
+    };
+    if (
+      !site.siteName &&
+      !site.siteAddress &&
+      !site.sitePlz &&
+      !site.siteCity &&
+      !site.siteNote
+    )
+      return;
+    const key = [
+      site.siteName,
+      site.siteAddress,
+      site.sitePlz,
+      site.siteCity,
+      site.siteNote,
+    ]
+      .map((value) => compactInvoiceValue(value).toLowerCase())
+      .join("|");
+    const exists = sites.some(
+      (entry) =>
+        [
+          entry.siteName,
+          entry.siteAddress,
+          entry.sitePlz,
+          entry.siteCity,
+          entry.siteNote,
+        ]
+          .map((value) => compactInvoiceValue(value).toLowerCase())
+          .join("|") === key,
+    );
+    if (!exists) sites.push(site);
+  };
+
+  (source.items || []).forEach((item: any) =>
+    add({
+      siteName: item?.siteName,
+      siteAddress: item?.siteAddress,
+      sitePlz: item?.sitePlz,
+      siteCity: item?.siteCity,
+      siteNote: item?.siteNote,
+    }),
+  );
+  (source.orders || []).forEach((order) =>
+    add({
+      siteName: order?.siteName,
+      siteAddress: order?.siteAddress,
+      sitePlz: order?.sitePlz,
+      siteCity: order?.siteCity,
+      siteNote: order?.siteNote,
+    }),
+  );
+  return sites;
+}
+
+function formatInvoiceDateLabel(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("de-CH", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 const statusColors: Record<string, string> = {
@@ -934,7 +1032,7 @@ export default function RechnungenPage() {
     }
   };
 
-  const saveEdit = async () => {
+  const saveEdit = async (closeAfterSave = true) => {
     if (!editingInvoice) return;
     setSaving(true);
     try {
@@ -952,8 +1050,10 @@ export default function RechnungenPage() {
       });
       if (res.ok) {
         toast.success("Rechnung aktualisiert");
-        setDialogOpen(false);
-        setEditingInvoice(null);
+        if (closeAfterSave) {
+          setDialogOpen(false);
+          setEditingInvoice(null);
+        }
         load();
       } else toast.error("Fehler");
     } catch {
@@ -1137,7 +1237,9 @@ export default function RechnungenPage() {
           if (!res.ok) {
             const result = await res.json().catch(() => ({}));
             restoreInvoice();
-            toast.error(result?.error || "Rechnung konnte nicht verschoben werden");
+            toast.error(
+              result?.error || "Rechnung konnte nicht verschoben werden",
+            );
             return;
           }
           toast.success("Rechnung in Papierkorb verschoben");
@@ -1304,18 +1406,18 @@ export default function RechnungenPage() {
                 .slice(0, visibleCount)
                 .map((inv: Invoice, i: number) => {
                   const isPaid = inv.status === "Bezahlt";
-                  const itemDescs =
-                    inv.items
-                      ?.map((it: any) => it.description)
-                      .filter(Boolean)
-                      .join(" + ") || "–";
-                  const orderCtx = resolveCommunicationData(null, inv.orders);
                   // Effective status may auto-derive "Überfällig" for unpaid
                   // "Gesendet" invoices whose dueDate has passed. The select
                   // below uses this for display (value + color) only; the raw
                   // stored status remains in the DB until the user actively
                   // changes it via the dropdown.
                   const effectiveStatus = getEffectiveInvoiceStatus(inv);
+                  const executionSite =
+                    collectInvoiceExecutionSites(inv)[0] || null;
+                  const visibleItems = (inv.items || []).filter((item: any) =>
+                    Boolean(String(item?.description || "").trim()),
+                  );
+                  const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   return (
                     <motion.div
                       key={inv?.id}
@@ -1327,12 +1429,11 @@ export default function RechnungenPage() {
                         className={`cursor-pointer transition-shadow hover:shadow-md tap-safe`}
                         onClick={() => openEditInvoice(inv)}
                       >
-                        <CardContent className="px-3 py-1.5">
-                          <div className="flex items-start gap-1.5">
-                            {/* Left: 3-dot menu */}
+                        <CardContent className="p-3 sm:p-4">
+                          <div className="flex items-start gap-2">
                             <details
                               data-invoice-action-menu
-                              className="relative shrink-0 pt-0.5 group"
+                              className="relative shrink-0 group"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <summary
@@ -1340,26 +1441,30 @@ export default function RechnungenPage() {
                                 title="Aktionen"
                                 aria-label="Aktionen"
                               >
-                                <MoreVertical className="w-3.5 h-3.5" />
+                                <MoreVertical className="w-4 h-4" />
                               </summary>
-                              <div className="hidden group-open:block absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[180px]">
+                              <div className="hidden group-open:block absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[190px]">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
                                     openEditInvoice(inv);
                                   }}
                                   className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
                                 >
-                                  <FileText className="w-3.5 h-3.5 text-primary" />
+                                  <FileText className="w-3.5 h-3.5 text-primary" />{" "}
                                   Bearbeiten
                                 </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
                                     downloadPdf(
                                       { stopPropagation: () => {} } as any,
                                       inv.id,
@@ -1367,45 +1472,51 @@ export default function RechnungenPage() {
                                   }}
                                   className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
                                 >
-                                  <Download className="w-3.5 h-3.5 text-green-600" />
+                                  <Download className="w-3.5 h-3.5 text-green-600" />{" "}
                                   PDF herunterladen
                                 </button>
                                 {whatsappEnabled && (
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      const menu = e.currentTarget.closest("details");
-                                      if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                      const menu =
+                                        e.currentTarget.closest("details");
+                                      if (menu instanceof HTMLDetailsElement)
+                                        menu.open = false;
                                       sendPdfToWhatsApp(inv);
                                     }}
                                     className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
                                   >
-                                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />{" "}
                                     PDF an WhatsApp senden
                                   </button>
                                 )}
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
                                     updateStatus(e, inv.id, "Erledigt");
                                   }}
                                   className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
                                 >
-                                  <Archive className="w-3.5 h-3.5 text-amber-600" />
+                                  <Archive className="w-3.5 h-3.5 text-amber-600" />{" "}
                                   Archivieren
                                 </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
                                     revertToOffer(inv);
                                   }}
                                   className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
                                 >
-                                  <Undo2 className="w-3.5 h-3.5 text-amber-600" />
+                                  <Undo2 className="w-3.5 h-3.5 text-amber-600" />{" "}
                                   {inv.sourceOfferId
                                     ? "Zurück zu Angebot"
                                     : "Zurück zu Auftrag"}
@@ -1414,8 +1525,10 @@ export default function RechnungenPage() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
                                     remove(
                                       { stopPropagation: () => {} } as any,
                                       inv.id,
@@ -1423,51 +1536,64 @@ export default function RechnungenPage() {
                                   }}
                                   className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  Papierkorb
+                                  <Trash2 className="w-3.5 h-3.5" /> Papierkorb
                                 </button>
                               </div>
                             </details>
 
-                            {/* Center: Main info */}
                             <div
                               className={`flex-1 min-w-0 ${isPaid ? "opacity-80" : ""}`}
                             >
-                              <div className="flex items-center gap-1.5 text-xs">
-                                <span className="text-muted-foreground shrink-0">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span className="text-xs text-muted-foreground shrink-0">
                                   {(() => {
                                     const dt =
                                       inv.orders?.[0]?.createdAt ||
-                                      inv.createdAt;
+                                      inv.createdAt ||
+                                      inv.invoiceDate;
                                     return dt
                                       ? new Date(dt).toLocaleDateString(
                                           "de-CH",
                                           { day: "2-digit", month: "2-digit" },
-                                        ) +
-                                          " " +
-                                          new Date(dt).toLocaleTimeString(
-                                            "de-CH",
-                                            {
-                                              hour: "2-digit",
-                                              minute: "2-digit",
-                                            },
-                                          )
-                                      : inv?.invoiceDate
-                                        ? new Date(
-                                            inv.invoiceDate,
-                                          ).toLocaleDateString("de-CH")
-                                        : "";
+                                        )
+                                      : "";
                                   })()}
                                 </span>
-                                <span className="text-muted-foreground">·</span>
-                                <span className="font-medium text-foreground truncate">
+                                <span className="font-semibold text-sm sm:text-base text-foreground truncate">
                                   {isFallbackCustomerName(inv?.customer?.name)
                                     ? "⚠️ Kunde nicht zugeordnet"
                                     : (inv?.customer?.name ?? "")}
-                                  {inv?.customer?.customerNumber
-                                    ? ` (${inv.customer.customerNumber})`
-                                    : ""}
                                 </span>
+                                {inv?.customer?.customerNumber && (
+                                  <span className="text-xs text-muted-foreground">
+                                    ({inv.customer.customerNumber})
+                                  </span>
+                                )}
+                                {executionSite && (
+                                  <span
+                                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800"
+                                    title={[
+                                      executionSite.siteName,
+                                      executionSite.siteAddress,
+                                      executionSite.sitePlz,
+                                      executionSite.siteCity,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  >
+                                    <MapPin className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">
+                                      {executionSite.siteName ||
+                                        executionSite.siteAddress ||
+                                        [
+                                          executionSite.sitePlz,
+                                          executionSite.siteCity,
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" ")}
+                                    </span>
+                                  </span>
+                                )}
                                 {isCustomerDataIncomplete(inv.customer) && (
                                   <MissingCustomerDataBadge
                                     variant="compact"
@@ -1478,32 +1604,51 @@ export default function RechnungenPage() {
                                     }
                                   />
                                 )}
-                                <span className="text-muted-foreground hidden sm:inline">
-                                  ·
-                                </span>
-                                <span
-                                  className={`text-xs truncate hidden sm:inline ${isPaid ? "text-muted-foreground" : "text-foreground/70"}`}
-                                >
-                                  {itemDescs}
-                                </span>
-                                <span
-                                  className={`font-mono font-semibold text-sm whitespace-nowrap shrink-0 ml-auto tabular-nums ${isPaid ? "text-muted-foreground" : "text-primary"}`}
-                                >
-                                  {formatCurrency(
-                                    Number(inv?.total ?? 0),
-                                    inv.currency === "EUR" ? "EUR" : "CHF",
-                                  )}
+                                <span className="ml-auto font-mono text-[11px] text-muted-foreground whitespace-nowrap">
+                                  {inv?.invoiceNumber ?? ""}
                                 </span>
                               </div>
-                              <p
-                                className={`text-xs line-clamp-1 mt-0.5 sm:hidden ${isPaid ? "text-muted-foreground" : "text-foreground/70"}`}
-                              >
-                                {itemDescs}
-                              </p>
-                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+
+                              <div className="mt-3 rounded-xl border bg-muted/20 p-3">
+                                <div className="mb-2 text-xs font-medium text-muted-foreground">
+                                  Leistungen · {visibleItems.length}
+                                </div>
+                                <div className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
+                                  {visibleItems
+                                    .slice(0, 6)
+                                    .map((item: any, itemIndex: number) => (
+                                      <div
+                                        key={`${inv.id}-item-${itemIndex}`}
+                                        className="flex min-w-0 items-center gap-2 text-sm"
+                                      >
+                                        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500/80" />
+                                        <span className="truncate">
+                                          {item.description}
+                                        </span>
+                                        <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground">
+                                          {formatCurrency(
+                                            Number(item.quantity || 0) *
+                                              Number(item.unitPrice || 0),
+                                            inv.currency === "EUR"
+                                              ? "EUR"
+                                              : "CHF",
+                                          )}
+                                        </span>
+                                      </div>
+                                    ))}
+                                </div>
+                                {visibleItems.length > 6 && (
+                                  <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50/60 py-1 text-center text-xs text-blue-700">
+                                    + {visibleItems.length - 6} weitere
+                                    Leistungen
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
                                 <select
                                   onClick={(e) => e.stopPropagation()}
-                                  className="text-[11px] border rounded px-1.5 py-0.5"
+                                  className="h-9 rounded-lg border px-3 text-sm"
                                   style={getStatusStyle(
                                     INVOICE_STATUS_STYLES,
                                     effectiveStatus,
@@ -1529,24 +1674,26 @@ export default function RechnungenPage() {
                                     </option>
                                   ))}
                                 </select>
-                                <span className="font-mono text-[11px] text-muted-foreground">
-                                  {inv?.invoiceNumber ?? ""}
-                                </span>
-                                {(inv?.status === "Gesendet" ||
-                                  inv?.status === "Bezahlt") &&
-                                  inv?.invoiceDate && (
-                                    <span className="text-[10px] text-muted-foreground italic">
-                                      Gesendet{" "}
-                                      {new Date(
-                                        inv.invoiceDate,
-                                      ).toLocaleDateString("de-CH", {
-                                        day: "2-digit",
-                                        month: "2-digit",
-                                        year: "2-digit",
-                                      })}
-                                    </span>
-                                  )}
-
+                                {inv?.customer?.phone && (
+                                  <a
+                                    href={`tel:${String(inv.customer.phone).replace(/\s+/g, "")}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                                    title={`Anrufen: ${inv.customer.phone}`}
+                                  >
+                                    <Phone className="h-4 w-4" />
+                                  </a>
+                                )}
+                                {inv?.customer?.email && (
+                                  <a
+                                    href={`mailto:${inv.customer.email}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                                    title={`E-Mail: ${inv.customer.email}`}
+                                  >
+                                    <Mail className="h-4 w-4" />
+                                  </a>
+                                )}
                                 {inv.items?.some(
                                   (it: any) =>
                                     Number(it.quantity) <= 0 ||
@@ -1554,26 +1701,29 @@ export default function RechnungenPage() {
                                 ) && (
                                   <Badge
                                     variant="secondary"
-                                    className="text-[11px] px-2 py-0.5 bg-red-200 text-red-800 border border-red-300"
+                                    className="h-9 px-3 bg-red-100 text-red-800 border border-red-300"
                                   >
                                     Preis/Menge prüfen
                                   </Badge>
                                 )}
-
-                                <CommunicationChips
-                                  data={orderCtx}
-                                  onAudioClick={() => {
-                                    if (orderCtx.mediaUrl) {
-                                      openMedia(orderCtx.mediaUrl, "audio");
-                                    }
-                                  }}
-                                  onImageClick={() => {
-                                    const imgs = orderCtx.imageUrls;
-                                    if (imgs && imgs.length > 0) {
-                                      openImageGallery(imgs);
-                                    }
-                                  }}
-                                />
+                                <div className="ml-auto text-right">
+                                  {dueLabel && (
+                                    <div className="text-xs text-muted-foreground">
+                                      Fällig {dueLabel}
+                                    </div>
+                                  )}
+                                  <div
+                                    className={`font-mono text-lg font-bold tabular-nums ${isPaid ? "text-muted-foreground" : "text-foreground"}`}
+                                  >
+                                    {formatCurrency(
+                                      Number(inv?.total ?? 0),
+                                      inv.currency === "EUR" ? "EUR" : "CHF",
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    inkl. MwSt.
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1605,7 +1755,7 @@ export default function RechnungenPage() {
         }}
       >
         <DialogContent
-          className={`${dupCheckOpen ? "max-w-4xl w-[95vw]" : "max-w-2xl"} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}
+          className={`${dupCheckOpen ? "max-w-5xl w-[96vw]" : "max-w-4xl w-[95vw]"} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}
         >
           <DialogHeader>
             <DialogTitle>
@@ -2019,6 +2169,39 @@ export default function RechnungenPage() {
                   </div>
                 )}
               </div>
+              {!dupCheckOpen &&
+                (() => {
+                  const executionSite = collectInvoiceExecutionSites({
+                    items,
+                    orders: editingInvoice?.orders || [],
+                  })[0];
+                  if (!executionSite) return null;
+                  return (
+                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3">
+                      <div className="mb-2 flex items-center gap-2 font-semibold">
+                        <MapPin className="h-4 w-4 text-cyan-700" />
+                        Ausführungsadresse
+                      </div>
+                      <div className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-1 text-sm">
+                        <span className="text-muted-foreground">Objekt:</span>
+                        <span className="font-medium">
+                          {executionSite.siteName || "—"}
+                        </span>
+                        <span className="text-muted-foreground">Strasse:</span>
+                        <span>{executionSite.siteAddress || "—"}</span>
+                        <span className="text-muted-foreground">
+                          PLZ / Ort:
+                        </span>
+                        <span>
+                          {[executionSite.sitePlz, executionSite.siteCity]
+                            .filter(Boolean)
+                            .join(" ") || "—"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
               {/* Form fields — collapsed when dupCheck open */}
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
@@ -2035,246 +2218,335 @@ export default function RechnungenPage() {
                 </div>
               ) : (
                 <>
-                  <div>
-                    <Label>Rechnungsdatum</Label>
-                    <Input
-                      type="date"
-                      value={form.invoiceDate}
-                      onChange={(e: any) =>
-                        setForm({
-                          ...form,
-                          invoiceDate: e?.target?.value ?? "",
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>Währung</Label>
-                    <select
-                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={currency}
-                      onChange={(e: any) =>
-                        setCurrency(e?.target?.value === "EUR" ? "EUR" : "CHF")
-                      }
-                    >
-                      <option value="CHF">CHF</option>
-                      <option value="EUR">EUR</option>
-                    </select>
-                  </div>
-                  {!editingInvoice && (
-                    <div>
-                      <Label>Zahlungsziel (Tage)</Label>
-                      <Input
-                        type="number"
-                        value={form.paymentDays}
-                        onChange={(e: any) =>
-                          setForm({
-                            ...form,
-                            paymentDays: e?.target?.value ?? "30",
-                          })
-                        }
-                      />
+                  <div className="space-y-3 rounded-xl border bg-background p-3 sm:p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-base font-semibold">
+                          Leistungen · {items?.length || 0}
+                        </h3>
+                        <p className="text-xs text-muted-foreground">
+                          Kompakte Übersicht. Zum Bearbeiten die Leistung
+                          aufklappen.
+                        </p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={addItem}>
+                        <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
+                      </Button>
                     </div>
-                  )}
-                  {editingInvoice && (
-                    <div>
-                      <Label>Status</Label>
-                      <select
-                        className="flex w-full rounded-md border border-input px-3 py-2 text-sm"
-                        style={getStatusStyle(
-                          INVOICE_STATUS_STYLES,
-                          editingInvoice.status,
-                        )}
-                        value={editingInvoice.status}
-                        onChange={(e: any) => {
-                          setEditingInvoice({
-                            ...editingInvoice,
-                            status: e.target.value,
-                          });
-                        }}
-                      >
-                        {invoiceStatuses.map((s) => (
-                          <option
-                            key={s}
-                            style={getStatusStyle(INVOICE_STATUS_STYLES, s)}
-                          >
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
 
-                  <div className="space-y-3">
-                    <Label className="text-base font-semibold">
-                      Leistungen
-                    </Label>
-                    {items?.map((item: InvoiceItem, idx: number) => (
-                      <div
-                        key={idx}
-                        className="border rounded-lg p-2 sm:p-3 bg-accent/10 space-y-2"
-                      >
-                        {/* Row 1: Service name – full width */}
-                        <div className="flex items-start gap-2">
-                          <div className="flex-1 min-w-0">
-                            <ServiceCombobox
-                              value={item?.description ?? ""}
-                              services={services as ServiceOption[]}
-                              onChange={(name, svc) =>
-                                onItemServiceSelect(idx, name, svc)
-                              }
-                              onServiceCreated={handleServiceCreated}
-                              currentPrice={
-                                item?.unitPrice != null
-                                  ? String(item.unitPrice)
-                                  : undefined
-                              }
-                              currentUnit={item?.unit}
-                              contextLabel="Rechnung"
-                            />
-                          </div>
-                          {items?.length > 1 && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive shrink-0 mt-1"
-                              onClick={() => removeItem(idx)}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </Button>
-                          )}
-                        </div>
-                        {/* Row 2: Unit, Price, Quantity */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <div>
-                            <Label className="text-xs">Einheit</Label>
-                            <select
-                              className="flex w-full rounded-md border border-input bg-background px-2 py-1.5"
-                              value={item?.unit ?? "Stunde"}
-                              onChange={(e: any) =>
-                                updateItem(
-                                  idx,
-                                  "unit",
-                                  e?.target?.value ?? "Stunde",
-                                )
-                              }
-                            >
-                              <option value="Stunde">Stunde</option>
-                              <option value="Tag">Tag</option>
-                              <option value="Pauschal">Pauschal</option>
-                              <option value="Meter">Meter</option>
-                              <option value="Quadratmeter">Quadratmeter</option>
-                              <option value="Kubikmeter">Kubikmeter</option>
-                              <option value="Stück">Stück</option>
-                              <option value="Kilogramm">Kilogramm</option>
-                              <option value="Tonne">Tonne</option>
-                              <option value="Liter">Liter</option>
-                            </select>
-                          </div>
-                          <div>
-                            <Label className="text-xs">
-                              Preis ({currency})
-                            </Label>
-                            <Input
-                              type="number"
-                              step="0.05"
-                              placeholder="prüfen"
-                              className={`h-8 ${
-                                Number(item?.unitPrice ?? 0) <= 0
-                                  ? "border-red-500 bg-red-50"
-                                  : ""
-                              }`}
-                              value={
-                                Number(item?.unitPrice ?? 0) <= 0
-                                  ? ""
-                                  : (item?.unitPrice ?? "")
-                              }
-                              onChange={(e: any) =>
-                                updateItem(
-                                  idx,
-                                  "unitPrice",
-                                  e?.target?.value ?? "0",
-                                )
-                              }
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Menge</Label>
-                            <Input
-                              type="number"
-                              step="0.25"
-                              placeholder="prüfen"
-                              className={`h-8 ${
-                                Number(item?.quantity ?? 0) <= 0
-                                  ? "border-red-500 bg-red-50"
-                                  : ""
-                              }`}
-                              value={
-                                Number(item?.quantity ?? 0) <= 0
-                                  ? ""
-                                  : (item?.quantity ?? "")
-                              }
-                              onChange={(e: any) =>
-                                updateItem(
-                                  idx,
-                                  "quantity",
-                                  e?.target?.value ?? "0",
-                                )
-                              }
-                            />
-                          </div>
-                        </div>
-                        <div className="text-left sm:text-right text-xs text-muted-foreground">
-                          ={" "}
-                          {formatCurrency(
-                            Number(item?.unitPrice ?? 0) *
-                              Number(item?.quantity ?? 0),
-                            currency,
-                          )}
-                        </div>
-                      </div>
-                    )) ?? []}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-2 w-full"
-                      onClick={addItem}
-                    >
-                      <Plus className="w-3.5 h-3.5 mr-1" />
-                      Weitere Leistung hinzufügen
-                    </Button>
+                    <div className="space-y-2">
+                      {items?.map((item: InvoiceItem, idx: number) => {
+                        const lineTotal =
+                          Number(item?.unitPrice ?? 0) *
+                          Number(item?.quantity ?? 0);
+                        return (
+                          <details
+                            key={idx}
+                            className="group rounded-xl border bg-muted/10"
+                            open={!editingInvoice && idx === 0}
+                          >
+                            <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">
+                                  {item?.description || "Neue Leistung"}
+                                </div>
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  {item?.quantity || "0"} {item?.unit || ""} ×{" "}
+                                  {formatCurrency(
+                                    Number(item?.unitPrice || 0),
+                                    currency,
+                                  )}
+                                </div>
+                              </div>
+                              <div className="font-mono font-semibold">
+                                {formatCurrency(lineTotal, currency)}
+                              </div>
+                            </summary>
+                            <div className="space-y-3 border-t p-3">
+                              <div className="flex items-start gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <ServiceCombobox
+                                    value={item?.description ?? ""}
+                                    services={services as ServiceOption[]}
+                                    onChange={(name, svc) =>
+                                      onItemServiceSelect(idx, name, svc)
+                                    }
+                                    onServiceCreated={handleServiceCreated}
+                                    currentPrice={
+                                      item?.unitPrice != null
+                                        ? String(item.unitPrice)
+                                        : undefined
+                                    }
+                                    currentUnit={item?.unit}
+                                    contextLabel="Rechnung"
+                                  />
+                                </div>
+                                {items?.length > 1 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="shrink-0 text-destructive"
+                                    onClick={() => removeItem(idx)}
+                                    title="Leistung löschen"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                <div>
+                                  <Label className="text-xs">Einheit</Label>
+                                  <select
+                                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                    value={item?.unit ?? "Stunde"}
+                                    onChange={(e: any) =>
+                                      updateItem(
+                                        idx,
+                                        "unit",
+                                        e?.target?.value ?? "Stunde",
+                                      )
+                                    }
+                                  >
+                                    <option value="Stunde">Stunde</option>
+                                    <option value="Tag">Tag</option>
+                                    <option value="Pauschal">Pauschal</option>
+                                    <option value="Meter">Meter</option>
+                                    <option value="Quadratmeter">
+                                      Quadratmeter
+                                    </option>
+                                    <option value="Kubikmeter">
+                                      Kubikmeter
+                                    </option>
+                                    <option value="Stück">Stück</option>
+                                    <option value="Kilogramm">Kilogramm</option>
+                                    <option value="Tonne">Tonne</option>
+                                    <option value="Liter">Liter</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs">Menge</Label>
+                                  <Input
+                                    type="number"
+                                    step="0.25"
+                                    placeholder="prüfen"
+                                    className={`h-9 ${Number(item?.quantity ?? 0) <= 0 ? "border-red-500 bg-red-50" : ""}`}
+                                    value={
+                                      Number(item?.quantity ?? 0) <= 0
+                                        ? ""
+                                        : (item?.quantity ?? "")
+                                    }
+                                    onChange={(e: any) =>
+                                      updateItem(
+                                        idx,
+                                        "quantity",
+                                        e?.target?.value ?? "0",
+                                      )
+                                    }
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs">
+                                    Preis ({currency})
+                                  </Label>
+                                  <Input
+                                    type="number"
+                                    step="0.05"
+                                    placeholder="prüfen"
+                                    className={`h-9 ${Number(item?.unitPrice ?? 0) <= 0 ? "border-red-500 bg-red-50" : ""}`}
+                                    value={
+                                      Number(item?.unitPrice ?? 0) <= 0
+                                        ? ""
+                                        : (item?.unitPrice ?? "")
+                                    }
+                                    onChange={(e: any) =>
+                                      updateItem(
+                                        idx,
+                                        "unitPrice",
+                                        e?.target?.value ?? "0",
+                                      )
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </details>
+                        );
+                      }) ?? []}
+                    </div>
                   </div>
-                  <div className="p-2 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
-                    <MwStControl vatRate={vatRate} onChange={setVatRate} />
-                    <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                      <div className="flex justify-between min-w-0">
-                        <span className="shrink-0">Netto</span>
-                        <span className="font-mono">
-                          {formatCurrency(subtotal, currency)}
-                        </span>
+
+                  <div className="rounded-xl border bg-muted/20 p-3 sm:p-4">
+                    <div className="mb-3">
+                      <h3 className="text-base font-semibold">
+                        Rechnungsdaten & Betrag
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        Datum, Zahlungsfrist, Status, Währung und Gesamtsumme.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <Label>Rechnungsdatum</Label>
+                        <Input
+                          type="date"
+                          value={form.invoiceDate}
+                          onChange={(e: any) =>
+                            setForm({
+                              ...form,
+                              invoiceDate: e?.target?.value ?? "",
+                            })
+                          }
+                        />
                       </div>
-                      {vatRate > 0 && (
-                        <div className="flex justify-between min-w-0">
-                          <span className="shrink-0">MwSt. {vatRate}%</span>
-                          <span className="font-mono">
-                            {formatCurrency(vatAmount, currency)}
-                          </span>
+                      {!editingInvoice ? (
+                        <div>
+                          <Label>Zahlungsziel (Tage)</Label>
+                          <Input
+                            type="number"
+                            value={form.paymentDays}
+                            onChange={(e: any) =>
+                              setForm({
+                                ...form,
+                                paymentDays: e?.target?.value ?? "30",
+                              })
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <Label>Fälligkeitsdatum</Label>
+                          <div className="flex h-10 items-center rounded-md border bg-background px-3 text-sm">
+                            {formatInvoiceDateLabel(editingInvoice.dueDate) ||
+                              "—"}
+                          </div>
                         </div>
                       )}
-                      <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base">
-                        <span className="shrink-0">Total</span>
-                        <span className="font-mono text-primary">
-                          {formatCurrency(total, currency)}
-                        </span>
+                      {editingInvoice && (
+                        <div>
+                          <Label>Status</Label>
+                          <select
+                            className="flex h-10 w-full rounded-md border border-input px-3 text-sm"
+                            style={getStatusStyle(
+                              INVOICE_STATUS_STYLES,
+                              editingInvoice.status,
+                            )}
+                            value={editingInvoice.status}
+                            onChange={(e: any) =>
+                              setEditingInvoice({
+                                ...editingInvoice,
+                                status: e.target.value,
+                              })
+                            }
+                          >
+                            {invoiceStatuses.map((s) => (
+                              <option
+                                key={s}
+                                style={getStatusStyle(INVOICE_STATUS_STYLES, s)}
+                              >
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <div>
+                        <Label>Währung</Label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          value={currency}
+                          onChange={(e: any) =>
+                            setCurrency(
+                              e?.target?.value === "EUR" ? "EUR" : "CHF",
+                            )
+                          }
+                        >
+                          <option value="CHF">CHF</option>
+                          <option value="EUR">EUR</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-4 border-t pt-4 sm:grid-cols-[minmax(0,1fr)_280px]">
+                      <MwStControl vatRate={vatRate} onChange={setVatRate} />
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span>Netto</span>
+                          <span className="font-mono">
+                            {formatCurrency(subtotal, currency)}
+                          </span>
+                        </div>
+                        {vatRate > 0 && (
+                          <div className="flex justify-between">
+                            <span>MwSt. {vatRate}%</span>
+                            <span className="font-mono">
+                              {formatCurrency(vatAmount, currency)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-between border-t pt-2 text-base font-bold">
+                          <span>Total</span>
+                          <span className="font-mono text-primary">
+                            {formatCurrency(total, currency)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div>
-                    <Label>Bemerkungen</Label>
+                  {!showNewCustomer && (
+                    <div className="flex flex-wrap justify-center gap-2 sm:justify-end">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setDialogOpen(false);
+                          setEditingInvoice(null);
+                        }}
+                      >
+                        Abbrechen
+                      </Button>
+                      {editingInvoice ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            onClick={() => saveEdit(false)}
+                            disabled={saving}
+                          >
+                            {saving ? "Speichern..." : "Speichern"}
+                          </Button>
+                          <Button
+                            onClick={() => saveEdit(true)}
+                            disabled={saving}
+                          >
+                            {saving ? "Speichern..." : "Speichern & schließen"}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={saveAndArchive}
+                            disabled={saving}
+                            className="bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
+                          >
+                            <Archive className="mr-1 h-4 w-4" /> Archivieren
+                          </Button>
+                        </>
+                      ) : (
+                        <Button onClick={save} disabled={saving}>
+                          {saving ? "Speichern..." : "Rechnung erstellen"}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border p-3 sm:p-4">
+                    <h3 className="text-base font-semibold">
+                      Text für Rechnung / PDF
+                    </h3>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      Optionaler Zusatztext für den Kunden. Interne
+                      Arbeitsinformationen gehören nicht hier hinein.
+                    </p>
                     <textarea
                       className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      rows={3}
+                      rows={4}
+                      placeholder="Optionaler Hinweis oder Zusatztext im Rechnungs-PDF..."
                       value={form.notes}
                       onChange={(e: any) =>
                         setForm({ ...form, notes: e?.target?.value ?? "" })
@@ -2282,54 +2554,98 @@ export default function RechnungenPage() {
                     />
                   </div>
 
-                  {/* Unified communication block: description + special notes + customer message/media */}
                   {editOrderCtx && (
-                    <CommunicationBlock
-                      data={editOrderCtx}
-                      showDescription
-                      descriptionValue={editOrderCtx.description || ""}
-                      specialNotesValue={splitSpecialNotes(
-                        editOrderCtx.specialNotes,
-                      ).jobHints.join("\n")}
-                    />
+                    <div className="space-y-2">
+                      <details className="rounded-xl border bg-amber-50/30">
+                        <summary className="cursor-pointer list-none px-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
+                          Interne Informationen
+                        </summary>
+                        <div className="space-y-3 border-t p-3 text-sm">
+                          {editOrderCtx.description && (
+                            <div>
+                              <div className="text-xs font-semibold text-muted-foreground">
+                                Arbeitszusammenfassung
+                              </div>
+                              <p>{editOrderCtx.description}</p>
+                            </div>
+                          )}
+                          {(() => {
+                            const parsed = splitSpecialNotes(
+                              editOrderCtx.specialNotes,
+                            );
+                            const lines = Array.from(
+                              new Set(
+                                [
+                                  ...(parsed.safetyWarnings || []),
+                                  ...(parsed.jobHints || []),
+                                ]
+                                  .map((line) =>
+                                    String(line || "")
+                                      .replace(/\s+/g, " ")
+                                      .trim(),
+                                  )
+                                  .filter(Boolean),
+                              ),
+                            );
+                            return lines.length > 0 ? (
+                              <div>
+                                <div className="text-xs font-semibold text-muted-foreground">
+                                  Besonderheiten
+                                </div>
+                                <ul className="mt-1 space-y-1">
+                                  {lines.map((line, index) => (
+                                    <li key={index}>• {line}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null;
+                          })()}
+                        </div>
+                      </details>
+                      <details className="rounded-xl border">
+                        <summary className="cursor-pointer list-none px-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
+                          Kundennachricht
+                        </summary>
+                        <div className="space-y-3 border-t p-3">
+                          <div className="whitespace-pre-wrap text-sm">
+                            {linkedOrderData?.notes ||
+                              "Keine Kundennachricht vorhanden."}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {editOrderCtx.mediaUrl &&
+                              editOrderCtx.mediaType?.startsWith("audio") && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    openMedia(editOrderCtx.mediaUrl, "audio")
+                                  }
+                                >
+                                  <Volume2 className="mr-1 h-4 w-4" /> Audio
+                                  öffnen
+                                </Button>
+                              )}
+                            {editOrderCtx.imageUrls &&
+                              editOrderCtx.imageUrls.length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    openImageGallery(
+                                      editOrderCtx.imageUrls || [],
+                                    )
+                                  }
+                                >
+                                  <ImageIcon className="mr-1 h-4 w-4" /> Bilder
+                                  öffnen
+                                </Button>
+                              )}
+                          </div>
+                        </div>
+                      </details>
+                    </div>
                   )}
                 </>
-              )}
-
-              {/* Document action buttons — hidden when customer editor OR duplicate panel is open */}
-              {!showNewCustomer && !dupCheckOpen && (
-                <div className="flex flex-wrap justify-center sm:justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setDialogOpen(false);
-                      setEditingInvoice(null);
-                    }}
-                  >
-                    Abbrechen
-                  </Button>
-                  <Button
-                    onClick={editingInvoice ? saveEdit : save}
-                    disabled={saving}
-                  >
-                    {saving
-                      ? "Speichern..."
-                      : editingInvoice
-                        ? "Speichern"
-                        : "Rechnung erstellen"}
-                  </Button>
-                  {editingInvoice && (
-                    <Button
-                      variant="secondary"
-                      onClick={saveAndArchive}
-                      disabled={saving}
-                      className="bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
-                    >
-                      <Archive className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />→
-                      Archivieren
-                    </Button>
-                  )}
-                </div>
               )}
             </div>
             {/* Duplicate Check Panel (right column) */}
