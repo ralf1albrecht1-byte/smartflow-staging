@@ -7208,23 +7208,6 @@ const renderOrderSpecialNotesTooltipContentV17_95 = (tooltip: string) => {
   );
 };
 
-// V17.90L114: Callback tooltip is anchored locally to the phone chip.
-// This deliberately mirrors the compact key/access tooltip appearance and
-// avoids detached fixed-position text elsewhere in the card.
-const CallbackChipTooltipV17_90L114 = ({ tooltip }: { tooltip: string }) => {
-  const text = cleanVisibleTooltipTextV17_35(tooltip);
-  if (!text) return null;
-
-  return (
-    <span
-      role="tooltip"
-      className="pointer-events-none absolute bottom-full left-0 z-[14000] mb-2 hidden w-max max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block group-focus-within:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-    >
-      {text}
-    </span>
-  );
-};
-
 const ViewportAwareOrderBadgeTooltipV17_95 = ({
   badge,
   align = "left",
@@ -8308,7 +8291,7 @@ const renderCallbackCardBadge = (
         className={visualClass}
       >
         <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-        <CallbackChipTooltipV17_90L114 tooltip={tooltip} />
+        {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
       </button>
     );
   }
@@ -8331,7 +8314,7 @@ const renderCallbackCardBadge = (
       className={visualClass}
     >
       <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-      <CallbackChipTooltipV17_90L114 tooltip={tooltip} />
+      {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
     </a>
   );
 };
