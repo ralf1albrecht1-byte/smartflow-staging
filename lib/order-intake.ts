@@ -2263,7 +2263,7 @@ function extractExecutionBlockFromText(
   if (lines.length === 0) return null;
 
   const startRegex =
-    /^\s*(?:(?:die\s+)?arbeiten\s+(?:werden\s+)?(?:an\s+einer\s+anderen\s+adresse\s+)?ausgef(?:ü|ue)hrt|arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
+    /^\s*(?:(?:die\s+)?arbeiten\s+(?:werden\s+)?(?:an\s+einer\s+anderen\s+adresse\s+)?ausgef(?:ü|ue)hrt|(?:die\s+)?arbeit(?:en)?\s+(?:findet|finden|ist|sind)\s+(?:statt\s+)?(?:bei|beim|am|an|in|im)|arbeitsort|auftragsort|uftragsort|objektadresse|objekt|einsatzort|ausführung|ausfuehrung|ausführungsadresse|ausfuehrungsadresse|arbeitsadresse|adresse\s+vor\s+ort|ex[eé]cution|execution|esecuzione|usfuehrig|usfüehrig|arbeiten\s+(?:bitte\s+)?(?:bei|beim|in|im)|arbeit\s+(?:bitte\s+)?(?:bei|beim|in|im))\s*:?\s*(.*)$/i;
   const stopRegex =
     /^\s*(?:rechnung\s+an|rechnungskunde|rechnungsempfänger|rechnungsempfaenger|rechnungsadresse|kunde|auftraggeber|besteller|zahler|kontakt\s+vor\s+ort|person\s+vor\s+ort|vor\s+ort\b|zugang|besonderheiten|bemerkungen|leistungen|leistungsübersicht|leistungsuebersicht|termin|titel|title)\s*:?/i;
 
@@ -2495,7 +2495,9 @@ function trimExecutionSiteNameToExplicitDescriptorV17_90L16(args: {
     if (
       currentKey === descriptorKey ||
       currentKey.startsWith(`${descriptorKey} `) ||
-      currentKey.includes(descriptorKey)
+      currentKey.includes(descriptorKey) ||
+      (descriptorKey.includes(currentKey) &&
+        descriptorKey.length >= currentKey.length + 4)
     ) {
       return descriptor;
     }
@@ -2616,10 +2618,8 @@ function repairExecutionSiteNameFromText(args: {
   sitePlz: string | null;
   siteCity: string | null;
 }): string | null {
-  if (args.currentSiteName) return args.currentSiteName;
-
   const executionBlock = extractExecutionBlockFromText(args.rawText);
-  if (!executionBlock) return null;
+  if (!executionBlock) return args.currentSiteName;
 
   const siteAddressKey = normalizeUnitText(args.siteAddress || "");
   const sitePlz = String(args.sitePlz || "").trim();
@@ -2655,7 +2655,22 @@ function repairExecutionSiteNameFromText(args: {
     ).values(),
   ).slice(0, 2);
 
-  return uniqueDescriptors.length > 0 ? uniqueDescriptors.join(", ") : null;
+  const explicitDescriptor =
+    uniqueDescriptors.length > 0 ? uniqueDescriptors.join(", ") : null;
+  if (!args.currentSiteName) return explicitDescriptor;
+  if (!explicitDescriptor) return args.currentSiteName;
+
+  const currentKey = normalizeUnitText(args.currentSiteName);
+  const explicitKey = normalizeUnitText(explicitDescriptor);
+  if (
+    currentKey &&
+    explicitKey.includes(currentKey) &&
+    explicitKey.length >= currentKey.length + 4
+  ) {
+    return explicitDescriptor;
+  }
+
+  return args.currentSiteName;
 }
 
 
@@ -5565,7 +5580,7 @@ function detectExplicitQuantityRangeV17_90L121(
 
   for (const entry of unitPatterns) {
     const re = new RegExp(
-      `\\b(\\d+(?:[.,]\\d+)?)\\s*(?:-|–|—|bis|to|until|a|à)\\s*(\\d+(?:[.,]\\d+)?)\\s*${entry.pattern}\\b`,
+      `\\b(\\d+(?:[.,]\\d+)?)\\s*(?:-|–|—|bis|to|until|a|à)\\s*(\\d+(?:[.,]\\d+)?)\\s*${entry.pattern}(?=$|\\s|[,.;:])`,
       "i",
     );
     const match = source.match(re);

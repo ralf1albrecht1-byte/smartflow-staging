@@ -3069,7 +3069,7 @@ const buildOrderInfoSummaryV17_65 = (
   ]).filter((line) => !isParkingOrderInfoLineV17_90L101(line));
   const safety = rawSafety.filter((line) => {
     const role = classifySpecialNoteRoleV17_90L93(line);
-    return role === "safety" || role === "unknown";
+    return role === "safety";
   });
   const reclassifiedPrimary = rawSafety.filter((line) => {
     const role = classifySpecialNoteRoleV17_90L93(line);
@@ -3077,7 +3077,7 @@ const buildOrderInfoSummaryV17_65 = (
   });
   const reclassifiedAdditional = rawSafety.filter((line) => {
     const role = classifySpecialNoteRoleV17_90L93(line);
-    return role === "equipment" || role === "operational";
+    return role === "equipment" || role === "operational" || role === "unknown";
   });
 
   const appointmentSourceV17_90L106 = hasProtectedRoleMarkersV17_90L108
@@ -3440,7 +3440,7 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
 
   source.forEach((line) => {
     if (
-      /\b(?:kontakt\s+vor\s+ort|vor\s+ort|whatsapp|sms|telefon|anrufen|anruf|termin|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|schlüssel|schluessel|code|empfang|besucherausweis|zugang|nicht\s+als\s+kunde\s+speichern|leite\w*\s+(?:das\s+)?nur\s+weiter|schickt\s+das\s+nur\s+weiter)\b/i.test(
+      /\b(?:kontakt\s+vor\s+ort|vor\s+ort|whatsapp|sms|telefon|anrufen|anruf|termin|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|schlüssel|schluessel|code|besucherausweis|zugang|nicht\s+als\s+kunde\s+speichern|leite\w*\s+(?:das\s+)?nur\s+weiter|schickt\s+das\s+nur\s+weiter)\b/i.test(
         line,
       )
     ) {
@@ -6002,9 +6002,9 @@ const getSystemBadges = (
     ),
   );
 
-  const hasPriceQuantityReview =
+  const priceQuantityReviewDetails =
     order.items && order.items.length > 0
-      ? order.items.some((it) => {
+      ? order.items.flatMap((it) => {
           const quantity = Number(it.quantity || 0);
           const unitPrice = Number(it.unitPrice || 0);
           const totalPrice = Number((it as any).totalPrice || 0);
@@ -6044,15 +6044,31 @@ const getSystemBadges = (
             !serviceIsOpen &&
             !isUnitMissingReviewItem(it);
 
-          if (isCurrencyOnlyBlocker) return false;
+          if (isCurrencyOnlyBlocker) return [];
 
-          return (
-            quantity <= 0 ||
-            unitPrice <= 0 ||
-            explicitReviewZeroTotal
-          );
+          const issues: string[] = [];
+          if (quantity <= 0) issues.push("Menge prüfen");
+          if (unitPrice <= 0) issues.push("Preis prüfen");
+          if (issues.length === 0 && explicitReviewZeroTotal) {
+            issues.push(
+              isUnitMissingReviewItem(it) ? "Einheit prüfen" : "Betrag prüfen",
+            );
+          }
+          if (issues.length === 0) return [];
+
+          const serviceName =
+            canonicalServiceNameForOrderItem(it.serviceName) ||
+            compactText(it.serviceName) ||
+            "Leistung";
+          return [`${serviceName} — ${issues.join(" und ")}`];
         })
-      : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0;
+      : Number(order.unitPrice || 0) <= 0 || Number(order.quantity || 0) <= 0
+        ? [
+            `${canonicalServiceNameForOrderItem(order.serviceName) || "Leistung"} — Preis oder Menge prüfen`,
+          ]
+        : [];
+
+  const hasPriceQuantityReview = priceQuantityReviewDetails.length > 0;
 
   // Rote Betragschips nur bei echten Blockern anzeigen.
   // Textpreis/Katalogabweichung mit vorhandenen Werten bleibt gelb,
@@ -6063,18 +6079,10 @@ const getSystemBadges = (
       label: "Betrag prüfen",
       className: "bg-red-100 text-red-700 border border-red-300",
       icon: true,
-      tooltip: (() => {
-        if (unitMissingServiceNames.length > 0) {
-          return [
-            "Einheit fehlt im Kundentext",
-            ...unitMissingServiceNames.map(
-              (serviceName) =>
-                `• ${serviceName}: Menge und Preis erkannt, aber die Einheit fehlt. Diese Position wird nicht berechnet, bis die Einheit bestätigt ist.`,
-            ),
-          ].join("\n");
-        }
-        return "Preis oder Menge fehlt/ist unsicher. Bitte vor Angebot/Rechnung korrigieren.";
-      })(),
+      tooltip: [
+        "Betrag prüfen",
+        ...priceQuantityReviewDetails.map((line) => `• ${line}`),
+      ].join("\n"),
     });
   }
 
@@ -6103,9 +6111,23 @@ const getSystemBadges = (
                 canonicalServiceNameForOrderItem(item.serviceName),
               ) === normalizeForMatch(serviceName),
           );
+          const matchingSourceEvidence = matchingItem
+            ? [
+                (matchingItem as any).sourceText,
+                (matchingItem as any).evidence,
+                matchingItem.description,
+              ]
+                .filter(Boolean)
+                .join(" ")
+            : "";
           if (
             isUnitMissingReviewItem(matchingItem) ||
-            hasUnitMissingReviewForService(serviceName)
+            hasUnitMissingReviewForService(serviceName) ||
+            (matchingItem &&
+              recognitionEvidenceMentionsUnitV17_90L80(
+                matchingSourceEvidence,
+                matchingItem.unit,
+              ))
           )
             return "";
 
@@ -11906,37 +11928,39 @@ export default function AuftraegePage() {
     },
     parsedFormSpecialNotes,
   );
-  // V17.90L111: The red editor block follows the protected role snapshot
-  // directly. Normal [HINWEIS] entries must never be pulled into the red box
-  // by presentation-level text extraction.
+  // V17.90L122: Only actual safety roles remain in the red block. Legacy
+  // misclassified operational lines are displayed as normal hints instead.
+  const reclassifiedLegacySafetyHints = uniqueOrderInfoLinesV17_66(
+    parsedFormSpecialNotes.safetyWarnings,
+  ).filter((line) => {
+    if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) return false;
+    return classifySpecialNoteRoleV17_90L93(line) !== "safety";
+  });
   const dangerNoteLines = uniqueOrderInfoLinesV17_66(
     parsedFormSpecialNotes.safetyWarnings,
   ).filter((line) => {
-    // V17.90L113: Old orders may contain normal instructions under a legacy
-    // danger marker. Display them as red only when the current semantic role
-    // is truly safety-related. Every dog mention remains red by product rule.
     if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(line)) return true;
-    const role = classifySpecialNoteRoleV17_90L93(line);
-    return role === "safety" || role === "unknown";
+    return classifySpecialNoteRoleV17_90L93(line) === "safety";
   });
   const primaryInfoLines = formInfoSummary.primary;
   const compactPrimaryInfoLines = compactImportantInfoLinesV17_90L73(
     primaryInfoLines,
   );
-  const editablePrimaryJobHints = parsedFormSpecialNotes.jobHints.filter(
-    isPrimaryOrderInfoHintV17_65,
-  );
+  const editablePrimaryJobHints = parsedFormSpecialNotes.jobHints
+    .filter(isPrimaryOrderInfoHintV17_65)
+    .filter((line) =>
+      compactPrimaryInfoLines.some((primaryLine) =>
+        orderInfoLinesEquivalentV17_66(primaryLine, line),
+      ),
+    );
   const preservedParkingJobHints = parsedFormSpecialNotes.jobHints.filter(
     isParkingOrderInfoLineV17_90L101,
   );
-  const editableAdditionalJobHints = parsedFormSpecialNotes.jobHints
-    .filter(
-      (line) =>
-        !isPrimaryOrderInfoHintV17_65(line) &&
-        !isParkingOrderInfoLineV17_90L101(line),
-    )
-    // V17.90L111: Do not show the same access/contact/appointment content a
-    // second time as a yellow free-text hint after it was compacted above.
+  const editableAdditionalJobHints = uniqueOrderInfoLinesV17_66([
+    ...parsedFormSpecialNotes.jobHints,
+    ...reclassifiedLegacySafetyHints,
+  ])
+    .filter((line) => !isParkingOrderInfoLineV17_90L101(line))
     .filter(
       (line) =>
         !compactPrimaryInfoLines.some((primaryLine) =>
@@ -11956,10 +11980,16 @@ export default function AuftraegePage() {
     setForm((prev) => {
       const previousNotes = splitSpecialNotes(prev.specialNotes);
 
+      const preservedSafetyWarnings = previousNotes.safetyWarnings.filter(
+        (line) =>
+          /\b(?:hund|dog|chien|cane|perro)\b/i.test(line) ||
+          classifySpecialNoteRoleV17_90L93(line) === "safety",
+      );
+
       return {
         ...prev,
         specialNotes: buildSpecialNotes({
-          safetyWarnings: previousNotes.safetyWarnings,
+          safetyWarnings: preservedSafetyWarnings,
           jobHints: [
             ...editablePrimaryJobHints,
             ...preservedParkingJobHints,
@@ -16014,9 +16044,22 @@ export default function AuftraegePage() {
                             )
                             .find((r: string) => {
                               const [, serviceName] = r.split(":");
-                              return (
+                              const sameService =
                                 (serviceName || "").trim().toLowerCase() ===
-                                (item.serviceName || "").trim().toLowerCase()
+                                (item.serviceName || "").trim().toLowerCase();
+                              if (!sameService) return false;
+
+                              const sourceEvidence = [
+                                (item as any).sourceText,
+                                (item as any).evidence,
+                                item.aiWarning,
+                                item.serviceName,
+                              ]
+                                .filter(Boolean)
+                                .join(" ");
+                              return !recognitionEvidenceMentionsUnitV17_90L80(
+                                sourceEvidence,
+                                item.unit,
                               );
                             });
 
@@ -17469,7 +17512,6 @@ export default function AuftraegePage() {
                       style={
                         { fieldSizing: "content", overflow: "hidden" } as any
                       }
-                      placeholder="z.B. Rückruf, Zugang, Parkplatz, Leiter nötig, Terminwunsch..."
                       value={normalSpecialNotesText}
                       onChange={(e) => updateNormalSpecialNotes(e.target.value)}
                     />
