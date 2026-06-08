@@ -205,16 +205,22 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
 }): Promise<ReadOnlySpecialNoteRoleFindingV17_90L106[]> {
   const apiKey = process.env.OPENAI_API_KEY;
   const roleEntries = [
-    ...args.roles.gefahren.map((text) => ({ text, currentRole: "gefahr" as const })),
-    ...args.roles.hinweise.map((text) => ({ text, currentRole: "hinweis" as const })),
+    ...args.roles.gefahren.map((text, index) => ({
+      id: `g${index + 1}`,
+      text,
+      currentRole: "gefahr" as const,
+    })),
+    ...args.roles.hinweise.map((text, index) => ({
+      id: `h${index + 1}`,
+      text,
+      currentRole: "hinweis" as const,
+    })),
   ];
   if (!apiKey || roleEntries.length === 0) return [];
 
-  const sourceByKey = new Map<string, { text: string; currentRole: "gefahr" | "hinweis" }>();
-  for (const entry of roleEntries) {
-    const key = normalizeRoleReviewTextV17_90L106(entry.text);
-    if (key && !sourceByKey.has(key)) sourceByKey.set(key, entry);
-  }
+  const sourceById = new Map(
+    roleEntries.map((entry) => [entry.id, entry] as const),
+  );
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -226,7 +232,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
       body: JSON.stringify({
         model: "gpt-4.1-mini",
         temperature: 0,
-        max_tokens: 900,
+        max_tokens: 1400,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -234,13 +240,13 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
             content: [
               "Du bist ein strikt read-only Qualitätsprüfer für bereits strukturierte Auftragshinweise.",
               "Du darfst nichts umformulieren, ergänzen, löschen, verschieben oder korrigieren.",
-              "Prüfe ausschließlich, ob ein vorhandener Text semantisch in Gefahr oder Hinweis einsortiert wurde.",
-              "Gefahr bedeutet: Der Text beschreibt ausdrücklich einen konkreten Zustand mit plausiblem körperlichem Verletzungs-, Gesundheits- oder Sachschadenrisiko.",
-              "Eine Arbeitsanweisung, Schonregel, Kommunikationsregel, Zugangsregel, Reihenfolge, Frist oder Fertigstellungszeit ohne ausdrücklich beschriebenen Gefahrzustand ist ein Hinweis, keine Gefahr.",
-              "Leite aus einem Verbot oder Imperativ niemals automatisch eine verborgene Gefahr ab.",
+              "Bewerte JEDEN übergebenen Eintrag genau einmal und behalte seine id unverändert.",
+              "Gefahr bedeutet: Der Text beschreibt ausdrücklich einen bereits vorhandenen konkreten Zustand mit plausiblem körperlichem Verletzungs-, Gesundheits- oder Sachschadenrisiko.",
+              "Eine Arbeits-, Schutz-, Schon-, Kommunikations-, Zugangs-, Reihenfolge-, Frist- oder Fertigstellungsanweisung ist ohne ausdrücklich beschriebenen gefährlichen Zustand ein Hinweis, keine Gefahr.",
+              "Ein Verbot oder Imperativ beweist allein keine Gefahr. Leite keinen verborgenen Risikozustand aus der gewünschten Handlung ab.",
               "Produktregel: Jede tatsächlich erwähnte Hundaussage bleibt unabhängig vom Inhalt in Gefahr, damit der rote Hund-Chip erscheint.",
-              "Melde nur eindeutige Hochsicherheits-Abweichungen. Bei Zweifel keine Meldung.",
-              "Gib ausschließlich JSON zurück: {\"findings\":[{\"text\":\"exakt unveränderter Eingabetext\",\"currentRole\":\"gefahr|hinweis\",\"expectedRole\":\"gefahr|hinweis\",\"reason\":\"kurze sachliche Begründung\"}]}",
+              "Melde die semantisch erwartete Rolle. confidence ist high, medium oder low. Nur high bedeutet eine eindeutige Abweichung.",
+              "Gib ausschließlich JSON zurück: {\"verdicts\":[{\"id\":\"g1\",\"expectedRole\":\"gefahr|hinweis\",\"confidence\":\"high|medium|low\",\"reason\":\"kurze sachliche Begründung\"}]}",
             ].join("\n"),
           },
           {
@@ -248,7 +254,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
             content: JSON.stringify({
               originalText: String(args.originalText || "").slice(0, 5000),
               translatedText: String(args.translatedText || "").slice(0, 5000),
-              roles: args.roles,
+              entries: roleEntries,
             }),
           },
         ],
@@ -265,19 +271,21 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
     const payload = await response.json();
     const rawContent = String(payload?.choices?.[0]?.message?.content || "").trim();
     const parsed = rawContent ? JSON.parse(rawContent) : null;
-    const rawFindings = Array.isArray(parsed?.findings) ? parsed.findings : [];
+    const rawVerdicts = Array.isArray(parsed?.verdicts) ? parsed.verdicts : [];
     const findings: ReadOnlySpecialNoteRoleFindingV17_90L106[] = [];
     const seen = new Set<string>();
 
-    for (const raw of rawFindings.slice(0, 8)) {
-      const requestedText = String(raw?.text || "").replace(/\s+/g, " ").trim();
-      const source = sourceByKey.get(normalizeRoleReviewTextV17_90L106(requestedText));
+    for (const raw of rawVerdicts.slice(0, roleEntries.length + 4)) {
+      const source = sourceById.get(String(raw?.id || ""));
       const expectedRole = String(raw?.expectedRole || "").toLowerCase();
-      if (!source || (expectedRole !== "gefahr" && expectedRole !== "hinweis")) continue;
-      if (expectedRole === source.currentRole) continue;
+      const confidence = String(raw?.confidence || "").toLowerCase();
+      if (!source || (expectedRole !== "gefahr" && expectedRole !== "hinweis")) {
+        continue;
+      }
+      if (confidence !== "high" || expectedRole === source.currentRole) continue;
       if (/\b(?:hund|dog|chien|cane|perro)\b/i.test(source.text)) continue;
 
-      const key = `${normalizeRoleReviewTextV17_90L106(source.text)}|${expectedRole}`;
+      const key = `${source.id}|${expectedRole}`;
       if (seen.has(key)) continue;
       seen.add(key);
       findings.push({
@@ -289,7 +297,7 @@ async function runReadOnlySpecialNoteRoleCheckerV17_90L106(args: {
           .trim()
           .slice(0, 220),
       });
-      if (findings.length >= 4) break;
+      if (findings.length >= 6) break;
     }
 
     return findings;
@@ -10162,6 +10170,7 @@ sonst → ""
 - Kontaktzeiten für Mail/SMS/WhatsApp/Telefon sind keine Ausführungstermine und dürfen keinen Terminchip erzeugen.
 - Reine Arbeits-, Ablauf- oder Schonhinweise ohne eigenes körperliches Sicherheitsrisiko gehören in besonderheiten/sonstige_hinweise, nicht in gefahren. Die Rolle nach Bedeutung bestimmen, nicht anhand einzelner Wörter.
 - Ein Verbot oder eine Handlungsanweisung ist für sich allein kein Gefahrzustand. Nur wenn die Nachricht zusätzlich den konkreten gefährlichen Zustand ausdrücklich beschreibt, gehört die Aussage in gefahren.
+- Reine Schutz- oder Betriebsanweisungen für Geräte, Maschinen, Mobiliar, Dokumente oder Materialien bleiben normale Hinweise, solange kein konkreter gefährlicher Zustand ausdrücklich genannt ist. Die gewünschte Handlung darf nicht als versteckte Gefahr interpretiert werden.
 - Eine Fertigstellungszeit, Öffnungszeit, Reihenfolge oder Priorität ist Termin/Ablaufhinweis und niemals allein eine Gefahr.
 - Vor Ausgabe einen stillen Rollen-Selbstcheck durchführen und jede nicht eindeutig gefährliche Aussage aus gefahren in sonstige_hinweise einordnen. Textinhalt dabei nicht umformulieren.
 - Ausführungsadresse strikt strukturiert ausgeben: Objekt-/Bereichsname ohne Satzanfang wie "Arbeiten müssen im"; Straße nur Straße/Hausnummer; Ort nur Ortsname. Keine Satzreste wie "ausgeführt werden" an Objekt oder Ort anhängen.
@@ -11779,7 +11788,9 @@ export async function processIncomingMessage(
           street: billingEvidence.street ?? sanitized.street,
           plz: billingEvidence.plz ?? sanitized.plz,
           city: billingEvidence.city ?? sanitized.city,
-          phone: billingEvidence.phone ?? sanitized.phone,
+          // V17.90L107: The final guarded billing phone is authoritative.
+          // Never reintroduce an on-site number from stale pre-guard evidence.
+          phone: kundeData.telefon || null,
           email: billingEvidence.email ?? sanitized.email,
         };
 
