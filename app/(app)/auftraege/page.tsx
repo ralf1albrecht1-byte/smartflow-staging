@@ -3139,6 +3139,10 @@ const cleanContactDisplayNameV17_90L91 = (value?: string | null) => {
     .replace(/^[\s,;:·\-–—]+|[\s,;:·\-–—]+$/g, "")
     .trim();
   if (!compact) return "";
+  // V17.90L112: Generic labels must never be rendered as a person's name.
+  if (/^(?:termin|kontakt|kontaktperson|ansprechperson|sms|whatsapp|telefon|anruf|rueckruf|rückruf)$/i.test(compact)) {
+    return "";
+  }
 
   const tokens = compact.split(/\s+/g);
   const result: string[] = [];
@@ -3248,10 +3252,21 @@ const compactImportantInfoLinesV17_90L73 = (lines: string[]): string[] => {
     const nameMatch = line.match(
       /(?:kontakt\s+vor\s+ort\s*:?|vor\s+ort(?:\s+ist)?\s*:?|ansprechperson\s*:?|kontakt\s*:|dort\s+)?\s*([A-ZÄÖÜ][\p{L}'’\-]+(?:\s+[A-ZÄÖÜ][\p{L}'’\-]+){0,3})\s*[,;·:\-–—]*\s*(?:(?:tel(?:efon)?|phone|mobile|handy|natel)\.?\s*:?\s*)?(?=\+?\d)/iu,
     );
+    const contactPhoneDigits = phone.replace(/\D/g, "");
+    const contextualContactName = source
+      .map((candidateLine) => {
+        const candidateDigits = candidateLine.replace(/\D/g, "");
+        if (contactPhoneDigits && !candidateDigits.includes(contactPhoneDigits)) return "";
+        const match = candidateLine.match(
+          /(?:whats\s*app|whatsapp|sms|anrufen|telefonieren|call|contact)\s+(?:an|bei|to|a|à)\s+([A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]+(?:\s+[A-ZÀ-ÖØ-ÞÄÖÜ][\p{L}'’.-]+){1,3})\s*(?=\+?\d)/iu,
+        );
+        return cleanContactDisplayNameV17_90L91(match?.[1] || "");
+      })
+      .find(Boolean) || "";
     const contactParts = [
       cleanContactDisplayNameV17_90L91(
         structuredName || nameMatch?.[1]?.trim() || "",
-      ),
+      ) || contextualContactName,
       phone,
     ];
     const contactContext = contactLine || line;
@@ -7153,6 +7168,20 @@ const renderOrderSpecialNotesTooltipContentV17_95 = (tooltip: string) => {
   );
 };
 
+const CallbackChipTooltipV17_90L112 = ({ tooltip }: { tooltip: string }) => {
+  const text = cleanVisibleTooltipTextV17_35(tooltip);
+  if (!text) return null;
+
+  return (
+    <span
+      role="tooltip"
+      className="pointer-events-none absolute bottom-full left-1/2 z-[14000] mb-2 hidden w-max max-w-[min(22rem,calc(100vw-1.5rem))] -translate-x-1/2 whitespace-normal rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block group-focus-within:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+    >
+      {text}
+    </span>
+  );
+};
+
 const ViewportAwareOrderBadgeTooltipV17_95 = ({
   badge,
   align = "left",
@@ -8226,6 +8255,7 @@ const renderCallbackCardBadge = (
   const tooltip = phone
     ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
     : callbackInfo || "Rückruf gewünscht · Nummer fehlt";
+  void tooltipAlign;
   const visualClass = `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(
     badge,
   )}`;
@@ -8245,7 +8275,7 @@ const renderCallbackCardBadge = (
         className={visualClass}
       >
         <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
+        <CallbackChipTooltipV17_90L112 tooltip={tooltip} />
       </button>
     );
   }
@@ -8259,7 +8289,7 @@ const renderCallbackCardBadge = (
       className={visualClass}
     >
       <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-      {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
+      <CallbackChipTooltipV17_90L112 tooltip={tooltip} />
     </a>
   );
 };
@@ -11840,6 +11870,26 @@ export default function AuftraegePage() {
     : [];
 
   const parsedFormSpecialNotes = splitSpecialNotes(form.specialNotes);
+  const explicitRoleSafetyWarningsV17_90L112 = (() => {
+    const raw = String(form.specialNotes || "");
+    const hasProtectedMarkers = /\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]/i.test(raw);
+    if (!hasProtectedMarkers) return parsedFormSpecialNotes.safetyWarnings;
+
+    return raw
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/\s*(?=\[(?:GEFAHR|WARNUNG|WARNHINWEIS|HINWEIS|INFO|NOTIZ)\]\s*)/gi, "\n")
+      .split(/\n+/g)
+      .map((line) => line.trim())
+      .filter((line) => /^\[(?:GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i.test(line))
+      .map((line) =>
+        line
+          .replace(/^\[(?:GEFAHR|WARNUNG|WARNHINWEIS)\]\s*/i, "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .filter(Boolean);
+  })();
   const formInfoSummary = buildOrderInfoSummaryV17_65(
     {
       specialNotes: form.specialNotes,
@@ -11852,7 +11902,7 @@ export default function AuftraegePage() {
   // directly. Normal [HINWEIS] entries must never be pulled into the red box
   // by presentation-level text extraction.
   const dangerNoteLines = uniqueOrderInfoLinesV17_66(
-    parsedFormSpecialNotes.safetyWarnings,
+    explicitRoleSafetyWarningsV17_90L112,
   );
   const primaryInfoLines = formInfoSummary.primary;
   const compactPrimaryInfoLines = compactImportantInfoLinesV17_90L73(
