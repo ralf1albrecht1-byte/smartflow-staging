@@ -12754,21 +12754,85 @@ export async function processIncomingMessage(
     .filter((part) => String(part || "").trim())
     .join("\n");
 
-  const intakeValidation = validateAndRepairParsedOrderItems({
-    items: finalOrderItems,
+  // V17.90L105: The legacy repair validator is now shadow-only.
+  // It still runs on a detached copy so we can compare its findings in logs,
+  // but none of its rewritten items or review reasons may enter the persisted
+  // order. The first structured AI result plus deterministic technical guards
+  // remain the only write path.
+  const shadowIntakeValidationV17_90L105 = validateAndRepairParsedOrderItems({
+    items: finalOrderItems.map((item) => ({ ...item })),
     originalText: validationSourceText,
     fallbackCurrency: intakeCurrency,
   });
+
   logIntakeDiagnosticTrace(
     intakeDiagnosticTraceEnabled,
     intakeDiagnosticTraceId,
-    "05_validation_result",
+    "05_shadow_validation_result",
     {
-      finalCurrency: intakeValidation.finalCurrency,
-      needsReview: intakeValidation.needsReview,
-      reviewReasons: intakeValidation.reviewReasons.slice(0, 40),
-      items: summarizeIntakeDiagnosticItems(intakeValidation.items),
+      finalCurrency: shadowIntakeValidationV17_90L105.finalCurrency,
+      needsReview: shadowIntakeValidationV17_90L105.needsReview,
+      reviewReasons: shadowIntakeValidationV17_90L105.reviewReasons.slice(0, 40),
+      items: summarizeIntakeDiagnosticItems(
+        shadowIntakeValidationV17_90L105.items,
+      ),
     },
+  );
+
+  const normalizeAuthoritativeCurrencyV17_90L105 = (
+    value: unknown,
+  ): "CHF" | "EUR" | null => {
+    const normalized = String(value || "").trim().toUpperCase();
+    return normalized === "CHF" || normalized === "EUR" ? normalized : null;
+  };
+
+  const explicitCurrencySourceV17_90L105 =
+    stripNegatedCurrencyMentionsForIntake(validationSourceText);
+  const authoritativeDetectedCurrenciesV17_90L105 = Array.from(
+    new Set(
+      [
+        ...canonicalAiOrderItemsV17_90L88.map((item) =>
+          normalizeAuthoritativeCurrencyV17_90L105(item.detectedCurrency),
+        ),
+        ...finalOrderItems.map((item) =>
+          normalizeAuthoritativeCurrencyV17_90L105(item.detectedCurrency),
+        ),
+        hasExplicitCurrencyAmountForIntake(
+          explicitCurrencySourceV17_90L105,
+          INTAKE_CHF_WORDS_FOR_CURRENCY,
+        )
+          ? "CHF"
+          : null,
+        hasExplicitCurrencyAmountForIntake(
+          explicitCurrencySourceV17_90L105,
+          INTAKE_EUR_WORDS_FOR_CURRENCY,
+        )
+          ? "EUR"
+          : null,
+      ].filter((value): value is "CHF" | "EUR" => Boolean(value)),
+    ),
+  );
+
+  if (authoritativeDetectedCurrenciesV17_90L105.length === 0) {
+    authoritativeDetectedCurrenciesV17_90L105.push(intakeCurrency);
+  }
+
+  // Compatibility object for the existing deterministic guards below.
+  // Important: items/reviewReasons come from the pre-validator write source,
+  // never from the legacy repair validator.
+  const intakeValidation = {
+    items: finalOrderItems.map((item) => ({ ...item })),
+    reviewReasons: [] as string[],
+    needsReview: finalOrderItems.some((item) => Boolean(item.needsReview)),
+    finalCurrency: intakeCurrency,
+    detectedCurrencies: authoritativeDetectedCurrenciesV17_90L105,
+  };
+
+  console.info(
+    `[${source}] 💤 Legacy repair validator shadow-only: ` +
+      `inputItems=${finalOrderItems.length} ` +
+      `shadowItems=${shadowIntakeValidationV17_90L105.items.length} ` +
+      `shadowFindings=${shadowIntakeValidationV17_90L105.reviewReasons.length}`,
   );
 
   // V17.90L102: The normal validation pass supplies explicit unresolved
