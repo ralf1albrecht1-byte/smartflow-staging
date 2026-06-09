@@ -9229,6 +9229,7 @@ export default function AuftraegePage() {
   } | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOrderCardIds, setExpandedOrderCardIds] = useState<Set<string>>(new Set());
+  const [visibleCount, setVisibleCount] = useState(30);
 
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
 
@@ -13223,7 +13224,6 @@ export default function AuftraegePage() {
   };
 
   const [archiveId, setArchiveId] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(30);
   const updateOrderStatus = async (
     e: React.ChangeEvent<HTMLSelectElement>,
     id: string,
