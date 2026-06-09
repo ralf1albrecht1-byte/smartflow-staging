@@ -565,6 +565,30 @@ function normalizeOfferHint(value?: string | null): string {
     .trim();
 }
 
+function getOfferServiceReviewReasonV17_90L134(
+  item: OfferItem,
+  services: any[],
+): string {
+  const name = String(item?.description || "").trim();
+  const quantity = Number(item?.quantity || 0);
+  const price = Number(item?.unitPrice || 0);
+  const unit = String(item?.unit || "").trim();
+  if (!name) return "Leistung prüfen";
+  if (quantity <= 0) return "Menge prüfen";
+  if (!unit || /(?:prüfen|pruefen|prufen)/i.test(unit)) return "Einheit prüfen";
+  if (price <= 0) return "Preis prüfen";
+  const catalog = (services || []).find(
+    (service: any) => normalizeOfferHint(service?.name) === normalizeOfferHint(name),
+  );
+  if (!catalog) return "Nicht im Leistungskatalog";
+  const catalogUnit = String(catalog?.unit || "").trim();
+  const catalogPrice = Number(catalog?.defaultPrice || 0);
+  if (catalogUnit && catalogUnit !== unit) return "Einheit abweichend";
+  if (catalogPrice > 0 && Math.abs(catalogPrice - price) >= 0.001)
+    return "Preis abweichend";
+  return "";
+}
+
 function uniqueOfferLines(values: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -4239,7 +4263,7 @@ export default function AngebotePage() {
                                       Ausführungsorte · {offerExecutionSites.length}
                                     </span>
                                   )}
-                                  {primaryExecutionSite && (
+                                  {primaryExecutionSite && offerExecutionSites.length === 1 && (
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
@@ -4691,7 +4715,7 @@ export default function AngebotePage() {
                                       </span>
                                     )}
 
-                                    {primaryExecutionSite && (
+                                    {primaryExecutionSite && offerExecutionSites.length === 1 && (
                                       <button
                                         type="button"
                                         onClick={(event) => {
@@ -5724,6 +5748,11 @@ export default function AngebotePage() {
                           !matchedService ||
                           !samePrice ||
                           !sameUnit;
+                        const itemReviewReasonV17_90L134 =
+                          getOfferServiceReviewReasonV17_90L134(
+                            item,
+                            services || [],
+                          ) || (itemNeedsReview ? "Manuell prüfen" : "");
                         const isMenuOpen = serviceActionMenuIndex === idx;
 
                         const isExpanded = expandedItemIndex === idx;
@@ -5765,7 +5794,7 @@ export default function AngebotePage() {
                                           : "border-amber-300 bg-amber-100 text-amber-800"
                                       }`}
                                     >
-                                      Prüfen
+                                      {itemReviewReasonV17_90L134}
                                     </span>
                                   )}
                                 </div>
@@ -6008,9 +6037,9 @@ export default function AngebotePage() {
                                 return next;
                               });
                             }}
-                            className="overflow-visible rounded-xl border-2 border-slate-300 bg-slate-50/50"
+                            className="overflow-visible rounded-xl border-2 border-cyan-300 bg-cyan-50/60"
                           >
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-slate-200 bg-white px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-cyan-200 bg-cyan-50/80 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-semibold">
                                   📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}

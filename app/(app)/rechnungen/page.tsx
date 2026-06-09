@@ -177,6 +177,32 @@ const normalizeInvoiceServiceName = (value: unknown) =>
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
+const getInvoiceServiceReviewReasonV17_90L134 = (
+  item: InvoiceItem,
+  services: any[],
+): string => {
+  const name = compactInvoiceValue(item?.description);
+  const quantity = Number(item?.quantity || 0);
+  const price = Number(item?.unitPrice || 0);
+  const unit = compactInvoiceValue(item?.unit);
+  if (!name) return "Leistung prüfen";
+  if (quantity <= 0) return "Menge prüfen";
+  if (!unit || /(?:prüfen|pruefen|prufen)/i.test(unit)) return "Einheit prüfen";
+  if (price <= 0) return "Preis prüfen";
+  const catalog = (services || []).find(
+    (service: any) =>
+      normalizeInvoiceServiceName(service?.name) ===
+      normalizeInvoiceServiceName(name),
+  );
+  if (!catalog) return "Nicht im Leistungskatalog";
+  const catalogUnit = compactInvoiceValue(catalog?.unit);
+  const catalogPrice = Number(catalog?.defaultPrice || 0);
+  if (catalogUnit && catalogUnit !== unit) return "Einheit abweichend";
+  if (catalogPrice > 0 && Math.abs(catalogPrice - price) >= 0.001)
+    return "Preis abweichend";
+  return "";
+};
+
 const splitInvoicePdfText = (value?: string | null) => {
   const source = String(value || "").trim();
   const marker = "Titel: ";
@@ -1246,7 +1272,9 @@ export default function RechnungenPage() {
     const svc = svcOpt ?? services?.find((s: any) => s.name === name);
     if (svc) {
       updateItem(idx, "description", svc.name);
-      updateItem(idx, "unitPrice", String(svc.defaultPrice ?? 0));
+      // Rechnungen starten bewusst ohne automatisch übernommenen Katalogpreis.
+      // Der Preis muss für diese konkrete Rechnung bestätigt/eingetragen werden.
+      updateItem(idx, "unitPrice", "0");
       updateItem(idx, "unit", svc.unit ?? "Stunde");
     } else if (!name) {
       updateItem(idx, "description", "");
@@ -1438,14 +1466,14 @@ export default function RechnungenPage() {
     }));
   };
 
-  const save = async () => {
+  const save = async (closeAfterSave = true): Promise<boolean> => {
     if (!form?.customerId) {
       toast.error("Bitte Kunde wählen");
-      return;
+      return false;
     }
     if (!items?.length || !items[0]?.description?.trim()) {
       toast.error("Mindestens eine Leistung");
-      return;
+      return false;
     }
     setSaving(true);
     try {
@@ -1472,27 +1500,38 @@ export default function RechnungenPage() {
         }),
       });
       if (res.ok) {
-        toast.success("Rechnung erstellt");
-        setDialogOpen(false);
+        const createdInvoice = await res.json().catch(() => null);
+        toast.success("Rechnung gespeichert");
         await load();
-        setItems([getEmptyItem()]);
-        setNewInvoiceExecutionSite(null);
-        setEditingExecutionAddress(false);
-        setForm({
-          customerId: "",
-          invoiceDate: new Date().toISOString().split("T")[0],
-          paymentDays: "30",
-          pdfTitle: "",
-          notes: "",
-          orderIds: [],
-        });
+        if (closeAfterSave) {
+          setDialogOpen(false);
+          setItems([getEmptyItem()]);
+          setNewInvoiceExecutionSite(null);
+          setEditingExecutionAddress(false);
+          setForm({
+            customerId: "",
+            invoiceDate: new Date().toISOString().split("T")[0],
+            paymentDays: "30",
+            pdfTitle: "",
+            notes: "",
+            orderIds: [],
+          });
+        } else if (createdInvoice?.id) {
+          setEditingInvoice(createdInvoice);
+          setItems(Array.isArray(createdInvoice.items) ? createdInvoice.items : itemsForCreate);
+          setNewInvoiceExecutionSite(null);
+          setEditingExecutionAddress(false);
+        }
+        return true;
       } else {
         const errorData = await res.json().catch(() => null);
         toast.error(errorData?.error || "Rechnung konnte nicht erstellt werden");
+        return false;
       }
     } catch (error) {
       console.error("invoice create failed", error);
       toast.error("Rechnung konnte nicht erstellt werden");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -2155,7 +2194,7 @@ export default function RechnungenPage() {
                                     Ausführungsorte · {invoiceExecutionSites.length}
                                   </span>
                                 )}
-                                {executionSite && (
+                                {executionSite && invoiceExecutionSites.length === 1 && (
                                   <button
                                     type="button"
                                     onClick={(event) => {
@@ -3310,6 +3349,11 @@ export default function RechnungenPage() {
                         );
                         const itemNeedsReview =
                           hasMissingValues || !matchedService || catalogMismatch;
+                        const itemReviewReasonV17_90L134 =
+                          getInvoiceServiceReviewReasonV17_90L134(
+                            item,
+                            services || [],
+                          ) || (itemNeedsReview ? "Manuell prüfen" : "");
                         const isExpanded = expandedItemIndex === idx;
                         const isMenuOpen = serviceActionMenuIndex === idx;
 
@@ -3342,7 +3386,7 @@ export default function RechnungenPage() {
                                   </span>
                                   {itemNeedsReview && (
                                     <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                                      Prüfen
+                                      {itemReviewReasonV17_90L134}
                                     </span>
                                   )}
                                 </div>
@@ -3532,9 +3576,9 @@ export default function RechnungenPage() {
                                 return next;
                               });
                             }}
-                            className="overflow-visible rounded-xl border-2 border-slate-300 bg-slate-50/50"
+                            className="overflow-visible rounded-xl border-2 border-cyan-300 bg-cyan-50/60"
                           >
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-slate-200 bg-white px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-cyan-200 bg-cyan-50/80 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-semibold">
                                   📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
@@ -3767,9 +3811,21 @@ export default function RechnungenPage() {
                           </Button>
                         </>
                       ) : (
-                        <Button onClick={save} disabled={saving}>
-                          {saving ? "Speichern..." : "Rechnung erstellen"}
-                        </Button>
+                        <>
+                          <Button
+                            variant="outline"
+                            onClick={() => save(false)}
+                            disabled={saving}
+                          >
+                            {saving ? "Speichern..." : "Speichern"}
+                          </Button>
+                          <Button
+                            onClick={() => save(true)}
+                            disabled={saving}
+                          >
+                            {saving ? "Speichern..." : "Speichern & schließen"}
+                          </Button>
+                        </>
                       )}
                     </div>
                   )}

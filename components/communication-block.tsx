@@ -1904,6 +1904,12 @@ export function CommunicationChips({
 }) {
   const hasAudio = data.mediaUrl && data.mediaType === 'audio';
   const hasImages = (data.imageUrls && data.imageUrls.length > 0) || (data.mediaUrl && data.mediaType === 'image');
+  const cardImagePaths = data.imageUrls && data.imageUrls.length > 0
+    ? data.imageUrls.slice(0, 3)
+    : data.mediaUrl && data.mediaType === 'image'
+      ? [data.mediaUrl]
+      : [];
+  const cardImagePreviewUrls = useResolvedUrls(cardImagePaths);
   const parsed = useMemo(() => parseNotesField(data.notes), [data.notes]);
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
@@ -2036,10 +2042,23 @@ export function CommunicationChips({
         return (
           <button
             onClick={(e) => { e.stopPropagation(); onImageClick?.(); }}
-            className={compact ? "inline-flex h-7 w-7 items-center justify-center text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100" : "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded hover:bg-blue-100 text-[11px]"}
+            className={`${compact ? "inline-flex h-7 w-7 items-center justify-center text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100" : "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded hover:bg-blue-100 text-[11px]"} group/image-preview relative`}
             title="Bilder ansehen"
           >
             <ImageIcon className="w-3.5 h-3.5" />{!compact && (imgCount > 1 ? ` (${imgCount})` : '')}
+            {cardImagePreviewUrls[0] && (
+              <span className="pointer-events-none absolute bottom-full left-0 z-[10000] mb-2 hidden w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl group-hover/image-preview:block dark:border-slate-700 dark:bg-slate-900">
+                <img
+                  src={cardImagePreviewUrls[0]}
+                  alt="Bildvorschau"
+                  className="h-28 w-full rounded-lg object-cover"
+                  loading="lazy"
+                />
+                <span className="mt-1 block text-left text-[10px] font-medium text-slate-600 dark:text-slate-300">
+                  {imgCount > 1 ? `${imgCount} Bilder · anklicken zum Öffnen` : "Anklicken zum Öffnen"}
+                </span>
+              </span>
+            )}
           </button>
         );
       })()}

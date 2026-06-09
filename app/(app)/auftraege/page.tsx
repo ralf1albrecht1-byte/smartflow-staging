@@ -587,6 +587,51 @@ const normalizeForMatch = (value?: string | null) =>
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss");
 
+const getOrderServiceReviewReasonV17_90L134 = (
+  item: any,
+  services: any[],
+): string => {
+  const name = compactText(item?.serviceName);
+  const quantity = Number(item?.quantity || 0);
+  const price = Number(item?.unitPrice || 0);
+  const unit = compactText(item?.unit);
+  if (!name) return "Leistung prüfen";
+  if (quantity <= 0) return "Menge prüfen";
+  if (!unit || /(?:prüfen|pruefen|prufen)/i.test(unit)) return "Einheit prüfen";
+  if (price <= 0) return "Preis prüfen";
+  const catalog = (services || []).find(
+    (service: any) => normalizeForMatch(service?.name) === normalizeForMatch(name),
+  );
+  if (!catalog) return "Nicht im Leistungskatalog";
+  const catalogUnit = compactText(catalog?.unit);
+  const catalogPrice = Number(catalog?.defaultPrice || 0);
+  if (catalogUnit && normalizeForMatch(catalogUnit) !== normalizeForMatch(unit))
+    return "Einheit abweichend";
+  if (catalogPrice > 0 && Math.abs(catalogPrice - price) >= 0.01)
+    return "Preis abweichend";
+  return "";
+};
+
+const getOrderServiceReviewDetailV17_90L134 = (
+  item: any,
+  services: any[],
+  currency: "CHF" | "EUR",
+): string => {
+  const reason = getOrderServiceReviewReasonV17_90L134(item, services);
+  if (!reason) return "";
+  const name = compactText(item?.serviceName) || "Neue Leistung";
+  const quantity = Number(item?.quantity || 0);
+  const price = Number(item?.unitPrice || 0);
+  const unit = compactText(item?.unit) || "–";
+  const catalog = (services || []).find(
+    (service: any) => normalizeForMatch(service?.name) === normalizeForMatch(name),
+  );
+  const lines = [name, reason, `Aktuell: ${quantity > 0 ? quantity : "–"} ${unit} · ${price > 0 ? formatCurrency(price, currency) : "Preis fehlt"}`];
+  if (catalog) {
+    lines.push(`Katalog: ${compactText(catalog?.unit) || "–"} · ${formatCurrency(Number(catalog?.defaultPrice || 0), currency)}`);
+  }
+  return lines.join("\n");
+};
 
 
 const serviceLabelHasWorkIntentV17_90L27 = (value?: string | null) => {
@@ -6939,7 +6984,9 @@ const buildCompactCommunicationContextV17_90L123 = (
   // eine Negation niemals mehr einen WhatsApp-/SMS-Chip erzeugen.
   const emailOnlyClause = clauses.find((line) =>
     isEmailOnlyContactInstructionLine(line),
-  );
+  ) || (/(?:nur|ausschließlich|ausschliesslich|only|uniquement)\s+(?:per\s+|via\s+)?(?:e\s*mail|e-mail|email|mail)/i.test(source)
+    ? "nur E-Mail"
+    : "");
   if (emailOnlyClause) {
     const email = extractOrderContactEmailForCustomerDisplayV17_90K(order);
     return `Kontakt vor Ort: ${email ? `${email} · ` : ""}nur E-Mail · nicht telefonisch`;
@@ -16530,6 +16577,11 @@ export default function AuftraegePage() {
                             showManualCurrencyConfirmedReview ||
                             showManualServiceReview ||
                             hasResolvedReviewCatalogAction;
+                          const itemReviewReasonV17_90L134 =
+                            getOrderServiceReviewReasonV17_90L134(
+                              item,
+                              services || [],
+                            ) || (hasAnyItemReview ? "Manuell prüfen" : "");
                           const siteIndex = site
                             ? currentEditWorkSites.findIndex(
                                 (option) => option.id === site.id,
@@ -16540,6 +16592,15 @@ export default function AuftraegePage() {
                           );
                           const groupItems = getWorkSiteGroupItems(site);
                           const groupItemCount = groupItems.length;
+                          const groupReviewRowsV17_90L134 = groupItems
+                            .map((groupItem) =>
+                              getOrderServiceReviewDetailV17_90L134(
+                                groupItem,
+                                services || [],
+                                currency,
+                              ),
+                            )
+                            .filter(Boolean);
                           const groupReviewBadges = (() => {
                             const badges: ReviewBadge[] = [];
                             const addBadge = (
@@ -16709,7 +16770,7 @@ export default function AuftraegePage() {
                             ? "border-red-300 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
                             : siteHasNoItems
                               ? "border-amber-300 bg-amber-50/80 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/20 dark:text-amber-100"
-                              : "border-slate-300 bg-slate-50/80 text-slate-900 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-50";
+                              : "border-cyan-300 bg-cyan-50/80 text-slate-900 dark:border-cyan-800/70 dark:bg-cyan-950/20 dark:text-slate-50";
                           const itemAccentClass = siteNeedsReview
                             ? "border-l-red-400"
                             : siteHasNoItems
@@ -16791,15 +16852,13 @@ export default function AuftraegePage() {
                                           </span>
                                         )}
                                       </div>
-                                      {groupReviewBadges.length > 0 && (
-                                        <div className="mt-1 flex flex-wrap justify-start gap-1">
-                                          {groupReviewBadges.map((badge) =>
-                                            renderReviewBadge(
-                                              badge,
-                                              "px-2 py-0.5 text-[10px] font-semibold",
-                                            ),
-                                          )}
-                                        </div>
+                                      {groupReviewRowsV17_90L134.length > 0 && (
+                                        <span className="group/site-review relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                                          Leistungen prüfen · {groupReviewRowsV17_90L134.length}
+                                          <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[60vh] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap rounded-xl border border-amber-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl group-hover/site-review:block">
+                                            {groupReviewRowsV17_90L134.join("\n\n")}
+                                          </span>
+                                        </span>
                                       )}
                                       <div className="mt-0.5 text-xs text-muted-foreground">
                                         {site
@@ -17043,7 +17102,7 @@ export default function AuftraegePage() {
                                                   : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
                                               }`}
                                             >
-                                              Prüfen
+                                              {itemReviewReasonV17_90L134}
                                             </span>
                                           )}
                                         </div>
