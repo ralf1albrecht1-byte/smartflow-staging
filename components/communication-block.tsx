@@ -248,6 +248,23 @@ export interface CommunicationData {
   contactPhone?: string | null;
   /** Canonical structured contact/communication context for list chips. */
   communicationContext?: string | null;
+  id?: string | null;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  sitePlz?: string | null;
+  siteCity?: string | null;
+  originOrderIds?: string[] | null;
+  reviewReasons?: string[] | null;
+  workSites?: Array<{
+    id?: string | null;
+    siteName?: string | null;
+    siteAddress?: string | null;
+    sitePlz?: string | null;
+    siteCity?: string | null;
+    sourceOrderId?: string | null;
+    isPrimary?: boolean | null;
+    sortOrder?: number | null;
+  }> | null;
   // Hint level
   hinweisLevel?: string | null;
   needsReview?: boolean;
@@ -634,9 +651,7 @@ function extractOperationalContactV17_90L85(
     ? Math.min(scoped.length, identityCandidate.end + 220)
     : Math.min(scoped.length, 300);
   const context = scoped.slice(0, contextEnd);
-  const hasSms = /\b(?:sms|text\s+message|kurznachricht)\b/i.test(context);
-  const hasWhatsapp = /\bwhats\s*app|\bwhatsapp\b/i.test(context);
-  const hasMail = /\b(?:e\s*mail|e-mail|email|mail|courriel)\b/i.test(context);
+  const contextLines = splitCommunicationSourceLines(context);
   const noCall =
     /\b(?:nicht\s+(?:telefonisch\s+)?anrufen|nicht\s+telefonisch|keine(?:n)?\s+anrufe?|do\s+not\s+call|don['’]?t\s+call|no\s+calls?|ne\s+pas\s+appeler|non\s+chiamare)\b/i.test(
       context,
@@ -644,20 +659,24 @@ function extractOperationalContactV17_90L85(
   const hasCall = /\b(?:anrufen|telefonieren|call|phone\s+call)\b/i.test(
     context,
   );
+  const explicitChannel = detectExplicitPreferredChannel(context);
+  const preferredChannel =
+    explicitChannel ||
+    (["mail", "sms", "whatsapp"] as CommunicationChannel[]).find((channel) =>
+      contextLines.some((line) => linePrefersChannel(line, channel)),
+    ) ||
+    (["mail", "sms", "whatsapp"] as CommunicationChannel[]).find(
+      (channel) =>
+        contextLines.some((line) => lineMentionsChannel(line, channel)) &&
+        !contextLines.some((line) => lineForbidsChannel(line, channel)),
+    ) ||
+    null;
 
   return {
     phone,
     email,
     name,
-    channel: hasSms
-      ? "sms"
-      : hasWhatsapp
-        ? "whatsapp"
-        : hasMail
-          ? "mail"
-          : hasCall && !noCall
-            ? "call"
-            : null,
+    channel: preferredChannel || (hasCall && !noCall ? "call" : null),
     noCall,
   };
 }
@@ -881,21 +900,287 @@ function isPrimaryCommunicationInfoLine(value: string): boolean {
   );
 }
 
+
+type ExplicitPreferredChannel = CommunicationChannel | null;
+
+function detectExplicitPreferredChannel(value: string | null | undefined): ExplicitPreferredChannel {
+  const lines = splitCommunicationSourceLines(String(value || ''));
+  const exclusiveToken = '(?:ausschliesslich|ausschließlich|ausschliesslich|exklusiv|nur|only|exclusively)';
+  const contactToken = '(?:kontakt|kontaktieren|melden|schreiben|senden|schicken|erreichbar|kommunikation|rueckmeldung|rückmeldung)?';
+
+  for (const rawLine of lines) {
+    const line = normalizeCommunicationPreferenceText(rawLine);
+    if (!line) continue;
+    const candidates: Array<[CommunicationChannel, string]> = [
+      ['mail', channelPatternSource('mail')],
+      ['whatsapp', channelPatternSource('whatsapp')],
+      ['sms', channelPatternSource('sms')],
+    ];
+    for (const [channel, source] of candidates) {
+      const patterns = [
+        new RegExp(`\\b${exclusiveToken}\\s+(?:${contactToken}\\s+)?(?:per|via|ueber|uber|mit)?\\s*(?:${source})\\b`, 'i'),
+        new RegExp(`\\b(?:${source})\\b(?:[-/\\s]+[a-z0-9]+){0,8}[-/\\s]+${exclusiveToken}\\b`, 'i'),
+        new RegExp(`\\b${exclusiveToken}\\s+(?:${source})[-/\\s]*(?:kontakt|nachricht|kommunikation)?\\b`, 'i'),
+      ];
+      if (patterns.some((pattern) => pattern.test(line)) && !lineForbidsChannel(line, channel)) {
+        return channel;
+      }
+    }
+  }
+  return null;
+}
+
+function splitMergedCommunicationChunks(value: string): string[] {
+  const source = String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!source) return [];
+  const chunks = source
+    .split(/\n\s*(?:-{3,}|={3,}|Zusammengef(?:ü|ue)hrt|Ursprungsauftrag|Quellauftrag|Nachricht\s+\d+)\s*\n/gi)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+  return chunks.length > 1 ? chunks : [source];
+}
+
+export type MergedContactReviewEntry = {
+  siteLabel: string;
+  contactName: string;
+  contactValue: string;
+  channelLabel: string;
+  detail: string;
+};
+
+export type CustomerMessageReviewBlock = {
+  title: string;
+  message: string;
+  transcript: string;
+};
+
+function splitMessageByExecutionSites(
+  source: string,
+  sites: NonNullable<CommunicationData["workSites"]>,
+): Array<{ title: string; message: string }> {
+  const raw = String(source || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!raw) return [];
+  const sortedSites = [...sites].sort(
+    (a, b) =>
+      Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+      Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+  );
+  if (sortedSites.length <= 1) {
+    return [{
+      title: String(sortedSites[0]?.siteName || sortedSites[0]?.siteAddress || "Kundennachricht").trim(),
+      message: raw,
+    }];
+  }
+
+  const explicitChunks = splitMergedCommunicationChunks(raw);
+  if (explicitChunks.length > 1) {
+    return explicitChunks.map((chunk, index) => ({
+      title: String(
+        sortedSites[index]?.siteName ||
+          sortedSites[index]?.siteAddress ||
+          `Quellauftrag ${index + 1}`,
+      ).trim(),
+      message: chunk,
+    }));
+  }
+
+  const lines = raw.split("\n");
+  const starts: Array<{ index: number; siteIndex: number }> = [];
+  sortedSites.forEach((site, siteIndex) => {
+    const labels = [site?.siteName, site?.siteAddress]
+      .map((value) => normalizeCommunicationPreferenceText(value))
+      .filter((value) => value.length >= 4);
+    if (labels.length === 0) return;
+    const lineIndex = lines.findIndex((line) => {
+      const key = normalizeCommunicationPreferenceText(line);
+      return labels.some((label) => key.includes(label));
+    });
+    if (lineIndex >= 0) starts.push({ index: lineIndex, siteIndex });
+  });
+
+  const uniqueStarts = starts
+    .sort((a, b) => a.index - b.index)
+    .filter((entry, index, list) => index === 0 || entry.index !== list[index - 1].index);
+  if (uniqueStarts.length >= 2) {
+    const prefix = lines.slice(0, uniqueStarts[0].index).join("\n").trim();
+    return uniqueStarts.map((entry, index) => {
+      const end = uniqueStarts[index + 1]?.index ?? lines.length;
+      let message = lines.slice(entry.index, end).join("\n").trim();
+      if (index === 0 && prefix) message = `${prefix}\n\n${message}`;
+      const site = sortedSites[entry.siteIndex];
+      return {
+        title: String(site?.siteName || site?.siteAddress || `Quellauftrag ${index + 1}`).trim(),
+        message,
+      };
+    });
+  }
+
+  return [{
+    title: String(sortedSites[0]?.siteName || sortedSites[0]?.siteAddress || "Kundennachrichten").trim(),
+    message: raw,
+  }];
+}
+
+export function buildCustomerMessageReviewBlocks(
+  records: CommunicationData[] | null | undefined,
+): CustomerMessageReviewBlock[] {
+  const blocks: CustomerMessageReviewBlock[] = [];
+  (records || []).filter(Boolean).forEach((record, recordIndex) => {
+    const message = String(record.notes || "").trim();
+    const transcript = String(record.audioTranscript || "").trim();
+    const source = message || transcript;
+    if (!source) return;
+    const sites = Array.isArray(record.workSites) ? record.workSites : [];
+    const pieces = splitMessageByExecutionSites(source, sites);
+    pieces.forEach((piece, pieceIndex) => {
+      blocks.push({
+        title:
+          piece.title ||
+          String(record.siteName || record.siteAddress || `Quellauftrag ${recordIndex + 1}`).trim(),
+        message: piece.message,
+        transcript:
+          pieces.length === 1 && transcript && message && !message.includes(transcript)
+            ? transcript
+            : "",
+      });
+    });
+  });
+
+  const seen = new Set<string>();
+  return blocks.filter((block) => {
+    const key = `${normalizeCommunicationPreferenceText(block.title)}|${normalizeCommunicationPreferenceText(block.message)}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+
+function communicationSiteLabel(record: CommunicationData, index: number): string {
+  const sortedSites = Array.isArray(record.workSites)
+    ? [...record.workSites].sort(
+        (a, b) => Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) || Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+      )
+    : [];
+  const primary = sortedSites[0];
+  return String(primary?.siteName || record.siteName || record.siteAddress || `Auftrag ${index + 1}`).trim();
+}
+
+function communicationSourceForRecord(record: CommunicationData): string {
+  return [
+    record.notes,
+    record.audioTranscript,
+    record.communicationContext,
+    record.specialNotes,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function contactReviewEntryFromSource(
+  source: string,
+  siteLabel: string,
+  fallback?: CommunicationData,
+): MergedContactReviewEntry | null {
+  const parsed = parseNotesField(source);
+  const customerSource = [parsed.originalMessage, parsed.translation, source].filter(Boolean).join('\n');
+  const exclusive = detectExplicitPreferredChannel(customerSource);
+  const operational = extractOperationalContactV17_90L85(customerSource);
+  const email = operational.email || firstEmailFromText(customerSource) || fallback?.email || fallback?.customer?.email || '';
+  const phone = operational.phone || getContactPhone(fallback || {}, customerSource);
+  const name = sanitizeContactDisplayName(operational.name) || sanitizeContactDisplayName(fallback?.customer?.name) || 'Kontakt';
+  const lines = splitCommunicationSourceLines(customerSource);
+  const preferred = exclusive || operational.channel ||
+    (lines.some((line) => linePrefersChannel(line, 'mail')) ? 'mail' :
+      lines.some((line) => linePrefersChannel(line, 'sms')) ? 'sms' :
+        lines.some((line) => linePrefersChannel(line, 'whatsapp')) ? 'whatsapp' : null);
+  const channelLabel = preferred === 'mail' ? 'E-Mail' : preferred === 'sms' ? 'SMS' : preferred === 'whatsapp' ? 'WhatsApp' : operational.noCall ? 'Keine Anrufe' : 'Kontakt';
+  const value = preferred === 'mail' ? email : phone || email;
+  if (!value && !preferred) return null;
+  const noCall = lines.some((line) => /\b(?:nicht|keine|kein)\s+(?:telefonisch\s+)?(?:anrufen|anrufe|telefon|telefonieren)|\bno\s+calls?\b/i.test(line));
+  const timeHint = preferred ? getChannelContactTimeHint(preferred, customerSource) : '';
+  const detail = [channelLabel, timeHint, noCall && preferred !== 'mail' ? 'keine Anrufe' : ''].filter(Boolean).join(' · ');
+  return {
+    siteLabel,
+    contactName: name,
+    contactValue: value || 'Kontaktdaten prüfen',
+    channelLabel,
+    detail,
+  };
+}
+
+export function buildMergedContactReviewEntries(records: CommunicationData[] | null | undefined): MergedContactReviewEntry[] {
+  const sourceRecords = (records || []).filter(Boolean);
+  if (sourceRecords.length === 0) return [];
+  const entries: MergedContactReviewEntry[] = [];
+
+  sourceRecords.forEach((record, recordIndex) => {
+    const source = communicationSourceForRecord(record);
+    const sites = Array.isArray(record.workSites) && record.workSites.length > 0
+      ? [...record.workSites].sort(
+          (a, b) => Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) || Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+        )
+      : [];
+
+    if (sites.length > 1) {
+      const messageParts = splitMessageByExecutionSites(source, sites);
+      messageParts.forEach((part, siteIndex) => {
+        const site = sites[siteIndex];
+        const label = String(
+          part.title ||
+            site?.siteName ||
+            site?.siteAddress ||
+            `Arbeitsort ${siteIndex + 1}`,
+        ).trim();
+        const entry = contactReviewEntryFromSource(part.message, label, record);
+        if (entry) entries.push(entry);
+      });
+      return;
+    }
+
+    const entry = contactReviewEntryFromSource(source, communicationSiteLabel(record, recordIndex), record);
+    if (entry) entries.push(entry);
+  });
+
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const key = [entry.siteLabel, entry.contactValue, entry.channelLabel].map(normalizeCommunicationPreferenceText).join('|');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function formatMergedContactReviewTooltip(records: CommunicationData[] | null | undefined): string {
+  const entries = buildMergedContactReviewEntries(records);
+  if (entries.length === 0) return 'Mehrere Telefonnummern, Termine oder Kontaktwege erkannt. Bitte kontrollieren.';
+  return [
+    'Kontakte prüfen',
+    ...entries.flatMap((entry, index) => [
+      ...(index > 0 ? ['---'] : []),
+      entry.siteLabel,
+      `${entry.contactName} · ${entry.contactValue}`,
+      entry.detail || entry.channelLabel,
+    ]),
+  ].join('\n');
+}
+
 function detectCommunicationPreferenceChips(
   data: CommunicationData,
   parsed: ParsedNotes,
 ): CommunicationPreferenceChip[] {
-  const rawSource = [
-    data.communicationContext,
-    data.specialNotes,
-    // Keep the complete stored customer message available as a direct source.
-    // parseNotesField can intentionally return only metadata for some legacy
-    // or concatenated notes, which previously removed the on-site contact from
-    // SMS/WhatsApp detection and forced a fallback to the office number.
+  const customerSource = [
     data.notes,
     parsed.translation,
     parsed.originalMessage,
     data.audioTranscript,
+    data.communicationContext,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const rawSource = [
+    customerSource,
+    data.specialNotes,
     data.customer?.email,
     data.contactPhone,
     data.customer?.phone,
@@ -909,33 +1194,42 @@ function detectCommunicationPreferenceChips(
 
   if (!source) return [];
 
-  const operational = extractOperationalContactV17_90L85(rawSource);
-  const email = operational.email || getContactEmail(data, rawSource);
-  const phone = operational.phone || getContactPhone(data, rawSource);
+  // A clear instruction in the original customer message always wins over
+  // derived/legacy specialNotes. This prevents "keine SMS und kein WhatsApp"
+  // from being inverted into a WhatsApp chip when the request is "nur E-Mail".
+  const exclusiveChannel = detectExplicitPreferredChannel(customerSource);
+  const operational = extractOperationalContactV17_90L85(customerSource || rawSource);
+  const email = operational.email || getContactEmail(data, customerSource || rawSource);
+  const phone = operational.phone || getContactPhone(data, customerSource || rawSource);
   const contactName =
     sanitizeContactDisplayName(operational.name) ||
     sanitizeContactDisplayName(data.customer?.name) ||
     'Kunde';
 
-  const lines = splitCommunicationSourceLines(rawSource);
+  const preferenceLines = splitCommunicationSourceLines(customerSource || rawSource);
+  const allLines = splitCommunicationSourceLines(rawSource);
   const channelIsForbidden = (channel: CommunicationChannel) =>
-    lines.some((line) => lineForbidsChannel(line, channel));
+    preferenceLines.some((line) => lineForbidsChannel(line, channel)) ||
+    (!exclusiveChannel && allLines.some((line) => lineForbidsChannel(line, channel)));
   const channelIsPreferred = (channel: CommunicationChannel) =>
-    lines.some((line) => linePrefersChannel(line, channel));
+    preferenceLines.some((line) => linePrefersChannel(line, channel));
 
-  const mailTime = getChannelContactTimeHint('mail', rawSource);
-  const whatsappTime = getChannelContactTimeHint('whatsapp', rawSource);
-  const smsTime = getChannelContactTimeHint('sms', rawSource);
+  const mailTime = getChannelContactTimeHint('mail', customerSource || rawSource);
+  const whatsappTime = getChannelContactTimeHint('whatsapp', customerSource || rawSource);
+  const smsTime = getChannelContactTimeHint('sms', customerSource || rawSource);
 
-  const mail =
-    !channelIsForbidden('mail') &&
-    (operational.channel === 'mail' || channelIsPreferred('mail') || Boolean(mailTime));
-  const whatsapp =
-    !channelIsForbidden('whatsapp') &&
-    (operational.channel === 'whatsapp' || channelIsPreferred('whatsapp') || Boolean(whatsappTime));
-  const sms =
-    !channelIsForbidden('sms') &&
-    (operational.channel === 'sms' || channelIsPreferred('sms') || Boolean(smsTime));
+  const mail = exclusiveChannel
+    ? exclusiveChannel === 'mail'
+    : !channelIsForbidden('mail') &&
+      (operational.channel === 'mail' || channelIsPreferred('mail') || Boolean(mailTime));
+  const whatsapp = exclusiveChannel
+    ? exclusiveChannel === 'whatsapp'
+    : !channelIsForbidden('whatsapp') &&
+      (operational.channel === 'whatsapp' || channelIsPreferred('whatsapp') || Boolean(whatsappTime));
+  const sms = exclusiveChannel
+    ? exclusiveChannel === 'sms'
+    : !channelIsForbidden('sms') &&
+      (operational.channel === 'sms' || channelIsPreferred('sms') || Boolean(smsTime));
 
   const chips: CommunicationPreferenceChip[] = [];
 

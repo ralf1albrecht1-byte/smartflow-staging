@@ -29,6 +29,9 @@ import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
   CommunicationBlock,
   CommunicationChips,
+  buildCustomerMessageReviewBlocks,
+  buildMergedContactReviewEntries,
+  formatMergedContactReviewTooltip,
   resolveCommunicationData,
   stripForwardedMessage,
   type CommunicationData,
@@ -118,6 +121,8 @@ interface Offer {
   items: any[];
   orders?: {
     id: string;
+    originOrderIds?: string[] | null;
+    reviewReasons?: string[] | null;
     createdAt?: string | null;
     date?: string | null;
     description?: string | null;
@@ -275,6 +280,66 @@ function collectOfferExecutionSites(offer: Offer): OfferExecutionSite[] {
   return sites;
 }
 
+
+type OfferItemGroup = {
+  key: string;
+  site: OfferExecutionSite | null;
+  entries: Array<{ item: OfferItem; index: number }>;
+  subtotal: number;
+};
+
+function groupOfferItemsByExecutionSite(
+  sourceItems: OfferItem[],
+  sites: OfferExecutionSite[] = [],
+): OfferItemGroup[] {
+  const groups = new Map<string, OfferItemGroup>();
+  const normalizedSites = sites.filter(Boolean);
+  sourceItems.forEach((item, index) => {
+    const matchedSite =
+      normalizedSites.find((site) => offerSiteKey(site) === offerSiteKey(item)) ||
+      (item.sourceOrderId
+        ? normalizedSites.find((site) => site.sourceOrderId === item.sourceOrderId)
+        : undefined) ||
+      (normalizedSites.length === 1 ? normalizedSites[0] : null);
+    const key = matchedSite
+      ? `${matchedSite.sourceOrderId || ''}|${offerSiteKey(matchedSite)}`
+      : `${item.sourceOrderId || ''}|${offerSiteKey(item) || 'general'}`;
+    const site = matchedSite ||
+      (item.siteName || item.siteAddress || item.sitePlz || item.siteCity
+        ? {
+            siteName: item.siteName || null,
+            siteAddress: item.siteAddress || null,
+            sitePlz: item.sitePlz || null,
+            siteCity: item.siteCity || null,
+            siteNote: item.siteNote || null,
+            sourceOrderId: item.sourceOrderId || null,
+          }
+        : null);
+    const lineTotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+    const group = groups.get(key) || { key, site, entries: [], subtotal: 0 };
+    group.entries.push({ item, index });
+    group.subtotal += Number.isFinite(lineTotal) ? lineTotal : 0;
+    groups.set(key, group);
+  });
+  return Array.from(groups.values());
+}
+
+function getOfferMergedCount(offer: Offer): number {
+  const orderCount = Array.isArray(offer.orders) ? offer.orders.length : 0;
+  const originCount = Math.max(
+    0,
+    ...(offer.orders || []).map((order) =>
+      Array.isArray(order.originOrderIds) ? order.originOrderIds.filter(Boolean).length : 0,
+    ),
+  );
+  const hasMergeReason = (offer.orders || []).some((order) =>
+    (order.reviewReasons || []).some((reason) =>
+      ['manual_order_merge', 'double_merge'].includes(String(reason || '')),
+    ),
+  );
+  return Math.max(orderCount, originCount, hasMergeReason ? 2 : 0);
+}
+
 function getOfferValidDays(offer: Offer) {
   const start = offer.offerDate ? new Date(offer.offerDate) : null;
   const end = offer.validUntil ? new Date(offer.validUntil) : null;
@@ -360,12 +425,12 @@ function applyExecutionSitesToOfferItems(
   return sourceItems.map((item) => {
     const currentKey = offerSiteKey(item);
     const site =
+      cleanSites.find((candidate) => offerSiteKey(candidate) === currentKey) ||
       (item.sourceOrderId
         ? cleanSites.find(
             (candidate) => candidate.sourceOrderId === item.sourceOrderId,
           )
         : undefined) ||
-      cleanSites.find((candidate) => offerSiteKey(candidate) === currentKey) ||
       (cleanSites.length === 1 ? cleanSites[0] : undefined);
 
     if (!site) return item;
@@ -2094,6 +2159,10 @@ export default function AngebotePage() {
     description?: string | null;
   } | null>(null);
 
+  const [linkedOrderMessages, setLinkedOrderMessages] = useState<
+    CommunicationData[]
+  >([]);
+
   const [executionSites, setExecutionSites] = useState<OfferExecutionSite[]>(
     [],
   );
@@ -2681,6 +2750,9 @@ export default function AngebotePage() {
   const linkedSafetyWarnings = linkedInfoSummary.safety;
   const linkedPrimaryHints = linkedInfoSummary.primary;
   const linkedJobHints = linkedInfoSummary.additional;
+  const linkedCustomerMessageBlocks = buildCustomerMessageReviewBlocks(
+    linkedOrderMessages,
+  );
 
   const updateExecutionSite = (
     index: number,
@@ -2815,6 +2887,7 @@ export default function AngebotePage() {
     );
     // Set linked order data for Original-Nachricht / Besonderheiten
     const lo = off.orders?.[0];
+    setLinkedOrderMessages(((off.orders || []) as unknown) as CommunicationData[]);
     const offerExecutionSites = collectOfferExecutionSites(off);
     const singleExecutionSite =
       offerExecutionSites.length === 1 ? offerExecutionSites[0] : null;
@@ -2977,6 +3050,7 @@ export default function AngebotePage() {
     });
     setItems([getEmptyItem()]);
     setLinkedOrderData(null);
+    setLinkedOrderMessages([]);
     setExecutionSites([]);
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
@@ -3845,6 +3919,15 @@ export default function AngebotePage() {
                   const orderCtx = resolveCommunicationData(null, off.orders);
                   const offerExecutionSites = collectOfferExecutionSites(off);
                   const primaryExecutionSite = offerExecutionSites[0] || null;
+                  const mergedCount = getOfferMergedCount(off);
+                  const mergedContactEntries = buildMergedContactReviewEntries(
+                    (off.orders || []) as any,
+                  );
+                  const mergedContactTooltip = formatMergedContactReviewTooltip(
+                    (off.orders || []) as any,
+                  );
+                  const hasMergedContactReview =
+                    mergedCount > 1 && mergedContactEntries.length > 1;
                   const parsedOfferNotes = splitSpecialNotes(
                     orderCtx.specialNotes,
                   );
@@ -4037,6 +4120,16 @@ export default function AngebotePage() {
                                       ({cardCustomerNumber})
                                     </span>
                                   )}
+                                  {mergedCount > 1 && (
+                                    <span className="shrink-0 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                                      Zusammengeführt · {mergedCount}
+                                    </span>
+                                  )}
+                                  {offerExecutionSites.length > 1 && (
+                                    <span className="shrink-0 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800">
+                                      Ausführungsorte · {offerExecutionSites.length}
+                                    </span>
+                                  )}
                                   {primaryExecutionSite && (
                                     <button
                                       type="button"
@@ -4163,7 +4256,19 @@ export default function AngebotePage() {
                                       );
                                     }}
                                   >
-                                    <CommunicationChips
+                                    {hasMergedContactReview ? (
+                                      <button
+                                        type="button"
+                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700"
+                                        aria-label={mergedContactTooltip}
+                                      >
+                                        <AlertTriangle className="h-4 w-4" />
+                                        {!useTouchChipPopovers && (
+                                        <OfferPlainTooltip text={mergedContactTooltip} />
+                                      )}
+                                      </button>
+                                    ) : (
+                                      <CommunicationChips
                                       data={contactChipData}
                                       compact
                                       onAudioClick={() =>
@@ -4178,9 +4283,10 @@ export default function AngebotePage() {
                                           openMedia(orderCtx.mediaUrl, "image");
                                       }}
                                     />
+                                    )}
                                   </div>
 
-                                  {callbackChip &&
+                                  {!hasMergedContactReview && callbackChip &&
                                     (callbackChip.href ? (
                                       <a
                                         href={callbackChip.href}
@@ -4466,6 +4572,16 @@ export default function AngebotePage() {
                                         ({cardCustomerNumber})
                                       </span>
                                     )}
+                                    {mergedCount > 1 && (
+                                      <span className="shrink-0 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                                        Zusammengeführt · {mergedCount}
+                                      </span>
+                                    )}
+                                    {offerExecutionSites.length > 1 && (
+                                      <span className="shrink-0 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800">
+                                        Ausführungsorte · {offerExecutionSites.length}
+                                      </span>
+                                    )}
                                     {off?.offerNumber && (
                                       <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
                                         {off.offerNumber}
@@ -4573,7 +4689,17 @@ export default function AngebotePage() {
                                         openOfferSection(off, "details", detail);
                                       }}
                                     >
-                                      <CommunicationChips
+                                      {hasMergedContactReview ? (
+                                        <button
+                                          type="button"
+                                          className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 outline-none hover:bg-emerald-100 focus:ring-2 focus:ring-emerald-300"
+                                          aria-label={mergedContactTooltip}
+                                        >
+                                          <AlertTriangle className="h-4 w-4" />
+                                          <OfferPlainTooltip text={mergedContactTooltip} />
+                                        </button>
+                                      ) : (
+                                        <CommunicationChips
                                         data={contactChipData}
                                         compact
                                         onAudioClick={() =>
@@ -4588,9 +4714,10 @@ export default function AngebotePage() {
                                             openMedia(orderCtx.mediaUrl, "image");
                                         }}
                                       />
+                                      )}
                                     </div>
 
-                                    {callbackChip &&
+                                    {!hasMergedContactReview && callbackChip &&
                                       (callbackChip.href ? (
                                         <a
                                           href={callbackChip.href}
@@ -5440,7 +5567,12 @@ export default function AngebotePage() {
                     </div>
 
                     <div className="space-y-2">
-                      {items?.map((item: OfferItem, idx: number) => {
+                      {(() => {
+                        const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
+                        const renderEntries = (
+                          entries: Array<{ item: OfferItem; index: number }>,
+                        ) =>
+                          entries.map(({ item, index: idx }) => {
                         const lineTotal =
                           Number(item?.unitPrice ?? 0) *
                           Number(item?.quantity ?? 0);
@@ -5740,7 +5872,44 @@ export default function AngebotePage() {
                             )}
                           </div>
                         );
-                      }) ?? []}
+                                                });
+
+                        if (groups.length <= 1) {
+                          return renderEntries(groups[0]?.entries || []);
+                        }
+
+                        return groups.map((group, groupIndex) => (
+                          <details
+                            key={group.key}
+                            open
+                            className="overflow-visible rounded-xl border-2 border-slate-300 bg-slate-50/50"
+                          >
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-slate-200 bg-white px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold">
+                                  📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                                </div>
+                                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                  {[group.site?.siteAddress, [group.site?.sitePlz, group.site?.siteCity].filter(Boolean).join(" ")]
+                                    .filter(Boolean)
+                                    .join(" · ") || "Adresse nicht angegeben"}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <div className="text-[10px] text-muted-foreground">
+                                  {group.entries.length} Leistungen
+                                </div>
+                                <div className="font-mono text-sm font-bold text-emerald-700">
+                                  {formatCurrency(group.subtotal, currency)}
+                                </div>
+                              </div>
+                            </summary>
+                            <div className="space-y-2 p-2">
+                              {renderEntries(group.entries)}
+                            </div>
+                          </details>
+                        ));
+                      })()}
                     </div>
                   </div>
 
@@ -6094,14 +6263,46 @@ export default function AngebotePage() {
                       )}
                     </div>
 
-                    {linkedOrderData && (
+                    {linkedCustomerMessageBlocks.length > 1 ? (
+                      <details className="rounded-xl border bg-muted/10" open>
+                        <summary className="cursor-pointer list-none px-3 py-2 font-semibold [&::-webkit-details-marker]:hidden">
+                          Kundennachrichten · {linkedCustomerMessageBlocks.length}
+                        </summary>
+                        <div className="max-h-[32rem] space-y-3 overflow-y-auto border-t p-3">
+                          {linkedCustomerMessageBlocks.map((message, messageIndex) => (
+                            <div
+                              key={`${message.title}-${messageIndex}`}
+                              className="rounded-lg border bg-background p-3"
+                            >
+                              <div className="mb-2 font-semibold text-sky-800">
+                                {messageIndex + 1}. {message.title}
+                              </div>
+                              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
+                                {message.message}
+                              </pre>
+                              {message.transcript &&
+                                !message.message.includes(message.transcript) && (
+                                  <div className="mt-3 border-t pt-2">
+                                    <div className="mb-1 text-xs font-semibold text-muted-foreground">
+                                      Transkription
+                                    </div>
+                                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
+                                      {message.transcript}
+                                    </pre>
+                                  </div>
+                                )}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    ) : linkedOrderData ? (
                       <CommunicationBlock
                         data={linkedOrderData}
                         showChips={false}
                         showSpecialNotes={false}
                         showCustomerMessage
                       />
-                    )}
+                    ) : null}
                   </div>
                 </>
               )}

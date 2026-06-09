@@ -232,6 +232,128 @@ function validateDocumentItems(items: any[]) {
     : null;
 }
 
+
+const compactInvoiceRouteText = (value: unknown) =>
+  String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+function getPrimarySourceOrderSiteForInvoice(order: any) {
+  const workSites = Array.isArray(order?.workSites)
+    ? [...order.workSites].sort(
+        (a: any, b: any) =>
+          Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+          Number(a?.sortOrder ?? 0) - Number(b?.sortOrder ?? 0),
+      )
+    : [];
+  const primary = workSites[0] || null;
+  const site = {
+    siteName: compactInvoiceRouteText(primary?.siteName || order?.siteName) || null,
+    siteAddress: compactInvoiceRouteText(primary?.siteAddress || order?.siteAddress) || null,
+    sitePlz: compactInvoiceRouteText(primary?.sitePlz || order?.sitePlz) || null,
+    siteCity: compactInvoiceRouteText(primary?.siteCity || order?.siteCity) || null,
+    siteNote: compactInvoiceRouteText(primary?.siteNote || order?.siteNote) || null,
+    sourceOrderId: primary?.sourceOrderId || order?.id || null,
+  };
+  return site.siteName || site.siteAddress || site.sitePlz || site.siteCity || site.siteNote
+    ? site
+    : null;
+}
+
+async function loadSourceOrdersForInvoiceCreation(
+  userId: string,
+  dataScope: DataScope,
+  orderIds: unknown,
+) {
+  const ids = Array.isArray(orderIds)
+    ? Array.from(new Set(orderIds.map((id) => String(id || "").trim()).filter(Boolean)))
+    : [];
+  if (ids.length === 0) return [];
+  return prisma.order.findMany({
+    where: { id: { in: ids }, userId, dataScope, deletedAt: null },
+    include: {
+      workSites: true,
+      items: { include: { workSite: true } },
+    },
+  });
+}
+
+const normalizeInvoiceItemMatchText = (value: unknown) =>
+  compactInvoiceRouteText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function findMatchingInvoiceSourceOrderItem(
+  order: any,
+  item: any,
+  index: number,
+  totalItems: number,
+) {
+  const sourceItems = Array.isArray(order?.items) ? order.items : [];
+  if (sourceItems.length === 0) return null;
+  const descriptionKey = normalizeInvoiceItemMatchText(item?.description);
+  const quantity = Number(item?.quantity ?? 0);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const exact = sourceItems.find((sourceItem: any) => {
+    const sourceKey = normalizeInvoiceItemMatchText(
+      sourceItem?.serviceName || sourceItem?.description,
+    );
+    return (
+      sourceKey === descriptionKey &&
+      Number(sourceItem?.quantity ?? 0) === quantity &&
+      Number(sourceItem?.unitPrice ?? 0) === unitPrice
+    );
+  });
+  if (exact) return exact;
+  const numericMatches = sourceItems.filter(
+    (sourceItem: any) =>
+      Number(sourceItem?.quantity ?? 0) === quantity &&
+      Number(sourceItem?.unitPrice ?? 0) === unitPrice,
+  );
+  if (numericMatches.length === 1) return numericMatches[0];
+  return sourceItems.length === totalItems ? sourceItems[index] || null : null;
+}
+
+function enrichInvoiceItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
+  const byId = new Map(sourceOrders.map((order: any) => [String(order.id), order]));
+  const singleOrder = sourceOrders.length === 1 ? sourceOrders[0] : null;
+  return items.map((item: any, index: number) => {
+    const explicitOrderId = compactInvoiceRouteText(item?.sourceOrderId);
+    const sourceOrder = (explicitOrderId ? byId.get(explicitOrderId) : null) || singleOrder;
+    const sourceItem = sourceOrder
+      ? findMatchingInvoiceSourceOrderItem(sourceOrder, item, index, items.length)
+      : null;
+    const sourceSite = sourceItem?.workSite
+      ? {
+          siteName: compactInvoiceRouteText(sourceItem.workSite.siteName) || null,
+          siteAddress: compactInvoiceRouteText(sourceItem.workSite.siteAddress) || null,
+          sitePlz: compactInvoiceRouteText(sourceItem.workSite.sitePlz) || null,
+          siteCity: compactInvoiceRouteText(sourceItem.workSite.siteCity) || null,
+          siteNote: compactInvoiceRouteText(sourceItem.workSite.siteNote) || null,
+          sourceOrderId: sourceItem.workSite.sourceOrderId || sourceOrder?.id || null,
+        }
+      : sourceOrder
+        ? getPrimarySourceOrderSiteForInvoice(sourceOrder)
+        : null;
+    return {
+      ...item,
+      siteName: compactInvoiceRouteText(item?.siteName) || sourceSite?.siteName || null,
+      siteAddress: compactInvoiceRouteText(item?.siteAddress) || sourceSite?.siteAddress || null,
+      sitePlz: compactInvoiceRouteText(item?.sitePlz) || sourceSite?.sitePlz || null,
+      siteCity: compactInvoiceRouteText(item?.siteCity) || sourceSite?.siteCity || null,
+      siteNote: compactInvoiceRouteText(item?.siteNote) || sourceSite?.siteNote || null,
+      sourceOrderId: explicitOrderId || sourceSite?.sourceOrderId || sourceOrder?.id || null,
+    };
+  });
+}
+
 export async function GET(request: Request) {
   let userId: string;
   try {
@@ -255,6 +377,8 @@ export async function GET(request: Request) {
           where: { dataScope },
           select: {
             id: true,
+            originOrderIds: true,
+            reviewReasons: true,
             createdAt: true,
             date: true,
             mediaUrl: true,
@@ -269,6 +393,28 @@ export async function GET(request: Request) {
             needsReview: true,
             hinweisLevel: true,
             description: true,
+            siteAddressDifferent: true,
+            siteName: true,
+            siteAddress: true,
+            sitePlz: true,
+            siteCity: true,
+            siteNote: true,
+            customer: {
+              select: { name: true, phone: true, email: true },
+            },
+            workSites: {
+              select: {
+                id: true,
+                siteName: true,
+                siteAddress: true,
+                sitePlz: true,
+                siteCity: true,
+                siteNote: true,
+                isPrimary: true,
+                sortOrder: true,
+                sourceOrderId: true,
+              },
+            },
           },
         },
       },
@@ -336,7 +482,15 @@ export async function POST(request: Request) {
         else if (settings && !settings.mwstAktiv) vatRate = 0;
       } catch {}
     }
-    const items = data?.items ?? [];
+    const sourceOrders = await loadSourceOrdersForInvoiceCreation(
+      userId,
+      dataScope,
+      data?.orderIds,
+    );
+    const items = enrichInvoiceItemsFromSourceOrders(
+      data?.items ?? [],
+      sourceOrders,
+    );
     const { subtotal, vatAmount, total } = calculateDocumentTotals(
       items.map((item: any) => ({
         quantity: item?.quantity ?? 0,

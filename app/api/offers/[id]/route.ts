@@ -83,6 +83,16 @@ const offerOrderSelect = {
   sitePlz: true,
   siteCity: true,
   siteNote: true,
+  originOrderIds: true,
+  reviewReasons: true,
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      email: true,
+    },
+  },
   workSites: {
     select: {
       id: true,

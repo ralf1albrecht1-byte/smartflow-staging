@@ -37,7 +37,10 @@ import {
   X,
 } from "lucide-react";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
-import { CommunicationChips } from "@/components/communication-block";
+import {
+  CommunicationChips,
+  formatMergedContactReviewTooltip,
+} from "@/components/communication-block";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import {
   mergeCustomerIntoForm,
@@ -6671,8 +6674,7 @@ const getBottomBadges = (
       key: "merged_data_review",
       label: "Mehrere Daten prüfen",
       className: "bg-emerald-100 text-emerald-800 border border-emerald-300",
-      tooltip:
-        "Mehrere Telefonnummern, Termine oder Kontaktwege erkannt. Bitte in den Besonderheiten manuell prüfen.",
+      tooltip: formatMergedContactReviewTooltip([order as any]),
       focusTarget: "specialNotes",
     });
   }
@@ -13012,6 +13014,8 @@ export default function AuftraegePage() {
         sitePlz: i.workSite?.sitePlz || null,
         siteCity: i.workSite?.siteCity || null,
         siteNote: i.workSite?.siteNote || null,
+        sourceOrderId:
+          i.workSite?.sourceOrderId || i.sourceOrderId || saved.id || null,
       }));
 
       // Create offer via API — forward VAT from saved order
@@ -13068,7 +13072,9 @@ export default function AuftraegePage() {
       if (blockConversionIfUnsafe(saved, "Rechnung")) return;
       toast.success("Auftrag gespeichert");
 
-      const orderItems = mergeEquivalentOrderItems(
+      // Keep every saved position one-to-one. Equivalent rows can belong to
+      // different execution sites and must never be merged for an invoice.
+      const orderItems =
         saved.items && saved.items.length > 0
           ? saved.items
           : [
@@ -13079,8 +13085,7 @@ export default function AuftraegePage() {
                 unit: saved.priceType ?? "Stunde",
                 unitPrice: saved.unitPrice ?? 0,
               },
-            ],
-      );
+            ];
       const invoiceItems = orderItems.map((i: any) => ({
         description: i.serviceName || i.description || "",
         quantity: String(i.quantity ?? 1),
@@ -13091,6 +13096,8 @@ export default function AuftraegePage() {
         sitePlz: i.workSite?.sitePlz || null,
         siteCity: i.workSite?.siteCity || null,
         siteNote: i.workSite?.siteNote || null,
+        sourceOrderId:
+          i.workSite?.sourceOrderId || i.sourceOrderId || saved.id || null,
       }));
 
       // Forward VAT from saved order
@@ -13562,6 +13569,8 @@ export default function AuftraegePage() {
       sitePlz: i.workSite?.sitePlz || null,
       siteCity: i.workSite?.siteCity || null,
       siteNote: i.workSite?.siteNote || null,
+      sourceOrderId:
+        i.workSite?.sourceOrderId || i.sourceOrderId || sourceOrder.id || null,
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
     const fwdVatRate =
@@ -13607,7 +13616,9 @@ export default function AuftraegePage() {
     const sourceOrder = o;
 
     // Direct API create — no extra dialog
-    const orderItems = mergeEquivalentOrderItems(
+    // Keep every source position one-to-one. Equivalent rows can belong to
+    // different execution sites and must never be merged for an invoice.
+    const orderItems =
       sourceOrder.items && sourceOrder.items.length > 0
         ? sourceOrder.items
         : [
@@ -13619,13 +13630,19 @@ export default function AuftraegePage() {
               unit: sourceOrder.priceType ?? "Stunde",
               unitPrice: sourceOrder.unitPrice ?? 0,
             },
-          ],
-    );
+          ];
     const invoiceItems = orderItems.map((i: any) => ({
       description: i.serviceName || i.description || "",
       quantity: String(i.quantity ?? 1),
       unit: i.unit ?? "Stunde",
       unitPrice: String(i.unitPrice ?? 0),
+      siteName: i.workSite?.siteName || null,
+      siteAddress: i.workSite?.siteAddress || null,
+      sitePlz: i.workSite?.sitePlz || null,
+      siteCity: i.workSite?.siteCity || null,
+      siteNote: i.workSite?.siteNote || null,
+      sourceOrderId:
+        i.workSite?.sourceOrderId || i.sourceOrderId || sourceOrder.id || null,
     }));
     // Forward the Auftrag's saved VAT rate (falls back to default if legacy order has none)
     const fwdVatRate =

@@ -256,7 +256,7 @@ function getPrimarySourceOrderSite(order: any) {
     sitePlz: compactOfferText(primary?.sitePlz || order?.sitePlz) || null,
     siteCity: compactOfferText(primary?.siteCity || order?.siteCity) || null,
     siteNote: compactOfferText(primary?.siteNote || order?.siteNote) || null,
-    sourceOrderId: order?.id || null,
+    sourceOrderId: primary?.sourceOrderId || order?.id || null,
   };
 
   const hasSite = Boolean(
@@ -357,7 +357,7 @@ function enrichOfferItemsFromSourceOrders(items: any[], sourceOrders: any[]) {
           sitePlz: compactOfferText(sourceOrderItem.workSite.sitePlz) || null,
           siteCity: compactOfferText(sourceOrderItem.workSite.siteCity) || null,
           siteNote: compactOfferText(sourceOrderItem.workSite.siteNote) || null,
-          sourceOrderId: sourceOrder?.id || null,
+          sourceOrderId: sourceOrderItem.workSite.sourceOrderId || sourceOrder?.id || null,
         }
       : sourceOrder
         ? getPrimarySourceOrderSite(sourceOrder)
@@ -411,40 +411,8 @@ export async function GET() {
     }
 
     const dataScope = await getActiveDataScope(userId);
-
-    // V17.90L127: Bereits in eine aktive Rechnung umgewandelte Angebote
-    // bleiben fachlich erhalten, werden aber nicht mehr in der aktiven
-    // Angebotsliste angezeigt. Wird die Rechnung in den Papierkorb verschoben,
-    // kann das Angebot wieder erscheinen. Keine Status-/Archivlogik wird
-    // verändert.
-    const convertedOfferLinks = await prisma.invoice.findMany({
-      where: {
-        userId,
-        dataScope,
-        deletedAt: null,
-        sourceOfferId: { not: null },
-      },
-      select: { sourceOfferId: true },
-    });
-    const convertedOfferIds = Array.from(
-      new Set(
-        convertedOfferLinks
-          .map((entry: any) => entry?.sourceOfferId)
-          .filter((value: unknown): value is string =>
-            typeof value === "string" && value.length > 0,
-          ),
-      ),
-    );
-
     const offers = await prisma.offer.findMany({
-      where: {
-        deletedAt: null,
-        userId,
-        dataScope,
-        ...(convertedOfferIds.length > 0
-          ? { id: { notIn: convertedOfferIds } }
-          : {}),
-      },
+      where: { deletedAt: null, userId, dataScope },
       orderBy: { offerDate: "desc" },
       include: {
         customer: true,
@@ -453,6 +421,8 @@ export async function GET() {
           where: { dataScope },
           select: {
             id: true,
+            originOrderIds: true,
+            reviewReasons: true,
             createdAt: true,
             date: true,
             description: true,
@@ -473,6 +443,9 @@ export async function GET() {
             sitePlz: true,
             siteCity: true,
             siteNote: true,
+            customer: {
+              select: { name: true, phone: true, email: true },
+            },
             workSites: {
               select: {
                 id: true,
@@ -649,6 +622,8 @@ export async function POST(request: Request) {
           orders: {
             select: {
               id: true,
+              originOrderIds: true,
+              reviewReasons: true,
               createdAt: true,
               date: true,
               description: true,
@@ -669,6 +644,9 @@ export async function POST(request: Request) {
               sitePlz: true,
               siteCity: true,
               siteNote: true,
+              customer: {
+                select: { name: true, phone: true, email: true },
+              },
               workSites: {
                 select: {
                   id: true,

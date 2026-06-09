@@ -24,6 +24,9 @@ import {
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
   CommunicationChips,
+  buildCustomerMessageReviewBlocks,
+  buildMergedContactReviewEntries,
+  formatMergedContactReviewTooltip,
   resolveCommunicationData,
   stripForwardedMessage,
 } from "@/components/communication-block";
@@ -86,6 +89,8 @@ interface Invoice {
   items: any[];
   orders?: {
     id: string;
+    originOrderIds?: string[] | null;
+    reviewReasons?: string[] | null;
     createdAt?: string | null;
     date?: string | null;
     mediaUrl?: string | null;
@@ -106,6 +111,18 @@ interface Invoice {
     sitePlz?: string | null;
     siteCity?: string | null;
     siteNote?: string | null;
+    customer?: { name?: string | null; phone?: string | null; email?: string | null } | null;
+    workSites?: Array<{
+      id?: string | null;
+      siteName?: string | null;
+      siteAddress?: string | null;
+      sitePlz?: string | null;
+      siteCity?: string | null;
+      siteNote?: string | null;
+      sourceOrderId?: string | null;
+      isPrimary?: boolean | null;
+      sortOrder?: number | null;
+    }> | null;
   }[];
   subtotal: number;
   vatRate: number;
@@ -138,6 +155,7 @@ type InvoiceExecutionSite = {
   sitePlz?: string | null;
   siteCity?: string | null;
   siteNote?: string | null;
+  sourceOrderId?: string | null;
 };
 
 const getEmptyInvoiceExecutionSite = (): InvoiceExecutionSite => ({
@@ -229,6 +247,7 @@ function collectInvoiceExecutionSites(source: {
       sitePlz: compactInvoiceValue(candidate.sitePlz) || null,
       siteCity: compactInvoiceValue(candidate.siteCity) || null,
       siteNote: compactInvoiceValue(candidate.siteNote) || null,
+      sourceOrderId: compactInvoiceValue(candidate.sourceOrderId) || null,
     };
     if (
       !site.siteName &&
@@ -269,18 +288,90 @@ function collectInvoiceExecutionSites(source: {
       sitePlz: item?.sitePlz,
       siteCity: item?.siteCity,
       siteNote: item?.siteNote,
+      sourceOrderId: item?.sourceOrderId,
     }),
   );
-  (source.orders || []).forEach((order) =>
-    add({
-      siteName: order?.siteName,
-      siteAddress: order?.siteAddress,
-      sitePlz: order?.sitePlz,
-      siteCity: order?.siteCity,
-      siteNote: order?.siteNote,
-    }),
-  );
+  (source.orders || []).forEach((order) => {
+    const workSites = Array.isArray(order?.workSites)
+      ? [...order.workSites].sort(
+          (a, b) => Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) || Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+        )
+      : [];
+    workSites.forEach((site) => add({ ...site, sourceOrderId: site.sourceOrderId || order.id }));
+    if (workSites.length === 0 || order?.siteAddressDifferent) {
+      add({
+        siteName: order?.siteName,
+        siteAddress: order?.siteAddress,
+        sitePlz: order?.sitePlz,
+        siteCity: order?.siteCity,
+        siteNote: order?.siteNote,
+        sourceOrderId: order?.id,
+      });
+    }
+  });
   return sites;
+}
+
+
+type InvoiceItemGroup = {
+  key: string;
+  site: InvoiceExecutionSite | null;
+  entries: Array<{ item: InvoiceItem; index: number }>;
+  subtotal: number;
+};
+
+const invoiceSiteKey = (site: InvoiceExecutionSite) =>
+  [site.siteName, site.siteAddress, site.sitePlz, site.siteCity, site.siteNote]
+    .map((value) => compactInvoiceValue(value).toLowerCase())
+    .join('|');
+
+function groupInvoiceItemsByExecutionSite(
+  sourceItems: InvoiceItem[],
+  sites: InvoiceExecutionSite[] = [],
+): InvoiceItemGroup[] {
+  const groups = new Map<string, InvoiceItemGroup>();
+  sourceItems.forEach((item, index) => {
+    const matchedSite =
+      sites.find((site) => invoiceSiteKey(site) === invoiceSiteKey(item)) ||
+      (item.sourceOrderId
+        ? sites.find((site) => site.sourceOrderId === item.sourceOrderId)
+        : undefined) ||
+      (sites.length === 1 ? sites[0] : null);
+    const site = matchedSite ||
+      (item.siteName || item.siteAddress || item.sitePlz || item.siteCity
+        ? {
+            siteName: item.siteName || null,
+            siteAddress: item.siteAddress || null,
+            sitePlz: item.sitePlz || null,
+            siteCity: item.siteCity || null,
+            siteNote: item.siteNote || null,
+            sourceOrderId: item.sourceOrderId || null,
+          }
+        : null);
+    const key = site ? `${site.sourceOrderId || ''}|${invoiceSiteKey(site)}` : 'general';
+    const lineTotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+    const group = groups.get(key) || { key, site, entries: [], subtotal: 0 };
+    group.entries.push({ item, index });
+    group.subtotal += Number.isFinite(lineTotal) ? lineTotal : 0;
+    groups.set(key, group);
+  });
+  return Array.from(groups.values());
+}
+
+function getInvoiceMergedCount(invoice: Invoice): number {
+  const orderCount = Array.isArray(invoice.orders) ? invoice.orders.length : 0;
+  const originCount = Math.max(
+    0,
+    ...(invoice.orders || []).map((order) =>
+      Array.isArray(order.originOrderIds) ? order.originOrderIds.filter(Boolean).length : 0,
+    ),
+  );
+  const hasMergeReason = (invoice.orders || []).some((order) =>
+    (order.reviewReasons || []).some((reason) =>
+      ['manual_order_merge', 'double_merge'].includes(String(reason || '')),
+    ),
+  );
+  return Math.max(orderCount, originCount, hasMergeReason ? 2 : 0);
 }
 
 function buildInvoiceCommunicationData(invoice: Invoice) {
@@ -1219,27 +1310,15 @@ export default function RechnungenPage() {
   const total = subtotal + vatAmount;
 
   const onCustomerChange = (customerId: string) => {
-    setForm((f) => ({ ...f, customerId }));
-    if (!editingInvoice) {
-      const customerOrders =
-        orders?.filter(
-          (o: any) => o?.customerId === customerId && !o?.invoiceId,
-        ) ?? [];
-      if (customerOrders?.length > 0) {
-        setItems(
-          customerOrders.map((o: any) => ({
-            description: o?.description ?? "",
-            quantity: String(o?.quantity ?? 1),
-            unit: o?.priceType === "Stundensatz" ? "Stunde" : "Pauschal",
-            unitPrice: String(o?.unitPrice ?? 0),
-          })),
-        );
-        setForm((f) => ({
-          ...f,
-          orderIds: customerOrders.map((o: any) => o?.id),
-        }));
-      }
-    }
+    // A manually created invoice must not silently inherit every open order of
+    // the selected customer. Hidden orderIds could trigger source-order
+    // blockers and make "Rechnung erstellen" fail although the visible manual
+    // invoice is complete.
+    setForm((current) => ({
+      ...current,
+      customerId,
+      ...(!editingInvoice ? { orderIds: [] } : {}),
+    }));
   };
 
   const save = async () => {
@@ -1278,7 +1357,7 @@ export default function RechnungenPage() {
       if (res.ok) {
         toast.success("Rechnung erstellt");
         setDialogOpen(false);
-        load();
+        await load();
         setItems([getEmptyItem()]);
         setNewInvoiceExecutionSite(null);
         setEditingExecutionAddress(false);
@@ -1290,9 +1369,13 @@ export default function RechnungenPage() {
           notes: "",
           orderIds: [],
         });
-      } else toast.error("Fehler");
-    } catch {
-      toast.error("Fehler");
+      } else {
+        const errorData = await res.json().catch(() => null);
+        toast.error(errorData?.error || "Rechnung konnte nicht erstellt werden");
+      }
+    } catch (error) {
+      console.error("invoice create failed", error);
+      toast.error("Rechnung konnte nicht erstellt werden");
     } finally {
       setSaving(false);
     }
@@ -1687,8 +1770,8 @@ export default function RechnungenPage() {
                   // stored status remains in the DB until the user actively
                   // changes it via the dropdown.
                   const effectiveStatus = getEffectiveInvoiceStatus(inv);
-                  const executionSite =
-                    collectInvoiceExecutionSites(inv)[0] || null;
+                  const invoiceExecutionSites = collectInvoiceExecutionSites(inv);
+                  const executionSite = invoiceExecutionSites[0] || null;
                   const visibleItems = (inv.items || []).filter((item: any) =>
                     Boolean(String(item?.description || "").trim()),
                   );
@@ -1788,6 +1871,15 @@ export default function RechnungenPage() {
                   }>;
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
+                  const mergedCount = getInvoiceMergedCount(inv);
+                  const mergedContactEntries = buildMergedContactReviewEntries(
+                    (inv.orders || []) as any,
+                  );
+                  const mergedContactTooltip = formatMergedContactReviewTooltip(
+                    (inv.orders || []) as any,
+                  );
+                  const hasMergedContactReview =
+                    mergedCount > 1 && mergedContactEntries.length > 1;
                   return (
                     <motion.div
                       key={inv?.id}
@@ -1939,6 +2031,16 @@ export default function RechnungenPage() {
                                     ({inv.customer.customerNumber})
                                   </span>
                                 )}
+                                {mergedCount > 1 && (
+                                  <span className="rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                    Zusammengeführt · {mergedCount}
+                                  </span>
+                                )}
+                                {invoiceExecutionSites.length > 1 && (
+                                  <span className="rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-800">
+                                    Ausführungsorte · {invoiceExecutionSites.length}
+                                  </span>
+                                )}
                                 {executionSite && (
                                   <button
                                     type="button"
@@ -2080,12 +2182,25 @@ export default function RechnungenPage() {
                                   className="inline-flex items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                   onClick={(event) => event.stopPropagation()}
                                 >
-                                  <CommunicationChips
-                                    data={invoiceContactData}
-                                    compact
-                                    contactsOnly
-                                    showInfoChip
-                                  />
+                                  {hasMergedContactReview ? (
+                                    <button
+                                      type="button"
+                                      className="group relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700"
+                                      aria-label={mergedContactTooltip}
+                                    >
+                                      <AlertTriangle className="h-4 w-4" />
+                                      <span className="pointer-events-none absolute bottom-full left-0 z-[95] mb-2 hidden max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-medium leading-relaxed text-slate-800 shadow-2xl group-hover:block group-focus-visible:block dark:bg-slate-950 dark:text-slate-100">
+                                        {mergedContactTooltip}
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <CommunicationChips
+                                      data={invoiceContactData}
+                                      compact
+                                      contactsOnly
+                                      showInfoChip
+                                    />
+                                  )}
                                 </div>
                                 {reviewItems.length > 0 && (
                                   <button
@@ -3011,7 +3126,18 @@ export default function RechnungenPage() {
                     </div>
 
                     <div className="space-y-2">
-                      {items?.map((item: InvoiceItem, idx: number) => {
+                      {(() => {
+                        const groups = groupInvoiceItemsByExecutionSite(
+                          items || [],
+                          collectInvoiceExecutionSites({
+                            items,
+                            orders: editingInvoice?.orders || [],
+                          }),
+                        );
+                        const renderEntries = (
+                          entries: Array<{ item: InvoiceItem; index: number }>,
+                        ) =>
+                          entries.map(({ item, index: idx }) => {
                         const quantity = Number(item?.quantity ?? 0);
                         const unitPrice = Number(item?.unitPrice ?? 0);
                         const lineTotal = unitPrice * quantity;
@@ -3238,7 +3364,44 @@ export default function RechnungenPage() {
                             )}
                           </div>
                         );
-                      }) ?? []}
+                                                });
+
+                        if (groups.length <= 1) {
+                          return renderEntries(groups[0]?.entries || []);
+                        }
+
+                        return groups.map((group, groupIndex) => (
+                          <details
+                            key={group.key}
+                            open
+                            className="overflow-visible rounded-xl border-2 border-slate-300 bg-slate-50/50"
+                          >
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-slate-200 bg-white px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold">
+                                  📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                                </div>
+                                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                  {[group.site?.siteAddress, [group.site?.sitePlz, group.site?.siteCity].filter(Boolean).join(" ")]
+                                    .filter(Boolean)
+                                    .join(" · ") || "Adresse nicht angegeben"}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <div className="text-[10px] text-muted-foreground">
+                                  {group.entries.length} Leistungen
+                                </div>
+                                <div className="font-mono text-sm font-bold text-emerald-700">
+                                  {formatCurrency(group.subtotal, currency)}
+                                </div>
+                              </div>
+                            </summary>
+                            <div className="space-y-2 p-2">
+                              {renderEntries(group.entries)}
+                            </div>
+                          </details>
+                        ));
+                      })()}
                     </div>
                   </div>
 
@@ -3443,8 +3606,15 @@ export default function RechnungenPage() {
 
                   {editOrderCtx && (() => {
                     const parsed = splitSpecialNotes(editOrderCtx.specialNotes);
-                    const hazards = uniqueInvoiceLines(parsed.safetyWarnings || []);
-                    const allHints = uniqueInvoiceLines(parsed.jobHints || []);
+                    const rawHazards = uniqueInvoiceLines(parsed.safetyWarnings || []);
+                    const isContactInstruction = (line: string) =>
+                      /\b(?:whatsapp|sms|e-?mail|mail|telefon|anruf|anrufen|rueckruf|rückruf|kontakt|melden|keine\s+anrufe?|nicht\s+anrufen)\b/i.test(line);
+                    const communicationHazards = rawHazards.filter(isContactInstruction);
+                    const hazards = rawHazards.filter((line) => !isContactInstruction(line));
+                    const allHints = uniqueInvoiceLines([
+                      ...(parsed.jobHints || []),
+                      ...communicationHazards,
+                    ]);
                     const primaryHints = allHints.filter(isPrimaryInvoiceInformationLine);
                     const primaryKeys = new Set(
                       primaryHints.map((line) => normalizeInvoiceServiceName(line)),
@@ -3452,17 +3622,10 @@ export default function RechnungenPage() {
                     const otherHints = allHints.filter(
                       (line) => !primaryKeys.has(normalizeInvoiceServiceName(line)),
                     );
-                    const customerMessages = Array.from(
-                      new Map(
-                        [
-                          linkedOrderData?.notes,
-                          ...(editingInvoice?.orders || []).map((order) => order?.notes),
-                        ]
-                          .map(cleanInvoiceCustomerMessage)
-                          .filter(Boolean)
-                          .map((message) => [normalizeInvoiceServiceName(message), message]),
-                      ).values(),
-                    );
+                    const customerMessageBlocks =
+                      buildCustomerMessageReviewBlocks(
+                        (editingInvoice?.orders || []) as any[],
+                      );
 
                     return (
                       <div className="space-y-3">
@@ -3509,16 +3672,31 @@ export default function RechnungenPage() {
                           </div>
                         )}
 
-                        <div className="rounded-xl border p-3 sm:p-4">
-                          <h3 className="text-base font-semibold">Kundennachricht</h3>
-                          <div className="mt-3 space-y-3">
-                            {customerMessages.length > 0 ? (
-                              customerMessages.map((message, index) => (
+                        <details className="rounded-xl border p-3 sm:p-4" open>
+                          <summary className="cursor-pointer list-none text-base font-semibold [&::-webkit-details-marker]:hidden">
+                            Kundennachrichten · {customerMessageBlocks.length}
+                          </summary>
+                          <div className="mt-3 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+                            {customerMessageBlocks.length > 0 ? (
+                              customerMessageBlocks.map((entry, index) => (
                                 <div
                                   key={`invoice-customer-message-${index}`}
-                                  className="whitespace-pre-wrap rounded-lg border bg-muted/20 p-3 text-sm"
+                                  className="rounded-lg border bg-muted/20 p-3 text-sm"
                                 >
-                                  {message}
+                                  <div className="mb-2 font-semibold text-sky-800">
+                                    {index + 1}. {entry.title}
+                                  </div>
+                                  <div className="whitespace-pre-wrap break-words leading-relaxed">
+                                    {entry.message}
+                                  </div>
+                                  {entry.transcript && !entry.message.includes(entry.transcript) && (
+                                    <div className="mt-3 border-t pt-2">
+                                      <div className="mb-1 text-xs font-semibold text-muted-foreground">Transkription</div>
+                                      <div className="whitespace-pre-wrap break-words leading-relaxed">
+                                        {entry.transcript}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               ))
                             ) : (
@@ -3553,7 +3731,7 @@ export default function RechnungenPage() {
                                 )}
                             </div>
                           </div>
-                        </div>
+                        </details>
                       </div>
                     );
                   })()}

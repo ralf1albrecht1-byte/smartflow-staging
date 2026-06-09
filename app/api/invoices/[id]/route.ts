@@ -14,6 +14,31 @@ import {
   CustomerArchivedError,
 } from "@/lib/customer-links";
 
+
+const invoiceOrderInclude = {
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      email: true,
+    },
+  },
+  workSites: {
+    select: {
+      id: true,
+      siteName: true,
+      siteAddress: true,
+      sitePlz: true,
+      siteCity: true,
+      siteNote: true,
+      isPrimary: true,
+      sortOrder: true,
+      sourceOrderId: true,
+    },
+  },
+} as const;
+
 function validateDocumentItemsForUpdate(items: any[]) {
   if (!Array.isArray(items)) return null;
   if (items.length === 0) return "Mindestens eine Leistung ist erforderlich.";
@@ -44,7 +69,11 @@ export async function GET(
     const dataScope = await getActiveDataScope(userId);
     const invoice = await prisma.invoice.findFirst({
       where: { id: params?.id, userId, dataScope },
-      include: { customer: true, items: true, orders: true },
+      include: {
+        customer: true,
+        items: true,
+        orders: { include: invoiceOrderInclude },
+      },
     });
     if (!invoice)
       return NextResponse.json({ error: "Nicht gefunden" }, { status: 404 });
