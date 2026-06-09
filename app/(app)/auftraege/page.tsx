@@ -7463,7 +7463,9 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
     );
     const minimumPreferredSpace = 140;
     const openBelow =
-      availableAbove < minimumPreferredSpace && availableBelow > availableAbove;
+      badge.key === "site_address"
+        ? availableAbove < 80 && availableBelow > availableAbove
+        : availableAbove < minimumPreferredSpace && availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(560, available));
 
@@ -14199,25 +14201,27 @@ export default function AuftraegePage() {
   }
 
   return (
-    <div className="space-y-4 pb-24 md:pb-16">
+    <div className="space-y-4 pb-16 md:pb-8">
       {renderActiveMobileTooltipSheet()}
 
-      <div className="pointer-events-none fixed left-16 top-0 z-[80] flex h-14 items-center">
+      <div className="pointer-events-none fixed left-16 top-0 z-40 flex h-14 items-center">
         <span className="font-display text-sm font-bold sm:text-base">Aufträge</span>
       </div>
 
-      <button
-        type="button"
-        onClick={() => router.push("/angebote")}
-        className="fixed bottom-4 right-2 z-[70] inline-flex h-9 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-lg backdrop-blur hover:bg-muted sm:right-4"
-        aria-label="Zu Angebote"
-        title="Zu Angebote"
-      >
-        <span>Angebote</span>
-        <ChevronRight className="h-4 w-4" />
-      </button>
+      <div className="fixed left-1/2 top-0 z-40 flex h-14 -translate-x-1/2 items-center">
+        <button
+          type="button"
+          onClick={() => router.push("/angebote")}
+          className="pointer-events-auto inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-sm backdrop-blur hover:bg-muted"
+          aria-label="Zu Angebote"
+          title="Zu Angebote"
+        >
+          <span className="hidden sm:inline">Angebote</span>
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
 
-      <div className="sticky top-14 z-40 -mx-2 border-b border-slate-200/80 bg-background/95 px-2 py-2 shadow-sm backdrop-blur dark:border-slate-700/80">
+      <div className="-mx-2 px-2 py-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {unlinked?.length ?? 0} Aufträge
@@ -14886,13 +14890,16 @@ export default function AuftraegePage() {
                       {/* Mobile — shared one-column card for Auftrag/Angebot */}
                       {!orderCardExpanded && (
                         <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 text-[11px] text-muted-foreground">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                               {o.createdAt
-                                ? new Date(o.createdAt).toLocaleDateString("de-CH", {
+                                ? `${new Date(o.createdAt).toLocaleDateString("de-CH", {
                                     day: "2-digit",
                                     month: "2-digit",
-                                  })
+                                  })} ${new Date(o.createdAt).toLocaleTimeString("de-CH", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}`
                                 : ""}
                             </span>
                             <span
@@ -14906,6 +14913,23 @@ export default function AuftraegePage() {
                                 ? "Kunde nicht zugeordnet"
                                 : o.customer?.name || "–"}
                             </span>
+                            {mobileAddressBadges.length > 0 && (
+                              <div className="min-w-0 max-w-[7.5rem] shrink sm:max-w-[15rem]">
+                                {mobileAddressBadges.slice(0, 1).map((badge) =>
+                                  renderInteractiveMobileTextBadge(
+                                    {
+                                      ...badge,
+                                      label: badge.label.replace(
+                                        /^Ausführungsorte/i,
+                                        "Orte",
+                                      ),
+                                    },
+                                    "compact_header_address",
+                                    "left",
+                                  ),
+                                )}
+                              </div>
+                            )}
                             <div className="ml-auto shrink-0 text-right">
                               <div className="font-mono text-sm font-bold tabular-nums">
                                 {formatCurrency(
@@ -14916,19 +14940,6 @@ export default function AuftraegePage() {
                             </div>
                             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                           </div>
-                          {mobileAddressBadges.length > 0 && (
-                            <div className="mt-1 flex min-w-0 items-center">
-                              {mobileAddressBadges
-                                .slice(0, 1)
-                                .map((badge) =>
-                                  renderInteractiveMobileTextBadge(
-                                    badge,
-                                    "compact_header_address",
-                                    "left",
-                                  ),
-                                )}
-                            </div>
-                          )}
                         </div>
                       )}
                       <div className={`min-w-0 flex-1 ${orderCardExpanded ? "" : "hidden"}`}>

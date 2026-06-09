@@ -1863,23 +1863,25 @@ export default function RechnungenPage() {
     return <LoadErrorFallback details={loadError} onRetry={load} />;
 
   return (
-    <div className="space-y-4 pb-24 md:pb-16">
-      <div className="pointer-events-none fixed left-16 top-0 z-[80] flex h-14 items-center">
+    <div className="space-y-4 pb-16 md:pb-8">
+      <div className="pointer-events-none fixed left-16 top-0 z-40 flex h-14 items-center">
         <span className="font-display text-sm font-bold sm:text-base">Rechnungen</span>
       </div>
 
-      <button
-        type="button"
-        onClick={() => router.push("/angebote")}
-        className="fixed right-2 top-28 z-[70] inline-flex h-9 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-lg backdrop-blur hover:bg-muted sm:right-4"
-        aria-label="Zu Angebote"
-        title="Zu Angebote"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        <span>Angebote</span>
-      </button>
+      <div className="fixed left-1/2 top-0 z-40 flex h-14 -translate-x-1/2 items-center">
+        <button
+          type="button"
+          onClick={() => router.push("/angebote")}
+          className="pointer-events-auto inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-sm backdrop-blur hover:bg-muted"
+          aria-label="Zu Angebote"
+          title="Zu Angebote"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          <span className="hidden sm:inline">Angebote</span>
+        </button>
+      </div>
 
-      <div className="sticky top-14 z-40 -mx-2 border-b border-slate-200/80 bg-background/95 px-2 py-2 shadow-sm backdrop-blur dark:border-slate-700/80">
+      <div className="-mx-2 px-2 py-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {unpaidCount} offen · {paidCount} bezahlt
@@ -2219,18 +2221,21 @@ export default function RechnungenPage() {
 
                             {!invoiceCardExpanded && (
                               <div className={`min-w-0 flex-1 ${isPaid ? "opacity-80" : ""}`}>
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                     {(() => {
                                       const dt =
                                         inv.orders?.[0]?.createdAt ||
                                         inv.createdAt ||
                                         inv.invoiceDate;
                                       return dt
-                                        ? new Date(dt).toLocaleDateString("de-CH", {
+                                        ? `${new Date(dt).toLocaleDateString("de-CH", {
                                             day: "2-digit",
                                             month: "2-digit",
-                                          })
+                                          })} ${new Date(dt).toLocaleTimeString("de-CH", {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                          })}`
                                         : "";
                                     })()}
                                   </span>
@@ -2239,18 +2244,7 @@ export default function RechnungenPage() {
                                       ? "Kunde nicht zugeordnet"
                                       : inv?.customer?.name || "–"}
                                   </span>
-                                  <div className="ml-auto shrink-0 text-right">
-                                    <div className="font-mono text-sm font-bold tabular-nums">
-                                      {formatCurrency(
-                                        Number(inv?.total ?? 0),
-                                        inv.currency === "EUR" ? "EUR" : "CHF",
-                                      )}
-                                    </div>
-                                  </div>
-                                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                </div>
-                                {invoiceExecutionSites.length > 0 && (
-                                  <div className="mt-1 flex min-w-0 items-center">
+                                  {invoiceExecutionSites.length > 0 && (
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
@@ -2264,17 +2258,17 @@ export default function RechnungenPage() {
                                           120,
                                         );
                                       }}
-                                      className="group relative inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100"
+                                      className="group relative inline-flex min-w-0 max-w-[7.5rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:max-w-[15rem]"
                                     >
                                       <MapPin className="h-3 w-3 shrink-0" />
                                       <span className="truncate">
                                         {invoiceExecutionSites.length > 1
-                                          ? `Ausführungsorte · ${invoiceExecutionSites.length}`
+                                          ? `Orte · ${invoiceExecutionSites.length}`
                                           : executionSite?.siteName ||
                                             executionSite?.siteAddress ||
-                                            "Ausführungsadresse"}
+                                            "Ausführungsort"}
                                       </span>
-                                      <span className="pointer-events-none absolute left-0 top-full z-[90] mt-2 hidden w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                      <span className="pointer-events-none absolute bottom-full left-0 z-[90] mb-2 hidden w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
                                         {invoiceExecutionSites.map((site, siteIndex) => (
                                           <span
                                             key={`${inv.id}:compact-site:${siteIndex}`}
@@ -2297,8 +2291,17 @@ export default function RechnungenPage() {
                                         ))}
                                       </span>
                                     </button>
+                                  )}
+                                  <div className="ml-auto shrink-0 text-right">
+                                    <div className="font-mono text-sm font-bold tabular-nums">
+                                      {formatCurrency(
+                                        Number(inv?.total ?? 0),
+                                        inv.currency === "EUR" ? "EUR" : "CHF",
+                                      )}
+                                    </div>
                                   </div>
-                                )}
+                                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                </div>
                               </div>
                             )}
                             <div

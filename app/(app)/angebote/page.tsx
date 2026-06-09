@@ -3886,35 +3886,40 @@ export default function AngebotePage() {
     return <LoadErrorFallback details={loadError} onRetry={load} />;
 
   return (
-    <div className="space-y-4 pb-24 md:pb-16">
+    <div className="space-y-4 pb-16 md:pb-8">
       {renderActiveMobileTooltipSheet()}
 
-      <div className="pointer-events-none fixed left-16 top-0 z-[80] flex h-14 items-center">
+      <div className="pointer-events-none fixed left-16 top-0 z-40 flex h-14 items-center">
         <span className="font-display text-sm font-bold sm:text-base">Angebote</span>
       </div>
 
-      <button
-        type="button"
-        onClick={() => router.push("/auftraege")}
-        className="fixed right-2 top-28 z-[70] inline-flex h-9 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-lg backdrop-blur hover:bg-muted sm:right-4"
-        aria-label="Zu Aufträge"
-        title="Zu Aufträge"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        <span>Aufträge</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => router.push("/rechnungen")}
-        className="fixed bottom-4 right-2 z-[70] inline-flex h-9 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-lg backdrop-blur hover:bg-muted sm:right-4"
-        aria-label="Zu Rechnungen"
-        title="Zu Rechnungen"
-      >
-        <span>Rechnungen</span>
-        <ChevronRight className="h-4 w-4" />
-      </button>
+      <div className="fixed left-1/2 top-0 z-40 flex h-14 -translate-x-1/2 items-center">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-slate-300 bg-background/95 p-0.5 shadow-sm backdrop-blur">
+          <button
+            type="button"
+            onClick={() => router.push("/auftraege")}
+            className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-xs font-semibold hover:bg-muted"
+            aria-label="Zu Aufträge"
+            title="Zu Aufträge"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">Aufträge</span>
+          </button>
+          <span className="h-4 w-px bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={() => router.push("/rechnungen")}
+            className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-xs font-semibold hover:bg-muted"
+            aria-label="Zu Rechnungen"
+            title="Zu Rechnungen"
+          >
+            <span className="hidden sm:inline">Rechnungen</span>
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
 
-      <div className="sticky top-14 z-40 -mx-2 border-b border-slate-200/80 bg-background/95 px-2 py-2 shadow-sm backdrop-blur dark:border-slate-700/80">
+      <div className="-mx-2 px-2 py-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {offers?.length ?? 0} Angebote
@@ -4288,15 +4293,18 @@ export default function AngebotePage() {
                             {/* Main info — mirrored from the order-card layout */}
                             {!offerCardExpanded && (
                               <div className="min-w-0 flex-1">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                     {(() => {
                                       const dt = off.orders?.[0]?.createdAt || off.createdAt;
                                       return dt
-                                        ? new Date(dt).toLocaleDateString("de-CH", {
+                                        ? `${new Date(dt).toLocaleDateString("de-CH", {
                                             day: "2-digit",
                                             month: "2-digit",
-                                          })
+                                          })} ${new Date(dt).toLocaleTimeString("de-CH", {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                          })}`
                                         : "";
                                     })()}
                                   </span>
@@ -4305,18 +4313,7 @@ export default function AngebotePage() {
                                       ? "Kunde nicht zugeordnet"
                                       : cardCustomerName}
                                   </span>
-                                  <div className="ml-auto shrink-0 text-right">
-                                    <div className="font-mono text-sm font-bold tabular-nums">
-                                      {formatCurrency(
-                                        Number(off?.total ?? 0),
-                                        off.currency === "EUR" ? "EUR" : "CHF",
-                                      )}
-                                    </div>
-                                  </div>
-                                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                </div>
-                                {offerExecutionSites.length > 0 && (
-                                  <div className="mt-1 flex min-w-0 items-center">
+                                  {offerExecutionSites.length > 0 && (
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
@@ -4351,18 +4348,18 @@ export default function AngebotePage() {
                                           openOfferSection(off, "execution");
                                         }
                                       }}
-                                      className="group relative inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100"
+                                      className="group relative inline-flex min-w-0 max-w-[7.5rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:max-w-[15rem]"
                                     >
                                       <MapPin className="h-3 w-3 shrink-0" />
                                       <span className="truncate">
                                         {offerExecutionSites.length > 1
-                                          ? `Ausführungsorte · ${offerExecutionSites.length}`
+                                          ? `Orte · ${offerExecutionSites.length}`
                                           : primaryExecutionSite?.siteName ||
                                             primaryExecutionSite?.siteAddress ||
-                                            "Ausführungsadresse"}
+                                            "Ausführungsort"}
                                       </span>
                                       {!useTouchChipPopovers && (
-                                        <span className="pointer-events-none absolute left-0 top-full z-[90] mt-2 hidden w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                        <span className="pointer-events-none absolute bottom-full left-0 z-[90] mb-2 hidden w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
                                           {offerExecutionSites.map((site, siteIndex) => (
                                             <span
                                               key={`${off.id}:compact-site:${siteIndex}`}
@@ -4386,8 +4383,17 @@ export default function AngebotePage() {
                                         </span>
                                       )}
                                     </button>
+                                  )}
+                                  <div className="ml-auto shrink-0 text-right">
+                                    <div className="font-mono text-sm font-bold tabular-nums">
+                                      {formatCurrency(
+                                        Number(off?.total ?? 0),
+                                        off.currency === "EUR" ? "EUR" : "CHF",
+                                      )}
+                                    </div>
                                   </div>
-                                )}
+                                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                </div>
                               </div>
                             )}
                             <div className={`min-w-0 flex-1 ${offerCardExpanded ? "" : "hidden"}`}>
