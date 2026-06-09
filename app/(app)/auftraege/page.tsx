@@ -16486,51 +16486,77 @@ export default function AuftraegePage() {
                   tabIndex={-1}
                   className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 space-y-3 outline-none ring-cyan-300 focus:ring-2 dark:border-cyan-900/60 dark:bg-cyan-950/20"
                 >
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(form.siteAddressDifferent)}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setSiteAddressEditing(checked);
-                        setForm((prev) => {
-                          const hasCompleteStoredExecutionAddress = Boolean(
-                            compactText(prev.siteAddress) &&
-                              compactText(prev.sitePlz) &&
-                              compactText(prev.siteCity),
-                          );
-                          const mustStartBlank =
-                            checked &&
-                            (!hasCompleteStoredExecutionAddress ||
-                              isSameAddressPlaceholderV17_90L135H(prev.siteName) ||
-                              isSameAddressPlaceholderV17_90L135H(prev.siteCity));
-                          return {
-                            ...prev,
-                            siteAddressDifferent: checked,
-                            ...(checked && !mustStartBlank
-                              ? {}
-                              : {
-                                  siteName: "",
-                                  siteAddress: "",
-                                  sitePlz: "",
-                                  siteCity: "",
-                                  siteNote: "",
-                                }),
-                          };
-                        });
-                      }}
-                      className="mt-1"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold">
-                        Ausführungsadresse abweichend von Rechnungsadresse
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(form.siteAddressDifferent)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setSiteAddressEditing(checked);
+                          setForm((prev) => {
+                            const hasCompleteStoredExecutionAddress = Boolean(
+                              compactText(prev.siteAddress) &&
+                                compactText(prev.sitePlz) &&
+                                compactText(prev.siteCity),
+                            );
+                            const mustStartBlank =
+                              checked &&
+                              (!hasCompleteStoredExecutionAddress ||
+                                isSameAddressPlaceholderV17_90L135H(prev.siteName) ||
+                                isSameAddressPlaceholderV17_90L135H(prev.siteCity));
+                            return {
+                              ...prev,
+                              siteAddressDifferent: checked,
+                              ...(checked && !mustStartBlank
+                                ? {}
+                                : {
+                                    siteName: "",
+                                    siteAddress: "",
+                                    sitePlz: "",
+                                    siteCity: "",
+                                    siteNote: "",
+                                  }),
+                            };
+                          });
+                        }}
+                        className="mt-1"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold">
+                          Ausführungsadresse abweichend von Rechnungsadresse
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Nur aktivieren, wenn die Arbeit an einem anderen Ort
+                          ausgeführt wird.
+                        </span>
                       </span>
-                      <span className="block text-xs text-muted-foreground">
-                        Nur aktivieren, wenn die Arbeit an einem anderen Ort
-                        ausgeführt wird.
-                      </span>
-                    </span>
-                  </label>
+                    </label>
+                    {form.siteAddressDifferent && !siteAddressEditing && (
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={addFormWorkSite}
+                          disabled={saving}
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                          Arbeitsort hinzufügen
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSiteAddressEditing(true)}
+                          disabled={saving}
+                        >
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          Bearbeiten
+                        </Button>
+                      </div>
+                    )}
+                  </div>
 
                   {form.siteAddressDifferent && !siteAddressEditing && (
                     <button
@@ -16576,9 +16602,6 @@ export default function AuftraegePage() {
                             </div>
                           )}
                         </div>
-                        <span className="shrink-0 text-xs text-primary">
-                          Bearbeiten
-                        </span>
                       </div>
                     </button>
                   )}
@@ -16727,33 +16750,50 @@ export default function AuftraegePage() {
                         />
                       </div>
 
-                      <div className="flex justify-end">
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          <span className="hidden sm:inline text-xs text-muted-foreground">
-                            Speichert die Ausführungsadresse direkt am Auftrag.
-                          </span>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={addFormWorkSite}
-                            disabled={saving}
-                          >
-                            <Plus className="mr-1 h-3.5 w-3.5" />
-                            Arbeitsort hinzufügen
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={saveExecutionAddressFromEditorV17_70}
-                            disabled={saving}
-                          >
-                            {saving ? "Speichern..." : "Adresse speichern"}
-                          </Button>
-                        </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={addFormWorkSite}
+                          disabled={saving}
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                          Arbeitsort hinzufügen
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={saveExecutionAddressFromEditorV17_70}
+                          disabled={saving}
+                        >
+                          {saving ? "Speichern..." : "Adresse speichern"}
+                        </Button>
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {hasMultipleEditWorkSites && (
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">
+                        Ausführungsorte · {currentEditWorkSites.length}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={addFormWorkSite}
+                      disabled={saving}
+                    >
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      Arbeitsort hinzufügen
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -16804,15 +16844,6 @@ export default function AuftraegePage() {
                                 : "Alle öffnen"}
                             </Button>
                           )}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={addFormWorkSite}
-                            className="h-7 px-2 text-xs"
-                          >
-                            + Arbeitsort
-                          </Button>
                           {currentEditWorkSites.length > 1 && (
                             <select
                               value={newItemWorkSiteId}

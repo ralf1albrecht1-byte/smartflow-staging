@@ -3232,6 +3232,7 @@ export default function AngebotePage() {
     const key = offerGroupKeyForSite(site);
     setExecutionSites((current) => [...current, site]);
     setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setEditingExecutionAddress(true);
     setEditingOfferSiteKey(key);
     setNewOfferItemSiteKey(key);
     setExpandedOfferSiteKeys((current) => new Set([...current, key]));
@@ -3674,6 +3675,23 @@ export default function AngebotePage() {
       }
     } catch {
       toast.error("Fehler");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveOfferExecutionAddress = async () => {
+    setSaving(true);
+    try {
+      const saved = await saveOffer();
+      if (!saved) return;
+      if (!editOfferId && saved?.id) setEditOfferId(saved.id);
+      setFromOrderId(null);
+      setEditingExecutionAddress(false);
+      toast.success("Ausführungsadresse gespeichert");
+      await load();
+    } catch {
+      toast.error("Ausführungsadresse konnte nicht gespeichert werden");
     } finally {
       setSaving(false);
     }
@@ -6117,7 +6135,6 @@ export default function AngebotePage() {
                 </div>
               ) : (
                 <>
-                  {executionSites.length <= 1 && (
                   <div
                     ref={executionAddressRef}
                     className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 sm:p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20"
@@ -6142,19 +6159,31 @@ export default function AngebotePage() {
                           </span>
                         </span>
                       </label>
-                      {executionSites.length > 0 && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 shrink-0"
-                          onClick={() =>
-                            setEditingExecutionAddress((current) => !current)
-                          }
-                        >
-                          <Pencil className="mr-1 h-3.5 w-3.5" />
-                          {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
-                        </Button>
+                      {executionSites.length > 0 && !editingExecutionAddress && (
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 shrink-0"
+                            onClick={addExecutionSite}
+                            disabled={saving}
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Arbeitsort hinzufügen
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 shrink-0"
+                            onClick={() => setEditingExecutionAddress(true)}
+                            disabled={saving}
+                          >
+                            <Pencil className="mr-1 h-3.5 w-3.5" />
+                            Bearbeiten
+                          </Button>
+                        </div>
                       )}
                     </div>
 
@@ -6291,10 +6320,31 @@ export default function AngebotePage() {
                             )}
                           </div>
                         ))}
+                        {editingExecutionAddress && (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={addExecutionSite}
+                              disabled={saving}
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Arbeitsort hinzufügen
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={saveOfferExecutionAddress}
+                              disabled={saving}
+                            >
+                              {saving ? "Speichern..." : "Adresse speichern"}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                  )}
 
                   <div
                     ref={serviceItemsRef}
@@ -6320,9 +6370,6 @@ export default function AngebotePage() {
                             {expandedOfferSiteKeys.size === groupOfferItemsByExecutionSite(items || [], executionSites).length ? "Übersicht" : "Alle öffnen"}
                           </Button>
                         )}
-                        <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={addExecutionSite}>
-                          <Plus className="mr-1 h-3.5 w-3.5" /> Arbeitsort
-                        </Button>
                         {executionSites.length > 1 && (
                           <select
                             value={newOfferItemSiteKey}

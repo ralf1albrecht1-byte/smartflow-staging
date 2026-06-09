@@ -3745,19 +3745,31 @@ export default function RechnungenPage() {
                         </span>
                       </span>
                     </label>
-                    {newInvoiceExecutionSite && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 shrink-0"
-                        onClick={() =>
-                          setEditingExecutionAddress((current) => !current)
-                        }
-                      >
-                        <Pencil className="mr-1 h-3.5 w-3.5" />
-                        {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
-                      </Button>
+                    {newInvoiceExecutionSite && !editingExecutionAddress && (
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0"
+                          onClick={addInvoiceExecutionSite}
+                          disabled={saving}
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                          Arbeitsort hinzufügen
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0"
+                          onClick={() => setEditingExecutionAddress(true)}
+                          disabled={saving}
+                        >
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          Bearbeiten
+                        </Button>
+                      </div>
                     )}
                   </div>
 
@@ -3839,6 +3851,26 @@ export default function RechnungenPage() {
                                 )
                               }
                             />
+                          </div>
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={addInvoiceExecutionSite}
+                              disabled={saving}
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Arbeitsort hinzufügen
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => void save(false)}
+                              disabled={saving}
+                            >
+                              {saving ? "Speichern..." : "Adresse speichern"}
+                            </Button>
                           </div>
                         </div>
                       ) : (
@@ -3936,17 +3968,34 @@ export default function RechnungenPage() {
                             </p>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setEditingExecutionAddress((current) => !current);
-                          }}
-                          className="inline-flex h-8 shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium shadow-sm hover:bg-slate-50"
-                        >
-                          <Pencil className="mr-1 h-3.5 w-3.5" />
-                          {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
-                        </button>
+                        {!editingExecutionAddress && (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                addInvoiceExecutionSite();
+                              }}
+                              disabled={saving}
+                              className="inline-flex h-8 shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Arbeitsort hinzufügen
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setEditingExecutionAddress(true);
+                              }}
+                              disabled={saving}
+                              className="inline-flex h-8 shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              <Pencil className="mr-1 h-3.5 w-3.5" />
+                              Bearbeiten
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -4000,7 +4049,20 @@ export default function RechnungenPage() {
                                 }
                               />
                             </div>
-                            <div className="sm:col-span-2 flex justify-end pt-1">
+                            <div className="sm:col-span-2 flex flex-wrap items-center justify-end gap-2 pt-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  addInvoiceExecutionSite();
+                                }}
+                                disabled={saving}
+                              >
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                Arbeitsort hinzufügen
+                              </Button>
                               <Button
                                 type="button"
                                 size="sm"
@@ -4010,9 +4072,7 @@ export default function RechnungenPage() {
                                 }}
                                 disabled={saving}
                               >
-                                {saving
-                                  ? "Speichern..."
-                                  : "Ausführungsadresse speichern"}
+                                {saving ? "Speichern..." : "Adresse speichern"}
                               </Button>
                             </div>
                           </div>
@@ -4042,6 +4102,38 @@ export default function RechnungenPage() {
                     </div>
                   );
                 })()}
+
+              {!dupCheckOpen && editingInvoice &&
+                collectInvoiceExecutionSites({
+                  items,
+                  orders: editingInvoice?.orders || [],
+                }).length > 1 && (
+                  <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold">
+                          Ausführungsorte · {collectInvoiceExecutionSites({
+                            items,
+                            orders: editingInvoice?.orders || [],
+                          }).length}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Arbeitsorte verwalten und weitere Ausführungsadressen hinzufügen.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addInvoiceExecutionSite}
+                        disabled={saving}
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        Arbeitsort hinzufügen
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
               {/* Form fields — collapsed when dupCheck open */}
               {dupCheckOpen ? (
@@ -4090,9 +4182,6 @@ export default function RechnungenPage() {
                                     : "Alle öffnen"}
                                 </Button>
                               )}
-                              <Button variant="outline" size="sm" onClick={addInvoiceExecutionSite}>
-                                <Plus className="mr-1 h-4 w-4" /> Arbeitsort
-                              </Button>
                               {currentSites.length > 1 && (
                                 <select
                                   value={newInvoiceItemSiteKey}
