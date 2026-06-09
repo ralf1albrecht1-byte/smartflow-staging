@@ -87,7 +87,6 @@ import { PlzOrtInput } from "@/components/plz-ort-input";
 import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { AutoReuseBanner } from "@/components/auto-reuse-banner";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
-import { MobileListShortcut } from "@/components/mobile-list-shortcut";
 
 const NORMAL_DOG_ICON_DATA_URI =
   "data:image/webp;base64,UklGRp4FAABXRUJQVlA4IJIFAABwIwCdASqyALQAPp1OokylpKMiJPRo2LATiWVu3/mx/91/W/7VMEy/hqD4e03G3hN6maJwa0tDSAqV+WKL8sWDC/ovT3RzgsGbS1gsOrAzRo/IqfkFJWrJKh0jj8YAah0glBAjsNbH42Q5JZX5G7cNdLzIlhg923q5PxxZrKv7bcotpS2sXv7FA75LQt07jQu/nukNC828w9w1OHrFSVqIVPxQI0RsA8P83rY/HxHvxauFyifoT9x1ka06q9oxcXBv8IeJ+Mt7IwnFJ+ZiIGsyAqwvc3MvXk9+d6tNYJ3dlzMQJhIUC451NKSxQwTqGtGx/f8a9ur0Hd//Wc3jB70PEedjnDA35tF4tZNblppkHd8EVQgU98Z7I0su5Nblsx1oisCgAP749EAABIoD/cGOkADimWmQwB51m3A5e/sk3ic7U09skMzjzSwyRGvG3gfUW14xUGUKBfI+I7d6xJ8IWWhppMwiErdLAyk++GDDcmt9Dx+V9lOak0MCJvy+MHmLx8tE22W6hZR3R71K9QRCU9spfDylb+Iq57qTnp8vWSOxRvT9joZu98v8PLF8uJlbWivbRjuTSOMnqof4fjGC5Ub0Bw4/W1A14DWb5QMe/L72TM9vT3gflzMBWV0rPc8pyUDduoXdr0P88x13+r3lEMztc3L2I6b6AvCsIFTtFWSPemIcUR0e4C9/zDdHWSfOVCBYzcjO74E01JJcnv4XmnWahfIdEASTUxCjAp7W90dMJXheRcQMMxxTh2CWY1bv+pGUlSixn1maVqWGbDrGmBRgOJ69kT/rBdXDkkJRDBH6IIZ/X8mN7dnLo5FiuazA72z1qhdvVyjODTylJDuCfOLq4RyPZTI6yzzHU0OOsfqsu59agUFCy2fVh34AYCy6m7XIGjyEIqmjRxT4kC35jgmW5ai49A2Q3pF2EeHblIftDK/4Jop7AHD2avKldxjZcXdGLPzua0alwnR2CeOIWaI1ulEr9ZHbtnKva+oym4HObjV5CL52bdMgo3RObPyPtoWb0ehLkgmQ+vCHzsi+NP5vq18TARiV84Tr66VtDf1p47dbOW0ZHd4IBwU46n8BUvTHsQE5VIto3js7T8Ub2yPf1JQssqktwN+sA5IxNCf4FyZBcoCEHh7ZZNNuC1VbKTeweAaP01gooB7Bb8AOJ72wCqZfn5AoR+R+Sr9QyUIkziQdi9d21OVYUrJe1gprpu3Gvi/4ay/av3WLOIihizzvicQjTvruzsNuM6iokXi5mfKpS7A2W+NmT6rBU163I1aIQyHvGCJPGk8YaXZB7bJ2ExrNf6nFs3RMHaL4w7GHbaEjcUX/Qw+ONfYotG9toGCb3kcrjl5/zgJTnha2R79xQ0RYqRA3snEr8rd4+due22TZfa4947vj2A14yDYFMFdiTor9+jTxix8CabNUdwbClB33KEPJMGjMopLnbAmH8aprvro21A9PhkypZShHBdAlIimm0OMXNb+/ll7JHzTSP8rx8yv+dDzAoh2bAR0dkNytRmTSlgO+t5e0z65oiZ8xQwuUgMJzdRplkonAQONltuD/YSWTUAYP0ntWVeeweOxDAf+PPS3K9YDRdMopInq+USzBLlB5FIeZKeomYs1mk5tHjqMPbvceEMW8KlzGY+8eIuya1VlKn1DbWIpavUOkPZN5irm0i4xd4X9bW+gmRylnYtzFUlERRHu2JPeGuHaXMz6dDU5o+i5djtxcnGnRyyytRdoyBaO5ptndzJmYpqSDTgiJAhiL9mf6sVU6WyJ41lJ6602oDci+cxu1S5h8qWJyoGl+treWjYPmJm7UGSkMrApZyzSlAxnDB85iB0YW+E2UpuvGDyf6IZCN+vZwXblYr17dXoAa4YBz0WTXTh8VHn4zIYSYAAAAAAAA";
@@ -8958,7 +8957,7 @@ function ResponsiveOrderServicePreviewV17_95({
     };
   }, [serviceKey, serviceNames.length]);
 
-  const collapsedLimit = useTwoColumns ? 6 : 3;
+  const collapsedLimit = 6;
   const visibleServices = expanded
     ? serviceNames
     : serviceNames.slice(0, collapsedLimit);
@@ -9229,6 +9228,7 @@ export default function AuftraegePage() {
     };
   } | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
+  const [expandedOrderCardIds, setExpandedOrderCardIds] = useState<Set<string>>(new Set());
 
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
 
@@ -9243,6 +9243,15 @@ export default function AuftraegePage() {
 
   const toggleMobileServiceCard = (id: string) => {
     setExpandedMobileServiceCards((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleOrderCard = (id: string) => {
+    setExpandedOrderCardIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -9570,6 +9579,18 @@ export default function AuftraegePage() {
         }
       });
   }, [unlinked, search, statusFilter, sortBy]);
+
+  const visibleOrderIds = filtered
+    .slice(0, visibleCount)
+    .map((order) => order.id);
+  const allVisibleOrderCardsExpanded =
+    visibleOrderIds.length > 0 &&
+    visibleOrderIds.every((id) => expandedOrderCardIds.has(id));
+  const toggleAllOrderCards = () => {
+    setExpandedOrderCardIds(
+      allVisibleOrderCardsExpanded ? new Set() : new Set(visibleOrderIds),
+    );
+  };
 
   const openNew = () => {
     setEditId(null);
@@ -14178,19 +14199,41 @@ export default function AuftraegePage() {
   }
 
   return (
-    <div className="space-y-6 pb-20 md:pb-0">
+    <div className="space-y-4 pb-24 md:pb-16">
       {renderActiveMobileTooltipSheet()}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-            <ClipboardList className="w-7 h-7 text-primary" /> Aufträge
-          </h1>
-          <p className="text-muted-foreground mt-1">
+
+      <div className="pointer-events-none fixed left-16 top-0 z-[80] flex h-14 items-center">
+        <span className="font-display text-sm font-bold sm:text-base">Aufträge</span>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => router.push("/angebote")}
+        className="fixed bottom-4 right-2 z-[70] inline-flex h-9 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-lg backdrop-blur hover:bg-muted sm:right-4"
+        aria-label="Zu Angebote"
+        title="Zu Angebote"
+      >
+        <span>Angebote</span>
+        <ChevronRight className="h-4 w-4" />
+      </button>
+
+      <div className="sticky top-14 z-40 -mx-2 border-b border-slate-200/80 bg-background/95 px-2 py-2 shadow-sm backdrop-blur dark:border-slate-700/80">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {unlinked?.length ?? 0} Aufträge
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+          </span>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-2.5 text-xs"
+              onClick={toggleAllOrderCards}
+              disabled={visibleOrderIds.length === 0}
+            >
+              {allVisibleOrderCardsExpanded ? "Alle schließen" : "Alle öffnen"}
+            </Button>
           <Button
+            className="h-8 px-2.5 text-xs"
             variant={isMergeMode ? "secondary" : "outline"}
             onClick={() => {
               if (isMergeMode) {
@@ -14207,7 +14250,7 @@ export default function AuftraegePage() {
             {isMergeMode ? "Verbinden abbrechen" : "Aufträge verbinden"}
           </Button>
           {isMergeMode && selectedOrderIds.length >= 2 && (
-            <Button onClick={mergeGoToStep2}>
+            <Button className="h-8 px-2.5 text-xs" onClick={mergeGoToStep2}>
               Weiter ({selectedOrderIds.length} ausgewählt)
             </Button>
           )}
@@ -14216,10 +14259,12 @@ export default function AuftraegePage() {
               Noch mind. 1 weiteren auswählen
             </span>
           )}
-          <Button onClick={openNew}>
-            <Plus className="w-4 h-4 mr-1" />
-            Neuer Auftrag
+          <Button className="h-8 px-2.5 text-xs" onClick={openNew}>
+            <Plus className="mr-1 h-4 w-4" />
+            <span className="hidden sm:inline">Neuer Auftrag</span>
+            <span className="sm:hidden">Neu</span>
           </Button>
+          </div>
         </div>
       </div>
 
@@ -14320,6 +14365,7 @@ export default function AuftraegePage() {
             }
             const mobileOrderServicesExpanded =
               expandedMobileServiceCards.has(o.id);
+            const orderCardExpanded = expandedOrderCardIds.has(o.id);
             const parsedCardNotes = splitSpecialNotes(o.specialNotes);
             const systemBadges = getSystemBadges(o, services);
             const amountReviewBadges = buildAmountReviewBadges(
@@ -14751,8 +14797,9 @@ export default function AuftraegePage() {
                       handleToggleSelect(o.id);
                       return;
                     }
-                    openEdit(o);
+                    toggleOrderCard(o.id);
                   }}
+                  aria-expanded={orderCardExpanded}
                 >
                   <CardContent className="px-2.5 py-1.5 sm:px-3 sm:py-2 max-w-full overflow-visible">
                     <div className="flex items-start gap-2 min-w-0 max-w-full overflow-visible">
@@ -14837,7 +14884,54 @@ export default function AuftraegePage() {
                       </details>
 
                       {/* Mobile — shared one-column card for Auftrag/Angebot */}
-                      <div className="min-w-0 flex-1">
+                      {!orderCardExpanded && (
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="shrink-0 text-[11px] text-muted-foreground">
+                              {o.createdAt
+                                ? new Date(o.createdAt).toLocaleDateString("de-CH", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                  })
+                                : ""}
+                            </span>
+                            <span
+                              className={`min-w-0 flex-1 truncate text-sm font-semibold ${
+                                isFallbackCustomerName(o.customer?.name)
+                                  ? "italic text-amber-600 dark:text-amber-400"
+                                  : "text-foreground"
+                              }`}
+                            >
+                              {isFallbackCustomerName(o.customer?.name)
+                                ? "Kunde nicht zugeordnet"
+                                : o.customer?.name || "–"}
+                            </span>
+                            <div className="ml-auto shrink-0 text-right">
+                              <div className="font-mono text-sm font-bold tabular-nums">
+                                {formatCurrency(
+                                  getSafeOrderTotal(o),
+                                  o.currency === "EUR" ? "EUR" : "CHF",
+                                )}
+                              </div>
+                            </div>
+                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          </div>
+                          {mobileAddressBadges.length > 0 && (
+                            <div className="mt-1 flex min-w-0 items-center">
+                              {mobileAddressBadges
+                                .slice(0, 1)
+                                .map((badge) =>
+                                  renderInteractiveMobileTextBadge(
+                                    badge,
+                                    "compact_header_address",
+                                    "left",
+                                  ),
+                                )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className={`min-w-0 flex-1 ${orderCardExpanded ? "" : "hidden"}`}>
                         <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                           <span className="shrink-0 text-[11px] text-muted-foreground">
                             {o.createdAt
@@ -15164,14 +15258,6 @@ export default function AuftraegePage() {
           </div>
         )}
       </div>
-      {/* Mobile-only navigation shortcut → Angebote.
-          NOT a conversion. NOT a "new offer" action. Pure navigation.
-          Hidden on md+ (desktop has the sidebar). */}
-      <MobileListShortcut
-        href="/angebote"
-        label="Angebote"
-        ariaLabel="Zu Angebote"
-      />
       <MergeOrdersDialog
         open={mergeStep === 2}
         onOpenChange={(open) => {
@@ -18244,12 +18330,8 @@ export default function AuftraegePage() {
                 );
               })()}
           </div>
-          {/* Mobile hotfix: the old sticky "Weiter zu Angebot" bottom-bar
-              inside this edit dialog was removed. The dialog already has
-              the regular action buttons ("Angebot erstellen", "Rechnung erstellen",
-              "Speichern", "Speichern & schließen"). Navigation between main lists now happens via
-              the small mobile-only shortcut rendered at the END of the
-              list page (see <MobileListShortcut /> below). */}
+          {/* The edit dialog keeps its existing document actions.
+              List navigation is handled by the fixed process button. */}
         </DialogContent>
       </Dialog>
 

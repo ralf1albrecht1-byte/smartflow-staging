@@ -539,6 +539,8 @@ export default function RechnungenPage() {
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
   const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<Set<string>>(new Set());
+  const [expandedInvoiceCardIds, setExpandedInvoiceCardIds] = useState<Set<string>>(new Set());
+  const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] = useState<Set<string>>(new Set());
   const [editingInvoiceSiteKey, setEditingInvoiceSiteKey] = useState<string | null>(null);
   const [newInvoiceExecutionSite, setNewInvoiceExecutionSite] =
     useState<InvoiceExecutionSite | null>(null);
@@ -1822,6 +1824,34 @@ export default function RechnungenPage() {
 
   const unpaidCount = invoices.filter((i) => i.status !== "Bezahlt").length;
   const paidCount = invoices.filter((i) => i.status === "Bezahlt").length;
+  const visibleInvoiceIds = sorted.slice(0, visibleCount).map((invoice) => invoice.id);
+  const allVisibleInvoiceCardsExpanded =
+    visibleInvoiceIds.length > 0 &&
+    visibleInvoiceIds.every((id) => expandedInvoiceCardIds.has(id));
+
+  const toggleInvoiceCard = (id: string) => {
+    setExpandedInvoiceCardIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllInvoiceCards = () => {
+    setExpandedInvoiceCardIds(
+      allVisibleInvoiceCardsExpanded ? new Set() : new Set(visibleInvoiceIds),
+    );
+  };
+
+  const toggleInvoiceServiceCard = (id: string) => {
+    setExpandedInvoiceServiceCardIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   if (loading)
     return (
@@ -1833,20 +1863,44 @@ export default function RechnungenPage() {
     return <LoadErrorFallback details={loadError} onRetry={load} />;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-            <FileText className="w-7 h-7 text-primary" /> Rechnungen
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            {unpaidCount} offen &middot; {paidCount} bezahlt
-          </p>
+    <div className="space-y-4 pb-24 md:pb-16">
+      <div className="pointer-events-none fixed left-16 top-0 z-[80] flex h-14 items-center">
+        <span className="font-display text-sm font-bold sm:text-base">Rechnungen</span>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => router.push("/angebote")}
+        className="fixed right-2 top-28 z-[70] inline-flex h-9 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-lg backdrop-blur hover:bg-muted sm:right-4"
+        aria-label="Zu Angebote"
+        title="Zu Angebote"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        <span>Angebote</span>
+      </button>
+
+      <div className="sticky top-14 z-40 -mx-2 border-b border-slate-200/80 bg-background/95 px-2 py-2 shadow-sm backdrop-blur dark:border-slate-700/80">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            {unpaidCount} offen · {paidCount} bezahlt
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-2.5 text-xs"
+              onClick={toggleAllInvoiceCards}
+              disabled={visibleInvoiceIds.length === 0}
+            >
+              {allVisibleInvoiceCardsExpanded ? "Alle schließen" : "Alle öffnen"}
+            </Button>
+            <Button className="h-8 px-2.5 text-xs" onClick={openNewInvoice}>
+              <Plus className="mr-1 h-4 w-4" />
+              <span className="hidden sm:inline">Neue Rechnung</span>
+              <span className="sm:hidden">Neu</span>
+            </Button>
+          </div>
         </div>
-        <Button onClick={openNewInvoice}>
-          <Plus className="w-4 h-4 mr-1" />
-          Neue Rechnung
-        </Button>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
@@ -1931,6 +1985,12 @@ export default function RechnungenPage() {
                   const visibleItems = (inv.items || []).filter((item: any) =>
                     Boolean(String(item?.description || "").trim()),
                   );
+                  const invoiceCardExpanded = expandedInvoiceCardIds.has(inv.id);
+                  const invoiceServicesExpanded =
+                    expandedInvoiceServiceCardIds.has(inv.id);
+                  const displayedInvoiceItems = invoiceServicesExpanded
+                    ? visibleItems
+                    : visibleItems.slice(0, 6);
                   const reviewItems = visibleItems
                     .map((item: any) => {
                       const quantity = Number(item?.quantity ?? 0);
@@ -2042,7 +2102,8 @@ export default function RechnungenPage() {
                     >
                       <Card
                         className={`cursor-pointer transition-shadow hover:shadow-md tap-safe`}
-                        onClick={() => openEditInvoice(inv)}
+                        onClick={() => toggleInvoiceCard(inv.id)}
+                        aria-expanded={invoiceCardExpanded}
                       >
                         <CardContent className="p-3 sm:p-4">
                           <div className="flex items-start gap-2">
@@ -2156,8 +2217,92 @@ export default function RechnungenPage() {
                               </div>
                             </details>
 
+                            {!invoiceCardExpanded && (
+                              <div className={`min-w-0 flex-1 ${isPaid ? "opacity-80" : ""}`}>
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                                    {(() => {
+                                      const dt =
+                                        inv.orders?.[0]?.createdAt ||
+                                        inv.createdAt ||
+                                        inv.invoiceDate;
+                                      return dt
+                                        ? new Date(dt).toLocaleDateString("de-CH", {
+                                            day: "2-digit",
+                                            month: "2-digit",
+                                          })
+                                        : "";
+                                    })()}
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                    {isFallbackCustomerName(inv?.customer?.name)
+                                      ? "Kunde nicht zugeordnet"
+                                      : inv?.customer?.name || "–"}
+                                  </span>
+                                  <div className="ml-auto shrink-0 text-right">
+                                    <div className="font-mono text-sm font-bold tabular-nums">
+                                      {formatCurrency(
+                                        Number(inv?.total ?? 0),
+                                        inv.currency === "EUR" ? "EUR" : "CHF",
+                                      )}
+                                    </div>
+                                  </div>
+                                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                </div>
+                                {invoiceExecutionSites.length > 0 && (
+                                  <div className="mt-1 flex min-w-0 items-center">
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        openEditInvoice(inv);
+                                        window.setTimeout(
+                                          () => setEditingExecutionAddress(true),
+                                          120,
+                                        );
+                                      }}
+                                      className="group relative inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100"
+                                    >
+                                      <MapPin className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">
+                                        {invoiceExecutionSites.length > 1
+                                          ? `Ausführungsorte · ${invoiceExecutionSites.length}`
+                                          : executionSite?.siteName ||
+                                            executionSite?.siteAddress ||
+                                            "Ausführungsadresse"}
+                                      </span>
+                                      <span className="pointer-events-none absolute left-0 top-full z-[90] mt-2 hidden w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                        {invoiceExecutionSites.map((site, siteIndex) => (
+                                          <span
+                                            key={`${inv.id}:compact-site:${siteIndex}`}
+                                            className={`block ${siteIndex > 0 ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+                                          >
+                                            <span className="block font-bold">
+                                              {site.siteName || `Ausführungsort ${siteIndex + 1}`}
+                                            </span>
+                                            <span className="block">
+                                              {[
+                                                site.siteAddress,
+                                                [site.sitePlz, site.siteCity]
+                                                  .filter(Boolean)
+                                                  .join(" "),
+                                              ]
+                                                .filter(Boolean)
+                                                .join(", ") || "–"}
+                                            </span>
+                                          </span>
+                                        ))}
+                                      </span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             <div
-                              className={`flex-1 min-w-0 ${isPaid ? "opacity-80" : ""}`}
+                              className={`flex-1 min-w-0 ${isPaid ? "opacity-80" : ""} ${invoiceCardExpanded ? "" : "hidden"}`}
                             >
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <span className="text-xs text-muted-foreground shrink-0">
@@ -2271,9 +2416,8 @@ export default function RechnungenPage() {
                                   Leistungen · {visibleItems.length}
                                 </div>
                                 <div className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
-                                  {visibleItems
-                                    .slice(0, 6)
-                                    .map((item: any, itemIndex: number) => (
+                                  {displayedInvoiceItems.map(
+                                    (item: any, itemIndex: number) => (
                                       <div
                                         key={`${inv.id}-item-${itemIndex}`}
                                         className="flex min-w-0 items-center gap-2 text-sm"
@@ -2292,13 +2436,25 @@ export default function RechnungenPage() {
                                           )}
                                         </span>
                                       </div>
-                                    ))}
+                                    ),
+                                  )}
                                 </div>
                                 {visibleItems.length > 6 && (
-                                  <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50/60 py-1 text-center text-xs text-blue-700">
-                                    + {visibleItems.length - 6} weitere
-                                    Leistungen
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onTouchStart={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      toggleInvoiceServiceCard(inv.id);
+                                    }}
+                                    className="mt-2 flex w-full items-center justify-center rounded-lg border border-blue-200 bg-blue-50/60 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                                  >
+                                    {invoiceServicesExpanded
+                                      ? "Weniger Leistungen anzeigen"
+                                      : `+ ${visibleItems.length - 6} weitere Leistungen`}
+                                  </button>
                                 )}
                               </div>
 

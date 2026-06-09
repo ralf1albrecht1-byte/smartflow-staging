@@ -72,7 +72,6 @@ import {
 import { PlzOrtInput } from "@/components/plz-ort-input";
 import { CustomerSearchCombobox } from "@/components/customer-search-combobox";
 import { MissingCustomerDataBadge } from "@/components/missing-customer-data-badge";
-import { MobileListShortcut } from "@/components/mobile-list-shortcut";
 
 const OFFER_DANGEROUS_DOG_ICON_DATA_URI =
   "data:image/webp;base64,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";
@@ -2027,7 +2026,7 @@ function ResponsiveOfferServicePreviewV17_95({
     };
   }, [serviceKey, serviceNames.length]);
 
-  const collapsedLimit = useTwoColumns ? 6 : 3;
+  const collapsedLimit = 6;
   const visibleServices = expanded
     ? serviceNames
     : serviceNames.slice(0, collapsedLimit);
@@ -2140,6 +2139,7 @@ export default function AngebotePage() {
   const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(0);
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
+  const [expandedOfferCardIds, setExpandedOfferCardIds] = useState<Set<string>>(new Set());
 
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
 
@@ -2159,6 +2159,24 @@ export default function AngebotePage() {
       else next.add(id);
       return next;
     });
+  };
+
+  const toggleOfferCard = (id: string) => {
+    setExpandedOfferCardIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allOfferCardsExpanded =
+    offers.length > 0 && offers.every((offer) => expandedOfferCardIds.has(offer.id));
+
+  const toggleAllOfferCards = () => {
+    setExpandedOfferCardIds(
+      allOfferCardsExpanded ? new Set() : new Set(offers.map((offer) => offer.id)),
+    );
   };
 
   useEffect(() => {
@@ -3868,21 +3886,56 @@ export default function AngebotePage() {
     return <LoadErrorFallback details={loadError} onRetry={load} />;
 
   return (
-    <div className="space-y-6 pb-20 md:pb-0">
+    <div className="space-y-4 pb-24 md:pb-16">
       {renderActiveMobileTooltipSheet()}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-            <FileCheck className="w-7 h-7 text-primary" /> Angebote
-          </h1>
-          <p className="text-muted-foreground mt-1">
+
+      <div className="pointer-events-none fixed left-16 top-0 z-[80] flex h-14 items-center">
+        <span className="font-display text-sm font-bold sm:text-base">Angebote</span>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => router.push("/auftraege")}
+        className="fixed right-2 top-28 z-[70] inline-flex h-9 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-lg backdrop-blur hover:bg-muted sm:right-4"
+        aria-label="Zu Aufträge"
+        title="Zu Aufträge"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        <span>Aufträge</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => router.push("/rechnungen")}
+        className="fixed bottom-4 right-2 z-[70] inline-flex h-9 items-center gap-1 rounded-full border border-slate-300 bg-background/95 px-2.5 text-xs font-semibold shadow-lg backdrop-blur hover:bg-muted sm:right-4"
+        aria-label="Zu Rechnungen"
+        title="Zu Rechnungen"
+      >
+        <span>Rechnungen</span>
+        <ChevronRight className="h-4 w-4" />
+      </button>
+
+      <div className="sticky top-14 z-40 -mx-2 border-b border-slate-200/80 bg-background/95 px-2 py-2 shadow-sm backdrop-blur dark:border-slate-700/80">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {offers?.length ?? 0} Angebote
-          </p>
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-2.5 text-xs"
+              onClick={toggleAllOfferCards}
+              disabled={offers.length === 0}
+            >
+              {allOfferCardsExpanded ? "Alle schließen" : "Alle öffnen"}
+            </Button>
+            <Button className="h-8 px-2.5 text-xs" onClick={openNewOffer}>
+              <Plus className="mr-1 h-4 w-4" />
+              <span className="hidden sm:inline">Neues Angebot</span>
+              <span className="sm:hidden">Neu</span>
+            </Button>
+          </div>
         </div>
-        <Button onClick={openNewOffer}>
-          <Plus className="w-4 h-4 mr-1" />
-          Neues Angebot
-        </Button>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
@@ -4111,6 +4164,7 @@ export default function AngebotePage() {
                     .filter(Boolean);
                   const mobileOfferServicesExpanded =
                     expandedMobileServiceCards.has(off.id);
+                  const offerCardExpanded = expandedOfferCardIds.has(off.id);
                   const openOfferChipTarget = (
                     section: "execution" | "items" | "details",
                     event: any,
@@ -4133,8 +4187,9 @@ export default function AngebotePage() {
                         className="border-2 border-slate-300 hover:border-slate-400 hover:shadow-sm transition-all cursor-pointer tap-safe rounded-xl"
                         onClick={() => {
                           setActiveMobileTooltip(null);
-                          openEditOffer(off);
+                          toggleOfferCard(off.id);
                         }}
+                        aria-expanded={offerCardExpanded}
                       >
                         <CardContent className="px-3 py-2">
                           <div className="flex items-start gap-2">
@@ -4231,7 +4286,111 @@ export default function AngebotePage() {
                             </details>
 
                             {/* Main info — mirrored from the order-card layout */}
-                            <div className="min-w-0 flex-1">
+                            {!offerCardExpanded && (
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                                    {(() => {
+                                      const dt = off.orders?.[0]?.createdAt || off.createdAt;
+                                      return dt
+                                        ? new Date(dt).toLocaleDateString("de-CH", {
+                                            day: "2-digit",
+                                            month: "2-digit",
+                                          })
+                                        : "";
+                                    })()}
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                    {isFallbackCustomerName(cardCustomerName)
+                                      ? "Kunde nicht zugeordnet"
+                                      : cardCustomerName}
+                                  </span>
+                                  <div className="ml-auto shrink-0 text-right">
+                                    <div className="font-mono text-sm font-bold tabular-nums">
+                                      {formatCurrency(
+                                        Number(off?.total ?? 0),
+                                        off.currency === "EUR" ? "EUR" : "CHF",
+                                      )}
+                                    </div>
+                                  </div>
+                                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                </div>
+                                {offerExecutionSites.length > 0 && (
+                                  <div className="mt-1 flex min-w-0 items-center">
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        const tooltipText = offerExecutionSites
+                                          .map((site, siteIndex) => {
+                                            const place = [site.sitePlz, site.siteCity]
+                                              .filter(Boolean)
+                                              .join(" ");
+                                            return [
+                                              `${siteIndex + 1}. ${site.siteName || "Ausführungsort"}`,
+                                              site.siteAddress || "",
+                                              place,
+                                            ]
+                                              .filter(Boolean)
+                                              .join(" · ");
+                                          })
+                                          .join("\n");
+                                        if (useTouchChipPopovers) {
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:compact-execution-sites`,
+                                              kind: "execution_address",
+                                              text: tooltipText,
+                                            },
+                                            event,
+                                          );
+                                        } else {
+                                          openOfferSection(off, "execution");
+                                        }
+                                      }}
+                                      className="group relative inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100"
+                                    >
+                                      <MapPin className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">
+                                        {offerExecutionSites.length > 1
+                                          ? `Ausführungsorte · ${offerExecutionSites.length}`
+                                          : primaryExecutionSite?.siteName ||
+                                            primaryExecutionSite?.siteAddress ||
+                                            "Ausführungsadresse"}
+                                      </span>
+                                      {!useTouchChipPopovers && (
+                                        <span className="pointer-events-none absolute left-0 top-full z-[90] mt-2 hidden w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                          {offerExecutionSites.map((site, siteIndex) => (
+                                            <span
+                                              key={`${off.id}:compact-site:${siteIndex}`}
+                                              className={`block ${siteIndex > 0 ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+                                            >
+                                              <span className="block font-bold">
+                                                {site.siteName || `Ausführungsort ${siteIndex + 1}`}
+                                              </span>
+                                              <span className="block">
+                                                {[
+                                                  site.siteAddress,
+                                                  [site.sitePlz, site.siteCity]
+                                                    .filter(Boolean)
+                                                    .join(" "),
+                                                ]
+                                                  .filter(Boolean)
+                                                  .join(", ") || "–"}
+                                              </span>
+                                            </span>
+                                          ))}
+                                        </span>
+                                      )}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className={`min-w-0 flex-1 ${offerCardExpanded ? "" : "hidden"}`}>
                               {/* Mobile — shared one-column card for Auftrag/Angebot */}
                               <div className="min-w-0">
                                 <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
@@ -5042,15 +5201,6 @@ export default function AngebotePage() {
           );
         })()}
       </div>
-
-      {/* Mobile-only navigation shortcut → Rechnungen.
-          NOT a conversion. NOT a "new invoice" action. Pure navigation.
-          Hidden on md+ (desktop has the sidebar). */}
-      <MobileListShortcut
-        href="/rechnungen"
-        label="Rechnungen"
-        ariaLabel="Zu Rechnungen"
-      />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent
@@ -6662,12 +6812,8 @@ export default function AngebotePage() {
                 );
               })()}
           </div>
-          {/* Mobile hotfix: the old sticky "Weiter zu Rechnung" bottom-bar
-              inside this edit dialog was removed. The dialog already has
-              the regular desktop action buttons ("→ Rechnung", "Speichern").
-              Navigation between main lists now happens via the small
-              mobile-only shortcut rendered at the END of the list page
-              (see <MobileListShortcut /> below). */}
+          {/* The edit dialog keeps its existing document actions.
+              List navigation is handled by the fixed process buttons. */}
         </DialogContent>
       </Dialog>
 
