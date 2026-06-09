@@ -6613,7 +6613,7 @@ const isEmailOnlyContactInstructionLine = (value?: string | null) => {
   if (!text) return false;
 
   return (
-    /(?:nur|only|uniquement|solo|solamente)\s+(?:per\s+|via\s+)?(?:e\s*mail|email|mail)/.test(
+    /(?:nur|ausschliesslich|ausschließlich|exklusiv|only|exclusively|uniquement|solo|solamente)\s+(?:kontakt\s+)?(?:per\s+|via\s+|ueber\s+|uber\s+)?(?:e\s*mail|e-mail|email|mail)/.test(
       text,
     ) ||
     /(?:e\s*mail|email|mail)\s+(?:reicht|only|uniquement)/.test(text) ||
@@ -6983,7 +6983,7 @@ const buildCompactCommunicationContextV17_90L123 = (
   // eine Negation niemals mehr einen WhatsApp-/SMS-Chip erzeugen.
   const emailOnlyClause = clauses.find((line) =>
     isEmailOnlyContactInstructionLine(line),
-  ) || (/(?:nur|ausschließlich|ausschliesslich|only|uniquement)\s+(?:per\s+|via\s+)?(?:e\s*mail|e-mail|email|mail)/i.test(source)
+  ) || (/(?:nur|ausschließlich|ausschliesslich|exklusiv|only|exclusively|uniquement)\s+(?:kontakt\s+)?(?:per\s+|via\s+|über\s+|ueber\s+)?(?:e\s*mail|e-mail|email|mail)/i.test(source)
     ? "nur E-Mail"
     : "");
   if (emailOnlyClause) {
@@ -7411,6 +7411,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   align?: "left" | "right";
 }) => {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
@@ -7422,6 +7423,12 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   } | null>(null);
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
 
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
   const clearHideTimer = () => {
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
@@ -7479,16 +7486,28 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
         };
   };
 
-  const showTooltip = () => {
+  const openTooltipImmediately = () => {
+    clearOpenTimer();
     clearHideTimer();
     const nextPosition = calculatePosition();
     if (nextPosition) setPosition(nextPosition);
     setOpen(true);
   };
+  const scheduleShowTooltip = () => {
+    clearHideTimer();
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      const nextPosition = calculatePosition();
+      if (nextPosition) setPosition(nextPosition);
+      setOpen(true);
+    }, 300);
+  };
 
   const scheduleHideTooltip = () => {
+    clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
   };
 
   useEffect(() => {
@@ -7501,16 +7520,17 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       }
     };
 
-    trigger.addEventListener("pointerenter", showTooltip);
+    trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHideTooltip);
-    trigger.addEventListener("focusin", showTooltip);
+    trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", handleFocusOut);
 
     return () => {
-      trigger.removeEventListener("pointerenter", showTooltip);
+      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHideTooltip);
-      trigger.removeEventListener("focusin", showTooltip);
+      trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", handleFocusOut);
+      clearOpenTimer();
       clearHideTimer();
     };
   }, [align, badge.key, tooltip]);
@@ -7574,6 +7594,7 @@ const ViewportAwareOrderServiceTooltip = ({
   align?: "left" | "right";
 }) => {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
@@ -7585,6 +7606,12 @@ const ViewportAwareOrderServiceTooltip = ({
   } | null>(null);
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
 
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
   const clearHideTimer = () => {
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
@@ -7633,16 +7660,28 @@ const ViewportAwareOrderServiceTooltip = ({
         };
   };
 
-  const showTooltip = () => {
+  const openTooltipImmediately = () => {
+    clearOpenTimer();
     clearHideTimer();
     const nextPosition = calculatePosition();
     if (nextPosition) setPosition(nextPosition);
     setOpen(true);
   };
+  const scheduleShowTooltip = () => {
+    clearHideTimer();
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      const nextPosition = calculatePosition();
+      if (nextPosition) setPosition(nextPosition);
+      setOpen(true);
+    }, 300);
+  };
 
   const scheduleHideTooltip = () => {
+    clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
   };
 
   useEffect(() => {
@@ -7655,16 +7694,17 @@ const ViewportAwareOrderServiceTooltip = ({
       }
     };
 
-    trigger.addEventListener("pointerenter", showTooltip);
+    trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHideTooltip);
-    trigger.addEventListener("focusin", showTooltip);
+    trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", handleFocusOut);
 
     return () => {
-      trigger.removeEventListener("pointerenter", showTooltip);
+      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHideTooltip);
-      trigger.removeEventListener("focusin", showTooltip);
+      trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", handleFocusOut);
+      clearOpenTimer();
       clearHideTimer();
     };
   }, [align]);
@@ -7750,6 +7790,7 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
   align?: "left" | "right";
 }) => {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
@@ -7761,6 +7802,12 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
   } | null>(null);
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
 
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
   const clearHideTimer = () => {
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
@@ -7806,16 +7853,28 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
         };
   };
 
-  const showTooltip = () => {
+  const openTooltipImmediately = () => {
+    clearOpenTimer();
     clearHideTimer();
     const nextPosition = calculatePosition();
     if (nextPosition) setPosition(nextPosition);
     setOpen(true);
   };
+  const scheduleShowTooltip = () => {
+    clearHideTimer();
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      const nextPosition = calculatePosition();
+      if (nextPosition) setPosition(nextPosition);
+      setOpen(true);
+    }, 300);
+  };
 
   const scheduleHideTooltip = () => {
+    clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
   };
 
   useEffect(() => {
@@ -7828,16 +7887,17 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
       }
     };
 
-    trigger.addEventListener("pointerenter", showTooltip);
+    trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHideTooltip);
-    trigger.addEventListener("focusin", showTooltip);
+    trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", handleFocusOut);
 
     return () => {
-      trigger.removeEventListener("pointerenter", showTooltip);
+      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHideTooltip);
-      trigger.removeEventListener("focusin", showTooltip);
+      trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", handleFocusOut);
+      clearOpenTimer();
       clearHideTimer();
     };
   }, [align]);

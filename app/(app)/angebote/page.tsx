@@ -1381,6 +1381,7 @@ function OfferViewportTooltipV17_95({
   preferredWidth?: number;
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
@@ -1391,6 +1392,12 @@ function OfferViewportTooltipV17_95({
     bottom?: number;
   } | null>(null);
 
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
   const clearHideTimer = () => {
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
@@ -1434,15 +1441,27 @@ function OfferViewportTooltipV17_95({
         };
   };
 
-  const show = () => {
+  const openTooltipImmediately = () => {
+    clearOpenTimer();
     clearHideTimer();
     const next = calculatePosition();
     if (next) setPosition(next);
     setOpen(true);
   };
-  const scheduleHide = () => {
+  const scheduleShowTooltip = () => {
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      const next = calculatePosition();
+      if (next) setPosition(next);
+      setOpen(true);
+    }, 300);
+  };
+  const scheduleHide = () => {
+    clearOpenTimer();
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
   };
 
   useEffect(() => {
@@ -1451,15 +1470,16 @@ function OfferViewportTooltipV17_95({
     const focusOut = (event: FocusEvent) => {
       if (!trigger.contains(event.relatedTarget as Node | null)) scheduleHide();
     };
-    trigger.addEventListener("pointerenter", show);
+    trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHide);
-    trigger.addEventListener("focusin", show);
+    trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", focusOut);
     return () => {
-      trigger.removeEventListener("pointerenter", show);
+      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHide);
-      trigger.removeEventListener("focusin", show);
+      trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", focusOut);
+      clearOpenTimer();
       clearHideTimer();
     };
   }, [align, preferredWidth]);
@@ -1829,6 +1849,7 @@ function OfferServiceReviewTooltip({
   align?: "left" | "right";
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
@@ -1839,6 +1860,12 @@ function OfferServiceReviewTooltip({
     bottom?: number;
   } | null>(null);
 
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
   const clearHideTimer = () => {
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
@@ -1892,16 +1919,28 @@ function OfferServiceReviewTooltip({
         };
   };
 
-  const showTooltip = () => {
+  const openTooltipImmediately = () => {
+    clearOpenTimer();
     clearHideTimer();
     const nextPosition = calculatePosition();
     if (nextPosition) setPosition(nextPosition);
     setOpen(true);
   };
+  const scheduleShowTooltip = () => {
+    clearHideTimer();
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      const nextPosition = calculatePosition();
+      if (nextPosition) setPosition(nextPosition);
+      setOpen(true);
+    }, 300);
+  };
 
   const scheduleHideTooltip = () => {
+    clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
   };
 
   useEffect(() => {
@@ -1914,16 +1953,17 @@ function OfferServiceReviewTooltip({
       }
     };
 
-    trigger.addEventListener("pointerenter", showTooltip);
+    trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHideTooltip);
-    trigger.addEventListener("focusin", showTooltip);
+    trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", handleFocusOut);
 
     return () => {
-      trigger.removeEventListener("pointerenter", showTooltip);
+      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHideTooltip);
-      trigger.removeEventListener("focusin", showTooltip);
+      trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", handleFocusOut);
+      clearOpenTimer();
       clearHideTimer();
     };
   }, [align]);

@@ -20,6 +20,7 @@ import {
   MessageCircle,
   MapPin,
   Pencil,
+  CalendarDays,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
@@ -496,6 +497,7 @@ function InvoiceViewportTooltip({
   preferredWidth?: number;
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{
@@ -506,6 +508,12 @@ function InvoiceViewportTooltip({
     bottom?: number;
   } | null>(null);
 
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
   const clearHideTimer = () => {
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
@@ -543,15 +551,27 @@ function InvoiceViewportTooltip({
           bottom: window.innerHeight - rect.top + gap,
         };
   };
-  const show = () => {
+  const openTooltipImmediately = () => {
+    clearOpenTimer();
     clearHideTimer();
     const next = calculatePosition();
     if (next) setPosition(next);
     setOpen(true);
   };
-  const scheduleHide = () => {
+  const scheduleShowTooltip = () => {
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      const next = calculatePosition();
+      if (next) setPosition(next);
+      setOpen(true);
+    }, 300);
+  };
+  const scheduleHide = () => {
+    clearOpenTimer();
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
   };
 
   useEffect(() => {
@@ -560,15 +580,16 @@ function InvoiceViewportTooltip({
     const focusOut = (event: FocusEvent) => {
       if (!trigger.contains(event.relatedTarget as Node | null)) scheduleHide();
     };
-    trigger.addEventListener("pointerenter", show);
+    trigger.addEventListener("pointerenter", scheduleShowTooltip);
     trigger.addEventListener("pointerleave", scheduleHide);
-    trigger.addEventListener("focusin", show);
+    trigger.addEventListener("focusin", openTooltipImmediately);
     trigger.addEventListener("focusout", focusOut);
     return () => {
-      trigger.removeEventListener("pointerenter", show);
+      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
       trigger.removeEventListener("pointerleave", scheduleHide);
-      trigger.removeEventListener("focusin", show);
+      trigger.removeEventListener("focusin", openTooltipImmediately);
       trigger.removeEventListener("focusout", focusOut);
+      clearOpenTimer();
       clearHideTimer();
     };
   }, [preferredWidth]);
@@ -1277,7 +1298,7 @@ export default function RechnungenPage() {
    */
   const openEditInvoice = (
     inv: Invoice,
-    opts?: { openCustomerSection?: boolean },
+    opts?: { openCustomerSection?: boolean; focusStatus?: boolean },
   ) => {
     setEditingInvoice(inv);
     setDupCheckOpen(false);
@@ -1362,6 +1383,15 @@ export default function RechnungenPage() {
       setPendingOpenCustomerEditor(null);
     }
     setDialogOpen(true);
+    if (opts?.focusStatus) {
+      window.setTimeout(() => {
+        const statusSelect = document.getElementById(
+          "invoice-status-select",
+        ) as HTMLSelectElement | null;
+        statusSelect?.scrollIntoView({ behavior: "smooth", block: "center" });
+        statusSelect?.focus();
+      }, 180);
+    }
     // Auto-fill: extract missing customer data from notes and update DB
     if (inv.customerId) autoFillCustomer(inv.customerId);
   };
@@ -2578,17 +2608,7 @@ export default function RechnungenPage() {
                                       </button>
                                     )}
                                   </div>
-                                  <div className="ml-auto flex min-w-0 shrink items-center gap-1.5 pr-3 sm:pr-5">
-                                    <span
-                                      className="shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                                      style={getStatusStyle(
-                                        INVOICE_STATUS_STYLES,
-                                        effectiveStatus,
-                                      )}
-                                      title={`Status: ${effectiveStatus}`}
-                                    >
-                                      {effectiveStatus}
-                                    </span>
+                                  <div className="ml-auto flex min-w-0 shrink items-center gap-2 pr-3 sm:pr-5">
                                     {invoiceAppointmentLabel && (
                                       <button
                                         type="button"
@@ -2598,18 +2618,38 @@ export default function RechnungenPage() {
                                           event.preventDefault();
                                           event.stopPropagation();
                                         }}
-                                        className="group relative inline-flex min-w-0 max-w-[10rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 sm:max-w-[12rem]"
+                                        className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-violet-300 bg-violet-50 text-violet-700 outline-none hover:bg-violet-100 focus:ring-2 focus:ring-violet-300"
+                                        aria-label={invoiceAppointmentLabel}
                                       >
-                                        <span className="truncate">
-                                          {invoiceAppointmentLabel}
-                                        </span>
+                                        <CalendarDays className="h-3.5 w-3.5" />
                                         <InvoiceViewportTooltip preferredWidth={300}>
-                                          <span className="block font-semibold text-violet-900 dark:text-violet-200">
+                                          <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
+                                            Ausführungstermin
+                                          </span>
+                                          <span className="mt-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
                                             {invoiceAppointmentLabel}
                                           </span>
                                         </InvoiceViewportTooltip>
                                       </button>
                                     )}
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        openEditInvoice(inv, { focusStatus: true });
+                                      }}
+                                      className="shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                                      style={getStatusStyle(
+                                        INVOICE_STATUS_STYLES,
+                                        effectiveStatus,
+                                      )}
+                                      aria-label={`Status bearbeiten: ${effectiveStatus}`}
+                                    >
+                                      {effectiveStatus}
+                                    </button>
                                   </div>
                                   <div className="shrink-0 text-right">
                                     <div className="font-mono text-sm font-bold tabular-nums">
@@ -2859,10 +2899,11 @@ export default function RechnungenPage() {
                                         ),
                                       );
                                     }}
-                                    className="group relative inline-flex h-9 items-center rounded-lg border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200"
+                                    className="relative inline-flex h-9 items-center rounded-lg border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200"
                                   >
                                     Leistungen prüfen · {reviewItems.length}
-                                    <div className="pointer-events-none absolute bottom-full left-0 z-[80] mb-2 hidden max-h-[60vh] w-[min(27rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-amber-300 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus-within:block dark:bg-slate-950">
+                                    <InvoiceViewportTooltip preferredWidth={432}>
+                                      <div className="text-left font-normal">
                                       <div className="text-sm font-bold text-slate-950 dark:text-slate-50">
                                         Leistungen prüfen · {reviewItems.length}
                                       </div>
@@ -2932,7 +2973,8 @@ export default function RechnungenPage() {
                                           </div>
                                         );
                                       })}
-                                    </div>
+                                      </div>
+                                    </InvoiceViewportTooltip>
                                   </button>
                                 )}
                                 <div className="ml-auto text-right">
@@ -4176,6 +4218,7 @@ export default function RechnungenPage() {
                         <div>
                           <Label>Status</Label>
                           <select
+                            id="invoice-status-select"
                             className="flex h-10 w-full rounded-md border border-input px-3 text-sm"
                             style={getStatusStyle(
                               INVOICE_STATUS_STYLES,

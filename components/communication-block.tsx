@@ -5,6 +5,69 @@ import { splitSpecialNotes, splitJobHints, detectCallbackRequest } from '@/lib/s
 import { formatAudioDuration } from '@/lib/audio-format';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
 
+const CHIP_HOVER_OPEN_DELAY_MS = 300;
+const CHIP_HOVER_CLOSE_DELAY_MS = 450;
+
+function useHoverIntentState(
+  openDelay = CHIP_HOVER_OPEN_DELAY_MS,
+  closeDelay = CHIP_HOVER_CLOSE_DELAY_MS,
+) {
+  const [open, setOpen] = useState(false);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearOpenTimer = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+  const clearTimers = () => {
+    clearOpenTimer();
+    clearCloseTimer();
+  };
+  const scheduleOpen = () => {
+    clearCloseTimer();
+    if (open) return;
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      setOpen(true);
+    }, openDelay);
+  };
+  const openImmediately = () => {
+    clearTimers();
+    setOpen(true);
+  };
+  const keepOpen = () => {
+    clearCloseTimer();
+  };
+  const scheduleClose = () => {
+    clearOpenTimer();
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setOpen(false);
+    }, closeDelay);
+  };
+
+  useEffect(() => () => clearTimers(), []);
+
+  return {
+    open,
+    scheduleOpen,
+    openImmediately,
+    keepOpen,
+    scheduleClose,
+  };
+}
+
 
 function WhatsAppIcon({ className = 'w-3 h-3' }: { className?: string }) {
   return (
@@ -1191,17 +1254,30 @@ export function MergedContactReviewChip({
     () => buildMergedContactReviewEntries(records),
     [records],
   );
+  const hoverIntent = useHoverIntentState();
   if (entries.length <= 1) return null;
 
   return (
     <span
-      className={`group relative inline-flex shrink-0 ${className}`}
+      className={`relative inline-flex shrink-0 ${className}`}
+      onMouseEnter={hoverIntent.scheduleOpen}
+      onMouseLeave={hoverIntent.scheduleClose}
+      onFocusCapture={hoverIntent.openImmediately}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          hoverIntent.scheduleClose();
+        }
+      }}
       onClick={(event) => event.stopPropagation()}
       onTouchStart={(event) => event.stopPropagation()}
     >
       <button
         type="button"
         aria-label="Kontakte prüfen"
+        onClick={(event) => {
+          event.stopPropagation();
+          hoverIntent.openImmediately();
+        }}
         className={
           compact
             ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 outline-none hover:bg-emerald-100 focus:ring-2 focus:ring-emerald-300'
@@ -1211,8 +1287,13 @@ export function MergedContactReviewChip({
         <AlertTriangle className="h-4 w-4" />
         {!compact && <span>Kontakte prüfen</span>}
       </button>
-      <span className="pointer-events-auto absolute bottom-full left-0 z-[9999] hidden w-[min(28rem,calc(100vw-2rem))] pb-2 group-hover:block group-focus-within:block">
-        <span className="block max-h-[65vh] overflow-y-auto rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl dark:bg-slate-950 dark:text-slate-100">
+      {hoverIntent.open && (
+        <span
+          className="pointer-events-auto absolute bottom-full left-0 z-[9999] block w-[min(28rem,calc(100vw-2rem))] pb-2"
+          onMouseEnter={hoverIntent.keepOpen}
+          onMouseLeave={hoverIntent.scheduleClose}
+        >
+          <span className="block max-h-[65vh] overflow-y-auto rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl dark:bg-slate-950 dark:text-slate-100">
           <span className="mb-2 block font-bold text-emerald-800 dark:text-emerald-200">
             Kontakte prüfen
           </span>
@@ -1247,8 +1328,9 @@ export function MergedContactReviewChip({
               </span>
             ))}
           </span>
+          </span>
         </span>
-      </span>
+      )}
     </span>
   );
 }
@@ -1305,11 +1387,14 @@ function detectCommunicationPreferenceChips(
   const mailTime = getChannelContactTimeHint('mail', customerSource || rawSource);
   const whatsappTime = getChannelContactTimeHint('whatsapp', customerSource || rawSource);
   const smsTime = getChannelContactTimeHint('sms', customerSource || rawSource);
+  const explicitMailOnly = /\b(?:ausschliesslich|ausschließlich|exklusiv|nur|only|exclusively)\b.{0,32}\b(?:e\s*mail|e-mail|email|mail|courriel)\b|\b(?:e\s*mail|e-mail|email|mail|courriel)\b.{0,32}\b(?:ausschliesslich|ausschließlich|exklusiv|nur|only|exclusively)\b/i.test(
+    customerSource || rawSource,
+  );
 
   const mail = exclusiveChannel
     ? exclusiveChannel === 'mail'
     : !channelIsForbidden('mail') &&
-      (operational.channel === 'mail' || channelIsPreferred('mail') || Boolean(mailTime));
+      (explicitMailOnly || operational.channel === 'mail' || channelIsPreferred('mail') || Boolean(mailTime));
   const whatsapp = exclusiveChannel
     ? exclusiveChannel === 'whatsapp'
     : !channelIsForbidden('whatsapp') &&
@@ -1429,25 +1514,7 @@ function Chip({
   const isStructuredContactTooltip = Boolean(contactHeading && contactValue);
   const safeContactName = sanitizeContactDisplayName(contactName) || 'Kunde';
   const hasTooltip = Boolean(title || isStructuredContactTooltip);
-  const [tooltipOpen, setTooltipOpen] = useState(false);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearTooltipTimer = () => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-  };
-  const showTooltip = () => {
-    clearTooltipTimer();
-    setTooltipOpen(true);
-  };
-  const scheduleTooltipHide = () => {
-    clearTooltipTimer();
-    hideTimerRef.current = setTimeout(() => setTooltipOpen(false), 450);
-  };
-
-  useEffect(() => () => clearTooltipTimer(), []);
+  const hoverIntent = useHoverIntentState();
 
   const triggerContent = (
     <>
@@ -1470,7 +1537,10 @@ function Chip({
     <button
       type="button"
       className={`${triggerClassName} border-0`}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (hasTooltip) hoverIntent.openImmediately();
+      }}
       aria-label={title || label}
     >
       {triggerContent}
@@ -1480,20 +1550,27 @@ function Chip({
   return (
     <span
       className="relative inline-flex shrink-0"
-      onMouseEnter={showTooltip}
-      onMouseLeave={scheduleTooltipHide}
-      onFocusCapture={showTooltip}
+      onMouseEnter={hasTooltip ? hoverIntent.scheduleOpen : undefined}
+      onMouseLeave={hasTooltip ? hoverIntent.scheduleClose : undefined}
+      onFocusCapture={hasTooltip ? hoverIntent.openImmediately : undefined}
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          scheduleTooltipHide();
+        if (
+          hasTooltip &&
+          !event.currentTarget.contains(event.relatedTarget as Node | null)
+        ) {
+          hoverIntent.scheduleClose();
         }
       }}
       onClick={(event) => event.stopPropagation()}
       onTouchStart={(event) => event.stopPropagation()}
     >
       {trigger}
-      {hasTooltip && tooltipOpen && (
-        <span className="pointer-events-auto absolute bottom-full left-0 z-[9999] block w-[min(20rem,calc(100vw-2rem))] pb-2">
+      {hasTooltip && hoverIntent.open && (
+        <span
+          className="pointer-events-auto absolute bottom-full left-0 z-[9999] block w-[min(20rem,calc(100vw-2rem))] pb-2"
+          onMouseEnter={hoverIntent.keepOpen}
+          onMouseLeave={hoverIntent.scheduleClose}
+        >
           <span className="block rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl dark:border-slate-700 dark:bg-slate-950">
             {isStructuredContactTooltip ? (
               <>
@@ -1958,6 +2035,8 @@ export function CommunicationChips({
       ? [data.mediaUrl]
       : [];
   const cardImagePreviewUrls = useResolvedUrls(cardImagePaths);
+  const imagePreviewHover = useHoverIntentState();
+  const infoHover = useHoverIntentState();
   const parsed = useMemo(() => parseNotesField(data.notes), [data.notes]);
   const { jobHints } = splitSpecialNotes(data.specialNotes);
   const { hazards, equipment } = splitJobHints(jobHints);
@@ -2089,13 +2168,21 @@ export function CommunicationChips({
         const imgCount = data.imageUrls?.length || (data.mediaUrl && data.mediaType === 'image' ? 1 : 0);
         return (
           <button
+            onMouseEnter={imagePreviewHover.scheduleOpen}
+            onMouseLeave={imagePreviewHover.scheduleClose}
+            onFocus={imagePreviewHover.openImmediately}
+            onBlur={imagePreviewHover.scheduleClose}
             onClick={(e) => { e.stopPropagation(); onImageClick?.(); }}
-            className={`${compact ? "inline-flex h-7 w-7 items-center justify-center text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100" : "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded hover:bg-blue-100 text-[11px]"} group/image-preview relative`}
+            className={`${compact ? "inline-flex h-7 w-7 items-center justify-center text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100" : "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded hover:bg-blue-100 text-[11px]"} relative`}
             title="Bilder ansehen"
           >
             <ImageIcon className="w-3.5 h-3.5" />{!compact && (imgCount > 1 ? ` (${imgCount})` : '')}
-            {cardImagePreviewUrls[0] && (
-              <span className="pointer-events-none absolute bottom-full left-0 z-[10000] mb-2 hidden w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl group-hover/image-preview:block dark:border-slate-700 dark:bg-slate-900">
+            {cardImagePreviewUrls[0] && imagePreviewHover.open && (
+              <span
+                className="pointer-events-auto absolute bottom-full left-0 z-[10000] mb-2 block w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+                onMouseEnter={imagePreviewHover.keepOpen}
+                onMouseLeave={imagePreviewHover.scheduleClose}
+              >
                 <img
                   src={cardImagePreviewUrls[0]}
                   alt="Bildvorschau"
@@ -2185,18 +2272,30 @@ export function CommunicationChips({
       {showInfoChip && infoLines.length > 0 && (
         <button
           type="button"
-          onClick={(event) => event.stopPropagation()}
+          onMouseEnter={infoHover.scheduleOpen}
+          onMouseLeave={infoHover.scheduleClose}
+          onFocus={infoHover.openImmediately}
+          onBlur={infoHover.scheduleClose}
+          onClick={(event) => {
+            event.stopPropagation();
+            infoHover.openImmediately();
+          }}
           aria-label="Informationen anzeigen"
           className={
             compact
-              ? "group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
-              : "group relative inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
+              ? "relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              : "relative inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
           }
         >
           <Info className="h-4 w-4" />
           {!compact && "Info"}
-          <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[65vh] w-[min(25rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-left font-normal shadow-2xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-950">
-            <span className="block space-y-2">
+          {infoHover.open && (
+            <span
+              className="pointer-events-auto absolute bottom-full left-0 z-[9999] mb-2 block max-h-[65vh] w-[min(25rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-left font-normal shadow-2xl dark:border-slate-700 dark:bg-slate-950"
+              onMouseEnter={infoHover.keepOpen}
+              onMouseLeave={infoHover.scheduleClose}
+            >
+              <span className="block space-y-2">
               {structuredInfo.safety.length > 0 && (
                 <span className="block rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
                   <span className="mb-1 flex items-center gap-1 font-bold">
@@ -2231,8 +2330,9 @@ export function CommunicationChips({
                   ))}
                 </span>
               )}
+              </span>
             </span>
-          </span>
+          )}
         </button>
       )}
     </>
