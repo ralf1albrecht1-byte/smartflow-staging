@@ -34,6 +34,7 @@ import {
   ChevronRight,
   ChevronDown,
   Mic,
+  Pencil,
   X,
 } from "lucide-react";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
