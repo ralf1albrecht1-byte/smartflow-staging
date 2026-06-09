@@ -946,6 +946,7 @@ export type MergedContactReviewEntry = {
   contactValue: string;
   channelLabel: string;
   detail: string;
+  href?: string;
 };
 
 export type CustomerMessageReviewBlock = {
@@ -1100,12 +1101,18 @@ function contactReviewEntryFromSource(
   const noCall = lines.some((line) => /\b(?:nicht|keine|kein)\s+(?:telefonisch\s+)?(?:anrufen|anrufe|telefon|telefonieren)|\bno\s+calls?\b/i.test(line));
   const timeHint = preferred && preferred !== 'call' ? getChannelContactTimeHint(preferred, customerSource) : '';
   const detail = [channelLabel, timeHint, noCall && preferred !== 'mail' ? 'keine Anrufe' : ''].filter(Boolean).join(' · ');
+  const href = value
+    ? preferred === 'mail' || value.includes('@')
+      ? `mailto:${value}`
+      : `tel:${String(value).replace(/[^+\d]/g, '')}`
+    : undefined;
   return {
     siteLabel,
     contactName: name,
     contactValue: value || 'Kontaktdaten prüfen',
     channelLabel,
     detail,
+    href,
   };
 }
 
@@ -1163,6 +1170,87 @@ export function formatMergedContactReviewTooltip(records: CommunicationData[] | 
       entry.detail || entry.channelLabel,
     ]),
   ].join('\n');
+}
+
+
+/**
+ * Interaktiver Sammelchip für zusammengeführte Kontakte.
+ * Telefonnummern und E-Mail-Adressen bleiben dem jeweiligen Arbeitsort
+ * zugeordnet und können direkt geöffnet werden.
+ */
+export function MergedContactReviewChip({
+  records,
+  compact = true,
+  className = '',
+}: {
+  records: CommunicationData[] | null | undefined;
+  compact?: boolean;
+  className?: string;
+}) {
+  const entries = useMemo(
+    () => buildMergedContactReviewEntries(records),
+    [records],
+  );
+  if (entries.length <= 1) return null;
+
+  return (
+    <span
+      className={`group relative inline-flex shrink-0 ${className}`}
+      onClick={(event) => event.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        aria-label="Kontakte prüfen"
+        className={
+          compact
+            ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 outline-none hover:bg-emerald-100 focus:ring-2 focus:ring-emerald-300'
+            : 'inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 outline-none hover:bg-emerald-100 focus:ring-2 focus:ring-emerald-300'
+        }
+      >
+        <AlertTriangle className="h-4 w-4" />
+        {!compact && <span>Kontakte prüfen</span>}
+      </button>
+      <span className="pointer-events-auto absolute bottom-full left-0 z-[9999] hidden w-[min(28rem,calc(100vw-2rem))] pb-2 group-hover:block group-focus-within:block">
+        <span className="block max-h-[65vh] overflow-y-auto rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl dark:bg-slate-950 dark:text-slate-100">
+          <span className="mb-2 block font-bold text-emerald-800 dark:text-emerald-200">
+            Kontakte prüfen
+          </span>
+          <span className="block space-y-2">
+            {entries.map((entry, index) => (
+              <span
+                key={`${entry.siteLabel}-${entry.contactValue}-${index}`}
+                className="block rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900"
+              >
+                <span className="block font-semibold text-slate-900 dark:text-slate-100">
+                  {entry.siteLabel}
+                </span>
+                <span className="mt-0.5 block text-slate-700 dark:text-slate-200">
+                  {entry.contactName}
+                </span>
+                {entry.href ? (
+                  <a
+                    href={entry.href}
+                    onClick={(event) => event.stopPropagation()}
+                    className="mt-0.5 block break-all font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300"
+                  >
+                    {entry.contactValue}
+                  </a>
+                ) : (
+                  <span className="mt-0.5 block break-all font-semibold">
+                    {entry.contactValue}
+                  </span>
+                )}
+                <span className="mt-0.5 block text-muted-foreground">
+                  {entry.detail || entry.channelLabel}
+                </span>
+              </span>
+            ))}
+          </span>
+        </span>
+      </span>
+    </span>
+  );
 }
 
 function detectCommunicationPreferenceChips(
@@ -1761,6 +1849,11 @@ export function CommunicationBlock({
             </div>
           )}
 
+          {/* Images — gallery */}
+          {resolvedThumbs.length > 0 && (
+            <ImageGallery thumbUrls={resolvedThumbs} fullUrls={resolvedImages} />
+          )}
+
           {/* Original text message — shown ONCE (only if substantially different from transcript) */}
           {showOriginalCustomerMessage && (
             <div className="bg-muted/50 rounded-lg p-3">
@@ -1778,10 +1871,6 @@ export function CommunicationBlock({
             </div>
           )}
 
-          {/* Images — gallery */}
-          {resolvedThumbs.length > 0 && (
-            <ImageGallery thumbUrls={resolvedThumbs} fullUrls={resolvedImages} />
-          )}
         </div>
       )}
     </div>
@@ -1799,14 +1888,17 @@ export function CommunicationChips({
   onImageClick,
   compact = false,
   contactsOnly = false,
+  showMediaChips = false,
   showInfoChip = false,
 }: {
   data: CommunicationData;
   onAudioClick?: () => void;
   onImageClick?: () => void;
   compact?: boolean;
-  /** For invoices: only direct contact actions, no separate hazard/equipment/media chips. */
+  /** For invoices: only direct contact actions, no separate hazard/equipment chips. */
   contactsOnly?: boolean;
+  /** Media chips may still be shown while contactsOnly suppresses operational chips. */
+  showMediaChips?: boolean;
   /** Collect remaining internal hints in one blue info chip. */
   showInfoChip?: boolean;
 }) {
@@ -1919,11 +2011,9 @@ export function CommunicationChips({
   }, [hazards, infoLines]);
 
   const hasVisibleContent =
-    (!contactsOnly &&
-      (hasAudio ||
-        hasImages ||
-        hazards.length > 0 ||
-        equipmentWithFallback.length > 0)) ||
+    (((!contactsOnly || showMediaChips) && (hasAudio || hasImages)) ||
+      (!contactsOnly &&
+        (hazards.length > 0 || equipmentWithFallback.length > 0))) ||
     Boolean(callbackNote) ||
     communicationPreferences.length > 0 ||
     (showInfoChip && infoLines.length > 0);
@@ -1932,7 +2022,7 @@ export function CommunicationChips({
 
   return (
     <>
-      {!contactsOnly && hasAudio && (
+      {(!contactsOnly || showMediaChips) && hasAudio && (
         <button
           onClick={(e) => { e.stopPropagation(); onAudioClick?.(); }}
           className="p-1 text-primary bg-primary/10 rounded hover:bg-primary/20"
@@ -1941,7 +2031,7 @@ export function CommunicationChips({
           <Volume2 className="w-4 h-4" />
         </button>
       )}
-      {!contactsOnly && hasImages && (() => {
+      {(!contactsOnly || showMediaChips) && hasImages && (() => {
         const imgCount = data.imageUrls?.length || (data.mediaUrl && data.mediaType === 'image' ? 1 : 0);
         return (
           <button

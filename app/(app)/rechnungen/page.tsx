@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -23,10 +23,10 @@ import {
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
+  CommunicationBlock,
   CommunicationChips,
-  buildCustomerMessageReviewBlocks,
+  MergedContactReviewChip,
   buildMergedContactReviewEntries,
-  formatMergedContactReviewTooltip,
   resolveCommunicationData,
   stripForwardedMessage,
 } from "@/components/communication-block";
@@ -358,6 +358,38 @@ function groupInvoiceItemsByExecutionSite(
   return Array.from(groups.values());
 }
 
+function buildInvoiceGroupReviewRows(
+  group: InvoiceItemGroup,
+  services: any[],
+  currency: "CHF" | "EUR",
+): string[] {
+  return group.entries.flatMap(({ item }) => {
+    const name = compactInvoiceValue(item?.description) || "Neue Leistung";
+    const quantity = Number(item?.quantity || 0);
+    const unitPrice = Number(item?.unitPrice || 0);
+    const unit = compactInvoiceValue(item?.unit);
+    const matched = (services || []).find(
+      (service: any) =>
+        normalizeInvoiceServiceName(service?.name) ===
+        normalizeInvoiceServiceName(name),
+    );
+    const reasons: string[] = [];
+    if (!name || quantity <= 0 || unitPrice <= 0 || !unit || /(?:prüfen|pruefen|prufen)/i.test(unit))
+      reasons.push("Preis, Menge oder Einheit prüfen");
+    if (!matched) reasons.push("nicht im Leistungskatalog");
+    if (matched) {
+      const catalogPrice = Number(matched?.defaultPrice || 0);
+      const catalogUnit = compactInvoiceValue(matched?.unit);
+      if (catalogUnit && catalogUnit !== unit)
+        reasons.push(`Einheit: ${unit || "–"} statt ${catalogUnit}`);
+      if (Math.abs(catalogPrice - unitPrice) >= 0.001)
+        reasons.push(`Preis: ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`);
+    }
+    return reasons.length > 0 ? [`${name}
+${reasons.join(" · ")}`] : [];
+  });
+}
+
 function getInvoiceMergedCount(invoice: Invoice): number {
   const orderCount = Array.isArray(invoice.orders) ? invoice.orders.length : 0;
   const originCount = Math.max(
@@ -386,10 +418,6 @@ function buildInvoiceCommunicationData(invoice: Invoice) {
     },
     phone: resolved.phone || invoice.customer?.phone || null,
     email: resolved.email || invoice.customer?.email || null,
-    mediaUrl: null,
-    mediaType: null,
-    imageUrls: [],
-    thumbnailUrls: [],
   };
 }
 
@@ -484,6 +512,8 @@ export default function RechnungenPage() {
   const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<Set<string>>(new Set());
+  const [editingInvoiceSiteKey, setEditingInvoiceSiteKey] = useState<string | null>(null);
   const [newInvoiceExecutionSite, setNewInvoiceExecutionSite] =
     useState<InvoiceExecutionSite | null>(null);
   const [saving, setSaving] = useState(false);
@@ -958,6 +988,8 @@ export default function RechnungenPage() {
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     setEditingExecutionAddress(false);
+    setExpandedInvoiceSiteKeys(new Set());
+    setEditingInvoiceSiteKey(null);
     setNewInvoiceExecutionSite(null);
     setLinkedOrderData(null);
     setEditOrderCtx(null);
@@ -1027,6 +1059,8 @@ export default function RechnungenPage() {
     setExpandedItemIndex(null);
     setServiceActionMenuIndex(null);
     setEditingExecutionAddress(false);
+    setExpandedInvoiceSiteKeys(new Set());
+    setEditingInvoiceSiteKey(null);
     setNewInvoiceExecutionSite(null);
     setItems(
       inv.items?.length > 0
@@ -1152,7 +1186,23 @@ export default function RechnungenPage() {
   };
 
   const addItem = () => {
-    setItems((current) => [getEmptyItem(), ...current]);
+    const sites = collectInvoiceExecutionSites({
+      items,
+      orders: editingInvoice?.orders || [],
+    });
+    const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
+    const activeKey =
+      editingInvoiceSiteKey ||
+      Array.from(expandedInvoiceSiteKeys)[0] ||
+      groups[0]?.key ||
+      null;
+    const targetSite = groups.find((group) => group.key === activeKey)?.site || null;
+    setItems((current) => [
+      { ...getEmptyItem(), ...(targetSite || {}) },
+      ...current,
+    ]);
+    if (activeKey)
+      setExpandedInvoiceSiteKeys((current) => new Set([...current, activeKey]));
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     requestAnimationFrame(() => {
@@ -1289,6 +1339,73 @@ export default function RechnungenPage() {
     } finally {
       setServiceActionMenuIndex(null);
     }
+  };
+
+  const invoiceGroupKeyForSite = (site: InvoiceExecutionSite) =>
+    `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`;
+
+  const addInvoiceExecutionSite = () => {
+    const sites = collectInvoiceExecutionSites({
+      items,
+      orders: editingInvoice?.orders || [],
+    });
+    const site: InvoiceExecutionSite = {
+      siteName: `Arbeitsort ${sites.length + 1}`,
+      siteAddress: "",
+      sitePlz: "",
+      siteCity: "",
+      siteNote: "",
+      sourceOrderId: null,
+    };
+    const key = invoiceGroupKeyForSite(site);
+    setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setEditingInvoiceSiteKey(key);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
+    setExpandedItemIndex(0);
+    requestAnimationFrame(() =>
+      serviceItemsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  };
+
+  const updateInvoiceGroupSite = (
+    groupKey: string,
+    field: keyof InvoiceExecutionSite,
+    value: string,
+  ) => {
+    const currentSite = collectInvoiceExecutionSites({
+      items,
+      orders: editingInvoice?.orders || [],
+    }).find((site) => invoiceGroupKeyForSite(site) === groupKey);
+    const nextKey = currentSite
+      ? invoiceGroupKeyForSite({ ...currentSite, [field]: value })
+      : groupKey;
+    setItems((current) =>
+      current.map((item) =>
+        invoiceGroupKeyForSite(item as InvoiceExecutionSite) === groupKey
+          ? { ...item, [field]: value || null }
+          : item,
+      ),
+    );
+    setEditingInvoiceSiteKey(nextKey);
+    setExpandedInvoiceSiteKeys((current) => {
+      const next = new Set(current);
+      next.delete(groupKey);
+      next.add(nextKey);
+      return next;
+    });
+  };
+
+  const toggleAllInvoiceSites = () => {
+    const sites = collectInvoiceExecutionSites({
+      items,
+      orders: editingInvoice?.orders || [],
+    });
+    const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
+    setExpandedInvoiceSiteKeys((current) =>
+      current.size === groups.length
+        ? new Set()
+        : new Set(groups.map((group) => group.key)),
+    );
   };
 
   const updateInvoiceExecutionSite = (
@@ -1875,9 +1992,6 @@ export default function RechnungenPage() {
                   const mergedContactEntries = buildMergedContactReviewEntries(
                     (inv.orders || []) as any,
                   );
-                  const mergedContactTooltip = formatMergedContactReviewTooltip(
-                    (inv.orders || []) as any,
-                  );
                   const hasMergedContactReview =
                     mergedCount > 1 && mergedContactEntries.length > 1;
                   return (
@@ -2183,22 +2297,27 @@ export default function RechnungenPage() {
                                   onClick={(event) => event.stopPropagation()}
                                 >
                                   {hasMergedContactReview ? (
-                                    <button
-                                      type="button"
-                                      className="group relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700"
-                                      aria-label={mergedContactTooltip}
-                                    >
-                                      <AlertTriangle className="h-4 w-4" />
-                                      <span className="pointer-events-none absolute bottom-full left-0 z-[95] mb-2 hidden max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-medium leading-relaxed text-slate-800 shadow-2xl group-hover:block group-focus-visible:block dark:bg-slate-950 dark:text-slate-100">
-                                        {mergedContactTooltip}
-                                      </span>
-                                    </button>
+                                    <MergedContactReviewChip
+                                      records={(inv.orders || []) as any}
+                                      compact
+                                    />
                                   ) : (
                                     <CommunicationChips
                                       data={invoiceContactData}
                                       compact
                                       contactsOnly
+                                      showMediaChips
                                       showInfoChip
+                                      onAudioClick={() =>
+                                        invoiceContactData.mediaUrl &&
+                                        openMedia(invoiceContactData.mediaUrl, "audio")
+                                      }
+                                      onImageClick={() => {
+                                        const images = invoiceContactData.imageUrls || [];
+                                        if (images.length > 0) openImageGallery(images);
+                                        else if (invoiceContactData.mediaUrl)
+                                          openMedia(invoiceContactData.mediaUrl, "image");
+                                      }}
                                     />
                                   )}
                                 </div>
@@ -2938,6 +3057,7 @@ export default function RechnungenPage() {
               )}
 
               {!dupCheckOpen && editingInvoice &&
+                collectInvoiceExecutionSites({ items, orders: editingInvoice?.orders || [] }).length <= 1 &&
                 (() => {
                   const executionSite = collectInvoiceExecutionSites({
                     items,
@@ -3110,19 +3230,48 @@ export default function RechnungenPage() {
               ) : (
                 <>
                   <div ref={serviceItemsRef} className="scroll-mt-24 space-y-3 rounded-xl border bg-background p-3 sm:p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h3 className="text-base font-semibold">
-                          Leistungen · {items?.length || 0}
-                        </h3>
-                        <p className="text-xs text-muted-foreground">
-                          Kompakte Übersicht. Zum Bearbeiten die Leistung
-                          aufklappen.
-                        </p>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={addItem}>
-                        <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
-                      </Button>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      {(() => {
+                        const currentSites = collectInvoiceExecutionSites({
+                          items,
+                          orders: editingInvoice?.orders || [],
+                        });
+                        const multiSite = currentSites.length > 1;
+                        return (
+                          <>
+                            <div>
+                              <h3 className="text-base font-semibold">
+                                {multiSite
+                                  ? `Arbeitsorte & Leistungen · ${items?.length || 0}`
+                                  : `Leistungen · ${items?.length || 0}`}
+                              </h3>
+                              <p className="text-xs text-muted-foreground">
+                                {multiSite
+                                  ? `${currentSites.length} Arbeitsorte · ${items?.length || 0} Leistungen · ${formatCurrency(subtotal, currency)}`
+                                  : "Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen."}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {multiSite && (
+                                <>
+                                  <Button variant="outline" size="sm" onClick={toggleAllInvoiceSites}>
+                                    {expandedInvoiceSiteKeys.size ===
+                                    groupInvoiceItemsByExecutionSite(items || [], currentSites).length
+                                      ? "Übersicht"
+                                      : "Alle öffnen"}
+                                  </Button>
+                                  <Button variant="outline" size="sm" onClick={addInvoiceExecutionSite}>
+                                    <Plus className="mr-1 h-4 w-4" /> Arbeitsort
+                                  </Button>
+                                </>
+                              )}
+                              <Button variant="outline" size="sm" onClick={addItem}>
+                                <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
+                              </Button>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     <div className="space-y-2">
@@ -3373,7 +3522,16 @@ export default function RechnungenPage() {
                         return groups.map((group, groupIndex) => (
                           <details
                             key={group.key}
-                            open
+                            open={expandedInvoiceSiteKeys.has(group.key)}
+                            onToggle={(event) => {
+                              const open = event.currentTarget.open;
+                              setExpandedInvoiceSiteKeys((current) => {
+                                const next = new Set(current);
+                                if (open) next.add(group.key);
+                                else next.delete(group.key);
+                                return next;
+                              });
+                            }}
                             className="overflow-visible rounded-xl border-2 border-slate-300 bg-slate-50/50"
                           >
                             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-slate-200 bg-white px-3 py-2.5 [&::-webkit-details-marker]:hidden">
@@ -3386,6 +3544,18 @@ export default function RechnungenPage() {
                                     .filter(Boolean)
                                     .join(" · ") || "Adresse nicht angegeben"}
                                 </div>
+                                {(() => {
+                                  const rows = buildInvoiceGroupReviewRows(group, services || [], currency);
+                                  if (rows.length === 0) return null;
+                                  return (
+                                    <span className="group/review relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                                      Leistungen prüfen · {rows.length}
+                                      <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[60vh] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap rounded-xl border border-amber-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl group-hover/review:block">
+                                        {rows.join("\n\n")}
+                                      </span>
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               <div className="shrink-0 text-right">
                                 <div className="text-[10px] text-muted-foreground">
@@ -3394,8 +3564,47 @@ export default function RechnungenPage() {
                                 <div className="font-mono text-sm font-bold text-emerald-700">
                                   {formatCurrency(group.subtotal, currency)}
                                 </div>
+                                <button
+                                  type="button"
+                                  className="mt-1 text-[11px] font-medium text-emerald-700 hover:underline"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setEditingInvoiceSiteKey((current) =>
+                                      current === group.key ? null : group.key,
+                                    );
+                                    setExpandedInvoiceSiteKeys((current) =>
+                                      new Set([...current, group.key]),
+                                    );
+                                  }}
+                                >
+                                  Arbeitsort bearbeiten
+                                </button>
                               </div>
                             </summary>
+                            {editingInvoiceSiteKey === group.key && group.site && (
+                              <div className="grid grid-cols-1 gap-2 border-b border-slate-200 bg-cyan-50/50 p-3 sm:grid-cols-2">
+                                <div className="sm:col-span-2">
+                                  <Label className="text-xs">Objekt / Bereich</Label>
+                                  <Input value={group.site.siteName || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "siteName", event.target.value)} />
+                                </div>
+                                <div className="sm:col-span-2">
+                                  <Label className="text-xs">Strasse</Label>
+                                  <Input value={group.site.siteAddress || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "siteAddress", event.target.value)} />
+                                </div>
+                                <div>
+                                  <Label className="text-xs">PLZ</Label>
+                                  <Input value={group.site.sitePlz || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "sitePlz", event.target.value)} />
+                                </div>
+                                <div>
+                                  <Label className="text-xs">Ort</Label>
+                                  <Input value={group.site.siteCity || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "siteCity", event.target.value)} />
+                                </div>
+                                <div className="sm:col-span-2 flex justify-end">
+                                  <Button type="button" size="sm" variant="outline" onClick={() => setEditingInvoiceSiteKey(null)}>Fertig</Button>
+                                </div>
+                              </div>
+                            )}
                             <div className="space-y-2 p-2">
                               {renderEntries(group.entries)}
                             </div>
@@ -3622,9 +3831,33 @@ export default function RechnungenPage() {
                     const otherHints = allHints.filter(
                       (line) => !primaryKeys.has(normalizeInvoiceServiceName(line)),
                     );
-                    const customerMessageBlocks =
-                      buildCustomerMessageReviewBlocks(
-                        (editingInvoice?.orders || []) as any[],
+                    const customerMessageBlocks = (editingInvoice?.orders || [])
+                      .map((order, index) => {
+                        const sites = Array.isArray(order?.workSites)
+                          ? [...order.workSites].sort(
+                              (a, b) =>
+                                Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+                                Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+                            )
+                          : [];
+                        const title =
+                          sites[0]?.siteName ||
+                          order?.siteName ||
+                          order?.siteAddress ||
+                          `Quellauftrag ${index + 1}`;
+                        const message = String(order?.notes || order?.audioTranscript || "").trim();
+                        return {
+                          title,
+                          message,
+                          transcript: order?.audioTranscript || "",
+                          order,
+                        };
+                      })
+                      .filter(
+                        (entry) =>
+                          entry.message ||
+                          entry.order?.mediaUrl ||
+                          (entry.order?.imageUrls || []).length > 0,
                       );
 
                     return (
@@ -3686,17 +3919,12 @@ export default function RechnungenPage() {
                                   <div className="mb-2 font-semibold text-sky-800">
                                     {index + 1}. {entry.title}
                                   </div>
-                                  <div className="whitespace-pre-wrap break-words leading-relaxed">
-                                    {entry.message}
-                                  </div>
-                                  {entry.transcript && !entry.message.includes(entry.transcript) && (
-                                    <div className="mt-3 border-t pt-2">
-                                      <div className="mb-1 text-xs font-semibold text-muted-foreground">Transkription</div>
-                                      <div className="whitespace-pre-wrap break-words leading-relaxed">
-                                        {entry.transcript}
-                                      </div>
-                                    </div>
-                                  )}
+                                  <CommunicationBlock
+                                    data={entry.order as any}
+                                    showChips={false}
+                                    showSpecialNotes={false}
+                                    showCustomerMessage
+                                  />
                                 </div>
                               ))
                             ) : (
@@ -3704,32 +3932,6 @@ export default function RechnungenPage() {
                                 Keine Kundennachricht vorhanden.
                               </div>
                             )}
-                            <div className="flex flex-wrap gap-2">
-                              {editOrderCtx.mediaUrl &&
-                                editOrderCtx.mediaType?.startsWith("audio") && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      openMedia(editOrderCtx.mediaUrl, "audio")
-                                    }
-                                  >
-                                    <Volume2 className="mr-1 h-4 w-4" /> Audio öffnen
-                                  </Button>
-                                )}
-                              {editOrderCtx.imageUrls &&
-                                editOrderCtx.imageUrls.length > 0 && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      openImageGallery(editOrderCtx.imageUrls || [])
-                                    }
-                                  >
-                                    <ImageIcon className="mr-1 h-4 w-4" /> Bilder öffnen
-                                  </Button>
-                                )}
-                            </div>
                           </div>
                         </details>
                       </div>

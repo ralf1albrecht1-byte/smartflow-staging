@@ -38,7 +38,9 @@ import {
 } from "lucide-react";
 import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
+  CommunicationBlock,
   CommunicationChips,
+  MergedContactReviewChip,
   formatMergedContactReviewTooltip,
 } from "@/components/communication-block";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
@@ -6931,6 +6933,17 @@ const buildCompactCommunicationContextV17_90L123 = (
     /\b(?:whats\s*app|whatsapp|sms|e\s*mail|e-mail|email|mail|courriel)\b/i.test(
       String(value || ""),
     );
+
+  // Eine ausdrückliche Nur-E-Mail-Anweisung hat Vorrang vor allen
+  // gleichzeitig verneinten Kanälen (z. B. „kein WhatsApp“). Dadurch kann
+  // eine Negation niemals mehr einen WhatsApp-/SMS-Chip erzeugen.
+  const emailOnlyClause = clauses.find((line) =>
+    isEmailOnlyContactInstructionLine(line),
+  );
+  if (emailOnlyClause) {
+    const email = extractOrderContactEmailForCustomerDisplayV17_90K(order);
+    return `Kontakt vor Ort: ${email ? `${email} · ` : ""}nur E-Mail · nicht telefonisch`;
+  }
 
   const structuredContact = clauses.find(
     (line) =>
@@ -14346,7 +14359,6 @@ export default function AuftraegePage() {
             // mobile icon row is reserved for real actions/hints.
             const mobileActionBadges = [
               ...mobileFocusBadges,
-              ...mergedContactBadges,
               ...callbackBadges,
               ...messageBadges,
               ...operationalBadges,
@@ -14873,6 +14885,13 @@ export default function AuftraegePage() {
                             </div>
                           )}
 
+                          {hasMultipleMergedData && (
+                            <MergedContactReviewChip
+                              records={[cardOrderForChips as any]}
+                              compact
+                            />
+                          )}
+
                           {mobileActionBadges.map((badge) =>
                             renderInteractiveMobileActionBadge(badge),
                           )}
@@ -15024,8 +15043,11 @@ export default function AuftraegePage() {
                               </div>
                             )}
 
-                            {mergedContactBadges.map((badge) =>
-                              renderInteractiveOrderCardBadge(badge),
+                            {hasMultipleMergedData && (
+                              <MergedContactReviewChip
+                                records={[cardOrderForChips as any]}
+                                compact
+                              />
                             )}
 
                             {callbackBadges.map((badge) =>
@@ -17961,92 +17983,16 @@ export default function AuftraegePage() {
                             prüfen.
                           </span>
                         </div>
+                      ) : currentEditOrder ? (
+                        <CommunicationBlock
+                          data={currentEditOrder as any}
+                          showChips={false}
+                          showSpecialNotes={false}
+                          showCustomerMessage
+                        />
                       ) : (
-                        <div className="space-y-3">
-                          {currentEditOrder?.mediaUrl &&
-                            currentEditOrder.mediaType === "audio" && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openMedia(currentEditOrder)}
-                              >
-                                <Volume2 className="w-4 h-4 mr-1" />
-                                Sprachnachricht abspielen
-                              </Button>
-                            )}
-
-                          {customerMessageImagePreviewUrls.length > 0 &&
-                            currentEditOrder && (
-                              <div className="rounded-lg border bg-background p-2">
-                                <div className="mb-2 flex items-center justify-between gap-2">
-                                  <div>
-                                    <div className="text-sm font-medium">
-                                      Bildvorschau
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      {customerMessageImagePreviewUrls.length}{" "}
-                                      Bild
-                                      {customerMessageImagePreviewUrls.length ===
-                                      1
-                                        ? ""
-                                        : "er"}{" "}
-                                      · Miniatur anklicken
-                                    </div>
-                                  </div>
-                                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                  {customerMessageImagePreviewUrls.map(
-                                    (url, index) => (
-                                      <button
-                                        key={`${url}-${index}`}
-                                        type="button"
-                                        className="group flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted hover:ring-2 hover:ring-primary"
-                                        onClick={() => {
-                                          setGalleryUrls(
-                                            customerMessageImagePreviewUrls,
-                                          );
-                                          setGalleryIdx(index);
-                                          setMediaType("image");
-                                          setMediaUrl(null);
-                                          setMediaDialogOpen(true);
-                                        }}
-                                      >
-                                        <img
-                                          src={url}
-                                          alt={`Kundenbild ${index + 1}`}
-                                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                                        />
-                                      </button>
-                                    ),
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                          {currentEditOrder?.audioTranscript && (
-                            <div className="rounded-md border bg-background p-2">
-                              <div className="text-xs font-medium text-muted-foreground mb-1">
-                                Transkription
-                              </div>
-                              <div className="whitespace-pre-wrap">
-                                {currentEditOrder.audioTranscript}
-                              </div>
-                            </div>
-                          )}
-
-                          {visibleCustomerMessageText ? (
-                            <div className="max-h-[420px] overflow-auto rounded-md border bg-background p-2 whitespace-pre-wrap">
-                              {visibleCustomerMessageText}
-                            </div>
-                          ) : !currentEditOrder?.audioTranscript &&
-                            !currentEditOrder?.mediaUrl &&
-                            customerMessageImagePreviewUrls.length === 0 ? (
-                            <div className="rounded-md border bg-background p-2 whitespace-pre-wrap">
-                              Keine Kundennachricht gespeichert.
-                            </div>
-                          ) : null}
+                        <div className="rounded-md border bg-background p-2 text-sm text-muted-foreground">
+                          Keine Kundennachricht gespeichert.
                         </div>
                       )}
                     </div>

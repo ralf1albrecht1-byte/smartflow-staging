@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -29,9 +29,8 @@ import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
   CommunicationBlock,
   CommunicationChips,
-  buildCustomerMessageReviewBlocks,
+  MergedContactReviewChip,
   buildMergedContactReviewEntries,
-  formatMergedContactReviewTooltip,
   resolveCommunicationData,
   stripForwardedMessage,
   type CommunicationData,
@@ -322,6 +321,37 @@ function groupOfferItemsByExecutionSite(
     groups.set(key, group);
   });
   return Array.from(groups.values());
+}
+
+function buildOfferGroupReviewRows(
+  group: OfferItemGroup,
+  services: any[],
+  currency: "CHF" | "EUR",
+): string[] {
+  return group.entries.flatMap(({ item }) => {
+    const name = String(item?.description || "").trim() || "Neue Leistung";
+    const quantity = Number(item?.quantity || 0);
+    const unitPrice = Number(item?.unitPrice || 0);
+    const unit = String(item?.unit || "").trim();
+    const matched = (services || []).find(
+      (service: any) =>
+        normalizeOfferHint(service?.name) === normalizeOfferHint(name),
+    );
+    const reasons: string[] = [];
+    if (!name || quantity <= 0 || unitPrice <= 0 || !unit || /(?:prüfen|pruefen|prufen)/i.test(unit))
+      reasons.push("Preis, Menge oder Einheit prüfen");
+    if (!matched) reasons.push("nicht im Leistungskatalog");
+    if (matched) {
+      const catalogPrice = Number(matched?.defaultPrice || 0);
+      const catalogUnit = String(matched?.unit || "").trim();
+      if (catalogUnit && catalogUnit !== unit)
+        reasons.push(`Einheit: ${unit || "–"} statt ${catalogUnit}`);
+      if (Math.abs(catalogPrice - unitPrice) >= 0.001)
+        reasons.push(`Preis: ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`);
+    }
+    return reasons.length > 0 ? [`${name}
+${reasons.join(" · ")}`] : [];
+  });
 }
 
 function getOfferMergedCount(offer: Offer): number {
@@ -2138,6 +2168,7 @@ export default function AngebotePage() {
     message: string;
     action: () => Promise<void>;
   } | null>(null);
+  const [revertingOfferId, setRevertingOfferId] = useState<string | null>(null);
 
   // Android/browser back: close the edit dialog FIRST instead of jumping to the
   // previously visited module. Safe version — see lib/use-dialog-back-guard.ts.
@@ -2166,6 +2197,8 @@ export default function AngebotePage() {
   const [executionSites, setExecutionSites] = useState<OfferExecutionSite[]>(
     [],
   );
+  const [expandedOfferSiteKeys, setExpandedOfferSiteKeys] = useState<Set<string>>(new Set());
+  const [editingOfferSiteKey, setEditingOfferSiteKey] = useState<string | null>(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
   const [selectedChipDetail, setSelectedChipDetail] = useState<string | null>(
     null,
@@ -2575,7 +2608,19 @@ export default function AngebotePage() {
   };
 
   const addItem = () => {
-    setItems((current) => [getEmptyItem(), ...current]);
+    const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
+    const activeKey =
+      editingOfferSiteKey ||
+      Array.from(expandedOfferSiteKeys)[0] ||
+      groups[0]?.key ||
+      null;
+    const targetSite = groups.find((group) => group.key === activeKey)?.site || null;
+    setItems((current) => [
+      { ...getEmptyItem(), ...(targetSite || {}) },
+      ...current,
+    ]);
+    if (activeKey)
+      setExpandedOfferSiteKeys((current) => new Set([...current, activeKey]));
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     focusNewestOfferItem();
@@ -2750,9 +2795,6 @@ export default function AngebotePage() {
   const linkedSafetyWarnings = linkedInfoSummary.safety;
   const linkedPrimaryHints = linkedInfoSummary.primary;
   const linkedJobHints = linkedInfoSummary.additional;
-  const linkedCustomerMessageBlocks = buildCustomerMessageReviewBlocks(
-    linkedOrderMessages,
-  );
 
   const updateExecutionSite = (
     index: number,
@@ -2768,6 +2810,65 @@ export default function AngebotePage() {
       };
       return next;
     });
+  };
+
+  const offerGroupKeyForSite = (site: OfferExecutionSite) =>
+    `${site.sourceOrderId || ""}|${offerSiteKey(site)}`;
+
+  const addExecutionSite = () => {
+    const site: OfferExecutionSite = {
+      siteName: `Arbeitsort ${executionSites.length + 1}`,
+      siteAddress: "",
+      sitePlz: "",
+      siteCity: "",
+      siteNote: "",
+      sourceOrderId: null,
+    };
+    const key = offerGroupKeyForSite(site);
+    setExecutionSites((current) => [...current, site]);
+    setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
+    setEditingOfferSiteKey(key);
+    setExpandedOfferSiteKeys((current) => new Set([...current, key]));
+    setExpandedItemIndex(0);
+    focusNewestOfferItem();
+  };
+
+  const updateOfferGroupSite = (
+    groupKey: string,
+    field: keyof OfferExecutionSite,
+    value: string,
+  ) => {
+    const siteIndex = executionSites.findIndex(
+      (site) => offerGroupKeyForSite(site) === groupKey,
+    );
+    if (siteIndex < 0) return;
+    const oldSite = executionSites[siteIndex];
+    const nextSite = { ...oldSite, [field]: value };
+    const nextKey = offerGroupKeyForSite(nextSite);
+    updateExecutionSite(siteIndex, field, value);
+    setItems((current) =>
+      current.map((item) => {
+        const belongs =
+          offerGroupKeyForSite(item as OfferExecutionSite) === groupKey;
+        return belongs ? { ...item, [field]: value || null } : item;
+      }),
+    );
+    setEditingOfferSiteKey(nextKey);
+    setExpandedOfferSiteKeys((current) => {
+      const next = new Set(current);
+      next.delete(groupKey);
+      next.add(nextKey);
+      return next;
+    });
+  };
+
+  const toggleAllOfferSites = () => {
+    const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
+    setExpandedOfferSiteKeys((current) =>
+      current.size === groups.length
+        ? new Set()
+        : new Set(groups.map((group) => group.key)),
+    );
   };
 
   const setExecutionAddressEnabled = (enabled: boolean) => {
@@ -2863,6 +2964,8 @@ export default function AngebotePage() {
     setServiceOverviewOpen(false);
     setDupCheckOpen(false);
     setEditingExecutionAddress(false);
+    setExpandedOfferSiteKeys(new Set());
+    setEditingOfferSiteKey(null);
     setSelectedChipDetail(null);
     setServiceActionMenuIndex(null);
     setExpandedItemIndex(0);
@@ -3052,6 +3155,8 @@ export default function AngebotePage() {
     setLinkedOrderData(null);
     setLinkedOrderMessages([]);
     setExecutionSites([]);
+    setExpandedOfferSiteKeys(new Set());
+    setEditingOfferSiteKey(null);
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
     setServiceActionMenuIndex(null);
@@ -3389,22 +3494,29 @@ export default function AngebotePage() {
       title: "Angebot zurücksetzen?",
       message: `Angebot ${off.offerNumber} zurück zu Aufträgen verschieben? Das Angebot wird gelöscht und die verknüpften Aufträge werden wieder aktiv.`,
       action: async () => {
+        if (revertingOfferId) return;
+        setRevertingOfferId(off.id);
         try {
           const res = await fetch(`/api/offers/${off.id}/revert`, {
             method: "POST",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
           });
-          if (res.ok) {
-            const data = await res.json();
-            toast.success(
-              `Angebot zurückgesetzt — ${data.revertedOrders || 0} Auftrag/Aufträge wieder aktiv`,
-            );
-            window.location.href = "/auftraege";
-          } else {
-            const err = await res.json().catch(() => ({}));
-            toast.error(err.error || "Fehler beim Zurücksetzen");
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            toast.error(data.error || "Fehler beim Zurücksetzen");
+            return;
           }
+          setOffers((current) => current.filter((entry) => entry.id !== off.id));
+          toast.success(
+            `Angebot zurückgesetzt — ${data.revertedOrders || 0} Auftrag/Aufträge wieder aktiv`,
+          );
+          router.push("/auftraege");
+          router.refresh();
         } catch {
           toast.error("Fehler beim Zurücksetzen");
+        } finally {
+          setRevertingOfferId(null);
         }
       },
     });
@@ -3923,9 +4035,6 @@ export default function AngebotePage() {
                   const mergedContactEntries = buildMergedContactReviewEntries(
                     (off.orders || []) as any,
                   );
-                  const mergedContactTooltip = formatMergedContactReviewTooltip(
-                    (off.orders || []) as any,
-                  );
                   const hasMergedContactReview =
                     mergedCount > 1 && mergedContactEntries.length > 1;
                   const parsedOfferNotes = splitSpecialNotes(
@@ -4257,16 +4366,10 @@ export default function AngebotePage() {
                                     }}
                                   >
                                     {hasMergedContactReview ? (
-                                      <button
-                                        type="button"
-                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700"
-                                        aria-label={mergedContactTooltip}
-                                      >
-                                        <AlertTriangle className="h-4 w-4" />
-                                        {!useTouchChipPopovers && (
-                                        <OfferPlainTooltip text={mergedContactTooltip} />
-                                      )}
-                                      </button>
+                                      <MergedContactReviewChip
+                                        records={(off.orders || []) as any}
+                                        compact
+                                      />
                                     ) : (
                                       <CommunicationChips
                                       data={contactChipData}
@@ -4690,16 +4793,12 @@ export default function AngebotePage() {
                                       }}
                                     >
                                       {hasMergedContactReview ? (
-                                        <button
-                                          type="button"
-                                          className="group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 outline-none hover:bg-emerald-100 focus:ring-2 focus:ring-emerald-300"
-                                          aria-label={mergedContactTooltip}
-                                        >
-                                          <AlertTriangle className="h-4 w-4" />
-                                          <OfferPlainTooltip text={mergedContactTooltip} />
-                                        </button>
-                                      ) : (
-                                        <CommunicationChips
+                                      <MergedContactReviewChip
+                                        records={(off.orders || []) as any}
+                                        compact
+                                      />
+                                    ) : (
+                                      <CommunicationChips
                                         data={contactChipData}
                                         compact
                                         onAudioClick={() =>
@@ -5364,6 +5463,7 @@ export default function AngebotePage() {
                 </div>
               ) : (
                 <>
+                  {executionSites.length <= 1 && (
                   <div
                     ref={executionAddressRef}
                     className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 sm:p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20"
@@ -5540,30 +5640,47 @@ export default function AngebotePage() {
                       </div>
                     )}
                   </div>
+                  )}
 
                   <div
                     ref={serviceItemsRef}
                     tabIndex={-1}
                     className="scroll-mt-24 space-y-2 rounded-xl border bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <Label className="text-base font-semibold">
-                          Leistungen · {items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *
+                          {executionSites.length > 1
+                            ? `Arbeitsorte & Leistungen · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *`
+                            : `Leistungen · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *`}
                         </Label>
                         <p className="text-xs text-muted-foreground">
-                          Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen.
+                          {executionSites.length > 1
+                            ? `${executionSites.length} Arbeitsorte · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} Leistungen · ${formatCurrency(subtotal, currency)}`
+                            : "Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen."}
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={addItem}
-                        className="h-7 shrink-0 px-2 text-xs"
-                      >
-                        <Plus className="mr-1 h-3.5 w-3.5" />
-                        Leistung hinzufügen
-                      </Button>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {executionSites.length > 1 && (
+                          <>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllOfferSites}>
+                              {expandedOfferSiteKeys.size === groupOfferItemsByExecutionSite(items || [], executionSites).length ? "Übersicht" : "Alle öffnen"}
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={addExecutionSite}>
+                              <Plus className="mr-1 h-3.5 w-3.5" /> Arbeitsort
+                            </Button>
+                          </>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={addItem}
+                          className="h-7 shrink-0 px-2 text-xs"
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                          Leistung hinzufügen
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -5881,7 +5998,16 @@ export default function AngebotePage() {
                         return groups.map((group, groupIndex) => (
                           <details
                             key={group.key}
-                            open
+                            open={expandedOfferSiteKeys.has(group.key)}
+                            onToggle={(event) => {
+                              const open = event.currentTarget.open;
+                              setExpandedOfferSiteKeys((current) => {
+                                const next = new Set(current);
+                                if (open) next.add(group.key);
+                                else next.delete(group.key);
+                                return next;
+                              });
+                            }}
                             className="overflow-visible rounded-xl border-2 border-slate-300 bg-slate-50/50"
                           >
                             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-slate-200 bg-white px-3 py-2.5 [&::-webkit-details-marker]:hidden">
@@ -5894,6 +6020,18 @@ export default function AngebotePage() {
                                     .filter(Boolean)
                                     .join(" · ") || "Adresse nicht angegeben"}
                                 </div>
+                                {(() => {
+                                  const rows = buildOfferGroupReviewRows(group, services || [], currency);
+                                  if (rows.length === 0) return null;
+                                  return (
+                                    <span className="group/review relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                                      Leistungen prüfen · {rows.length}
+                                      <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[60vh] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap rounded-xl border border-amber-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl group-hover/review:block">
+                                        {rows.join("\n\n")}
+                                      </span>
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               <div className="shrink-0 text-right">
                                 <div className="text-[10px] text-muted-foreground">
@@ -5902,8 +6040,29 @@ export default function AngebotePage() {
                                 <div className="font-mono text-sm font-bold text-emerald-700">
                                   {formatCurrency(group.subtotal, currency)}
                                 </div>
+                                <button
+                                  type="button"
+                                  className="mt-1 text-[11px] font-medium text-emerald-700 hover:underline"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setEditingOfferSiteKey((current) => current === group.key ? null : group.key);
+                                    setExpandedOfferSiteKeys((current) => new Set([...current, group.key]));
+                                  }}
+                                >
+                                  Arbeitsort bearbeiten
+                                </button>
                               </div>
                             </summary>
+                            {editingOfferSiteKey === group.key && group.site && (
+                              <div className="grid grid-cols-1 gap-2 border-b border-slate-200 bg-cyan-50/50 p-3 sm:grid-cols-2">
+                                <div className="sm:col-span-2"><Label className="text-xs">Objekt / Bereich</Label><Input value={group.site.siteName || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteName", event.target.value)} /></div>
+                                <div className="sm:col-span-2"><Label className="text-xs">Strasse</Label><Input value={group.site.siteAddress || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteAddress", event.target.value)} /></div>
+                                <div><Label className="text-xs">PLZ</Label><Input value={group.site.sitePlz || ""} onChange={(event) => updateOfferGroupSite(group.key, "sitePlz", event.target.value)} /></div>
+                                <div><Label className="text-xs">Ort</Label><Input value={group.site.siteCity || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteCity", event.target.value)} /></div>
+                                <div className="sm:col-span-2 flex justify-end"><Button type="button" size="sm" variant="outline" onClick={() => setEditingOfferSiteKey(null)}>Fertig</Button></div>
+                              </div>
+                            )}
                             <div className="space-y-2 p-2">
                               {renderEntries(group.entries)}
                             </div>
@@ -6263,36 +6422,38 @@ export default function AngebotePage() {
                       )}
                     </div>
 
-                    {linkedCustomerMessageBlocks.length > 1 ? (
+                    {linkedOrderMessages.length > 1 ? (
                       <details className="rounded-xl border bg-muted/10" open>
                         <summary className="cursor-pointer list-none px-3 py-2 font-semibold [&::-webkit-details-marker]:hidden">
-                          Kundennachrichten · {linkedCustomerMessageBlocks.length}
+                          Kundennachrichten · {linkedOrderMessages.length}
                         </summary>
                         <div className="max-h-[32rem] space-y-3 overflow-y-auto border-t p-3">
-                          {linkedCustomerMessageBlocks.map((message, messageIndex) => (
-                            <div
-                              key={`${message.title}-${messageIndex}`}
-                              className="rounded-lg border bg-background p-3"
-                            >
-                              <div className="mb-2 font-semibold text-sky-800">
-                                {messageIndex + 1}. {message.title}
+                          {linkedOrderMessages.map((message, messageIndex) => {
+                            const sites = Array.isArray(message.workSites)
+                              ? [...message.workSites].sort(
+                                  (a, b) =>
+                                    Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+                                    Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+                                )
+                              : [];
+                            const title =
+                              sites[0]?.siteName ||
+                              message.siteName ||
+                              `Quellauftrag ${messageIndex + 1}`;
+                            return (
+                              <div key={`${message.id || "message"}-${messageIndex}`} className="rounded-lg border bg-background p-3">
+                                <div className="mb-2 font-semibold text-sky-800">
+                                  {messageIndex + 1}. {title}
+                                </div>
+                                <CommunicationBlock
+                                  data={message}
+                                  showChips={false}
+                                  showSpecialNotes={false}
+                                  showCustomerMessage
+                                />
                               </div>
-                              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
-                                {message.message}
-                              </pre>
-                              {message.transcript &&
-                                !message.message.includes(message.transcript) && (
-                                  <div className="mt-3 border-t pt-2">
-                                    <div className="mb-1 text-xs font-semibold text-muted-foreground">
-                                      Transkription
-                                    </div>
-                                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
-                                      {message.transcript}
-                                    </pre>
-                                  </div>
-                                )}
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </details>
                     ) : linkedOrderData ? (
