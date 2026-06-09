@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -6273,3 +6273,4 @@ export default function AngebotePage() {
     </div>
   );
 }
+

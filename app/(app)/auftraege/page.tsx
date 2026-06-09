@@ -12775,7 +12775,7 @@ export default function AuftraegePage() {
       // normalization when items are saved. Immediately persist the exact
       // marker-protected role snapshot from the editor through the dedicated
       // role-safe endpoint. This changes no service, price, customer or layout.
-      if (saved?.id && payload.specialNotes !== undefined) {
+      if (saved?.id && editId && payload.specialNotes !== undefined) {
         const notesResponse = await fetch(
           `/api/orders/${saved.id}/special-notes`,
           {
@@ -16886,11 +16886,12 @@ export default function AuftraegePage() {
                                 </div>
                               ) : (
                                 groupExpanded && (
-                                  <div
-                                    className={`relative border-2 p-2 space-y-1.5 min-w-0 shadow-sm ${
+                                  <details
+                                    open={index === 0 || isFirstInSite}
+                                    className={`group/service-item relative min-w-0 border-2 shadow-sm ${
                                       hasMultipleEditWorkSites
-                                        ? `ml-2 rounded-lg border-l-4 ${itemAccentClass}`
-                                        : "rounded-lg"
+                                        ? `ml-2 rounded-xl border-l-4 ${itemAccentClass}`
+                                        : "rounded-xl"
                                     } ${
                                       hasCriticalItemReview
                                         ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
@@ -16902,59 +16903,48 @@ export default function AuftraegePage() {
                                       site && setActiveWorkSiteId(site.id)
                                     }
                                   >
-                                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-start">
-                                      <div className="min-w-0 space-y-1">
-                                        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5 items-center">
-                                          <div className="group min-w-0">
-                                            <ServiceCombobox
-                                              value={getEditableServiceNameValue(
-                                                item.serviceName,
-                                              )}
-                                              services={
-                                                services as ServiceOption[]
-                                              }
-                                              onChange={(name, svc) =>
-                                                onItemServiceSelect(
-                                                  index,
-                                                  name,
-                                                  svc,
-                                                )
-                                              }
-                                              onServiceCreated={
-                                                handleServiceCreated
-                                              }
-                                              currentPrice={item.unitPrice}
-                                              currentUnit={item.unit}
-                                              showManualHint={false}
-                                              saveButtonPlacement="none"
-                                            />
-                                            {!itemHasInternalReviewServiceName &&
-                                              item.serviceName.trim().length >
-                                              28 && (
-                                              <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
-                                                {item.serviceName.trim()}
-                                              </p>
-                                            )}
-                                          </div>
-
-                                          <div
-                                            className="h-1"
-                                            aria-hidden="true"
-                                          />
+                                    <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-xl px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                                      <div className="min-w-0">
+                                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                          <span className="truncate text-sm font-semibold text-foreground sm:text-base">
+                                            {item.serviceName.trim() || "Leistung auswählen"}
+                                          </span>
+                                          {hasAnyItemReview && (
+                                            <span
+                                              className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                hasCriticalItemReview
+                                                  ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200"
+                                                  : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                                              }`}
+                                            >
+                                              Prüfen
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="mt-0.5 truncate text-xs text-muted-foreground sm:text-sm">
+                                          {Number(item.quantity || 0) > 0
+                                            ? item.quantity
+                                            : "Menge prüfen"}{" "}
+                                          {unitShortLabel(item.unit)} ×{" "}
+                                          {itemPriceNumber > 0
+                                            ? formatCurrency(itemPriceNumber, currency)
+                                            : "Preis prüfen"}
                                         </div>
                                       </div>
 
-                                      <div className="pt-1 text-right text-[11px] text-muted-foreground leading-tight shrink-0">
-                                        <div>Total</div>
-                                        <div className="font-mono text-xs font-semibold text-foreground whitespace-nowrap">
+                                      <div className="shrink-0 text-right">
+                                        <div className="font-mono text-sm font-semibold text-foreground whitespace-nowrap sm:text-base">
                                           {formatCurrency(itemTotal, currency)}
                                         </div>
                                       </div>
+
+                                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/service-item:rotate-90" />
 
                                       <div className="relative shrink-0">
                                         <button
                                           type="button"
                                           onClick={(event) => {
+                                            event.preventDefault();
                                             event.stopPropagation();
                                             setServiceActionMenuKey((prev) =>
                                               prev === item.key
@@ -16962,18 +16952,19 @@ export default function AuftraegePage() {
                                                 : item.key,
                                             );
                                           }}
-                                          className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                          className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
                                           title="Aktionen"
                                         >
-                                          <MoreVertical className="w-3.5 h-3.5" />
+                                          <MoreVertical className="h-4 w-4" />
                                         </button>
 
                                         {isMenuOpen && (
                                           <div
-                                            onClick={(event) =>
-                                              event.stopPropagation()
-                                            }
-                                            className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                            }}
+                                            className="absolute right-0 top-9 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
                                           >
                                             {hasMultipleEditWorkSites && (
                                               <button
@@ -17020,7 +17011,31 @@ export default function AuftraegePage() {
                                           </div>
                                         )}
                                       </div>
-                                    </div>
+                                    </summary>
+
+                                    <div className="space-y-1.5 border-t border-slate-200/80 p-2.5 dark:border-slate-700/80">
+                                      <div className="group min-w-0">
+                                        <ServiceCombobox
+                                          value={getEditableServiceNameValue(
+                                            item.serviceName,
+                                          )}
+                                          services={services as ServiceOption[]}
+                                          onChange={(name, svc) =>
+                                            onItemServiceSelect(index, name, svc)
+                                          }
+                                          onServiceCreated={handleServiceCreated}
+                                          currentPrice={item.unitPrice}
+                                          currentUnit={item.unit}
+                                          showManualHint={false}
+                                          saveButtonPlacement="none"
+                                        />
+                                        {!itemHasInternalReviewServiceName &&
+                                          item.serviceName.trim().length > 28 && (
+                                          <p className="mt-1 hidden rounded-md border border-slate-200 bg-muted/40 px-2 py-1 text-[11px] leading-snug text-muted-foreground break-words group-focus-within:block">
+                                            {item.serviceName.trim()}
+                                          </p>
+                                        )}
+                                      </div>
 
                                     <div className="grid grid-cols-3 gap-1.5">
                                       <div>
@@ -17384,7 +17399,8 @@ export default function AuftraegePage() {
                                         </div>
                                       </div>
                                     )}
-                                  </div>
+                                    </div>
+                                  </details>
                                 )
                               )}
                             </div>
