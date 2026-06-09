@@ -1610,30 +1610,96 @@ export default function RechnungenPage() {
                     .map((item: any) => {
                       const quantity = Number(item?.quantity ?? 0);
                       const unitPrice = Number(item?.unitPrice ?? 0);
-                      const description = compactInvoiceValue(item?.description) || "Unbenannte Leistung";
+                      const description =
+                        compactInvoiceValue(item?.description) ||
+                        "Unbenannte Leistung";
                       const unit = compactInvoiceValue(item?.unit);
+                      const itemCurrency =
+                        inv.currency === "EUR" ? "EUR" : "CHF";
                       const matchedService = services.find(
                         (service: any) =>
                           normalizeInvoiceServiceName(service?.name) ===
                           normalizeInvoiceServiceName(description),
                       );
-                      const reasons: string[] = [];
-                      if (!compactInvoiceValue(item?.description)) reasons.push("Leistung fehlt");
-                      if (!unit) reasons.push("Einheit fehlt");
-                      if (quantity <= 0) reasons.push("Menge fehlt");
-                      if (unitPrice <= 0) reasons.push("Preis fehlt");
-                      if (reasons.length === 0 && !matchedService)
-                        reasons.push("Nicht im Leistungskatalog");
-                      if (
-                        reasons.length === 0 &&
-                        matchedService &&
-                        (compactInvoiceValue(matchedService.unit) !== unit ||
-                          Math.abs(Number(matchedService.defaultPrice || 0) - unitPrice) >= 0.001)
-                      )
-                        reasons.push("Preis oder Einheit weicht vom Katalog ab");
-                      return reasons.length > 0 ? { description, reasons } : null;
+                      const currentCalculation = `${quantity > 0 ? quantity : "prüfen"} ${unit || "–"} × ${
+                        unitPrice > 0
+                          ? formatCurrency(unitPrice, itemCurrency)
+                          : "Preis prüfen"
+                      } = ${formatCurrency(
+                        Math.max(0, quantity) * Math.max(0, unitPrice),
+                        itemCurrency,
+                      )}`;
+                      const missingReasons = [
+                        !compactInvoiceValue(item?.description)
+                          ? "Leistungsname fehlt"
+                          : "",
+                        !unit ? "Einheit fehlt" : "",
+                        quantity <= 0 ? "Menge fehlt oder ist 0" : "",
+                        unitPrice <= 0 ? "Preis fehlt oder ist 0" : "",
+                      ].filter(Boolean);
+
+                      if (missingReasons.length > 0) {
+                        return {
+                          description,
+                          category: "blocker" as const,
+                          details: [
+                            ...missingReasons,
+                            `Aktuell: ${currentCalculation}`,
+                          ],
+                        };
+                      }
+
+                      if (!matchedService) {
+                        return {
+                          description,
+                          category: "missing" as const,
+                          details: [
+                            `Aktuell: ${currentCalculation}`,
+                            "Nicht im Leistungskatalog.",
+                          ],
+                        };
+                      }
+
+                      const catalogUnit = compactInvoiceValue(
+                        matchedService?.unit,
+                      );
+                      const catalogPrice = Number(
+                        matchedService?.defaultPrice || 0,
+                      );
+                      const sameUnit = catalogUnit === unit;
+                      const samePrice =
+                        Math.abs(catalogPrice - unitPrice) < 0.001;
+                      if (!sameUnit || !samePrice) {
+                        return {
+                          description,
+                          category: "deviation" as const,
+                          details: [
+                            `Aktuell: ${currentCalculation}`,
+                            `Katalogpreis: ${formatCurrency(
+                              catalogPrice,
+                              itemCurrency,
+                            )} / ${catalogUnit || "–"}`,
+                            ...[
+                              !sameUnit
+                                ? `Einheit weicht ab: ${unit || "–"} statt ${
+                                    catalogUnit || "–"
+                                  }`
+                                : "",
+                              !samePrice
+                                ? "Preis weicht vom Katalog ab."
+                                : "",
+                            ].filter(Boolean),
+                          ],
+                        };
+                      }
+
+                      return null;
                     })
-                    .filter(Boolean) as Array<{ description: string; reasons: string[] }>;
+                    .filter(Boolean) as Array<{
+                    description: string;
+                    category: "blocker" | "deviation" | "missing";
+                    details: string[];
+                  }>;
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   return (
                     <motion.div
@@ -1981,25 +2047,76 @@ export default function RechnungenPage() {
                                     className="group relative inline-flex h-9 items-center rounded-lg border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200"
                                   >
                                     Leistungen prüfen · {reviewItems.length}
-                                    <div className="pointer-events-none absolute bottom-full left-0 z-[80] mb-2 hidden w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-amber-300 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus-within:block dark:bg-slate-950">
-                                      <div className="font-semibold text-amber-900 dark:text-amber-200">
-                                        Leistungen prüfen
+                                    <div className="pointer-events-none absolute bottom-full left-0 z-[80] mb-2 hidden max-h-[60vh] w-[min(27rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-amber-300 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus-within:block dark:bg-slate-950">
+                                      <div className="text-sm font-bold text-slate-950 dark:text-slate-50">
+                                        Leistungen prüfen · {reviewItems.length}
                                       </div>
-                                      <div className="mt-2 space-y-2">
-                                        {reviewItems.map((entry, reviewIndex) => (
+                                      {[
+                                        {
+                                          key: "blocker",
+                                          title: "Preis / Menge / Einheit prüfen",
+                                        },
+                                        {
+                                          key: "deviation",
+                                          title: "Preis oder Einheit abweichend",
+                                        },
+                                        {
+                                          key: "missing",
+                                          title: "Nicht im Leistungskatalog",
+                                        },
+                                      ].map((section, sectionIndex) => {
+                                        const sectionItems = reviewItems.filter(
+                                          (entry) =>
+                                            entry.category === section.key,
+                                        );
+                                        if (sectionItems.length === 0) return null;
+                                        return (
                                           <div
-                                            key={`${entry.description}-${reviewIndex}`}
-                                            className="rounded-lg border border-amber-200 bg-amber-50 p-2"
+                                            key={section.key}
+                                            className={`${
+                                              sectionIndex > 0
+                                                ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700"
+                                                : "mt-2"
+                                            }`}
                                           >
-                                            <div className="font-medium text-foreground">
-                                              {entry.description}
+                                            <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
+                                              {section.title}
                                             </div>
-                                            <div className="mt-0.5 text-xs text-amber-900">
-                                              {entry.reasons.join(" · ")}
-                                            </div>
+                                            {sectionItems.map(
+                                              (entry, reviewIndex) => (
+                                                <div
+                                                  key={`${entry.description}-${reviewIndex}`}
+                                                  className={`${
+                                                    reviewIndex > 0
+                                                      ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700"
+                                                      : ""
+                                                  }`}
+                                                >
+                                                  <div className="break-words font-bold text-foreground">
+                                                    {entry.description}
+                                                  </div>
+                                                  {entry.details.map(
+                                                    (detail, detailIndex) => (
+                                                      <div
+                                                        key={`${entry.description}-${detailIndex}`}
+                                                        className={`break-words text-xs ${
+                                                          /^Katalogpreis:/i.test(
+                                                            detail,
+                                                          )
+                                                            ? "font-bold text-slate-950 dark:text-slate-50"
+                                                            : "text-slate-600 dark:text-slate-300"
+                                                        }`}
+                                                      >
+                                                        {detail}
+                                                      </div>
+                                                    ),
+                                                  )}
+                                                </div>
+                                              ),
+                                            )}
                                           </div>
-                                        ))}
-                                      </div>
+                                        );
+                                      })}
                                     </div>
                                   </button>
                                 )}
@@ -2741,6 +2858,7 @@ export default function RechnungenPage() {
                                   }
                                   currentUnit={item?.unit}
                                   contextLabel="Rechnung"
+                                  saveButtonPlacement="none"
                                 />
                                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                   <div>

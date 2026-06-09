@@ -16,6 +16,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   MessageCircle,
   MapPin,
   Info,
@@ -775,13 +776,33 @@ function normalizeOfferParkingDetailsV17_90L99(values: string[]): string[] {
   return collectOfferParkingInfoV17_90L101(values).details;
 }
 
-function buildOfferParkingChipV17_90L99(values: string[]): OfferOperationalChip {
-  const parking = collectOfferParkingInfoV17_90L101(values);
+function buildOfferParkingChipV17_90L99(
+  values: string[],
+): OfferOperationalChip | null {
+  const parkingValues = values
+    .flatMap((value) => String(value || "").split(/\n+/g))
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter(
+      (line) =>
+        !/^(?:parkplatz|parken|parking)\s+(?:nicht\s+angegeben|keine\s+angabe|unbekannt|offen)[.!]?$/i.test(
+          normalizeOfferHint(line),
+        ),
+    );
+  const source = parkingValues.join("\n");
+  const hasParkingMention =
+    /\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage|besucherfeld)\b/i.test(
+      normalizeOfferHint(source),
+    );
+  if (!hasParkingMention) return null;
+
+  const parking = collectOfferParkingInfoV17_90L101(parkingValues);
   return {
     key: "parking",
-    title: parking.details.length > 0
-      ? `${parking.status}\n\n${parking.details.join("\n")}`
-      : parking.status,
+    title:
+      parking.details.length > 0
+        ? `${parking.status}\n\n${parking.details.join("\n")}`
+        : parking.status,
     icon: "P",
     tone: "warning",
   };
@@ -801,8 +822,12 @@ function buildOfferOperationalChips(
     existing.title = uniqueOfferLines([existing.title, chip.title]).join("\n");
   };
 
-  // V17.90L99: exactly one blue P chip, including "not specified".
-  pushOrMerge(buildOfferParkingChipV17_90L99([...safetyWarnings, ...jobHints]));
+  // Show a parking chip only when the source actually contains parking information.
+  const parkingChip = buildOfferParkingChipV17_90L99([
+    ...safetyWarnings,
+    ...jobHints,
+  ]);
+  if (parkingChip) pushOrMerge(parkingChip);
 
   uniqueOfferLines([...safetyWarnings, ...jobHints.filter(isOfferDogHint)]).forEach((line) => {
     const text = normalizeOfferHint(line);
@@ -856,7 +881,9 @@ type OfferContactAction = {
 
 type OfferCallbackChip = {
   title: string;
+  name: string;
   phone: string;
+  displayPhone: string;
   href?: string;
 };
 
@@ -1191,11 +1218,16 @@ function buildOfferContactChipData(
     ...data,
     customer: action
       ? {
+          name: action.name || customer?.name || null,
           email: action.email || null,
           phone: action.phone || null,
         }
       : customer
-        ? { email: customer.email || null, phone: customer.phone || null }
+        ? {
+            name: customer.name || null,
+            email: customer.email || null,
+            phone: customer.phone || null,
+          }
         : data.customer,
     email: action?.email || null,
     phone: action?.phone || null,
@@ -1212,7 +1244,10 @@ function buildOfferCallbackChip(
   if (!action || action.channel !== "phone") return null;
   return {
     title: action.title,
+    name: action.name || "Kunde",
     phone: action.phoneHref,
+    displayPhone:
+      action.phone || action.phoneHref || "Keine Telefonnummer vorhanden",
     href: action.phoneHref ? `tel:${action.phoneHref}` : undefined,
   };
 }
@@ -1359,6 +1394,37 @@ function OfferPlainTooltip({
   return (
     <OfferViewportTooltipV17_95 align={align}>
       <span className="whitespace-pre-wrap break-words">{text}</span>
+    </OfferViewportTooltipV17_95>
+  );
+}
+
+function OfferContactTooltip({
+  heading,
+  name,
+  value,
+  hint,
+  align = "left",
+}: {
+  heading: string;
+  name?: string;
+  value: string;
+  hint: string;
+  align?: "left" | "right";
+}) {
+  return (
+    <OfferViewportTooltipV17_95 align={align} preferredWidth={320}>
+      <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
+        {heading}
+      </span>
+      <span className="mt-1 block break-words font-medium text-foreground">
+        {name || "Kunde"}
+      </span>
+      <span className="mt-1 block break-words font-mono text-sm text-blue-700 dark:text-blue-300">
+        {value}
+      </span>
+      <span className="mt-2 block text-xs text-muted-foreground">
+        {hint}
+      </span>
     </OfferViewportTooltipV17_95>
   );
 }
@@ -1952,6 +2018,7 @@ export default function AngebotePage() {
   const [savingCust, setSavingCust] = useState(false);
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
+  const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(0);
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
 
@@ -2702,6 +2769,7 @@ export default function AngebotePage() {
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
     setServiceActionMenuIndex(null);
+    setExpandedItemIndex(0);
     setCatalogDecision(null);
     // Reset customer form to prevent stale data leaking between records
     setNewCust({
@@ -2889,6 +2957,7 @@ export default function AngebotePage() {
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
     setServiceActionMenuIndex(null);
+    setExpandedItemIndex(0);
     setCatalogDecision(null);
     setShowNewCustomer(false);
     setEditingCustomer(false);
@@ -4100,7 +4169,12 @@ export default function AngebotePage() {
                                       >
                                         <Phone className="h-4 w-4" />
                                         {!useTouchChipPopovers && (
-                                          <OfferPlainTooltip text={callbackChip.title} />
+                                          <OfferContactTooltip
+                                            heading="Telefonkontakt"
+                                            name={callbackChip.name}
+                                            value={callbackChip.displayPhone}
+                                            hint="Antippen oder anklicken, um anzurufen."
+                                          />
                                         )}
                                       </a>
                                     ) : (
@@ -4128,7 +4202,12 @@ export default function AngebotePage() {
                                       >
                                         <Phone className="h-4 w-4" />
                                         {!useTouchChipPopovers && (
-                                          <OfferPlainTooltip text={callbackChip.title} />
+                                          <OfferContactTooltip
+                                            heading="Telefonkontakt"
+                                            name={callbackChip.name}
+                                            value={callbackChip.displayPhone}
+                                            hint="Antippen oder anklicken, um anzurufen."
+                                          />
                                         )}
                                       </button>
                                     ))}
@@ -4496,7 +4575,12 @@ export default function AngebotePage() {
                                           aria-label={callbackChip.title}
                                         >
                                           <Phone className="h-4 w-4" />
-                                          <OfferPlainTooltip text={callbackChip.title} />
+                                          <OfferContactTooltip
+                                            heading="Telefonkontakt"
+                                            name={callbackChip.name}
+                                            value={callbackChip.displayPhone}
+                                            hint="Antippen oder anklicken, um anzurufen."
+                                          />
                                         </a>
                                       ) : (
                                         <button
@@ -4513,7 +4597,12 @@ export default function AngebotePage() {
                                           aria-label={callbackChip.title}
                                         >
                                           <Phone className="h-4 w-4" />
-                                          <OfferPlainTooltip text={callbackChip.title} />
+                                          <OfferContactTooltip
+                                            heading="Telefonkontakt"
+                                            name={callbackChip.name}
+                                            value={callbackChip.displayPhone}
+                                            hint="Antippen oder anklicken, um anzurufen."
+                                          />
                                         </button>
                                       ))}
 
@@ -5312,7 +5401,7 @@ export default function AngebotePage() {
                           Leistungen · {items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *
                         </Label>
                         <p className="text-xs text-muted-foreground">
-                          Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position.
+                          Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen.
                         </p>
                       </div>
                       <Button
@@ -5364,19 +5453,132 @@ export default function AngebotePage() {
                           !sameUnit;
                         const isMenuOpen = serviceActionMenuIndex === idx;
 
+                        const isExpanded = expandedItemIndex === idx;
+
                         return (
                           <div
                             key={idx}
-                            className={`relative min-w-0 space-y-1.5 rounded-lg border-2 p-2 shadow-sm ${
-                              hasCriticalReview
-                                ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
-                                : itemNeedsReview
-                                  ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                  : "border-slate-300 bg-slate-50/40 dark:border-slate-700 dark:bg-slate-900/20"
+                            className={`relative overflow-visible rounded-xl border transition-colors ${
+                              isExpanded
+                                ? "border-sky-200 bg-sky-50/40 ring-1 ring-sky-100"
+                                : hasCriticalReview
+                                  ? "border-red-300 bg-red-50/20 dark:border-red-800/70 dark:bg-red-950/10"
+                                  : itemNeedsReview
+                                    ? "border-amber-200 bg-amber-50/20 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                    : "border-slate-200 bg-background dark:border-slate-700"
                             }`}
                           >
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2">
-                              <div className="min-w-0">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedItemIndex((current) =>
+                                    current === idx ? null : idx,
+                                  );
+                                  setServiceActionMenuIndex(null);
+                                }}
+                                className="min-w-0 text-left"
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="truncate font-medium">
+                                    {item?.description || "Neue Leistung"}
+                                  </span>
+                                  {itemNeedsReview && (
+                                    <span
+                                      className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                        hasCriticalReview
+                                          ? "border-red-300 bg-red-100 text-red-800"
+                                          : "border-amber-300 bg-amber-100 text-amber-800"
+                                      }`}
+                                    >
+                                      Prüfen
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  {Number(item?.quantity ?? 0) > 0
+                                    ? item.quantity
+                                    : "prüfen"}{" "}
+                                  {item?.unit || "Einheit prüfen"} ×{" "}
+                                  {Number(item?.unitPrice ?? 0) > 0
+                                    ? formatCurrency(
+                                        Number(item.unitPrice),
+                                        currency,
+                                      )
+                                    : "Preis prüfen"}
+                                </div>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedItemIndex((current) =>
+                                    current === idx ? null : idx,
+                                  );
+                                  setServiceActionMenuIndex(null);
+                                }}
+                                className="flex items-center gap-2 whitespace-nowrap"
+                              >
+                                <span className="font-mono font-semibold">
+                                  {formatCurrency(lineTotal, currency)}
+                                </span>
+                                <ChevronDown
+                                  className={`h-4 w-4 text-muted-foreground transition-transform ${
+                                    isExpanded ? "rotate-180" : ""
+                                  }`}
+                                />
+                              </button>
+
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setServiceActionMenuIndex((current) =>
+                                      current === idx ? null : idx,
+                                    );
+                                  }}
+                                  className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                  title="Aktionen"
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </button>
+
+                                {isMenuOpen && (
+                                  <div
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="absolute bottom-full right-0 z-50 mb-1 w-60 rounded-md border bg-background py-1 text-sm shadow-xl"
+                                  >
+                                    {String(item?.description || "").trim() && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          saveOfferItemToServices(idx)
+                                        }
+                                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                      >
+                                        <Plus className="h-3.5 w-3.5" />
+                                        In Leistungskatalog übernehmen
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        removeItem(idx);
+                                        setServiceActionMenuIndex(null);
+                                      }}
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                      Löschen
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="space-y-3 border-t border-sky-100 p-3">
                                 <ServiceCombobox
                                   value={item?.description ?? ""}
                                   services={services as ServiceOption[]}
@@ -5394,186 +5596,118 @@ export default function AngebotePage() {
                                   showManualHint={false}
                                   saveButtonPlacement="none"
                                 />
-                              </div>
 
-                              <div className="shrink-0 pt-1 text-right text-[11px] leading-tight text-muted-foreground">
-                                <div>Total</div>
-                                <div className="whitespace-nowrap font-mono text-xs font-semibold text-foreground">
-                                  {formatCurrency(lineTotal, currency)}
-                                </div>
-                              </div>
-
-                              {itemNeedsReview ? (
-                                <div className="relative shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      setServiceActionMenuIndex((current) =>
-                                        current === idx ? null : idx,
-                                      );
-                                    }}
-                                    className="mt-0.5 rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                    title="Aktionen"
-                                  >
-                                    <MoreVertical className="h-3.5 w-3.5" />
-                                  </button>
-
-                                  {isMenuOpen && (
-                                    <div
-                                      onClick={(event) => event.stopPropagation()}
-                                      className="absolute right-0 top-8 z-50 w-56 rounded-md border bg-background py-1 text-sm shadow-lg"
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                  <div>
+                                    <Label className="text-xs">Einheit</Label>
+                                    <select
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                      value={item?.unit ?? "Stunde"}
+                                      onChange={(event) =>
+                                        updateItem(
+                                          idx,
+                                          "unit",
+                                          event.target.value || "Stunde",
+                                        )
+                                      }
                                     >
-                                      {String(item?.description || "").trim() && (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            saveOfferItemToServices(idx)
-                                          }
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                        >
-                                          <Plus className="h-3.5 w-3.5" />
-                                          In Leistungskatalog übernehmen
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          removeItem(idx);
-                                          setServiceActionMenuIndex(null);
-                                        }}
-                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                        Löschen
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : items.length > 1 ? (
-                                <button
-                                  type="button"
-                                  onClick={() => removeItem(idx)}
-                                  className="mt-0.5 shrink-0 rounded-md p-1.5 text-destructive hover:bg-red-50"
-                                  title="Leistung entfernen"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              ) : (
-                                <div className="h-7 w-7" aria-hidden="true" />
-                              )}
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-1.5">
-                              <div>
-                                <Label className="text-[10px] leading-none">
-                                  Einheit
-                                </Label>
-                                <select
-                                  className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                                  value={item?.unit ?? "Stunde"}
-                                  onChange={(event) =>
-                                    updateItem(
-                                      idx,
-                                      "unit",
-                                      event.target.value || "Stunde",
-                                    )
-                                  }
-                                >
-                                  <option value="Stunde">Stunde</option>
-                                  <option value="Tag">Tag</option>
-                                  <option value="Pauschal">Pauschal</option>
-                                  <option value="Meter">Meter</option>
-                                  <option value="Quadratmeter">Quadratmeter</option>
-                                  <option value="Kubikmeter">Kubikmeter</option>
-                                  <option value="Stück">Stück</option>
-                                  <option value="Räume">Räume</option>
-                                  <option value="Kilogramm">Kilogramm</option>
-                                  <option value="Tonne">Tonne</option>
-                                  <option value="Liter">Liter</option>
-                                </select>
-                              </div>
-                              <div>
-                                <Label className="text-[10px] leading-none">
-                                  Preis ({currency})
-                                </Label>
-                                <Input
-                                  type="number"
-                                  step="0.05"
-                                  placeholder="prüfen"
-                                  className={`h-8 text-xs ${
-                                    Number(item?.unitPrice ?? 0) <= 0
-                                      ? "border-red-500 bg-red-50"
-                                      : ""
-                                  }`}
-                                  value={
-                                    Number(item?.unitPrice ?? 0) <= 0
-                                      ? ""
-                                      : (item?.unitPrice ?? "")
-                                  }
-                                  onChange={(event) =>
-                                    updateItem(
-                                      idx,
-                                      "unitPrice",
-                                      event.target.value || "0",
-                                    )
-                                  }
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-[10px] leading-none">
-                                  Menge
-                                </Label>
-                                <Input
-                                  type="number"
-                                  step="0.25"
-                                  placeholder="prüfen"
-                                  className={`h-8 text-xs ${
-                                    Number(item?.quantity ?? 0) <= 0
-                                      ? "border-red-500 bg-red-50"
-                                      : ""
-                                  }`}
-                                  value={
-                                    Number(item?.quantity ?? 0) <= 0
-                                      ? ""
-                                      : (item?.quantity ?? "")
-                                  }
-                                  onChange={(event) =>
-                                    updateItem(
-                                      idx,
-                                      "quantity",
-                                      event.target.value || "0",
-                                    )
-                                  }
-                                />
-                              </div>
-                            </div>
-
-                            {item?.description?.trim() && itemNeedsReview && (
-                              <div
-                                className={`rounded-lg border px-3 py-2 text-xs ${
-                                  hasCriticalReview
-                                    ? "border-red-300 bg-red-100/70 text-red-900"
-                                    : "border-amber-300 bg-amber-100/60 text-amber-900"
-                                }`}
-                              >
-                                <div className="font-semibold">
-                                  ⚠ {hasCriticalReview ? "Preis/Menge prüfen" : "Manuell prüfen"}
-                                </div>
-                                {!matchedService ? (
-                                  <div className="mt-1">
-                                    Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen.
+                                      <option value="Stunde">Stunde</option>
+                                      <option value="Tag">Tag</option>
+                                      <option value="Pauschal">Pauschal</option>
+                                      <option value="Meter">Meter</option>
+                                      <option value="Quadratmeter">Quadratmeter</option>
+                                      <option value="Kubikmeter">Kubikmeter</option>
+                                      <option value="Stück">Stück</option>
+                                      <option value="Räume">Räume</option>
+                                      <option value="Kilogramm">Kilogramm</option>
+                                      <option value="Tonne">Tonne</option>
+                                      <option value="Liter">Liter</option>
+                                    </select>
                                   </div>
-                                ) : (
-                                  <div className="mt-1 space-y-0.5">
-                                    <div>
-                                      Katalog: {catalogUnit || "—"} · {formatCurrency(catalogPrice, currency)}
+                                  <div>
+                                    <Label className="text-xs">Menge</Label>
+                                    <Input
+                                      type="number"
+                                      step="0.25"
+                                      placeholder="prüfen"
+                                      className={`h-9 ${
+                                        Number(item?.quantity ?? 0) <= 0
+                                          ? "border-red-500 bg-red-50"
+                                          : ""
+                                      }`}
+                                      value={
+                                        Number(item?.quantity ?? 0) <= 0
+                                          ? ""
+                                          : (item?.quantity ?? "")
+                                      }
+                                      onChange={(event) =>
+                                        updateItem(
+                                          idx,
+                                          "quantity",
+                                          event.target.value || "0",
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">
+                                      Preis ({currency})
+                                    </Label>
+                                    <Input
+                                      type="number"
+                                      step="0.05"
+                                      placeholder="prüfen"
+                                      className={`h-9 ${
+                                        Number(item?.unitPrice ?? 0) <= 0
+                                          ? "border-red-500 bg-red-50"
+                                          : ""
+                                      }`}
+                                      value={
+                                        Number(item?.unitPrice ?? 0) <= 0
+                                          ? ""
+                                          : (item?.unitPrice ?? "")
+                                      }
+                                      onChange={(event) =>
+                                        updateItem(
+                                          idx,
+                                          "unitPrice",
+                                          event.target.value || "0",
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {item?.description?.trim() && itemNeedsReview && (
+                                  <div
+                                    className={`rounded-lg border px-3 py-2 text-xs ${
+                                      hasCriticalReview
+                                        ? "border-red-300 bg-red-100/70 text-red-900"
+                                        : "border-amber-300 bg-amber-100/60 text-amber-900"
+                                    }`}
+                                  >
+                                    <div className="font-semibold">
+                                      {hasCriticalReview
+                                        ? "Preis/Menge prüfen"
+                                        : "Manuell prüfen"}
                                     </div>
-                                    {!sameUnit && (
-                                      <div>Einheit weicht vom Katalog ab.</div>
-                                    )}
-                                    {!samePrice && (
-                                      <div>Preis weicht vom Katalog ab.</div>
+                                    {!matchedService ? (
+                                      <div className="mt-1">
+                                        Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen.
+                                      </div>
+                                    ) : (
+                                      <div className="mt-1 space-y-0.5">
+                                        <div>
+                                          Katalog: {catalogUnit || "—"} ·{" "}
+                                          {formatCurrency(catalogPrice, currency)}
+                                        </div>
+                                        {!sameUnit && (
+                                          <div>Einheit weicht vom Katalog ab.</div>
+                                        )}
+                                        {!samePrice && (
+                                          <div>Preis weicht vom Katalog ab.</div>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
                                 )}

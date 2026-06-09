@@ -238,6 +238,7 @@ export interface CommunicationData {
   audioDurationSec?: number | null;
   audioTranscriptionStatus?: string | null; // 'transcribed' | 'failed' | 'skipped_too_long' | 'skipped_uncheckable' | 'skipped_quota_exceeded' | null
   customer?: {
+    name?: string | null;
     email?: string | null;
     phone?: string | null;
   } | null;
@@ -444,6 +445,11 @@ type CommunicationPreferenceChip = {
   color: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange';
   href?: string;
   title?: string;
+  contactHeading?: string;
+  contactName?: string;
+  contactValue?: string;
+  contactHint?: string;
+  contactTimeHint?: string;
 };
 
 function normalizeCommunicationPreferenceText(value: string | null | undefined): string {
@@ -833,6 +839,13 @@ function detectCommunicationPreferenceChips(
       color: 'teal',
       href: email ? `mailto:${email}` : undefined,
       title: appendContactTime(email ? `${operational.name ? `${operational.name} · ` : ''}E-Mail: ${email}` : 'E-Mail bevorzugt · keine E-Mail hinterlegt', mailTime),
+      contactHeading: 'E-Mail-Kontakt',
+      contactName: operational.name || data.customer?.name || 'Kunde',
+      contactValue: email || 'Keine E-Mail hinterlegt',
+      contactHint: email
+        ? 'Antippen oder anklicken, um eine E-Mail zu schreiben.'
+        : 'Keine E-Mail-Adresse hinterlegt.',
+      contactTimeHint: mailTime,
     });
   }
 
@@ -843,6 +856,13 @@ function detectCommunicationPreferenceChips(
       color: 'green',
       href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined,
       title: appendContactTime(phone ? `${operational.name ? `${operational.name} · ` : ''}WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden', whatsappTime),
+      contactHeading: 'WhatsApp-Kontakt',
+      contactName: operational.name || data.customer?.name || 'Kunde',
+      contactValue: phone || 'Keine Telefonnummer vorhanden',
+      contactHint: phone
+        ? 'Antippen oder anklicken, um WhatsApp zu öffnen.'
+        : 'Keine Telefonnummer hinterlegt.',
+      contactTimeHint: whatsappTime,
     });
   }
 
@@ -853,6 +873,13 @@ function detectCommunicationPreferenceChips(
       color: 'blue',
       href: phone ? `sms:${phone}` : undefined,
       title: appendContactTime(phone ? `${operational.name ? `${operational.name} · ` : ''}SMS: ${phone}` : 'SMS bevorzugt · keine Telefonnummer vorhanden', smsTime),
+      contactHeading: 'SMS-Kontakt',
+      contactName: operational.name || data.customer?.name || 'Kunde',
+      contactValue: phone || 'Keine Telefonnummer vorhanden',
+      contactHint: phone
+        ? 'Antippen oder anklicken, um eine SMS zu schreiben.'
+        : 'Keine Telefonnummer hinterlegt.',
+      contactTimeHint: smsTime,
     });
   }
 
@@ -862,7 +889,31 @@ function detectCommunicationPreferenceChips(
 // ─── Sub-components ───
 
 /** Chip component */
-function Chip({ icon: Icon, label, color = 'default', href, title, compact = false }: { icon?: any; label: string; color?: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange'; href?: string; title?: string; compact?: boolean }) {
+function Chip({
+  icon: Icon,
+  label,
+  color = 'default',
+  href,
+  title,
+  compact = false,
+  contactHeading,
+  contactName,
+  contactValue,
+  contactHint,
+  contactTimeHint,
+}: {
+  icon?: any;
+  label: string;
+  color?: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange';
+  href?: string;
+  title?: string;
+  compact?: boolean;
+  contactHeading?: string;
+  contactName?: string;
+  contactValue?: string;
+  contactHint?: string;
+  contactTimeHint?: string;
+}) {
   const colors: Record<string, string> = {
     default: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
     green: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
@@ -881,9 +932,36 @@ function Chip({ icon: Icon, label, color = 'default', href, title, compact = fal
       ? `group relative inline-flex h-7 shrink-0 items-center justify-center rounded-lg px-2 text-[11px] font-bold tracking-wide ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
       : `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
     : `group relative inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
-  const tooltip = title ? (
-    <span className="pointer-events-none absolute left-0 bottom-full z-[9999] mb-1 hidden w-[min(18rem,calc(100vw-2rem))] whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-      {title}
+  const isStructuredContactTooltip = Boolean(
+    contactHeading && contactValue,
+  );
+  const tooltip = title || isStructuredContactTooltip ? (
+    <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-950">
+      {isStructuredContactTooltip ? (
+        <>
+          <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
+            {contactHeading}
+          </span>
+          <span className="mt-1 block break-words font-medium text-foreground">
+            {contactName || 'Kunde'}
+          </span>
+          <span className={`mt-1 block break-words text-sm text-blue-700 dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}>
+            {contactValue}
+          </span>
+          {contactTimeHint && (
+            <span className="mt-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+              {contactTimeHint}
+            </span>
+          )}
+          <span className="mt-2 block text-xs text-muted-foreground">
+            {contactHint || title}
+          </span>
+        </>
+      ) : (
+        <span className="whitespace-pre-wrap break-words text-[11px] font-medium leading-snug text-slate-800 dark:text-slate-100">
+          {title}
+        </span>
+      )}
     </span>
   ) : null;
   const content = (
@@ -901,6 +979,7 @@ function Chip({ icon: Icon, label, color = 'default', href, title, compact = fal
         href={href}
         className={className}
         onClick={(event) => event.stopPropagation()}
+        aria-label={title || label}
       >
         {content}
       </a>
@@ -1095,7 +1174,17 @@ export function CommunicationBlock({
           {/* Communication preference chips */}
           {communicationPreferences.map((chip) => (
             <span key={chip.key} className="inline-flex">
-              <Chip label={chip.label} color={chip.color} href={chip.href} title={chip.title} />
+              <Chip
+                label={chip.label}
+                color={chip.color}
+                href={chip.href}
+                title={chip.title}
+                contactHeading={chip.contactHeading}
+                contactName={chip.contactName}
+                contactValue={chip.contactValue}
+                contactHint={chip.contactHint}
+                contactTimeHint={chip.contactTimeHint}
+              />
             </span>
           ))}
           {/* Callback request chip */}
@@ -1410,7 +1499,18 @@ export function CommunicationChips({
       })()}
       {communicationPreferences.map((chip) => (
         <span key={chip.key} className="inline-flex">
-          <Chip label={chip.label} color={chip.color} href={chip.href} title={chip.title} compact={compact} />
+          <Chip
+            label={chip.label}
+            color={chip.color}
+            href={chip.href}
+            title={chip.title}
+            compact={compact}
+            contactHeading={chip.contactHeading}
+            contactName={chip.contactName}
+            contactValue={chip.contactValue}
+            contactHint={chip.contactHint}
+            contactTimeHint={chip.contactTimeHint}
+          />
         </span>
       ))}
       {hazards.filter((h) => !isNegatedAnimalHint(h)).map((h, i) => {

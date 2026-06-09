@@ -32,6 +32,7 @@ import {
   MoreVertical,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Mic,
   X,
 } from "lucide-react";
@@ -1783,8 +1784,25 @@ const collectParkingDetailLinesV17_90L99 = (
 
 const getUnifiedParkingBadgeV17_90L99 = (
   values: Array<string | null | undefined>,
-): { label: string; className: string; tooltip: string } => {
-  const parking = collectUnifiedParkingInfoV17_90L101(values);
+): { label: string; className: string; tooltip: string } | null => {
+  const parkingValues = values
+    .flatMap((value) => String(value || "").split(/\n+/g))
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter(
+      (line) =>
+        !/^(?:parkplatz|parken|parking)\s+(?:nicht\s+angegeben|keine\s+angabe|unbekannt|offen)[.!]?$/i.test(
+          normalizeForMatch(line),
+        ),
+    );
+  const source = parkingValues.join("\n");
+  const hasParkingMention =
+    /\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage|besucherfeld)\b/i.test(
+      normalizeForMatch(source),
+    );
+  if (!hasParkingMention) return null;
+
+  const parking = collectUnifiedParkingInfoV17_90L101(parkingValues);
   const detailText =
     parking.details.length > 0 ? `\n\n${parking.details.join("\n")}` : "";
   return {
@@ -3556,9 +3574,7 @@ const getOperationalBadges = (
     });
   }
 
-  // V17.90L99: Every order has exactly one compact blue parking chip.
-  // The tooltip reports availability and retains all concrete parking details.
-  // Parking lines are excluded from red/yellow operational duplicates below.
+  // Show the blue parking chip only when the source contains parking information.
   const unifiedParkingBadge = getUnifiedParkingBadgeV17_90L99([
     ...parsedNotes.safetyWarnings,
     ...parsedNotes.jobHints,
@@ -3566,12 +3582,14 @@ const getOperationalBadges = (
     order.notes,
     order.audioTranscript,
   ]);
-  addHint(
-    "hint_parking",
-    unifiedParkingBadge.label,
-    unifiedParkingBadge.className,
-    unifiedParkingBadge.tooltip,
-  );
+  if (unifiedParkingBadge) {
+    addHint(
+      "hint_parking",
+      unifiedParkingBadge.label,
+      unifiedParkingBadge.className,
+      unifiedParkingBadge.tooltip,
+    );
+  }
 
   parsedNotes.safetyWarnings.forEach((line) => {
     const kind = getSemanticBadgeKind(line);
@@ -8184,6 +8202,33 @@ const renderMobileIconBadge = (badge: ReviewBadge) => {
   );
 };
 
+const renderOrderContactTooltipV17_128 = (
+  order: Order,
+  phone: string,
+  hint: string,
+  align: "left" | "right" = "left",
+) => {
+  const alignClass = align === "right" ? "right-0" : "left-0";
+  return (
+    <span
+      className={`pointer-events-none absolute ${alignClass} bottom-full z-[9999] mb-2 hidden w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-950`}
+    >
+      <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
+        Telefonkontakt
+      </span>
+      <span className="mt-1 block break-words font-medium text-foreground">
+        {order.customer?.name || "Kunde"}
+      </span>
+      <span className="mt-1 block break-words font-mono text-sm text-blue-700 dark:text-blue-300">
+        {phone || "Keine Telefonnummer vorhanden"}
+      </span>
+      <span className="mt-2 block text-xs text-muted-foreground">
+        {hint}
+      </span>
+    </span>
+  );
+};
+
 // V17.90L119: The callback chip is rendered through the compact/mobile card path
 // even on desktop. Use the same chip-anchored tooltip renderer as key/access
 // instead of the viewport-centered mobile sheet.
@@ -8214,7 +8259,14 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
         className={`group relative ${className}`}
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderBadgeTooltip({ ...badge, tooltip: title }, "left")}
+        {renderOrderContactTooltipV17_128(
+          order,
+          phone,
+          phone
+            ? "Antippen oder anklicken, um anzurufen."
+            : "Keine Telefonnummer hinterlegt.",
+          "left",
+        )}
       </button>
     );
   }
@@ -8235,7 +8287,14 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
       className={`group relative ${className}`}
     >
       <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-      {renderBadgeTooltip({ ...badge, tooltip: title }, "left")}
+      {renderOrderContactTooltipV17_128(
+          order,
+          phone,
+          phone
+            ? "Antippen oder anklicken, um anzurufen."
+            : "Keine Telefonnummer hinterlegt.",
+          "left",
+        )}
     </a>
   );
 };
@@ -8410,7 +8469,14 @@ const renderCallbackCardBadge = (
         className={visualClass}
       >
         <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
+        {renderOrderContactTooltipV17_128(
+          order,
+          phone,
+          phone
+            ? "Antippen oder anklicken, um anzurufen."
+            : "Keine Telefonnummer hinterlegt.",
+          tooltipAlign,
+        )}
       </button>
     );
   }
@@ -8433,7 +8499,14 @@ const renderCallbackCardBadge = (
       className={visualClass}
     >
       <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-      {renderBadgeTooltip({ ...badge, tooltip }, tooltipAlign)}
+      {renderOrderContactTooltipV17_128(
+          order,
+          phone,
+          phone
+            ? "Antippen oder anklicken, um anzurufen."
+            : "Keine Telefonnummer hinterlegt.",
+          tooltipAlign,
+        )}
     </a>
   );
 };
@@ -12785,12 +12858,16 @@ export default function AuftraegePage() {
           },
         );
 
-        if (!notesResponse.ok) {
-          toast.error("Hinweise konnten nicht sicher gespeichert werden");
-          return null;
+        if (notesResponse.ok) {
+          saved = await notesResponse.json();
+        } else {
+          // The normal order PUT above already persisted specialNotes. The
+          // dedicated role-safe endpoint is an additional precision pass and
+          // must not turn a successful order save into a failed save.
+          console.warn(
+            "Dedicated special-notes save failed; using the successfully saved order response.",
+          );
         }
-
-        saved = await notesResponse.json();
       }
 
       return saved;
@@ -16000,7 +16077,7 @@ export default function AuftraegePage() {
                         <p className="text-xs text-muted-foreground">
                           {hasMultipleEditWorkSites
                             ? `${currentEditWorkSites.length} Arbeitsorte · ${formItems.filter((item) => item.serviceName.trim()).length} Leistungen · ${formatCurrency(itemsTotal, currency)}`
-                            : "Klein, kompakt: Leistung, Prüfung, Preis und Menge pro Position."}
+                            : "Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen."}
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
@@ -16938,7 +17015,7 @@ export default function AuftraegePage() {
                                         </div>
                                       </div>
 
-                                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/service-item:rotate-90" />
+                                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/service-item:rotate-180" />
 
                                       <div className="relative shrink-0">
                                         <button
@@ -17037,13 +17114,11 @@ export default function AuftraegePage() {
                                         )}
                                       </div>
 
-                                    <div className="grid grid-cols-3 gap-1.5">
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                       <div>
-                                        <Label className="text-[10px] leading-none">
-                                          Einheit
-                                        </Label>
+                                        <Label className="text-xs">Einheit</Label>
                                         <select
-                                          className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                          className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                                           value={
                                             unitMissingInTextReason &&
                                             !manualUnitConfirmed &&
@@ -17070,42 +17145,11 @@ export default function AuftraegePage() {
                                       </div>
 
                                       <div>
-                                        <Label className="text-[10px] leading-none">
-                                          Preis ({currency})
-                                        </Label>
-                                        <Input
-                                          type="number"
-                                          step="0.05"
-                                          className={`h-8 text-xs ${
-                                            priceInputCritical
-                                              ? "border-red-400 bg-red-50 dark:bg-red-950/20"
-                                              : ""
-                                          }`}
-                                          value={item.unitPrice}
-                                          placeholder={
-                                            priceInputReview ? "prüfen" : "0"
-                                          }
-                                          onFocus={(e) =>
-                                            e.currentTarget.select()
-                                          }
-                                          onChange={(e: any) =>
-                                            updateItem(
-                                              index,
-                                              "unitPrice",
-                                              e?.target?.value ?? "",
-                                            )
-                                          }
-                                        />
-                                      </div>
-
-                                      <div>
-                                        <Label className="text-[10px] leading-none">
-                                          Menge
-                                        </Label>
+                                        <Label className="text-xs">Menge</Label>
                                         <Input
                                           type="number"
                                           step="0.25"
-                                          className={`h-8 text-xs ${
+                                          className={`h-9 ${
                                             quantityInputCritical
                                               ? "border-red-400 bg-red-50 dark:bg-red-950/20"
                                               : ""
@@ -17121,6 +17165,35 @@ export default function AuftraegePage() {
                                             updateItem(
                                               index,
                                               "quantity",
+                                              e?.target?.value ?? "",
+                                            )
+                                          }
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <Label className="text-xs">
+                                          Preis ({currency})
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.05"
+                                          className={`h-9 ${
+                                            priceInputCritical
+                                              ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                                              : ""
+                                          }`}
+                                          value={item.unitPrice}
+                                          placeholder={
+                                            priceInputReview ? "prüfen" : "0"
+                                          }
+                                          onFocus={(e) =>
+                                            e.currentTarget.select()
+                                          }
+                                          onChange={(e: any) =>
+                                            updateItem(
+                                              index,
+                                              "unitPrice",
                                               e?.target?.value ?? "",
                                             )
                                           }
