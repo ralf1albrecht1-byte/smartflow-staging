@@ -1098,7 +1098,7 @@ function contactReviewEntryFromSource(
   const value = preferred === 'mail' ? email : phone || email;
   if (!value && !preferred) return null;
   const noCall = lines.some((line) => /\b(?:nicht|keine|kein)\s+(?:telefonisch\s+)?(?:anrufen|anrufe|telefon|telefonieren)|\bno\s+calls?\b/i.test(line));
-  const timeHint = preferred ? getChannelContactTimeHint(preferred, customerSource) : '';
+  const timeHint = preferred && preferred !== 'call' ? getChannelContactTimeHint(preferred, customerSource) : '';
   const detail = [channelLabel, timeHint, noCall && preferred !== 'mail' ? 'keine Anrufe' : ''].filter(Boolean).join(' · ');
   return {
     siteLabel,

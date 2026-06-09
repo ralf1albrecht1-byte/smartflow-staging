@@ -14295,14 +14295,19 @@ export default function AuftraegePage() {
             const messageBadges = hasMultipleMergedData
               ? []
               : bottomBadges.filter((badge) => badge.key === "sms_request");
+            const mergedContactBadges = bottomBadges.filter(
+              (badge) => badge.key === "merged_data_review",
+            );
             const otherFooterBadges = bottomBadges.filter((badge) =>
               hasMultipleMergedData
-                ? !hiddenMergedDataBadgeKeys.includes(badge.key)
+                ? !hiddenMergedDataBadgeKeys.includes(badge.key) &&
+                  badge.key !== "merged_data_review"
                 : ![
                     "appointment",
                     "appointments_multiple",
                     "callback_request",
                     "sms_request",
+                    "merged_data_review",
                   ].includes(badge.key),
             );
             const rightSideBadges = amountReviewBadges;
@@ -14341,9 +14346,10 @@ export default function AuftraegePage() {
             // mobile icon row is reserved for real actions/hints.
             const mobileActionBadges = [
               ...mobileFocusBadges,
+              ...mergedContactBadges,
               ...callbackBadges,
-              ...operationalBadges,
               ...messageBadges,
+              ...operationalBadges,
               ...otherFooterBadges,
             ];
             const mobileVisibleActionBadges = mobileActionBadges.slice(0, 4);
@@ -15016,6 +15022,10 @@ export default function AuftraegePage() {
                                   onImageClick={() => openMedia(o)}
                                 />
                               </div>
+                            )}
+
+                            {mergedContactBadges.map((badge) =>
+                              renderInteractiveOrderCardBadge(badge),
                             )}
 
                             {callbackBadges.map((badge) =>
