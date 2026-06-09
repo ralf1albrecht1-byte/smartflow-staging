@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail } from 'lucide-react';
+import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail, Info, Phone } from 'lucide-react';
 import { splitSpecialNotes, splitJobHints, detectCallbackRequest } from '@/lib/special-notes-utils';
 import { formatAudioDuration } from '@/lib/audio-format';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
@@ -272,6 +272,21 @@ export function resolveCommunicationData(
       if (o.description && !result.description) result.description = o.description;
       if (o.specialNotes && !result.specialNotes) result.specialNotes = o.specialNotes;
       if (o.notes && !result.notes) result.notes = o.notes;
+      if (o.communicationContext && !result.communicationContext)
+        result.communicationContext = o.communicationContext;
+      if (o.contactPhone && !result.contactPhone) result.contactPhone = o.contactPhone;
+      if (o.customerPhone && !result.customerPhone) result.customerPhone = o.customerPhone;
+      if (o.phone && !result.phone) result.phone = o.phone;
+      if (o.email && !result.email) result.email = o.email;
+      if (o.customer && !result.customer) result.customer = o.customer;
+      else if (o.customer) {
+        result.customer = {
+          ...(result.customer || {}),
+          name: result.customer?.name || o.customer.name || null,
+          phone: result.customer?.phone || o.customer.phone || null,
+          email: result.customer?.email || o.customer.email || null,
+        };
+      }
       if (o.mediaUrl && o.mediaType === 'audio' && !result.mediaUrl) {
         result.mediaUrl = o.mediaUrl;
         result.mediaType = 'audio';
@@ -773,6 +788,74 @@ function appendContactTime(title: string, contactTimeHint: string): string {
   return [title, contactTimeHint].filter(Boolean).join(' · ');
 }
 
+function sanitizeContactDisplayName(value: string | null | undefined): string {
+  const text = String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split(/\n|\[\s*(?:HINWEIS|INFO|NOTIZ|WARNUNG|GEFAHR)\s*\]/i)[0]
+    .replace(/^\s*(?:kontakt(?:person)?|ansprechperson|vor\s*ort)\s*[:.-]?\s*/i, '')
+    .replace(/[;|].*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!text || text.length > 80 || /\d|@|\[|\]/.test(text)) return '';
+  const parts = text.split(/\s+/g).filter(Boolean);
+  if (parts.length < 1 || parts.length > 6) return '';
+  const lowercaseParticles = new Set([
+    'von',
+    'van',
+    'de',
+    'del',
+    'della',
+    'di',
+    'da',
+    'du',
+    'der',
+    'zu',
+    'zum',
+  ]);
+  const isNameToken = (part: string) =>
+    lowercaseParticles.has(part.toLowerCase()) ||
+    /^[\p{Lu}][\p{L}'’.-]*$/u.test(part);
+  if (!parts.every(isNameToken)) return '';
+  return text;
+}
+
+function cleanCommunicationInfoLine(value: string): string {
+  return String(value || '')
+    .replace(/\s*\[(?:HINWEIS|INFO|NOTIZ|WARNUNG|GEFAHR|WARNHINWEIS)\]\s*/gi, ' ')
+    .replace(/^\s*(?:WhatsApp|Telegram)\s*:\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildCommunicationInfoLines(
+  jobHints: unknown,
+  specialNotes: string | null | undefined,
+): string[] {
+  const sources = [
+    ...(Array.isArray(jobHints) ? jobHints.map(String) : [String(jobHints || '')]),
+    String(specialNotes || ''),
+  ];
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const source of sources) {
+    for (const raw of source.split(/\n+/g)) {
+      const cleaned = cleanCommunicationInfoLine(raw);
+      if (
+        !cleaned ||
+        /^\[(?:META|Titel|Title|Priorität|Prioritaet|Priority)\b/i.test(cleaned)
+      )
+        continue;
+      const key = normalizeSemanticChipText(cleaned);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      lines.push(cleaned);
+    }
+  }
+  return lines;
+}
+
 function detectCommunicationPreferenceChips(
   data: CommunicationData,
   parsed: ParsedNotes,
@@ -804,6 +887,10 @@ function detectCommunicationPreferenceChips(
   const operational = extractOperationalContactV17_90L85(rawSource);
   const email = operational.email || getContactEmail(data, rawSource);
   const phone = operational.phone || getContactPhone(data, rawSource);
+  const contactName =
+    sanitizeContactDisplayName(operational.name) ||
+    sanitizeContactDisplayName(data.customer?.name) ||
+    'Kunde';
 
   const lines = splitCommunicationSourceLines(rawSource);
   const channelIsForbidden = (channel: CommunicationChannel) =>
@@ -840,7 +927,7 @@ function detectCommunicationPreferenceChips(
       href: email ? `mailto:${email}` : undefined,
       title: appendContactTime(email ? `${operational.name ? `${operational.name} · ` : ''}E-Mail: ${email}` : 'E-Mail bevorzugt · keine E-Mail hinterlegt', mailTime),
       contactHeading: 'E-Mail-Kontakt',
-      contactName: operational.name || data.customer?.name || 'Kunde',
+      contactName,
       contactValue: email || 'Keine E-Mail hinterlegt',
       contactHint: email
         ? 'Antippen oder anklicken, um eine E-Mail zu schreiben.'
@@ -857,7 +944,7 @@ function detectCommunicationPreferenceChips(
       href: phone ? `https://wa.me/${phone.replace(/^\+/, '')}` : undefined,
       title: appendContactTime(phone ? `${operational.name ? `${operational.name} · ` : ''}WhatsApp: ${phone}` : 'WhatsApp bevorzugt · keine Telefonnummer vorhanden', whatsappTime),
       contactHeading: 'WhatsApp-Kontakt',
-      contactName: operational.name || data.customer?.name || 'Kunde',
+      contactName,
       contactValue: phone || 'Keine Telefonnummer vorhanden',
       contactHint: phone
         ? 'Antippen oder anklicken, um WhatsApp zu öffnen.'
@@ -874,7 +961,7 @@ function detectCommunicationPreferenceChips(
       href: phone ? `sms:${phone}` : undefined,
       title: appendContactTime(phone ? `${operational.name ? `${operational.name} · ` : ''}SMS: ${phone}` : 'SMS bevorzugt · keine Telefonnummer vorhanden', smsTime),
       contactHeading: 'SMS-Kontakt',
-      contactName: operational.name || data.customer?.name || 'Kunde',
+      contactName,
       contactValue: phone || 'Keine Telefonnummer vorhanden',
       contactHint: phone
         ? 'Antippen oder anklicken, um eine SMS zu schreiben.'
@@ -1395,11 +1482,17 @@ export function CommunicationChips({
   onAudioClick,
   onImageClick,
   compact = false,
+  contactsOnly = false,
+  showInfoChip = false,
 }: {
   data: CommunicationData;
   onAudioClick?: () => void;
   onImageClick?: () => void;
   compact?: boolean;
+  /** For invoices: only direct contact actions, no separate hazard/equipment/media chips. */
+  contactsOnly?: boolean;
+  /** Collect remaining internal hints in one blue info chip. */
+  showInfoChip?: boolean;
 }) {
   const hasAudio = data.mediaUrl && data.mediaType === 'audio';
   const hasImages = (data.imageUrls && data.imageUrls.length > 0) || (data.mediaUrl && data.mediaType === 'image');
@@ -1471,12 +1564,42 @@ export function CommunicationChips({
       .filter(Boolean)
       .join('\n'),
   );
+  const callbackContact = extractOperationalContactV17_90L85(
+    [
+      data.communicationContext,
+      data.specialNotes,
+      data.notes,
+      parsed.translation,
+      parsed.originalMessage,
+      data.audioTranscript,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  );
+  const callbackContactName =
+    sanitizeContactDisplayName(callbackContact.name) ||
+    sanitizeContactDisplayName(data.customer?.name) ||
+    'Kunde';
+  const infoLines = useMemo(
+    () => buildCommunicationInfoLines(jobHints, data.specialNotes),
+    [jobHints, data.specialNotes],
+  );
 
-  if (!hasAudio && !hasImages && hazards.length === 0 && equipmentWithFallback.length === 0 && !callbackNote && communicationPreferences.length === 0) return null;
+  const hasVisibleContent =
+    (!contactsOnly &&
+      (hasAudio ||
+        hasImages ||
+        hazards.length > 0 ||
+        equipmentWithFallback.length > 0)) ||
+    Boolean(callbackNote) ||
+    communicationPreferences.length > 0 ||
+    (showInfoChip && infoLines.length > 0);
+
+  if (!hasVisibleContent) return null;
 
   return (
     <>
-      {hasAudio && (
+      {!contactsOnly && hasAudio && (
         <button
           onClick={(e) => { e.stopPropagation(); onAudioClick?.(); }}
           className="p-1 text-primary bg-primary/10 rounded hover:bg-primary/20"
@@ -1485,7 +1608,7 @@ export function CommunicationChips({
           <Volume2 className="w-4 h-4" />
         </button>
       )}
-      {hasImages && (() => {
+      {!contactsOnly && hasImages && (() => {
         const imgCount = data.imageUrls?.length || (data.mediaUrl && data.mediaType === 'image' ? 1 : 0);
         return (
           <button
@@ -1513,7 +1636,7 @@ export function CommunicationChips({
           />
         </span>
       ))}
-      {hazards.filter((h) => !isNegatedAnimalHint(h)).map((h, i) => {
+      {!contactsOnly && hazards.filter((h) => !isNegatedAnimalHint(h)).map((h, i) => {
         const visual = getHazardChipVisual(h);
         const iconOnly = compact || visual.iconOnly;
         return (
@@ -1529,7 +1652,7 @@ export function CommunicationChips({
           </span>
         );
       })}
-      {equipmentWithFallback.map((h, i) => {
+      {!contactsOnly && equipmentWithFallback.map((h, i) => {
         const visual = getEquipmentChipVisual(h);
         const iconOnly = compact || visual.iconOnly;
         return (
@@ -1545,23 +1668,60 @@ export function CommunicationChips({
           </span>
         );
       })}
-      {callbackNote && callbackPhone ? (
-        <a
-          href={`tel:${callbackPhone}`}
-          onClick={(event) => event.stopPropagation()}
-          title={`Anrufen: ${callbackPhone}`}
-          className={compact ? "inline-flex h-7 w-7 items-center justify-center rounded-lg font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 hover:underline" : "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 hover:underline"}
-        >
-          📞 {!compact && 'Rückruf'}
-        </a>
-      ) : callbackNote ? (
-        <span
-          title="Rückruf gewünscht · Nummer fehlt"
-          className={compact ? "inline-flex h-7 w-7 items-center justify-center rounded-lg font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700" : "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700"}
-        >
-          📞 {!compact && 'Rückruf'}
+      {callbackNote && (
+        <span className="inline-flex">
+          <Chip
+            icon={Phone}
+            label="Telefon"
+            color="blue"
+            href={callbackPhone ? `tel:${callbackPhone}` : undefined}
+            title={
+              callbackPhone
+                ? `Anrufen: ${callbackPhone}`
+                : "Rückruf gewünscht · Nummer fehlt"
+            }
+            compact={compact}
+            contactHeading="Telefonkontakt"
+            contactName={callbackContactName}
+            contactValue={callbackPhone || "Keine Telefonnummer vorhanden"}
+            contactHint={
+              callbackPhone
+                ? "Antippen oder anklicken, um anzurufen."
+                : "Keine Telefonnummer hinterlegt."
+            }
+          />
         </span>
-      ) : null}
+      )}
+      {showInfoChip && infoLines.length > 0 && (
+        <button
+          type="button"
+          onClick={(event) => event.stopPropagation()}
+          aria-label="Informationen anzeigen"
+          className={
+            compact
+              ? "group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              : "group relative inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
+          }
+        >
+          <Info className="h-4 w-4" />
+          {!compact && "Info"}
+          <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[60vh] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-950">
+            <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
+              Informationen
+            </span>
+            <span className="mt-2 block space-y-1.5">
+              {infoLines.map((line, index) => (
+                <span
+                  key={`${index}-${line}`}
+                  className="block break-words text-xs text-foreground"
+                >
+                  {line}
+                </span>
+              ))}
+            </span>
+          </span>
+        </button>
+      )}
     </>
   );
 }

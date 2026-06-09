@@ -1915,34 +1915,37 @@ export default function RechnungenPage() {
                                           .filter(Boolean)
                                           .join(" ")}
                                     </span>
-                                    <span className="pointer-events-none absolute bottom-full left-0 z-[90] mb-2 hidden w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-cyan-200 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus-visible:block dark:border-cyan-900/60 dark:bg-slate-950">
-                                      <span className="block text-xs font-semibold text-cyan-800 dark:text-cyan-200">
-                                        Ausführungsadresse
+                                    <span className="pointer-events-none absolute bottom-full left-0 z-[90] mb-2 hidden w-[min(25rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block group-focus-visible:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                      <span className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
+                                        <MapPin className="h-4 w-4" /> Ausführungsadresse
                                       </span>
-                                      {executionSite.siteName && (
-                                        <span className="mt-1 block font-medium text-foreground">
-                                          {executionSite.siteName}
+                                      <span className="grid grid-cols-[76px_1fr] gap-x-2 gap-y-1.5">
+                                        {executionSite.siteName && (
+                                          <>
+                                            <span className="text-muted-foreground">Objekt:</span>
+                                            <span className="break-words font-bold text-slate-950 dark:text-slate-50">
+                                              {executionSite.siteName}
+                                            </span>
+                                          </>
+                                        )}
+                                        <span className="text-muted-foreground">Strasse:</span>
+                                        <span className="break-words">
+                                          {executionSite.siteAddress || "–"}
                                         </span>
-                                      )}
-                                      {executionSite.siteAddress && (
-                                        <span className="mt-1 block text-sm text-foreground">
-                                          {executionSite.siteAddress}
-                                        </span>
-                                      )}
-                                      {(executionSite.sitePlz || executionSite.siteCity) && (
-                                        <span className="block text-sm text-foreground">
+                                        <span className="text-muted-foreground">PLZ / Ort:</span>
+                                        <span className="break-words">
                                           {[executionSite.sitePlz, executionSite.siteCity]
                                             .filter(Boolean)
-                                            .join(" ")}
+                                            .join(" ") || "–"}
                                         </span>
-                                      )}
-                                      {executionSite.siteNote && (
-                                        <span className="mt-2 block text-xs text-muted-foreground">
-                                          {executionSite.siteNote}
-                                        </span>
-                                      )}
-                                      <span className="mt-2 block text-xs text-muted-foreground">
-                                        Anklicken, um die Ausführungsadresse zu bearbeiten.
+                                        {executionSite.siteNote && (
+                                          <>
+                                            <span className="text-muted-foreground">Hinweis:</span>
+                                            <span className="break-words">
+                                              {executionSite.siteNote}
+                                            </span>
+                                          </>
+                                        )}
                                       </span>
                                     </span>
                                   </button>
@@ -2031,7 +2034,12 @@ export default function RechnungenPage() {
                                   className="inline-flex items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                   onClick={(event) => event.stopPropagation()}
                                 >
-                                  <CommunicationChips data={invoiceContactData} compact />
+                                  <CommunicationChips
+                                    data={invoiceContactData}
+                                    compact
+                                    contactsOnly
+                                    showInfoChip
+                                  />
                                 </div>
                                 {reviewItems.length > 0 && (
                                   <button
@@ -2627,16 +2635,30 @@ export default function RechnungenPage() {
                           setEditingExecutionAddress(true);
                         }
                       }}
-                      className={`rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+                      className={`rounded-xl border border-cyan-200 bg-cyan-50/20 p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 ${
                         editingExecutionAddress
                           ? ""
-                          : "cursor-pointer hover:bg-cyan-50/80"
+                          : "cursor-pointer hover:bg-cyan-50/50"
                       }`}
                     >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 font-semibold">
-                          <MapPin className="h-4 w-4 text-cyan-700" />
-                          Ausführungsadresse
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked
+                            readOnly
+                            onClick={(event) => event.stopPropagation()}
+                            className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                            aria-label="Ausführungsadresse abweichend"
+                          />
+                          <div className="min-w-0">
+                            <div className="font-semibold">
+                              Ausführungsadresse abweichend von Rechnungsadresse
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
+                            </p>
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -2644,93 +2666,102 @@ export default function RechnungenPage() {
                             event.stopPropagation();
                             setEditingExecutionAddress((current) => !current);
                           }}
-                          className="rounded-md border border-cyan-300 bg-white px-2.5 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan-50"
+                          className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-slate-50"
                         >
                           {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
                         </button>
                       </div>
-                      {editingExecutionAddress ? (
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          <div className="sm:col-span-2">
-                            <Label className="text-xs">Objekt / Bereich</Label>
-                            <Input
-                              value={executionSite.siteName || ""}
-                              onChange={(event: any) =>
-                                updateInvoiceExecutionSite(
-                                  "siteName",
-                                  event?.target?.value ?? "",
-                                )
-                              }
-                            />
+
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                        {editingExecutionAddress ? (
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <div className="sm:col-span-2">
+                              <Label className="text-xs">Objekt / Bereich</Label>
+                              <Input
+                                value={executionSite.siteName || ""}
+                                onChange={(event: any) =>
+                                  updateInvoiceExecutionSite(
+                                    "siteName",
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <Label className="text-xs">Strasse</Label>
+                              <Input
+                                value={executionSite.siteAddress || ""}
+                                onChange={(event: any) =>
+                                  updateInvoiceExecutionSite(
+                                    "siteAddress",
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs">PLZ</Label>
+                              <Input
+                                value={executionSite.sitePlz || ""}
+                                onChange={(event: any) =>
+                                  updateInvoiceExecutionSite(
+                                    "sitePlz",
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs">Ort</Label>
+                              <Input
+                                value={executionSite.siteCity || ""}
+                                onChange={(event: any) =>
+                                  updateInvoiceExecutionSite(
+                                    "siteCity",
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              />
+                            </div>
+                            <div className="sm:col-span-2 flex justify-end pt-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void saveInvoiceExecutionAddress();
+                                }}
+                                disabled={saving}
+                              >
+                                {saving
+                                  ? "Speichern..."
+                                  : "Ausführungsadresse speichern"}
+                              </Button>
+                            </div>
                           </div>
-                          <div className="sm:col-span-2">
-                            <Label className="text-xs">Strasse</Label>
-                            <Input
-                              value={executionSite.siteAddress || ""}
-                              onChange={(event: any) =>
-                                updateInvoiceExecutionSite(
-                                  "siteAddress",
-                                  event?.target?.value ?? "",
-                                )
-                              }
-                            />
+                        ) : (
+                          <div className="flex items-start gap-2">
+                            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-semibold">
+                                {executionSite.siteName || "Ausführungsadresse"}
+                              </div>
+                              <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-1 text-sm">
+                                <span className="text-muted-foreground">Strasse:</span>
+                                <span className="break-words">
+                                  {executionSite.siteAddress || "–"}
+                                </span>
+                                <span className="text-muted-foreground">PLZ / Ort:</span>
+                                <span className="break-words">
+                                  {[executionSite.sitePlz, executionSite.siteCity]
+                                    .filter(Boolean)
+                                    .join(" ") || "–"}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <Label className="text-xs">PLZ</Label>
-                            <Input
-                              value={executionSite.sitePlz || ""}
-                              onChange={(event: any) =>
-                                updateInvoiceExecutionSite(
-                                  "sitePlz",
-                                  event?.target?.value ?? "",
-                                )
-                              }
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Ort</Label>
-                            <Input
-                              value={executionSite.siteCity || ""}
-                              onChange={(event: any) =>
-                                updateInvoiceExecutionSite(
-                                  "siteCity",
-                                  event?.target?.value ?? "",
-                                )
-                              }
-                            />
-                          </div>
-                          <div className="sm:col-span-2 flex justify-end pt-1">
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void saveInvoiceExecutionAddress();
-                              }}
-                              disabled={saving}
-                            >
-                              {saving
-                                ? "Speichern..."
-                                : "Ausführungsadresse speichern"}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-1 text-sm">
-                          <span className="text-muted-foreground">Objekt:</span>
-                          <span className="font-medium">
-                            {executionSite.siteName || "—"}
-                          </span>
-                          <span className="text-muted-foreground">Strasse:</span>
-                          <span>{executionSite.siteAddress || "—"}</span>
-                          <span className="text-muted-foreground">PLZ / Ort:</span>
-                          <span>
-                            {[executionSite.sitePlz, executionSite.siteCity]
-                              .filter(Boolean)
-                              .join(" ") || "—"}
-                          </span>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   );
                 })()}

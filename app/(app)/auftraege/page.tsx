@@ -16965,7 +16965,7 @@ export default function AuftraegePage() {
                                 groupExpanded && (
                                   <details
                                     open={index === 0 || isFirstInSite}
-                                    className={`group/service-item relative min-w-0 border-2 shadow-sm ${
+                                    className={`group/service-item relative min-w-0 border-2 shadow-sm open:!border-sky-200 open:!bg-sky-50/40 open:!ring-1 open:!ring-sky-100 dark:open:!border-sky-800/70 dark:open:!bg-sky-950/15 dark:open:!ring-sky-900/40 ${
                                       hasMultipleEditWorkSites
                                         ? `ml-2 rounded-xl border-l-4 ${itemAccentClass}`
                                         : "rounded-xl"
@@ -17090,7 +17090,7 @@ export default function AuftraegePage() {
                                       </div>
                                     </summary>
 
-                                    <div className="space-y-1.5 border-t border-slate-200/80 p-2.5 dark:border-slate-700/80">
+                                    <div className="space-y-3 border-t border-sky-100 p-3 dark:border-sky-900/40">
                                       <div className="group min-w-0">
                                         <ServiceCombobox
                                           value={getEditableServiceNameValue(
@@ -17256,10 +17256,10 @@ export default function AuftraegePage() {
 
                                     {showItemReviewBlock && (
                                       <div
-                                        className={`rounded-md border px-2 py-1.5 text-[10.5px] leading-tight ${
+                                        className={`rounded-lg border px-3 py-2 text-xs leading-snug ${
                                           isBlockingItemReview
-                                            ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
-                                            : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
+                                            ? "border-red-300 bg-red-100/70 text-red-900 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200"
+                                            : "border-amber-300 bg-amber-100/60 text-amber-900 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
                                         }`}
                                       >
                                         <div className="mb-0.5 flex items-center gap-1 font-semibold">
