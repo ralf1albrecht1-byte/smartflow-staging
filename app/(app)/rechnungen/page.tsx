@@ -19,11 +19,10 @@ import {
   Undo2,
   MessageCircle,
   MapPin,
-  Phone,
-  Mail,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
+  CommunicationChips,
   resolveCommunicationData,
   stripForwardedMessage,
 } from "@/components/communication-block";
@@ -273,6 +272,25 @@ function collectInvoiceExecutionSites(source: {
     }),
   );
   return sites;
+}
+
+function buildInvoiceCommunicationData(invoice: Invoice) {
+  const resolved = resolveCommunicationData(null, invoice.orders || []);
+  return {
+    ...resolved,
+    customer: {
+      ...(resolved.customer || {}),
+      name: resolved.customer?.name || invoice.customer?.name || null,
+      phone: resolved.customer?.phone || invoice.customer?.phone || null,
+      email: resolved.customer?.email || invoice.customer?.email || null,
+    },
+    phone: resolved.phone || invoice.customer?.phone || null,
+    email: resolved.email || invoice.customer?.email || null,
+    mediaUrl: null,
+    mediaType: null,
+    imageUrls: [],
+    thumbnailUrls: [],
+  };
 }
 
 function formatInvoiceDateLabel(value?: string | null): string {
@@ -530,6 +548,7 @@ export default function RechnungenPage() {
     string | null
   >(null);
   const customerEditorRef = useRef<HTMLDivElement | null>(null);
+  const serviceItemsRef = useRef<HTMLDivElement | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     message: string;
@@ -1009,10 +1028,22 @@ export default function RechnungenPage() {
   }, [dialogOpen]);
 
   const addItem = () => {
-    const nextIndex = items.length;
-    setItems([...items, getEmptyItem()]);
-    setExpandedItemIndex(nextIndex);
+    setItems((current) => [getEmptyItem(), ...current]);
+    setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
+    requestAnimationFrame(() => {
+      serviceItemsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        serviceItemsRef.current
+          ?.querySelector<HTMLInputElement>(
+            '[data-service-item-index="0"] input',
+          )
+          ?.focus();
+      }, 180);
+    });
   };
   const removeItem = (i: number) => {
     if (items.length <= 1) {
@@ -1221,8 +1252,8 @@ export default function RechnungenPage() {
     }
   };
 
-  const saveEdit = async (closeAfterSave = true) => {
-    if (!editingInvoice) return;
+  const saveEdit = async (closeAfterSave = true): Promise<boolean> => {
+    if (!editingInvoice) return false;
     setSaving(true);
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
@@ -1237,19 +1268,28 @@ export default function RechnungenPage() {
           currency,
         }),
       });
-      if (res.ok) {
-        toast.success("Rechnung aktualisiert");
-        if (closeAfterSave) {
-          setDialogOpen(false);
-          setEditingInvoice(null);
-        }
-        load();
-      } else toast.error("Fehler");
+      if (!res.ok) {
+        toast.error("Fehler");
+        return false;
+      }
+      toast.success("Rechnung aktualisiert");
+      if (closeAfterSave) {
+        setDialogOpen(false);
+        setEditingInvoice(null);
+      }
+      await load();
+      return true;
     } catch {
       toast.error("Fehler");
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveInvoiceExecutionAddress = async () => {
+    const saved = await saveEdit(false);
+    if (saved) setEditingExecutionAddress(false);
   };
 
   // Save + Archive → set status Erledigt + back to list
@@ -1701,6 +1741,7 @@ export default function RechnungenPage() {
                     details: string[];
                   }>;
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
+                  const invoiceContactData = buildInvoiceCommunicationData(inv);
                   return (
                     <motion.div
                       key={inv?.id}
@@ -1853,29 +1894,58 @@ export default function RechnungenPage() {
                                   </span>
                                 )}
                                 {executionSite && (
-                                  <span
-                                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800"
-                                    title={[
-                                      executionSite.siteName,
-                                      executionSite.siteAddress,
-                                      executionSite.sitePlz,
-                                      executionSite.siteCity,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ")}
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openEditInvoice(inv);
+                                      window.setTimeout(
+                                        () => setEditingExecutionAddress(true),
+                                        120,
+                                      );
+                                    }}
+                                    className="group relative inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                                    aria-label="Ausführungsadresse anzeigen und bearbeiten"
                                   >
                                     <MapPin className="h-3 w-3 shrink-0" />
                                     <span className="truncate">
                                       {executionSite.siteName ||
                                         executionSite.siteAddress ||
-                                        [
-                                          executionSite.sitePlz,
-                                          executionSite.siteCity,
-                                        ]
+                                        [executionSite.sitePlz, executionSite.siteCity]
                                           .filter(Boolean)
                                           .join(" ")}
                                     </span>
-                                  </span>
+                                    <span className="pointer-events-none absolute bottom-full left-0 z-[90] mb-2 hidden w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-cyan-200 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus-visible:block dark:border-cyan-900/60 dark:bg-slate-950">
+                                      <span className="block text-xs font-semibold text-cyan-800 dark:text-cyan-200">
+                                        Ausführungsadresse
+                                      </span>
+                                      {executionSite.siteName && (
+                                        <span className="mt-1 block font-medium text-foreground">
+                                          {executionSite.siteName}
+                                        </span>
+                                      )}
+                                      {executionSite.siteAddress && (
+                                        <span className="mt-1 block text-sm text-foreground">
+                                          {executionSite.siteAddress}
+                                        </span>
+                                      )}
+                                      {(executionSite.sitePlz || executionSite.siteCity) && (
+                                        <span className="block text-sm text-foreground">
+                                          {[executionSite.sitePlz, executionSite.siteCity]
+                                            .filter(Boolean)
+                                            .join(" ")}
+                                        </span>
+                                      )}
+                                      {executionSite.siteNote && (
+                                        <span className="mt-2 block text-xs text-muted-foreground">
+                                          {executionSite.siteNote}
+                                        </span>
+                                      )}
+                                      <span className="mt-2 block text-xs text-muted-foreground">
+                                        Anklicken, um die Ausführungsadresse zu bearbeiten.
+                                      </span>
+                                    </span>
+                                  </button>
                                 )}
                                 {isCustomerDataIncomplete(inv.customer) && (
                                   <MissingCustomerDataBadge
@@ -1957,62 +2027,12 @@ export default function RechnungenPage() {
                                     </option>
                                   ))}
                                 </select>
-                                {inv?.customer?.phone && (
-                                  <div
-                                    className="group relative"
-                                    onClick={(event) => event.stopPropagation()}
-                                  >
-                                    <a
-                                      href={`tel:${String(inv.customer.phone).replace(/\s+/g, "")}`}
-                                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-                                      aria-label={`Anrufen: ${inv.customer.phone}`}
-                                    >
-                                      <Phone className="h-4 w-4" />
-                                    </a>
-                                    <div className="pointer-events-none absolute bottom-full left-0 z-[80] mb-2 hidden w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-3 text-left shadow-xl group-hover:block group-focus-within:block dark:bg-slate-950">
-                                      <div className="text-xs font-semibold text-blue-800 dark:text-blue-200">
-                                        Telefonkontakt
-                                      </div>
-                                      <div className="mt-1 font-medium text-foreground">
-                                        {inv?.customer?.name || "Kunde"}
-                                      </div>
-                                      <div className="mt-1 break-words font-mono text-sm text-blue-700 dark:text-blue-300">
-                                        {inv.customer.phone}
-                                      </div>
-                                      <div className="mt-2 text-xs text-muted-foreground">
-                                        Antippen oder anklicken, um anzurufen.
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
-                                {inv?.customer?.email && (
-                                  <div
-                                    className="group relative"
-                                    onClick={(event) => event.stopPropagation()}
-                                  >
-                                    <a
-                                      href={`mailto:${inv.customer.email}`}
-                                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-                                      aria-label={`E-Mail: ${inv.customer.email}`}
-                                    >
-                                      <Mail className="h-4 w-4" />
-                                    </a>
-                                    <div className="pointer-events-none absolute bottom-full left-0 z-[80] mb-2 hidden w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-3 text-left shadow-xl group-hover:block group-focus-within:block dark:bg-slate-950">
-                                      <div className="text-xs font-semibold text-blue-800 dark:text-blue-200">
-                                        E-Mail-Kontakt
-                                      </div>
-                                      <div className="mt-1 font-medium text-foreground">
-                                        {inv?.customer?.name || "Kunde"}
-                                      </div>
-                                      <div className="mt-1 break-all text-sm text-blue-700 dark:text-blue-300">
-                                        {inv.customer.email}
-                                      </div>
-                                      <div className="mt-2 text-xs text-muted-foreground">
-                                        Antippen oder anklicken, um eine E-Mail zu schreiben.
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
+                                <div
+                                  className="inline-flex items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <CommunicationChips data={invoiceContactData} compact />
+                                </div>
                                 {reviewItems.length > 0 && (
                                   <button
                                     type="button"
@@ -2591,7 +2611,28 @@ export default function RechnungenPage() {
                   })[0];
                   if (!executionSite) return null;
                   return (
-                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (!editingExecutionAddress)
+                          setEditingExecutionAddress(true);
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          !editingExecutionAddress &&
+                          (event.key === "Enter" || event.key === " ")
+                        ) {
+                          event.preventDefault();
+                          setEditingExecutionAddress(true);
+                        }
+                      }}
+                      className={`rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+                        editingExecutionAddress
+                          ? ""
+                          : "cursor-pointer hover:bg-cyan-50/80"
+                      }`}
+                    >
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 font-semibold">
                           <MapPin className="h-4 w-4 text-cyan-700" />
@@ -2599,9 +2640,10 @@ export default function RechnungenPage() {
                         </div>
                         <button
                           type="button"
-                          onClick={() =>
-                            setEditingExecutionAddress((current) => !current)
-                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setEditingExecutionAddress((current) => !current);
+                          }}
                           className="rounded-md border border-cyan-300 bg-white px-2.5 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan-50"
                         >
                           {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
@@ -2657,6 +2699,21 @@ export default function RechnungenPage() {
                               }
                             />
                           </div>
+                          <div className="sm:col-span-2 flex justify-end pt-1">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void saveInvoiceExecutionAddress();
+                              }}
+                              disabled={saving}
+                            >
+                              {saving
+                                ? "Speichern..."
+                                : "Ausführungsadresse speichern"}
+                            </Button>
+                          </div>
                         </div>
                       ) : (
                         <div className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-1 text-sm">
@@ -2694,7 +2751,7 @@ export default function RechnungenPage() {
                 </div>
               ) : (
                 <>
-                  <div className="space-y-3 rounded-xl border bg-background p-3 sm:p-4">
+                  <div ref={serviceItemsRef} className="scroll-mt-24 space-y-3 rounded-xl border bg-background p-3 sm:p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <h3 className="text-base font-semibold">
@@ -2741,6 +2798,7 @@ export default function RechnungenPage() {
                         return (
                           <div
                             key={idx}
+                            data-service-item-index={idx}
                             className={`relative overflow-visible rounded-xl border transition-colors ${
                               isExpanded
                                 ? "border-sky-200 bg-sky-50/40 ring-1 ring-sky-100"

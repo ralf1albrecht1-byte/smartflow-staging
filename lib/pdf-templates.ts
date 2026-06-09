@@ -99,6 +99,33 @@ function renderOfferPdfTextBlock(offer: any): string {
   return `<div class="notes">${body}</div>`;
 }
 
+type InvoicePdfMeta = {
+  title: string;
+  text: string;
+};
+
+function decodeInvoicePdfMeta(value: unknown): InvoicePdfMeta {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { title: "", text: "" };
+  const marker = "Titel: ";
+  if (!raw.startsWith(marker)) return { title: "", text: raw };
+  const [firstLine, ...rest] = raw.split(/\r?\n/);
+  return {
+    title: firstLine.slice(marker.length).trim(),
+    text: rest.join("\n").trim(),
+  };
+}
+
+function renderInvoicePdfTextBlock(invoice: any): string {
+  const meta = decodeInvoicePdfMeta(invoice?.notes);
+  if (!meta.title && !meta.text) return "";
+  const body = meta.text ? meta.text.replace(/\n/g, "<br/>") : "";
+  if (meta.title) {
+    return `<div class="notes"><strong>${meta.title}</strong>${body ? `<br/>${body}` : ""}</div>`;
+  }
+  return `<div class="notes">${body}</div>`;
+}
+
 const offerDocumentStyles = `
   body.offer-document { box-sizing: border-box; padding-bottom: 34px !important; }
   body.offer-document .container,
@@ -314,7 +341,7 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
       ? c.mwstHinweis || "Nicht MWST-pflichtig"
       : `MwSt. ${Number(invoice?.vatRate ?? 7.7)}%`;
 
-  return `<!DOCTYPE html><html><head><style>${classicStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${classicStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     <div class="header">
       <div>
         <div class="doc-title">Rechnung</div>
@@ -326,6 +353,7 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
       <p><strong>${customer?.name ?? ""}</strong></p>
       ${customer?.address ? `<p>${customer.address}</p>` : ""}
       ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+      ${renderInvoiceExecutionAddress(invoice)}
     </div>
     <div class="meta-grid">
       <div class="meta-item"><span class="meta-label">Rechnungsdatum:</span> ${formatDate(invoice?.invoiceDate)}</div>
@@ -344,7 +372,7 @@ function renderClassicInvoice(invoice: any, c: CompanyInfo): string {
     </div>
     ${buildClassicBankBlock(c)}
     ${buildClassicMwstNote(c)}
-    ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ""}
+    ${renderInvoicePdfTextBlock(invoice)}
     ${buildClassicFooterBlock(c)}
   </body></html>`;
 }
@@ -475,6 +503,52 @@ function offerWorkSiteDiffersFromBilling(item: any, customer: any): boolean {
     (siteStreet.length > 0 && siteStreet !== billingStreet) ||
     (sitePlace.length > 0 && sitePlace !== billingPlace)
   );
+}
+
+function getUniqueInvoiceWorkSites(invoice: any): any[] {
+  const unique = new Map<string, any>();
+  const candidates = [
+    ...(Array.isArray(invoice?.items) ? invoice.items : []),
+    ...(Array.isArray(invoice?.orders) ? invoice.orders : []),
+  ];
+  for (const candidate of candidates) {
+    const key = getItemWorkSiteKey(candidate);
+    if (!key || unique.has(key)) continue;
+    unique.set(key, candidate);
+  }
+  return Array.from(unique.values());
+}
+
+function renderInvoiceExecutionAddress(invoice: any): string {
+  const customer = invoice?.customer ?? {};
+  const sites = getUniqueInvoiceWorkSites(invoice).filter((item) =>
+    offerWorkSiteDiffersFromBilling(item, customer),
+  );
+  if (sites.length === 0) return "";
+
+  const rows = sites
+    .map((item, index) => {
+      const name = cleanWorkSiteValue(item?.siteName);
+      const street = cleanWorkSiteValue(item?.siteAddress);
+      const place = [item?.sitePlz, item?.siteCity]
+        .map(cleanWorkSiteValue)
+        .filter(Boolean)
+        .join(" ");
+      const note = cleanWorkSiteValue(item?.siteNote);
+      const title =
+        name || (sites.length > 1 ? `Ausführungsort ${index + 1}` : "");
+      return `
+        <div${index > 0 ? ' style="margin-top:7px;"' : ""}>
+          ${title ? `<p><strong>${title}</strong></p>` : ""}
+          ${street ? `<p>${street}</p>` : ""}
+          ${place ? `<p>${place}</p>` : ""}
+          ${note && note !== name ? `<p>${note}</p>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+
+  return `<div class="execution-address"><div class="execution-address-title">Ausführungsadresse</div>${rows}</div>`;
 }
 
 function renderOfferExecutionAddress(offer: any): string {
@@ -769,12 +843,12 @@ function renderModernInvoice(invoice: any, c: CompanyInfo): string {
   const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
     .filter(Boolean)
     .join(" · ");
-  return `<!DOCTYPE html><html><head><style>${modernStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${modernStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     ${renderModernHeader("RECHNUNG", invoice?.invoiceNumber ?? "", c)}
     <div class="container">
       <div class="top-grid">
         ${renderModernCompanyBlock(c)}
-        ${renderModernCustomerBlock(invoice?.customer ?? {})}
+        <div>${renderModernCustomerBlock(invoice?.customer ?? {})}${renderInvoiceExecutionAddress(invoice)}</div>
       </div>
       <div class="meta-row">
         <div><span class="label">Rechnungsdatum:</span>${formatDate(invoice?.invoiceDate)}</div>
@@ -793,7 +867,7 @@ function renderModernInvoice(invoice: any, c: CompanyInfo): string {
       </div>
       ${bankLine ? `<div style="clear:both;margin-top:22px;font-size:10px;color:#475569;"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ""}
       ${!c.mwstAktiv ? `<div class="vat-note">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
-      ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ""}
+      ${renderInvoicePdfTextBlock(invoice)}
       <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;
@@ -880,7 +954,7 @@ function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
   const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
     .filter(Boolean)
     .join(" · ");
-  return `<!DOCTYPE html><html><head><style>${minimalStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${minimalStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     ${renderMinimalHeader("Rechnung", invoice?.invoiceNumber ?? "", c)}
     <div class="columns">
       <div>
@@ -888,6 +962,7 @@ function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
         <p><strong>${customer?.name ?? ""}</strong></p>
         ${customer?.address ? `<p>${customer.address}</p>` : ""}
         ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+        ${renderInvoiceExecutionAddress(invoice)}
       </div>
       <div>
         <h5>Details</h5>
@@ -906,7 +981,7 @@ function renderMinimalInvoice(invoice: any, c: CompanyInfo): string {
     </div>
     ${bankLine ? `<div class="notes"><strong>Bankverbindung</strong><br/>${bankLine}</div>` : ""}
     ${!c.mwstAktiv ? `<div style="margin-top:8px;font-size:9px;color:#999;">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
-    ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen</strong><br/>${invoice.notes}</div>` : ""}
+    ${renderInvoicePdfTextBlock(invoice)}
     <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
   </body></html>`;
 }
@@ -996,7 +1071,7 @@ function renderElegantInvoice(invoice: any, c: CompanyInfo): string {
   const bankLine = [c.iban && `IBAN ${c.iban}`, c.bank && `Bank ${c.bank}`]
     .filter(Boolean)
     .join(" · ");
-  return `<!DOCTYPE html><html><head><style>${elegantStyles}</style></head><body>
+  return `<!DOCTYPE html><html><head><style>${elegantStyles}${offerDocumentStyles}</style></head><body class="offer-document">
     <div class="wrap">
       ${renderElegantHead(c)}
       <div class="center-title">
@@ -1009,6 +1084,7 @@ function renderElegantInvoice(invoice: any, c: CompanyInfo): string {
           <p><strong>${customer?.name ?? ""}</strong></p>
           ${customer?.address ? `<p>${customer.address}</p>` : ""}
           ${customer?.plz || customer?.city ? `<p>${customer?.plz ?? ""} ${customer?.city ?? ""}</p>` : ""}
+          ${renderInvoiceExecutionAddress(invoice)}
         </div>
         <div>
           <h4>Details</h4>
@@ -1028,7 +1104,7 @@ function renderElegantInvoice(invoice: any, c: CompanyInfo): string {
       </div>
       ${bankLine ? `<div class="notes"><strong>Bankverbindung:</strong> ${bankLine}</div>` : ""}
       ${!c.mwstAktiv ? `<div style="clear:both;margin-top:8px;font-size:9px;color:#a08864;font-style:italic;">${c.mwstHinweis || "Nicht MWST-pflichtig"}</div>` : ""}
-      ${invoice?.notes ? `<div class="notes"><strong>Bemerkungen:</strong><br/>${invoice.notes}</div>` : ""}
+      ${renderInvoicePdfTextBlock(invoice)}
       <div class="footer">${[c.firmenname, addrLineHelper(c), plzLineHelper(c), c.email].filter(Boolean).join(" · ")}</div>
     </div>
   </body></html>`;

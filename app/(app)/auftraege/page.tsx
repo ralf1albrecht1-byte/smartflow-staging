@@ -15263,7 +15263,7 @@ export default function AuftraegePage() {
                               }}
                               title="Kunde bearbeiten"
                               aria-label="Kunde bearbeiten"
-                              className="border border-sky-200 rounded-lg p-2 sm:p-3 bg-sky-50/70 dark:border-sky-900/60 dark:bg-sky-950/20 space-y-1.5 min-w-0 cursor-pointer hover:bg-sky-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                              className="rounded-lg border border-slate-200 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-700 dark:bg-slate-900/30 space-y-1.5 min-w-0 cursor-pointer hover:bg-slate-100/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60"
                             >
                               <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                                 <div className="min-w-0">
@@ -15429,7 +15429,7 @@ export default function AuftraegePage() {
                             const visibleCustomerPhone = cust.phone || extractOrderContactPhoneForCustomerDisplayV17_90K(currentEditOrder);
                             const visibleCustomerEmail = cust.email || extractOrderContactEmailForCustomerDisplayV17_90K(currentEditOrder);
                             return (
-                              <div className="mt-2 border border-sky-200 rounded-lg p-2 sm:p-3 bg-sky-50/70 dark:border-sky-900/60 dark:bg-sky-950/20 space-y-1.5 min-w-0">
+                              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 p-2 sm:p-3 dark:border-slate-700 dark:bg-slate-900/30 space-y-1.5 min-w-0">
                                 <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                                   <div className="min-w-0">
                                     {/* ISSUE 4 — Neutral display for fallback customers */}
@@ -15546,7 +15546,7 @@ export default function AuftraegePage() {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="border rounded-lg p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-800"
+                    className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2 dark:border-slate-700 dark:bg-slate-900/30"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -15797,7 +15797,7 @@ export default function AuftraegePage() {
                 <div
                   ref={!shouldShowAddressRoleReviewBoxV17_62 ? executionAddressRef : undefined}
                   tabIndex={-1}
-                  className="rounded-lg border bg-slate-50/70 p-3 space-y-3 outline-none ring-red-300 focus:ring-2 dark:bg-slate-900/30"
+                  className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 space-y-3 outline-none ring-cyan-300 focus:ring-2 dark:border-cyan-900/60 dark:bg-cyan-950/20"
                 >
                   <label className="flex items-start gap-2 cursor-pointer">
                     <input

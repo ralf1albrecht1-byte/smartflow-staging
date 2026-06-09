@@ -2489,7 +2489,28 @@ export default function AngebotePage() {
 
   // fromOrder auto-open removed — small dropdown now creates directly via API
 
-  const addItem = () => setItems([...items, getEmptyItem()]);
+  const focusNewestOfferItem = () => {
+    requestAnimationFrame(() => {
+      serviceItemsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        serviceItemsRef.current
+          ?.querySelector<HTMLInputElement>(
+            '[data-service-item-index="0"] input',
+          )
+          ?.focus();
+      }, 180);
+    });
+  };
+
+  const addItem = () => {
+    setItems((current) => [getEmptyItem(), ...current]);
+    setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
+    focusNewestOfferItem();
+  };
   const removeItem = (i: number) =>
     setItems(items?.filter((_: any, idx: number) => idx !== i) ?? []);
   const updateItem = (i: number, field: string, value: string) => {
@@ -2499,15 +2520,18 @@ export default function AngebotePage() {
   };
 
   const addServiceItem = (svc: any) => {
-    setItems([
-      ...items,
+    setItems((current) => [
       {
         description: svc?.name ?? "",
         quantity: "1",
         unit: svc?.unit ?? "Stunde",
         unitPrice: String(svc?.defaultPrice ?? 0),
       },
+      ...current,
     ]);
+    setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
+    focusNewestOfferItem();
   };
 
   const onItemServiceSelect = (
@@ -4872,7 +4896,7 @@ export default function AngebotePage() {
                             }}
                             title="Kunde bearbeiten"
                             aria-label="Kunde bearbeiten"
-                            className="rounded-xl border border-sky-200 bg-sky-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-sky-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                            className="rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-slate-100/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60 dark:border-slate-700 dark:bg-slate-900/30"
                           >
                             {isFallbackCustomerName(cust.name) ? (
                               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -5005,7 +5029,7 @@ export default function AngebotePage() {
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
-                              <div className="mt-2 rounded-xl border border-sky-200 bg-sky-50/70 p-2 sm:p-3 space-y-1.5 min-w-0">
+                              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 dark:border-slate-700 dark:bg-slate-900/30">
                                 {isFallbackCustomerName(cust.name) ? (
                                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="text-sm font-semibold truncate text-amber-600 dark:text-amber-400">
@@ -5101,7 +5125,7 @@ export default function AngebotePage() {
                 ) : (
                   <div
                     ref={customerEditorRef}
-                    className="rounded-xl border-2 p-2 sm:p-3 space-y-2 bg-blue-50/50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-800 min-w-0"
+                    className="rounded-xl border p-2 sm:p-3 space-y-2 bg-slate-50/70 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700 min-w-0"
                   >
                     <p className="text-xs font-semibold text-muted-foreground">
                       {editingCustomer
@@ -5215,7 +5239,7 @@ export default function AngebotePage() {
                 <>
                   <div
                     ref={executionAddressRef}
-                    className="scroll-mt-20 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:p-4 dark:border-slate-800 dark:bg-slate-900/30"
+                    className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 sm:p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <label className="flex cursor-pointer items-start gap-2">
@@ -5458,6 +5482,7 @@ export default function AngebotePage() {
                         return (
                           <div
                             key={idx}
+                            data-service-item-index={idx}
                             className={`relative overflow-visible rounded-xl border transition-colors ${
                               isExpanded
                                 ? "border-sky-200 bg-sky-50/40 ring-1 ring-sky-100"
