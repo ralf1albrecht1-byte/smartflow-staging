@@ -555,33 +555,106 @@ function formatInvoiceDateLabel(value?: string | null): string {
 }
 
 function formatInvoiceAppointmentLabel(invoice: Invoice): string {
-  const rawValue = (invoice.orders || [])
-    .map((order) => compactInvoiceValue(order?.date))
-    .find(Boolean);
-  if (!rawValue) return "";
-  const raw = rawValue.replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, "").trim();
-  if (!raw) return "";
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return `Termin ${raw}`;
+  const formatParsedDate = (date: Date, raw: string) => {
+    if (Number.isNaN(date.getTime())) return "";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const appointmentDay = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+    );
+    if (appointmentDay.getTime() < today.getTime()) return "";
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const appointmentDay = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-  );
-  if (appointmentDay.getTime() < today.getTime()) return "";
+    const dateLabel = date.toLocaleDateString("de-CH", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+    const hasTime = /T\d{2}:\d{2}|\s\d{1,2}:\d{2}/.test(raw);
+    const timeLabel = hasTime
+      ? date.toLocaleTimeString("de-CH", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "";
+    return `Termin ${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
+  };
 
-  const dateLabel = date.toLocaleDateString("de-CH", {
-    day: "2-digit",
-    month: "2-digit",
-  });
-  const hasTime = /T\d{2}:\d{2}|\s\d{1,2}:\d{2}/.test(raw);
-  const timeLabel = hasTime
-    ? date.toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })
-    : "";
-  return `Termin ${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
+  const parseAppointmentLine = (value?: string | null) => {
+    const source = String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, "");
+    const line = source
+      .split(/\n+/g)
+      .map((entry) => entry.trim())
+      .find((entry) =>
+        /\b(?:termin|datum|zeitfenster|appointment|ausführung|ausfuehrung)\b/i.test(
+          entry,
+        ),
+      );
+    if (!line) return "";
+
+    const dateMatch = line.match(
+      /\b(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?\b/,
+    );
+    const lineWithoutDate = dateMatch ? line.replace(dateMatch[0], " ") : line;
+    const timeMatches = Array.from(
+      lineWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
+    );
+    const times = timeMatches
+      .map((match) => `${match[1].padStart(2, "0")}:${match[2]}`)
+      .filter((time, index, all) => all.indexOf(time) === index);
+    const timeLabel =
+      times.length >= 2 ? `${times[0]}–${times[1]}` : times[0] || "";
+
+    if (dateMatch) {
+      const currentYear = new Date().getFullYear();
+      const rawYear = dateMatch[3];
+      const year = rawYear
+        ? Number(rawYear.length === 2 ? `20${rawYear}` : rawYear)
+        : currentYear;
+      const month = Number(dateMatch[2]) - 1;
+      const day = Number(dateMatch[1]);
+      const firstTime = times[0]?.split(":") || [];
+      const parsed = new Date(
+        year,
+        month,
+        day,
+        Number(firstTime[0] || 0),
+        Number(firstTime[1] || 0),
+      );
+      const formatted = formatParsedDate(parsed, `${dateMatch[0]} ${times[0] || ""}`);
+      if (!formatted) return "";
+      const dateLabel = `${String(day).padStart(2, "0")}.${String(month + 1).padStart(2, "0")}.`;
+      return `Termin ${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
+    }
+
+    if (timeLabel) return `Termin ${timeLabel}`;
+    return line.length > 42 ? `${line.slice(0, 39).trim()}…` : line;
+  };
+
+  for (const order of invoice.orders || []) {
+    const directRaw = compactInvoiceValue(order?.date);
+    if (directRaw) {
+      const directDate = new Date(directRaw);
+      if (!Number.isNaN(directDate.getTime())) {
+        const formatted = formatParsedDate(directDate, directRaw);
+        if (formatted) return formatted;
+      }
+      const parsedDirect = parseAppointmentLine(directRaw);
+      if (parsedDirect) return parsedDirect;
+    }
+
+    const parsedText = parseAppointmentLine(
+      [order?.specialNotes, order?.notes, order?.description]
+        .filter(Boolean)
+        .join("\n"),
+    );
+    if (parsedText) return parsedText;
+  }
+
+  return "";
 }
 
 function InvoiceViewportTooltip({
@@ -822,13 +895,17 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
                   event.stopPropagation();
                   setActiveSiteKey((current) => current === group.key ? null : group.key);
                 }}
-                className={`block cursor-pointer rounded-lg border p-2 outline-none ${
+                className={`block cursor-pointer overflow-hidden rounded-lg border bg-white outline-none dark:bg-slate-900 ${
                   active
-                    ? "border-cyan-300 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-950/30"
-                    : "border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-cyan-50/60 dark:border-slate-700 dark:bg-slate-900"
+                    ? "border-cyan-300 dark:border-cyan-800"
+                    : "border-slate-200 hover:border-cyan-200 dark:border-slate-700"
                 }`}
               >
-                <span className="flex items-start justify-between gap-3">
+                <span className={`flex items-start justify-between gap-3 p-2 ${
+                  active
+                    ? "bg-cyan-50 dark:bg-cyan-950/30"
+                    : "bg-slate-50 hover:bg-cyan-50/60 dark:bg-slate-900"
+                }`}>
                   <span className="min-w-0">
                     <span className="block font-bold text-slate-950 dark:text-slate-50">
                       {index + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${index + 1}`}
@@ -842,7 +919,7 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
                   </span>
                 </span>
                 {active && (
-                  <span className="mt-2 block border-t border-cyan-200 pt-2 dark:border-cyan-800">
+                  <span className="block border-t border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900/60 dark:bg-amber-950/15">
                     <InvoiceServiceReviewSectionsV17_90L135G entries={group.entries} />
                   </span>
                 )}
@@ -996,6 +1073,7 @@ export default function RechnungenPage() {
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
   const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<Set<string>>(new Set());
+  const [newInvoiceItemSiteKey, setNewInvoiceItemSiteKey] = useState<string>("");
   const [expandedInvoiceCardIds, setExpandedInvoiceCardIds] = useState<Set<string>>(new Set());
   const [invoiceCardExpansionRestored, setInvoiceCardExpansionRestored] = useState(false);
   const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] = useState(false);
@@ -1507,6 +1585,7 @@ export default function RechnungenPage() {
     setEditingExecutionAddress(false);
     setExpandedInvoiceSiteKeys(new Set());
     setEditingInvoiceSiteKey(null);
+    setNewInvoiceItemSiteKey("");
     setNewInvoiceExecutionSite(null);
     setLinkedOrderData(null);
     setEditOrderCtx(null);
@@ -1578,6 +1657,7 @@ export default function RechnungenPage() {
     setEditingExecutionAddress(false);
     setExpandedInvoiceSiteKeys(new Set());
     setEditingInvoiceSiteKey(null);
+    setNewInvoiceItemSiteKey("");
     setNewInvoiceExecutionSite(null);
     setItems(
       inv.items?.length > 0
@@ -1717,18 +1797,31 @@ export default function RechnungenPage() {
       orders: editingInvoice?.orders || [],
     });
     const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
-    const activeKey =
-      editingInvoiceSiteKey ||
-      Array.from(expandedInvoiceSiteKeys)[0] ||
-      groups[0]?.key ||
+    const requestedKey =
+      sites.length > 1
+        ? newInvoiceItemSiteKey
+        : editingInvoiceSiteKey ||
+          Array.from(expandedInvoiceSiteKeys)[0] ||
+          groups[0]?.key ||
+          null;
+
+    if (sites.length > 1 && !requestedKey) {
+      toast.info("Bitte zuerst den Arbeitsort für die neue Leistung wählen.");
+      return;
+    }
+
+    const targetSite =
+      groups.find((group) => group.key === requestedKey)?.site ||
+      sites.find((site) => invoiceGroupKeyForSite(site) === requestedKey) ||
       null;
-    const targetSite = groups.find((group) => group.key === activeKey)?.site || null;
     setItems((current) => [
       { ...getEmptyItem(), ...(targetSite || {}) },
       ...current,
     ]);
-    if (activeKey)
-      setExpandedInvoiceSiteKeys((current) => new Set([...current, activeKey]));
+    if (requestedKey)
+      setExpandedInvoiceSiteKeys((current) =>
+        new Set([...current, requestedKey]),
+      );
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     requestAnimationFrame(() => {
@@ -1762,6 +1855,34 @@ export default function RechnungenPage() {
     const updated = [...(items ?? [])];
     if (updated[i]) (updated[i] as any)[field] = value;
     setItems(updated);
+  };
+
+  const assignInvoiceItemToSite = (index: number, siteKey: string) => {
+    const sites = collectInvoiceExecutionSites({
+      items,
+      orders: editingInvoice?.orders || [],
+    });
+    const site = sites.find(
+      (candidate) => invoiceGroupKeyForSite(candidate) === siteKey,
+    );
+    if (!site) return;
+    setItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              siteName: site.siteName || null,
+              siteAddress: site.siteAddress || null,
+              sitePlz: site.sitePlz || null,
+              siteCity: site.siteCity || null,
+              siteNote: site.siteNote || null,
+              sourceOrderId: site.sourceOrderId || null,
+            }
+          : item,
+      ),
+    );
+    setNewInvoiceItemSiteKey(siteKey);
+    setExpandedInvoiceSiteKeys((current) => new Set([...current, siteKey]));
   };
 
   const onItemServiceSelect = (
@@ -1877,8 +1998,25 @@ export default function RechnungenPage() {
       items,
       orders: editingInvoice?.orders || [],
     });
+    const unfinishedSite = sites.find(
+      (site) =>
+        !compactInvoiceValue(site.siteName) &&
+        !compactInvoiceValue(site.siteAddress) &&
+        !compactInvoiceValue(site.sitePlz) &&
+        !compactInvoiceValue(site.siteCity),
+    );
+    if (unfinishedSite) {
+      const unfinishedKey = invoiceGroupKeyForSite(unfinishedSite);
+      setEditingInvoiceSiteKey(unfinishedKey);
+      setNewInvoiceItemSiteKey(unfinishedKey);
+      setExpandedInvoiceSiteKeys((current) =>
+        new Set([...current, unfinishedKey]),
+      );
+      toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
+      return;
+    }
     const site: InvoiceExecutionSite = {
-      siteName: `Arbeitsort ${sites.length + 1}`,
+      siteName: "",
       siteAddress: "",
       sitePlz: "",
       siteCity: "",
@@ -1888,6 +2026,7 @@ export default function RechnungenPage() {
     const key = invoiceGroupKeyForSite(site);
     setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
     setEditingInvoiceSiteKey(key);
+    setNewInvoiceItemSiteKey(key);
     setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
     setExpandedItemIndex(0);
     requestAnimationFrame(() =>
@@ -1921,6 +2060,50 @@ export default function RechnungenPage() {
       next.add(nextKey);
       return next;
     });
+  };
+
+  const removeInvoiceExecutionSite = (groupKey: string) => {
+    const groups = groupInvoiceItemsByExecutionSite(
+      items || [],
+      collectInvoiceExecutionSites({
+        items,
+        orders: editingInvoice?.orders || [],
+      }),
+    );
+    const group = groups.find((entry) => entry.key === groupKey);
+    if (!group?.site) return;
+    if (group.site.sourceOrderId) {
+      toast.error(
+        "Dieser Arbeitsort stammt aus dem Auftrag und kann hier nicht gelöscht werden.",
+      );
+      return;
+    }
+    const hasRealItems = group.entries.some(({ item }) =>
+      Boolean(
+        compactInvoiceValue(item.description) ||
+          Number(item.quantity || 0) > 0 ||
+          Number(item.unitPrice || 0) > 0,
+      ),
+    );
+    if (hasRealItems) {
+      toast.error(
+        "Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.",
+      );
+      return;
+    }
+    setItems((current) =>
+      current.filter(
+        (item) =>
+          invoiceGroupKeyForSite(item as InvoiceExecutionSite) !== groupKey,
+      ),
+    );
+    setExpandedInvoiceSiteKeys((current) => {
+      const next = new Set(current);
+      next.delete(groupKey);
+      return next;
+    });
+    setEditingInvoiceSiteKey(null);
+    setNewInvoiceItemSiteKey("");
   };
 
   const toggleAllInvoiceSites = () => {
@@ -2198,17 +2381,30 @@ export default function RechnungenPage() {
     status: string,
   ) => {
     if ("stopPropagation" in e) e.stopPropagation();
-    await fetch(`/api/invoices/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (status === "Erledigt") {
-      toast.success("Rechnung erledigt – verschoben ins Archiv");
-    } else {
+    const previousStatus = invoices.find((invoice) => invoice.id === id)?.status;
+    setInvoices((current) =>
+      current.map((invoice) =>
+        invoice.id === id ? { ...invoice, status } : invoice,
+      ),
+    );
+    try {
+      const response = await fetch(`/api/invoices/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw new Error("status_update_failed");
       toast.success("Status aktualisiert");
+    } catch {
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === id
+            ? { ...invoice, status: previousStatus || invoice.status }
+            : invoice,
+        ),
+      );
+      toast.error("Status konnte nicht gespeichert werden");
     }
-    load();
   };
 
   const remove = (e: React.MouseEvent, id: string) => {
@@ -2754,7 +2950,7 @@ export default function RechnungenPage() {
                                       </button>
                                     )}
                                   </div>
-                                  <div className="ml-auto grid shrink-0 grid-cols-[1.75rem_5.5rem_8.5rem_1rem] items-center gap-2 pr-3 sm:grid-cols-[1.75rem_5.75rem_9rem_1rem] sm:pr-5">
+                                  <div className="ml-auto grid shrink-0 grid-cols-[1.75rem_5.5rem_9rem_1rem] items-center gap-1 pr-3 sm:pr-5">
                                     <div className="flex h-7 w-7 items-center justify-center">
                                       {invoiceAppointmentLabel && (
                                         <button
@@ -2782,13 +2978,15 @@ export default function RechnungenPage() {
                                     </div>
                                     <select
                                       value={effectiveStatus}
+                                      onMouseDown={(event) => event.stopPropagation()}
                                       onPointerDown={(event) => event.stopPropagation()}
+                                      onPointerUp={(event) => event.stopPropagation()}
                                       onTouchStart={(event) => event.stopPropagation()}
                                       onClick={(event) => event.stopPropagation()}
                                       onChange={(event) =>
                                         updateStatus(event, inv.id, event.target.value)
                                       }
-                                      className="h-7 w-full rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                                      className="h-7 w-[5.5rem] justify-self-end rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
                                       style={getStatusStyle(
                                         INVOICE_STATUS_STYLES,
                                         effectiveStatus,
@@ -2801,7 +2999,7 @@ export default function RechnungenPage() {
                                         </option>
                                       ))}
                                     </select>
-                                    <div className="text-right font-mono text-sm font-bold tabular-nums whitespace-nowrap">
+                                    <div className="w-[9rem] justify-self-end text-right font-mono text-sm font-bold tabular-nums whitespace-nowrap">
                                       {formatCurrency(
                                         Number(inv?.total ?? 0),
                                         inv.currency === "EUR" ? "EUR" : "CHF",
@@ -3885,17 +4083,35 @@ export default function RechnungenPage() {
                             </div>
                             <div className="flex flex-wrap justify-end gap-2">
                               {multiSite && (
-                                <>
-                                  <Button variant="outline" size="sm" onClick={toggleAllInvoiceSites}>
-                                    {expandedInvoiceSiteKeys.size ===
-                                    groupInvoiceItemsByExecutionSite(items || [], currentSites).length
-                                      ? "Übersicht"
-                                      : "Alle öffnen"}
-                                  </Button>
-                                  <Button variant="outline" size="sm" onClick={addInvoiceExecutionSite}>
-                                    <Plus className="mr-1 h-4 w-4" /> Arbeitsort
-                                  </Button>
-                                </>
+                                <Button variant="outline" size="sm" onClick={toggleAllInvoiceSites}>
+                                  {expandedInvoiceSiteKeys.size ===
+                                  groupInvoiceItemsByExecutionSite(items || [], currentSites).length
+                                    ? "Übersicht"
+                                    : "Alle öffnen"}
+                                </Button>
+                              )}
+                              <Button variant="outline" size="sm" onClick={addInvoiceExecutionSite}>
+                                <Plus className="mr-1 h-4 w-4" /> Arbeitsort
+                              </Button>
+                              {currentSites.length > 1 && (
+                                <select
+                                  value={newInvoiceItemSiteKey}
+                                  onChange={(event) =>
+                                    setNewInvoiceItemSiteKey(event.target.value)
+                                  }
+                                  className="h-9 max-w-[220px] rounded-md border border-input bg-background px-2 text-sm"
+                                  aria-label="Arbeitsort für neue Leistung wählen"
+                                >
+                                  <option value="">Arbeitsort wählen…</option>
+                                  {currentSites.map((site, siteIndex) => {
+                                    const key = invoiceGroupKeyForSite(site);
+                                    return (
+                                      <option key={`${key}-${siteIndex}`} value={key}>
+                                        {siteIndex + 1}. {site.siteName || site.siteAddress || "Neuer Arbeitsort"}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
                               )}
                               <Button variant="outline" size="sm" onClick={addItem}>
                                 <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
@@ -4057,6 +4273,43 @@ export default function RechnungenPage() {
 
                             {isExpanded && (
                               <div className="space-y-3 border-t border-sky-100 p-3">
+                                {collectInvoiceExecutionSites({
+                                  items,
+                                  orders: editingInvoice?.orders || [],
+                                }).length > 1 && (
+                                  <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
+                                    <Label className="text-xs">Arbeitsort</Label>
+                                    <select
+                                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                      value={(() => {
+                                        const sites = collectInvoiceExecutionSites({
+                                          items,
+                                          orders: editingInvoice?.orders || [],
+                                        });
+                                        const matched = sites.find(
+                                          (site) => invoiceSiteKey(site) === invoiceSiteKey(item),
+                                        );
+                                        return matched ? invoiceGroupKeyForSite(matched) : "";
+                                      })()}
+                                      onChange={(event) =>
+                                        assignInvoiceItemToSite(idx, event.target.value)
+                                      }
+                                    >
+                                      <option value="">Arbeitsort wählen…</option>
+                                      {collectInvoiceExecutionSites({
+                                        items,
+                                        orders: editingInvoice?.orders || [],
+                                      }).map((site, siteIndex) => {
+                                        const key = invoiceGroupKeyForSite(site);
+                                        return (
+                                          <option key={`${key}-${siteIndex}`} value={key}>
+                                            {siteIndex + 1}. {site.siteName || site.siteAddress || "Neuer Arbeitsort"}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  </div>
+                                )}
                                 <ServiceCombobox
                                   value={item?.description ?? ""}
                                   services={services as ServiceOption[]}
@@ -4252,6 +4505,17 @@ export default function RechnungenPage() {
                                   <Input value={group.site.siteCity || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "siteCity", event.target.value)} />
                                 </div>
                                 <div className="sm:col-span-2 flex justify-end">
+                                  {!group.site.sourceOrderId && (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                      onClick={() => removeInvoiceExecutionSite(group.key)}
+                                    >
+                                      Arbeitsort löschen
+                                    </Button>
+                                  )}
                                   <Button type="button" size="sm" variant="outline" onClick={() => setEditingInvoiceSiteKey(null)}>Fertig</Button>
                                 </div>
                               </div>

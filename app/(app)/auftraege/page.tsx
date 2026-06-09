@@ -573,6 +573,11 @@ type ReviewBadge = {
 const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
 
+const isSameAddressPlaceholderV17_90L135H = (value?: string | null) =>
+  /^(?:an\s+derselben\s+adresse|gleiche\s+adresse|selbe\s+adresse|rechnungsadresse(?:\s+gilt)?(?:\s+auch)?|same\s+address)[.!\s]*$/i.test(
+    compactText(value),
+  );
+
 const stripVisibleNoteMarkerV17_35 = (value?: string | null) =>
   compactText(value)
     .replace(
@@ -7857,13 +7862,17 @@ const OrderServiceReviewTooltipContentV17_135G = ({
                     current === group.key ? null : group.key,
                   );
                 }}
-                className={`block cursor-pointer rounded-lg border p-2 outline-none transition-colors ${
+                className={`block cursor-pointer overflow-hidden rounded-lg border bg-white outline-none transition-colors dark:bg-slate-900 ${
                   active
-                    ? "border-cyan-300 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-950/30"
-                    : "border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-cyan-50/60 dark:border-slate-700 dark:bg-slate-900"
+                    ? "border-cyan-300 dark:border-cyan-800"
+                    : "border-slate-200 hover:border-cyan-200 dark:border-slate-700"
                 }`}
               >
-                <span className="flex items-start justify-between gap-3">
+                <span className={`flex items-start justify-between gap-3 p-2 ${
+                  active
+                    ? "bg-cyan-50 dark:bg-cyan-950/30"
+                    : "bg-slate-50 hover:bg-cyan-50/60 dark:bg-slate-900"
+                }`}>
                   <span className="min-w-0">
                     <span className="block break-words font-bold text-slate-950 dark:text-slate-50">
                       {index + 1}. {group.title}
@@ -7877,7 +7886,7 @@ const OrderServiceReviewTooltipContentV17_135G = ({
                   </span>
                 </span>
                 {active && (
-                  <span className="mt-2 block border-t border-cyan-200 pt-2 dark:border-cyan-800">
+                  <span className="block border-t border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900/60 dark:bg-amber-950/15">
                     {renderOrderServiceReviewTooltipLinesV17_135G(
                       group.tooltip,
                       `group_${group.key}`,
@@ -9341,6 +9350,7 @@ export default function AuftraegePage() {
     null,
   );
   const [activeWorkSiteId, setActiveWorkSiteId] = useState<string | null>(null);
+  const [newItemWorkSiteId, setNewItemWorkSiteId] = useState<string>("");
   const [expandedWorkSiteIds, setExpandedWorkSiteIds] = useState<string[]>([]);
   const [customerMessagesExpanded, setCustomerMessagesExpanded] =
     useState(false);
@@ -9956,6 +9966,7 @@ export default function AuftraegePage() {
     setFormWorkSites([]);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(null);
+    setNewItemWorkSiteId("");
     setExpandedWorkSiteIds([]);
     setCustomerMessagesExpanded(false);
     setServiceOverviewExpanded(false);
@@ -10030,6 +10041,11 @@ export default function AuftraegePage() {
       });
     }
     const inferredSiteName = inferOrderExecutionSiteName(o);
+    const safeInferredSiteName = isSameAddressPlaceholderV17_90L135H(
+      inferredSiteName,
+    )
+      ? ""
+      : inferredSiteName;
 
     setForm({
       customerId: o.customerId ?? "",
@@ -10046,20 +10062,23 @@ export default function AuftraegePage() {
         });
       })(),
       siteAddressDifferent: Boolean(o.siteAddressDifferent),
-      siteName: cleanWorkSiteDisplayName(o.siteName) || inferredSiteName || "",
+      siteName: isSameAddressPlaceholderV17_90L135H(o.siteName)
+        ? ""
+        : cleanWorkSiteDisplayName(o.siteName) || safeInferredSiteName || "",
       siteAddress: o.siteAddress ?? "",
       sitePlz: o.sitePlz ?? "",
       siteCity: o.siteCity ?? "",
       siteNote: o.siteNote ?? "",
     });
     const nextWorkSites = (o.workSites ?? [])
-      .map((site, index) =>
-        index === 0 &&
-        !cleanWorkSiteDisplayName(site.siteName) &&
-        inferredSiteName
-          ? { ...site, siteName: inferredSiteName }
-          : site,
-      )
+      .map((site, index) => {
+        const safeSiteName = isSameAddressPlaceholderV17_90L135H(site.siteName)
+          ? ""
+          : cleanWorkSiteDisplayName(site.siteName);
+        return index === 0 && !safeSiteName && safeInferredSiteName
+          ? { ...site, siteName: safeInferredSiteName }
+          : { ...site, siteName: safeSiteName || null };
+      })
       .slice()
       .sort(
         (a, b) =>
@@ -10069,6 +10088,7 @@ export default function AuftraegePage() {
     setFormWorkSites(nextWorkSites);
     setEditingWorkSiteId(null);
     setActiveWorkSiteId(nextWorkSites[0]?.id || null);
+    setNewItemWorkSiteId(nextWorkSites.length === 1 ? nextWorkSites[0]?.id || "" : "");
     setExpandedWorkSiteIds([]);
     setCustomerMessagesExpanded(!shouldCollapseCustomerMessagesForOrder(o));
     setServiceOverviewExpanded(false);
@@ -11122,16 +11142,46 @@ export default function AuftraegePage() {
   };
 
   const addItem = () => {
+    const selectableSites = formWorkSites.filter((site) =>
+      Boolean(
+        compactText(site.siteName) ||
+          compactText(site.siteAddress) ||
+          compactText(site.sitePlz) ||
+          compactText(site.siteCity) ||
+          site.id === activeWorkSiteId ||
+          site.id === editingWorkSiteId,
+      ),
+    );
+    const targetWorkSiteId =
+      selectableSites.length > 1
+        ? newItemWorkSiteId
+        : selectableSites[0]?.id || null;
+
+    if (selectableSites.length > 1 && !targetWorkSiteId) {
+      toast.info("Bitte zuerst den Arbeitsort für die neue Leistung wählen.");
+      return;
+    }
+
     const nextItem = {
       ...createEmptyItem(),
-      workSiteId: null,
+      workSiteId: targetWorkSiteId,
     };
 
     setFormItems((prev) => [nextItem, ...prev]);
-    setExpandedWorkSiteIds((prev) =>
-      prev.includes("__unassigned__") ? prev : ["__unassigned__", ...prev],
-    );
-    setMovingItemKey(hasMultipleEditWorkSites ? nextItem.key : null);
+    if (targetWorkSiteId) {
+      setActiveWorkSiteId(targetWorkSiteId);
+      setExpandedWorkSiteIds((prev) =>
+        prev.includes(targetWorkSiteId)
+          ? prev
+          : [targetWorkSiteId, ...prev],
+      );
+      setMovingItemKey(null);
+    } else {
+      setExpandedWorkSiteIds((prev) =>
+        prev.includes("__unassigned__") ? prev : ["__unassigned__", ...prev],
+      );
+      setMovingItemKey(selectableSites.length > 1 ? nextItem.key : null);
+    }
     setServiceActionMenuKey(null);
   };
 
@@ -12086,6 +12136,7 @@ export default function AuftraegePage() {
     if (openDraft) {
       setEditingWorkSiteId(openDraft.id);
       setActiveWorkSiteId(openDraft.id);
+      setNewItemWorkSiteId(openDraft.id);
       setExpandedWorkSiteIds((prev) =>
         prev.includes(openDraft.id) ? prev : [openDraft.id, ...prev],
       );
@@ -12093,9 +12144,57 @@ export default function AuftraegePage() {
       return;
     }
 
+    const currentPrimary =
+      formWorkSites.find((site) => Boolean(site.isPrimary)) ||
+      formWorkSites[0] ||
+      null;
+    const primaryId =
+      currentPrimary?.id || `local-site-${editId || Date.now().toString(36)}`;
+    const hasVisiblePrimaryAddress = Boolean(
+      form.siteAddressDifferent &&
+        [form.siteName, form.siteAddress, form.sitePlz, form.siteCity, form.siteNote]
+          .map((value) => compactText(value))
+          .some(Boolean),
+    );
+    const baseSites = hasVisiblePrimaryAddress
+      ? currentPrimary
+        ? formWorkSites.map((site, index) =>
+            site.id === currentPrimary.id
+              ? {
+                  ...site,
+                  siteName: isSameAddressPlaceholderV17_90L135H(form.siteName)
+                    ? ""
+                    : cleanWorkSiteDisplayName(form.siteName) || "",
+                  siteAddress: form.siteAddress || "",
+                  sitePlz: form.sitePlz || "",
+                  siteCity: form.siteCity || "",
+                  siteNote: form.siteNote || "",
+                  isPrimary: true,
+                  sortOrder: 0,
+                }
+              : { ...site, isPrimary: false, sortOrder: Math.max(1, index) },
+          )
+        : [
+            {
+              id: primaryId,
+              siteName: isSameAddressPlaceholderV17_90L135H(form.siteName)
+                ? ""
+                : cleanWorkSiteDisplayName(form.siteName) || "",
+              siteAddress: form.siteAddress || "",
+              sitePlz: form.sitePlz || "",
+              siteCity: form.siteCity || "",
+              siteNote: form.siteNote || "",
+              isPrimary: true,
+              sortOrder: 0,
+            },
+          ]
+      : formWorkSites;
+
     const newId = `tmp-${Math.random().toString(36).slice(2)}`;
-    setFormWorkSites((prev) => [
-      ...prev,
+    setForm((prev) => ({ ...prev, siteAddressDifferent: true }));
+    setSiteAddressEditing(false);
+    setFormWorkSites([
+      ...baseSites,
       {
         id: newId,
         siteName: "",
@@ -12103,12 +12202,13 @@ export default function AuftraegePage() {
         sitePlz: "",
         siteCity: "",
         siteNote: "",
-        isPrimary: false,
-        sortOrder: prev.length,
+        isPrimary: baseSites.length === 0,
+        sortOrder: baseSites.length,
       },
     ]);
     setEditingWorkSiteId(newId);
     setActiveWorkSiteId(newId);
+    setNewItemWorkSiteId(newId);
     setExpandedWorkSiteIds((prev) =>
       prev.includes(newId) ? prev : [newId, ...prev],
     );
@@ -16393,19 +16493,31 @@ export default function AuftraegePage() {
                       onChange={(e) => {
                         const checked = e.target.checked;
                         setSiteAddressEditing(checked);
-                        setForm((prev) => ({
-                          ...prev,
-                          siteAddressDifferent: checked,
-                          ...(checked
-                            ? {}
-                            : {
-                                siteName: "",
-                                siteAddress: "",
-                                sitePlz: "",
-                                siteCity: "",
-                                siteNote: "",
-                              }),
-                        }));
+                        setForm((prev) => {
+                          const hasCompleteStoredExecutionAddress = Boolean(
+                            compactText(prev.siteAddress) &&
+                              compactText(prev.sitePlz) &&
+                              compactText(prev.siteCity),
+                          );
+                          const mustStartBlank =
+                            checked &&
+                            (!hasCompleteStoredExecutionAddress ||
+                              isSameAddressPlaceholderV17_90L135H(prev.siteName) ||
+                              isSameAddressPlaceholderV17_90L135H(prev.siteCity));
+                          return {
+                            ...prev,
+                            siteAddressDifferent: checked,
+                            ...(checked && !mustStartBlank
+                              ? {}
+                              : {
+                                  siteName: "",
+                                  siteAddress: "",
+                                  sitePlz: "",
+                                  siteCity: "",
+                                  siteNote: "",
+                                }),
+                          };
+                        });
                       }}
                       className="mt-1"
                     />
@@ -16616,10 +16728,20 @@ export default function AuftraegePage() {
                       </div>
 
                       <div className="flex justify-end">
-                        <div className="flex items-center gap-2 sm:justify-end">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           <span className="hidden sm:inline text-xs text-muted-foreground">
                             Speichert die Ausführungsadresse direkt am Auftrag.
                           </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={addFormWorkSite}
+                            disabled={saving}
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Arbeitsort hinzufügen
+                          </Button>
                           <Button
                             type="button"
                             size="sm"
@@ -16670,28 +16792,44 @@ export default function AuftraegePage() {
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         <div className="flex flex-wrap justify-end gap-2">
                           {hasMultipleEditWorkSites && (
-                            <>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={toggleWorkSiteOverview}
-                                className="h-7 px-2 text-xs"
-                              >
-                                {expandedWorkSiteIds.length > 0
-                                  ? "Übersicht"
-                                  : "Alle öffnen"}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={addFormWorkSite}
-                                className="h-7 px-2 text-xs"
-                              >
-                                + Arbeitsort
-                              </Button>
-                            </>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={toggleWorkSiteOverview}
+                              className="h-7 px-2 text-xs"
+                            >
+                              {expandedWorkSiteIds.length > 0
+                                ? "Übersicht"
+                                : "Alle öffnen"}
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={addFormWorkSite}
+                            className="h-7 px-2 text-xs"
+                          >
+                            + Arbeitsort
+                          </Button>
+                          {currentEditWorkSites.length > 1 && (
+                            <select
+                              value={newItemWorkSiteId}
+                              onChange={(event) => {
+                                setNewItemWorkSiteId(event.target.value);
+                                setActiveWorkSiteId(event.target.value || null);
+                              }}
+                              className="h-7 max-w-[220px] rounded-md border border-input bg-background px-2 text-xs"
+                              aria-label="Arbeitsort für neue Leistung wählen"
+                            >
+                              <option value="">Arbeitsort wählen…</option>
+                              {currentEditWorkSites.map((site, index) => (
+                                <option key={site.id} value={site.id}>
+                                  {index + 1}. {getWorkSiteSelectLabel(site)}
+                                </option>
+                              ))}
+                            </select>
                           )}
                           <Button
                             type="button"

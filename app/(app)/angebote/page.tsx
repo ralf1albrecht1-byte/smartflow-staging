@@ -2115,13 +2115,17 @@ function OfferServiceReviewTooltip({
                         current === group.key ? null : group.key,
                       );
                     }}
-                    className={`block cursor-pointer rounded-lg border p-2 outline-none ${
+                    className={`block cursor-pointer overflow-hidden rounded-lg border bg-white outline-none dark:bg-slate-900 ${
                       active
-                        ? "border-cyan-300 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-950/30"
-                        : "border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-cyan-50/60 dark:border-slate-700 dark:bg-slate-900"
+                        ? "border-cyan-300 dark:border-cyan-800"
+                        : "border-slate-200 hover:border-cyan-200 dark:border-slate-700"
                     }`}
                   >
-                    <span className="flex items-start justify-between gap-3">
+                    <span className={`flex items-start justify-between gap-3 p-2 ${
+                      active
+                        ? "bg-cyan-50 dark:bg-cyan-950/30"
+                        : "bg-slate-50 hover:bg-cyan-50/60 dark:bg-slate-900"
+                    }`}>
                       <span className="min-w-0">
                         <span className="block font-bold text-slate-950 dark:text-slate-50">
                           {index + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${index + 1}`}
@@ -2135,7 +2139,7 @@ function OfferServiceReviewTooltip({
                       </span>
                     </span>
                     {active && (
-                      <span className="mt-2 block border-t border-cyan-200 pt-2 dark:border-cyan-800">
+                      <span className="block border-t border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900/60 dark:bg-amber-950/15">
                         <OfferServiceReviewSectionsContentV17_90L135G sections={group.sections} />
                       </span>
                     )}
@@ -2303,7 +2307,7 @@ export default function AngebotePage() {
   const router = useRouter();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState("Alle");
+  const [statusFilter, setStatusFilter] = useState("Aktiv");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name" | "amount">(
     "newest",
   );
@@ -2541,6 +2545,7 @@ export default function AngebotePage() {
   );
   const [expandedOfferSiteKeys, setExpandedOfferSiteKeys] = useState<Set<string>>(new Set());
   const [editingOfferSiteKey, setEditingOfferSiteKey] = useState<string | null>(null);
+  const [newOfferItemSiteKey, setNewOfferItemSiteKey] = useState<string>("");
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
   const [selectedChipDetail, setSelectedChipDetail] = useState<string | null>(
     null,
@@ -2951,18 +2956,33 @@ export default function AngebotePage() {
 
   const addItem = () => {
     const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
-    const activeKey =
-      editingOfferSiteKey ||
-      Array.from(expandedOfferSiteKeys)[0] ||
-      groups[0]?.key ||
+    const requestedKey =
+      executionSites.length > 1
+        ? newOfferItemSiteKey
+        : editingOfferSiteKey ||
+          Array.from(expandedOfferSiteKeys)[0] ||
+          groups[0]?.key ||
+          null;
+
+    if (executionSites.length > 1 && !requestedKey) {
+      toast.info("Bitte zuerst den Arbeitsort für die neue Leistung wählen.");
+      return;
+    }
+
+    const targetSite =
+      groups.find((group) => group.key === requestedKey)?.site ||
+      executionSites.find(
+        (site) => offerGroupKeyForSite(site) === requestedKey,
+      ) ||
       null;
-    const targetSite = groups.find((group) => group.key === activeKey)?.site || null;
     setItems((current) => [
       { ...getEmptyItem(), ...(targetSite || {}) },
       ...current,
     ]);
-    if (activeKey)
-      setExpandedOfferSiteKeys((current) => new Set([...current, activeKey]));
+    if (requestedKey)
+      setExpandedOfferSiteKeys((current) =>
+        new Set([...current, requestedKey]),
+      );
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     focusNewestOfferItem();
@@ -2973,6 +2993,30 @@ export default function AngebotePage() {
     const updated = [...(items ?? [])];
     if (updated[i]) (updated[i] as any)[field] = value;
     setItems(updated);
+  };
+
+  const assignOfferItemToSite = (index: number, siteKey: string) => {
+    const site = executionSites.find(
+      (candidate) => offerGroupKeyForSite(candidate) === siteKey,
+    );
+    if (!site) return;
+    setItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              siteName: site.siteName || null,
+              siteAddress: site.siteAddress || null,
+              sitePlz: site.sitePlz || null,
+              siteCity: site.siteCity || null,
+              siteNote: site.siteNote || null,
+              sourceOrderId: site.sourceOrderId || null,
+            }
+          : item,
+      ),
+    );
+    setNewOfferItemSiteKey(siteKey);
+    setExpandedOfferSiteKeys((current) => new Set([...current, siteKey]));
   };
 
   const addServiceItem = (svc: any) => {
@@ -3158,8 +3202,27 @@ export default function AngebotePage() {
     `${site.sourceOrderId || ""}|${offerSiteKey(site)}`;
 
   const addExecutionSite = () => {
+    const unfinishedSiteIndex = executionSites.findIndex(
+      (site) =>
+        !compactOfferValue(site.siteName) &&
+        !compactOfferValue(site.siteAddress) &&
+        !compactOfferValue(site.sitePlz) &&
+        !compactOfferValue(site.siteCity),
+    );
+    if (unfinishedSiteIndex >= 0) {
+      const unfinishedSite = executionSites[unfinishedSiteIndex];
+      const unfinishedKey = offerGroupKeyForSite(unfinishedSite);
+      setEditingOfferSiteKey(unfinishedKey);
+      setNewOfferItemSiteKey(unfinishedKey);
+      setExpandedOfferSiteKeys((current) =>
+        new Set([...current, unfinishedKey]),
+      );
+      toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
+      return;
+    }
+
     const site: OfferExecutionSite = {
-      siteName: `Arbeitsort ${executionSites.length + 1}`,
+      siteName: "",
       siteAddress: "",
       sitePlz: "",
       siteCity: "",
@@ -3170,6 +3233,7 @@ export default function AngebotePage() {
     setExecutionSites((current) => [...current, site]);
     setItems((current) => [{ ...getEmptyItem(), ...site }, ...current]);
     setEditingOfferSiteKey(key);
+    setNewOfferItemSiteKey(key);
     setExpandedOfferSiteKeys((current) => new Set([...current, key]));
     setExpandedItemIndex(0);
     focusNewestOfferItem();
@@ -3202,6 +3266,41 @@ export default function AngebotePage() {
       next.add(nextKey);
       return next;
     });
+  };
+
+  const removeOfferExecutionSite = (groupKey: string) => {
+    const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
+    const group = groups.find((entry) => entry.key === groupKey);
+    if (!group?.site) return;
+    const hasRealItems = group.entries.some(({ item }) =>
+      Boolean(
+        compactOfferValue(item.description) ||
+          Number(item.quantity || 0) > 0 ||
+          Number(item.unitPrice || 0) > 0,
+      ),
+    );
+    if (hasRealItems) {
+      toast.error(
+        "Arbeitsort kann nicht gelöscht werden: Leistungen sind noch zugeordnet.",
+      );
+      return;
+    }
+
+    setExecutionSites((current) =>
+      current.filter((site) => offerGroupKeyForSite(site) !== groupKey),
+    );
+    setItems((current) =>
+      current.filter(
+        (item) => offerGroupKeyForSite(item as OfferExecutionSite) !== groupKey,
+      ),
+    );
+    setExpandedOfferSiteKeys((current) => {
+      const next = new Set(current);
+      next.delete(groupKey);
+      return next;
+    });
+    setEditingOfferSiteKey(null);
+    setNewOfferItemSiteKey("");
   };
 
   const toggleAllOfferSites = () => {
@@ -3308,6 +3407,7 @@ export default function AngebotePage() {
     setEditingExecutionAddress(false);
     setExpandedOfferSiteKeys(new Set());
     setEditingOfferSiteKey(null);
+    setNewOfferItemSiteKey("");
     setSelectedChipDetail(null);
     setServiceActionMenuIndex(null);
     setExpandedItemIndex(0);
@@ -3499,6 +3599,7 @@ export default function AngebotePage() {
     setExecutionSites([]);
     setExpandedOfferSiteKeys(new Set());
     setEditingOfferSiteKey(null);
+    setNewOfferItemSiteKey("");
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
     setServiceActionMenuIndex(null);
@@ -3673,6 +3774,13 @@ export default function AngebotePage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: "Angenommen" }),
           });
+          setOffers((current) =>
+            current.map((offer) =>
+              offer.id === offerId
+                ? { ...offer, status: "Angenommen" }
+                : offer,
+            ),
+          );
         }
 
         setDialogOpen(false);
@@ -3902,6 +4010,13 @@ export default function AngebotePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "Angenommen" }),
         });
+        setOffers((current) =>
+          current.map((offer) =>
+            offer.id === off.id
+              ? { ...offer, status: "Angenommen" }
+              : offer,
+          ),
+        );
         if (invoice.existed) {
           toast.info(
             `Rechnung ${invoice.invoiceNumber} existiert bereits — wird geöffnet`,
@@ -4258,7 +4373,8 @@ export default function AngebotePage() {
           value={statusFilter}
           onChange={(e: any) => setStatusFilter(e?.target?.value ?? "Alle")}
         >
-          <option value="Alle">Status: Alle</option>
+          <option value="Aktiv">Status: Aktiv</option>
+          <option value="Alle">Alle inkl. abgeschlossen</option>
           <option value="Entwurf">Entwurf</option>
           <option value="Gesendet">Gesendet</option>
           <option value="Angenommen">Angenommen</option>
@@ -4280,8 +4396,16 @@ export default function AngebotePage() {
         {(() => {
           const filteredOffers = offers
             .filter((off: Offer) => {
-              // "Alle" zeigt wirklich alle Angebotsstatus, einschließlich Angenommen.
-              if (statusFilter !== "Alle" && off.status !== statusFilter)
+              if (
+                statusFilter === "Aktiv" &&
+                !ACTIVE_OFFER_STATUSES.includes(off.status)
+              )
+                return false;
+              if (
+                statusFilter !== "Aktiv" &&
+                statusFilter !== "Alle" &&
+                off.status !== statusFilter
+              )
                 return false;
               const s = searchText?.toLowerCase() ?? "";
               if (!s) return true;
@@ -6192,14 +6316,32 @@ export default function AngebotePage() {
                       </div>
                       <div className="flex flex-wrap justify-end gap-2">
                         {executionSites.length > 1 && (
-                          <>
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllOfferSites}>
-                              {expandedOfferSiteKeys.size === groupOfferItemsByExecutionSite(items || [], executionSites).length ? "Übersicht" : "Alle öffnen"}
-                            </Button>
-                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={addExecutionSite}>
-                              <Plus className="mr-1 h-3.5 w-3.5" /> Arbeitsort
-                            </Button>
-                          </>
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllOfferSites}>
+                            {expandedOfferSiteKeys.size === groupOfferItemsByExecutionSite(items || [], executionSites).length ? "Übersicht" : "Alle öffnen"}
+                          </Button>
+                        )}
+                        <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={addExecutionSite}>
+                          <Plus className="mr-1 h-3.5 w-3.5" /> Arbeitsort
+                        </Button>
+                        {executionSites.length > 1 && (
+                          <select
+                            value={newOfferItemSiteKey}
+                            onChange={(event) =>
+                              setNewOfferItemSiteKey(event.target.value)
+                            }
+                            className="h-7 max-w-[220px] rounded-md border border-input bg-background px-2 text-xs"
+                            aria-label="Arbeitsort für neue Leistung wählen"
+                          >
+                            <option value="">Arbeitsort wählen…</option>
+                            {executionSites.map((site, index) => {
+                              const key = offerGroupKeyForSite(site);
+                              return (
+                                <option key={`${key}-${index}`} value={key}>
+                                  {index + 1}. {site.siteName || site.siteAddress || "Neuer Arbeitsort"}
+                                </option>
+                              );
+                            })}
+                          </select>
                         )}
                         <Button
                           type="button"
@@ -6388,6 +6530,40 @@ export default function AngebotePage() {
 
                             {isExpanded && (
                               <div className="space-y-3 border-t border-sky-100 p-3">
+                                {executionSites.length > 1 && (
+                                  <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
+                                    <Label className="text-xs">Arbeitsort</Label>
+                                    <select
+                                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                      value={
+                                        executionSites.findIndex(
+                                          (site) => offerSiteKey(site) === offerSiteKey(item),
+                                        ) >= 0
+                                          ? offerGroupKeyForSite(
+                                              executionSites[
+                                                executionSites.findIndex(
+                                                  (site) => offerSiteKey(site) === offerSiteKey(item),
+                                                )
+                                              ],
+                                            )
+                                          : ""
+                                      }
+                                      onChange={(event) =>
+                                        assignOfferItemToSite(idx, event.target.value)
+                                      }
+                                    >
+                                      <option value="">Arbeitsort wählen…</option>
+                                      {executionSites.map((site, siteIndex) => {
+                                        const key = offerGroupKeyForSite(site);
+                                        return (
+                                          <option key={`${key}-${siteIndex}`} value={key}>
+                                            {siteIndex + 1}. {site.siteName || site.siteAddress || "Neuer Arbeitsort"}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  </div>
+                                )}
                                 <ServiceCombobox
                                   value={item?.description ?? ""}
                                   services={services as ServiceOption[]}
@@ -6617,7 +6793,20 @@ export default function AngebotePage() {
                                 <div className="sm:col-span-2"><Label className="text-xs">Strasse</Label><Input value={group.site.siteAddress || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteAddress", event.target.value)} /></div>
                                 <div><Label className="text-xs">PLZ</Label><Input value={group.site.sitePlz || ""} onChange={(event) => updateOfferGroupSite(group.key, "sitePlz", event.target.value)} /></div>
                                 <div><Label className="text-xs">Ort</Label><Input value={group.site.siteCity || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteCity", event.target.value)} /></div>
-                                <div className="sm:col-span-2 flex justify-end"><Button type="button" size="sm" variant="outline" onClick={() => setEditingOfferSiteKey(null)}>Fertig</Button></div>
+                                <div className="sm:col-span-2 flex flex-wrap justify-end gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                    onClick={() => removeOfferExecutionSite(group.key)}
+                                  >
+                                    Arbeitsort löschen
+                                  </Button>
+                                  <Button type="button" size="sm" variant="outline" onClick={() => setEditingOfferSiteKey(null)}>
+                                    Fertig
+                                  </Button>
+                                </div>
                               </div>
                             )}
                             <div className="space-y-2 p-2">
