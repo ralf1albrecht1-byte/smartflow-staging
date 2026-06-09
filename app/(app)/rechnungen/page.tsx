@@ -1797,18 +1797,17 @@ export default function RechnungenPage() {
       orders: editingInvoice?.orders || [],
     });
     const groups = groupInvoiceItemsByExecutionSite(items || [], sites);
+    // V17.90L135J: Bei mehreren Arbeitsorten wird der Arbeitsort erst
+    // innerhalb der neu geöffneten Leistungsposition ausgewählt. Dadurch ist
+    // kein dauerhaftes Arbeitsort-Dropdown in der Kopfzeile nötig.
     const requestedKey =
       sites.length > 1
-        ? newInvoiceItemSiteKey
-        : editingInvoiceSiteKey ||
+        ? null
+        : newInvoiceItemSiteKey ||
+          editingInvoiceSiteKey ||
           Array.from(expandedInvoiceSiteKeys)[0] ||
           groups[0]?.key ||
           null;
-
-    if (sites.length > 1 && !requestedKey) {
-      toast.info("Bitte zuerst den Arbeitsort für die neue Leistung wählen.");
-      return;
-    }
 
     const targetSite =
       groups.find((group) => group.key === requestedKey)?.site ||
@@ -4103,38 +4102,6 @@ export default function RechnungenPage() {
                   );
                 })()}
 
-              {!dupCheckOpen && editingInvoice &&
-                collectInvoiceExecutionSites({
-                  items,
-                  orders: editingInvoice?.orders || [],
-                }).length > 1 && (
-                  <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold">
-                          Ausführungsorte · {collectInvoiceExecutionSites({
-                            items,
-                            orders: editingInvoice?.orders || [],
-                          }).length}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Arbeitsorte verwalten und weitere Ausführungsadressen hinzufügen.
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={addInvoiceExecutionSite}
-                        disabled={saving}
-                      >
-                        <Plus className="mr-1 h-3.5 w-3.5" />
-                        Arbeitsort hinzufügen
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
               {/* Form fields — collapsed when dupCheck open */}
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
@@ -4152,7 +4119,7 @@ export default function RechnungenPage() {
               ) : (
                 <>
                   <div ref={serviceItemsRef} className="scroll-mt-24 space-y-3 rounded-xl border bg-background p-3 sm:p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="space-y-2">
                       {(() => {
                         const currentSites = collectInvoiceExecutionSites({
                           items,
@@ -4161,51 +4128,49 @@ export default function RechnungenPage() {
                         const multiSite = currentSites.length > 1;
                         return (
                           <>
-                            <div>
-                              <h3 className="text-base font-semibold">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h3 className="whitespace-nowrap text-base font-semibold">
                                 {multiSite
-                                  ? `Arbeitsorte & Leistungen · ${items?.length || 0}`
+                                  ? "Arbeitsorte & Leistungen"
                                   : `Leistungen · ${items?.length || 0}`}
                               </h3>
-                              <p className="text-xs text-muted-foreground">
-                                {multiSite
-                                  ? `${currentSites.length} Arbeitsorte · ${items?.length || 0} Leistungen · ${formatCurrency(subtotal, currency)}`
-                                  : "Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen."}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap justify-end gap-2">
-                              {multiSite && (
-                                <Button variant="outline" size="sm" onClick={toggleAllInvoiceSites}>
-                                  {expandedInvoiceSiteKeys.size ===
-                                  groupInvoiceItemsByExecutionSite(items || [], currentSites).length
-                                    ? "Übersicht"
-                                    : "Alle öffnen"}
-                                </Button>
-                              )}
-                              {currentSites.length > 1 && (
-                                <select
-                                  value={newInvoiceItemSiteKey}
-                                  onChange={(event) =>
-                                    setNewInvoiceItemSiteKey(event.target.value)
-                                  }
-                                  className="h-9 max-w-[220px] rounded-md border border-input bg-background px-2 text-sm"
-                                  aria-label="Arbeitsort für neue Leistung wählen"
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                {multiSite && (
+                                  <Button variant="outline" size="sm" onClick={toggleAllInvoiceSites}>
+                                    {expandedInvoiceSiteKeys.size ===
+                                    groupInvoiceItemsByExecutionSite(items || [], currentSites).length
+                                      ? "Übersicht"
+                                      : "Alle öffnen"}
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={addInvoiceExecutionSite}
+                                  disabled={saving}
                                 >
-                                  <option value="">Arbeitsort wählen…</option>
-                                  {currentSites.map((site, siteIndex) => {
-                                    const key = invoiceGroupKeyForSite(site);
-                                    return (
-                                      <option key={`${key}-${siteIndex}`} value={key}>
-                                        {siteIndex + 1}. {site.siteName || site.siteAddress || "Neuer Arbeitsort"}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                              )}
-                              <Button variant="outline" size="sm" onClick={addItem}>
-                                <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
-                              </Button>
+                                  <Plus className="mr-1 h-4 w-4" /> Arbeitsort hinzufügen
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={addItem}>
+                                  <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
+                                </Button>
+                              </div>
                             </div>
+                            {multiSite ? (
+                              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                                <span className="min-w-0 truncate">
+                                  {currentSites.length} Arbeitsorte · {items?.length || 0} Leistungen
+                                </span>
+                                <span className="shrink-0 font-mono font-medium text-foreground">
+                                  {formatCurrency(subtotal, currency)}
+                                </span>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen.
+                              </p>
+                            )}
                           </>
                         );
                       })()}

@@ -2956,18 +2956,17 @@ export default function AngebotePage() {
 
   const addItem = () => {
     const groups = groupOfferItemsByExecutionSite(items || [], executionSites);
+    // V17.90L135J: Bei mehreren Arbeitsorten wird der Arbeitsort erst
+    // in der neu geöffneten Leistungsposition ausgewählt. Das permanente
+    // Dropdown in der Kopfzeile entfällt dadurch.
     const requestedKey =
       executionSites.length > 1
-        ? newOfferItemSiteKey
-        : editingOfferSiteKey ||
+        ? null
+        : newOfferItemSiteKey ||
+          editingOfferSiteKey ||
           Array.from(expandedOfferSiteKeys)[0] ||
           groups[0]?.key ||
           null;
-
-    if (executionSites.length > 1 && !requestedKey) {
-      toast.info("Bitte zuerst den Arbeitsort für die neue Leistung wählen.");
-      return;
-    }
 
     const targetSite =
       groups.find((group) => group.key === requestedKey)?.site ||
@@ -6351,55 +6350,55 @@ export default function AngebotePage() {
                     tabIndex={-1}
                     className="scroll-mt-24 space-y-2 rounded-xl border bg-background p-2.5 outline-none focus:ring-2 focus:ring-amber-300/60 sm:p-3"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <Label className="text-base font-semibold">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label className="whitespace-nowrap text-base font-semibold">
                           {executionSites.length > 1
-                            ? `Arbeitsorte & Leistungen · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *`
+                            ? "Arbeitsorte & Leistungen"
                             : `Leistungen · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} *`}
                         </Label>
-                        <p className="text-xs text-muted-foreground">
-                          {executionSites.length > 1
-                            ? `${executionSites.length} Arbeitsorte · ${items.filter((item: OfferItem) => String(item?.description || "").trim()).length} Leistungen · ${formatCurrency(subtotal, currency)}`
-                            : "Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen."}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {executionSites.length > 1 && (
-                          <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllOfferSites}>
-                            {expandedOfferSiteKeys.size === groupOfferItemsByExecutionSite(items || [], executionSites).length ? "Übersicht" : "Alle öffnen"}
-                          </Button>
-                        )}
-                        {executionSites.length > 1 && (
-                          <select
-                            value={newOfferItemSiteKey}
-                            onChange={(event) =>
-                              setNewOfferItemSiteKey(event.target.value)
-                            }
-                            className="h-7 max-w-[220px] rounded-md border border-input bg-background px-2 text-xs"
-                            aria-label="Arbeitsort für neue Leistung wählen"
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {executionSites.length > 1 && (
+                            <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllOfferSites}>
+                              {expandedOfferSiteKeys.size === groupOfferItemsByExecutionSite(items || [], executionSites).length ? "Übersicht" : "Alle öffnen"}
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={addExecutionSite}
+                            disabled={saving}
                           >
-                            <option value="">Arbeitsort wählen…</option>
-                            {executionSites.map((site, index) => {
-                              const key = offerGroupKeyForSite(site);
-                              return (
-                                <option key={`${key}-${index}`} value={key}>
-                                  {index + 1}. {site.siteName || site.siteAddress || "Neuer Arbeitsort"}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        )}
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={addItem}
-                          className="h-7 shrink-0 px-2 text-xs"
-                        >
-                          <Plus className="mr-1 h-3.5 w-3.5" />
-                          Leistung hinzufügen
-                        </Button>
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Arbeitsort hinzufügen
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={addItem}
+                            className="h-7 shrink-0 px-2 text-xs"
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Leistung hinzufügen
+                          </Button>
+                        </div>
                       </div>
+                      {executionSites.length > 1 ? (
+                        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                          <span className="min-w-0 truncate">
+                            {executionSites.length} Arbeitsorte · {items.filter((item: OfferItem) => String(item?.description || "").trim()).length} Leistungen
+                          </span>
+                          <span className="shrink-0 font-mono font-medium text-foreground">
+                            {formatCurrency(subtotal, currency)}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen.
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2">

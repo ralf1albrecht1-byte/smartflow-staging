@@ -11153,15 +11153,13 @@ export default function AuftraegePage() {
           site.id === editingWorkSiteId,
       ),
     );
+    // V17.90L135J: Bei mehreren Arbeitsorten wird die Auswahl erst
+    // innerhalb der neu geöffneten Leistungsposition getroffen. Dadurch bleibt
+    // die Kopfzeile kompakt und es gibt dort kein dauerhaftes Dropdown mehr.
     const targetWorkSiteId =
       selectableSites.length > 1
-        ? newItemWorkSiteId
-        : selectableSites[0]?.id || null;
-
-    if (selectableSites.length > 1 && !targetWorkSiteId) {
-      toast.info("Bitte zuerst den Arbeitsort für die neue Leistung wählen.");
-      return;
-    }
+        ? null
+        : newItemWorkSiteId || selectableSites[0]?.id || null;
 
     const nextItem = {
       ...createEmptyItem(),
@@ -16776,28 +16774,6 @@ export default function AuftraegePage() {
                 </div>
               )}
 
-              {hasMultipleEditWorkSites && (
-                <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold">
-                        Ausführungsorte · {currentEditWorkSites.length}
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={addFormWorkSite}
-                      disabled={saving}
-                    >
-                      <Plus className="mr-1 h-3.5 w-3.5" />
-                      Arbeitsort hinzufügen
-                    </Button>
-                  </div>
-                </div>
-              )}
-
               {/* Service Items + rest of form — collapsed when dupCheck open */}
               {dupCheckOpen ? (
                 <div className="p-2 bg-muted/40 rounded border border-dashed text-xs text-muted-foreground flex items-center justify-between">
@@ -16817,21 +16793,14 @@ export default function AuftraegePage() {
                     tabIndex={-1}
                     className="scroll-mt-24 rounded-xl border bg-background p-2.5 sm:p-3 space-y-2 outline-none focus:ring-2 focus:ring-amber-300/60"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <Label className="text-base font-semibold">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label className="whitespace-nowrap text-base font-semibold">
                           {hasMultipleEditWorkSites
-                            ? `Arbeitsorte & Leistungen · ${formItems.filter((item) => item.serviceName.trim()).length} *`
+                            ? "Arbeitsorte & Leistungen"
                             : `Leistungen · ${formItems.filter((item) => item.serviceName.trim()).length} *`}
                         </Label>
-                        <p className="text-xs text-muted-foreground">
-                          {hasMultipleEditWorkSites
-                            ? `${currentEditWorkSites.length} Arbeitsorte · ${formItems.filter((item) => item.serviceName.trim()).length} Leistungen · ${formatCurrency(itemsTotal, currency)}`
-                            : "Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen."}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <div className="flex flex-wrap justify-end gap-2">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           {hasMultipleEditWorkSites && (
                             <Button
                               type="button"
@@ -16845,24 +16814,17 @@ export default function AuftraegePage() {
                                 : "Alle öffnen"}
                             </Button>
                           )}
-                          {currentEditWorkSites.length > 1 && (
-                            <select
-                              value={newItemWorkSiteId}
-                              onChange={(event) => {
-                                setNewItemWorkSiteId(event.target.value);
-                                setActiveWorkSiteId(event.target.value || null);
-                              }}
-                              className="h-7 max-w-[220px] rounded-md border border-input bg-background px-2 text-xs"
-                              aria-label="Arbeitsort für neue Leistung wählen"
-                            >
-                              <option value="">Arbeitsort wählen…</option>
-                              {currentEditWorkSites.map((site, index) => (
-                                <option key={site.id} value={site.id}>
-                                  {index + 1}. {getWorkSiteSelectLabel(site)}
-                                </option>
-                              ))}
-                            </select>
-                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={addFormWorkSite}
+                            disabled={saving}
+                            className="h-7 px-2 text-xs"
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Arbeitsort hinzufügen
+                          </Button>
                           <Button
                             type="button"
                             size="sm"
@@ -16874,13 +16836,21 @@ export default function AuftraegePage() {
                             Leistung hinzufügen
                           </Button>
                         </div>
-                        {hasMultipleEditWorkSites && (
-                          <span className="text-[10px] text-muted-foreground">
-                            Ein Block: Arbeitsort aufklappen, dort Leistungen
-                            bearbeiten.
-                          </span>
-                        )}
                       </div>
+                      {hasMultipleEditWorkSites ? (
+                        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                          <span className="min-w-0 truncate">
+                            {currentEditWorkSites.length} Arbeitsorte · {formItems.filter((item) => item.serviceName.trim()).length} Leistungen
+                          </span>
+                          <span className="shrink-0 font-mono font-medium text-foreground">
+                            {formatCurrency(itemsTotal, currency)}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen.
+                        </p>
+                      )}
                     </div>
 
                     {hasCurrentRecognitionReviewV17_90L69 && (
