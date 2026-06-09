@@ -417,6 +417,101 @@ ${reasons.join(" · ")}`] : [];
   });
 }
 
+
+type InvoiceServiceReviewEntry = {
+  item: InvoiceItem;
+  description: string;
+  category: "blocker" | "deviation" | "missing";
+  details: string[];
+};
+
+type InvoiceServiceReviewSiteGroup = {
+  key: string;
+  site: InvoiceExecutionSite | null;
+  entries: InvoiceServiceReviewEntry[];
+};
+
+function buildInvoiceServiceReviewEntriesV17_90L135G(
+  items: InvoiceItem[],
+  services: any[],
+  currency: "CHF" | "EUR",
+): InvoiceServiceReviewEntry[] {
+  return (items || []).flatMap<InvoiceServiceReviewEntry>((item) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const description = compactInvoiceValue(item?.description) || "Unbenannte Leistung";
+    const unit = compactInvoiceValue(item?.unit);
+    const matchedService = (services || []).find(
+      (service: any) =>
+        normalizeInvoiceServiceName(service?.name) ===
+        normalizeInvoiceServiceName(description),
+    );
+    const currentCalculation = `${quantity > 0 ? quantity : "prüfen"} ${unit || "–"} × ${
+      unitPrice > 0 ? formatCurrency(unitPrice, currency) : "Preis prüfen"
+    } = ${formatCurrency(Math.max(0, quantity) * Math.max(0, unitPrice), currency)}`;
+    const missingReasons = [
+      !compactInvoiceValue(item?.description) ? "Leistungsname fehlt" : "",
+      !unit ? "Einheit fehlt" : "",
+      quantity <= 0 ? "Menge fehlt oder ist 0" : "",
+      unitPrice <= 0 ? "Preis fehlt oder ist 0" : "",
+    ].filter(Boolean);
+
+    if (missingReasons.length > 0) {
+      return [{
+        item,
+        description,
+        category: "blocker" as const,
+        details: [...missingReasons, `Aktuell: ${currentCalculation}`],
+      }];
+    }
+    if (!matchedService) {
+      return [{
+        item,
+        description,
+        category: "missing" as const,
+        details: [`Aktuell: ${currentCalculation}`, "Nicht im Leistungskatalog."],
+      }];
+    }
+    const catalogUnit = compactInvoiceValue(matchedService?.unit);
+    const catalogPrice = Number(matchedService?.defaultPrice || 0);
+    const sameUnit = catalogUnit === unit;
+    const samePrice = Math.abs(catalogPrice - unitPrice) < 0.001;
+    if (sameUnit && samePrice) return [];
+    return [{
+      item,
+      description,
+      category: "deviation" as const,
+      details: [
+        `Aktuell: ${currentCalculation}`,
+        `Katalogpreis: ${formatCurrency(catalogPrice, currency)} / ${catalogUnit || "–"}`,
+        ...[
+          !sameUnit ? `Einheit weicht ab: ${unit || "–"} statt ${catalogUnit || "–"}` : "",
+          !samePrice ? "Preis weicht vom Katalog ab." : "",
+        ].filter(Boolean),
+      ],
+    }];
+  });
+}
+
+function buildInvoiceServiceReviewSiteGroupsV17_90L135G(
+  items: InvoiceItem[],
+  sites: InvoiceExecutionSite[],
+  services: any[],
+  currency: "CHF" | "EUR",
+): InvoiceServiceReviewSiteGroup[] {
+  return groupInvoiceItemsByExecutionSite(items, sites)
+    .map((group) => ({
+      key: group.key,
+      site: group.site,
+      entries: buildInvoiceServiceReviewEntriesV17_90L135G(
+        group.entries.map((entry) => entry.item),
+        services,
+        currency,
+      ),
+    }))
+    .filter((group) => group.entries.length > 0);
+}
+
 function getInvoiceMergedCount(invoice: Invoice): number {
   const orderCount = Array.isArray(invoice.orders) ? invoice.orders.length : 0;
   const originCount = Math.max(
@@ -571,7 +666,7 @@ function InvoiceViewportTooltip({
   const scheduleHide = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
   };
 
   useEffect(() => {
@@ -629,6 +724,136 @@ function InvoiceViewportTooltip({
         </span>
       )}
     </>
+  );
+}
+
+
+function InvoiceServiceReviewSectionsV17_90L135G({
+  entries,
+}: {
+  entries: InvoiceServiceReviewEntry[];
+}) {
+  const sections = [
+    { key: "blocker", title: "Preis / Menge / Einheit prüfen" },
+    { key: "deviation", title: "Preis oder Einheit abweichend" },
+    { key: "missing", title: "Nicht im Leistungskatalog" },
+  ] as const;
+  return (
+    <span className="block text-left font-normal">
+      {sections.map((section, sectionIndex) => {
+        const sectionItems = entries.filter((entry) => entry.category === section.key);
+        if (sectionItems.length === 0) return null;
+        return (
+          <span
+            key={section.key}
+            className={`block ${sectionIndex > 0 ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+          >
+            <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
+              {section.title}
+            </span>
+            {sectionItems.map((entry, reviewIndex) => (
+              <span
+                key={`${entry.description}-${reviewIndex}`}
+                className={`block ${reviewIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+              >
+                <span className="block break-words font-bold text-foreground">
+                  {entry.description}
+                </span>
+                {entry.details.map((detail, detailIndex) => (
+                  <span
+                    key={`${entry.description}-${detailIndex}`}
+                    className={`block break-words text-xs ${
+                      /^Katalogpreis:/i.test(detail)
+                        ? "font-bold text-slate-950 dark:text-slate-50"
+                        : "text-slate-600 dark:text-slate-300"
+                    }`}
+                  >
+                    {detail}
+                  </span>
+                ))}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function InvoiceServiceReviewTooltipContentV17_90L135G({
+  total,
+  entries,
+  siteGroups = [],
+}: {
+  total: number;
+  entries: InvoiceServiceReviewEntry[];
+  siteGroups?: InvoiceServiceReviewSiteGroup[];
+}) {
+  const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
+  const multipleSites = siteGroups.length > 1;
+  return (
+    <span className="block text-left font-normal">
+      <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+        Leistungen prüfen · {total}
+      </span>
+      {multipleSites ? (
+        <span className="block space-y-2">
+          {siteGroups.map((group, index) => {
+            const active = activeSiteKey === group.key;
+            const address = [
+              group.site?.siteAddress,
+              [group.site?.sitePlz, group.site?.siteCity].filter(Boolean).join(" "),
+            ].filter(Boolean).join(" · ") || "Adresse nicht angegeben";
+            return (
+              <span
+                key={group.key}
+                role="button"
+                tabIndex={0}
+                onPointerEnter={() => setActiveSiteKey(group.key)}
+                onFocus={() => setActiveSiteKey(group.key)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveSiteKey((current) => current === group.key ? null : group.key);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveSiteKey((current) => current === group.key ? null : group.key);
+                }}
+                className={`block cursor-pointer rounded-lg border p-2 outline-none ${
+                  active
+                    ? "border-cyan-300 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-950/30"
+                    : "border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-cyan-50/60 dark:border-slate-700 dark:bg-slate-900"
+                }`}
+              >
+                <span className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block font-bold text-slate-950 dark:text-slate-50">
+                      {index + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${index + 1}`}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-slate-600 dark:text-slate-300">
+                      {address}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                    Leistungen prüfen · {group.entries.length}
+                  </span>
+                </span>
+                {active && (
+                  <span className="mt-2 block border-t border-cyan-200 pt-2 dark:border-cyan-800">
+                    <InvoiceServiceReviewSectionsV17_90L135G entries={group.entries} />
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        <InvoiceServiceReviewSectionsV17_90L135G entries={entries} />
+      )}
+    </span>
   );
 }
 
@@ -2309,100 +2534,21 @@ export default function RechnungenPage() {
                   const displayedInvoiceItems = invoiceServicesExpanded
                     ? visibleItems
                     : visibleItems.slice(0, 6);
-                  const reviewItems = visibleItems
-                    .map((item: any) => {
-                      const quantity = Number(item?.quantity ?? 0);
-                      const unitPrice = Number(item?.unitPrice ?? 0);
-                      const description =
-                        compactInvoiceValue(item?.description) ||
-                        "Unbenannte Leistung";
-                      const unit = compactInvoiceValue(item?.unit);
-                      const itemCurrency =
-                        inv.currency === "EUR" ? "EUR" : "CHF";
-                      const matchedService = services.find(
-                        (service: any) =>
-                          normalizeInvoiceServiceName(service?.name) ===
-                          normalizeInvoiceServiceName(description),
-                      );
-                      const currentCalculation = `${quantity > 0 ? quantity : "prüfen"} ${unit || "–"} × ${
-                        unitPrice > 0
-                          ? formatCurrency(unitPrice, itemCurrency)
-                          : "Preis prüfen"
-                      } = ${formatCurrency(
-                        Math.max(0, quantity) * Math.max(0, unitPrice),
-                        itemCurrency,
-                      )}`;
-                      const missingReasons = [
-                        !compactInvoiceValue(item?.description)
-                          ? "Leistungsname fehlt"
-                          : "",
-                        !unit ? "Einheit fehlt" : "",
-                        quantity <= 0 ? "Menge fehlt oder ist 0" : "",
-                        unitPrice <= 0 ? "Preis fehlt oder ist 0" : "",
-                      ].filter(Boolean);
-
-                      if (missingReasons.length > 0) {
-                        return {
-                          description,
-                          category: "blocker" as const,
-                          details: [
-                            ...missingReasons,
-                            `Aktuell: ${currentCalculation}`,
-                          ],
-                        };
-                      }
-
-                      if (!matchedService) {
-                        return {
-                          description,
-                          category: "missing" as const,
-                          details: [
-                            `Aktuell: ${currentCalculation}`,
-                            "Nicht im Leistungskatalog.",
-                          ],
-                        };
-                      }
-
-                      const catalogUnit = compactInvoiceValue(
-                        matchedService?.unit,
-                      );
-                      const catalogPrice = Number(
-                        matchedService?.defaultPrice || 0,
-                      );
-                      const sameUnit = catalogUnit === unit;
-                      const samePrice =
-                        Math.abs(catalogPrice - unitPrice) < 0.001;
-                      if (!sameUnit || !samePrice) {
-                        return {
-                          description,
-                          category: "deviation" as const,
-                          details: [
-                            `Aktuell: ${currentCalculation}`,
-                            `Katalogpreis: ${formatCurrency(
-                              catalogPrice,
-                              itemCurrency,
-                            )} / ${catalogUnit || "–"}`,
-                            ...[
-                              !sameUnit
-                                ? `Einheit weicht ab: ${unit || "–"} statt ${
-                                    catalogUnit || "–"
-                                  }`
-                                : "",
-                              !samePrice
-                                ? "Preis weicht vom Katalog ab."
-                                : "",
-                            ].filter(Boolean),
-                          ],
-                        };
-                      }
-
-                      return null;
-                    })
-                    .filter(Boolean) as Array<{
-                    description: string;
-                    category: "blocker" | "deviation" | "missing";
-                    details: string[];
-                  }>;
+                  const invoiceReviewCurrency: "CHF" | "EUR" =
+                    inv.currency === "EUR" ? "EUR" : "CHF";
+                  const reviewItems =
+                    buildInvoiceServiceReviewEntriesV17_90L135G(
+                      visibleItems,
+                      services || [],
+                      invoiceReviewCurrency,
+                    );
+                  const invoiceReviewSiteGroups =
+                    buildInvoiceServiceReviewSiteGroupsV17_90L135G(
+                      visibleItems,
+                      invoiceExecutionSites,
+                      services || [],
+                      invoiceReviewCurrency,
+                    );
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   const invoiceAppointmentLabel = formatInvoiceAppointmentLabel(inv);
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
@@ -2553,7 +2699,7 @@ export default function RechnungenPage() {
                                   toggleInvoiceCard(inv.id);
                                 }}
                               >
-                                <div className="flex min-w-0 items-center gap-1.5">
+                                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                                   <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                     {(() => {
                                       const dt =
@@ -2608,58 +2754,61 @@ export default function RechnungenPage() {
                                       </button>
                                     )}
                                   </div>
-                                  <div className="ml-auto flex min-w-0 shrink items-center gap-2 pr-3 sm:pr-5">
-                                    {invoiceAppointmentLabel && (
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                        }}
-                                        className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-violet-300 bg-violet-50 text-violet-700 outline-none hover:bg-violet-100 focus:ring-2 focus:ring-violet-300"
-                                        aria-label={invoiceAppointmentLabel}
-                                      >
-                                        <CalendarDays className="h-3.5 w-3.5" />
-                                        <InvoiceViewportTooltip preferredWidth={300}>
-                                          <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
-                                            Ausführungstermin
-                                          </span>
-                                          <span className="mt-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
-                                            {invoiceAppointmentLabel}
-                                          </span>
-                                        </InvoiceViewportTooltip>
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
+                                  <div className="ml-auto grid shrink-0 grid-cols-[1.75rem_5.5rem_8.5rem_1rem] items-center gap-2 pr-3 sm:grid-cols-[1.75rem_5.75rem_9rem_1rem] sm:pr-5">
+                                    <div className="flex h-7 w-7 items-center justify-center">
+                                      {invoiceAppointmentLabel && (
+                                        <button
+                                          type="button"
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onTouchStart={(event) => event.stopPropagation()}
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                          }}
+                                          className="relative inline-flex h-7 w-7 items-center justify-center rounded-lg border border-violet-300 bg-violet-50 text-violet-700 outline-none hover:bg-violet-100 focus:ring-2 focus:ring-violet-300"
+                                          aria-label={invoiceAppointmentLabel}
+                                        >
+                                          <CalendarDays className="h-3.5 w-3.5" />
+                                          <InvoiceViewportTooltip preferredWidth={300}>
+                                            <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
+                                              Ausführungstermin
+                                            </span>
+                                            <span className="mt-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
+                                              {invoiceAppointmentLabel}
+                                            </span>
+                                          </InvoiceViewportTooltip>
+                                        </button>
+                                      )}
+                                    </div>
+                                    <select
+                                      value={effectiveStatus}
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onTouchStart={(event) => event.stopPropagation()}
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        openEditInvoice(inv, { focusStatus: true });
-                                      }}
-                                      className="shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                                      onClick={(event) => event.stopPropagation()}
+                                      onChange={(event) =>
+                                        updateStatus(event, inv.id, event.target.value)
+                                      }
+                                      className="h-7 w-full rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
                                       style={getStatusStyle(
                                         INVOICE_STATUS_STYLES,
                                         effectiveStatus,
                                       )}
                                       aria-label={`Status bearbeiten: ${effectiveStatus}`}
                                     >
-                                      {effectiveStatus}
-                                    </button>
-                                  </div>
-                                  <div className="shrink-0 text-right">
-                                    <div className="font-mono text-sm font-bold tabular-nums">
+                                      {invoiceStatuses.map((status) => (
+                                        <option key={status} value={status}>
+                                          {status}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <div className="text-right font-mono text-sm font-bold tabular-nums whitespace-nowrap">
                                       {formatCurrency(
                                         Number(inv?.total ?? 0),
                                         inv.currency === "EUR" ? "EUR" : "CHF",
                                       )}
                                     </div>
+                                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                   </div>
-                                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                                 </div>
                               </div>
                             )}
@@ -2902,78 +3051,12 @@ export default function RechnungenPage() {
                                     className="relative inline-flex h-9 items-center rounded-lg border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200"
                                   >
                                     Leistungen prüfen · {reviewItems.length}
-                                    <InvoiceViewportTooltip preferredWidth={432}>
-                                      <div className="text-left font-normal">
-                                      <div className="text-sm font-bold text-slate-950 dark:text-slate-50">
-                                        Leistungen prüfen · {reviewItems.length}
-                                      </div>
-                                      {[
-                                        {
-                                          key: "blocker",
-                                          title: "Preis / Menge / Einheit prüfen",
-                                        },
-                                        {
-                                          key: "deviation",
-                                          title: "Preis oder Einheit abweichend",
-                                        },
-                                        {
-                                          key: "missing",
-                                          title: "Nicht im Leistungskatalog",
-                                        },
-                                      ].map((section, sectionIndex) => {
-                                        const sectionItems = reviewItems.filter(
-                                          (entry) =>
-                                            entry.category === section.key,
-                                        );
-                                        if (sectionItems.length === 0) return null;
-                                        return (
-                                          <div
-                                            key={section.key}
-                                            className={`${
-                                              sectionIndex > 0
-                                                ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700"
-                                                : "mt-2"
-                                            }`}
-                                          >
-                                            <div className="mb-1.5 font-bold text-slate-950 dark:text-slate-50">
-                                              {section.title}
-                                            </div>
-                                            {sectionItems.map(
-                                              (entry, reviewIndex) => (
-                                                <div
-                                                  key={`${entry.description}-${reviewIndex}`}
-                                                  className={`${
-                                                    reviewIndex > 0
-                                                      ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700"
-                                                      : ""
-                                                  }`}
-                                                >
-                                                  <div className="break-words font-bold text-foreground">
-                                                    {entry.description}
-                                                  </div>
-                                                  {entry.details.map(
-                                                    (detail, detailIndex) => (
-                                                      <div
-                                                        key={`${entry.description}-${detailIndex}`}
-                                                        className={`break-words text-xs ${
-                                                          /^Katalogpreis:/i.test(
-                                                            detail,
-                                                          )
-                                                            ? "font-bold text-slate-950 dark:text-slate-50"
-                                                            : "text-slate-600 dark:text-slate-300"
-                                                        }`}
-                                                      >
-                                                        {detail}
-                                                      </div>
-                                                    ),
-                                                  )}
-                                                </div>
-                                              ),
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                      </div>
+                                    <InvoiceViewportTooltip preferredWidth={480}>
+                                      <InvoiceServiceReviewTooltipContentV17_90L135G
+                                        total={reviewItems.length}
+                                        entries={reviewItems}
+                                        siteGroups={invoiceReviewSiteGroups}
+                                      />
                                     </InvoiceViewportTooltip>
                                   </button>
                                 )}
@@ -4099,14 +4182,28 @@ export default function RechnungenPage() {
                                     .join(" · ") || "Adresse nicht angegeben"}
                                 </div>
                                 {(() => {
-                                  const rows = buildInvoiceGroupReviewRows(group, services || [], currency);
-                                  if (rows.length === 0) return null;
+                                  const groupReviewEntries =
+                                    buildInvoiceServiceReviewEntriesV17_90L135G(
+                                      group.entries.map((entry) => entry.item),
+                                      services || [],
+                                      currency,
+                                    );
+                                  if (groupReviewEntries.length === 0) return null;
                                   return (
-                                    <span className="group/review relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                                      Leistungen prüfen · {rows.length}
-                                      <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[60vh] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap rounded-xl border border-amber-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl group-hover/review:block">
-                                        {rows.join("\n\n")}
-                                      </span>
+                                    <span
+                                      className="relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                    >
+                                      Leistungen prüfen · {groupReviewEntries.length}
+                                      <InvoiceViewportTooltip preferredWidth={432}>
+                                        <InvoiceServiceReviewTooltipContentV17_90L135G
+                                          total={groupReviewEntries.length}
+                                          entries={groupReviewEntries}
+                                        />
+                                      </InvoiceViewportTooltip>
                                     </span>
                                   );
                                 })()}

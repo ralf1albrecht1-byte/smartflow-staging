@@ -6,7 +6,7 @@ import { formatAudioDuration } from '@/lib/audio-format';
 import { TouchImageViewer } from '@/components/touch-image-viewer';
 
 const CHIP_HOVER_OPEN_DELAY_MS = 300;
-const CHIP_HOVER_CLOSE_DELAY_MS = 450;
+const CHIP_HOVER_CLOSE_DELAY_MS = 500;
 
 function useHoverIntentState(
   openDelay = CHIP_HOVER_OPEN_DELAY_MS,
@@ -1611,6 +1611,48 @@ function Chip({
         </span>
       )}
     </span>
+  );
+}
+
+export function ContactActionChip({
+  icon,
+  label,
+  color = 'default',
+  href,
+  title,
+  compact = false,
+  contactHeading,
+  contactName,
+  contactValue,
+  contactHint,
+  contactTimeHint,
+}: {
+  icon?: any;
+  label: string;
+  color?: 'default' | 'green' | 'blue' | 'purple' | 'teal' | 'red' | 'amber' | 'orange';
+  href?: string;
+  title?: string;
+  compact?: boolean;
+  contactHeading?: string;
+  contactName?: string;
+  contactValue?: string;
+  contactHint?: string;
+  contactTimeHint?: string;
+}) {
+  return (
+    <Chip
+      icon={icon}
+      label={label}
+      color={color}
+      href={href}
+      title={title}
+      compact={compact}
+      contactHeading={contactHeading}
+      contactName={contactName}
+      contactValue={contactValue}
+      contactHint={contactHint}
+      contactTimeHint={contactTimeHint}
+    />
   );
 }
 

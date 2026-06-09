@@ -1461,7 +1461,7 @@ function OfferViewportTooltipV17_95({
   const scheduleHide = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
   };
 
   useEffect(() => {
@@ -1717,6 +1717,13 @@ type OfferServiceReviewSection = {
   items: OfferServiceReviewItem[];
 };
 
+type OfferServiceReviewSiteGroup = {
+  key: string;
+  site: OfferExecutionSite | null;
+  count: number;
+  sections: OfferServiceReviewSection[];
+};
+
 type OfferServiceReviewSummary = {
   blockerCount: number;
   reviewCount: number;
@@ -1839,19 +1846,91 @@ function buildOfferServiceReviewSummary(
   };
 }
 
+
+function buildOfferServiceReviewSiteGroupsV17_90L135G(
+  offer: Offer,
+  sites: OfferExecutionSite[],
+  services: any[],
+  currency: "CHF" | "EUR",
+  mode: "review" | "all" = "review",
+): OfferServiceReviewSiteGroup[] {
+  return groupOfferItemsByExecutionSite(offer.items || [], sites)
+    .map((group) => {
+      const summary = buildOfferServiceReviewSummary(
+        { ...offer, items: group.entries.map((entry) => entry.item) },
+        services,
+        currency,
+      );
+      const sections =
+        mode === "review"
+          ? summary.reviewSections
+          : [...summary.blockerSections, ...summary.reviewSections];
+      const count = sections.reduce(
+        (sum, section) => sum + section.items.length,
+        0,
+      );
+      return { key: group.key, site: group.site, count, sections };
+    })
+    .filter((group) => group.count > 0);
+}
+
+function OfferServiceReviewSectionsContentV17_90L135G({
+  sections,
+}: {
+  sections: OfferServiceReviewSection[];
+}) {
+  return (
+    <span className="block">
+      {sections.map((section, sectionIndex) => (
+        <span
+          key={`${section.title}_${sectionIndex}`}
+          className={`${sectionIndex > 0 ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+        >
+          <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
+            {section.title}
+          </span>
+          {section.items.map((item, itemIndex) => (
+            <span
+              key={`${item.title}_${itemIndex}`}
+              className={`${itemIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+            >
+              <span className="block break-words font-bold">{item.title}</span>
+              {item.details.map((detail, detailIndex) => (
+                <span
+                  key={`${item.title}_${detailIndex}`}
+                  className={`block break-words ${
+                    /^Katalogpreis:/i.test(detail.trim())
+                      ? "font-bold text-slate-950 dark:text-slate-50"
+                      : "text-slate-600 dark:text-slate-300"
+                  }`}
+                >
+                  {detail}
+                </span>
+              ))}
+            </span>
+          ))}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function OfferServiceReviewTooltip({
   title,
   sections,
+  siteGroups = [],
   align = "left",
 }: {
   title: string;
   sections: OfferServiceReviewSection[];
+  siteGroups?: OfferServiceReviewSiteGroup[];
   align?: "left" | "right";
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
+  const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
   const [position, setPosition] = useState<{
     left: number;
     width: number;
@@ -1940,7 +2019,7 @@ function OfferServiceReviewTooltip({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
   };
 
   useEffect(() => {
@@ -2004,39 +2083,69 @@ function OfferServiceReviewTooltip({
           <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
             {title}
           </span>
-          {sections.map((section, sectionIndex) => (
-            <span
-              key={`${section.title}_${sectionIndex}`}
-              className={`${sectionIndex > 0 ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
-            >
-              <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
-                {section.title}
-              </span>
-              {section.items.map((item, itemIndex) => (
-                <span
-                  key={`${item.title}_${itemIndex}`}
-                  className={`${itemIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
-                >
-                  <span className="block break-words font-bold">{item.title}</span>
-                  {item.details.map((detail, detailIndex) => {
-                    const isCatalogPrice = /^Katalogpreis:/i.test(detail.trim());
-                    return (
-                      <span
-                        key={`${item.title}_${detailIndex}`}
-                        className={`block break-words ${
-                          isCatalogPrice
-                            ? "font-bold text-slate-950 dark:text-slate-50"
-                            : "text-slate-600 dark:text-slate-300"
-                        }`}
-                      >
-                        {detail}
+          {siteGroups.length > 1 ? (
+            <span className="block space-y-2">
+              {siteGroups.map((group, index) => {
+                const active = activeSiteKey === group.key;
+                const address = [
+                  group.site?.siteAddress,
+                  [group.site?.sitePlz, group.site?.siteCity]
+                    .filter(Boolean)
+                    .join(" "),
+                ].filter(Boolean).join(" · ") || "Adresse nicht angegeben";
+                return (
+                  <span
+                    key={group.key}
+                    role="button"
+                    tabIndex={0}
+                    onPointerEnter={() => setActiveSiteKey(group.key)}
+                    onFocus={() => setActiveSiteKey(group.key)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setActiveSiteKey((current) =>
+                        current === group.key ? null : group.key,
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setActiveSiteKey((current) =>
+                        current === group.key ? null : group.key,
+                      );
+                    }}
+                    className={`block cursor-pointer rounded-lg border p-2 outline-none ${
+                      active
+                        ? "border-cyan-300 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-950/30"
+                        : "border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-cyan-50/60 dark:border-slate-700 dark:bg-slate-900"
+                    }`}
+                  >
+                    <span className="flex items-start justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="block font-bold text-slate-950 dark:text-slate-50">
+                          {index + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${index + 1}`}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] text-slate-600 dark:text-slate-300">
+                          {address}
+                        </span>
                       </span>
-                    );
-                  })}
-                </span>
-              ))}
+                      <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                        Leistungen prüfen · {group.count}
+                      </span>
+                    </span>
+                    {active && (
+                      <span className="mt-2 block border-t border-cyan-200 pt-2 dark:border-cyan-800">
+                        <OfferServiceReviewSectionsContentV17_90L135G sections={group.sections} />
+                      </span>
+                    )}
+                  </span>
+                );
+              })}
             </span>
-          ))}
+          ) : (
+            <OfferServiceReviewSectionsContentV17_90L135G sections={sections} />
+          )}
         </span>
       )}
     </>
@@ -4355,6 +4464,14 @@ export default function AngebotePage() {
                     services,
                     offerCurrency,
                   );
+                  const offerReviewSiteGroups =
+                    buildOfferServiceReviewSiteGroupsV17_90L135G(
+                      off,
+                      offerExecutionSites,
+                      services,
+                      offerCurrency,
+                      "review",
+                    );
                   const mobileOfferServiceNames = (off.items || [])
                     .map((item: any) => String(item?.description || "").trim())
                     .filter(Boolean);
@@ -5049,6 +5166,7 @@ export default function AngebotePage() {
                                           <OfferServiceReviewTooltip
                                             title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
                                             sections={serviceReview.reviewSections}
+                                            siteGroups={offerReviewSiteGroups}
                                             align="right"
                                           />
                                         )}
@@ -5373,6 +5491,7 @@ export default function AngebotePage() {
                                         <OfferServiceReviewTooltip
                                           title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
                                           sections={serviceReview.reviewSections}
+                                          siteGroups={offerReviewSiteGroups}
                                           align="right"
                                         />
                                       </button>
@@ -6437,14 +6556,36 @@ export default function AngebotePage() {
                                     .join(" · ") || "Adresse nicht angegeben"}
                                 </div>
                                 {(() => {
-                                  const rows = buildOfferGroupReviewRows(group, services || [], currency);
-                                  if (rows.length === 0) return null;
+                                  const groupSummary = buildOfferServiceReviewSummary(
+                                    {
+                                      items: group.entries.map((entry) => entry.item),
+                                    } as Offer,
+                                    services || [],
+                                    currency,
+                                  );
+                                  const groupSections = [
+                                    ...groupSummary.blockerSections,
+                                    ...groupSummary.reviewSections,
+                                  ];
+                                  const groupReviewCount = groupSections.reduce(
+                                    (sum, section) => sum + section.items.length,
+                                    0,
+                                  );
+                                  if (groupReviewCount === 0) return null;
                                   return (
-                                    <span className="group/review relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                                      Leistungen prüfen · {rows.length}
-                                      <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[60vh] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap rounded-xl border border-amber-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl group-hover/review:block">
-                                        {rows.join("\n\n")}
-                                      </span>
+                                    <span
+                                      className="relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                    >
+                                      Leistungen prüfen · {groupReviewCount}
+                                      <OfferServiceReviewTooltip
+                                        title={`Leistungen prüfen · ${groupReviewCount}`}
+                                        sections={groupSections}
+                                        align="left"
+                                      />
                                     </span>
                                   );
                                 })()}

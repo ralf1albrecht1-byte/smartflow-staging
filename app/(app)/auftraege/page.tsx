@@ -40,6 +40,7 @@ import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
   CommunicationBlock,
   CommunicationChips,
+  ContactActionChip,
   MergedContactReviewChip,
   formatMergedContactReviewTooltip,
 } from "@/components/communication-block";
@@ -551,6 +552,14 @@ const hasRealCustomerReviewReason = (order: Order) => {
   );
 };
 
+type OrderServiceReviewGroup = {
+  key: string;
+  title: string;
+  address: string;
+  count: number;
+  tooltip: string;
+};
+
 type ReviewBadge = {
   key: string;
   label: string;
@@ -558,6 +567,7 @@ type ReviewBadge = {
   icon?: boolean;
   tooltip?: string;
   focusTarget?: "specialNotes" | "items" | "customer" | "executionAddress";
+  serviceReviewGroups?: OrderServiceReviewGroup[];
 };
 
 const compactText = (value?: string | null) =>
@@ -4999,6 +5009,143 @@ const buildUnifiedServiceReviewSummaryV17_90L61 = (input: {
   };
 };
 
+const buildOrderStructuredServiceReviewV17_90L135G = (
+  items: OrderItem[],
+  services: ServiceDef[],
+  currency?: "CHF" | "EUR" | null,
+  includeBlockers = false,
+) => {
+  const safeCurrency = currency === "EUR" ? "EUR" : "CHF";
+  const sections = new Map<string, string[]>();
+  let count = 0;
+
+  const append = (section: string, lines: string[]) => {
+    const existing = sections.get(section) || [];
+    if (existing.length > 0) existing.push("");
+    existing.push(...lines);
+    sections.set(section, existing);
+  };
+
+  (items || []).forEach((item) => {
+    const reason = getOrderServiceReviewReasonV17_90L134(item, services);
+    if (!reason) return;
+    const isBlocker = [
+      "Leistung prüfen",
+      "Menge prüfen",
+      "Einheit prüfen",
+      "Preis prüfen",
+    ].includes(reason);
+    if (isBlocker && !includeBlockers) return;
+
+    const title = isBlocker
+      ? "Preis / Menge / Einheit prüfen"
+      : reason === "Nicht im Leistungskatalog"
+        ? "Nicht im Leistungskatalog"
+        : "Preis oder Einheit abweichend";
+    const name = canonicalServiceNameForOrderItem(item.serviceName) || "Leistung";
+    const lines = [name];
+    const calculation = formatServiceReviewCalculation(item, safeCurrency);
+    if (calculation) lines.push(`Aktuell: ${calculation}`);
+
+    const catalog = findCatalogServiceForName(services, item.serviceName);
+    if (catalog && !isBlocker) {
+      lines.push(
+        `Katalogpreis: ${formatCurrency(
+          Number(catalog.defaultPrice || 0),
+          safeCurrency,
+        )} / ${formatReviewUnitLabel(catalog.unit || "") || "–"}`,
+      );
+    }
+
+    if (reason === "Nicht im Leistungskatalog") {
+      lines.push("Nicht im Leistungskatalog.");
+    } else if (reason === "Preis abweichend") {
+      lines.push("Preis weicht vom Katalog ab.");
+    } else if (reason === "Einheit abweichend") {
+      lines.push("Einheit weicht vom Katalog ab.");
+    } else if (isBlocker) {
+      lines.push(`${reason}.`);
+    }
+
+    append(title, lines);
+    count += 1;
+  });
+
+  const tooltip = Array.from(sections.entries())
+    .map(([title, lines]) => [title, ...lines].join("\n"))
+    .join(`\n${SERVICE_REVIEW_TOOLTIP_SEPARATOR}\n`);
+
+  return { count, tooltip };
+};
+
+const buildOrderServiceReviewGroupsV17_90L135G = (
+  order: Order,
+  services: ServiceDef[],
+  includeBlockers = false,
+): OrderServiceReviewGroup[] => {
+  const sites = Array.isArray(order.workSites)
+    ? [...order.workSites].sort(
+        (a, b) =>
+          Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+          Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+      )
+    : [];
+  if (sites.length <= 1) return [];
+
+  const result: OrderServiceReviewGroup[] = [];
+  sites.forEach((site, index) => {
+    const siteItems = (order.items || []).filter(
+      (item) => item.workSiteId === site.id || item.workSite?.id === site.id,
+    );
+    const summary = buildOrderStructuredServiceReviewV17_90L135G(
+      siteItems,
+      services,
+      order.currency,
+      includeBlockers,
+    );
+    if (summary.count <= 0) return;
+    result.push({
+      key: site.id || `site_${index}`,
+      title:
+        compactText(site.siteName) ||
+        compactText(site.siteAddress) ||
+        `Ausführungsort ${index + 1}`,
+      address:
+        [
+          compactText(site.siteAddress),
+          [compactText(site.sitePlz), compactText(site.siteCity)]
+            .filter(Boolean)
+            .join(" "),
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Adresse nicht angegeben",
+      count: summary.count,
+      tooltip: summary.tooltip,
+    });
+  });
+
+  const unassignedItems = (order.items || []).filter(
+    (item) => !item.workSiteId && !item.workSite?.id,
+  );
+  const unassigned = buildOrderStructuredServiceReviewV17_90L135G(
+    unassignedItems,
+    services,
+    order.currency,
+    includeBlockers,
+  );
+  if (unassigned.count > 0) {
+    result.push({
+      key: "unassigned",
+      title: "Ohne zugeordneten Ausführungsort",
+      address: "Zuordnung prüfen",
+      count: unassigned.count,
+      tooltip: unassigned.tooltip,
+    });
+  }
+
+  return result;
+};
+
 const formatCurrencyReviewTooltip = (order: Order, services: ServiceDef[]) => {
   const orderCurrency = order.currency === "EUR" ? "EUR" : "CHF";
   const sourceText = [order.notes, order.description, order.audioTranscript]
@@ -6430,6 +6577,11 @@ const getSystemBadges = (
         services,
         currency: order.currency,
       });
+    const serviceReviewGroups = buildOrderServiceReviewGroupsV17_90L135G(
+      order,
+      services,
+      false,
+    );
 
     return [
       ...badges.filter((badge) => !compactServiceReviewKeys.has(badge.key)),
@@ -6439,6 +6591,7 @@ const getSystemBadges = (
         className:
           "bg-yellow-100 text-yellow-900 border border-yellow-400 shadow-sm ring-1 ring-yellow-200/70",
         tooltip: serviceReviewTooltip || "Leistungen prüfen.",
+        serviceReviewGroups,
       },
     ];
   }
@@ -7056,6 +7209,25 @@ const buildCompactCommunicationContextV17_90L123 = (
 const buildCommunicationChipDataV17_52 = (order: Order): any => {
   const compactCommunicationContext =
     buildCompactCommunicationContextV17_90L123(order);
+  const rawCommunicationSource = [
+    order.specialNotes,
+    order.notes,
+    order.audioTranscript,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const resolvedEmail =
+    extractOrderContactEmailForCustomerDisplayV17_90K(order) ||
+    (order as any).email ||
+    order.customer?.email ||
+    "";
+  const hasExplicitEmailOnlyInstruction =
+    /\b(?:kontakt\s+)?(?:ausschließlich|ausschliesslich|exklusiv|nur|only|exclusively)\b.{0,40}\b(?:per\s+|via\s+|über\s+|ueber\s+)?(?:e\s*mail|e-mail|email|mail)\b|\b(?:e\s*mail|e-mail|email|mail)\b.{0,40}\b(?:ausschließlich|ausschliesslich|exklusiv|nur|only|exclusively)\b/i.test(
+      rawCommunicationSource,
+    );
+  const canonicalCommunicationContext = hasExplicitEmailOnlyInstruction
+    ? `Kontakt ausschließlich per E-Mail${resolvedEmail ? `: ${resolvedEmail}` : ""}`
+    : compactCommunicationContext;
 
   // V17.90k: Keep stored customer contact data available for SMS/WhatsApp/Mail
   // chip targets. The communication component only creates channel chips from
@@ -7072,11 +7244,7 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
         order.notes,
         order.audioTranscript,
       ) || order.customer?.phone || "",
-    email:
-      extractOrderContactEmailForCustomerDisplayV17_90K(order) ||
-      (order as any).email ||
-      order.customer?.email ||
-      "",
+    email: resolvedEmail,
     customer: order.customer
       ? { ...order.customer }
       : order.customer,
@@ -7088,8 +7256,8 @@ const buildCommunicationChipDataV17_52 = (order: Order): any => {
     // V17.90L123: Card communication chips receive only the canonical contact
     // instruction. Never pass the full customer message or all [HINWEIS]
     // content into a WhatsApp/SMS tooltip.
-    communicationContext: compactCommunicationContext,
-    notes: compactCommunicationContext,
+    communicationContext: canonicalCommunicationContext,
+    notes: canonicalCommunicationContext,
     audioTranscript: "",
   };
 };
@@ -7507,7 +7675,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
   };
 
   useEffect(() => {
@@ -7581,6 +7749,125 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
                   </span>
                 ))}
         </span>
+      )}
+    </>
+  );
+};
+
+const renderOrderServiceReviewTooltipLinesV17_135G = (
+  tooltip: string,
+  keyPrefix: string,
+) => {
+  const headingPattern =
+    /^(?:Preis \/ Menge \/ Einheit prüfen|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
+
+  return tooltip.split("\n").map((line, index) => {
+    const trimmed = line.trim();
+    if (/^[-─—–_]{6,}$/.test(trimmed)) {
+      return (
+        <span
+          key={`${keyPrefix}_sep_${index}`}
+          className="my-2 block border-t border-slate-200 dark:border-slate-700"
+        />
+      );
+    }
+    const emphasizeLine =
+      headingPattern.test(trimmed) ||
+      /^•\s+/.test(trimmed) ||
+      /^Katalogpreis:/i.test(trimmed) ||
+      /—\s*Text\s+/i.test(trimmed);
+    return (
+      <span
+        key={`${keyPrefix}_line_${index}`}
+        className={`block min-w-0 whitespace-pre-wrap break-words ${
+          emphasizeLine
+            ? "font-bold text-slate-950 dark:text-slate-50"
+            : "text-slate-600 dark:text-slate-300"
+        }`}
+      >
+        {line}
+      </span>
+    );
+  });
+};
+
+const OrderServiceReviewTooltipContentV17_135G = ({
+  badge,
+}: {
+  badge: ReviewBadge;
+}) => {
+  const groups = (badge.serviceReviewGroups || []).filter(
+    (group) => group.count > 0 && compactText(group.tooltip),
+  );
+  const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
+
+  return (
+    <>
+      <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+        {badge.label}
+      </span>
+      {groups.length > 1 ? (
+        <span className="block space-y-2">
+          {groups.map((group, index) => {
+            const active = activeGroupKey === group.key;
+            return (
+              <span
+                key={group.key}
+                role="button"
+                tabIndex={0}
+                onPointerEnter={() => setActiveGroupKey(group.key)}
+                onFocus={() => setActiveGroupKey(group.key)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveGroupKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveGroupKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
+                }}
+                className={`block cursor-pointer rounded-lg border p-2 outline-none transition-colors ${
+                  active
+                    ? "border-cyan-300 bg-cyan-50 dark:border-cyan-800 dark:bg-cyan-950/30"
+                    : "border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-cyan-50/60 dark:border-slate-700 dark:bg-slate-900"
+                }`}
+              >
+                <span className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block break-words font-bold text-slate-950 dark:text-slate-50">
+                      {index + 1}. {group.title}
+                    </span>
+                    <span className="mt-0.5 block break-words text-[10px] text-slate-600 dark:text-slate-300">
+                      {group.address}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                    Leistungen prüfen · {group.count}
+                  </span>
+                </span>
+                {active && (
+                  <span className="mt-2 block border-t border-cyan-200 pt-2 dark:border-cyan-800">
+                    {renderOrderServiceReviewTooltipLinesV17_135G(
+                      group.tooltip,
+                      `group_${group.key}`,
+                    )}
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        renderOrderServiceReviewTooltipLinesV17_135G(
+          cleanVisibleTooltipTextV17_35(badge.tooltip),
+          `service_${badge.key}`,
+        )
       )}
     </>
   );
@@ -7681,7 +7968,7 @@ const ViewportAwareOrderServiceTooltip = ({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
   };
 
   useEffect(() => {
@@ -7724,9 +8011,6 @@ const ViewportAwareOrderServiceTooltip = ({
   }, [open, align]);
 
   if (!tooltip) return null;
-  const tooltipLines = tooltip.split("\n");
-  const headingPattern =
-    /^(?:Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
 
   return (
     <>
@@ -7745,37 +8029,7 @@ const ViewportAwareOrderServiceTooltip = ({
           }}
           className="fixed z-[14000] overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         >
-          <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
-            {badge.label}
-          </span>
-          {tooltipLines.map((line, index) => {
-            const trimmed = line.trim();
-            if (/^[-─—–_]{6,}$/.test(trimmed)) {
-              return (
-                <span
-                  key={`viewport_service_sep_${index}`}
-                  className="my-2 block border-t border-slate-200 dark:border-slate-700"
-                />
-              );
-            }
-            const emphasizeLine =
-              headingPattern.test(trimmed) ||
-              /^•\s+/.test(trimmed) ||
-              /^Katalogpreis:/i.test(trimmed) ||
-              /—\s*Text\s+/i.test(trimmed);
-            return (
-              <span
-                key={`viewport_service_line_${index}`}
-                className={`block min-w-0 whitespace-pre-wrap break-words ${
-                  emphasizeLine
-                    ? "font-bold text-slate-950 dark:text-slate-50"
-                    : "text-slate-600 dark:text-slate-300"
-                }`}
-              >
-                {line}
-              </span>
-            );
-          })}
+          <OrderServiceReviewTooltipContentV17_135G badge={badge} />
         </span>
       )}
     </>
@@ -7874,7 +8128,7 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
   const scheduleHideTooltip = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 450);
+    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
   };
 
   useEffect(() => {
@@ -8360,65 +8614,28 @@ const renderMobileActionBadge = (order: Order, badge: ReviewBadge) => {
 
   const phone = getOrderPhoneForHref(order);
   const callbackInfo = compactText(badge.tooltip);
-  const title = phone
-    ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
-    : callbackInfo || "Rückruf gewünscht · Nummer fehlt";
-  const Icon = mobileIconForBadge(badge) || Phone;
-  const className = `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm ${mobileIconBadgeClass(badge)}`;
-
-  if (!phone) {
-    return (
-      <button
-        key={badge.key}
-        type="button"
-        tabIndex={0}
-        aria-label={title}
-        onClick={(event) => {
-          event.stopPropagation();
-          const target = event.currentTarget as HTMLElement;
-          if (document.activeElement === target) target.blur();
-          else target.focus();
-        }}
-        className={`group relative ${className}`}
-      >
-        <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderOrderContactTooltipV17_128(
-          order,
-          phone,
-          phone
-            ? "Antippen oder anklicken, um anzurufen."
-            : "Keine Telefonnummer hinterlegt.",
-          "left",
-        )}
-      </button>
-    );
-  }
-
   return (
-    <a
+    <ContactActionChip
       key={badge.key}
-      href={`tel:${phone}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        const target = event.currentTarget as HTMLElement;
-        if (document.activeElement !== target) {
-          event.preventDefault();
-          target.focus();
-        }
-      }}
-      aria-label={title}
-      className={`group relative ${className}`}
-    >
-      <Icon className="h-3.5 w-3.5" strokeWidth={2.2} />
-      {renderOrderContactTooltipV17_128(
-          order,
-          phone,
-          phone
-            ? "Antippen oder anklicken, um anzurufen."
-            : "Keine Telefonnummer hinterlegt.",
-          "left",
-        )}
-    </a>
+      icon={Phone}
+      label="Telefon"
+      color="blue"
+      href={phone ? `tel:${phone}` : undefined}
+      title={
+        phone
+          ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
+          : callbackInfo || "Rückruf gewünscht · Nummer fehlt"
+      }
+      compact
+      contactHeading="Telefonkontakt"
+      contactName={order.customer?.name || "Kunde"}
+      contactValue={phone || "Keine Telefonnummer vorhanden"}
+      contactHint={
+        phone
+          ? "Antippen oder anklicken, um anzurufen."
+          : "Keine Telefonnummer hinterlegt."
+      }
+    />
   );
 };
 
@@ -8565,72 +8782,32 @@ const getOrderPhoneForHref = (order: Order) => {
 const renderCallbackCardBadge = (
   order: Order,
   badge: ReviewBadge,
-  tooltipAlign: "left" | "right" = "left",
+  _tooltipAlign: "left" | "right" = "left",
 ) => {
   const phone = getOrderPhoneForHref(order);
   const callbackInfo = compactText(badge.tooltip);
-  const tooltip = phone
-    ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
-    : callbackInfo || "Rückruf gewünscht · Nummer fehlt";
-  void tooltipAlign;
-  const visualClass = `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[13px] font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${mobileIconBadgeClass(
-    badge,
-  )}`;
-
-  if (!phone) {
-    return (
-      <button
-        key={badge.key}
-        type="button"
-        aria-label={tooltip}
-        onClick={(event) => {
-          event.stopPropagation();
-          const target = event.currentTarget as HTMLElement;
-          if (document.activeElement === target) target.blur();
-          else target.focus();
-        }}
-        className={visualClass}
-      >
-        <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-        {renderOrderContactTooltipV17_128(
-          order,
-          phone,
-          phone
-            ? "Antippen oder anklicken, um anzurufen."
-            : "Keine Telefonnummer hinterlegt.",
-          tooltipAlign,
-        )}
-      </button>
-    );
-  }
-
   return (
-    <a
+    <ContactActionChip
       key={badge.key}
-      href={`tel:${phone}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        const target = event.currentTarget as HTMLElement;
-        // First click/focus shows the compact tooltip. A second click can use
-        // the tel: action, matching the existing touch-chip behaviour.
-        if (document.activeElement !== target) {
-          event.preventDefault();
-          target.focus();
-        }
-      }}
-      aria-label={tooltip}
-      className={visualClass}
-    >
-      <Phone className="h-3.5 w-3.5" strokeWidth={2.2} />
-      {renderOrderContactTooltipV17_128(
-          order,
-          phone,
-          phone
-            ? "Antippen oder anklicken, um anzurufen."
-            : "Keine Telefonnummer hinterlegt.",
-          tooltipAlign,
-        )}
-    </a>
+      icon={Phone}
+      label="Telefon"
+      color="blue"
+      href={phone ? `tel:${phone}` : undefined}
+      title={
+        phone
+          ? [`Anrufen: ${phone}`, callbackInfo].filter(Boolean).join(" · ")
+          : callbackInfo || "Rückruf gewünscht · Nummer fehlt"
+      }
+      compact
+      contactHeading="Telefonkontakt"
+      contactName={order.customer?.name || "Kunde"}
+      contactValue={phone || "Keine Telefonnummer vorhanden"}
+      contactHint={
+        phone
+          ? "Antippen oder anklicken, um anzurufen."
+          : "Keine Telefonnummer hinterlegt."
+      }
+    />
   );
 };
 
@@ -16881,15 +17058,13 @@ export default function AuftraegePage() {
                           );
                           const groupItems = getWorkSiteGroupItems(site);
                           const groupItemCount = groupItems.length;
-                          const groupReviewRowsV17_90L134 = groupItems
-                            .map((groupItem) =>
-                              getOrderServiceReviewDetailV17_90L134(
-                                groupItem,
-                                services || [],
-                                currency,
-                              ),
-                            )
-                            .filter(Boolean);
+                          const groupReviewSummaryV17_90L135G =
+                            buildOrderStructuredServiceReviewV17_90L135G(
+                              groupItems,
+                              services || [],
+                              currency,
+                              true,
+                            );
                           const groupReviewBadges = (() => {
                             const badges: ReviewBadge[] = [];
                             const addBadge = (
@@ -17141,12 +17316,26 @@ export default function AuftraegePage() {
                                           </span>
                                         )}
                                       </div>
-                                      {groupReviewRowsV17_90L134.length > 0 && (
-                                        <span className="group/site-review relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                                          Leistungen prüfen · {groupReviewRowsV17_90L134.length}
-                                          <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[60vh] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto whitespace-pre-wrap rounded-xl border border-amber-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl group-hover/site-review:block">
-                                            {groupReviewRowsV17_90L134.join("\n\n")}
-                                          </span>
+                                      {groupReviewSummaryV17_90L135G.count > 0 && (
+                                        <span
+                                          className="relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(event) => event.stopPropagation()}
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                        >
+                                          Leistungen prüfen · {groupReviewSummaryV17_90L135G.count}
+                                          <ViewportAwareOrderServiceTooltip
+                                            badge={{
+                                              key: `site_service_review_${site?.id || "general"}`,
+                                              label: `Leistungen prüfen · ${groupReviewSummaryV17_90L135G.count}`,
+                                              className:
+                                                "border-amber-300 bg-amber-100 text-amber-900",
+                                              tooltip:
+                                                groupReviewSummaryV17_90L135G.tooltip,
+                                            }}
+                                            align="left"
+                                          />
                                         </span>
                                       )}
                                       <div className="mt-0.5 text-xs text-muted-foreground">
