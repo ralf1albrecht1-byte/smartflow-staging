@@ -2214,6 +2214,8 @@ export default function AngebotePage() {
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOfferCardIds, setExpandedOfferCardIds] = useState<Set<string>>(new Set());
+  const [offerCardExpansionRestored, setOfferCardExpansionRestored] = useState(false);
+  const [offerCardInitialStateApplied, setOfferCardInitialStateApplied] = useState(false);
 
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
 
@@ -2224,6 +2226,35 @@ export default function AngebotePage() {
     update();
     media.addEventListener?.("change", update);
     return () => media.removeEventListener?.("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let restored = false;
+    try {
+      const stored = window.localStorage.getItem(
+        "smartflow:angebote:expanded-card-ids:v1",
+      );
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setExpandedOfferCardIds(
+            new Set(
+              parsed.filter(
+                (value: unknown): value is string => typeof value === "string",
+              ),
+            ),
+          );
+          restored = true;
+        }
+      }
+    } catch {
+      window.localStorage.removeItem(
+        "smartflow:angebote:expanded-card-ids:v1",
+      );
+    }
+    setOfferCardInitialStateApplied(restored);
+    setOfferCardExpansionRestored(true);
   }, []);
 
   const toggleMobileServiceCard = (id: string) => {
@@ -2244,13 +2275,58 @@ export default function AngebotePage() {
     });
   };
 
+  const offerCardIds = offers.map((offer) => offer.id);
+  const offerCardIdsKey = offerCardIds.join("\u241f");
+
+  useEffect(() => {
+    if (
+      !offerCardExpansionRestored ||
+      offerCardInitialStateApplied ||
+      offerCardIds.length === 0
+    )
+      return;
+    setExpandedOfferCardIds(new Set(offerCardIds));
+    setOfferCardInitialStateApplied(true);
+  }, [
+    offerCardExpansionRestored,
+    offerCardInitialStateApplied,
+    offerCardIdsKey,
+  ]);
+
+  useEffect(() => {
+    if (
+      !offerCardExpansionRestored ||
+      !offerCardInitialStateApplied ||
+      typeof window === "undefined"
+    )
+      return;
+    try {
+      window.localStorage.setItem(
+        "smartflow:angebote:expanded-card-ids:v1",
+        JSON.stringify(Array.from(expandedOfferCardIds)),
+      );
+    } catch {
+      // Local storage can be unavailable in strict/private browser modes.
+    }
+  }, [
+    offerCardExpansionRestored,
+    offerCardInitialStateApplied,
+    expandedOfferCardIds,
+  ]);
+
   const allOfferCardsExpanded =
-    offers.length > 0 && offers.every((offer) => expandedOfferCardIds.has(offer.id));
+    offerCardIds.length > 0 &&
+    offerCardIds.every((id) => expandedOfferCardIds.has(id));
 
   const toggleAllOfferCards = () => {
-    setExpandedOfferCardIds(
-      allOfferCardsExpanded ? new Set() : new Set(offers.map((offer) => offer.id)),
-    );
+    setExpandedOfferCardIds((current) => {
+      const next = new Set(current);
+      offerCardIds.forEach((id) => {
+        if (allOfferCardsExpanded) next.delete(id);
+        else next.add(id);
+      });
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -4447,7 +4523,8 @@ export default function AngebotePage() {
                                         )}
                                       </button>
                                     )}
-                                    {appointmentLabel && (
+                                  </div>
+                                  {appointmentLabel && (
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -4467,7 +4544,7 @@ export default function AngebotePage() {
                                             openOfferSection(off, "details", appointmentLabel);
                                           }
                                         }}
-                                        className="group relative inline-flex min-w-0 max-w-[12rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 hover:bg-violet-100 sm:inline-flex"
+                                        className="group relative ml-auto mr-3 inline-flex min-w-0 max-w-[12rem] shrink items-center sm:mr-5 rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 hover:bg-violet-100 sm:inline-flex"
                                       >
                                         <span className="truncate">{appointmentLabel}</span>
                                         {!useTouchChipPopovers && (
@@ -4475,8 +4552,7 @@ export default function AngebotePage() {
                                         )}
                                       </button>
                                     )}
-                                  </div>
-                                  <div className="ml-auto shrink-0 text-right">
+                                  <div className="shrink-0 text-right">
                                     <div className="font-mono text-sm font-bold tabular-nums">
                                       {formatCurrency(
                                         Number(off?.total ?? 0),
@@ -4521,43 +4597,43 @@ export default function AngebotePage() {
                                       Zusammengeführt · {mergedCount}
                                     </span>
                                   )}
-                                  {offerExecutionSites.length > 1 && (
-                                    <span className="shrink-0 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800">
-                                      Ausführungsorte · {offerExecutionSites.length}
-                                    </span>
-                                  )}
-                                  {primaryExecutionSite && offerExecutionSites.length === 1 && (
+                                  {offerExecutionSites.length > 0 && (
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onTouchStart={(event) => event.stopPropagation()}
                                       onClick={(event) => {
-                                        const payload = {
-                                          key: `${off.id}:execution`,
-                                          kind: "execution_address" as const,
-                                          text: [
-                                            "Ausführungsadresse",
-                                            primaryExecutionSite.siteName
-                                              ? `Objekt: ${primaryExecutionSite.siteName}`
-                                              : "",
-                                            `Strasse: ${primaryExecutionSite.siteAddress || "–"}`,
-                                            `PLZ / Ort: ${
-                                              [
-                                                primaryExecutionSite.sitePlz,
-                                                primaryExecutionSite.siteCity,
-                                              ]
-                                                .filter(Boolean)
-                                                .join(" ") || "–"
-                                            }`,
-                                            primaryExecutionSite.siteNote
-                                              ? `Hinweis: ${primaryExecutionSite.siteNote}`
-                                              : "",
-                                          ]
-                                            .filter(Boolean)
-                                            .join("\n"),
-                                        };
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        const tooltipText = offerExecutionSites
+                                          .map((site, siteIndex) => {
+                                            const place = [site.sitePlz, site.siteCity]
+                                              .filter(Boolean)
+                                              .join(" ");
+                                            return [
+                                              `Arbeitsort ${siteIndex + 1}`,
+                                              site.siteName ? `Objekt: ${site.siteName}` : "",
+                                              `Strasse: ${site.siteAddress || "–"}`,
+                                              `PLZ / Ort: ${place || "–"}`,
+                                              site.siteNote ? `Hinweis: ${site.siteNote}` : "",
+                                            ]
+                                              .filter(Boolean)
+                                              .join("\n");
+                                          })
+                                          .join("\n---\n");
                                         if (useTouchChipPopovers) {
-                                          toggleOfferMobileTooltip(payload, event);
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:expanded-execution-sites`,
+                                              kind: "execution_address",
+                                              text: `${
+                                                offerExecutionSites.length > 1
+                                                  ? `Ausführungsorte · ${offerExecutionSites.length}`
+                                                  : "Ausführungsadresse"
+                                              }\n${tooltipText}`,
+                                            },
+                                            event,
+                                          );
                                         } else {
                                           openOfferChipTarget("execution", event);
                                         }
@@ -4567,12 +4643,14 @@ export default function AngebotePage() {
                                     >
                                       <MapPin className="h-3 w-3 shrink-0" />
                                       <span className="truncate">
-                                        {primaryExecutionSite.siteName ||
-                                          primaryExecutionSite.siteAddress ||
-                                          "Ausführungsadresse"}
+                                        {offerExecutionSites.length > 1
+                                          ? `Ausführungsorte · ${offerExecutionSites.length}`
+                                          : primaryExecutionSite?.siteName ||
+                                            primaryExecutionSite?.siteAddress ||
+                                            "Ausführungsadresse"}
                                       </span>
                                       {!useTouchChipPopovers && (
-                                        <OfferAddressTooltip site={primaryExecutionSite} />
+                                        <OfferExecutionSitesTooltip sites={offerExecutionSites} />
                                       )}
                                     </button>
                                   )}
@@ -4834,7 +4912,7 @@ export default function AngebotePage() {
 
                                 <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
                                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                                    {appointmentLabel && (
+                                  {appointmentLabel && (
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -5248,7 +5326,7 @@ export default function AngebotePage() {
                                   </div>
 
                                   <div className="flex w-full flex-wrap items-end justify-end gap-3">
-                                    {appointmentLabel && (
+                                  {appointmentLabel && (
                                       <button
                                         type="button"
                                         onClick={(event) => {

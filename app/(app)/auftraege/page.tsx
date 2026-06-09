@@ -9247,6 +9247,8 @@ export default function AuftraegePage() {
   } | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOrderCardIds, setExpandedOrderCardIds] = useState<Set<string>>(new Set());
+  const [orderCardExpansionRestored, setOrderCardExpansionRestored] = useState(false);
+  const [orderCardInitialStateApplied, setOrderCardInitialStateApplied] = useState(false);
   const [visibleCount, setVisibleCount] = useState(30);
 
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
@@ -9258,6 +9260,35 @@ export default function AuftraegePage() {
     update();
     media.addEventListener?.("change", update);
     return () => media.removeEventListener?.("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let restored = false;
+    try {
+      const stored = window.localStorage.getItem(
+        "smartflow:auftraege:expanded-card-ids:v1",
+      );
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setExpandedOrderCardIds(
+            new Set(
+              parsed.filter(
+                (value: unknown): value is string => typeof value === "string",
+              ),
+            ),
+          );
+          restored = true;
+        }
+      }
+    } catch {
+      window.localStorage.removeItem(
+        "smartflow:auftraege:expanded-card-ids:v1",
+      );
+    }
+    setOrderCardInitialStateApplied(restored);
+    setOrderCardExpansionRestored(true);
   }, []);
 
   const toggleMobileServiceCard = (id: string) => {
@@ -9602,13 +9633,56 @@ export default function AuftraegePage() {
   const visibleOrderIds = filtered
     .slice(0, visibleCount)
     .map((order) => order.id);
+  const visibleOrderIdsKey = visibleOrderIds.join("\u241f");
+
+  useEffect(() => {
+    if (
+      !orderCardExpansionRestored ||
+      orderCardInitialStateApplied ||
+      visibleOrderIds.length === 0
+    )
+      return;
+    setExpandedOrderCardIds(new Set(visibleOrderIds));
+    setOrderCardInitialStateApplied(true);
+  }, [
+    orderCardExpansionRestored,
+    orderCardInitialStateApplied,
+    visibleOrderIdsKey,
+  ]);
+
+  useEffect(() => {
+    if (
+      !orderCardExpansionRestored ||
+      !orderCardInitialStateApplied ||
+      typeof window === "undefined"
+    )
+      return;
+    try {
+      window.localStorage.setItem(
+        "smartflow:auftraege:expanded-card-ids:v1",
+        JSON.stringify(Array.from(expandedOrderCardIds)),
+      );
+    } catch {
+      // Local storage can be unavailable in strict/private browser modes.
+    }
+  }, [
+    orderCardExpansionRestored,
+    orderCardInitialStateApplied,
+    expandedOrderCardIds,
+  ]);
+
   const allVisibleOrderCardsExpanded =
     visibleOrderIds.length > 0 &&
     visibleOrderIds.every((id) => expandedOrderCardIds.has(id));
   const toggleAllOrderCards = () => {
-    setExpandedOrderCardIds(
-      allVisibleOrderCardsExpanded ? new Set() : new Set(visibleOrderIds),
-    );
+    setExpandedOrderCardIds((current) => {
+      const next = new Set(current);
+      visibleOrderIds.forEach((id) => {
+        if (allVisibleOrderCardsExpanded) next.delete(id);
+        else next.add(id);
+      });
+      return next;
+    });
   };
 
   const openNew = () => {
@@ -14945,20 +15019,20 @@ export default function AuftraegePage() {
                                   )}
                                 </span>
                               )}
-                              {appointmentBadges.slice(0, 1).map((badge) => (
-                                <span
-                                  key={`compact_appointment_wrap_${badge.key}`}
-                                  className="inline-flex min-w-0 max-w-[12rem] shrink"
-                                >
-                                  {renderInteractiveMobileTextBadge(
-                                    badge,
-                                    "compact_header_appointment",
-                                    "left",
-                                  )}
-                                </span>
-                              ))}
                             </div>
-                            <div className="ml-auto shrink-0 text-right">
+                            {appointmentBadges.slice(0, 1).map((badge) => (
+                              <span
+                                key={`compact_appointment_wrap_${badge.key}`}
+                                className="ml-auto mr-3 inline-flex min-w-0 max-w-[12rem] shrink sm:mr-5"
+                              >
+                                {renderInteractiveMobileTextBadge(
+                                  badge,
+                                  "compact_header_appointment",
+                                  "left",
+                                )}
+                              </span>
+                            ))}
+                            <div className="shrink-0 text-right">
                               <div className="font-mono text-sm font-bold tabular-nums">
                                 {formatCurrency(
                                   getSafeOrderTotal(o),
@@ -15001,15 +15075,15 @@ export default function AuftraegePage() {
                                 ({o.customer.customerNumber})
                               </span>
                             )}
-                          {mobileAddressBadges
-                            .slice(0, 1)
-                            .map((badge) =>
-                              renderInteractiveMobileTextBadge(
-                                badge,
+                          {compactExecutionAddressBadge && (
+                            <span className="min-w-0 max-w-[18rem] shrink">
+                              {renderInteractiveMobileTextBadge(
+                                compactExecutionAddressBadge,
                                 "mobile_header_address",
                                 "left",
-                              ),
-                            )}
+                              )}
+                            </span>
+                          )}
                         </div>
 
                         {mobileSystemBadges.length > 0 && (

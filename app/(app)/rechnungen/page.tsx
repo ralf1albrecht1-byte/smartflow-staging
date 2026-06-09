@@ -739,7 +739,39 @@ export default function RechnungenPage() {
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
   const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<Set<string>>(new Set());
   const [expandedInvoiceCardIds, setExpandedInvoiceCardIds] = useState<Set<string>>(new Set());
+  const [invoiceCardExpansionRestored, setInvoiceCardExpansionRestored] = useState(false);
+  const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] = useState(false);
   const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] = useState<Set<string>>(new Set());
+
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let restored = false;
+    try {
+      const stored = window.localStorage.getItem(
+        "smartflow:rechnungen:expanded-card-ids:v1",
+      );
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setExpandedInvoiceCardIds(
+            new Set(
+              parsed.filter(
+                (value: unknown): value is string => typeof value === "string",
+              ),
+            ),
+          );
+          restored = true;
+        }
+      }
+    } catch {
+      window.localStorage.removeItem(
+        "smartflow:rechnungen:expanded-card-ids:v1",
+      );
+    }
+    setInvoiceCardInitialStateApplied(restored);
+    setInvoiceCardExpansionRestored(true);
+  }, []);
   const [editingInvoiceSiteKey, setEditingInvoiceSiteKey] = useState<string | null>(null);
   const [newInvoiceExecutionSite, setNewInvoiceExecutionSite] =
     useState<InvoiceExecutionSite | null>(null);
@@ -2024,6 +2056,44 @@ export default function RechnungenPage() {
   const unpaidCount = invoices.filter((i) => i.status !== "Bezahlt").length;
   const paidCount = invoices.filter((i) => i.status === "Bezahlt").length;
   const visibleInvoiceIds = sorted.slice(0, visibleCount).map((invoice) => invoice.id);
+  const visibleInvoiceIdsKey = visibleInvoiceIds.join("\u241f");
+
+  useEffect(() => {
+    if (
+      !invoiceCardExpansionRestored ||
+      invoiceCardInitialStateApplied ||
+      visibleInvoiceIds.length === 0
+    )
+      return;
+    setExpandedInvoiceCardIds(new Set(visibleInvoiceIds));
+    setInvoiceCardInitialStateApplied(true);
+  }, [
+    invoiceCardExpansionRestored,
+    invoiceCardInitialStateApplied,
+    visibleInvoiceIdsKey,
+  ]);
+
+  useEffect(() => {
+    if (
+      !invoiceCardExpansionRestored ||
+      !invoiceCardInitialStateApplied ||
+      typeof window === "undefined"
+    )
+      return;
+    try {
+      window.localStorage.setItem(
+        "smartflow:rechnungen:expanded-card-ids:v1",
+        JSON.stringify(Array.from(expandedInvoiceCardIds)),
+      );
+    } catch {
+      // Local storage can be unavailable in strict/private browser modes.
+    }
+  }, [
+    invoiceCardExpansionRestored,
+    invoiceCardInitialStateApplied,
+    expandedInvoiceCardIds,
+  ]);
+
   const allVisibleInvoiceCardsExpanded =
     visibleInvoiceIds.length > 0 &&
     visibleInvoiceIds.every((id) => expandedInvoiceCardIds.has(id));
@@ -2038,9 +2108,14 @@ export default function RechnungenPage() {
   };
 
   const toggleAllInvoiceCards = () => {
-    setExpandedInvoiceCardIds(
-      allVisibleInvoiceCardsExpanded ? new Set() : new Set(visibleInvoiceIds),
-    );
+    setExpandedInvoiceCardIds((current) => {
+      const next = new Set(current);
+      visibleInvoiceIds.forEach((id) => {
+        if (allVisibleInvoiceCardsExpanded) next.delete(id);
+        else next.add(id);
+      });
+      return next;
+    });
   };
 
   const toggleInvoiceServiceCard = (id: string) => {
@@ -2477,7 +2552,8 @@ export default function RechnungenPage() {
                                         />
                                       </button>
                                     )}
-                                    {invoiceAppointmentLabel && (
+                                  </div>
+                                  {invoiceAppointmentLabel && (
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -2486,7 +2562,7 @@ export default function RechnungenPage() {
                                           event.preventDefault();
                                           event.stopPropagation();
                                         }}
-                                        className="group relative inline-flex min-w-0 max-w-[12rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 sm:inline-flex"
+                                        className="group relative ml-auto mr-3 inline-flex min-w-0 max-w-[12rem] shrink items-center sm:mr-5 rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 sm:inline-flex"
                                       >
                                         <span className="truncate">
                                           {invoiceAppointmentLabel}
@@ -2498,8 +2574,7 @@ export default function RechnungenPage() {
                                         </InvoiceViewportTooltip>
                                       </button>
                                     )}
-                                  </div>
-                                  <div className="ml-auto shrink-0 text-right">
+                                  <div className="shrink-0 text-right">
                                     <div className="font-mono text-sm font-bold tabular-nums">
                                       {formatCurrency(
                                         Number(inv?.total ?? 0),
@@ -2547,15 +2622,13 @@ export default function RechnungenPage() {
                                     Zusammengeführt · {mergedCount}
                                   </span>
                                 )}
-                                {invoiceExecutionSites.length > 1 && (
-                                  <span className="rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-800">
-                                    Ausführungsorte · {invoiceExecutionSites.length}
-                                  </span>
-                                )}
-                                {executionSite && invoiceExecutionSites.length === 1 && (
+                                {invoiceExecutionSites.length > 0 && (
                                   <button
                                     type="button"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onTouchStart={(event) => event.stopPropagation()}
                                     onClick={(event) => {
+                                      event.preventDefault();
                                       event.stopPropagation();
                                       openEditInvoice(inv);
                                       window.setTimeout(
@@ -2568,45 +2641,15 @@ export default function RechnungenPage() {
                                   >
                                     <MapPin className="h-3 w-3 shrink-0" />
                                     <span className="truncate">
-                                      {executionSite.siteName ||
-                                        executionSite.siteAddress ||
-                                        [executionSite.sitePlz, executionSite.siteCity]
-                                          .filter(Boolean)
-                                          .join(" ")}
+                                      {invoiceExecutionSites.length > 1
+                                        ? `Ausführungsorte · ${invoiceExecutionSites.length}`
+                                        : executionSite?.siteName ||
+                                          executionSite?.siteAddress ||
+                                          "Ausführungsort"}
                                     </span>
-                                    <span className="pointer-events-none absolute bottom-full left-0 z-[90] mb-2 hidden w-[min(25rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block group-focus-visible:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-                                      <span className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
-                                        <MapPin className="h-4 w-4" /> Ausführungsadresse
-                                      </span>
-                                      <span className="grid grid-cols-[76px_1fr] gap-x-2 gap-y-1.5">
-                                        {executionSite.siteName && (
-                                          <>
-                                            <span className="text-muted-foreground">Objekt:</span>
-                                            <span className="break-words font-bold text-slate-950 dark:text-slate-50">
-                                              {executionSite.siteName}
-                                            </span>
-                                          </>
-                                        )}
-                                        <span className="text-muted-foreground">Strasse:</span>
-                                        <span className="break-words">
-                                          {executionSite.siteAddress || "–"}
-                                        </span>
-                                        <span className="text-muted-foreground">PLZ / Ort:</span>
-                                        <span className="break-words">
-                                          {[executionSite.sitePlz, executionSite.siteCity]
-                                            .filter(Boolean)
-                                            .join(" ") || "–"}
-                                        </span>
-                                        {executionSite.siteNote && (
-                                          <>
-                                            <span className="text-muted-foreground">Hinweis:</span>
-                                            <span className="break-words">
-                                              {executionSite.siteNote}
-                                            </span>
-                                          </>
-                                        )}
-                                      </span>
-                                    </span>
+                                    <InvoiceExecutionSitesTooltip
+                                      sites={invoiceExecutionSites}
+                                    />
                                   </button>
                                 )}
                                 {isCustomerDataIncomplete(inv.customer) && (
