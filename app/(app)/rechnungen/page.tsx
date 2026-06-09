@@ -15,6 +15,7 @@ import {
   Archive,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Undo2,
   MessageCircle,
   MapPin,
@@ -143,6 +144,69 @@ const compactInvoiceValue = (value: unknown) =>
   String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+
+const normalizeInvoiceServiceName = (value: unknown) =>
+  compactInvoiceValue(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const splitInvoicePdfText = (value?: string | null) => {
+  const source = String(value || "").trim();
+  const marker = "Titel: ";
+  if (!source.startsWith(marker)) return { pdfTitle: "", notes: source };
+  const [firstLine, ...rest] = source.split(/\n/);
+  return {
+    pdfTitle: firstLine.slice(marker.length).trim(),
+    notes: rest.join("\n").replace(/^\s+/, "").trim(),
+  };
+};
+
+const joinInvoicePdfText = (pdfTitle: string, notes: string) => {
+  const title = compactInvoiceValue(pdfTitle);
+  const body = String(notes || "").trim();
+  if (!title) return body;
+  return body ? `Titel: ${title}\n\n${body}` : `Titel: ${title}`;
+};
+
+const uniqueInvoiceLines = (values: Array<string | null | undefined>) =>
+  Array.from(
+    new Map(
+      values
+        .flatMap((value) => String(value || "").split(/\n+/g))
+        .map((line) => compactInvoiceValue(line))
+        .filter(Boolean)
+        .map((line) => [normalizeInvoiceServiceName(line), line]),
+    ).values(),
+  );
+
+const cleanInvoiceCustomerMessage = (value?: string | null) =>
+  String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/^(?:WhatsApp|Telegram):\s*\n?/i, "")
+    .split(/---\s*(?:Übersetzung|Uebersetzung) \(automatisch\)\s*---/i)[0]
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^\s*\[META\]/i.test(trimmed)) return false;
+      if (/^\s*\[(?:Titel|Title|Priorität|Prioritaet|Priority)\s*:/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const isPrimaryInvoiceInformationLine = (value?: string | null) => {
+  const text = normalizeInvoiceServiceName(value);
+  if (!text) return false;
+  return (
+    /\b(?:termin|datum|uhr|kontakt|telefon|tel|sms|whatsapp|mail|email|anrufen|melden|arbeitsbeginn|ankunft|vor ort)\b/.test(text) ||
+    /\b\d{1,2}[:.]\d{2}\b/.test(text) ||
+    /\b(?:0|\+41)[0-9\s()./-]{7,}\b/.test(text)
+  );
+};
 
 function collectInvoiceExecutionSites(source: {
   items?: any[] | null;
@@ -287,6 +351,7 @@ export default function RechnungenPage() {
     customerId: "",
     invoiceDate: new Date().toISOString().split("T")[0],
     paymentDays: "30",
+    pdfTitle: "",
     notes: "",
     orderIds: [] as string[],
   });
@@ -298,7 +363,17 @@ export default function RechnungenPage() {
   });
 
   const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
+  const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
+  const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
+  const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (serviceActionMenuIndex === null) return;
+    const closeMenu = () => setServiceActionMenuIndex(null);
+    document.addEventListener("click", closeMenu);
+    return () => document.removeEventListener("click", closeMenu);
+  }, [serviceActionMenuIndex]);
   const [downloading, setDownloading] = useState<string | null>(null);
   // Native action menus avoid a full invoice-list render on open/close.
   const [vatRate, setVatRate] = useState(8.1);
@@ -754,10 +829,14 @@ export default function RechnungenPage() {
       customerId: "",
       invoiceDate: new Date().toISOString().split("T")[0],
       paymentDays: "30",
+      pdfTitle: "",
       notes: "",
       orderIds: [],
     });
     setItems([getEmptyItem()]);
+    setExpandedItemIndex(0);
+    setServiceActionMenuIndex(null);
+    setEditingExecutionAddress(false);
     setLinkedOrderData(null);
     setEditOrderCtx(null);
     setShowNewCustomer(false);
@@ -812,15 +891,20 @@ export default function RechnungenPage() {
     );
     // Strip forwarded customer message from Bemerkungen (legacy data cleanup)
     const cleanNotes = stripForwardedMessage(inv.notes, lo?.notes);
+    const invoicePdfText = splitInvoicePdfText(cleanNotes);
     setForm({
       customerId: inv.customerId,
       invoiceDate: inv.invoiceDate
         ? new Date(inv.invoiceDate).toISOString().split("T")[0]
         : "",
       paymentDays: "30",
-      notes: cleanNotes,
+      pdfTitle: invoicePdfText.pdfTitle,
+      notes: invoicePdfText.notes,
       orderIds: [],
     });
+    setExpandedItemIndex(null);
+    setServiceActionMenuIndex(null);
+    setEditingExecutionAddress(false);
     setItems(
       inv.items?.length > 0
         ? inv.items.map((it: any) => ({
@@ -924,9 +1008,25 @@ export default function RechnungenPage() {
     if (!dialogOpen) setPendingOpenCustomerEditor(null);
   }, [dialogOpen]);
 
-  const addItem = () => setItems([...items, getEmptyItem()]);
-  const removeItem = (i: number) =>
-    setItems(items?.filter((_: any, idx: number) => idx !== i) ?? []);
+  const addItem = () => {
+    const nextIndex = items.length;
+    setItems([...items, getEmptyItem()]);
+    setExpandedItemIndex(nextIndex);
+    setServiceActionMenuIndex(null);
+  };
+  const removeItem = (i: number) => {
+    if (items.length <= 1) {
+      setItems([getEmptyItem()]);
+      setExpandedItemIndex(0);
+      setServiceActionMenuIndex(null);
+      return;
+    }
+    setItems(items.filter((_: any, idx: number) => idx !== i));
+    setExpandedItemIndex((current) =>
+      current === i ? null : current != null && current > i ? current - 1 : current,
+    );
+    setServiceActionMenuIndex(null);
+  };
   const updateItem = (i: number, field: string, value: string) => {
     const updated = [...(items ?? [])];
     if (updated[i]) (updated[i] as any)[field] = value;
@@ -960,6 +1060,88 @@ export default function RechnungenPage() {
           sensitivity: "base",
         }),
       ),
+    );
+  };
+
+  const saveInvoiceItemToServices = async (index: number) => {
+    const item = items[index];
+    const name = compactInvoiceValue(item?.description);
+    const price = Number(item?.unitPrice || 0);
+    const quantity = Number(item?.quantity || 0);
+    const unit = compactInvoiceValue(item?.unit);
+    if (!name || price <= 0 || quantity <= 0 || !unit) {
+      toast.error("Leistung, Preis, Menge und Einheit zuerst prüfen");
+      return;
+    }
+
+    const existing = services.find(
+      (service: any) =>
+        normalizeInvoiceServiceName(service?.name) ===
+        normalizeInvoiceServiceName(name),
+    );
+
+    if (existing) {
+      const sameUnit = compactInvoiceValue(existing.unit) === unit;
+      const samePrice =
+        Math.abs(Number(existing.defaultPrice || 0) - price) < 0.001;
+      if (sameUnit && samePrice) {
+        onItemServiceSelect(index, existing.name, existing);
+        toast.success("Leistung ist bereits passend im Leistungskatalog");
+        setServiceActionMenuIndex(null);
+        return;
+      }
+      setConfirmDialog({
+        title: "Leistungskatalog aktualisieren?",
+        message: `${name} ist bereits vorhanden. Preis und Einheit mit den Rechnungswerten ersetzen?`,
+        action: async () => {
+          const response = await fetch("/api/services", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: existing.id,
+              name: existing.name || name,
+              defaultPrice: price,
+              unit,
+            }),
+          });
+          if (!response.ok) {
+            toast.error("Leistungskatalog konnte nicht aktualisiert werden");
+            return;
+          }
+          const savedService: ServiceOption = await response.json();
+          handleServiceCreated(savedService);
+          onItemServiceSelect(index, savedService.name, savedService);
+          toast.success("Leistungskatalog wurde aktualisiert");
+        },
+      });
+      setServiceActionMenuIndex(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, defaultPrice: price, unit }),
+      });
+      if (!response.ok) throw new Error("service_create_failed");
+      const savedService: ServiceOption = await response.json();
+      handleServiceCreated(savedService);
+      onItemServiceSelect(index, savedService.name, savedService);
+      toast.success("Leistung wurde in den Leistungskatalog übernommen");
+    } catch {
+      toast.error("Leistung konnte nicht übernommen werden");
+    } finally {
+      setServiceActionMenuIndex(null);
+    }
+  };
+
+  const updateInvoiceExecutionSite = (
+    field: keyof InvoiceExecutionSite,
+    value: string,
+  ) => {
+    setItems((current) =>
+      current.map((item) => ({ ...item, [field]: value || null })),
     );
   };
 
@@ -1010,7 +1192,13 @@ export default function RechnungenPage() {
       const res = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, items, vatRate, currency }),
+        body: JSON.stringify({
+          ...form,
+          notes: joinInvoicePdfText(form.pdfTitle, form.notes),
+          items,
+          vatRate,
+          currency,
+        }),
       });
       if (res.ok) {
         toast.success("Rechnung erstellt");
@@ -1021,6 +1209,7 @@ export default function RechnungenPage() {
           customerId: "",
           invoiceDate: new Date().toISOString().split("T")[0],
           paymentDays: "30",
+          pdfTitle: "",
           notes: "",
           orderIds: [],
         });
@@ -1041,7 +1230,7 @@ export default function RechnungenPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status: editingInvoice.status,
-          notes: form.notes,
+          notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           invoiceDate: form.invoiceDate,
           items,
           vatRate,
@@ -1073,7 +1262,7 @@ export default function RechnungenPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status: "Erledigt",
-          notes: form.notes,
+          notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           invoiceDate: form.invoiceDate,
           items,
           vatRate,
@@ -1417,6 +1606,34 @@ export default function RechnungenPage() {
                   const visibleItems = (inv.items || []).filter((item: any) =>
                     Boolean(String(item?.description || "").trim()),
                   );
+                  const reviewItems = visibleItems
+                    .map((item: any) => {
+                      const quantity = Number(item?.quantity ?? 0);
+                      const unitPrice = Number(item?.unitPrice ?? 0);
+                      const description = compactInvoiceValue(item?.description) || "Unbenannte Leistung";
+                      const unit = compactInvoiceValue(item?.unit);
+                      const matchedService = services.find(
+                        (service: any) =>
+                          normalizeInvoiceServiceName(service?.name) ===
+                          normalizeInvoiceServiceName(description),
+                      );
+                      const reasons: string[] = [];
+                      if (!compactInvoiceValue(item?.description)) reasons.push("Leistung fehlt");
+                      if (!unit) reasons.push("Einheit fehlt");
+                      if (quantity <= 0) reasons.push("Menge fehlt");
+                      if (unitPrice <= 0) reasons.push("Preis fehlt");
+                      if (reasons.length === 0 && !matchedService)
+                        reasons.push("Nicht im Leistungskatalog");
+                      if (
+                        reasons.length === 0 &&
+                        matchedService &&
+                        (compactInvoiceValue(matchedService.unit) !== unit ||
+                          Math.abs(Number(matchedService.defaultPrice || 0) - unitPrice) >= 0.001)
+                      )
+                        reasons.push("Preis oder Einheit weicht vom Katalog ab");
+                      return reasons.length > 0 ? { description, reasons } : null;
+                    })
+                    .filter(Boolean) as Array<{ description: string; reasons: string[] }>;
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   return (
                     <motion.div
@@ -1675,36 +1892,116 @@ export default function RechnungenPage() {
                                   ))}
                                 </select>
                                 {inv?.customer?.phone && (
-                                  <a
-                                    href={`tel:${String(inv.customer.phone).replace(/\s+/g, "")}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
-                                    title={`Anrufen: ${inv.customer.phone}`}
+                                  <div
+                                    className="group relative"
+                                    onClick={(event) => event.stopPropagation()}
                                   >
-                                    <Phone className="h-4 w-4" />
-                                  </a>
+                                    <a
+                                      href={`tel:${String(inv.customer.phone).replace(/\s+/g, "")}`}
+                                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                                      aria-label={`Anrufen: ${inv.customer.phone}`}
+                                    >
+                                      <Phone className="h-4 w-4" />
+                                    </a>
+                                    <div className="pointer-events-none absolute bottom-full left-0 z-[80] mb-2 hidden w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-3 text-left shadow-xl group-hover:block group-focus-within:block dark:bg-slate-950">
+                                      <div className="text-xs font-semibold text-blue-800 dark:text-blue-200">
+                                        Telefonkontakt
+                                      </div>
+                                      <div className="mt-1 font-medium text-foreground">
+                                        {inv?.customer?.name || "Kunde"}
+                                      </div>
+                                      <div className="mt-1 break-words font-mono text-sm text-blue-700 dark:text-blue-300">
+                                        {inv.customer.phone}
+                                      </div>
+                                      <div className="mt-2 text-xs text-muted-foreground">
+                                        Antippen oder anklicken, um anzurufen.
+                                      </div>
+                                    </div>
+                                  </div>
                                 )}
                                 {inv?.customer?.email && (
-                                  <a
-                                    href={`mailto:${inv.customer.email}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
-                                    title={`E-Mail: ${inv.customer.email}`}
+                                  <div
+                                    className="group relative"
+                                    onClick={(event) => event.stopPropagation()}
                                   >
-                                    <Mail className="h-4 w-4" />
-                                  </a>
+                                    <a
+                                      href={`mailto:${inv.customer.email}`}
+                                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                                      aria-label={`E-Mail: ${inv.customer.email}`}
+                                    >
+                                      <Mail className="h-4 w-4" />
+                                    </a>
+                                    <div className="pointer-events-none absolute bottom-full left-0 z-[80] mb-2 hidden w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-3 text-left shadow-xl group-hover:block group-focus-within:block dark:bg-slate-950">
+                                      <div className="text-xs font-semibold text-blue-800 dark:text-blue-200">
+                                        E-Mail-Kontakt
+                                      </div>
+                                      <div className="mt-1 font-medium text-foreground">
+                                        {inv?.customer?.name || "Kunde"}
+                                      </div>
+                                      <div className="mt-1 break-all text-sm text-blue-700 dark:text-blue-300">
+                                        {inv.customer.email}
+                                      </div>
+                                      <div className="mt-2 text-xs text-muted-foreground">
+                                        Antippen oder anklicken, um eine E-Mail zu schreiben.
+                                      </div>
+                                    </div>
+                                  </div>
                                 )}
-                                {inv.items?.some(
-                                  (it: any) =>
-                                    Number(it.quantity) <= 0 ||
-                                    Number(it.unitPrice) <= 0,
-                                ) && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="h-9 px-3 bg-red-100 text-red-800 border border-red-300"
+                                {reviewItems.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openEditInvoice(inv);
+                                      setExpandedItemIndex(
+                                        Math.max(
+                                          0,
+                                          (inv.items || []).findIndex((item: any) => {
+                                            const quantity = Number(item?.quantity ?? 0);
+                                            const unitPrice = Number(item?.unitPrice ?? 0);
+                                            const unit = compactInvoiceValue(item?.unit);
+                                            const match = services.find(
+                                              (service: any) =>
+                                                normalizeInvoiceServiceName(service?.name) ===
+                                                normalizeInvoiceServiceName(item?.description),
+                                            );
+                                            return (
+                                              !compactInvoiceValue(item?.description) ||
+                                              !unit ||
+                                              quantity <= 0 ||
+                                              unitPrice <= 0 ||
+                                              !match ||
+                                              compactInvoiceValue(match?.unit) !== unit ||
+                                              Math.abs(Number(match?.defaultPrice || 0) - unitPrice) >= 0.001
+                                            );
+                                          }),
+                                        ),
+                                      );
+                                    }}
+                                    className="group relative inline-flex h-9 items-center rounded-lg border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200"
                                   >
-                                    Preis/Menge prüfen
-                                  </Badge>
+                                    Leistungen prüfen · {reviewItems.length}
+                                    <div className="pointer-events-none absolute bottom-full left-0 z-[80] mb-2 hidden w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-amber-300 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus-within:block dark:bg-slate-950">
+                                      <div className="font-semibold text-amber-900 dark:text-amber-200">
+                                        Leistungen prüfen
+                                      </div>
+                                      <div className="mt-2 space-y-2">
+                                        {reviewItems.map((entry, reviewIndex) => (
+                                          <div
+                                            key={`${entry.description}-${reviewIndex}`}
+                                            className="rounded-lg border border-amber-200 bg-amber-50 p-2"
+                                          >
+                                            <div className="font-medium text-foreground">
+                                              {entry.description}
+                                            </div>
+                                            <div className="mt-0.5 text-xs text-amber-900">
+                                              {entry.reasons.join(" · ")}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </button>
                                 )}
                                 <div className="ml-auto text-right">
                                   {dueLabel && (
@@ -2178,26 +2475,88 @@ export default function RechnungenPage() {
                   if (!executionSite) return null;
                   return (
                     <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3">
-                      <div className="mb-2 flex items-center gap-2 font-semibold">
-                        <MapPin className="h-4 w-4 text-cyan-700" />
-                        Ausführungsadresse
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 font-semibold">
+                          <MapPin className="h-4 w-4 text-cyan-700" />
+                          Ausführungsadresse
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingExecutionAddress((current) => !current)
+                          }
+                          className="rounded-md border border-cyan-300 bg-white px-2.5 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan-50"
+                        >
+                          {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
+                        </button>
                       </div>
-                      <div className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-1 text-sm">
-                        <span className="text-muted-foreground">Objekt:</span>
-                        <span className="font-medium">
-                          {executionSite.siteName || "—"}
-                        </span>
-                        <span className="text-muted-foreground">Strasse:</span>
-                        <span>{executionSite.siteAddress || "—"}</span>
-                        <span className="text-muted-foreground">
-                          PLZ / Ort:
-                        </span>
-                        <span>
-                          {[executionSite.sitePlz, executionSite.siteCity]
-                            .filter(Boolean)
-                            .join(" ") || "—"}
-                        </span>
-                      </div>
+                      {editingExecutionAddress ? (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="sm:col-span-2">
+                            <Label className="text-xs">Objekt / Bereich</Label>
+                            <Input
+                              value={executionSite.siteName || ""}
+                              onChange={(event: any) =>
+                                updateInvoiceExecutionSite(
+                                  "siteName",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <Label className="text-xs">Strasse</Label>
+                            <Input
+                              value={executionSite.siteAddress || ""}
+                              onChange={(event: any) =>
+                                updateInvoiceExecutionSite(
+                                  "siteAddress",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">PLZ</Label>
+                            <Input
+                              value={executionSite.sitePlz || ""}
+                              onChange={(event: any) =>
+                                updateInvoiceExecutionSite(
+                                  "sitePlz",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Ort</Label>
+                            <Input
+                              value={executionSite.siteCity || ""}
+                              onChange={(event: any) =>
+                                updateInvoiceExecutionSite(
+                                  "siteCity",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-1 text-sm">
+                          <span className="text-muted-foreground">Objekt:</span>
+                          <span className="font-medium">
+                            {executionSite.siteName || "—"}
+                          </span>
+                          <span className="text-muted-foreground">Strasse:</span>
+                          <span>{executionSite.siteAddress || "—"}</span>
+                          <span className="text-muted-foreground">PLZ / Ort:</span>
+                          <span>
+                            {[executionSite.sitePlz, executionSite.siteCity]
+                              .filter(Boolean)
+                              .join(" ") || "—"}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -2236,140 +2595,229 @@ export default function RechnungenPage() {
 
                     <div className="space-y-2">
                       {items?.map((item: InvoiceItem, idx: number) => {
-                        const lineTotal =
-                          Number(item?.unitPrice ?? 0) *
-                          Number(item?.quantity ?? 0);
+                        const quantity = Number(item?.quantity ?? 0);
+                        const unitPrice = Number(item?.unitPrice ?? 0);
+                        const lineTotal = unitPrice * quantity;
+                        const matchedService = services.find(
+                          (service: any) =>
+                            normalizeInvoiceServiceName(service?.name) ===
+                            normalizeInvoiceServiceName(item?.description),
+                        );
+                        const hasMissingValues =
+                          !compactInvoiceValue(item?.description) ||
+                          !compactInvoiceValue(item?.unit) ||
+                          quantity <= 0 ||
+                          unitPrice <= 0;
+                        const catalogMismatch = Boolean(
+                          matchedService &&
+                            (compactInvoiceValue(matchedService.unit) !==
+                              compactInvoiceValue(item?.unit) ||
+                              Math.abs(
+                                Number(matchedService.defaultPrice || 0) - unitPrice,
+                              ) >= 0.001),
+                        );
+                        const itemNeedsReview =
+                          hasMissingValues || !matchedService || catalogMismatch;
+                        const isExpanded = expandedItemIndex === idx;
+                        const isMenuOpen = serviceActionMenuIndex === idx;
+
                         return (
-                          <details
+                          <div
                             key={idx}
-                            className="group rounded-xl border bg-muted/10"
-                            open={!editingInvoice && idx === 0}
+                            className={`relative overflow-visible rounded-xl border transition-colors ${
+                              isExpanded
+                                ? "border-sky-200 bg-sky-50/40 ring-1 ring-sky-100"
+                                : itemNeedsReview
+                                  ? "border-amber-200 bg-amber-50/20"
+                                  : "border-slate-200 bg-background"
+                            }`}
                           >
-                            <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
-                              <div className="min-w-0">
-                                <div className="truncate font-medium">
-                                  {item?.description || "Neue Leistung"}
-                                </div>
-                                <div className="mt-0.5 text-xs text-muted-foreground">
-                                  {item?.quantity || "0"} {item?.unit || ""} ×{" "}
-                                  {formatCurrency(
-                                    Number(item?.unitPrice || 0),
-                                    currency,
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedItemIndex((current) =>
+                                    current === idx ? null : idx,
+                                  );
+                                  setServiceActionMenuIndex(null);
+                                }}
+                                className="min-w-0 text-left"
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="truncate font-medium">
+                                    {item?.description || "Neue Leistung"}
+                                  </span>
+                                  {itemNeedsReview && (
+                                    <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                      Prüfen
+                                    </span>
                                   )}
                                 </div>
-                              </div>
-                              <div className="font-mono font-semibold">
-                                {formatCurrency(lineTotal, currency)}
-                              </div>
-                            </summary>
-                            <div className="space-y-3 border-t p-3">
-                              <div className="flex items-start gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <ServiceCombobox
-                                    value={item?.description ?? ""}
-                                    services={services as ServiceOption[]}
-                                    onChange={(name, svc) =>
-                                      onItemServiceSelect(idx, name, svc)
-                                    }
-                                    onServiceCreated={handleServiceCreated}
-                                    currentPrice={
-                                      item?.unitPrice != null
-                                        ? String(item.unitPrice)
-                                        : undefined
-                                    }
-                                    currentUnit={item?.unit}
-                                    contextLabel="Rechnung"
-                                  />
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  {quantity > 0 ? quantity : "prüfen"} {item?.unit || "Einheit prüfen"} × {" "}
+                                  {unitPrice > 0
+                                    ? formatCurrency(unitPrice, currency)
+                                    : "Preis prüfen"}
                                 </div>
-                                {items?.length > 1 && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="shrink-0 text-destructive"
-                                    onClick={() => removeItem(idx)}
-                                    title="Leistung löschen"
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedItemIndex((current) =>
+                                    current === idx ? null : idx,
+                                  );
+                                  setServiceActionMenuIndex(null);
+                                }}
+                                className="flex items-center gap-2 whitespace-nowrap"
+                              >
+                                <span className="font-mono font-semibold">
+                                  {formatCurrency(lineTotal, currency)}
+                                </span>
+                                <ChevronDown
+                                  className={`h-4 w-4 text-muted-foreground transition-transform ${
+                                    isExpanded ? "rotate-180" : ""
+                                  }`}
+                                />
+                              </button>
+
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setServiceActionMenuIndex((current) =>
+                                      current === idx ? null : idx,
+                                    );
+                                  }}
+                                  className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                  title="Aktionen"
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </button>
+                                {isMenuOpen && (
+                                  <div
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="absolute bottom-full right-0 z-50 mb-1 w-60 rounded-md border bg-background py-1 text-sm shadow-xl"
                                   >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                    {compactInvoiceValue(item?.description) && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          saveInvoiceItemToServices(idx)
+                                        }
+                                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                      >
+                                        <Plus className="h-3.5 w-3.5" />
+                                        In Leistungskatalog übernehmen
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => removeItem(idx)}
+                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                      Löschen
+                                    </button>
+                                  </div>
                                 )}
                               </div>
-                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                <div>
-                                  <Label className="text-xs">Einheit</Label>
-                                  <select
-                                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                    value={item?.unit ?? "Stunde"}
-                                    onChange={(e: any) =>
-                                      updateItem(
-                                        idx,
-                                        "unit",
-                                        e?.target?.value ?? "Stunde",
-                                      )
-                                    }
-                                  >
-                                    <option value="Stunde">Stunde</option>
-                                    <option value="Tag">Tag</option>
-                                    <option value="Pauschal">Pauschal</option>
-                                    <option value="Meter">Meter</option>
-                                    <option value="Quadratmeter">
-                                      Quadratmeter
-                                    </option>
-                                    <option value="Kubikmeter">
-                                      Kubikmeter
-                                    </option>
-                                    <option value="Stück">Stück</option>
-                                    <option value="Kilogramm">Kilogramm</option>
-                                    <option value="Tonne">Tonne</option>
-                                    <option value="Liter">Liter</option>
-                                  </select>
-                                </div>
-                                <div>
-                                  <Label className="text-xs">Menge</Label>
-                                  <Input
-                                    type="number"
-                                    step="0.25"
-                                    placeholder="prüfen"
-                                    className={`h-9 ${Number(item?.quantity ?? 0) <= 0 ? "border-red-500 bg-red-50" : ""}`}
-                                    value={
-                                      Number(item?.quantity ?? 0) <= 0
-                                        ? ""
-                                        : (item?.quantity ?? "")
-                                    }
-                                    onChange={(e: any) =>
-                                      updateItem(
-                                        idx,
-                                        "quantity",
-                                        e?.target?.value ?? "0",
-                                      )
-                                    }
-                                  />
-                                </div>
-                                <div>
-                                  <Label className="text-xs">
-                                    Preis ({currency})
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="0.05"
-                                    placeholder="prüfen"
-                                    className={`h-9 ${Number(item?.unitPrice ?? 0) <= 0 ? "border-red-500 bg-red-50" : ""}`}
-                                    value={
-                                      Number(item?.unitPrice ?? 0) <= 0
-                                        ? ""
-                                        : (item?.unitPrice ?? "")
-                                    }
-                                    onChange={(e: any) =>
-                                      updateItem(
-                                        idx,
-                                        "unitPrice",
-                                        e?.target?.value ?? "0",
-                                      )
-                                    }
-                                  />
-                                </div>
-                              </div>
                             </div>
-                          </details>
+
+                            {isExpanded && (
+                              <div className="space-y-3 border-t border-sky-100 p-3">
+                                <ServiceCombobox
+                                  value={item?.description ?? ""}
+                                  services={services as ServiceOption[]}
+                                  onChange={(name, svc) =>
+                                    onItemServiceSelect(idx, name, svc)
+                                  }
+                                  onServiceCreated={handleServiceCreated}
+                                  currentPrice={
+                                    item?.unitPrice != null
+                                      ? String(item.unitPrice)
+                                      : undefined
+                                  }
+                                  currentUnit={item?.unit}
+                                  contextLabel="Rechnung"
+                                />
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                  <div>
+                                    <Label className="text-xs">Einheit</Label>
+                                    <select
+                                      className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                      value={item?.unit ?? "Stunde"}
+                                      onChange={(event: any) =>
+                                        updateItem(
+                                          idx,
+                                          "unit",
+                                          event?.target?.value ?? "Stunde",
+                                        )
+                                      }
+                                    >
+                                      <option value="Stunde">Stunde</option>
+                                      <option value="Tag">Tag</option>
+                                      <option value="Pauschal">Pauschal</option>
+                                      <option value="Meter">Meter</option>
+                                      <option value="Quadratmeter">Quadratmeter</option>
+                                      <option value="Kubikmeter">Kubikmeter</option>
+                                      <option value="Stück">Stück</option>
+                                      <option value="Kilogramm">Kilogramm</option>
+                                      <option value="Tonne">Tonne</option>
+                                      <option value="Liter">Liter</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">Menge</Label>
+                                    <Input
+                                      type="number"
+                                      step="0.25"
+                                      placeholder="prüfen"
+                                      className={`h-9 ${quantity <= 0 ? "border-red-500 bg-red-50" : ""}`}
+                                      value={quantity <= 0 ? "" : item?.quantity ?? ""}
+                                      onChange={(event: any) =>
+                                        updateItem(
+                                          idx,
+                                          "quantity",
+                                          event?.target?.value ?? "0",
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">Preis ({currency})</Label>
+                                    <Input
+                                      type="number"
+                                      step="0.05"
+                                      placeholder="prüfen"
+                                      className={`h-9 ${unitPrice <= 0 ? "border-red-500 bg-red-50" : ""}`}
+                                      value={unitPrice <= 0 ? "" : item?.unitPrice ?? ""}
+                                      onChange={(event: any) =>
+                                        updateItem(
+                                          idx,
+                                          "unitPrice",
+                                          event?.target?.value ?? "0",
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                                {itemNeedsReview && (
+                                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                    <div className="font-semibold">Manuell prüfen</div>
+                                    <div className="mt-0.5">
+                                      {hasMissingValues
+                                        ? "Leistung, Einheit, Menge oder Preis vervollständigen."
+                                        : !matchedService
+                                          ? "Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen."
+                                          : "Preis oder Einheit weicht vom Leistungskatalog ab."}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         );
                       }) ?? []}
                     </div>
@@ -2539,112 +2987,157 @@ export default function RechnungenPage() {
                     <h3 className="text-base font-semibold">
                       Text für Rechnung / PDF
                     </h3>
-                    <p className="mb-2 text-xs text-muted-foreground">
-                      Optionaler Zusatztext für den Kunden. Interne
-                      Arbeitsinformationen gehören nicht hier hinein.
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Nur für den Kunden sichtbar. Beide Felder sind optional.
                     </p>
-                    <textarea
-                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      rows={4}
-                      placeholder="Optionaler Hinweis oder Zusatztext im Rechnungs-PDF..."
-                      value={form.notes}
-                      onChange={(e: any) =>
-                        setForm({ ...form, notes: e?.target?.value ?? "" })
-                      }
-                    />
+                    <div className="space-y-3">
+                      <div>
+                        <Label className="text-xs">Titel im Rechnungs-PDF</Label>
+                        <Input
+                          placeholder="z. B. Zusätzliche Informationen"
+                          value={form.pdfTitle}
+                          onChange={(event: any) =>
+                            setForm({
+                              ...form,
+                              pdfTitle: event?.target?.value ?? "",
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Text im Rechnungs-PDF</Label>
+                        <textarea
+                          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          rows={4}
+                          placeholder="Optionaler Hinweis oder Zusatztext für das Rechnungs-PDF..."
+                          value={form.notes}
+                          onChange={(event: any) =>
+                            setForm({
+                              ...form,
+                              notes: event?.target?.value ?? "",
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
                   </div>
 
-                  {editOrderCtx && (
-                    <div className="space-y-2">
-                      <details className="rounded-xl border bg-amber-50/30">
-                        <summary className="cursor-pointer list-none px-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
-                          Interne Informationen
-                        </summary>
-                        <div className="space-y-3 border-t p-3 text-sm">
-                          {editOrderCtx.description && (
-                            <div>
-                              <div className="text-xs font-semibold text-muted-foreground">
-                                Arbeitszusammenfassung
-                              </div>
-                              <p>{editOrderCtx.description}</p>
+                  {editOrderCtx && (() => {
+                    const parsed = splitSpecialNotes(editOrderCtx.specialNotes);
+                    const hazards = uniqueInvoiceLines(parsed.safetyWarnings || []);
+                    const allHints = uniqueInvoiceLines(parsed.jobHints || []);
+                    const primaryHints = allHints.filter(isPrimaryInvoiceInformationLine);
+                    const primaryKeys = new Set(
+                      primaryHints.map((line) => normalizeInvoiceServiceName(line)),
+                    );
+                    const otherHints = allHints.filter(
+                      (line) => !primaryKeys.has(normalizeInvoiceServiceName(line)),
+                    );
+                    const customerMessages = Array.from(
+                      new Map(
+                        [
+                          linkedOrderData?.notes,
+                          ...(editingInvoice?.orders || []).map((order) => order?.notes),
+                        ]
+                          .map(cleanInvoiceCustomerMessage)
+                          .filter(Boolean)
+                          .map((message) => [normalizeInvoiceServiceName(message), message]),
+                      ).values(),
+                    );
+
+                    return (
+                      <div className="space-y-3">
+                        {(primaryHints.length > 0 || hazards.length > 0 || otherHints.length > 0) && (
+                          <div className="rounded-xl border p-3 sm:p-4">
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                              <h3 className="text-base font-semibold">Besonderheiten</h3>
+                              <span className="text-xs text-muted-foreground">
+                                Intern – nicht automatisch im Kunden-PDF
+                              </span>
                             </div>
-                          )}
-                          {(() => {
-                            const parsed = splitSpecialNotes(
-                              editOrderCtx.specialNotes,
-                            );
-                            const lines = Array.from(
-                              new Set(
-                                [
-                                  ...(parsed.safetyWarnings || []),
-                                  ...(parsed.jobHints || []),
-                                ]
-                                  .map((line) =>
-                                    String(line || "")
-                                      .replace(/\s+/g, " ")
-                                      .trim(),
-                                  )
-                                  .filter(Boolean),
-                              ),
-                            );
-                            return lines.length > 0 ? (
-                              <div>
-                                <div className="text-xs font-semibold text-muted-foreground">
-                                  Besonderheiten
+                            <div className="space-y-3">
+                              {primaryHints.length > 0 && (
+                                <div className="rounded-xl border border-blue-300 bg-blue-50 p-3 text-blue-950">
+                                  <div className="font-semibold">Wichtige Informationen</div>
+                                  <ul className="mt-1.5 space-y-1 text-sm">
+                                    {primaryHints.map((line, index) => (
+                                      <li key={`invoice-primary-${index}`}>• {line}</li>
+                                    ))}
+                                  </ul>
                                 </div>
-                                <ul className="mt-1 space-y-1">
-                                  {lines.map((line, index) => (
-                                    <li key={index}>• {line}</li>
-                                  ))}
-                                </ul>
+                              )}
+                              {hazards.length > 0 && (
+                                <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-red-950">
+                                  <div className="font-semibold">Wichtige Gefahren / Warnhinweise</div>
+                                  <ul className="mt-1.5 space-y-1 text-sm">
+                                    {hazards.map((line, index) => (
+                                      <li key={`invoice-hazard-${index}`}>• {line}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {otherHints.length > 0 && (
+                                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                                  <div className="font-semibold">Weitere Besonderheiten</div>
+                                  <ul className="mt-1.5 space-y-1 text-sm">
+                                    {otherHints.map((line, index) => (
+                                      <li key={`invoice-hint-${index}`}>• {line}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="rounded-xl border p-3 sm:p-4">
+                          <h3 className="text-base font-semibold">Kundennachricht</h3>
+                          <div className="mt-3 space-y-3">
+                            {customerMessages.length > 0 ? (
+                              customerMessages.map((message, index) => (
+                                <div
+                                  key={`invoice-customer-message-${index}`}
+                                  className="whitespace-pre-wrap rounded-lg border bg-muted/20 p-3 text-sm"
+                                >
+                                  {message}
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-sm text-muted-foreground">
+                                Keine Kundennachricht vorhanden.
                               </div>
-                            ) : null;
-                          })()}
-                        </div>
-                      </details>
-                      <details className="rounded-xl border">
-                        <summary className="cursor-pointer list-none px-3 py-3 font-medium [&::-webkit-details-marker]:hidden">
-                          Kundennachricht
-                        </summary>
-                        <div className="space-y-3 border-t p-3">
-                          <div className="whitespace-pre-wrap text-sm">
-                            {linkedOrderData?.notes ||
-                              "Keine Kundennachricht vorhanden."}
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {editOrderCtx.mediaUrl &&
-                              editOrderCtx.mediaType?.startsWith("audio") && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    openMedia(editOrderCtx.mediaUrl, "audio")
-                                  }
-                                >
-                                  <Volume2 className="mr-1 h-4 w-4" /> Audio
-                                  öffnen
-                                </Button>
-                              )}
-                            {editOrderCtx.imageUrls &&
-                              editOrderCtx.imageUrls.length > 0 && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    openImageGallery(
-                                      editOrderCtx.imageUrls || [],
-                                    )
-                                  }
-                                >
-                                  <ImageIcon className="mr-1 h-4 w-4" /> Bilder
-                                  öffnen
-                                </Button>
-                              )}
+                            )}
+                            <div className="flex flex-wrap gap-2">
+                              {editOrderCtx.mediaUrl &&
+                                editOrderCtx.mediaType?.startsWith("audio") && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      openMedia(editOrderCtx.mediaUrl, "audio")
+                                    }
+                                  >
+                                    <Volume2 className="mr-1 h-4 w-4" /> Audio öffnen
+                                  </Button>
+                                )}
+                              {editOrderCtx.imageUrls &&
+                                editOrderCtx.imageUrls.length > 0 && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      openImageGallery(editOrderCtx.imageUrls || [])
+                                    }
+                                  >
+                                    <ImageIcon className="mr-1 h-4 w-4" /> Bilder öffnen
+                                  </Button>
+                                )}
+                            </div>
                           </div>
                         </div>
-                      </details>
-                    </div>
-                  )}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>
