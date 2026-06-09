@@ -19,6 +19,7 @@ import {
   Undo2,
   MessageCircle,
   MapPin,
+  Pencil,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
@@ -138,6 +139,14 @@ type InvoiceExecutionSite = {
   siteCity?: string | null;
   siteNote?: string | null;
 };
+
+const getEmptyInvoiceExecutionSite = (): InvoiceExecutionSite => ({
+  siteName: "",
+  siteAddress: "",
+  sitePlz: "",
+  siteCity: "",
+  siteNote: "",
+});
 
 const compactInvoiceValue = (value: unknown) =>
   String(value ?? "")
@@ -384,6 +393,8 @@ export default function RechnungenPage() {
   const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [newInvoiceExecutionSite, setNewInvoiceExecutionSite] =
+    useState<InvoiceExecutionSite | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -856,6 +867,7 @@ export default function RechnungenPage() {
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
     setEditingExecutionAddress(false);
+    setNewInvoiceExecutionSite(null);
     setLinkedOrderData(null);
     setEditOrderCtx(null);
     setShowNewCustomer(false);
@@ -924,6 +936,7 @@ export default function RechnungenPage() {
     setExpandedItemIndex(null);
     setServiceActionMenuIndex(null);
     setEditingExecutionAddress(false);
+    setNewInvoiceExecutionSite(null);
     setItems(
       inv.items?.length > 0
         ? inv.items.map((it: any) => ({
@@ -1026,6 +1039,26 @@ export default function RechnungenPage() {
   useEffect(() => {
     if (!dialogOpen) setPendingOpenCustomerEditor(null);
   }, [dialogOpen]);
+
+  const setNewInvoiceExecutionAddressEnabled = (enabled: boolean) => {
+    if (!enabled) {
+      setNewInvoiceExecutionSite(null);
+      setEditingExecutionAddress(false);
+      return;
+    }
+    setNewInvoiceExecutionSite((current) => current || getEmptyInvoiceExecutionSite());
+    setEditingExecutionAddress(true);
+  };
+
+  const updateNewInvoiceExecutionSite = (
+    field: keyof InvoiceExecutionSite,
+    value: string,
+  ) => {
+    setNewInvoiceExecutionSite((current) => ({
+      ...(current || getEmptyInvoiceExecutionSite()),
+      [field]: value,
+    }));
+  };
 
   const addItem = () => {
     setItems((current) => [getEmptyItem(), ...current]);
@@ -1220,13 +1253,24 @@ export default function RechnungenPage() {
     }
     setSaving(true);
     try {
+      const itemsForCreate = newInvoiceExecutionSite
+        ? items.map((item) => ({
+            ...item,
+            siteName: compactInvoiceValue(newInvoiceExecutionSite.siteName) || null,
+            siteAddress:
+              compactInvoiceValue(newInvoiceExecutionSite.siteAddress) || null,
+            sitePlz: compactInvoiceValue(newInvoiceExecutionSite.sitePlz) || null,
+            siteCity: compactInvoiceValue(newInvoiceExecutionSite.siteCity) || null,
+            siteNote: compactInvoiceValue(newInvoiceExecutionSite.siteNote) || null,
+          }))
+        : items;
       const res = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
           notes: joinInvoicePdfText(form.pdfTitle, form.notes),
-          items,
+          items: itemsForCreate,
           vatRate,
           currency,
         }),
@@ -1236,6 +1280,8 @@ export default function RechnungenPage() {
         setDialogOpen(false);
         load();
         setItems([getEmptyItem()]);
+        setNewInvoiceExecutionSite(null);
+        setEditingExecutionAddress(false);
         setForm({
           customerId: "",
           invoiceDate: new Date().toISOString().split("T")[0],
@@ -2611,7 +2657,172 @@ export default function RechnungenPage() {
                   </div>
                 )}
               </div>
-              {!dupCheckOpen &&
+              {!dupCheckOpen && !editingInvoice && (
+                <div className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 sm:p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <label className="flex cursor-pointer items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-slate-400"
+                        checked={Boolean(newInvoiceExecutionSite)}
+                        onChange={(event) =>
+                          setNewInvoiceExecutionAddressEnabled(
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold">
+                          Ausführungsadresse abweichend von Rechnungsadresse
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Nur aktivieren, wenn die Arbeit an einem anderen Ort
+                          ausgeführt wird.
+                        </span>
+                      </span>
+                    </label>
+                    {newInvoiceExecutionSite && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0"
+                        onClick={() =>
+                          setEditingExecutionAddress((current) => !current)
+                        }
+                      >
+                        <Pencil className="mr-1 h-3.5 w-3.5" />
+                        {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
+                      </Button>
+                    )}
+                  </div>
+
+                  {!newInvoiceExecutionSite ? (
+                    <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-background px-3 py-2 text-sm text-muted-foreground">
+                      Die Rechnungsadresse gilt auch als Ausführungsadresse.
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                      {editingExecutionAddress ? (
+                        <div className="space-y-3">
+                          <div>
+                            <Label className="text-xs">Objekt / Bereich</Label>
+                            <Input
+                              value={newInvoiceExecutionSite.siteName || ""}
+                              placeholder="z. B. Wohnpark Limmat, Serverraum"
+                              onChange={(event: any) =>
+                                updateNewInvoiceExecutionSite(
+                                  "siteName",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">
+                              Strasse + Hausnummer
+                            </Label>
+                            <Input
+                              value={newInvoiceExecutionSite.siteAddress || ""}
+                              placeholder="Strasse + Hausnummer"
+                              onChange={(event: any) =>
+                                updateNewInvoiceExecutionSite(
+                                  "siteAddress",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_1fr]">
+                            <div>
+                              <Label className="text-xs">PLZ</Label>
+                              <Input
+                                value={newInvoiceExecutionSite.sitePlz || ""}
+                                placeholder="PLZ"
+                                onChange={(event: any) =>
+                                  updateNewInvoiceExecutionSite(
+                                    "sitePlz",
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs">Ort</Label>
+                              <Input
+                                value={newInvoiceExecutionSite.siteCity || ""}
+                                placeholder="Ort"
+                                onChange={(event: any) =>
+                                  updateNewInvoiceExecutionSite(
+                                    "siteCity",
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs">
+                              Hinweis zum Ausführungsort
+                            </Label>
+                            <Input
+                              value={newInvoiceExecutionSite.siteNote || ""}
+                              placeholder="Optionaler interner Hinweis"
+                              onChange={(event: any) =>
+                                updateNewInvoiceExecutionSite(
+                                  "siteNote",
+                                  event?.target?.value ?? "",
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2">
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">
+                              {newInvoiceExecutionSite.siteName ||
+                                "Ausführungsadresse"}
+                            </div>
+                            <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-1 text-sm">
+                              <span className="text-muted-foreground">
+                                Strasse:
+                              </span>
+                              <span className="break-words">
+                                {newInvoiceExecutionSite.siteAddress || "–"}
+                              </span>
+                              <span className="text-muted-foreground">
+                                PLZ / Ort:
+                              </span>
+                              <span className="break-words">
+                                {[
+                                  newInvoiceExecutionSite.sitePlz,
+                                  newInvoiceExecutionSite.siteCity,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ") || "–"}
+                              </span>
+                              {newInvoiceExecutionSite.siteNote && (
+                                <>
+                                  <span className="text-muted-foreground">
+                                    Hinweis:
+                                  </span>
+                                  <span className="break-words">
+                                    {newInvoiceExecutionSite.siteNote}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!dupCheckOpen && editingInvoice &&
                 (() => {
                   const executionSite = collectInvoiceExecutionSites({
                     items,
@@ -2635,7 +2846,7 @@ export default function RechnungenPage() {
                           setEditingExecutionAddress(true);
                         }
                       }}
-                      className={`rounded-xl border border-cyan-200 bg-cyan-50/20 p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+                      className={`rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 sm:p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20 ${
                         editingExecutionAddress
                           ? ""
                           : "cursor-pointer hover:bg-cyan-50/50"
@@ -2666,8 +2877,9 @@ export default function RechnungenPage() {
                             event.stopPropagation();
                             setEditingExecutionAddress((current) => !current);
                           }}
-                          className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-slate-50"
+                          className="inline-flex h-8 shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium shadow-sm hover:bg-slate-50"
                         >
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
                           {editingExecutionAddress ? "Fertig" : "Bearbeiten"}
                         </button>
                       </div>

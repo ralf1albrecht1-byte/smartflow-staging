@@ -16965,7 +16965,7 @@ export default function AuftraegePage() {
                                 groupExpanded && (
                                   <details
                                     open={index === 0 || isFirstInSite}
-                                    className={`group/service-item relative min-w-0 border-2 shadow-sm open:!border-sky-200 open:!bg-sky-50/40 open:!ring-1 open:!ring-sky-100 dark:open:!border-sky-800/70 dark:open:!bg-sky-950/15 dark:open:!ring-sky-900/40 ${
+                                    className={`group/service-item relative min-w-0 border-2 shadow-sm [&[open]]:border-sky-200 [&[open]]:bg-sky-50/40 [&[open]]:ring-1 [&[open]]:ring-sky-100 dark:[&[open]]:border-sky-800/70 dark:[&[open]]:bg-sky-950/15 dark:[&[open]]:ring-sky-900/40 ${
                                       hasMultipleEditWorkSites
                                         ? `ml-2 rounded-xl border-l-4 ${itemAccentClass}`
                                         : "rounded-xl"

@@ -840,7 +840,9 @@ function buildCommunicationInfoLines(
   const seen = new Set<string>();
   const lines: string[] = [];
   for (const source of sources) {
-    for (const raw of source.split(/\n+/g)) {
+    for (const raw of source.split(
+      /\n+|\s*\[(?:HINWEIS|INFO|NOTIZ|WARNUNG|GEFAHR|WARNHINWEIS)\]\s*/gi,
+    )) {
       const cleaned = cleanCommunicationInfoLine(raw);
       if (
         !cleaned ||
@@ -854,6 +856,29 @@ function buildCommunicationInfoLines(
     }
   }
   return lines;
+}
+
+function uniqueCommunicationInfoLines(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const cleaned = cleanCommunicationInfoLine(String(value || ''));
+    const key = normalizeSemanticChipText(cleaned);
+    if (!cleaned || !key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(cleaned);
+  }
+  return result;
+}
+
+function isPrimaryCommunicationInfoLine(value: string): boolean {
+  const text = normalizeSemanticChipText(value);
+  if (!text) return false;
+  return (
+    /\b(?:termin|datum|uhr|ankunft|arbeitsbeginn|kontakt|kontaktperson|ansprechperson|telefon|tel|anrufen|rueckruf|ruckruf|sms|whatsapp|mail|email|e mail|melden|vorher|zuerst)\b/.test(text) ||
+    /\b\d{1,2}[:.]\d{2}\b/.test(text) ||
+    /\b(?:0|41)\d[\d\s()./-]{6,}\b/.test(text)
+  );
 }
 
 function detectCommunicationPreferenceChips(
@@ -1022,6 +1047,8 @@ function Chip({
   const isStructuredContactTooltip = Boolean(
     contactHeading && contactValue,
   );
+  const safeContactName =
+    sanitizeContactDisplayName(contactName) || 'Kunde';
   const tooltip = title || isStructuredContactTooltip ? (
     <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-950">
       {isStructuredContactTooltip ? (
@@ -1030,16 +1057,11 @@ function Chip({
             {contactHeading}
           </span>
           <span className="mt-1 block break-words font-medium text-foreground">
-            {contactName || 'Kunde'}
+            {safeContactName}
           </span>
           <span className={`mt-1 block break-words text-sm text-blue-700 dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}>
             {contactValue}
           </span>
-          {contactTimeHint && (
-            <span className="mt-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-              {contactTimeHint}
-            </span>
-          )}
           <span className="mt-2 block text-xs text-muted-foreground">
             {contactHint || title}
           </span>
@@ -1584,6 +1606,23 @@ export function CommunicationChips({
     () => buildCommunicationInfoLines(jobHints, data.specialNotes),
     [jobHints, data.specialNotes],
   );
+  const structuredInfo = useMemo(() => {
+    const safety = uniqueCommunicationInfoLines(hazards);
+    const safetyKeys = new Set(
+      safety.map((line) => normalizeSemanticChipText(line)),
+    );
+    const remaining = uniqueCommunicationInfoLines(infoLines).filter(
+      (line) => !safetyKeys.has(normalizeSemanticChipText(line)),
+    );
+    const primary = remaining.filter(isPrimaryCommunicationInfoLine);
+    const primaryKeys = new Set(
+      primary.map((line) => normalizeSemanticChipText(line)),
+    );
+    const additional = remaining.filter(
+      (line) => !primaryKeys.has(normalizeSemanticChipText(line)),
+    );
+    return { safety, primary, additional };
+  }, [hazards, infoLines]);
 
   const hasVisibleContent =
     (!contactsOnly &&
@@ -1705,19 +1744,42 @@ export function CommunicationChips({
         >
           <Info className="h-4 w-4" />
           {!compact && "Info"}
-          <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[60vh] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-950">
-            <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
-              Informationen
-            </span>
-            <span className="mt-2 block space-y-1.5">
-              {infoLines.map((line, index) => (
-                <span
-                  key={`${index}-${line}`}
-                  className="block break-words text-xs text-foreground"
-                >
-                  {line}
+          <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden max-h-[65vh] w-[min(25rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-left font-normal shadow-2xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-950">
+            <span className="block space-y-2">
+              {structuredInfo.safety.length > 0 && (
+                <span className="block rounded-lg border border-red-300 bg-red-50 p-2 text-red-800 dark:border-red-800/70 dark:bg-red-950/40 dark:text-red-100">
+                  <span className="mb-1 flex items-center gap-1 font-bold">
+                    <AlertTriangle className="h-3.5 w-3.5" /> Gefahr / Achtung
+                  </span>
+                  {structuredInfo.safety.map((line, index) => (
+                    <span key={`invoice-info-safety-${index}`} className="block break-words text-xs">
+                      • {line}
+                    </span>
+                  ))}
                 </span>
-              ))}
+              )}
+              {structuredInfo.primary.length > 0 && (
+                <span className="block rounded-lg border border-blue-300 bg-blue-50 p-2 text-blue-900 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-100">
+                  <span className="mb-1 flex items-center gap-1 font-bold">
+                    <Info className="h-3.5 w-3.5" /> Wichtige Informationen
+                  </span>
+                  {structuredInfo.primary.map((line, index) => (
+                    <span key={`invoice-info-primary-${index}`} className="block break-words text-xs">
+                      {line}
+                    </span>
+                  ))}
+                </span>
+              )}
+              {structuredInfo.additional.length > 0 && (
+                <span className="block rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-100">
+                  <span className="mb-1 block font-bold">Weitere Besonderheiten</span>
+                  {structuredInfo.additional.map((line, index) => (
+                    <span key={`invoice-info-additional-${index}`} className="block break-words text-xs">
+                      {line}
+                    </span>
+                  ))}
+                </span>
+              )}
             </span>
           </span>
         </button>
