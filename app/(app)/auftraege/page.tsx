@@ -5010,7 +5010,7 @@ const buildUnifiedServiceReviewSummaryV17_90L61 = (input: {
 };
 
 const buildOrderStructuredServiceReviewV17_90L135G = (
-  items: OrderItem[],
+  items: Array<OrderItem | FormItem>,
   services: ServiceDef[],
   currency?: "CHF" | "EUR" | null,
   includeBlockers = false,
@@ -5027,7 +5027,32 @@ const buildOrderStructuredServiceReviewV17_90L135G = (
   };
 
   (items || []).forEach((item) => {
-    const reason = getOrderServiceReviewReasonV17_90L134(item, services);
+    const quantity = Number(item.quantity || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    const normalizedItem: OrderItem = {
+      id: "id" in item ? item.id : undefined,
+      workSiteId: item.workSiteId || null,
+      workSite: item.workSite || null,
+      serviceName: item.serviceName || "",
+      description:
+        "description" in item
+          ? item.description || ""
+          : item.sourceDescription || item.aiWarning || "",
+      quantity,
+      unit: item.unit || "",
+      unitPrice,
+      totalPrice:
+        "totalPrice" in item && Number.isFinite(Number(item.totalPrice))
+          ? Number(item.totalPrice)
+          : quantity > 0 && unitPrice > 0
+            ? quantity * unitPrice
+            : 0,
+    };
+
+    const reason = getOrderServiceReviewReasonV17_90L134(
+      normalizedItem,
+      services,
+    );
     if (!reason) return;
     const isBlocker = [
       "Leistung prüfen",
@@ -5042,12 +5067,12 @@ const buildOrderStructuredServiceReviewV17_90L135G = (
       : reason === "Nicht im Leistungskatalog"
         ? "Nicht im Leistungskatalog"
         : "Preis oder Einheit abweichend";
-    const name = canonicalServiceNameForOrderItem(item.serviceName) || "Leistung";
+    const name = canonicalServiceNameForOrderItem(normalizedItem.serviceName) || "Leistung";
     const lines = [name];
-    const calculation = formatServiceReviewCalculation(item, safeCurrency);
+    const calculation = formatServiceReviewCalculation(normalizedItem, safeCurrency);
     if (calculation) lines.push(`Aktuell: ${calculation}`);
 
-    const catalog = findCatalogServiceForName(services, item.serviceName);
+    const catalog = findCatalogServiceForName(services, normalizedItem.serviceName);
     if (catalog && !isBlocker) {
       lines.push(
         `Katalogpreis: ${formatCurrency(
