@@ -478,7 +478,8 @@ function applyExecutionSitesToOfferItems(
 function extractOfferAppointmentLabel(value?: string | null): string {
   const source = String(value || "")
     .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
+    .replace(/\r/g, "\n")
+    .replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, "");
   const line = source
     .split(/\n+/g)
     .map((entry) => entry.trim())
@@ -4341,6 +4342,17 @@ export default function AngebotePage() {
                       <Card
                         className="border-2 border-slate-300 hover:border-slate-400 hover:shadow-sm transition-all tap-safe rounded-xl"
                         aria-expanded={offerCardExpanded}
+                        onClick={(event) => {
+                          if (
+                            event.target instanceof Element &&
+                            event.target.closest(
+                              "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                            )
+                          )
+                            return;
+                          setActiveMobileTooltip(null);
+                          toggleOfferCard(off.id);
+                        }}
                       >
                         <CardContent className="px-3 py-2">
                           <div className="flex items-start gap-2">
@@ -4440,7 +4452,8 @@ export default function AngebotePage() {
                             {!offerCardExpanded && (
                               <div
                                 className="min-w-0 flex-1 cursor-pointer"
-                                onClick={() => {
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   setActiveMobileTooltip(null);
                                   toggleOfferCard(off.id);
                                 }}
@@ -4569,7 +4582,8 @@ export default function AngebotePage() {
                               <div className="min-w-0">
                                 <div
                                   className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1"
-                                  onClick={() => {
+                                  onClick={(event) => {
+                                    event.stopPropagation();
                                     setActiveMobileTooltip(null);
                                     toggleOfferCard(off.id);
                                   }}

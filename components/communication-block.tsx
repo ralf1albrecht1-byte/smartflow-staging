@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail, Info, Phone } from 'lucide-react';
 import { splitSpecialNotes, splitJobHints, detectCallbackRequest } from '@/lib/special-notes-utils';
 import { formatAudioDuration } from '@/lib/audio-format';
@@ -1421,71 +1421,119 @@ function Chip({
   const fallbackIcon = label === 'Mail' ? Mail : label === 'WhatsApp' ? WhatsAppIcon : label === 'SMS' ? SmsIcon : undefined;
   const compactTextLabel = compact && label === 'SMS';
   const DisplayIcon = compactTextLabel ? undefined : Icon || fallbackIcon;
-  const className = compact
+  const triggerClassName = compact
     ? compactTextLabel
-      ? `group relative inline-flex h-7 shrink-0 items-center justify-center rounded-lg px-2 text-[11px] font-bold tracking-wide ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
-      : `group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
-    : `group relative inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
-  const isStructuredContactTooltip = Boolean(
-    contactHeading && contactValue,
-  );
-  const safeContactName =
-    sanitizeContactDisplayName(contactName) || 'Kunde';
-  const tooltip = title || isStructuredContactTooltip ? (
-    <span className="pointer-events-none absolute bottom-full left-0 z-[9999] mb-2 hidden w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl group-hover:block group-focus:block dark:border-slate-700 dark:bg-slate-950">
-      {isStructuredContactTooltip ? (
-        <>
-          <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
-            {contactHeading}
-          </span>
-          <span className="mt-1 block break-words font-medium text-foreground">
-            {safeContactName}
-          </span>
-          <span className={`mt-1 block break-words text-sm text-blue-700 dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}>
-            {contactValue}
-          </span>
-          <span className="mt-2 block text-xs text-muted-foreground">
-            {contactHint || title}
-          </span>
-        </>
-      ) : (
-        <span className="whitespace-pre-wrap break-words text-[11px] font-medium leading-snug text-slate-800 dark:text-slate-100">
-          {title}
-        </span>
-      )}
-    </span>
-  ) : null;
-  const content = (
+      ? `inline-flex h-7 shrink-0 items-center justify-center rounded-lg px-2 text-[11px] font-bold tracking-wide ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
+      : `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`
+    : `inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${colors[color] || colors.default} ${href ? 'hover:underline cursor-pointer' : ''}`;
+  const isStructuredContactTooltip = Boolean(contactHeading && contactValue);
+  const safeContactName = sanitizeContactDisplayName(contactName) || 'Kunde';
+  const hasTooltip = Boolean(title || isStructuredContactTooltip);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTooltipTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+  const showTooltip = () => {
+    clearTooltipTimer();
+    setTooltipOpen(true);
+  };
+  const scheduleTooltipHide = () => {
+    clearTooltipTimer();
+    hideTimerRef.current = setTimeout(() => setTooltipOpen(false), 450);
+  };
+
+  useEffect(() => () => clearTooltipTimer(), []);
+
+  const triggerContent = (
     <>
-      {DisplayIcon && <DisplayIcon className={compact ? "w-3.5 h-3.5" : "w-3 h-3"} />}
+      {DisplayIcon && <DisplayIcon className={compact ? 'w-3.5 h-3.5' : 'w-3 h-3'} />}
       {(!compact || compactTextLabel) && label}
       {compact && !compactTextLabel && !DisplayIcon && label.slice(0, 1)}
-      {tooltip}
     </>
   );
 
-  if (href) {
-    return (
-      <a
-        href={href}
-        className={className}
-        onClick={(event) => event.stopPropagation()}
-        aria-label={title || label}
-      >
-        {content}
-      </a>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      className={`${className} border-0`}
+  const trigger = href ? (
+    <a
+      href={href}
+      className={triggerClassName}
       onClick={(event) => event.stopPropagation()}
       aria-label={title || label}
     >
-      {content}
+      {triggerContent}
+    </a>
+  ) : (
+    <button
+      type="button"
+      className={`${triggerClassName} border-0`}
+      onClick={(event) => event.stopPropagation()}
+      aria-label={title || label}
+    >
+      {triggerContent}
     </button>
+  );
+
+  return (
+    <span
+      className="relative inline-flex shrink-0"
+      onMouseEnter={showTooltip}
+      onMouseLeave={scheduleTooltipHide}
+      onFocusCapture={showTooltip}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          scheduleTooltipHide();
+        }
+      }}
+      onClick={(event) => event.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
+    >
+      {trigger}
+      {hasTooltip && tooltipOpen && (
+        <span className="pointer-events-auto absolute bottom-full left-0 z-[9999] block w-[min(20rem,calc(100vw-2rem))] pb-2">
+          <span className="block rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl dark:border-slate-700 dark:bg-slate-950">
+            {isStructuredContactTooltip ? (
+              <>
+                <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
+                  {contactHeading}
+                </span>
+                <span className="mt-1 block break-words font-medium text-foreground">
+                  {safeContactName}
+                </span>
+                {href ? (
+                  <a
+                    href={href}
+                    onClick={(event) => event.stopPropagation()}
+                    className={`mt-1 block break-words text-sm text-blue-700 underline-offset-2 hover:underline dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}
+                  >
+                    {contactValue}
+                  </a>
+                ) : (
+                  <span className={`mt-1 block break-words text-sm text-blue-700 dark:text-blue-300 ${label === 'Mail' ? 'break-all' : 'font-mono'}`}>
+                    {contactValue}
+                  </span>
+                )}
+                <span className="mt-2 block text-xs text-muted-foreground">
+                  {contactHint || title}
+                </span>
+                {contactTimeHint && (
+                  <span className="mt-1 block text-xs font-medium text-blue-700 dark:text-blue-300">
+                    {contactTimeHint}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="whitespace-pre-wrap break-words text-[11px] font-medium leading-snug text-slate-800 dark:text-slate-100">
+                {title}
+              </span>
+            )}
+          </span>
+        </span>
+      )}
+    </span>
   );
 }
 

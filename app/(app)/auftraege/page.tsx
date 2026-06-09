@@ -14889,6 +14889,22 @@ export default function AuftraegePage() {
                 <Card
                   className={`border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   aria-expanded={orderCardExpanded}
+                  onClick={(event) => {
+                    if (
+                      event.target instanceof Element &&
+                      event.target.closest(
+                        "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                      )
+                    )
+                      return;
+                    setActiveMobileTooltipKey(null);
+                    setActiveMobileTooltip(null);
+                    if (isMergeMode) {
+                      handleToggleSelect(o.id);
+                      return;
+                    }
+                    toggleOrderCard(o.id);
+                  }}
                 >
                   <CardContent className="px-2.5 py-1.5 sm:px-3 sm:py-2 max-w-full overflow-visible">
                     <div className="flex items-start gap-2 min-w-0 max-w-full overflow-visible">
@@ -14976,7 +14992,8 @@ export default function AuftraegePage() {
                       {!orderCardExpanded && (
                         <div
                           className="min-w-0 flex-1 cursor-pointer"
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.stopPropagation();
                             setActiveMobileTooltipKey(null);
                             setActiveMobileTooltip(null);
                             if (isMergeMode) {
@@ -15047,7 +15064,8 @@ export default function AuftraegePage() {
                       <div className={`min-w-0 flex-1 ${orderCardExpanded ? "" : "hidden"}`}>
                         <div
                           className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1"
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.stopPropagation();
                             setActiveMobileTooltipKey(null);
                             setActiveMobileTooltip(null);
                             if (isMergeMode) {

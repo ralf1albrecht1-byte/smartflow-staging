@@ -459,12 +459,24 @@ function formatInvoiceDateLabel(value?: string | null): string {
 }
 
 function formatInvoiceAppointmentLabel(invoice: Invoice): string {
-  const raw = (invoice.orders || [])
+  const rawValue = (invoice.orders || [])
     .map((order) => compactInvoiceValue(order?.date))
     .find(Boolean);
+  if (!rawValue) return "";
+  const raw = rawValue.replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, "").trim();
   if (!raw) return "";
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return `Termin ${raw}`;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const appointmentDay = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  );
+  if (appointmentDay.getTime() < today.getTime()) return "";
+
   const dateLabel = date.toLocaleDateString("de-CH", {
     day: "2-digit",
     month: "2-digit",
@@ -2380,6 +2392,16 @@ export default function RechnungenPage() {
                       <Card
                         className="transition-shadow hover:shadow-md tap-safe"
                         aria-expanded={invoiceCardExpanded}
+                        onClick={(event) => {
+                          if (
+                            event.target instanceof Element &&
+                            event.target.closest(
+                              "button, a, input, select, textarea, label, summary, details, [role='button'], [data-card-toggle-ignore='true']",
+                            )
+                          )
+                            return;
+                          toggleInvoiceCard(inv.id);
+                        }}
                       >
                         <CardContent className="p-3 sm:p-4">
                           <div className="flex items-start gap-2">
@@ -2496,7 +2518,10 @@ export default function RechnungenPage() {
                             {!invoiceCardExpanded && (
                               <div
                                 className={`min-w-0 flex-1 cursor-pointer ${isPaid ? "opacity-80" : ""}`}
-                                onClick={() => toggleInvoiceCard(inv.id)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleInvoiceCard(inv.id);
+                                }}
                               >
                                 <div className="flex min-w-0 items-center gap-1.5">
                                   <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
@@ -2553,7 +2578,18 @@ export default function RechnungenPage() {
                                       </button>
                                     )}
                                   </div>
-                                  {invoiceAppointmentLabel && (
+                                  <div className="ml-auto flex min-w-0 shrink items-center gap-1.5 pr-3 sm:pr-5">
+                                    <span
+                                      className="shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+                                      style={getStatusStyle(
+                                        INVOICE_STATUS_STYLES,
+                                        effectiveStatus,
+                                      )}
+                                      title={`Status: ${effectiveStatus}`}
+                                    >
+                                      {effectiveStatus}
+                                    </span>
+                                    {invoiceAppointmentLabel && (
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -2562,7 +2598,7 @@ export default function RechnungenPage() {
                                           event.preventDefault();
                                           event.stopPropagation();
                                         }}
-                                        className="group relative ml-auto mr-3 inline-flex min-w-0 max-w-[12rem] shrink items-center sm:mr-5 rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 sm:inline-flex"
+                                        className="group relative inline-flex min-w-0 max-w-[10rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 sm:max-w-[12rem]"
                                       >
                                         <span className="truncate">
                                           {invoiceAppointmentLabel}
@@ -2574,6 +2610,7 @@ export default function RechnungenPage() {
                                         </InvoiceViewportTooltip>
                                       </button>
                                     )}
+                                  </div>
                                   <div className="shrink-0 text-right">
                                     <div className="font-mono text-sm font-bold tabular-nums">
                                       {formatCurrency(
@@ -2591,7 +2628,10 @@ export default function RechnungenPage() {
                             >
                               <div
                                 className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1"
-                                onClick={() => toggleInvoiceCard(inv.id)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleInvoiceCard(inv.id);
+                                }}
                               >
                                 <span className="text-xs text-muted-foreground shrink-0">
                                   {(() => {
