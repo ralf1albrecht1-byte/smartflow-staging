@@ -8904,11 +8904,13 @@ function ResponsiveOrderServicePreviewV17_95({
   serviceNames,
   expanded,
   onToggle,
+  onOpenItems,
 }: {
   orderId: string;
   serviceNames: string[];
   expanded: boolean;
   onToggle: () => void;
+  onOpenItems: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [useTwoColumns, setUseTwoColumns] = useState(false);
@@ -8966,7 +8968,21 @@ function ResponsiveOrderServicePreviewV17_95({
   const hiddenCount = Math.max(0, serviceNames.length - collapsedLimit);
 
   return (
-    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
+    <div
+      className="mt-2 cursor-pointer rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 transition-colors hover:bg-slate-100/80 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-800"
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpenItems();
+      }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenItems();
+        }
+      }}
+    >
       <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
         Leistungen · {serviceNames.length}
       </div>
@@ -14445,6 +14461,10 @@ export default function AuftraegePage() {
             const mobileAddressBadges = leftSystemBadges.filter((badge) =>
               ["site_address", "address_review"].includes(badge.key),
             );
+            const compactExecutionAddressBadge =
+              mobileAddressBadges.find((badge) => badge.key === "site_address") ||
+              mobileAddressBadges[0] ||
+              null;
             const mobileSystemBadges = leftSystemBadges.filter(
               (badge) =>
                 !["site_address", "address_review"].includes(badge.key) &&
@@ -14793,16 +14813,7 @@ export default function AuftraegePage() {
                 transition={{ delay: i * 0.015 }}
               >
                 <Card
-                  className={`border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow cursor-pointer tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
-                  onClick={() => {
-                    setActiveMobileTooltipKey(null);
-                    setActiveMobileTooltip(null);
-                    if (isMergeMode) {
-                      handleToggleSelect(o.id);
-                      return;
-                    }
-                    toggleOrderCard(o.id);
-                  }}
+                  className={`border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   aria-expanded={orderCardExpanded}
                 >
                   <CardContent className="px-2.5 py-1.5 sm:px-3 sm:py-2 max-w-full overflow-visible">
@@ -14889,7 +14900,18 @@ export default function AuftraegePage() {
 
                       {/* Mobile — shared one-column card for Auftrag/Angebot */}
                       {!orderCardExpanded && (
-                        <div className="min-w-0 flex-1">
+                        <div
+                          className="min-w-0 flex-1 cursor-pointer"
+                          onClick={() => {
+                            setActiveMobileTooltipKey(null);
+                            setActiveMobileTooltip(null);
+                            if (isMergeMode) {
+                              handleToggleSelect(o.id);
+                              return;
+                            }
+                            toggleOrderCard(o.id);
+                          }}
+                        >
                           <div className="flex min-w-0 items-center gap-1.5">
                             <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                               {o.createdAt
@@ -14902,34 +14924,40 @@ export default function AuftraegePage() {
                                   })}`
                                 : ""}
                             </span>
-                            <span
-                              className={`min-w-0 flex-1 truncate text-sm font-semibold ${
-                                isFallbackCustomerName(o.customer?.name)
-                                  ? "italic text-amber-600 dark:text-amber-400"
-                                  : "text-foreground"
-                              }`}
-                            >
-                              {isFallbackCustomerName(o.customer?.name)
-                                ? "Kunde nicht zugeordnet"
-                                : o.customer?.name || "–"}
-                            </span>
-                            {mobileAddressBadges.length > 0 && (
-                              <div className="min-w-0 max-w-[7.5rem] shrink sm:max-w-[15rem]">
-                                {mobileAddressBadges.slice(0, 1).map((badge) =>
-                                  renderInteractiveMobileTextBadge(
-                                    {
-                                      ...badge,
-                                      label: badge.label.replace(
-                                        /^Ausführungsorte/i,
-                                        "Orte",
-                                      ),
-                                    },
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-visible">
+                              <span
+                                className={`min-w-0 truncate text-sm font-semibold ${
+                                  isFallbackCustomerName(o.customer?.name)
+                                    ? "italic text-amber-600 dark:text-amber-400"
+                                    : "text-foreground"
+                                }`}
+                              >
+                                {isFallbackCustomerName(o.customer?.name)
+                                  ? "Kunde nicht zugeordnet"
+                                  : o.customer?.name || "–"}
+                              </span>
+                              {compactExecutionAddressBadge && (
+                                <span className="min-w-0 max-w-[9rem] shrink sm:max-w-[18rem]">
+                                  {renderInteractiveMobileTextBadge(
+                                    compactExecutionAddressBadge,
                                     "compact_header_address",
                                     "left",
-                                  ),
-                                )}
-                              </div>
-                            )}
+                                  )}
+                                </span>
+                              )}
+                              {appointmentBadges.slice(0, 1).map((badge) => (
+                                <span
+                                  key={`compact_appointment_wrap_${badge.key}`}
+                                  className="inline-flex min-w-0 max-w-[12rem] shrink"
+                                >
+                                  {renderInteractiveMobileTextBadge(
+                                    badge,
+                                    "compact_header_appointment",
+                                    "left",
+                                  )}
+                                </span>
+                              ))}
+                            </div>
                             <div className="ml-auto shrink-0 text-right">
                               <div className="font-mono text-sm font-bold tabular-nums">
                                 {formatCurrency(
@@ -14943,7 +14971,18 @@ export default function AuftraegePage() {
                         </div>
                       )}
                       <div className={`min-w-0 flex-1 ${orderCardExpanded ? "" : "hidden"}`}>
-                        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <div
+                          className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1"
+                          onClick={() => {
+                            setActiveMobileTooltipKey(null);
+                            setActiveMobileTooltip(null);
+                            if (isMergeMode) {
+                              handleToggleSelect(o.id);
+                              return;
+                            }
+                            toggleOrderCard(o.id);
+                          }}
+                        >
                           <span className="shrink-0 text-[11px] text-muted-foreground">
                             {o.createdAt
                               ? `${new Date(o.createdAt).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} · ${new Date(o.createdAt).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}`
@@ -14992,6 +15031,7 @@ export default function AuftraegePage() {
                           serviceNames={mobileOrderServiceNames}
                           expanded={mobileOrderServicesExpanded}
                           onToggle={() => toggleMobileServiceCard(o.id)}
+                          onOpenItems={() => openEdit(o, { focusSection: "items" })}
                         />
 
                         <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">

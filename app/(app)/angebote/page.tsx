@@ -1579,6 +1579,64 @@ function OfferAddressTooltip({ site }: { site: OfferExecutionSite }) {
   );
 }
 
+function OfferExecutionSitesTooltip({
+  sites,
+}: {
+  sites: OfferExecutionSite[];
+}) {
+  if (sites.length === 0) return null;
+  return (
+    <OfferViewportTooltipV17_95 preferredWidth={420}>
+      <span className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
+        <MapPin className="h-4 w-4" />
+        {sites.length > 1
+          ? `Ausführungsorte · ${sites.length}`
+          : "Ausführungsadresse"}
+      </span>
+      <span className="block space-y-2">
+        {sites.map((site, siteIndex) => (
+          <span
+            key={`offer_execution_tooltip_${siteIndex}`}
+            className={`block ${
+              siteIndex > 0
+                ? "border-t border-sky-100 pt-2 dark:border-slate-700"
+                : ""
+            }`}
+          >
+            {sites.length > 1 && (
+              <span className="mb-1 block font-bold text-slate-950 dark:text-slate-50">
+                Arbeitsort {siteIndex + 1}
+              </span>
+            )}
+            <span className="grid grid-cols-[76px_1fr] gap-x-2 gap-y-1.5">
+              {site.siteName && (
+                <>
+                  <span className="text-muted-foreground">Objekt:</span>
+                  <span className="break-words font-bold text-slate-950 dark:text-slate-50">
+                    {site.siteName}
+                  </span>
+                </>
+              )}
+              <span className="text-muted-foreground">Strasse:</span>
+              <span className="break-words">{site.siteAddress || "–"}</span>
+              <span className="text-muted-foreground">PLZ / Ort:</span>
+              <span className="break-words">
+                {[site.sitePlz, site.siteCity].filter(Boolean).join(" ") || "–"}
+              </span>
+              {site.siteNote && (
+                <>
+                  <span className="text-muted-foreground">Hinweis:</span>
+                  <span className="break-words">{site.siteNote}</span>
+                </>
+              )}
+            </span>
+          </span>
+        ))}
+      </span>
+    </OfferViewportTooltipV17_95>
+  );
+}
+
 function OfferInfoTooltip({ summary }: { summary: OfferInfoSummary }) {
   const safety = uniqueOfferLines(summary.safety);
   const primary = uniqueOfferLines(summary.primary);
@@ -1977,11 +2035,13 @@ function ResponsiveOfferServicePreviewV17_95({
   serviceNames,
   expanded,
   onToggle,
+  onOpenItems,
 }: {
   offerId: string;
   serviceNames: string[];
   expanded: boolean;
   onToggle: () => void;
+  onOpenItems: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [useTwoColumns, setUseTwoColumns] = useState(false);
@@ -2033,7 +2093,21 @@ function ResponsiveOfferServicePreviewV17_95({
   const hiddenCount = Math.max(0, serviceNames.length - collapsedLimit);
 
   return (
-    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
+    <div
+      className="mt-2 cursor-pointer rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 transition-colors hover:bg-slate-100/80 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-800"
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpenItems();
+      }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenItems();
+        }
+      }}
+    >
       <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
         Leistungen · {serviceNames.length}
       </div>
@@ -4189,11 +4263,7 @@ export default function AngebotePage() {
                       transition={{ delay: i * 0.015 }}
                     >
                       <Card
-                        className="border-2 border-slate-300 hover:border-slate-400 hover:shadow-sm transition-all cursor-pointer tap-safe rounded-xl"
-                        onClick={() => {
-                          setActiveMobileTooltip(null);
-                          toggleOfferCard(off.id);
-                        }}
+                        className="border-2 border-slate-300 hover:border-slate-400 hover:shadow-sm transition-all tap-safe rounded-xl"
                         aria-expanded={offerCardExpanded}
                       >
                         <CardContent className="px-3 py-2">
@@ -4292,7 +4362,13 @@ export default function AngebotePage() {
 
                             {/* Main info — mirrored from the order-card layout */}
                             {!offerCardExpanded && (
-                              <div className="min-w-0 flex-1">
+                              <div
+                                className="min-w-0 flex-1 cursor-pointer"
+                                onClick={() => {
+                                  setActiveMobileTooltip(null);
+                                  toggleOfferCard(off.id);
+                                }}
+                              >
                                 <div className="flex min-w-0 items-center gap-1.5">
                                   <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                     {(() => {
@@ -4308,82 +4384,98 @@ export default function AngebotePage() {
                                         : "";
                                     })()}
                                   </span>
-                                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                                    {isFallbackCustomerName(cardCustomerName)
-                                      ? "Kunde nicht zugeordnet"
-                                      : cardCustomerName}
-                                  </span>
-                                  {offerExecutionSites.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                      onTouchStart={(event) => event.stopPropagation()}
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        const tooltipText = offerExecutionSites
-                                          .map((site, siteIndex) => {
-                                            const place = [site.sitePlz, site.siteCity]
-                                              .filter(Boolean)
-                                              .join(" ");
-                                            return [
-                                              `${siteIndex + 1}. ${site.siteName || "Ausführungsort"}`,
-                                              site.siteAddress || "",
-                                              place,
-                                            ]
-                                              .filter(Boolean)
-                                              .join(" · ");
-                                          })
-                                          .join("\n");
-                                        if (useTouchChipPopovers) {
-                                          toggleOfferMobileTooltip(
-                                            {
-                                              key: `${off.id}:compact-execution-sites`,
-                                              kind: "execution_address",
-                                              text: tooltipText,
-                                            },
-                                            event,
-                                          );
-                                        } else {
-                                          openOfferSection(off, "execution");
-                                        }
-                                      }}
-                                      className="group relative inline-flex min-w-0 max-w-[7.5rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:max-w-[15rem]"
-                                    >
-                                      <MapPin className="h-3 w-3 shrink-0" />
-                                      <span className="truncate">
-                                        {offerExecutionSites.length > 1
-                                          ? `Orte · ${offerExecutionSites.length}`
-                                          : primaryExecutionSite?.siteName ||
-                                            primaryExecutionSite?.siteAddress ||
-                                            "Ausführungsort"}
-                                      </span>
-                                      {!useTouchChipPopovers && (
-                                        <span className="pointer-events-none absolute bottom-full left-0 z-[90] mb-2 hidden w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-                                          {offerExecutionSites.map((site, siteIndex) => (
-                                            <span
-                                              key={`${off.id}:compact-site:${siteIndex}`}
-                                              className={`block ${siteIndex > 0 ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
-                                            >
-                                              <span className="block font-bold">
-                                                {site.siteName || `Ausführungsort ${siteIndex + 1}`}
-                                              </span>
-                                              <span className="block">
-                                                {[
-                                                  site.siteAddress,
-                                                  [site.sitePlz, site.siteCity]
-                                                    .filter(Boolean)
-                                                    .join(" "),
-                                                ]
-                                                  .filter(Boolean)
-                                                  .join(", ") || "–"}
-                                              </span>
-                                            </span>
-                                          ))}
+                                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-visible">
+                                    <span className="min-w-0 truncate text-sm font-semibold">
+                                      {isFallbackCustomerName(cardCustomerName)
+                                        ? "Kunde nicht zugeordnet"
+                                        : cardCustomerName}
+                                    </span>
+                                    {offerExecutionSites.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          const tooltipText = offerExecutionSites
+                                            .map((site, siteIndex) => {
+                                              const place = [site.sitePlz, site.siteCity]
+                                                .filter(Boolean)
+                                                .join(" ");
+                                              return [
+                                                `Arbeitsort ${siteIndex + 1}`,
+                                                site.siteName ? `Objekt: ${site.siteName}` : "",
+                                                `Strasse: ${site.siteAddress || "–"}`,
+                                                `PLZ / Ort: ${place || "–"}`,
+                                                site.siteNote ? `Hinweis: ${site.siteNote}` : "",
+                                              ]
+                                                .filter(Boolean)
+                                                .join("\n");
+                                            })
+                                            .join("\n---\n");
+                                          if (useTouchChipPopovers) {
+                                            toggleOfferMobileTooltip(
+                                              {
+                                                key: `${off.id}:compact-execution-sites`,
+                                                kind: "execution_address",
+                                                text: `${
+                                                  offerExecutionSites.length > 1
+                                                    ? `Ausführungsorte · ${offerExecutionSites.length}`
+                                                    : "Ausführungsadresse"
+                                                }\n${tooltipText}`,
+                                              },
+                                              event,
+                                            );
+                                          } else {
+                                            openOfferSection(off, "execution");
+                                          }
+                                        }}
+                                        className="group relative inline-flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:max-w-[18rem]"
+                                        aria-label="Ausführungsort anzeigen"
+                                      >
+                                        <MapPin className="h-3 w-3 shrink-0" />
+                                        <span className="truncate">
+                                          {offerExecutionSites.length > 1
+                                            ? `Ausführungsorte · ${offerExecutionSites.length}`
+                                            : primaryExecutionSite?.siteName ||
+                                              primaryExecutionSite?.siteAddress ||
+                                              "Ausführungsort"}
                                         </span>
-                                      )}
-                                    </button>
-                                  )}
+                                        {!useTouchChipPopovers && (
+                                          <OfferExecutionSitesTooltip sites={offerExecutionSites} />
+                                        )}
+                                      </button>
+                                    )}
+                                    {appointmentLabel && (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          if (useTouchChipPopovers) {
+                                            toggleOfferMobileTooltip(
+                                              {
+                                                key: `${off.id}:compact-appointment`,
+                                                text: appointmentLabel,
+                                              },
+                                              event,
+                                            );
+                                          } else {
+                                            openOfferSection(off, "details", appointmentLabel);
+                                          }
+                                        }}
+                                        className="group relative inline-flex min-w-0 max-w-[12rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 hover:bg-violet-100 sm:inline-flex"
+                                      >
+                                        <span className="truncate">{appointmentLabel}</span>
+                                        {!useTouchChipPopovers && (
+                                          <OfferPlainTooltip text={appointmentLabel} />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
                                   <div className="ml-auto shrink-0 text-right">
                                     <div className="font-mono text-sm font-bold tabular-nums">
                                       {formatCurrency(
@@ -4399,7 +4491,13 @@ export default function AngebotePage() {
                             <div className={`min-w-0 flex-1 ${offerCardExpanded ? "" : "hidden"}`}>
                               {/* Mobile — shared one-column card for Auftrag/Angebot */}
                               <div className="min-w-0">
-                                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                                <div
+                                  className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1"
+                                  onClick={() => {
+                                    setActiveMobileTooltip(null);
+                                    toggleOfferCard(off.id);
+                                  }}
+                                >
                                   <span className="shrink-0 text-[11px] text-muted-foreground">
                                     {(() => {
                                       const dt = off.orders?.[0]?.createdAt || off.createdAt;
@@ -4490,6 +4588,7 @@ export default function AngebotePage() {
                                   serviceNames={mobileOfferServiceNames}
                                   expanded={mobileOfferServicesExpanded}
                                   onToggle={() => toggleMobileServiceCard(off.id)}
+                                  onOpenItems={() => openOfferSection(off, "items")}
                                 />
 
                                 <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">

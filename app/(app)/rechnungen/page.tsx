@@ -458,6 +458,205 @@ function formatInvoiceDateLabel(value?: string | null): string {
   });
 }
 
+function formatInvoiceAppointmentLabel(invoice: Invoice): string {
+  const raw = (invoice.orders || [])
+    .map((order) => compactInvoiceValue(order?.date))
+    .find(Boolean);
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return `Termin ${raw}`;
+  const dateLabel = date.toLocaleDateString("de-CH", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+  const hasTime = /T\d{2}:\d{2}|\s\d{1,2}:\d{2}/.test(raw);
+  const timeLabel = hasTime
+    ? date.toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })
+    : "";
+  return `Termin ${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
+}
+
+function InvoiceViewportTooltip({
+  children,
+  preferredWidth = 420,
+}: {
+  children: any;
+  preferredWidth?: number;
+}) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    width: number;
+    maxHeight: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+  const calculatePosition = () => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger || typeof window === "undefined") return null;
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 8;
+    const width = Math.max(
+      240,
+      Math.min(preferredWidth, window.innerWidth - viewportPadding * 2),
+    );
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+    const availableAbove = Math.max(0, rect.top - gap - viewportPadding);
+    const availableBelow = Math.max(
+      0,
+      window.innerHeight - rect.bottom - gap - viewportPadding,
+    );
+    const openBelow = availableAbove < 140 && availableBelow > availableAbove;
+    const available = openBelow ? availableBelow : availableAbove;
+    const maxHeight = Math.max(1, Math.min(560, available));
+    return openBelow
+      ? { left, width, maxHeight, top: rect.bottom + gap }
+      : {
+          left,
+          width,
+          maxHeight,
+          bottom: window.innerHeight - rect.top + gap,
+        };
+  };
+  const show = () => {
+    clearHideTimer();
+    const next = calculatePosition();
+    if (next) setPosition(next);
+    setOpen(true);
+  };
+  const scheduleHide = () => {
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+  };
+
+  useEffect(() => {
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger) return;
+    const focusOut = (event: FocusEvent) => {
+      if (!trigger.contains(event.relatedTarget as Node | null)) scheduleHide();
+    };
+    trigger.addEventListener("pointerenter", show);
+    trigger.addEventListener("pointerleave", scheduleHide);
+    trigger.addEventListener("focusin", show);
+    trigger.addEventListener("focusout", focusOut);
+    return () => {
+      trigger.removeEventListener("pointerenter", show);
+      trigger.removeEventListener("pointerleave", scheduleHide);
+      trigger.removeEventListener("focusin", show);
+      trigger.removeEventListener("focusout", focusOut);
+      clearHideTimer();
+    };
+  }, [preferredWidth]);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const next = calculatePosition();
+      if (next) setPosition(next);
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, preferredWidth]);
+
+  return (
+    <>
+      <span ref={anchorRef} className="hidden" aria-hidden="true" />
+      {open && position && (
+        <span
+          role="tooltip"
+          onPointerEnter={clearHideTimer}
+          onPointerLeave={scheduleHide}
+          style={{
+            left: position.left,
+            width: position.width,
+            maxHeight: position.maxHeight,
+            top: position.top,
+            bottom: position.bottom,
+          }}
+          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        >
+          {children}
+        </span>
+      )}
+    </>
+  );
+}
+
+function InvoiceExecutionSitesTooltip({
+  sites,
+}: {
+  sites: InvoiceExecutionSite[];
+}) {
+  if (sites.length === 0) return null;
+  return (
+    <InvoiceViewportTooltip>
+      <span className="mb-2 flex items-center gap-1.5 text-sm font-bold text-sky-800 dark:text-sky-200">
+        <MapPin className="h-4 w-4" />
+        {sites.length > 1
+          ? `Ausführungsorte · ${sites.length}`
+          : "Ausführungsadresse"}
+      </span>
+      <span className="block space-y-2">
+        {sites.map((site, siteIndex) => (
+          <span
+            key={`invoice_execution_tooltip_${siteIndex}`}
+            className={`block ${
+              siteIndex > 0
+                ? "border-t border-sky-100 pt-2 dark:border-slate-700"
+                : ""
+            }`}
+          >
+            {sites.length > 1 && (
+              <span className="mb-1 block font-bold text-slate-950 dark:text-slate-50">
+                Arbeitsort {siteIndex + 1}
+              </span>
+            )}
+            <span className="grid grid-cols-[76px_1fr] gap-x-2 gap-y-1.5">
+              {site.siteName && (
+                <>
+                  <span className="text-muted-foreground">Objekt:</span>
+                  <span className="break-words font-bold text-slate-950 dark:text-slate-50">
+                    {site.siteName}
+                  </span>
+                </>
+              )}
+              <span className="text-muted-foreground">Strasse:</span>
+              <span className="break-words">{site.siteAddress || "–"}</span>
+              <span className="text-muted-foreground">PLZ / Ort:</span>
+              <span className="break-words">
+                {[site.sitePlz, site.siteCity].filter(Boolean).join(" ") || "–"}
+              </span>
+              {site.siteNote && (
+                <>
+                  <span className="text-muted-foreground">Hinweis:</span>
+                  <span className="break-words">{site.siteNote}</span>
+                </>
+              )}
+            </span>
+          </span>
+        ))}
+      </span>
+    </InvoiceViewportTooltip>
+  );
+}
+
 const statusColors: Record<string, string> = {
   Entwurf: "bg-gray-100 text-gray-800",
   Gesendet: "bg-blue-100 text-blue-800",
@@ -2088,6 +2287,7 @@ export default function RechnungenPage() {
                     details: string[];
                   }>;
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
+                  const invoiceAppointmentLabel = formatInvoiceAppointmentLabel(inv);
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
                   const mergedCount = getInvoiceMergedCount(inv);
                   const mergedContactEntries = buildMergedContactReviewEntries(
@@ -2103,8 +2303,7 @@ export default function RechnungenPage() {
                       transition={{ delay: i * 0.02 }}
                     >
                       <Card
-                        className={`cursor-pointer transition-shadow hover:shadow-md tap-safe`}
-                        onClick={() => toggleInvoiceCard(inv.id)}
+                        className="transition-shadow hover:shadow-md tap-safe"
                         aria-expanded={invoiceCardExpanded}
                       >
                         <CardContent className="p-3 sm:p-4">
@@ -2220,7 +2419,10 @@ export default function RechnungenPage() {
                             </details>
 
                             {!invoiceCardExpanded && (
-                              <div className={`min-w-0 flex-1 ${isPaid ? "opacity-80" : ""}`}>
+                              <div
+                                className={`min-w-0 flex-1 cursor-pointer ${isPaid ? "opacity-80" : ""}`}
+                                onClick={() => toggleInvoiceCard(inv.id)}
+                              >
                                 <div className="flex min-w-0 items-center gap-1.5">
                                   <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                     {(() => {
@@ -2239,59 +2441,64 @@ export default function RechnungenPage() {
                                         : "";
                                     })()}
                                   </span>
-                                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                                    {isFallbackCustomerName(inv?.customer?.name)
-                                      ? "Kunde nicht zugeordnet"
-                                      : inv?.customer?.name || "–"}
-                                  </span>
-                                  {invoiceExecutionSites.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                      onTouchStart={(event) => event.stopPropagation()}
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        openEditInvoice(inv);
-                                        window.setTimeout(
-                                          () => setEditingExecutionAddress(true),
-                                          120,
-                                        );
-                                      }}
-                                      className="group relative inline-flex min-w-0 max-w-[7.5rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:max-w-[15rem]"
-                                    >
-                                      <MapPin className="h-3 w-3 shrink-0" />
-                                      <span className="truncate">
-                                        {invoiceExecutionSites.length > 1
-                                          ? `Orte · ${invoiceExecutionSites.length}`
-                                          : executionSite?.siteName ||
-                                            executionSite?.siteAddress ||
-                                            "Ausführungsort"}
-                                      </span>
-                                      <span className="pointer-events-none absolute bottom-full left-0 z-[90] mb-2 hidden w-[min(26rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl group-hover:block dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-                                        {invoiceExecutionSites.map((site, siteIndex) => (
-                                          <span
-                                            key={`${inv.id}:compact-site:${siteIndex}`}
-                                            className={`block ${siteIndex > 0 ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
-                                          >
-                                            <span className="block font-bold">
-                                              {site.siteName || `Ausführungsort ${siteIndex + 1}`}
-                                            </span>
-                                            <span className="block">
-                                              {[
-                                                site.siteAddress,
-                                                [site.sitePlz, site.siteCity]
-                                                  .filter(Boolean)
-                                                  .join(" "),
-                                              ]
-                                                .filter(Boolean)
-                                                .join(", ") || "–"}
-                                            </span>
+                                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-visible">
+                                    <span className="min-w-0 truncate text-sm font-semibold">
+                                      {isFallbackCustomerName(inv?.customer?.name)
+                                        ? "Kunde nicht zugeordnet"
+                                        : inv?.customer?.name || "–"}
+                                    </span>
+                                    {invoiceExecutionSites.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          openEditInvoice(inv);
+                                          window.setTimeout(
+                                            () => setEditingExecutionAddress(true),
+                                            120,
+                                          );
+                                        }}
+                                        className="group relative inline-flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:max-w-[18rem]"
+                                        aria-label="Ausführungsort anzeigen und bearbeiten"
+                                      >
+                                        <MapPin className="h-3 w-3 shrink-0" />
+                                        <span className="truncate">
+                                          {invoiceExecutionSites.length > 1
+                                            ? `Ausführungsorte · ${invoiceExecutionSites.length}`
+                                            : executionSite?.siteName ||
+                                              executionSite?.siteAddress ||
+                                              "Ausführungsort"}
+                                        </span>
+                                        <InvoiceExecutionSitesTooltip
+                                          sites={invoiceExecutionSites}
+                                        />
+                                      </button>
+                                    )}
+                                    {invoiceAppointmentLabel && (
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                        }}
+                                        className="group relative inline-flex min-w-0 max-w-[12rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 sm:inline-flex"
+                                      >
+                                        <span className="truncate">
+                                          {invoiceAppointmentLabel}
+                                        </span>
+                                        <InvoiceViewportTooltip preferredWidth={300}>
+                                          <span className="block font-semibold text-violet-900 dark:text-violet-200">
+                                            {invoiceAppointmentLabel}
                                           </span>
-                                        ))}
-                                      </span>
-                                    </button>
-                                  )}
+                                        </InvoiceViewportTooltip>
+                                      </button>
+                                    )}
+                                  </div>
                                   <div className="ml-auto shrink-0 text-right">
                                     <div className="font-mono text-sm font-bold tabular-nums">
                                       {formatCurrency(
@@ -2307,7 +2514,10 @@ export default function RechnungenPage() {
                             <div
                               className={`flex-1 min-w-0 ${isPaid ? "opacity-80" : ""} ${invoiceCardExpanded ? "" : "hidden"}`}
                             >
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <div
+                                className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1"
+                                onClick={() => toggleInvoiceCard(inv.id)}
+                              >
                                 <span className="text-xs text-muted-foreground shrink-0">
                                   {(() => {
                                     const dt =
@@ -2414,7 +2624,23 @@ export default function RechnungenPage() {
                                 </span>
                               </div>
 
-                              <div className="mt-3 rounded-xl border bg-muted/20 p-3">
+                              <div
+                                className="mt-3 cursor-pointer rounded-xl border bg-muted/20 p-3 transition-colors hover:bg-muted/35"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openEditInvoice(inv);
+                                  setExpandedItemIndex(0);
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    openEditInvoice(inv);
+                                    setExpandedItemIndex(0);
+                                  }
+                                }}
+                              >
                                 <div className="mb-2 text-xs font-medium text-muted-foreground">
                                   Leistungen · {visibleItems.length}
                                 </div>
