@@ -20,6 +20,7 @@ import {
   MessageCircle,
   MapPin,
   Pencil,
+  X,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
@@ -170,6 +171,18 @@ const compactInvoiceValue = (value: unknown) =>
   String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+
+const serializeInvoiceExecutionSiteForEdit = (
+  site?: InvoiceExecutionSite | null,
+) =>
+  JSON.stringify({
+    siteName: compactInvoiceValue(site?.siteName),
+    siteAddress: compactInvoiceValue(site?.siteAddress),
+    sitePlz: compactInvoiceValue(site?.sitePlz),
+    siteCity: compactInvoiceValue(site?.siteCity),
+    siteNote: compactInvoiceValue(site?.siteNote),
+    sourceOrderId: compactInvoiceValue(site?.sourceOrderId),
+  });
 
 const normalizeInvoiceServiceName = (value: unknown) =>
   compactInvoiceValue(value)
@@ -1374,6 +1387,8 @@ export default function RechnungenPage() {
   const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
+    useState("");
   const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<Set<string>>(new Set());
   const [newInvoiceItemSiteKey, setNewInvoiceItemSiteKey] = useState<string>("");
   const [expandedInvoiceCardIds, setExpandedInvoiceCardIds] = useState<Set<string>>(new Set());
@@ -1414,6 +1429,21 @@ export default function RechnungenPage() {
   const [newInvoiceExecutionSite, setNewInvoiceExecutionSite] =
     useState<InvoiceExecutionSite | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!editingExecutionAddress) return;
+    const currentSite = editingInvoice
+      ? collectInvoiceExecutionSites({
+          items,
+          orders: editingInvoice?.orders || [],
+        })[0] || null
+      : newInvoiceExecutionSite;
+    setExecutionAddressEditSnapshot(
+      serializeInvoiceExecutionSiteForEdit(currentSite),
+    );
+    // Snapshot only when the editor changes from closed to open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingExecutionAddress]);
 
   useEffect(() => {
     if (serviceActionMenuIndex === null) return;
@@ -2073,6 +2103,24 @@ export default function RechnungenPage() {
     if (!dialogOpen) setPendingOpenCustomerEditor(null);
   }, [dialogOpen]);
 
+  const toggleInvoiceExecutionAddressEditor = (
+    site?: InvoiceExecutionSite | null,
+  ) => {
+    if (!site) return;
+    if (!editingExecutionAddress) {
+      setEditingExecutionAddress(true);
+      return;
+    }
+    if (
+      serializeInvoiceExecutionSiteForEdit(site) !==
+      executionAddressEditSnapshot
+    ) {
+      toast.info("Bitte Ausführungsadresse zuerst speichern.");
+      return;
+    }
+    setEditingExecutionAddress(false);
+  };
+
   const setNewInvoiceExecutionAddressEnabled = (enabled: boolean) => {
     if (!enabled) {
       setNewInvoiceExecutionSite(null);
@@ -2491,6 +2539,9 @@ export default function RechnungenPage() {
           setDialogOpen(false);
           setItems([getEmptyItem()]);
           setNewInvoiceExecutionSite(null);
+          setExecutionAddressEditSnapshot(
+            serializeInvoiceExecutionSiteForEdit(newInvoiceExecutionSite),
+          );
           setEditingExecutionAddress(false);
           setForm({
             customerId: "",
@@ -2503,6 +2554,9 @@ export default function RechnungenPage() {
         } else if (createdInvoice?.id) {
           setEditingInvoice(createdInvoice);
           setItems(Array.isArray(createdInvoice.items) ? createdInvoice.items : itemsForCreate);
+          setExecutionAddressEditSnapshot(
+            serializeInvoiceExecutionSiteForEdit(newInvoiceExecutionSite),
+          );
           setNewInvoiceExecutionSite(null);
           setEditingExecutionAddress(false);
         }
@@ -2558,7 +2612,16 @@ export default function RechnungenPage() {
 
   const saveInvoiceExecutionAddress = async () => {
     const saved = await saveEdit(false);
-    if (saved) setEditingExecutionAddress(false);
+    if (saved) {
+      const currentSite = collectInvoiceExecutionSites({
+        items,
+        orders: editingInvoice?.orders || [],
+      })[0] || null;
+      setExecutionAddressEditSnapshot(
+        serializeInvoiceExecutionSiteForEdit(currentSite),
+      );
+      setEditingExecutionAddress(false);
+    }
   };
 
   // Save + Archive → set status Erledigt + back to list
@@ -3626,9 +3689,23 @@ export default function RechnungenPage() {
         }}
       >
         <DialogContent
-          className={`${dupCheckOpen ? "max-w-5xl w-[96vw]" : "max-w-4xl w-[95vw]"} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all`}
+          className={`${dupCheckOpen ? "max-w-5xl w-[96vw]" : "max-w-4xl w-[95vw]"} max-h-[90vh] overflow-y-auto overflow-x-hidden transition-all [&>button]:hidden`}
         >
-          <DialogHeader>
+          <div className="pointer-events-none sticky top-0 z-[80] flex h-0 justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setDialogOpen(false);
+                setEditingInvoice(null);
+              }}
+              className="pointer-events-auto mt-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-600 shadow-sm transition-colors hover:bg-red-100 hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 dark:border-red-900/60 dark:bg-red-950/80 dark:text-red-300 dark:hover:bg-red-900/80"
+              aria-label="Bearbeitungsfenster schließen"
+              title="Schließen"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <DialogHeader className="pr-12">
             <DialogTitle>
               {editingInvoice ? "Rechnung bearbeiten" : "Neue Rechnung"}
             </DialogTitle>
@@ -4042,12 +4119,39 @@ export default function RechnungenPage() {
               </div>
               {!dupCheckOpen && !editingInvoice && (
                 <div className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
+                  <div
+                    role={newInvoiceExecutionSite ? "button" : undefined}
+                    tabIndex={newInvoiceExecutionSite ? 0 : -1}
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement;
+                      if (target.closest("button,input,select,textarea,a")) return;
+                      toggleInvoiceExecutionAddressEditor(
+                        newInvoiceExecutionSite,
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        newInvoiceExecutionSite &&
+                        (event.key === "Enter" || event.key === " ")
+                      ) {
+                        event.preventDefault();
+                        toggleInvoiceExecutionAddressEditor(
+                          newInvoiceExecutionSite,
+                        );
+                      }
+                    }}
+                    className={`-m-1 flex flex-wrap items-start justify-between gap-2 rounded-lg p-1.5 outline-none transition-colors ${
+                      newInvoiceExecutionSite
+                        ? "cursor-pointer hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
+                        : ""
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-1 items-start gap-2">
                       <input
                         type="checkbox"
                         className="mt-1 h-4 w-4 rounded border-slate-400"
                         checked={Boolean(newInvoiceExecutionSite)}
+                        onClick={(event) => event.stopPropagation()}
                         onChange={(event) =>
                           setNewInvoiceExecutionAddressEnabled(
                             event.target.checked,
@@ -4063,7 +4167,7 @@ export default function RechnungenPage() {
                           ausgeführt wird.
                         </span>
                       </span>
-                    </label>
+                    </div>
                     {newInvoiceExecutionSite && !editingExecutionAddress && (
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <Button
@@ -4246,29 +4350,23 @@ export default function RechnungenPage() {
                   })[0];
                   if (!executionSite) return null;
                   return (
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        if (!editingExecutionAddress)
-                          setEditingExecutionAddress(true);
-                      }}
-                      onKeyDown={(event) => {
-                        if (
-                          !editingExecutionAddress &&
-                          (event.key === "Enter" || event.key === " ")
-                        ) {
-                          event.preventDefault();
-                          setEditingExecutionAddress(true);
-                        }
-                      }}
-                      className={`rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20 ${
-                        editingExecutionAddress
-                          ? ""
-                          : "cursor-pointer hover:bg-cyan-50/50"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={(event) => {
+                          const target = event.target as HTMLElement;
+                          if (target.closest("button,input,select,textarea,a")) return;
+                          toggleInvoiceExecutionAddressEditor(executionSite);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            toggleInvoiceExecutionAddressEditor(executionSite);
+                          }
+                        }}
+                        className="-m-1 flex cursor-pointer flex-wrap items-start justify-between gap-2 rounded-lg p-1.5 outline-none transition-colors hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
+                      >
                         <div className="flex min-w-0 flex-1 items-start gap-2">
                           <input
                             type="checkbox"

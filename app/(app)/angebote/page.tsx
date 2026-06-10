@@ -189,6 +189,20 @@ const compactOfferValue = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const serializeOfferExecutionSitesForEdit = (
+  sites: OfferExecutionSite[],
+) =>
+  JSON.stringify(
+    (sites || []).map((site) => ({
+      siteName: compactOfferValue(site.siteName),
+      siteAddress: compactOfferValue(site.siteAddress),
+      sitePlz: compactOfferValue(site.sitePlz),
+      siteCity: compactOfferValue(site.siteCity),
+      siteNote: compactOfferValue(site.siteNote),
+      sourceOrderId: compactOfferValue(site.sourceOrderId),
+    })),
+  );
+
 const pickBestOfferCustomerName = (...values: unknown[]) => {
   const candidates = values
     .map((value) => compactOfferValue(value))
@@ -2560,12 +2574,23 @@ export default function AngebotePage() {
   const [editingOfferSiteKey, setEditingOfferSiteKey] = useState<string | null>(null);
   const [newOfferItemSiteKey, setNewOfferItemSiteKey] = useState<string>("");
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
+  const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
+    useState("");
   const [selectedChipDetail, setSelectedChipDetail] = useState<string | null>(
     null,
   );
   const executionAddressRef = useRef<HTMLDivElement | null>(null);
   const serviceItemsRef = useRef<HTMLDivElement | null>(null);
   const offerDetailsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!editingExecutionAddress) return;
+    setExecutionAddressEditSnapshot(
+      serializeOfferExecutionSitesForEdit(executionSites),
+    );
+    // Snapshot only when the editor changes from closed to open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingExecutionAddress]);
 
   // Auto-fill customer data from order notes when dialog opens
   const autoFillCustomer = async (customerId: string) => {
@@ -3325,6 +3350,22 @@ export default function AngebotePage() {
     );
   };
 
+  const toggleOfferExecutionAddressEditor = () => {
+    if (executionSites.length === 0) return;
+    if (!editingExecutionAddress) {
+      setEditingExecutionAddress(true);
+      return;
+    }
+    if (
+      serializeOfferExecutionSitesForEdit(executionSites) !==
+      executionAddressEditSnapshot
+    ) {
+      toast.info("Bitte Ausführungsadresse zuerst speichern.");
+      return;
+    }
+    setEditingExecutionAddress(false);
+  };
+
   const setExecutionAddressEnabled = (enabled: boolean) => {
     if (enabled) {
       setExecutionSites((current) =>
@@ -3699,6 +3740,9 @@ export default function AngebotePage() {
       if (!saved) return;
       if (!editOfferId && saved?.id) setEditOfferId(saved.id);
       setFromOrderId(null);
+      setExecutionAddressEditSnapshot(
+        serializeOfferExecutionSitesForEdit(executionSites),
+      );
       setEditingExecutionAddress(false);
       toast.success("Ausführungsadresse gespeichert");
       await load();
@@ -6062,9 +6106,20 @@ export default function AngebotePage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent
-          className={`${dupCheckOpen ? "max-w-5xl w-[96vw]" : "max-w-3xl w-[calc(100vw-0.75rem)] sm:w-[95vw]"} max-h-[94vh] scroll-pt-20 overflow-y-auto overflow-x-hidden transition-all`}
+          className={`${dupCheckOpen ? "max-w-5xl w-[96vw]" : "max-w-3xl w-[calc(100vw-0.75rem)] sm:w-[95vw]"} max-h-[94vh] scroll-pt-20 overflow-y-auto overflow-x-hidden transition-all [&>button]:hidden`}
         >
-          <DialogHeader>
+          <div className="pointer-events-none sticky top-0 z-[80] flex h-0 justify-end">
+            <button
+              type="button"
+              onClick={() => setDialogOpen(false)}
+              className="pointer-events-auto mt-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-600 shadow-sm transition-colors hover:bg-red-100 hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 dark:border-red-900/60 dark:bg-red-950/80 dark:text-red-300 dark:hover:bg-red-900/80"
+              aria-label="Bearbeitungsfenster schließen"
+              title="Schließen"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <DialogHeader className="pr-12">
             <DialogTitle>
               {editOfferId ? "Angebot bearbeiten" : "Neues Angebot"}
             </DialogTitle>
@@ -6499,12 +6554,35 @@ export default function AngebotePage() {
                     ref={executionAddressRef}
                     className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
+                    <div
+                      role={executionSites.length > 0 ? "button" : undefined}
+                      tabIndex={executionSites.length > 0 ? 0 : -1}
+                      onClick={(event) => {
+                        const target = event.target as HTMLElement;
+                        if (target.closest("button,input,select,textarea,a")) return;
+                        toggleOfferExecutionAddressEditor();
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          executionSites.length > 0 &&
+                          (event.key === "Enter" || event.key === " ")
+                        ) {
+                          event.preventDefault();
+                          toggleOfferExecutionAddressEditor();
+                        }
+                      }}
+                      className={`-m-1 flex flex-wrap items-start justify-between gap-2 rounded-lg p-1.5 outline-none transition-colors ${
+                        executionSites.length > 0
+                          ? "cursor-pointer hover:bg-cyan-100/80 focus-visible:ring-2 focus-visible:ring-cyan-400 dark:hover:bg-cyan-900/30"
+                          : ""
+                      }`}
+                    >
+                      <div className="flex min-w-0 flex-1 items-start gap-2">
                         <input
                           type="checkbox"
                           className="mt-1 h-4 w-4 rounded border-slate-400"
                           checked={executionSites.length > 0}
+                          onClick={(event) => event.stopPropagation()}
                           onChange={(event) =>
                             setExecutionAddressEnabled(event.target.checked)
                           }
@@ -6518,7 +6596,7 @@ export default function AngebotePage() {
                             ausgeführt wird.
                           </span>
                         </span>
-                      </label>
+                      </div>
                       {executionSites.length > 0 && !editingExecutionAddress && (
                         <div className="flex flex-wrap items-center justify-end gap-1.5">
                           <Button
