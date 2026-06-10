@@ -576,6 +576,7 @@ const compactText = (value?: string | null) =>
 
 
 // V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
+// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -9434,6 +9435,7 @@ export default function AuftraegePage() {
   const [activeWorkSiteId, setActiveWorkSiteId] = useState<string | null>(null);
   const [newItemWorkSiteId, setNewItemWorkSiteId] = useState<string>("");
   const [expandedWorkSiteIds, setExpandedWorkSiteIds] = useState<string[]>([]);
+  const [expandedServiceItemKeys, setExpandedServiceItemKeys] = useState<string[]>([]);
   const [customerMessagesExpanded, setCustomerMessagesExpanded] =
     useState(false);
   const [serviceOverviewExpanded, setServiceOverviewExpanded] = useState(false);
@@ -9888,6 +9890,7 @@ export default function AuftraegePage() {
       setDiscardedRecognitionReviewKeys([]);
       setFormWorkSites([]);
       setExpandedWorkSiteIds([]);
+      setExpandedServiceItemKeys([]);
       setCustomerMessagesExpanded(false);
       setServiceOverviewExpanded(false);
       setShowNewCustomer(false);
@@ -10050,6 +10053,7 @@ export default function AuftraegePage() {
     setActiveWorkSiteId(null);
     setNewItemWorkSiteId("");
     setExpandedWorkSiteIds([]);
+    setExpandedServiceItemKeys([]);
     setCustomerMessagesExpanded(false);
     setServiceOverviewExpanded(false);
     setSiteAddressEditing(false);
@@ -10172,6 +10176,7 @@ export default function AuftraegePage() {
     setActiveWorkSiteId(nextWorkSites[0]?.id || null);
     setNewItemWorkSiteId(nextWorkSites.length === 1 ? nextWorkSites[0]?.id || "" : "");
     setExpandedWorkSiteIds([]);
+    setExpandedServiceItemKeys([]);
     setCustomerMessagesExpanded(!shouldCollapseCustomerMessagesForOrder(o));
     setServiceOverviewExpanded(false);
     setMovingItemKey(null);
@@ -11248,6 +11253,7 @@ export default function AuftraegePage() {
     };
 
     setFormItems((prev) => [nextItem, ...prev]);
+    setExpandedServiceItemKeys([nextItem.key]);
     if (targetWorkSiteId) {
       setActiveWorkSiteId(targetWorkSiteId);
       setExpandedWorkSiteIds((prev) =>
@@ -11272,6 +11278,7 @@ export default function AuftraegePage() {
     };
 
     setFormItems((prev) => [nextItem, ...prev]);
+    setExpandedServiceItemKeys([nextItem.key]);
 
     if (siteId) {
       setActiveWorkSiteId(siteId);
@@ -11302,6 +11309,11 @@ export default function AuftraegePage() {
       if (prev.length <= 1) return [createEmptyItem()];
       return prev.filter((_, i) => i !== index);
     });
+    if (removedItem) {
+      setExpandedServiceItemKeys((current) =>
+        current.filter((key) => key !== removedItem.key),
+      );
+    }
   };
 
   const currentEditOrder = editId
@@ -15650,8 +15662,7 @@ export default function AuftraegePage() {
                                   renderInteractiveMobileRightReviewBadge(badge),
                                 )}
                                 {serviceReviewBadge && (
-                                  <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
-                                    style={{ left: "61%" }}>
+                                  <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
                                     <span className="hidden lg:inline-flex">
                                       {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                                     </span>
@@ -15668,7 +15679,7 @@ export default function AuftraegePage() {
                             {appointmentBadges.slice(0, 1).map((badge) => (
                               <span
                                 key={`compact_appointment_wrap_${badge.key}`}
-                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center md:pr-3"
                               >
                                 {renderResponsiveAppointmentBadge(
                                   badge,
@@ -15816,8 +15827,7 @@ export default function AuftraegePage() {
                           )}
 
                           {serviceReviewBadge && (
-                            <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
-                              style={{ left: "61%" }}>
+                            <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                               {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                             </span>
                           )}
@@ -15834,7 +15844,7 @@ export default function AuftraegePage() {
                           {appointmentBadges.slice(0, 1).map((badge) => (
                             <span
                               key={`mobile_appointment_wrap_${badge.key}`}
-                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                              className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center md:pr-3"
                             >
                               {renderResponsiveAppointmentBadge(
                                 badge,
@@ -17809,13 +17819,15 @@ export default function AuftraegePage() {
                                       </div>
                                       {groupReviewSummaryV17_90L135G.count > 0 && (
                                         <span
-                                          className="relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                          className="relative mt-1 inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
                                           role="button"
                                           tabIndex={0}
                                           onClick={(event) => event.stopPropagation()}
                                           onPointerDown={(event) => event.stopPropagation()}
                                         >
-                                          Leistungen prüfen · {groupReviewSummaryV17_90L135G.count}
+                                          <span className="truncate whitespace-nowrap">
+                                            Leistungen prüfen · {groupReviewSummaryV17_90L135G.count}
+                                          </span>
                                           <ViewportAwareOrderServiceTooltip
                                             badge={{
                                               key: `site_service_review_${site?.id || "general"}`,
@@ -18041,8 +18053,18 @@ export default function AuftraegePage() {
                               ) : (
                                 groupExpanded && (
                                   <details
-                                    open={index === 0 || isFirstInSite}
-                                    className={`group/service-item relative min-w-0 border-2 shadow-sm [&[open]]:border-sky-200 [&[open]]:bg-sky-50/40 [&[open]]:ring-1 [&[open]]:ring-sky-100 dark:[&[open]]:border-sky-800/70 dark:[&[open]]:bg-sky-950/15 dark:[&[open]]:ring-sky-900/40 ${
+                                    open={expandedServiceItemKeys.includes(item.key)}
+                                    onToggle={(event) => {
+                                      const isOpen = event.currentTarget.open;
+                                      setExpandedServiceItemKeys((current) =>
+                                        isOpen
+                                          ? current.includes(item.key)
+                                            ? current
+                                            : [...current, item.key]
+                                          : current.filter((key) => key !== item.key),
+                                      );
+                                    }}
+                                    className={`group/service-item relative min-w-0 border-2 shadow-sm ${
                                       hasMultipleEditWorkSites
                                         ? `ml-2 rounded-xl border-l-4 ${itemAccentClass}`
                                         : "rounded-xl"
@@ -18083,9 +18105,10 @@ export default function AuftraegePage() {
                                               : "Preis prüfen"}
                                           </div>
                                           {hasAnyItemReview && (
-                                            <span className="inline-flex min-w-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                            <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
                                               <span
-                                                className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                title={itemReviewReasonV17_90L134}
+                                                className={`max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                                   hasCriticalItemReview
                                                     ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200"
                                                     : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
@@ -18179,7 +18202,7 @@ export default function AuftraegePage() {
                                       </div>
                                     </summary>
 
-                                    <div className="space-y-3 border-t border-sky-100 p-3 dark:border-sky-900/40">
+                                    <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
                                       <div className="group min-w-0">
                                         <ServiceCombobox
                                           value={getEditableServiceNameValue(

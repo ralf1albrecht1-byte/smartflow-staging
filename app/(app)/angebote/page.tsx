@@ -192,6 +192,7 @@ const compactOfferValue = (value: unknown) =>
 
 
 // V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
+// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -2415,7 +2416,7 @@ export default function AngebotePage() {
   const [savingCust, setSavingCust] = useState(false);
   const [dupCheckOpen, setDupCheckOpen] = useState(false);
   const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
-  const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(0);
+  const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
   const [activeMobileTooltip, setActiveMobileTooltip] = useState<OfferMobileTooltipState | null>(null);
   const [expandedMobileServiceCards, setExpandedMobileServiceCards] = useState<Set<string>>(new Set());
   const [expandedOfferCardIds, setExpandedOfferCardIds] = useState<Set<string>>(new Set());
@@ -3488,7 +3489,7 @@ export default function AngebotePage() {
     setNewOfferItemSiteKey("");
     setSelectedChipDetail(null);
     setServiceActionMenuIndex(null);
-    setExpandedItemIndex(0);
+    setExpandedItemIndex(null);
     setCatalogDecision(null);
     // Reset customer form to prevent stale data leaking between records
     setNewCust({
@@ -3681,7 +3682,7 @@ export default function AngebotePage() {
     setEditingExecutionAddress(false);
     setSelectedChipDetail(null);
     setServiceActionMenuIndex(null);
-    setExpandedItemIndex(0);
+    setExpandedItemIndex(null);
     setCatalogDecision(null);
     setShowNewCustomer(false);
     setEditingCustomer(false);
@@ -4973,8 +4974,7 @@ export default function AngebotePage() {
 
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ? (
-                      <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
-                        style={{ left: "61%" }}>
+                      <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
                         <button
                           type="button"
                           onPointerDown={(event) => event.stopPropagation()}
@@ -5253,7 +5253,7 @@ export default function AngebotePage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center md:pr-3"
                                   >
                                     <button
                                       type="button"
@@ -5658,8 +5658,7 @@ export default function AngebotePage() {
 
 
                                   {serviceReview.reviewCount > 0 && (
-                                    <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
-                                      style={{ left: "61%" }}>
+                                    <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -5728,7 +5727,7 @@ export default function AngebotePage() {
                                   </div>
 
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center md:pr-3"
                                   >
                                     <button
                                       type="button"
@@ -6855,6 +6854,7 @@ export default function AngebotePage() {
                           <Button
                             type="button"
                             size="sm"
+                            variant="outline"
                             onClick={addItem}
                             className="h-7 shrink-0 px-2 text-xs"
                           >
@@ -6934,24 +6934,22 @@ export default function AngebotePage() {
                             key={idx}
                             data-service-item-index={idx}
                             className={`relative overflow-visible rounded-xl border transition-colors ${
-                              isExpanded
-                                ? "border-sky-200 bg-sky-50/40 ring-1 ring-sky-100"
-                                : hasCriticalReview
-                                  ? "border-red-300 bg-red-50/20 dark:border-red-800/70 dark:bg-red-950/10"
-                                  : itemNeedsReview
-                                    ? "border-amber-200 bg-amber-50/20 dark:border-amber-800/70 dark:bg-amber-950/10"
-                                    : "border-slate-200 bg-background dark:border-slate-700"
+                              hasCriticalReview
+                                ? "border-red-300 bg-red-50/20 dark:border-red-800/70 dark:bg-red-950/10"
+                                : itemNeedsReview
+                                  ? "border-amber-300 bg-amber-50/30 dark:border-amber-800/70 dark:bg-amber-950/10"
+                                  : "border-slate-200 bg-background dark:border-slate-700"
                             }`}
                           >
                             <div
                               className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5 transition-colors ${
-                                isExpanded
-                                  ? "rounded-t-xl hover:bg-sky-100/70 dark:hover:bg-sky-900/25"
-                                  : hasCriticalReview
-                                    ? "rounded-xl hover:bg-red-100/70 dark:hover:bg-red-900/25"
-                                    : itemNeedsReview
-                                      ? "rounded-xl hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
-                                      : "rounded-xl hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
+                                isExpanded ? "rounded-t-xl" : "rounded-xl"
+                              } ${
+                                hasCriticalReview
+                                  ? "hover:bg-red-100/70 dark:hover:bg-red-900/25"
+                                  : itemNeedsReview
+                                    ? "hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
+                                    : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
                               }`}
                             >
                               <button
@@ -6983,9 +6981,10 @@ export default function AngebotePage() {
                                       : "Preis prüfen"}
                                   </div>
                                   {itemNeedsReview && (
-                                    <span className="inline-flex min-w-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                    <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
                                       <span
-                                        className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                        title={itemReviewReasonV17_90L134}
+                                        className={`max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                           hasCriticalReview
                                             ? "border-red-300 bg-red-100 text-red-800"
                                             : "border-amber-300 bg-amber-100 text-amber-800"
@@ -7067,7 +7066,7 @@ export default function AngebotePage() {
                             </div>
 
                             {isExpanded && (
-                              <div className="space-y-3 border-t border-sky-100 p-3">
+                              <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
                                 {executionSites.length > 1 && (
                                   <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
                                     <Label className="text-xs">Arbeitsort</Label>
@@ -7257,9 +7256,15 @@ export default function AngebotePage() {
                                 return next;
                               });
                             }}
-                            className="overflow-visible rounded-xl border-2 border-cyan-400 bg-cyan-100/60 shadow-sm"
+                            className="overflow-visible space-y-1.5"
                           >
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-cyan-300 bg-cyan-100/75 px-3 py-2.5 transition-colors hover:bg-cyan-200/70 dark:border-cyan-800 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/35 [&::-webkit-details-marker]:hidden">
+                            <summary
+                              className={`flex cursor-pointer list-none items-center justify-between gap-3 border-2 border-cyan-400 bg-cyan-100/75 px-3 py-2.5 transition-colors hover:bg-cyan-200/70 dark:border-cyan-800 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/35 [&::-webkit-details-marker]:hidden ${
+                                expandedOfferSiteKeys.has(group.key)
+                                  ? "rounded-t-xl rounded-b-none border-b-0"
+                                  : "rounded-xl"
+                              }`}
+                            >
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-semibold">
                                   📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
@@ -7288,13 +7293,15 @@ export default function AngebotePage() {
                                   if (groupReviewCount === 0) return null;
                                   return (
                                     <span
-                                      className="relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                      className="relative mt-1 inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
                                       role="button"
                                       tabIndex={0}
                                       onClick={(event) => event.stopPropagation()}
                                       onPointerDown={(event) => event.stopPropagation()}
                                     >
-                                      Leistungen prüfen · {groupReviewCount}
+                                      <span className="truncate whitespace-nowrap">
+                                        Leistungen prüfen · {groupReviewCount}
+                                      </span>
                                       <OfferServiceReviewTooltip
                                         title={`Leistungen prüfen · ${groupReviewCount}`}
                                         sections={groupSections}
@@ -7326,7 +7333,7 @@ export default function AngebotePage() {
                               </div>
                             </summary>
                             {editingOfferSiteKey === group.key && group.site && (
-                              <div className="grid grid-cols-1 gap-2 border-b border-slate-200 bg-cyan-50/50 p-3 sm:grid-cols-2">
+                              <div className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2">
                                 <div className="sm:col-span-2"><Label className="text-xs">Objekt / Bereich</Label><Input value={group.site.siteName || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteName", event.target.value)} /></div>
                                 <div className="sm:col-span-2"><Label className="text-xs">Strasse</Label><Input value={group.site.siteAddress || ""} onChange={(event) => updateOfferGroupSite(group.key, "siteAddress", event.target.value)} /></div>
                                 <div><Label className="text-xs">PLZ</Label><Input value={group.site.sitePlz || ""} onChange={(event) => updateOfferGroupSite(group.key, "sitePlz", event.target.value)} /></div>
@@ -7347,7 +7354,7 @@ export default function AngebotePage() {
                                 </div>
                               </div>
                             )}
-                            <div className="space-y-2 p-2">
+                            <div className="ml-2 space-y-2 bg-background pt-1">
                               {renderEntries(group.entries)}
                             </div>
                           </details>

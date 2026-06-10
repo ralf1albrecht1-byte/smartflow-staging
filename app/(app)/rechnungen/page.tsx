@@ -1419,11 +1419,11 @@ export default function RechnungenPage() {
   const [invoiceCardExpansionRestored, setInvoiceCardExpansionRestored] = useState(false);
   const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] = useState(false);
   const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] = useState<Set<string>>(new Set());
-  const [invoiceServiceOverviewOpen, setInvoiceServiceOverviewOpen] = useState(true);
+  const [invoiceServiceOverviewOpen, setInvoiceServiceOverviewOpen] = useState(false);
 
   useEffect(() => {
     if (!dialogOpen) return;
-    setInvoiceServiceOverviewOpen(true);
+    setInvoiceServiceOverviewOpen(false);
   }, [dialogOpen, editingInvoice?.id]);
 
   useEffect(() => {
@@ -1941,7 +1941,7 @@ export default function RechnungenPage() {
       orderIds: [],
     });
     setItems([getEmptyItem()]);
-    setExpandedItemIndex(0);
+    setExpandedItemIndex(null);
     setServiceActionMenuIndex(null);
     setEditingExecutionAddress(false);
     setExpandedInvoiceSiteKeys(new Set());
@@ -3414,7 +3414,7 @@ export default function RechnungenPage() {
                             event.preventDefault();
                             event.stopPropagation();
                             openEditInvoice(inv);
-                            setExpandedItemIndex(0);
+                            setExpandedItemIndex(null);
                           }}
                           className="group relative inline-flex h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 text-[10px] font-semibold text-amber-900 shadow-sm hover:bg-amber-200"
                           aria-label={`Leistungen anzeigen · ${visibleItems.length}`}
@@ -3788,7 +3788,7 @@ export default function RechnungenPage() {
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   openEditInvoice(inv);
-                                  setExpandedItemIndex(0);
+                                  setExpandedItemIndex(null);
                                 }}
                                 role="button"
                                 tabIndex={0}
@@ -3796,7 +3796,7 @@ export default function RechnungenPage() {
                                   if (event.key === "Enter" || event.key === " ") {
                                     event.preventDefault();
                                     openEditInvoice(inv);
-                                    setExpandedItemIndex(0);
+                                    setExpandedItemIndex(null);
                                   }
                                 }}
                               >
@@ -4824,14 +4824,14 @@ export default function RechnungenPage() {
                               </h3>
                               <div className="flex flex-wrap items-center justify-end gap-2">
                                 {multiSite && (
-                                  <Button variant="outline" size="sm" onClick={toggleAllInvoiceSites}>
+                                  <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllInvoiceSites}>
                                     {expandedInvoiceSiteKeys.size ===
                                     groupInvoiceItemsByExecutionSite(items || [], currentSites).length
                                       ? "Übersicht"
                                       : "Alle öffnen"}
                                   </Button>
                                 )}
-                                <Button variant="outline" size="sm" onClick={addItem}>
+                                <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={addItem}>
                                   <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
                                 </Button>
                               </div>
@@ -4904,20 +4904,18 @@ export default function RechnungenPage() {
                             key={idx}
                             data-service-item-index={idx}
                             className={`relative overflow-visible rounded-xl border transition-colors ${
-                              isExpanded
-                                ? "border-sky-200 bg-sky-50/40 ring-1 ring-sky-100"
-                                : itemNeedsReview
-                                  ? "border-amber-200 bg-amber-50/20"
-                                  : "border-slate-200 bg-background"
+                              itemNeedsReview
+                                ? "border-amber-300 bg-amber-50/30"
+                                : "border-slate-200 bg-background"
                             }`}
                           >
                             <div
                               className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5 transition-colors ${
-                                isExpanded
-                                  ? "rounded-t-xl hover:bg-sky-100/70 dark:hover:bg-sky-900/25"
-                                  : itemNeedsReview
-                                    ? "rounded-xl hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
-                                    : "rounded-xl hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
+                                isExpanded ? "rounded-t-xl" : "rounded-xl"
+                              } ${
+                                itemNeedsReview
+                                  ? "hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
+                                  : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
                               }`}
                             >
                               <button
@@ -4943,8 +4941,11 @@ export default function RechnungenPage() {
                                       : "Preis prüfen"}
                                   </div>
                                   {itemNeedsReview && (
-                                    <span className="inline-flex min-w-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
-                                      <span className="w-fit shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                    <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
+                                      <span
+                                        title={itemReviewReasonV17_90L134}
+                                        className="max-w-full truncate whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                                      >
                                         {itemReviewReasonV17_90L134}
                                       </span>
                                     </span>
@@ -5017,7 +5018,7 @@ export default function RechnungenPage() {
                             </div>
 
                             {isExpanded && (
-                              <div className="space-y-3 border-t border-sky-100 p-3">
+                              <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
                                 {collectInvoiceExecutionSites({
                                   items,
                                   orders: editingInvoice?.orders || [],
@@ -5167,9 +5168,15 @@ export default function RechnungenPage() {
                                 return next;
                               });
                             }}
-                            className="overflow-visible rounded-xl border-2 border-cyan-400 bg-cyan-100/60 shadow-sm"
+                            className="overflow-visible space-y-1.5"
                           >
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-xl border-b border-cyan-300 bg-cyan-100/75 px-3 py-2.5 transition-colors hover:bg-cyan-200/70 dark:border-cyan-800 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/35 [&::-webkit-details-marker]:hidden">
+                            <summary
+                              className={`flex cursor-pointer list-none items-center justify-between gap-3 border-2 border-cyan-400 bg-cyan-100/75 px-3 py-2.5 transition-colors hover:bg-cyan-200/70 dark:border-cyan-800 dark:bg-cyan-950/25 dark:hover:bg-cyan-900/35 [&::-webkit-details-marker]:hidden ${
+                                expandedInvoiceSiteKeys.has(group.key)
+                                  ? "rounded-t-xl rounded-b-none border-b-0"
+                                  : "rounded-xl"
+                              }`}
+                            >
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-semibold">
                                   📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
@@ -5189,13 +5196,15 @@ export default function RechnungenPage() {
                                   if (groupReviewEntries.length === 0) return null;
                                   return (
                                     <span
-                                      className="relative mt-1 inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
+                                      className="relative mt-1 inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
                                       role="button"
                                       tabIndex={0}
                                       onClick={(event) => event.stopPropagation()}
                                       onPointerDown={(event) => event.stopPropagation()}
                                     >
-                                      Leistungen prüfen · {groupReviewEntries.length}
+                                      <span className="truncate whitespace-nowrap">
+                                        Leistungen prüfen · {groupReviewEntries.length}
+                                      </span>
                                       <InvoiceViewportTooltip preferredWidth={432}>
                                         <InvoiceServiceReviewTooltipContentV17_90L135G
                                           total={groupReviewEntries.length}
@@ -5232,7 +5241,7 @@ export default function RechnungenPage() {
                               </div>
                             </summary>
                             {editingInvoiceSiteKey === group.key && group.site && (
-                              <div className="grid grid-cols-1 gap-2 border-b border-slate-200 bg-cyan-50/50 p-3 sm:grid-cols-2">
+                              <div className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2">
                                 <div className="sm:col-span-2">
                                   <Label className="text-xs">Objekt / Bereich</Label>
                                   <Input value={group.site.siteName || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "siteName", event.target.value)} />
@@ -5265,7 +5274,7 @@ export default function RechnungenPage() {
                                 </div>
                               </div>
                             )}
-                            <div className="space-y-2 p-2">
+                            <div className="ml-2 space-y-2 bg-background pt-1">
                               {renderEntries(group.entries)}
                             </div>
                           </details>
