@@ -15500,7 +15500,7 @@ export default function AuftraegePage() {
 
                                 {!hasMultipleMergedData && (
                                   <div
-                                    className="mr-1 inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                    className="mr-1 inline-flex border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                     onPointerDown={(event) => event.stopPropagation()}
                                     onTouchStart={(event) => event.stopPropagation()}
                                     onClick={(event) => event.stopPropagation()}
@@ -15515,7 +15515,7 @@ export default function AuftraegePage() {
                                 )}
 
                                 {hasMultipleMergedData && (
-                                  <span className="mr-1 inline-flex">
+                                  <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
                                     <MergedContactReviewChip
                                       records={[cardOrderForChips as any]}
                                       compact
@@ -15530,7 +15530,7 @@ export default function AuftraegePage() {
                                   renderInteractiveMobileRightReviewBadge(badge),
                                 )}
                                 {serviceReviewBadge && (
-                                  <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
+                                  <span className="inline-flex lg:ml-auto">
                                     <span className="hidden lg:inline-flex">
                                       {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                                     </span>
@@ -15665,7 +15665,7 @@ export default function AuftraegePage() {
 
                           {!hasMultipleMergedData && (
                             <div
-                              className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                              className="mr-1 inline-flex border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                               onPointerDown={(event) => event.stopPropagation()}
                               onTouchStart={(event) => event.stopPropagation()}
                               onClick={(event) => event.stopPropagation()}
@@ -15680,10 +15680,12 @@ export default function AuftraegePage() {
                           )}
 
                           {hasMultipleMergedData && (
-                            <MergedContactReviewChip
-                              records={[cardOrderForChips as any]}
-                              compact
-                            />
+                            <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
+                              <MergedContactReviewChip
+                                records={[cardOrderForChips as any]}
+                                compact
+                              />
+                            </span>
                           )}
 
                           {mobileActionBadges.map((badge) =>
@@ -15691,7 +15693,7 @@ export default function AuftraegePage() {
                           )}
 
                           {serviceReviewBadge && (
-                            <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
+                            <span className="ml-2 inline-flex">
                               {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                             </span>
                           )}
@@ -15829,7 +15831,7 @@ export default function AuftraegePage() {
 
                             {!hasMultipleMergedData && (
                               <div
-                                className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                className="mr-1 inline-flex border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                 onPointerDown={(event) =>
                                   event.stopPropagation()
                                 }

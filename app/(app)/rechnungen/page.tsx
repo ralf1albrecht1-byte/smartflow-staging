@@ -3045,7 +3045,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceCompactFunctionalChips = () => (
                     <div
-                      className="mr-1 inline-flex min-w-0 flex-wrap items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                      className="mr-1 inline-flex min-w-0 flex-wrap items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -3081,7 +3081,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceServicesChip = () =>
                     visibleItems.length > 0 ? (
-                      <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
+                      <span className="inline-flex lg:ml-auto">
                         <button
                           type="button"
                           onPointerDown={(event) => event.stopPropagation()}
@@ -3095,7 +3095,7 @@ export default function RechnungenPage() {
                           className="group relative inline-flex h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 text-[10px] font-semibold text-amber-900 shadow-sm hover:bg-amber-200"
                           aria-label={`Leistungen anzeigen · ${visibleItems.length}`}
                         >
-                          Leistungen
+                          Leistungen · {visibleItems.length}
                           <InvoiceViewportTooltip preferredWidth={432}>
                             <InvoiceServiceDisplayTooltipContentV17_90L136
                               total={visibleItems.length}

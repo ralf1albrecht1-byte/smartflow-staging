@@ -4657,7 +4657,7 @@ export default function AngebotePage() {
                   const renderOfferCompactFunctionalChips = () => (
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                       <div
-                        className="mr-1 inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                        className={`${!hasMergedContactReview && callbackChip ? "" : "mr-1 border-r border-slate-200 pr-2 dark:border-slate-700"} inline-flex empty:hidden [&_svg]:h-[18px] [&_svg]:w-[18px]`}
                         onPointerDown={(event) => event.stopPropagation()}
                         onTouchStart={(event) => event.stopPropagation()}
                         onClick={(event) => {
@@ -4710,61 +4710,64 @@ export default function AngebotePage() {
                         )}
                       </div>
 
-                      {!hasMergedContactReview && callbackChip &&
-                        (callbackChip.href ? (
-                          <a
-                            href={callbackChip.href}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setActiveMobileTooltip(null);
-                            }}
-                            className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
-                            aria-label={callbackChip.title}
-                          >
-                            <Phone className="h-4 w-4" />
-                            {!useTouchChipPopovers && (
-                              <OfferContactTooltip
-                                heading="Telefonkontakt"
-                                name={callbackChip.name}
-                                value={callbackChip.displayPhone}
-                                hint="Antippen oder anklicken, um anzurufen."
-                              />
-                            )}
-                          </a>
-                        ) : (
-                          <button
-                            type="button"
-                            onPointerDown={(event) => event.stopPropagation()}
-                            onTouchStart={(event) => event.stopPropagation()}
-                            onClick={(event) =>
-                              useTouchChipPopovers
-                                ? toggleOfferMobileTooltip(
-                                    {
-                                      key: `${off.id}:compact-callback`,
-                                      text: callbackChip.title,
-                                    },
-                                    event,
-                                  )
-                                : openOfferChipTarget(
-                                    "details",
-                                    event,
-                                    callbackChip.title,
-                                  )
-                            }
-                            className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
-                            aria-label={callbackChip.title}
-                          >
-                            <Phone className="h-4 w-4" />
-                            {!useTouchChipPopovers && (
-                              <OfferContactTooltip
-                                heading="Telefonkontakt"
-                                name={callbackChip.name}
-                                value={callbackChip.displayPhone}
-                                hint="Antippen oder anklicken, um anzurufen."
-                              />
-                            )}
-                          </button>
-                        ))}
+                      {!hasMergedContactReview && callbackChip && (
+                        <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
+                          {callbackChip.href ? (
+                            <a
+                              href={callbackChip.href}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setActiveMobileTooltip(null);
+                              }}
+                              className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                              aria-label={callbackChip.title}
+                            >
+                              <Phone className="h-4 w-4" />
+                              {!useTouchChipPopovers && (
+                                <OfferContactTooltip
+                                  heading="Telefonkontakt"
+                                  name={callbackChip.name}
+                                  value={callbackChip.displayPhone}
+                                  hint="Antippen oder anklicken, um anzurufen."
+                                />
+                              )}
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onTouchStart={(event) => event.stopPropagation()}
+                              onClick={(event) =>
+                                useTouchChipPopovers
+                                  ? toggleOfferMobileTooltip(
+                                      {
+                                        key: `${off.id}:compact-callback`,
+                                        text: callbackChip.title,
+                                      },
+                                      event,
+                                    )
+                                  : openOfferChipTarget(
+                                      "details",
+                                      event,
+                                      callbackChip.title,
+                                    )
+                              }
+                              className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                              aria-label={callbackChip.title}
+                            >
+                              <Phone className="h-4 w-4" />
+                              {!useTouchChipPopovers && (
+                                <OfferContactTooltip
+                                  heading="Telefonkontakt"
+                                  name={callbackChip.name}
+                                  value={callbackChip.displayPhone}
+                                  hint="Antippen oder anklicken, um anzurufen."
+                                />
+                              )}
+                            </button>
+                          )}
+                        </span>
+                      )}
 
                       {hasInfoTooltip && (
                         <button
@@ -4894,47 +4897,49 @@ export default function AngebotePage() {
                         </button>
                       )}
 
-                      {serviceReview.reviewCount > 0 && (
-                        <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
-                          <button
-                            type="button"
-                            onPointerDown={(event) => event.stopPropagation()}
-                            onTouchStart={(event) => event.stopPropagation()}
-                            onClick={(event) =>
-                              useTouchChipPopovers
-                                ? toggleOfferMobileTooltip(
-                                    {
-                                      key: `${off.id}:compact-service-review`,
-                                      reviewTitle: `Leistungen prüfen · ${serviceReview.reviewCount}`,
-                                      reviewSections: serviceReview.reviewSections,
-                                    },
-                                    event,
-                                  )
-                                : openOfferChipTarget("items", event)
-                            }
-                            className="group relative inline-flex max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
-                            aria-label={`Leistungen prüfen · ${serviceReview.reviewCount}`}
-                          >
-                            <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
-                            <span className="hidden lg:inline">
-                              Leistungen prüfen · {serviceReview.reviewCount}
-                            </span>
-                            <span className="inline lg:hidden">
-                              {serviceReview.reviewCount}
-                            </span>
-                            {!useTouchChipPopovers && (
-                              <OfferServiceReviewTooltip
-                                title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
-                                sections={serviceReview.reviewSections}
-                                siteGroups={offerReviewSiteGroups}
-                                align="right"
-                              />
-                            )}
-                          </button>
-                        </span>
-                      )}
                     </div>
                   );
+
+                  const renderOfferCompactServiceReviewChip = () =>
+                    serviceReview.reviewCount > 0 ? (
+                      <span className="inline-flex lg:ml-auto">
+                        <button
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) =>
+                            useTouchChipPopovers
+                              ? toggleOfferMobileTooltip(
+                                  {
+                                    key: `${off.id}:compact-service-review`,
+                                    reviewTitle: `Leistungen prüfen · ${serviceReview.reviewCount}`,
+                                    reviewSections: serviceReview.reviewSections,
+                                  },
+                                  event,
+                                )
+                              : openOfferChipTarget("items", event)
+                          }
+                          className="group relative inline-flex max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
+                          aria-label={`Leistungen prüfen · ${serviceReview.reviewCount}`}
+                        >
+                          <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
+                          <span className="hidden lg:inline">
+                            Leistungen prüfen · {serviceReview.reviewCount}
+                          </span>
+                          <span className="inline lg:hidden">
+                            {serviceReview.reviewCount}
+                          </span>
+                          {!useTouchChipPopovers && (
+                            <OfferServiceReviewTooltip
+                              title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
+                              sections={serviceReview.reviewSections}
+                              siteGroups={offerReviewSiteGroups}
+                              align="right"
+                            />
+                          )}
+                        </button>
+                      </span>
+                    ) : null;
 
                   return (
                     <motion.div
@@ -5172,6 +5177,7 @@ export default function AngebotePage() {
                                         ))}
                                       </select>
                                       {renderOfferCompactFunctionalChips()}
+                                      {renderOfferCompactServiceReviewChip()}
                                     </div>
                                   </div>
                                   <div className="flex min-w-0 items-center justify-end gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0">
