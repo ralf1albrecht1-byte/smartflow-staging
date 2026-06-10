@@ -192,25 +192,24 @@ const compactOfferValue = (value: unknown) =>
     .trim();
 
 
-// V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
-// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
+// V17.90L168: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
+// Nur ein reines Datum wird im Terminchip ausgeschrieben; jeder Zusatz zeigt nur das Kalendersymbol.
 type AdaptiveAppointmentLabels = {
   full: string;
-  medium: string;
+  dateOnly: string | null;
 };
 
 const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabels => {
   const full = compactOfferValue(value) || "Termin klären";
-  if (/(?:termin\s*)?(?:klären|klaeren)|noch\s+offen|termin\s+offen/i.test(full)) {
-    return { full: "Termin klären", medium: "Klären" };
-  }
-  const countMatch = full.match(/\bTermine?\s*[·:]\s*(\d+)\b/i);
-  if (countMatch) return { full, medium: `Termine · ${countMatch[1]}` };
-  const dateMatch = full.match(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?\b/);
-  if (dateMatch) {
-    return { full, medium: `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.` };
-  }
-  return { full, medium: "Termin" };
+  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
+  if (!dateMatch) return { full, dateOnly: null };
+  const day = dateMatch[1].padStart(2, "0");
+  const month = dateMatch[2].padStart(2, "0");
+  const year = dateMatch[3] || "";
+  return {
+    full,
+    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
+  };
 };
 
 const serializeOfferExecutionSitesForEdit = (
@@ -5154,7 +5153,7 @@ export default function AngebotePage() {
                               >
                                 <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                                   <div className="min-w-0">
-                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:flex-nowrap md:pr-[40%]">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                         {(() => {
                                           const dt = off.orders?.[0]?.createdAt || off.createdAt;
@@ -5169,7 +5168,7 @@ export default function AngebotePage() {
                                             : "";
                                         })()}
                                       </span>
-                                      <span className="min-w-0 truncate text-sm font-semibold">
+                                      <span className="min-w-0 max-w-[20rem] shrink truncate text-sm font-semibold">
                                         {isFallbackCustomerName(cardCustomerName)
                                           ? "Kunde nicht zugeordnet"
                                           : cardCustomerName}
@@ -5215,7 +5214,7 @@ export default function AngebotePage() {
                                               openOfferSection(off, "execution");
                                             }
                                           }}
-                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:max-w-[18rem]"
+                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
                                           aria-label="Ausführungsort anzeigen"
                                         >
                                           <MapPin className="h-3 w-3 shrink-0" />
@@ -5291,16 +5290,15 @@ export default function AngebotePage() {
                                           );
                                         }
                                       }}
-                                      className="group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                      className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
-                                        {appointmentChipLabels.full}
-                                      </span>
-                                      <span className="hidden min-w-0 truncate md:ml-1.5 md:inline xl:hidden">
-                                        {appointmentChipLabels.medium}
-                                      </span>
-                                      <span className="sr-only md:hidden">{appointmentChipLabels.full}</span>
+                                      {appointmentChipLabels.dateOnly && (
+                                        <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                          {appointmentChipLabels.dateOnly}
+                                        </span>
+                                      )}
+                                      <span className="sr-only">{appointmentChipLabels.full}</span>
                                       {!useTouchChipPopovers && (
                                         <OfferPlainTooltip text={appointmentDisplayLabel} />
                                       )}
@@ -5324,7 +5322,7 @@ export default function AngebotePage() {
                               {/* Mobile — shared one-column card for Auftrag/Angebot */}
                               <div className="min-w-0">
                                 <div
-                                  className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1"
+                                  className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 md:flex-nowrap"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     setActiveMobileTooltip(null);
@@ -5339,7 +5337,7 @@ export default function AngebotePage() {
                                         : "";
                                     })()}
                                   </span>
-                                  <span className="min-w-0 max-w-full truncate text-[15px] font-semibold text-foreground">
+                                  <span className="min-w-0 max-w-[20rem] shrink truncate text-[15px] font-semibold text-foreground">
                                     {isFallbackCustomerName(cardCustomerName)
                                       ? "Kunde nicht zugeordnet"
                                       : cardCustomerName}
@@ -5395,7 +5393,7 @@ export default function AngebotePage() {
                                           openOfferChipTarget("execution", event);
                                         }
                                       }}
-                                      className="group relative inline-flex min-w-0 basis-full max-w-full flex-[1_1_14rem] items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-1 text-[11px] font-medium text-cyan-800 outline-none hover:bg-cyan-100 focus:ring-2 focus:ring-cyan-300 sm:basis-auto"
+                                      className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-2 py-1 text-[11px] font-medium text-cyan-800 outline-none hover:bg-cyan-100 focus:ring-2 focus:ring-cyan-300 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
                                       aria-label="Ausführungsadresse anzeigen"
                                     >
                                       <MapPin className="h-3 w-3 shrink-0" />
@@ -5412,7 +5410,7 @@ export default function AngebotePage() {
                                     </button>
                                   )}
                                   {off?.offerNumber && (
-                                    <span className="ml-auto min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+                                    <span className="ml-auto shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                                       {off.offerNumber}
                                     </span>
                                   )}
@@ -5714,16 +5712,15 @@ export default function AngebotePage() {
                                               appointmentDisplayLabel,
                                             )
                                       }
-                                      className="group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                      className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
-                                        {appointmentChipLabels.full}
-                                      </span>
-                                      <span className="hidden min-w-0 truncate md:ml-1.5 md:inline xl:hidden">
-                                        {appointmentChipLabels.medium}
-                                      </span>
-                                      <span className="sr-only md:hidden">{appointmentChipLabels.full}</span>
+                                      {appointmentChipLabels.dateOnly && (
+                                        <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                          {appointmentChipLabels.dateOnly}
+                                        </span>
+                                      )}
+                                      <span className="sr-only">{appointmentChipLabels.full}</span>
                                       {!useTouchChipPopovers && (
                                         <OfferPlainTooltip text={appointmentDisplayLabel} />
                                       )}

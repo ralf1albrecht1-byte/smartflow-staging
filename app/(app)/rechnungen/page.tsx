@@ -175,25 +175,24 @@ const compactInvoiceValue = (value: unknown) =>
     .trim();
 
 
-// V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
-// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
+// V17.90L168: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
+// Nur ein reines Datum wird im Terminchip ausgeschrieben; jeder Zusatz zeigt nur das Kalendersymbol.
 type AdaptiveAppointmentLabels = {
   full: string;
-  medium: string;
+  dateOnly: string | null;
 };
 
 const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabels => {
   const full = compactInvoiceValue(value) || "Termin klären";
-  if (/(?:termin\s*)?(?:klären|klaeren)|noch\s+offen|termin\s+offen/i.test(full)) {
-    return { full: "Termin klären", medium: "Klären" };
-  }
-  const countMatch = full.match(/\bTermine?\s*[·:]\s*(\d+)\b/i);
-  if (countMatch) return { full, medium: `Termine · ${countMatch[1]}` };
-  const dateMatch = full.match(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?\b/);
-  if (dateMatch) {
-    return { full, medium: `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.` };
-  }
-  return { full, medium: "Termin" };
+  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
+  if (!dateMatch) return { full, dateOnly: null };
+  const day = dateMatch[1].padStart(2, "0");
+  const month = dateMatch[2].padStart(2, "0");
+  const year = dateMatch[3] || "";
+  return {
+    full,
+    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
+  };
 };
 
 const serializeInvoiceExecutionSiteForEdit = (
@@ -3753,7 +3752,7 @@ export default function RechnungenPage() {
                               >
                                 <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                                   <div className="min-w-0">
-                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:flex-nowrap md:pr-[40%]">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                         {(() => {
                                           const dt =
@@ -3771,7 +3770,7 @@ export default function RechnungenPage() {
                                             : "";
                                         })()}
                                       </span>
-                                      <span className="min-w-0 truncate text-sm font-semibold">
+                                      <span className="min-w-0 max-w-[20rem] shrink truncate text-sm font-semibold">
                                         {isFallbackCustomerName(inv?.customer?.name)
                                           ? "Kunde nicht zugeordnet"
                                           : inv?.customer?.name || "–"}
@@ -3790,7 +3789,7 @@ export default function RechnungenPage() {
                                               120,
                                             );
                                           }}
-                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:max-w-[18rem]"
+                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
                                           aria-label="Ausführungsort anzeigen und bearbeiten"
                                         >
                                           <MapPin className="h-3 w-3 shrink-0" />
@@ -3846,17 +3845,16 @@ export default function RechnungenPage() {
                                         event.preventDefault();
                                         event.stopPropagation();
                                       }}
-                                      className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                      className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                                       aria-label={invoiceAppointmentDisplayLabel}
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
-                                        {invoiceAppointmentChipLabels.full}
-                                      </span>
-                                      <span className="hidden min-w-0 truncate md:ml-1.5 md:inline xl:hidden">
-                                        {invoiceAppointmentChipLabels.medium}
-                                      </span>
-                                      <span className="sr-only md:hidden">{invoiceAppointmentChipLabels.full}</span>
+                                      {invoiceAppointmentChipLabels.dateOnly && (
+                                        <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                          {invoiceAppointmentChipLabels.dateOnly}
+                                        </span>
+                                      )}
+                                      <span className="sr-only">{invoiceAppointmentChipLabels.full}</span>
                                       <InvoiceViewportTooltip preferredWidth={300}>
                                         <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
                                           Ausführungstermin
@@ -3883,7 +3881,7 @@ export default function RechnungenPage() {
                               className={`flex-1 min-w-0 ${isPaid ? "opacity-80" : ""} ${invoiceCardExpanded ? "" : "hidden"}`}
                             >
                               <div
-                                className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1"
+                                className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 md:flex-nowrap"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   toggleInvoiceCard(inv.id);
@@ -3903,7 +3901,7 @@ export default function RechnungenPage() {
                                       : "";
                                   })()}
                                 </span>
-                                <span className="font-semibold text-sm sm:text-base text-foreground truncate">
+                                <span className="min-w-0 max-w-[20rem] shrink truncate font-semibold text-sm sm:text-base text-foreground">
                                   {isFallbackCustomerName(inv?.customer?.name)
                                     ? "⚠️ Kunde nicht zugeordnet"
                                     : (inv?.customer?.name ?? "")}
@@ -3932,7 +3930,7 @@ export default function RechnungenPage() {
                                         120,
                                       );
                                     }}
-                                    className="group relative inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                                    className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 overflow-hidden rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]"
                                     aria-label="Ausführungsadresse anzeigen und bearbeiten"
                                   >
                                     <MapPin className="h-3 w-3 shrink-0" />
@@ -3958,7 +3956,7 @@ export default function RechnungenPage() {
                                     }
                                   />
                                 )}
-                                <span className="ml-auto font-mono text-[11px] text-muted-foreground whitespace-nowrap">
+                                <span className="ml-auto shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
                                   {inv?.invoiceNumber ?? ""}
                                 </span>
                               </div>
@@ -4072,17 +4070,16 @@ export default function RechnungenPage() {
                                       event.preventDefault();
                                       event.stopPropagation();
                                     }}
-                                    className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                    className={`relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${invoiceAppointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                                     aria-label={invoiceAppointmentDisplayLabel}
                                   >
                                     <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
-                                        {invoiceAppointmentChipLabels.full}
-                                      </span>
-                                      <span className="hidden min-w-0 truncate md:ml-1.5 md:inline xl:hidden">
-                                        {invoiceAppointmentChipLabels.medium}
-                                      </span>
-                                      <span className="sr-only md:hidden">{invoiceAppointmentChipLabels.full}</span>
+                                      {invoiceAppointmentChipLabels.dateOnly && (
+                                        <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                          {invoiceAppointmentChipLabels.dateOnly}
+                                        </span>
+                                      )}
+                                      <span className="sr-only">{invoiceAppointmentChipLabels.full}</span>
                                     <InvoiceViewportTooltip preferredWidth={300}>
                                       <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
                                         Ausführungstermin

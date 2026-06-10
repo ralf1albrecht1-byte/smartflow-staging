@@ -576,28 +576,24 @@ const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
 
 
-// V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
-// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
+// V17.90L168: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
+// Nur ein reines Datum wird im Terminchip ausgeschrieben; jeder Zusatz zeigt nur das Kalendersymbol.
 type AdaptiveAppointmentLabels = {
   full: string;
-  medium: string;
+  dateOnly: string | null;
 };
 
 const buildAdaptiveAppointmentLabels = (value?: string | null): AdaptiveAppointmentLabels => {
   const full = compactText(value) || "Termin klären";
-  if (/(?:termin\s*)?(?:klären|klaeren)|noch\s+offen|termin\s+offen/i.test(full)) {
-    return { full: "Termin klären", medium: "Klären" };
-  }
-  const countMatch = full.match(/\bTermine?\s*[·:]\s*(\d+)\b/i);
-  if (countMatch) return { full, medium: `Termine · ${countMatch[1]}` };
-  const dateMatch = full.match(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?\b/);
-  if (dateMatch) {
-    return {
-      full,
-      medium: `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.`,
-    };
-  }
-  return { full, medium: "Termin" };
+  const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
+  if (!dateMatch) return { full, dateOnly: null };
+  const day = dateMatch[1].padStart(2, "0");
+  const month = dateMatch[2].padStart(2, "0");
+  const year = dateMatch[3] || "";
+  return {
+    full,
+    dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
+  };
 };
 
 const serializeOrderExecutionAddressForEdit = (source: {
@@ -15434,16 +15430,15 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, slot, event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem] ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${appointmentLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"} ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                  <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
-                    {appointmentLabels.full}
-                  </span>
-                  <span className="hidden min-w-0 truncate md:ml-1.5 md:inline xl:hidden">
-                    {appointmentLabels.medium}
-                  </span>
-                  <span className="sr-only md:hidden">{appointmentLabels.full}</span>
+                  {appointmentLabels.dateOnly && (
+                    <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                      {appointmentLabels.dateOnly}
+                    </span>
+                  )}
+                  <span className="sr-only">{appointmentLabels.full}</span>
                   {renderMobileChipTooltip(badge, slot, align)}
                 </button>
               );
@@ -15604,7 +15599,7 @@ export default function AuftraegePage() {
                         >
                           <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                             <div className="min-w-0">
-                              <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:flex-nowrap md:pr-[40%]">
                                 <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                   {o.createdAt
                                     ? `${new Date(o.createdAt).toLocaleDateString("de-CH", {
@@ -15617,7 +15612,7 @@ export default function AuftraegePage() {
                                     : ""}
                                 </span>
                                 <span
-                                  className={`min-w-0 truncate text-sm font-semibold ${
+                                  className={`min-w-0 max-w-[20rem] shrink truncate text-sm font-semibold ${
                                     isFallbackCustomerName(o.customer?.name)
                                       ? "italic text-amber-600 dark:text-amber-400"
                                       : "text-foreground"
@@ -15628,7 +15623,7 @@ export default function AuftraegePage() {
                                     : o.customer?.name || "–"}
                                 </span>
                                 {compactExecutionAddressBadge && (
-                                  <span className="min-w-0 basis-full max-w-full shrink sm:basis-auto sm:max-w-[18rem]">
+                                  <span className="min-w-0 basis-full max-w-full shrink overflow-hidden sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]">
                                     {renderInteractiveMobileTextBadge(
                                       compactExecutionAddressBadge,
                                       "compact_header_address",
@@ -15737,7 +15732,7 @@ export default function AuftraegePage() {
                       )}
                       <div className={`min-w-0 flex-1 ${orderCardExpanded ? "" : "hidden"}`}>
                         <div
-                          className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1"
+                          className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 md:flex-nowrap"
                           onClick={(event) => {
                             event.stopPropagation();
                             setActiveMobileTooltipKey(null);
@@ -15755,7 +15750,7 @@ export default function AuftraegePage() {
                               : ""}
                           </span>
                           <span
-                            className={`min-w-0 max-w-full truncate text-[15px] font-semibold ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
+                            className={`min-w-0 max-w-[20rem] shrink truncate text-[15px] font-semibold ${isFallbackCustomerName(o.customer?.name) ? "text-amber-600 dark:text-amber-400 italic" : "text-foreground"}`}
                           >
                             {isFallbackCustomerName(o.customer?.name)
                               ? "Kunde nicht zugeordnet"
@@ -15768,7 +15763,7 @@ export default function AuftraegePage() {
                               </span>
                             )}
                           {compactExecutionAddressBadge && (
-                            <span className="min-w-0 basis-full max-w-full shrink sm:basis-auto sm:max-w-[18rem]">
+                            <span className="min-w-0 basis-full max-w-full shrink overflow-hidden sm:basis-auto sm:flex-[0_1_18rem] sm:max-w-[18rem]">
                               {renderInteractiveMobileTextBadge(
                                 compactExecutionAddressBadge,
                                 "mobile_header_address",
