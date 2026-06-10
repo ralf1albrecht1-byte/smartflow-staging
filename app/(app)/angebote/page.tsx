@@ -4568,6 +4568,8 @@ export default function AngebotePage() {
                       .filter(Boolean)
                       .join("\n"),
                   );
+                  const appointmentDisplayLabel =
+                    appointmentLabel || "Termin klären";
                   const contactAction = buildOfferContactAction(
                     orderCtx,
                     cardCustomer,
@@ -4756,30 +4758,89 @@ export default function AngebotePage() {
                                   toggleOfferCard(off.id);
                                 }}
                               >
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                  <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
-                                    {(() => {
-                                      const dt = off.orders?.[0]?.createdAt || off.createdAt;
-                                      return dt
-                                        ? `${new Date(dt).toLocaleDateString("de-CH", {
-                                            day: "2-digit",
-                                            month: "2-digit",
-                                          })} ${new Date(dt).toLocaleTimeString("de-CH", {
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                          })}`
-                                        : "";
-                                    })()}
-                                  </span>
-                                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-visible">
-                                    <span className="min-w-0 truncate text-sm font-semibold">
-                                      {isFallbackCustomerName(cardCustomerName)
-                                        ? "Kunde nicht zugeordnet"
-                                        : cardCustomerName}
-                                    </span>
+                                <div className="grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                  <div className="min-w-0">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                      <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
+                                        {(() => {
+                                          const dt = off.orders?.[0]?.createdAt || off.createdAt;
+                                          return dt
+                                            ? `${new Date(dt).toLocaleDateString("de-CH", {
+                                                day: "2-digit",
+                                                month: "2-digit",
+                                              })} ${new Date(dt).toLocaleTimeString("de-CH", {
+                                                hour: "2-digit",
+                                                minute: "2-digit",
+                                              })}`
+                                            : "";
+                                        })()}
+                                      </span>
+                                      <span className="min-w-0 truncate text-sm font-semibold">
+                                        {isFallbackCustomerName(cardCustomerName)
+                                          ? "Kunde nicht zugeordnet"
+                                          : cardCustomerName}
+                                      </span>
+                                      {offerExecutionSites.length > 0 && (
+                                        <button
+                                          type="button"
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onTouchStart={(event) => event.stopPropagation()}
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            const tooltipText = offerExecutionSites
+                                              .map((site, siteIndex) => {
+                                                const place = [site.sitePlz, site.siteCity]
+                                                  .filter(Boolean)
+                                                  .join(" ");
+                                                return [
+                                                  `Arbeitsort ${siteIndex + 1}`,
+                                                  site.siteName ? `Objekt: ${site.siteName}` : "",
+                                                  `Strasse: ${site.siteAddress || "–"}`,
+                                                  `PLZ / Ort: ${place || "–"}`,
+                                                  site.siteNote ? `Hinweis: ${site.siteNote}` : "",
+                                                ]
+                                                  .filter(Boolean)
+                                                  .join("\n");
+                                              })
+                                              .join("\n---\n");
+                                            if (useTouchChipPopovers) {
+                                              toggleOfferMobileTooltip(
+                                                {
+                                                  key: `${off.id}:compact-execution-sites`,
+                                                  kind: "execution_address",
+                                                  text: `${
+                                                    offerExecutionSites.length > 1
+                                                      ? `Ausführungsorte · ${offerExecutionSites.length}`
+                                                      : "Ausführungsadresse"
+                                                  }\n${tooltipText}`,
+                                                },
+                                                event,
+                                              );
+                                            } else {
+                                              openOfferSection(off, "execution");
+                                            }
+                                          }}
+                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:max-w-[18rem]"
+                                          aria-label="Ausführungsort anzeigen"
+                                        >
+                                          <MapPin className="h-3 w-3 shrink-0" />
+                                          <span className="truncate">
+                                            {offerExecutionSites.length > 1
+                                              ? `Ausführungsorte · ${offerExecutionSites.length}`
+                                              : primaryExecutionSite?.siteName ||
+                                                primaryExecutionSite?.siteAddress ||
+                                                "Ausführungsort"}
+                                          </span>
+                                          {!useTouchChipPopovers && (
+                                            <OfferExecutionSitesTooltip sites={offerExecutionSites} />
+                                          )}
+                                        </button>
+                                      )}
+                                    </div>
                                     <select
                                       onClick={(event) => event.stopPropagation()}
-                                      className="h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                      className="mt-1 h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
                                       style={getStatusStyle(
                                         OFFER_STATUS_STYLES,
                                         off?.status ?? "",
@@ -4805,101 +4866,48 @@ export default function AngebotePage() {
                                         </option>
                                       ))}
                                     </select>
-                                    {offerExecutionSites.length > 0 && (
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          const tooltipText = offerExecutionSites
-                                            .map((site, siteIndex) => {
-                                              const place = [site.sitePlz, site.siteCity]
-                                                .filter(Boolean)
-                                                .join(" ");
-                                              return [
-                                                `Arbeitsort ${siteIndex + 1}`,
-                                                site.siteName ? `Objekt: ${site.siteName}` : "",
-                                                `Strasse: ${site.siteAddress || "–"}`,
-                                                `PLZ / Ort: ${place || "–"}`,
-                                                site.siteNote ? `Hinweis: ${site.siteNote}` : "",
-                                              ]
-                                                .filter(Boolean)
-                                                .join("\n");
-                                            })
-                                            .join("\n---\n");
-                                          if (useTouchChipPopovers) {
-                                            toggleOfferMobileTooltip(
-                                              {
-                                                key: `${off.id}:compact-execution-sites`,
-                                                kind: "execution_address",
-                                                text: `${
-                                                  offerExecutionSites.length > 1
-                                                    ? `Ausführungsorte · ${offerExecutionSites.length}`
-                                                    : "Ausführungsadresse"
-                                                }\n${tooltipText}`,
-                                              },
-                                              event,
-                                            );
-                                          } else {
-                                            openOfferSection(off, "execution");
-                                          }
-                                        }}
-                                        className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:max-w-[18rem]"
-                                        aria-label="Ausführungsort anzeigen"
-                                      >
-                                        <MapPin className="h-3 w-3 shrink-0" />
-                                        <span className="truncate">
-                                          {offerExecutionSites.length > 1
-                                            ? `Ausführungsorte · ${offerExecutionSites.length}`
-                                            : primaryExecutionSite?.siteName ||
-                                              primaryExecutionSite?.siteAddress ||
-                                              "Ausführungsort"}
-                                        </span>
-                                        {!useTouchChipPopovers && (
-                                          <OfferExecutionSitesTooltip sites={offerExecutionSites} />
-                                        )}
-                                      </button>
-                                    )}
                                   </div>
-                                  {appointmentLabel && (
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          if (useTouchChipPopovers) {
-                                            toggleOfferMobileTooltip(
-                                              {
-                                                key: `${off.id}:compact-appointment`,
-                                                text: appointmentLabel,
-                                              },
-                                              event,
-                                            );
-                                          } else {
-                                            openOfferSection(off, "details", appointmentLabel);
-                                          }
-                                        }}
-                                        className="group relative ml-auto mr-3 inline-flex min-h-9 min-w-0 max-w-[14rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 sm:mr-5 sm:inline-flex"
-                                      >
-                                        <span className="truncate">{appointmentLabel}</span>
-                                        {!useTouchChipPopovers && (
-                                          <OfferPlainTooltip text={appointmentLabel} />
-                                        )}
-                                      </button>
-                                    )}
-                                  <div className="shrink-0 text-right">
-                                    <div className="font-mono text-sm font-bold tabular-nums">
-                                      {formatCurrency(
-                                        Number(off?.total ?? 0),
-                                        off.currency === "EUR" ? "EUR" : "CHF",
+                                  <div className="flex min-w-0 items-center justify-end gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0">
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        if (useTouchChipPopovers) {
+                                          toggleOfferMobileTooltip(
+                                            {
+                                              key: `${off.id}:compact-appointment`,
+                                              text: appointmentDisplayLabel,
+                                            },
+                                            event,
+                                          );
+                                        } else {
+                                          openOfferSection(
+                                            off,
+                                            "details",
+                                            appointmentDisplayLabel,
+                                          );
+                                        }
+                                      }}
+                                      className="group relative inline-flex min-h-9 min-w-0 max-w-[10rem] shrink items-center sm:max-w-[14rem] rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
+                                    >
+                                      <span className="truncate">{appointmentDisplayLabel}</span>
+                                      {!useTouchChipPopovers && (
+                                        <OfferPlainTooltip text={appointmentDisplayLabel} />
                                       )}
+                                    </button>
+                                    <div className="shrink-0 text-right">
+                                      <div className="font-mono text-sm font-bold tabular-nums">
+                                        {formatCurrency(
+                                          Number(off?.total ?? 0),
+                                          off.currency === "EUR" ? "EUR" : "CHF",
+                                        )}
+                                      </div>
                                     </div>
+                                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                                   </div>
-                                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                                 </div>
                               </div>
                             )}
@@ -5001,15 +5009,7 @@ export default function AngebotePage() {
                                   )}
                                 </div>
 
-                                <ResponsiveOfferServicePreviewV17_95
-                                  offerId={off.id}
-                                  serviceNames={mobileOfferServiceNames}
-                                  expanded={mobileOfferServicesExpanded}
-                                  onToggle={() => toggleMobileServiceCard(off.id)}
-                                  onOpenItems={() => openOfferSection(off, "items")}
-                                />
-
-                                <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
+                                <div className="mt-1 flex items-center">
                                   <select
                                     onClick={(event) => event.stopPropagation()}
                                     className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -5038,7 +5038,17 @@ export default function AngebotePage() {
                                       </option>
                                     ))}
                                   </select>
+                                </div>
 
+                                <ResponsiveOfferServicePreviewV17_95
+                                  offerId={off.id}
+                                  serviceNames={mobileOfferServiceNames}
+                                  expanded={mobileOfferServicesExpanded}
+                                  onToggle={() => toggleMobileServiceCard(off.id)}
+                                  onOpenItems={() => openOfferSection(off, "items")}
+                                />
+
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
                                   <div
                                     className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                     onPointerDown={(event) => event.stopPropagation()}
@@ -5250,36 +5260,8 @@ export default function AngebotePage() {
                                   ))}
                                 </div>
 
-                                <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
+                                <div className="mt-2 flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                                  {appointmentLabel && (
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          useTouchChipPopovers
-                                            ? toggleOfferMobileTooltip(
-                                                {
-                                                  key: `${off.id}:appointment`,
-                                                  text: appointmentLabel,
-                                                },
-                                                event,
-                                              )
-                                            : openOfferChipTarget(
-                                                "details",
-                                                event,
-                                                appointmentLabel,
-                                              )
-                                        }
-                                        className="group relative inline-flex min-h-9 max-w-full items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm"
-                                      >
-                                        <span className="truncate">{appointmentLabel}</span>
-                                        {!useTouchChipPopovers && (
-                                          <OfferPlainTooltip text={appointmentLabel} />
-                                        )}
-                                      </button>
-                                    )}
                                     {serviceReview.blockerCount > 0 && (
                                       <button
                                         type="button"
@@ -5343,18 +5325,46 @@ export default function AngebotePage() {
                                     )}
                                   </div>
 
-                                  <div className="shrink-0 whitespace-nowrap text-right leading-tight">
-                                    <div className="font-mono text-[16px] font-bold tabular-nums">
-                                      {formatCurrency(
-                                        Number(off?.total ?? 0),
-                                        offerCurrency,
+                                  <div className="flex min-w-0 shrink-0 items-end gap-3">
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) =>
+                                        useTouchChipPopovers
+                                          ? toggleOfferMobileTooltip(
+                                              {
+                                                key: `${off.id}:appointment`,
+                                                text: appointmentDisplayLabel,
+                                              },
+                                              event,
+                                            )
+                                          : openOfferChipTarget(
+                                              "details",
+                                              event,
+                                              appointmentDisplayLabel,
+                                            )
+                                      }
+                                      className="group relative inline-flex min-h-9 min-w-0 max-w-[14rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm"
+                                    >
+                                      <span className="truncate">{appointmentDisplayLabel}</span>
+                                      {!useTouchChipPopovers && (
+                                        <OfferPlainTooltip text={appointmentDisplayLabel} />
+                                      )}
+                                    </button>
+                                    <div className="shrink-0 whitespace-nowrap text-right leading-tight">
+                                      <div className="font-mono text-[16px] font-bold tabular-nums">
+                                        {formatCurrency(
+                                          Number(off?.total ?? 0),
+                                          offerCurrency,
+                                        )}
+                                      </div>
+                                      {Number(off?.vatRate ?? 0) > 0 && (
+                                        <div className="text-[9px] leading-none text-muted-foreground">
+                                          inkl. MwSt
+                                        </div>
                                       )}
                                     </div>
-                                    {Number(off?.vatRate ?? 0) > 0 && (
-                                      <div className="text-[9px] leading-none text-muted-foreground">
-                                        inkl. MwSt
-                                      </div>
-                                    )}
                                   </div>
                                 </div>
                               </div>

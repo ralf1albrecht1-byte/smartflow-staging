@@ -20,7 +20,6 @@ import {
   MessageCircle,
   MapPin,
   Pencil,
-  CalendarDays,
 } from "lucide-react";
 import { sendPdfToBusinessWhatsApp } from "@/lib/whatsapp-share";
 import {
@@ -2746,6 +2745,8 @@ export default function RechnungenPage() {
                     );
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   const invoiceAppointmentLabel = formatInvoiceAppointmentLabel(inv);
+                  const invoiceAppointmentDisplayLabel =
+                    invoiceAppointmentLabel || "Termin klären";
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
                   const mergedCount = getInvoiceMergedCount(inv);
                   const mergedContactEntries = buildMergedContactReviewEntries(
@@ -2894,64 +2895,32 @@ export default function RechnungenPage() {
                                   toggleInvoiceCard(inv.id);
                                 }}
                               >
-                                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                  <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
-                                    {(() => {
-                                      const dt =
-                                        inv.orders?.[0]?.createdAt ||
-                                        inv.createdAt ||
-                                        inv.invoiceDate;
-                                      return dt
-                                        ? `${new Date(dt).toLocaleDateString("de-CH", {
-                                            day: "2-digit",
-                                            month: "2-digit",
-                                          })} ${new Date(dt).toLocaleTimeString("de-CH", {
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                          })}`
-                                        : "";
-                                    })()}
-                                  </span>
-                                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-visible">
-                                    <span className="min-w-0 truncate text-sm font-semibold">
-                                      {isFallbackCustomerName(inv?.customer?.name)
-                                        ? "Kunde nicht zugeordnet"
-                                        : inv?.customer?.name || "–"}
-                                    </span>
-                                    {invoiceExecutionSites.length > 0 && (
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          openEditInvoice(inv);
-                                          window.setTimeout(
-                                            () => setEditingExecutionAddress(true),
-                                            120,
-                                          );
-                                        }}
-                                        className="group relative inline-flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:max-w-[18rem]"
-                                        aria-label="Ausführungsort anzeigen und bearbeiten"
-                                      >
-                                        <MapPin className="h-3 w-3 shrink-0" />
-                                        <span className="truncate">
-                                          {invoiceExecutionSites.length > 1
-                                            ? `Ausführungsorte · ${invoiceExecutionSites.length}`
-                                            : executionSite?.siteName ||
-                                              executionSite?.siteAddress ||
-                                              "Ausführungsort"}
-                                        </span>
-                                        <InvoiceExecutionSitesTooltip
-                                          sites={invoiceExecutionSites}
-                                        />
-                                      </button>
-                                    )}
-                                  </div>
-                                  <div className="ml-auto grid shrink-0 grid-cols-[1.75rem_5.5rem_9rem_1rem] items-center gap-1 pr-3 sm:pr-5">
-                                    <div className="flex h-7 w-7 items-center justify-center">
-                                      {invoiceAppointmentLabel && (
+                                <div className="grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                  <div className="min-w-0">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                      <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
+                                        {(() => {
+                                          const dt =
+                                            inv.orders?.[0]?.createdAt ||
+                                            inv.createdAt ||
+                                            inv.invoiceDate;
+                                          return dt
+                                            ? `${new Date(dt).toLocaleDateString("de-CH", {
+                                                day: "2-digit",
+                                                month: "2-digit",
+                                              })} ${new Date(dt).toLocaleTimeString("de-CH", {
+                                                hour: "2-digit",
+                                                minute: "2-digit",
+                                              })}`
+                                            : "";
+                                        })()}
+                                      </span>
+                                      <span className="min-w-0 truncate text-sm font-semibold">
+                                        {isFallbackCustomerName(inv?.customer?.name)
+                                          ? "Kunde nicht zugeordnet"
+                                          : inv?.customer?.name || "–"}
+                                      </span>
+                                      {invoiceExecutionSites.length > 0 && (
                                         <button
                                           type="button"
                                           onPointerDown={(event) => event.stopPropagation()}
@@ -2959,19 +2928,26 @@ export default function RechnungenPage() {
                                           onClick={(event) => {
                                             event.preventDefault();
                                             event.stopPropagation();
+                                            openEditInvoice(inv);
+                                            window.setTimeout(
+                                              () => setEditingExecutionAddress(true),
+                                              120,
+                                            );
                                           }}
-                                          className="relative inline-flex h-7 w-7 items-center justify-center rounded-lg border border-violet-300 bg-violet-50 text-violet-700 outline-none hover:bg-violet-100 focus:ring-2 focus:ring-violet-300"
-                                          aria-label={invoiceAppointmentLabel}
+                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:max-w-[18rem]"
+                                          aria-label="Ausführungsort anzeigen und bearbeiten"
                                         >
-                                          <CalendarDays className="h-3.5 w-3.5" />
-                                          <InvoiceViewportTooltip preferredWidth={300}>
-                                            <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
-                                              Ausführungstermin
-                                            </span>
-                                            <span className="mt-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
-                                              {invoiceAppointmentLabel}
-                                            </span>
-                                          </InvoiceViewportTooltip>
+                                          <MapPin className="h-3 w-3 shrink-0" />
+                                          <span className="truncate">
+                                            {invoiceExecutionSites.length > 1
+                                              ? `Ausführungsorte · ${invoiceExecutionSites.length}`
+                                              : executionSite?.siteName ||
+                                                executionSite?.siteAddress ||
+                                                "Ausführungsort"}
+                                          </span>
+                                          <InvoiceExecutionSitesTooltip
+                                            sites={invoiceExecutionSites}
+                                          />
                                         </button>
                                       )}
                                     </div>
@@ -2985,7 +2961,7 @@ export default function RechnungenPage() {
                                       onChange={(event) =>
                                         updateStatus(event, inv.id, event.target.value)
                                       }
-                                      className="h-7 w-[5.5rem] justify-self-end rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                                      className="mt-1 h-7 rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
                                       style={getStatusStyle(
                                         INVOICE_STATUS_STYLES,
                                         effectiveStatus,
@@ -2998,7 +2974,32 @@ export default function RechnungenPage() {
                                         </option>
                                       ))}
                                     </select>
-                                    <div className="w-[9rem] justify-self-end text-right font-mono text-sm font-bold tabular-nums whitespace-nowrap">
+                                  </div>
+                                  <div className="flex min-w-0 items-center justify-end gap-2 pr-3 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0 sm:pr-5">
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                      }}
+                                      className="relative inline-flex min-h-9 min-w-0 max-w-[10rem] shrink items-center sm:max-w-[14rem] rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
+                                      aria-label={invoiceAppointmentDisplayLabel}
+                                    >
+                                      <span className="truncate">
+                                        {invoiceAppointmentDisplayLabel}
+                                      </span>
+                                      <InvoiceViewportTooltip preferredWidth={300}>
+                                        <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
+                                          Ausführungstermin
+                                        </span>
+                                        <span className="mt-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
+                                          {invoiceAppointmentDisplayLabel}
+                                        </span>
+                                      </InvoiceViewportTooltip>
+                                    </button>
+                                    <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
                                       {formatCurrency(
                                         Number(inv?.total ?? 0),
                                         inv.currency === "EUR" ? "EUR" : "CHF",
@@ -3093,6 +3094,33 @@ export default function RechnungenPage() {
                                 </span>
                               </div>
 
+                              <div className="mt-1 flex items-center">
+                                <select
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                  style={getStatusStyle(
+                                    INVOICE_STATUS_STYLES,
+                                    effectiveStatus,
+                                  )}
+                                  value={effectiveStatus}
+                                  onChange={(event) =>
+                                    updateStatus(event, inv.id, event.target.value)
+                                  }
+                                >
+                                  {invoiceStatuses.map((status) => (
+                                    <option
+                                      key={status}
+                                      style={getStatusStyle(
+                                        INVOICE_STATUS_STYLES,
+                                        status,
+                                      )}
+                                    >
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
                               <div
                                 className="mt-3 cursor-pointer rounded-xl border bg-muted/20 p-3 transition-colors hover:bg-muted/35"
                                 onClick={(event) => {
@@ -3157,34 +3185,6 @@ export default function RechnungenPage() {
                               </div>
 
                               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
-                                <select
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="h-9 rounded-lg border px-3 text-sm"
-                                  style={getStatusStyle(
-                                    INVOICE_STATUS_STYLES,
-                                    effectiveStatus,
-                                  )}
-                                  value={effectiveStatus}
-                                  onChange={(e: any) =>
-                                    updateStatus(
-                                      e,
-                                      inv?.id,
-                                      e?.target?.value ?? "",
-                                    )
-                                  }
-                                >
-                                  {invoiceStatuses.map((s) => (
-                                    <option
-                                      key={s}
-                                      style={getStatusStyle(
-                                        INVOICE_STATUS_STYLES,
-                                        s,
-                                      )}
-                                    >
-                                      {s}
-                                    </option>
-                                  ))}
-                                </select>
                                 <div
                                   className="inline-flex items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                   onClick={(event) => event.stopPropagation()}
@@ -3257,22 +3257,47 @@ export default function RechnungenPage() {
                                     </InvoiceViewportTooltip>
                                   </button>
                                 )}
-                                <div className="ml-auto text-right">
-                                  {dueLabel && (
-                                    <div className="text-xs text-muted-foreground">
-                                      Fällig {dueLabel}
-                                    </div>
-                                  )}
-                                  <div
-                                    className={`font-mono text-lg font-bold tabular-nums ${isPaid ? "text-muted-foreground" : "text-foreground"}`}
+                                <div className="ml-auto flex min-w-0 items-end gap-3">
+                                  <button
+                                    type="button"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onTouchStart={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                    }}
+                                    className="relative inline-flex min-h-9 min-w-0 max-w-[14rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
+                                    aria-label={invoiceAppointmentDisplayLabel}
                                   >
-                                    {formatCurrency(
-                                      Number(inv?.total ?? 0),
-                                      inv.currency === "EUR" ? "EUR" : "CHF",
+                                    <span className="truncate">
+                                      {invoiceAppointmentDisplayLabel}
+                                    </span>
+                                    <InvoiceViewportTooltip preferredWidth={300}>
+                                      <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
+                                        Ausführungstermin
+                                      </span>
+                                      <span className="mt-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
+                                        {invoiceAppointmentDisplayLabel}
+                                      </span>
+                                    </InvoiceViewportTooltip>
+                                  </button>
+                                  <div className="shrink-0 text-right">
+                                    {dueLabel && (
+                                      <div className="text-xs text-muted-foreground">
+                                        Fällig {dueLabel}
+                                      </div>
                                     )}
-                                  </div>
-                                  <div className="text-[10px] text-muted-foreground">
-                                    inkl. MwSt.
+                                    <div
+                                      className={`font-mono text-lg font-bold tabular-nums ${isPaid ? "text-muted-foreground" : "text-foreground"}`}
+                                    >
+                                      {formatCurrency(
+                                        Number(inv?.total ?? 0),
+                                        inv.currency === "EUR" ? "EUR" : "CHF",
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] text-muted-foreground">
+                                      inkl. MwSt.
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -4699,79 +4724,74 @@ export default function RechnungenPage() {
 
                   {!showNewCustomer && (
                     <div className="rounded-xl border bg-background p-2 sm:p-3">
-                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            setDialogOpen(false);
-                            setEditingInvoice(null);
-                          }}
-                          disabled={saving}
-                          className="order-3 w-full lg:order-1 lg:w-auto"
-                        >
-                          Abbrechen
-                        </Button>
-
-                        <div
-                          className={`order-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-2 ${
-                            editingInvoice
-                              ? "lg:min-w-[650px] lg:grid-cols-3"
-                              : "lg:min-w-[430px]"
-                          }`}
-                        >
-                          {editingInvoice ? (
-                            <>
-                              <Button
-                                type="button"
-                                onClick={() => saveEdit(false)}
-                                disabled={saving}
-                                className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                              >
-                                {saving ? "Speichern..." : "Speichern"}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => saveEdit(true)}
-                                disabled={saving}
-                                className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                              >
-                                {saving ? "Speichern..." : "Speichern & schließen"}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={saveAndArchive}
-                                disabled={saving}
-                                className="w-full border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                              >
-                                <Archive className="mr-1 h-4 w-4" /> Archivieren
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button
-                                type="button"
-                                onClick={() => save(false)}
-                                disabled={saving}
-                                className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                              >
-                                {saving ? "Speichern..." : "Speichern"}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => save(true)}
-                                disabled={saving}
-                                className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                              >
-                                {saving ? "Speichern..." : "Speichern & schließen"}
-                              </Button>
-                            </>
-                          )}
-                        </div>
+                      <div
+                        className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${
+                          editingInvoice ? "lg:grid-cols-3" : ""
+                        }`}
+                      >
+                        {editingInvoice ? (
+                          <>
+                            <Button
+                              type="button"
+                              onClick={() => saveEdit(false)}
+                              disabled={saving}
+                              className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                            >
+                              {saving ? "Speichern..." : "Speichern"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => saveEdit(true)}
+                              disabled={saving}
+                              className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            >
+                              {saving ? "Speichern..." : "Speichern & schließen"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={saveAndArchive}
+                              disabled={saving}
+                              className="w-full border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                            >
+                              <Archive className="mr-1 h-4 w-4" /> Archivieren
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              onClick={() => save(false)}
+                              disabled={saving}
+                              className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                            >
+                              {saving ? "Speichern..." : "Speichern"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => save(true)}
+                              disabled={saving}
+                              className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            >
+                              {saving ? "Speichern..." : "Speichern & schließen"}
+                            </Button>
+                          </>
+                        )}
                       </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setDialogOpen(false);
+                          setEditingInvoice(null);
+                        }}
+                        disabled={saving}
+                        className="mt-2 w-full"
+                      >
+                        Abbrechen
+                      </Button>
                     </div>
                   )}
 

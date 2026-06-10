@@ -15387,33 +15387,44 @@ export default function AuftraegePage() {
                             toggleOrderCard(o.id);
                           }}
                         >
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
-                              {o.createdAt
-                                ? `${new Date(o.createdAt).toLocaleDateString("de-CH", {
-                                    day: "2-digit",
-                                    month: "2-digit",
-                                  })} ${new Date(o.createdAt).toLocaleTimeString("de-CH", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}`
-                                : ""}
-                            </span>
-                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-visible">
-                              <span
-                                className={`min-w-0 truncate text-sm font-semibold ${
-                                  isFallbackCustomerName(o.customer?.name)
-                                    ? "italic text-amber-600 dark:text-amber-400"
-                                    : "text-foreground"
-                                }`}
-                              >
-                                {isFallbackCustomerName(o.customer?.name)
-                                  ? "Kunde nicht zugeordnet"
-                                  : o.customer?.name || "–"}
-                              </span>
+                          <div className="grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
+                                  {o.createdAt
+                                    ? `${new Date(o.createdAt).toLocaleDateString("de-CH", {
+                                        day: "2-digit",
+                                        month: "2-digit",
+                                      })} ${new Date(o.createdAt).toLocaleTimeString("de-CH", {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}`
+                                    : ""}
+                                </span>
+                                <span
+                                  className={`min-w-0 truncate text-sm font-semibold ${
+                                    isFallbackCustomerName(o.customer?.name)
+                                      ? "italic text-amber-600 dark:text-amber-400"
+                                      : "text-foreground"
+                                  }`}
+                                >
+                                  {isFallbackCustomerName(o.customer?.name)
+                                    ? "Kunde nicht zugeordnet"
+                                    : o.customer?.name || "–"}
+                                </span>
+                                {compactExecutionAddressBadge && (
+                                  <span className="min-w-0 basis-full max-w-full shrink sm:basis-auto sm:max-w-[18rem]">
+                                    {renderInteractiveMobileTextBadge(
+                                      compactExecutionAddressBadge,
+                                      "compact_header_address",
+                                      "left",
+                                    )}
+                                  </span>
+                                )}
+                              </div>
                               <select
                                 onClick={(event) => event.stopPropagation()}
-                                className="h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                className="mt-1 h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
                                 style={getStatusStyle(
                                   ORDER_STATUS_STYLES,
                                   o?.status ?? "",
@@ -15439,38 +15450,31 @@ export default function AuftraegePage() {
                                   </option>
                                 ))}
                               </select>
-                              {compactExecutionAddressBadge && (
-                                <span className="min-w-0 basis-full max-w-full shrink sm:basis-auto sm:max-w-[18rem]">
+                            </div>
+                            <div className="flex min-w-0 items-center justify-end gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0">
+                              {appointmentBadges.slice(0, 1).map((badge) => (
+                                <span
+                                  key={`compact_appointment_wrap_${badge.key}`}
+                                  className="inline-flex min-w-0 max-w-[10rem] shrink sm:max-w-[14rem]"
+                                >
                                   {renderInteractiveMobileTextBadge(
-                                    compactExecutionAddressBadge,
-                                    "compact_header_address",
+                                    badge,
+                                    "compact_header_appointment",
                                     "left",
+                                    true,
                                   )}
                                 </span>
-                              )}
-                            </div>
-                            {appointmentBadges.slice(0, 1).map((badge) => (
-                              <span
-                                key={`compact_appointment_wrap_${badge.key}`}
-                                className="ml-auto mr-3 inline-flex min-w-0 max-w-[12rem] shrink sm:mr-5"
-                              >
-                                {renderInteractiveMobileTextBadge(
-                                  badge,
-                                  "compact_header_appointment",
-                                  "left",
-                                  true,
-                                )}
-                              </span>
-                            ))}
-                            <div className="shrink-0 text-right">
-                              <div className="font-mono text-sm font-bold tabular-nums">
-                                {formatCurrency(
-                                  getSafeOrderTotal(o),
-                                  o.currency === "EUR" ? "EUR" : "CHF",
-                                )}
+                              ))}
+                              <div className="shrink-0 text-right">
+                                <div className="font-mono text-sm font-bold tabular-nums">
+                                  {formatCurrency(
+                                    getSafeOrderTotal(o),
+                                    o.currency === "EUR" ? "EUR" : "CHF",
+                                  )}
+                                </div>
                               </div>
+                              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                             </div>
-                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                           </div>
                         </div>
                       )}
@@ -15517,29 +15521,7 @@ export default function AuftraegePage() {
                           )}
                         </div>
 
-                        {mobileSystemBadges.length > 0 && (
-                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
-                            {mobileSystemBadges
-                              .slice(0, 3)
-                              .map((badge) =>
-                                renderInteractiveMobileTextBadge(
-                                  badge,
-                                  "mobile_system",
-                                  "left",
-                                ),
-                              )}
-                          </div>
-                        )}
-
-                        <ResponsiveOrderServicePreviewV17_95
-                          orderId={o.id}
-                          serviceNames={mobileOrderServiceNames}
-                          expanded={mobileOrderServicesExpanded}
-                          onToggle={() => toggleMobileServiceCard(o.id)}
-                          onOpenItems={() => openEdit(o, { focusSection: "items" })}
-                        />
-
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
+                        <div className="mt-1 flex items-center">
                           <select
                             onClick={(event) => event.stopPropagation()}
                             className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -15565,7 +15547,31 @@ export default function AuftraegePage() {
                               </option>
                             ))}
                           </select>
+                        </div>
 
+                        {mobileSystemBadges.length > 0 && (
+                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+                            {mobileSystemBadges
+                              .slice(0, 3)
+                              .map((badge) =>
+                                renderInteractiveMobileTextBadge(
+                                  badge,
+                                  "mobile_system",
+                                  "left",
+                                ),
+                              )}
+                          </div>
+                        )}
+
+                        <ResponsiveOrderServicePreviewV17_95
+                          orderId={o.id}
+                          serviceNames={mobileOrderServiceNames}
+                          expanded={mobileOrderServicesExpanded}
+                          onToggle={() => toggleMobileServiceCard(o.id)}
+                          onOpenItems={() => openEdit(o, { focusSection: "items" })}
+                        />
+
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
                           {!hasMultipleMergedData && (
                             <div
                               className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
@@ -15594,8 +15600,14 @@ export default function AuftraegePage() {
                           )}
                         </div>
 
-                        <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
+                        <div className="mt-2 flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                            {rightSideBadges.map((badge) =>
+                              renderInteractiveMobileRightReviewBadge(badge),
+                            )}
+                          </div>
+
+                          <div className="flex min-w-0 shrink-0 items-end gap-3">
                             {appointmentBadges
                               .slice(0, 1)
                               .map((badge) =>
@@ -15606,23 +15618,19 @@ export default function AuftraegePage() {
                                   true,
                                 ),
                               )}
-                            {rightSideBadges.map((badge) =>
-                              renderInteractiveMobileRightReviewBadge(badge),
-                            )}
-                          </div>
-
-                          <div className="shrink-0 whitespace-nowrap text-right leading-tight">
-                            <div className="font-mono text-[16px] font-bold tabular-nums">
-                              {formatCurrency(
-                                getSafeOrderTotal(o),
-                                o.currency === "EUR" ? "EUR" : "CHF",
+                            <div className="shrink-0 whitespace-nowrap text-right leading-tight">
+                              <div className="font-mono text-[16px] font-bold tabular-nums">
+                                {formatCurrency(
+                                  getSafeOrderTotal(o),
+                                  o.currency === "EUR" ? "EUR" : "CHF",
+                                )}
+                              </div>
+                              {hasOrderVat(o) && (
+                                <div className="text-[9px] leading-none text-muted-foreground">
+                                  inkl. MwSt
+                                </div>
                               )}
                             </div>
-                            {hasOrderVat(o) && (
-                              <div className="text-[9px] leading-none text-muted-foreground">
-                                inkl. MwSt
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
