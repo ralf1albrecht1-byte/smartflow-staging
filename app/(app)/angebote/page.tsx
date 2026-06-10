@@ -5193,7 +5193,7 @@ export default function AngebotePage() {
                                         </button>
                                       )}
                                     </div>
-                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700 md:pr-[27rem]">
+                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                       <select
                                         onClick={(event) => event.stopPropagation()}
                                         className="h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -5386,7 +5386,7 @@ export default function AngebotePage() {
                                   onOpenItems={() => openOfferSection(off, "items")}
                                 />
 
-                                <div className="relative mt-2 flex min-h-8 flex-wrap items-center gap-1.5 overflow-visible md:pr-[27rem]">
+                                <div className="relative mt-2 flex min-h-8 flex-wrap items-center gap-1.5 overflow-visible">
                                   <select
                                     onClick={(event) => event.stopPropagation()}
                                     className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
