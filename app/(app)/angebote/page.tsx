@@ -5227,7 +5227,7 @@ export default function AngebotePage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-9 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6rem] 2xl:max-w-[14rem] md:absolute md:top-0 md:ml-0"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:top-0.5 md:ml-0"
                                     style={{ left: "61%" }}
                                   >
                                     <button
@@ -5253,7 +5253,7 @@ export default function AngebotePage() {
                                           );
                                         }
                                       }}
-                                      className="group relative inline-flex h-9 w-9 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[6rem] lg:px-3 2xl:max-w-[14rem]"
+                                      className="group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[5.5rem] lg:px-2.5 2xl:max-w-[12rem]"
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                       <span className="hidden min-w-0 truncate 2xl:ml-1.5 2xl:inline">
@@ -5701,7 +5701,7 @@ export default function AngebotePage() {
                                   </div>
 
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-9 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6rem] 2xl:max-w-[14rem] md:absolute md:bottom-0 md:ml-0"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:bottom-1 md:ml-0"
                                     style={{ left: "61%" }}
                                   >
                                     <button
@@ -5723,7 +5723,7 @@ export default function AngebotePage() {
                                               appointmentDisplayLabel,
                                             )
                                       }
-                                      className="group relative inline-flex h-9 w-9 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm lg:w-auto lg:max-w-[6rem] lg:px-3 2xl:max-w-[14rem]"
+                                      className="group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[5.5rem] lg:px-2.5 2xl:max-w-[12rem]"
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                       <span className="hidden min-w-0 truncate 2xl:ml-1.5 2xl:inline">

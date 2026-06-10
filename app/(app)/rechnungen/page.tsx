@@ -3405,7 +3405,7 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-9 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6rem] 2xl:max-w-[14rem] md:absolute md:top-0 md:ml-0"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:top-0.5 md:ml-0"
                                     style={{ left: "61%" }}
                                   >
                                     <button
@@ -3416,7 +3416,7 @@ export default function RechnungenPage() {
                                         event.preventDefault();
                                         event.stopPropagation();
                                       }}
-                                      className="relative inline-flex h-9 w-9 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[6rem] lg:px-3 2xl:max-w-[14rem]"
+                                      className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[5.5rem] lg:px-2.5 2xl:max-w-[12rem]"
                                       aria-label={invoiceAppointmentDisplayLabel}
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -3621,11 +3621,16 @@ export default function RechnungenPage() {
                                 </select>
                                 {renderInvoiceCompactFunctionalChips()}
                                 {renderInvoiceServicesChip("expanded")}
+                                {dueLabel && (
+                                  <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] font-medium text-muted-foreground md:absolute md:right-0 md:ml-0">
+                                    Fällig {dueLabel}
+                                  </span>
+                                )}
                               </div>
 
                               <div className="relative mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
                                 <span
-                                  className="ml-auto inline-flex min-w-0 max-w-9 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6rem] 2xl:max-w-[14rem] md:absolute md:bottom-0 md:ml-0"
+                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:bottom-1 md:ml-0"
                                   style={{ left: "61%" }}
                                 >
                                   <button
@@ -3636,7 +3641,7 @@ export default function RechnungenPage() {
                                       event.preventDefault();
                                       event.stopPropagation();
                                     }}
-                                    className="relative inline-flex h-9 w-9 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[6rem] lg:px-3 2xl:max-w-[14rem]"
+                                    className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[5.5rem] lg:px-2.5 2xl:max-w-[12rem]"
                                     aria-label={invoiceAppointmentDisplayLabel}
                                   >
                                     <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -3657,11 +3662,6 @@ export default function RechnungenPage() {
                                 </span>
                                 <div className="ml-auto flex min-w-0 items-end gap-3">
                                   <div className="shrink-0 text-right">
-                                    {dueLabel && (
-                                      <div className="text-xs text-muted-foreground">
-                                        Fällig {dueLabel}
-                                      </div>
-                                    )}
                                     <div
                                       className={`font-mono text-lg font-bold tabular-nums ${isPaid ? "text-muted-foreground" : "text-foreground"}`}
                                     >

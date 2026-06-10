@@ -15350,7 +15350,7 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, slot, event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 lg:w-auto lg:max-w-[6rem] lg:px-3 2xl:max-w-[14rem] ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 lg:w-auto lg:max-w-[5.5rem] lg:px-2.5 2xl:max-w-[12rem] ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                   <span className="hidden min-w-0 truncate 2xl:ml-1.5 2xl:inline">
@@ -15639,7 +15639,7 @@ export default function AuftraegePage() {
                             {appointmentBadges.slice(0, 1).map((badge) => (
                               <span
                                 key={`compact_appointment_wrap_${badge.key}`}
-                                className="ml-auto inline-flex min-w-0 max-w-9 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6rem] 2xl:max-w-[14rem] md:absolute md:top-0 md:ml-0"
+                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:top-0.5 md:ml-0"
                                 style={{ left: "61%" }}
                               >
                                 {renderResponsiveAppointmentBadge(
@@ -15806,7 +15806,7 @@ export default function AuftraegePage() {
                           {appointmentBadges.slice(0, 1).map((badge) => (
                             <span
                               key={`mobile_appointment_wrap_${badge.key}`}
-                              className="ml-auto inline-flex min-w-0 max-w-9 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6rem] 2xl:max-w-[14rem] md:absolute md:bottom-0 md:ml-0"
+                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:bottom-1 md:ml-0"
                               style={{ left: "61%" }}
                             >
                               {renderResponsiveAppointmentBadge(
