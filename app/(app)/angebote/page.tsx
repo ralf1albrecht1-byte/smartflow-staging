@@ -1523,7 +1523,7 @@ function OfferViewportTooltipV17_95({
       clearOpenTimer();
       clearHideTimer();
     };
-  }, [align, preferredWidth]);
+  }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
   useEffect(() => {
     if (!open) return;
@@ -2097,7 +2097,7 @@ function OfferServiceReviewTooltip({
       clearOpenTimer();
       clearHideTimer();
     };
-  }, [align]);
+  }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
   useEffect(() => {
     if (!open) return;

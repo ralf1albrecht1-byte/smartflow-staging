@@ -7776,7 +7776,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       clearOpenTimer();
       clearHideTimer();
     };
-  }, [align, badge.key, tooltip]);
+  }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
   useEffect(() => {
     if (!open) return;
@@ -8095,7 +8095,7 @@ const ViewportAwareOrderServiceTooltip = ({
       clearOpenTimer();
       clearHideTimer();
     };
-  }, [align]);
+  }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
   useEffect(() => {
     if (!open) return;
@@ -15384,7 +15384,6 @@ export default function AuftraegePage() {
                   key={`${slot}_${badge.key}`}
                   type="button"
                   aria-label={title}
-                  title={title}
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) =>
@@ -15416,7 +15415,6 @@ export default function AuftraegePage() {
                   key={`mobile_right_${badge.key}`}
                   type="button"
                   aria-label={title}
-                  title={title}
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) =>

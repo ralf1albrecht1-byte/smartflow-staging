@@ -696,6 +696,38 @@ function formatInvoiceDateLabel(value?: string | null): string {
   });
 }
 
+function toInvoiceDateInputValue(value?: string | null): string {
+  if (!value) return "";
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysToInvoiceDate(value: string, days: number): string {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getTodayInvoiceDateInputValue(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function formatInvoiceAppointmentLabel(invoice: Invoice): string {
   const formatParsedDate = (date: Date, raw: string) => {
     if (Number.isNaN(date.getTime())) return "";
@@ -909,7 +941,7 @@ function InvoiceViewportTooltip({
       clearOpenTimer();
       clearHideTimer();
     };
-  }, [preferredWidth]);
+  }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
   useEffect(() => {
     if (!open) return;
@@ -1392,10 +1424,13 @@ export default function RechnungenPage() {
   const [loadError, setLoadError] = useState<string[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const initialInvoiceDate = getTodayInvoiceDateInputValue();
+  const [defaultPaymentDays, setDefaultPaymentDays] = useState(14);
   const [form, setForm] = useState({
     customerId: "",
-    invoiceDate: new Date().toISOString().split("T")[0],
-    paymentDays: "30",
+    invoiceDate: initialInvoiceDate,
+    dueDate: addDaysToInvoiceDate(initialInvoiceDate, 14),
+    paymentDays: "14",
     pdfTitle: "",
     notes: "",
     orderIds: [] as string[],
@@ -1740,6 +1775,14 @@ export default function RechnungenPage() {
   const load = async () => {
     setLoading(true);
     setLoadError(null);
+    const paymentTermsPromise = fetch(
+      "/api/settings/invoice-payment-terms",
+      { cache: "no-store" },
+    )
+      .then(async (response) =>
+        response.ok ? await response.json() : { paymentDays: 14 },
+      )
+      .catch(() => ({ paymentDays: 14 }));
     const {
       results: [inv, cust, ord, svc, settings],
       errors,
@@ -1750,6 +1793,7 @@ export default function RechnungenPage() {
       { url: "/api/services", fallback: [] },
       { url: "/api/settings", fallback: null },
     ]);
+    const paymentTerms = await paymentTermsPromise;
     // If most critical endpoints failed, show error state
     if (errors.length >= 2) {
       setLoadError(errors);
@@ -1772,6 +1816,14 @@ export default function RechnungenPage() {
     setCustomers(Array.from(custMap.values()) as any);
     setOrders(ord ?? []);
     setServices(svc ?? []);
+    const loadedPaymentDays = Number(paymentTerms?.paymentDays);
+    setDefaultPaymentDays(
+      Number.isInteger(loadedPaymentDays) &&
+        loadedPaymentDays >= 1 &&
+        loadedPaymentDays <= 365
+        ? loadedPaymentDays
+        : 14,
+    );
     // Set default VAT rate from settings
     if (settings) {
       setCurrency(settings.currency === "EUR" ? "EUR" : "CHF");
@@ -1929,13 +1981,15 @@ export default function RechnungenPage() {
   }, [searchParams]);
 
   const openNewInvoice = () => {
+    const invoiceDate = getTodayInvoiceDateInputValue();
     setEditingInvoice(null);
     setVatRate(defaultVatRate);
     setCurrency(currency === "EUR" ? "EUR" : "CHF");
     setForm({
       customerId: "",
-      invoiceDate: new Date().toISOString().split("T")[0],
-      paymentDays: "30",
+      invoiceDate,
+      dueDate: addDaysToInvoiceDate(invoiceDate, defaultPaymentDays),
+      paymentDays: String(defaultPaymentDays),
       pdfTitle: "",
       notes: "",
       orderIds: [],
@@ -2003,12 +2057,14 @@ export default function RechnungenPage() {
     // Strip forwarded customer message from Bemerkungen (legacy data cleanup)
     const cleanNotes = stripForwardedMessage(inv.notes, lo?.notes);
     const invoicePdfText = splitInvoicePdfText(cleanNotes);
+    const invoiceDate = toInvoiceDateInputValue(inv.invoiceDate);
     setForm({
       customerId: inv.customerId,
-      invoiceDate: inv.invoiceDate
-        ? new Date(inv.invoiceDate).toISOString().split("T")[0]
-        : "",
-      paymentDays: "30",
+      invoiceDate,
+      dueDate:
+        toInvoiceDateInputValue(inv.dueDate) ||
+        addDaysToInvoiceDate(invoiceDate, defaultPaymentDays),
+      paymentDays: String(defaultPaymentDays),
       pdfTitle: invoicePdfText.pdfTitle,
       notes: invoicePdfText.notes,
       orderIds: [],
@@ -2758,6 +2814,14 @@ export default function RechnungenPage() {
       toast.error("Mindestens eine Leistung");
       return false;
     }
+    if (!form.invoiceDate || !form.dueDate) {
+      toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
+      return false;
+    }
+    if (form.dueDate < form.invoiceDate) {
+      toast.error("Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen");
+      return false;
+    }
     setSaving(true);
     try {
       const itemsForCreate = newInvoiceExecutionSite
@@ -2794,10 +2858,12 @@ export default function RechnungenPage() {
             serializeInvoiceExecutionSiteForEdit(newInvoiceExecutionSite),
           );
           setEditingExecutionAddress(false);
+          const invoiceDate = getTodayInvoiceDateInputValue();
           setForm({
             customerId: "",
-            invoiceDate: new Date().toISOString().split("T")[0],
-            paymentDays: "30",
+            invoiceDate,
+            dueDate: addDaysToInvoiceDate(invoiceDate, defaultPaymentDays),
+            paymentDays: String(defaultPaymentDays),
             pdfTitle: "",
             notes: "",
             orderIds: [],
@@ -2828,6 +2894,14 @@ export default function RechnungenPage() {
 
   const saveEdit = async (closeAfterSave = true): Promise<boolean> => {
     if (!editingInvoice) return false;
+    if (!form.invoiceDate || !form.dueDate) {
+      toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
+      return false;
+    }
+    if (form.dueDate < form.invoiceDate) {
+      toast.error("Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen");
+      return false;
+    }
     setSaving(true);
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
@@ -2837,6 +2911,7 @@ export default function RechnungenPage() {
           status: editingInvoice.status,
           notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           invoiceDate: form.invoiceDate,
+          dueDate: form.dueDate,
           items,
           vatRate,
           currency,
@@ -2878,6 +2953,14 @@ export default function RechnungenPage() {
   // Save + Archive → set status Erledigt + back to list
   const saveAndArchive = async () => {
     if (!editingInvoice) return;
+    if (!form.invoiceDate || !form.dueDate) {
+      toast.error("Rechnungsdatum und Fälligkeitsdatum sind erforderlich");
+      return;
+    }
+    if (form.dueDate < form.invoiceDate) {
+      toast.error("Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
@@ -2887,6 +2970,7 @@ export default function RechnungenPage() {
           status: "Erledigt",
           notes: joinInvoicePdfText(form.pdfTitle, form.notes),
           invoiceDate: form.invoiceDate,
+          dueDate: form.dueDate,
           items,
           vatRate,
           currency,
@@ -3424,7 +3508,6 @@ export default function RechnungenPage() {
                           }}
                           className="group relative inline-flex h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 text-[10px] font-semibold text-amber-900 shadow-sm hover:bg-amber-200"
                           aria-label={`Leistungen anzeigen · ${visibleItems.length}`}
-                          title={invoiceServicesTooltipText}
                         >
                           Leistungen · {visibleItems.length}
                           <InvoiceViewportTooltip preferredWidth={432}>
@@ -3675,7 +3758,6 @@ export default function RechnungenPage() {
                                       }}
                                       className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                       aria-label={invoiceAppointmentDisplayLabel}
-                                      title={invoiceAppointmentDisplayLabel}
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                       <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
@@ -3902,7 +3984,6 @@ export default function RechnungenPage() {
                                     }}
                                     className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                     aria-label={invoiceAppointmentDisplayLabel}
-                                    title={invoiceAppointmentDisplayLabel}
                                   >
                                     <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                       <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
@@ -5308,37 +5389,37 @@ export default function RechnungenPage() {
                         <Input
                           type="date"
                           value={form.invoiceDate}
-                          onChange={(e: any) =>
-                            setForm({
-                              ...form,
-                              invoiceDate: e?.target?.value ?? "",
-                            })
-                          }
+                          onChange={(e: any) => {
+                            const invoiceDate = e?.target?.value ?? "";
+                            setForm((current) => ({
+                              ...current,
+                              invoiceDate,
+                              dueDate: addDaysToInvoiceDate(
+                                invoiceDate,
+                                defaultPaymentDays,
+                              ),
+                              paymentDays: String(defaultPaymentDays),
+                            }));
+                          }}
                         />
                       </div>
-                      {!editingInvoice ? (
-                        <div>
-                          <Label>Zahlungsziel (Tage)</Label>
-                          <Input
-                            type="number"
-                            value={form.paymentDays}
-                            onChange={(e: any) =>
-                              setForm({
-                                ...form,
-                                paymentDays: e?.target?.value ?? "30",
-                              })
-                            }
-                          />
-                        </div>
-                      ) : (
-                        <div>
-                          <Label>Fälligkeitsdatum</Label>
-                          <div className="flex h-10 items-center rounded-md border bg-background px-3 text-sm">
-                            {formatInvoiceDateLabel(editingInvoice.dueDate) ||
-                              "—"}
-                          </div>
-                        </div>
-                      )}
+                      <div>
+                        <Label>Fälligkeitsdatum</Label>
+                        <Input
+                          type="date"
+                          min={form.invoiceDate || undefined}
+                          value={form.dueDate}
+                          onChange={(e: any) =>
+                            setForm((current) => ({
+                              ...current,
+                              dueDate: e?.target?.value ?? "",
+                            }))
+                          }
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Standardmäßig {defaultPaymentDays} Tage. Für diese Rechnung frei änderbar.
+                        </p>
+                      </div>
                       {editingInvoice && (
                         <div>
                           <Label>Status</Label>
@@ -5418,9 +5499,11 @@ export default function RechnungenPage() {
                   {!showNewCustomer && (
                     <div className="rounded-xl border bg-background p-2 sm:p-3">
                       <div
-                        className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${
-                          editingInvoice ? "lg:grid-cols-3" : ""
-                        }`}
+                        className={
+                          editingInvoice
+                            ? "grid grid-cols-1 gap-2 sm:grid-cols-3"
+                            : "grid grid-cols-1 gap-2 sm:grid-cols-2"
+                        }
                       >
                         {editingInvoice ? (
                           <>
