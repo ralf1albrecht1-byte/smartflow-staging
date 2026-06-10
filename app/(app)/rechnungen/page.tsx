@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  CalendarDays,
   Undo2,
   MessageCircle,
   MapPin,
@@ -3375,7 +3376,7 @@ export default function RechnungenPage() {
                                         </button>
                                       )}
                                     </div>
-                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
+                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700 md:pr-[27rem]">
                                       <select
                                         value={effectiveStatus}
                                         onMouseDown={(event) => event.stopPropagation()}
@@ -3404,7 +3405,7 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-[10rem] shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 sm:max-w-[14rem] md:absolute md:top-0 md:ml-0"
+                                    className="ml-auto inline-flex min-w-0 max-w-9 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6rem] 2xl:max-w-[14rem] md:absolute md:top-0 md:ml-0"
                                     style={{ left: "61%" }}
                                   >
                                     <button
@@ -3415,12 +3416,15 @@ export default function RechnungenPage() {
                                         event.preventDefault();
                                         event.stopPropagation();
                                       }}
-                                      className="relative inline-flex min-h-9 min-w-0 max-w-full shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
+                                      className="relative inline-flex h-9 w-9 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[6rem] lg:px-3 2xl:max-w-[14rem]"
                                       aria-label={invoiceAppointmentDisplayLabel}
                                     >
-                                      <span className="truncate">
+                                      <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                      <span className="hidden min-w-0 truncate 2xl:ml-1.5 2xl:inline">
                                         {invoiceAppointmentDisplayLabel}
                                       </span>
+                                      <span className="hidden lg:ml-1.5 lg:inline 2xl:hidden">Termin</span>
+                                      <span className="sr-only lg:hidden">{invoiceAppointmentDisplayLabel}</span>
                                       <InvoiceViewportTooltip preferredWidth={300}>
                                         <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
                                           Ausführungstermin
@@ -3590,7 +3594,7 @@ export default function RechnungenPage() {
                                 )}
                               </div>
 
-                              <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                              <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:pr-[27rem]">
                                 <select
                                   onClick={(event) => event.stopPropagation()}
                                   className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -3621,7 +3625,7 @@ export default function RechnungenPage() {
 
                               <div className="relative mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
                                 <span
-                                  className="ml-auto inline-flex min-w-0 max-w-[14rem] items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
+                                  className="ml-auto inline-flex min-w-0 max-w-9 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6rem] 2xl:max-w-[14rem] md:absolute md:bottom-0 md:ml-0"
                                   style={{ left: "61%" }}
                                 >
                                   <button
@@ -3632,12 +3636,15 @@ export default function RechnungenPage() {
                                       event.preventDefault();
                                       event.stopPropagation();
                                     }}
-                                    className="relative inline-flex min-h-9 min-w-0 max-w-full shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
+                                    className="relative inline-flex h-9 w-9 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[6rem] lg:px-3 2xl:max-w-[14rem]"
                                     aria-label={invoiceAppointmentDisplayLabel}
                                   >
-                                    <span className="truncate">
-                                      {invoiceAppointmentDisplayLabel}
-                                    </span>
+                                    <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                      <span className="hidden min-w-0 truncate 2xl:ml-1.5 2xl:inline">
+                                        {invoiceAppointmentDisplayLabel}
+                                      </span>
+                                      <span className="hidden lg:ml-1.5 lg:inline 2xl:hidden">Termin</span>
+                                      <span className="sr-only lg:hidden">{invoiceAppointmentDisplayLabel}</span>
                                     <InvoiceViewportTooltip preferredWidth={300}>
                                       <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
                                         Ausführungstermin
