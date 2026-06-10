@@ -3809,6 +3809,21 @@ const PRICE_AMOUNT_REVIEW_BADGE_KEYS = new Set([
 const isAmountReviewBadge = (badge: ReviewBadge) =>
   AMOUNT_REVIEW_BADGE_KEYS.has(badge.key);
 
+const isRedAmountReviewBadgeV17_90L165 = (badge: ReviewBadge) =>
+  isAmountReviewBadge(badge) &&
+  /(?:^|\s)(?:bg|text|border)-red-/.test(badge.className || "");
+
+const compactAmountReviewCountV17_90L165 = (badge: ReviewBadge) => {
+  const explicitCount = Number(
+    String(badge.label || "").match(/(\d+)\s*$/)?.[1] || 0,
+  );
+  if (explicitCount > 0) return explicitCount;
+  if (isRedAmountReviewBadgeV17_90L165(badge)) {
+    return concreteRedReviewCountV17_90L82(badge);
+  }
+  return 1;
+};
+
 const findCatalogServiceForName = (
   services: ServiceDef[],
   serviceName?: string | null,
@@ -15031,6 +15046,10 @@ export default function AuftraegePage() {
             const otherRightSideBadges = rightSideBadges.filter(
               (badge) => badge.key !== "service_review_summary",
             );
+            const orderedRightSideBadges = [
+              ...(serviceReviewBadge ? [serviceReviewBadge] : []),
+              ...otherRightSideBadges,
+            ];
             const mobilePrimaryRightBadges = otherRightSideBadges.slice(0, 2);
             const mobileRightHiddenCount = Math.max(
               0,
@@ -15247,7 +15266,8 @@ export default function AuftraegePage() {
               const shouldOpenSpecialNotes =
                 badge.focusTarget === "specialNotes";
               const shouldOpenCustomer = badge.focusTarget === "customer";
-              const shouldOpenExecutionAddress = badge.focusTarget === "executionAddress";
+              const shouldOpenExecutionAddress =
+                badge.focusTarget === "executionAddress";
 
               if (
                 !shouldOpenItems &&
@@ -15258,6 +15278,7 @@ export default function AuftraegePage() {
                 return renderOrderCardBadge(badge, tooltipAlign);
               }
 
+              const isCompactReviewChip = isAmountReviewBadge(badge);
               const isLargeYellowBadge = [
                 "price_deviation",
                 "catalog_missing",
@@ -15286,15 +15307,24 @@ export default function AuftraegePage() {
                           ? openOrderAtExecutionAddress
                           : openOrderAtSpecialNotes
                   }
-                  className={`group relative inline-flex items-center gap-1 ${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} shrink-0 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
-                    isCompactIcon
-                      ? "font-semibold"
-                      : isLargeYellowBadge
-                        ? "text-[11px] px-2 py-0.5 font-semibold"
-                        : "text-[10px] px-1.5 py-0.5 font-medium"
+                  className={`group relative inline-flex shrink-0 items-center outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                    isCompactReviewChip
+                      ? "h-7 min-w-7 justify-center gap-1 rounded-full px-2 py-0 text-[10px] font-bold"
+                      : `${isCompactIcon ? "h-7 w-7 justify-center rounded-lg px-0 py-0 text-[15px]" : "rounded-full"} ${
+                          isCompactIcon
+                            ? "font-semibold"
+                            : isLargeYellowBadge
+                              ? "text-[11px] px-2 py-0.5 font-semibold"
+                              : "text-[10px] px-1.5 py-0.5 font-medium"
+                        }`
                   } ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
-                  {CompactIcon ? (
+                  {isCompactReviewChip ? (
+                    <>
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span>{compactAmountReviewCountV17_90L165(badge)}</span>
+                    </>
+                  ) : CompactIcon ? (
                     <CompactIcon className="h-5 w-5" />
                   ) : compactSymbol ? (
                     <span aria-hidden="true" className="leading-none">
@@ -15435,13 +15465,10 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, "mobile_right", event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex h-7 max-w-full shrink-0 items-center rounded-full px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-full px-2 py-0 text-[10px] font-bold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
-                  {badge.key === "service_review_summary" &&
-                    !badge.label.trim().startsWith("⚠") && (
-                      <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
-                    )}
-                  <span className="truncate">{badge.label}</span>
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{compactAmountReviewCountV17_90L165(badge)}</span>
                   {renderMobileChipTooltip(badge, "mobile_right", "right")}
                 </button>
               );
@@ -15671,19 +15698,12 @@ export default function AuftraegePage() {
                                 {mobileActionBadges.map((badge) =>
                                   renderInteractiveMobileActionBadge(badge),
                                 )}
-                                {otherRightSideBadges.map((badge) =>
-                                  renderInteractiveMobileRightReviewBadge(badge),
-                                )}
-                                {serviceReviewBadge && (
+                                {orderedRightSideBadges.length > 0 && (
                                   <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
-                                    <span className="hidden lg:inline-flex">
-                                      {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
-                                    </span>
-                                    <span className="inline-flex lg:hidden">
-                                      {renderInteractiveMobileRightReviewBadge({
-                                        ...serviceReviewBadge,
-                                        label: `⚠ ${serviceReviewBadge.label.match(/\d+/)?.[0] || ""}`,
-                                      })}
+                                    <span className="inline-flex items-center gap-1.5">
+                                      {orderedRightSideBadges.map((badge) =>
+                                        renderInteractiveMobileRightReviewBadge(badge),
+                                      )}
                                     </span>
                                   </span>
                                 )}
@@ -15839,20 +15859,20 @@ export default function AuftraegePage() {
                             renderInteractiveMobileActionBadge(badge),
                           )}
 
-                          {serviceReviewBadge && (
+                          {orderedRightSideBadges.length > 0 && (
                             <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
-                              {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
+                              <span className="inline-flex items-center gap-1.5">
+                                {orderedRightSideBadges.map((badge) =>
+                                  renderInteractiveMobileRightReviewBadge(badge),
+                                )}
+                              </span>
                             </span>
                           )}
                         </div>
 
 
                         <div className="relative mt-2 flex min-h-12 flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
-                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                            {otherRightSideBadges.map((badge) =>
-                              renderInteractiveMobileRightReviewBadge(badge),
-                            )}
-                          </div>
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" />
 
                           {appointmentBadges.slice(0, 1).map((badge) => (
                             <span
@@ -16026,7 +16046,7 @@ export default function AuftraegePage() {
 
                         <div className="ml-auto flex w-[120px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5 sm:w-[220px] xl:w-[280px]">
                           <div className="flex flex-wrap justify-end gap-1 min-h-[22px]">
-                            {rightSideBadges.map((badge) =>
+                            {orderedRightSideBadges.map((badge) =>
                               renderInteractiveOrderCardBadge(badge, "right"),
                             )}
                           </div>

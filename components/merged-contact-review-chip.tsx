@@ -276,8 +276,8 @@ export function MergedContactReviewChip({
         type="button"
         className={
           compact
-            ? "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-300 bg-amber-100 text-amber-800 shadow-sm outline-none hover:bg-amber-200 focus-visible:ring-2 focus-visible:ring-amber-400 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-100"
-            : "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-100 px-2.5 text-xs font-semibold text-amber-900 shadow-sm outline-none hover:bg-amber-200 focus-visible:ring-2 focus-visible:ring-amber-400 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-100"
+            ? "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-100 text-emerald-800 shadow-sm outline-none hover:bg-emerald-200 focus-visible:ring-2 focus-visible:ring-emerald-400 dark:border-emerald-700 dark:bg-emerald-900 dark:text-emerald-100"
+            : "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-100 px-2.5 text-xs font-semibold text-emerald-900 shadow-sm outline-none hover:bg-emerald-200 focus-visible:ring-2 focus-visible:ring-emerald-400 dark:border-emerald-700 dark:bg-emerald-900 dark:text-emerald-100"
         }
         aria-label="Mehrere Kontaktdaten prüfen"
         aria-expanded={open}
@@ -318,7 +318,7 @@ export function MergedContactReviewChip({
             aria-label="Mehrere Kontaktdaten"
             tabIndex={-1}
             style={popoverStyle}
-            className="isolate z-[2147483000] overflow-y-auto overscroll-contain rounded-xl border border-slate-300 bg-white p-3 text-left opacity-100 shadow-2xl ring-1 ring-black/10 dark:border-slate-600 dark:bg-slate-950 dark:ring-white/10"
+            className="isolate z-[2147483000] overflow-y-auto overscroll-contain rounded-xl border border-emerald-300 bg-white p-3 text-left opacity-100 shadow-2xl ring-1 ring-black/10 dark:border-slate-600 dark:bg-slate-950 dark:ring-white/10"
             onPointerDown={(event) => event.stopPropagation()}
             onPointerEnter={clearHideTimer}
             onPointerLeave={hidePopoverSoon}
@@ -334,8 +334,8 @@ export function MergedContactReviewChip({
               }
             }}
           >
-            <div className="mb-2 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-700">
-              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-100">
+            <div className="mb-2 flex items-center gap-2 border-b border-emerald-200 pb-2 dark:border-emerald-800">
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900 dark:text-emerald-100">
                 <AlertTriangle className="h-4 w-4" aria-hidden="true" />
               </span>
               <div>

@@ -156,6 +156,8 @@ export default function EinstellungenPage() {
 
   const [hasChanges, setHasChanges] = useState(false);
   const [savedData, setSavedData] = useState<CompanyData>(emptyData);
+  const [invoicePaymentDays, setInvoicePaymentDays] = useState(14);
+  const [savedInvoicePaymentDays, setSavedInvoicePaymentDays] = useState(14);
   const [resetting, setResetting] = useState(false);
 
   const [livePrepLoading, setLivePrepLoading] = useState(false);
@@ -652,12 +654,25 @@ if (type === 'data_export') {
 
   async function loadSettings() {
     try {
-      const res = await fetch('/api/settings', { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
+      const [settingsRes, paymentTermsRes] = await Promise.all([
+        fetch('/api/settings', { cache: 'no-store' }),
+        fetch('/api/settings/invoice-payment-terms', { cache: 'no-store' }).catch(() => null),
+      ]);
+
+      if (settingsRes.ok) {
+        const data = await settingsRes.json();
         const mapped: CompanyData = mapSettingsData(data);
         setForm(mapped);
         setSavedData(mapped);
+      }
+
+      if (paymentTermsRes?.ok) {
+        const paymentTerms = await paymentTermsRes.json();
+        const days = Number(paymentTerms?.paymentDays);
+        const normalizedDays =
+          Number.isInteger(days) && days >= 1 && days <= 365 ? days : 14;
+        setInvoicePaymentDays(normalizedDays);
+        setSavedInvoicePaymentDays(normalizedDays);
       }
     } catch (e) {
       console.error('Fehler beim Laden:', e);
@@ -669,7 +684,10 @@ if (type === 'data_export') {
   function updateField(field: keyof CompanyData, value: any) {
     setForm(prev => {
       const next = { ...prev, [field]: value };
-      setHasChanges(JSON.stringify(next) !== JSON.stringify(savedData));
+      setHasChanges(
+        JSON.stringify(next) !== JSON.stringify(savedData) ||
+          invoicePaymentDays !== savedInvoicePaymentDays,
+      );
       return next;
     });
   }
@@ -692,18 +710,50 @@ if (type === 'data_export') {
       // Send raw values — server is the source of truth for normalization & validation.
       const payload = { ...form };
 
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
+      const normalizedPaymentDays = Number(invoicePaymentDays);
+      if (
+        !Number.isInteger(normalizedPaymentDays) ||
+        normalizedPaymentDays < 1 ||
+        normalizedPaymentDays > 365
+      ) {
+        toast({
+          title: 'Fehler',
+          description: 'Die Standard-Zahlungsfrist muss zwischen 1 und 365 Tagen liegen.',
+          variant: 'destructive',
+        });
+        setSaving(false);
+        return;
+      }
+
+      const [res, paymentTermsRes] = await Promise.all([
+        fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+        fetch('/api/settings/invoice-payment-terms', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentDays: normalizedPaymentDays }),
+        }),
+      ]);
+
+      if (res.ok && paymentTermsRes.ok) {
         const data = await res.json();
         const mapped: CompanyData = mapSettingsData(data);
         setForm(mapped);
         setSavedData(mapped);
+        setInvoicePaymentDays(normalizedPaymentDays);
+        setSavedInvoicePaymentDays(normalizedPaymentDays);
         setHasChanges(false);
         toast({ title: '✅ Gespeichert', description: 'Einstellungen wurden aktualisiert.' });
+      } else if (!paymentTermsRes.ok) {
+        const paymentError = await paymentTermsRes.json().catch(() => null);
+        toast({
+          title: 'Fehler',
+          description: paymentError?.error || 'Zahlungsfrist konnte nicht gespeichert werden.',
+          variant: 'destructive',
+        });
       } else {
         let errorJson: any = null;
         try { errorJson = await res.json(); } catch { /* ignore non-JSON */ }
@@ -1306,6 +1356,39 @@ const storedValue = finalUrl;
                   Hinweis auf Rechnungen: &quot;{form.mwstHinweis || 'Nicht MWST-pflichtig'}&quot;
                 </p>
               )}
+            </div>
+
+            {/* Standard-Zahlungsfrist */}
+            <div className="border rounded-lg p-4 mt-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Clock className="w-4 h-4 text-primary" />
+                <h4 className="text-sm font-semibold">Standard-Zahlungsfrist</h4>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Wird bei neuen Rechnungen automatisch zum Rechnungsdatum addiert. Das konkrete Fälligkeitsdatum kann in jeder Rechnung einmalig über den Kalender geändert werden.
+              </p>
+              <div className="max-w-xs">
+                <Label htmlFor="invoice-payment-days">Zahlungsfrist in Tagen</Label>
+                <Input
+                  id="invoice-payment-days"
+                  type="number"
+                  min={1}
+                  max={365}
+                  step={1}
+                  value={invoicePaymentDays}
+                  onChange={e => {
+                    const next = Number(e.target.value);
+                    setInvoicePaymentDays(Number.isFinite(next) ? next : 14);
+                    setHasChanges(
+                      JSON.stringify(form) !== JSON.stringify(savedData) ||
+                      next !== savedInvoicePaymentDays,
+                    );
+                  }}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  Standard: 14 Tage. Gilt für künftig neu erstellte Rechnungen.
+                </p>
+              </div>
             </div>
 
             {/* Dokument-Vorlage (Template picker) */}

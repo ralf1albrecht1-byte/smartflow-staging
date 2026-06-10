@@ -4734,6 +4734,62 @@ export default function AngebotePage() {
                     openOfferSection(off, section, detail);
                   };
 
+                  const renderOfferCompactReviewChip = (
+                    tone: "yellow" | "red",
+                    slot: string,
+                  ) => {
+                    const isRed = tone === "red";
+                    const count = isRed
+                      ? serviceReview.blockerCount
+                      : serviceReview.reviewCount;
+                    if (count <= 0) return null;
+
+                    const title = isRed
+                      ? `Preis / Menge / Einheit prüfen · ${count}`
+                      : `Leistungen prüfen · ${count}`;
+                    const sections = isRed
+                      ? serviceReview.blockerSections
+                      : serviceReview.reviewSections;
+
+                    return (
+                      <button
+                        key={`${slot}-${tone}`}
+                        type="button"
+                        aria-label={title}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onClick={(event) =>
+                          useTouchChipPopovers
+                            ? toggleOfferMobileTooltip(
+                                {
+                                  key: `${off.id}:${slot}:${tone}`,
+                                  reviewTitle: title,
+                                  reviewSections: sections,
+                                },
+                                event,
+                              )
+                            : openOfferChipTarget("items", event, title)
+                        }
+                        className={`group relative inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-full px-2 py-0 text-[10px] font-bold shadow-sm outline-none focus:ring-2 focus:ring-offset-1 ${
+                          isRed
+                            ? "border border-red-300 bg-red-100 text-red-800 hover:bg-red-200 focus:ring-red-300"
+                            : "border border-yellow-400 bg-yellow-100 text-yellow-900 ring-1 ring-yellow-200/70 hover:bg-yellow-200 focus:ring-yellow-300"
+                        }`}
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        <span>{count}</span>
+                        {!useTouchChipPopovers && (
+                          <OfferServiceReviewTooltip
+                            title={title}
+                            sections={sections}
+                            siteGroups={isRed ? [] : offerReviewSiteGroups}
+                            align="right"
+                          />
+                        )}
+                      </button>
+                    );
+                  };
+
 
                   const renderOfferCompactFunctionalChips = () => (
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
@@ -4948,77 +5004,25 @@ export default function AngebotePage() {
                         </button>
                       ))}
 
-                      {serviceReview.blockerCount > 0 && (
-                        <button
-                          type="button"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onTouchStart={(event) => event.stopPropagation()}
-                          onClick={(event) =>
-                            useTouchChipPopovers
-                              ? toggleOfferMobileTooltip(
-                                  {
-                                    key: `${off.id}:compact-service-blocker`,
-                                    reviewTitle: "Preis / Menge prüfen",
-                                    reviewSections: serviceReview.blockerSections,
-                                  },
-                                  event,
-                                )
-                              : openOfferChipTarget("items", event)
-                          }
-                          className="group relative inline-flex max-w-full rounded-full border border-red-300 bg-red-100 px-2 py-1 text-[10px] font-semibold text-red-800"
-                        >
-                          Preis/Menge prüfen
-                          {!useTouchChipPopovers && (
-                            <OfferServiceReviewTooltip
-                              title="Preis / Menge prüfen"
-                              sections={serviceReview.blockerSections}
-                              align="right"
-                            />
-                          )}
-                        </button>
-                      )}
+                      
 
                     </div>
                   );
 
                   const renderOfferCompactServiceReviewChip = () =>
-                    serviceReview.reviewCount > 0 ? (
+                    serviceReview.reviewCount > 0 ||
+                    serviceReview.blockerCount > 0 ? (
                       <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
-                        <button
-                          type="button"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onTouchStart={(event) => event.stopPropagation()}
-                          onClick={(event) =>
-                            useTouchChipPopovers
-                              ? toggleOfferMobileTooltip(
-                                  {
-                                    key: `${off.id}:compact-service-review`,
-                                    reviewTitle: `Leistungen prüfen · ${serviceReview.reviewCount}`,
-                                    reviewSections: serviceReview.reviewSections,
-                                  },
-                                  event,
-                                )
-                              : openOfferChipTarget("items", event)
-                          }
-                          className="group relative inline-flex max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
-                          aria-label={`Leistungen prüfen · ${serviceReview.reviewCount}`}
-                        >
-                          <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
-                          <span className="hidden lg:inline">
-                            Leistungen prüfen · {serviceReview.reviewCount}
-                          </span>
-                          <span className="inline lg:hidden">
-                            {serviceReview.reviewCount}
-                          </span>
-                          {!useTouchChipPopovers && (
-                            <OfferServiceReviewTooltip
-                              title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
-                              sections={serviceReview.reviewSections}
-                              siteGroups={offerReviewSiteGroups}
-                              align="right"
-                            />
+                        <span className="inline-flex items-center gap-1.5">
+                          {renderOfferCompactReviewChip(
+                            "yellow",
+                            "compact-service-review",
                           )}
-                        </button>
+                          {renderOfferCompactReviewChip(
+                            "red",
+                            "compact-service-blocker",
+                          )}
+                        </span>
                       </span>
                     ) : null;
 
@@ -5666,73 +5670,26 @@ export default function AngebotePage() {
                                   ))}
 
 
-                                  {serviceReview.reviewCount > 0 && (
+                                  {(serviceReview.reviewCount > 0 ||
+                                    serviceReview.blockerCount > 0) && (
                                     <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          useTouchChipPopovers
-                                            ? toggleOfferMobileTooltip(
-                                                {
-                                                  key: `${off.id}:service-review-inline`,
-                                                  reviewTitle: `Leistungen prüfen · ${serviceReview.reviewCount}`,
-                                                  reviewSections: serviceReview.reviewSections,
-                                                },
-                                                event,
-                                              )
-                                            : openOfferChipTarget("items", event)
-                                        }
-                                        className="group relative inline-flex h-8 max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2.5 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
-                                      >
-                                        <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
-                                        Leistungen prüfen · {serviceReview.reviewCount}
-                                        {!useTouchChipPopovers && (
-                                          <OfferServiceReviewTooltip
-                                            title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
-                                            sections={serviceReview.reviewSections}
-                                            siteGroups={offerReviewSiteGroups}
-                                            align="right"
-                                          />
+                                      <span className="inline-flex items-center gap-1.5">
+                                        {renderOfferCompactReviewChip(
+                                          "yellow",
+                                          "expanded-service-review",
                                         )}
-                                      </button>
+                                        {renderOfferCompactReviewChip(
+                                          "red",
+                                          "expanded-service-blocker",
+                                        )}
+                                      </span>
                                     </span>
                                   )}
                                 </div>
 
                                 <div className="relative mt-2 flex min-h-12 flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                                    {serviceReview.blockerCount > 0 && (
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          useTouchChipPopovers
-                                            ? toggleOfferMobileTooltip(
-                                                {
-                                                  key: `${off.id}:service_blocker`,
-                                                  reviewTitle: "Preis / Menge prüfen",
-                                                  reviewSections:
-                                                    serviceReview.blockerSections,
-                                                },
-                                                event,
-                                              )
-                                            : openOfferChipTarget("items", event)
-                                        }
-                                        className="group relative inline-flex max-w-full rounded-full border border-red-300 bg-red-100 px-2 py-1 text-[10px] font-semibold text-red-800"
-                                      >
-                                        Preis/Menge prüfen
-                                        {!useTouchChipPopovers && (
-                                          <OfferServiceReviewTooltip
-                                            title="Preis / Menge prüfen"
-                                            sections={serviceReview.blockerSections}
-                                            align="right"
-                                          />
-                                        )}
-                                      </button>
-                                    )}
+                                    
                                   </div>
 
                                   <span
@@ -6057,49 +6014,20 @@ export default function AngebotePage() {
 
                                 <div className="ml-auto flex w-[250px] shrink-0 flex-col items-end justify-between self-stretch gap-1 pt-0.5">
                                   <div className="flex min-h-[22px] flex-wrap justify-end gap-1">
-                                    {serviceReview.blockerCount > 0 && (
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          openOfferSection(
-                                            off,
-                                            "items",
-                                            serviceReview.blockerTooltip,
-                                          );
-                                        }}
-                                        className="group relative inline-flex rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800"
-                                      >
-                                        Preis/Menge prüfen
-                                        <OfferServiceReviewTooltip
-                                          title="Preis / Menge prüfen"
-                                          sections={serviceReview.blockerSections}
-                                          align="right"
-                                        />
-                                      </button>
+                                    {(serviceReview.reviewCount > 0 ||
+                                      serviceReview.blockerCount > 0) && (
+                                      <span className="inline-flex items-center gap-1.5">
+                                        {renderOfferCompactReviewChip(
+                                          "yellow",
+                                          "desktop-service-review",
+                                        )}
+                                        {renderOfferCompactReviewChip(
+                                          "red",
+                                          "desktop-service-blocker",
+                                        )}
+                                      </span>
                                     )}
-                                    {serviceReview.reviewCount > 0 && (
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          openOfferSection(
-                                            off,
-                                            "items",
-                                            serviceReview.reviewTooltip,
-                                          );
-                                        }}
-                                        className="group relative inline-flex rounded-full border border-yellow-400 bg-yellow-100 px-2 py-0.5 text-[11px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
-                                      >
-                                        Leistungen prüfen · {serviceReview.reviewCount}
-                                        <OfferServiceReviewTooltip
-                                          title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
-                                          sections={serviceReview.reviewSections}
-                                          siteGroups={offerReviewSiteGroups}
-                                          align="right"
-                                        />
-                                      </button>
-                                    )}
+                                    
                                   </div>
 
                                   <div className="flex w-full flex-wrap items-end justify-end gap-3">

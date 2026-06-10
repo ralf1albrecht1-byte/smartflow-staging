@@ -1233,17 +1233,19 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
   total,
   entries,
   siteGroups = [],
+  title,
 }: {
   total: number;
   entries: InvoiceServiceReviewEntry[];
   siteGroups?: InvoiceServiceReviewSiteGroup[];
+  title?: string;
 }) {
   const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
   const multipleSites = siteGroups.length > 1;
   return (
     <span className="block text-left font-normal">
       <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
-        Leistungen prüfen · {total}
+        {title || `Leistungen prüfen · ${total}`}
       </span>
       {multipleSites ? (
         <span className="block space-y-2">
@@ -2022,7 +2024,11 @@ export default function RechnungenPage() {
    */
   const openEditInvoice = (
     inv: Invoice,
-    opts?: { openCustomerSection?: boolean; focusStatus?: boolean },
+    opts?: {
+      openCustomerSection?: boolean;
+      focusStatus?: boolean;
+      focusItems?: boolean;
+    },
   ) => {
     setEditingInvoice(inv);
     setDupCheckOpen(false);
@@ -2117,6 +2123,14 @@ export default function RechnungenPage() {
         ) as HTMLSelectElement | null;
         statusSelect?.scrollIntoView({ behavior: "smooth", block: "center" });
         statusSelect?.focus();
+      }, 180);
+    }
+    if (opts?.focusItems) {
+      window.setTimeout(() => {
+        serviceItemsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
       }, 180);
     }
     // Auto-fill: extract missing customer data from notes and update DB
@@ -3490,10 +3504,99 @@ export default function RechnungenPage() {
                       )
                       .join("\n\n") || `Leistungen · ${visibleItems.length}`;
 
+                  const invoiceServiceReviewEntries =
+                    buildInvoiceServiceReviewEntriesV17_90L135G(
+                      visibleItems as InvoiceItem[],
+                      services || [],
+                      inv.currency === "EUR" ? "EUR" : "CHF",
+                    );
+                  const invoiceServiceReviewSiteGroups =
+                    buildInvoiceServiceReviewSiteGroupsV17_90L135G(
+                      visibleItems as InvoiceItem[],
+                      invoiceExecutionSites,
+                      services || [],
+                      inv.currency === "EUR" ? "EUR" : "CHF",
+                    );
+                  const invoiceBlockerEntries =
+                    invoiceServiceReviewEntries.filter(
+                      (entry) => entry.category === "blocker",
+                    );
+                  const invoiceYellowReviewEntries =
+                    invoiceServiceReviewEntries.filter(
+                      (entry) => entry.category !== "blocker",
+                    );
+                  const invoiceBlockerSiteGroups =
+                    invoiceServiceReviewSiteGroups
+                      .map((group) => ({
+                        ...group,
+                        entries: group.entries.filter(
+                          (entry) => entry.category === "blocker",
+                        ),
+                      }))
+                      .filter((group) => group.entries.length > 0);
+                  const invoiceYellowReviewSiteGroups =
+                    invoiceServiceReviewSiteGroups
+                      .map((group) => ({
+                        ...group,
+                        entries: group.entries.filter(
+                          (entry) => entry.category !== "blocker",
+                        ),
+                      }))
+                      .filter((group) => group.entries.length > 0);
+
+                  const renderInvoiceCompactReviewChip = (
+                    tone: "yellow" | "red",
+                  ) => {
+                    const isRed = tone === "red";
+                    const entries = isRed
+                      ? invoiceBlockerEntries
+                      : invoiceYellowReviewEntries;
+                    const siteGroups = isRed
+                      ? invoiceBlockerSiteGroups
+                      : invoiceYellowReviewSiteGroups;
+                    if (entries.length === 0) return null;
+
+                    const title = isRed
+                      ? `Preis / Menge / Einheit prüfen · ${entries.length}`
+                      : `Leistungen prüfen · ${entries.length}`;
+
+                    return (
+                      <button
+                        type="button"
+                        aria-label={title}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openEditInvoice(inv, { focusItems: true });
+                          setExpandedItemIndex(null);
+                        }}
+                        className={`group relative inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-full px-2 py-0 text-[10px] font-bold shadow-sm outline-none focus:ring-2 focus:ring-offset-1 ${
+                          isRed
+                            ? "border border-red-300 bg-red-100 text-red-800 hover:bg-red-200 focus:ring-red-300"
+                            : "border border-yellow-400 bg-yellow-100 text-yellow-900 ring-1 ring-yellow-200/70 hover:bg-yellow-200 focus:ring-yellow-300"
+                        }`}
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        <span>{entries.length}</span>
+                        <InvoiceViewportTooltip preferredWidth={432}>
+                          <InvoiceServiceReviewTooltipContentV17_90L135G
+                            total={entries.length}
+                            entries={entries}
+                            siteGroups={siteGroups}
+                            title={title}
+                          />
+                        </InvoiceViewportTooltip>
+                      </button>
+                    );
+                  };
+
                   const renderInvoiceServicesChip = (
                     placement: "compact" | "expanded" = "compact",
                   ) =>
-                    visibleItems.length > 0 ? (
+                    invoiceYellowReviewEntries.length > 0 ||
+                    invoiceBlockerEntries.length > 0 ? (
                       <span
                         className={
                           placement === "compact"
@@ -3501,28 +3604,10 @@ export default function RechnungenPage() {
                             : "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
                         }
                       >
-                        <button
-                          type="button"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onTouchStart={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            openEditInvoice(inv);
-                            setExpandedItemIndex(null);
-                          }}
-                          className="group relative inline-flex h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 text-[10px] font-semibold text-amber-900 shadow-sm hover:bg-amber-200"
-                          aria-label={`Leistungen anzeigen · ${visibleItems.length}`}
-                        >
-                          Leistungen · {visibleItems.length}
-                          <InvoiceViewportTooltip preferredWidth={432}>
-                            <InvoiceServiceDisplayTooltipContentV17_90L136
-                              total={visibleItems.length}
-                              entries={invoiceServiceDisplayEntries}
-                              siteGroups={invoiceServiceDisplaySiteGroups}
-                            />
-                          </InvoiceViewportTooltip>
-                        </button>
+                        <span className="inline-flex items-center gap-1.5">
+                          {renderInvoiceCompactReviewChip("yellow")}
+                          {renderInvoiceCompactReviewChip("red")}
+                        </span>
                       </span>
                     ) : null;
                   return (

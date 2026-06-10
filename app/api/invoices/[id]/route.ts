@@ -55,6 +55,47 @@ function validateDocumentItemsForUpdate(items: any[]) {
     : null;
 }
 
+const DEFAULT_PAYMENT_DAYS = 14;
+const MIN_PAYMENT_DAYS = 1;
+const MAX_PAYMENT_DAYS = 365;
+
+function normalizeInvoicePaymentDays(value: unknown): number | null {
+  const days = Number(value);
+  if (!Number.isInteger(days)) return null;
+  if (days < MIN_PAYMENT_DAYS || days > MAX_PAYMENT_DAYS) return null;
+  return days;
+}
+
+async function resolveInvoicePaymentDays(
+  userId: string,
+  requestedValue: unknown,
+): Promise<number> {
+  const requested = normalizeInvoicePaymentDays(requestedValue);
+  if (requested !== null) return requested;
+
+  try {
+    const stored = await prisma.counter.findUnique({
+      where: { name: `invoice-payment-days:${userId}` },
+      select: { value: true },
+    });
+    return normalizeInvoicePaymentDays(stored?.value) ?? DEFAULT_PAYMENT_DAYS;
+  } catch {
+    return DEFAULT_PAYMENT_DAYS;
+  }
+}
+
+function parseInvoiceDateValue(value: unknown): Date | null {
+  if (!value) return null;
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function addInvoiceDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { id: string } },
@@ -166,6 +207,57 @@ export async function PUT(
       await assertCustomerNotArchived(prisma, data.customerId);
     }
 
+    const parsedInvoiceDate =
+      data?.invoiceDate !== undefined
+        ? parseInvoiceDateValue(data.invoiceDate)
+        : null;
+    if (data?.invoiceDate !== undefined && !parsedInvoiceDate) {
+      return NextResponse.json(
+        { error: "Das Rechnungsdatum ist ungültig." },
+        { status: 400 },
+      );
+    }
+
+    const parsedDueDate =
+      data?.dueDate !== undefined && data?.dueDate !== null && data?.dueDate !== ""
+        ? parseInvoiceDateValue(data.dueDate)
+        : null;
+    if (
+      data?.dueDate !== undefined &&
+      data?.dueDate !== null &&
+      data?.dueDate !== "" &&
+      !parsedDueDate
+    ) {
+      return NextResponse.json(
+        { error: "Das Fälligkeitsdatum ist ungültig." },
+        { status: 400 },
+      );
+    }
+
+    const effectiveInvoiceDate =
+      parsedInvoiceDate ?? new Date(existing.invoiceDate);
+    let effectiveDueDate: Date | null | undefined;
+
+    if (data?.dueDate !== undefined) {
+      effectiveDueDate = parsedDueDate;
+    } else if (data?.invoiceDate !== undefined) {
+      const paymentDays = await resolveInvoicePaymentDays(
+        userId,
+        data?.paymentDays,
+      );
+      effectiveDueDate = addInvoiceDays(effectiveInvoiceDate, paymentDays);
+    }
+
+    if (
+      effectiveDueDate &&
+      effectiveDueDate.getTime() < effectiveInvoiceDate.getTime()
+    ) {
+      return NextResponse.json(
+        { error: "Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen." },
+        { status: 400 },
+      );
+    }
+
     const updateData: any = {};
     if (data?.customerId) updateData.customerId = data.customerId;
     if (isReopen) {
@@ -177,9 +269,11 @@ export async function PUT(
     if (data?.currency !== undefined)
       updateData.currency = data.currency === "EUR" ? "EUR" : "CHF";
     if (data?.invoiceDate !== undefined)
-      updateData.invoiceDate = new Date(data.invoiceDate);
+      updateData.invoiceDate = parsedInvoiceDate;
     if (data?.dueDate !== undefined)
-      updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null;
+      updateData.dueDate = effectiveDueDate ?? null;
+    else if (data?.invoiceDate !== undefined && effectiveDueDate)
+      updateData.dueDate = effectiveDueDate;
     if (Array.isArray(data?.items)) {
       const vatRate =
         data.vatRate !== undefined && data.vatRate !== null
