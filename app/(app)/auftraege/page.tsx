@@ -575,6 +575,7 @@ const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
 
 
+// V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -7707,10 +7708,11 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       badge.key === "site_address" || badge.key === "special_notes_summary"
         ? 400
         : 320;
+    const minimumUsableTooltipSpace = 120;
     const openBelow =
-      availableAbove >= desiredHeight
+      availableAbove >= minimumUsableTooltipSpace
         ? false
-        : availableBelow >= desiredHeight
+        : availableBelow >= minimumUsableTooltipSpace
           ? true
           : availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
@@ -8025,10 +8027,11 @@ const ViewportAwareOrderServiceTooltip = ({
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
     const desiredHeight = 320;
+    const minimumUsableTooltipSpace = 120;
     const openBelow =
-      availableAbove >= desiredHeight
+      availableAbove >= minimumUsableTooltipSpace
         ? false
-        : availableBelow >= desiredHeight
+        : availableBelow >= minimumUsableTooltipSpace
           ? true
           : availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
@@ -8188,10 +8191,11 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
     const desiredHeight = 320;
+    const minimumUsableTooltipSpace = 120;
     const openBelow =
-      availableAbove >= desiredHeight
+      availableAbove >= minimumUsableTooltipSpace
         ? false
-        : availableBelow >= desiredHeight
+        : availableBelow >= minimumUsableTooltipSpace
           ? true
           : availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
@@ -14572,10 +14576,11 @@ export default function AuftraegePage() {
         ? Math.max(0, viewportHeight - rect.bottom - edge - gap)
         : viewportHeight - edge * 2;
       const desiredHeight = Math.min(560, Math.floor(viewportHeight * 0.68));
+      const minimumUsableTooltipSpace = 120;
       const placeBelow = rect
-        ? availableAbove >= desiredHeight
+        ? availableAbove >= minimumUsableTooltipSpace
           ? false
-          : availableBelow >= desiredHeight
+          : availableBelow >= minimumUsableTooltipSpace
             ? true
             : availableBelow > availableAbove
         : false;
@@ -15374,16 +15379,16 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, slot, event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 lg:w-auto lg:max-w-[6.5rem] lg:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem] ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem] ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                   <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
                     {appointmentLabels.full}
                   </span>
-                  <span className="hidden min-w-0 truncate lg:ml-1.5 lg:inline xl:hidden">
+                  <span className="hidden min-w-0 truncate md:ml-1.5 md:inline xl:hidden">
                     {appointmentLabels.medium}
                   </span>
-                  <span className="sr-only lg:hidden">{appointmentLabels.full}</span>
+                  <span className="sr-only md:hidden">{appointmentLabels.full}</span>
                   {renderMobileChipTooltip(badge, slot, align)}
                 </button>
               );
@@ -15663,7 +15668,7 @@ export default function AuftraegePage() {
                             {appointmentBadges.slice(0, 1).map((badge) => (
                               <span
                                 key={`compact_appointment_wrap_${badge.key}`}
-                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem] md:absolute md:left-[61%] md:right-48 md:top-0.5 md:ml-0"
+                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1.5 md:ml-0 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
                               >
                                 {renderResponsiveAppointmentBadge(
                                   badge,
@@ -15829,7 +15834,7 @@ export default function AuftraegePage() {
                           {appointmentBadges.slice(0, 1).map((badge) => (
                             <span
                               key={`mobile_appointment_wrap_${badge.key}`}
-                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem] md:absolute md:left-[61%] md:right-48 md:bottom-1 md:ml-0"
+                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-2 md:bottom-auto md:ml-0 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
                             >
                               {renderResponsiveAppointmentBadge(
                                 badge,
