@@ -175,6 +175,7 @@ const compactInvoiceValue = (value: unknown) =>
 
 
 // V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
+// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -3429,7 +3430,7 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center"
                                   >
                                     <button
                                       type="button"
@@ -3655,7 +3656,7 @@ export default function RechnungenPage() {
 
                               <div className="relative mt-3 flex min-h-12 flex-wrap items-end gap-2 border-t pt-3">
                                 <span
-                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center"
                                 >
                                   <button
                                     type="button"
