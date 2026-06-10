@@ -175,6 +175,7 @@ const compactInvoiceValue = (value: unknown) =>
 
 
 // V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
+// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -1418,7 +1419,12 @@ export default function RechnungenPage() {
   const [invoiceCardExpansionRestored, setInvoiceCardExpansionRestored] = useState(false);
   const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] = useState(false);
   const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] = useState<Set<string>>(new Set());
+  const [invoiceServiceOverviewOpen, setInvoiceServiceOverviewOpen] = useState(true);
 
+  useEffect(() => {
+    if (!dialogOpen) return;
+    setInvoiceServiceOverviewOpen(true);
+  }, [dialogOpen, editingInvoice?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2509,6 +2515,228 @@ export default function RechnungenPage() {
   const vatAmount = subtotal * (vatRate / 100);
   const total = subtotal + vatAmount;
 
+  const renderInvoiceServiceOverview = () => {
+    const overviewItems = (items || []).filter((item: InvoiceItem) =>
+      compactInvoiceValue(item?.description),
+    );
+    const overviewSites = collectInvoiceExecutionSites({
+      items: overviewItems,
+      orders: editingInvoice?.orders || [],
+    });
+    const overviewGroups = groupInvoiceItemsByExecutionSite(
+      overviewItems,
+      overviewSites,
+    ).filter((group) => group.entries.length > 0);
+    const hasMultipleOverviewSites = overviewGroups.length > 1;
+
+    return (
+      <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="font-semibold">Leistungsübersicht</div>
+            <div className="text-xs text-muted-foreground">
+              Live aus den Leistungen oben
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              setInvoiceServiceOverviewOpen((current) => !current)
+            }
+            className="h-7 w-full px-2 text-[11px] sm:w-auto"
+          >
+            {invoiceServiceOverviewOpen ? "Einklappen" : "Anzeigen"}
+          </Button>
+        </div>
+
+        {!invoiceServiceOverviewOpen && (
+          <button
+            type="button"
+            className="mt-2 flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2 text-left text-sm hover:bg-muted/40"
+            onClick={() => setInvoiceServiceOverviewOpen(true)}
+          >
+            <span className="min-w-0 truncate text-muted-foreground">
+              {hasMultipleOverviewSites
+                ? `${overviewGroups.length} Arbeitsorte · ${overviewItems.length} Leistungen`
+                : `${overviewItems.length} Leistung${overviewItems.length === 1 ? "" : "en"}`}
+            </span>
+            <span className="shrink-0 font-mono font-semibold text-primary">
+              {formatCurrency(subtotal, currency)}
+            </span>
+          </button>
+        )}
+
+        {invoiceServiceOverviewOpen && hasMultipleOverviewSites && (
+          <div className="mt-2 space-y-2 rounded-lg border-2 border-slate-300 bg-muted/20 p-2 dark:border-slate-700">
+            {overviewGroups.map((group, groupIndex) => {
+              const groupTotal = group.entries.reduce(
+                (sum, entry) =>
+                  sum +
+                  Number(entry.item?.quantity || 0) *
+                    Number(entry.item?.unitPrice || 0),
+                0,
+              );
+              const siteTitle =
+                group.site?.siteName ||
+                group.site?.siteAddress ||
+                `Ausführungsort ${groupIndex + 1}`;
+              const siteAddress = [
+                group.site?.siteName ? group.site?.siteAddress : null,
+                [group.site?.sitePlz, group.site?.siteCity]
+                  .filter(Boolean)
+                  .join(" "),
+              ]
+                .filter(Boolean)
+                .join(" · ");
+
+              return (
+                <div
+                  key={`invoice-overview-site-${group.key}`}
+                  className="overflow-hidden rounded-md border-2 border-slate-300 bg-background shadow-sm dark:border-slate-700"
+                >
+                  <div className="flex items-start justify-between gap-2 border-b-2 border-slate-200 bg-muted/40 px-2 py-1.5 dark:border-slate-700">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold leading-tight">
+                        📍 {groupIndex + 1}. {siteTitle}
+                      </div>
+                      {siteAddress && (
+                        <div className="text-xs text-muted-foreground">
+                          {siteAddress}
+                        </div>
+                      )}
+                    </div>
+                    <div className="shrink-0 rounded-md border border-slate-300 bg-background px-2 py-1 text-right font-mono text-sm font-bold text-primary dark:border-slate-700">
+                      {formatCurrency(groupTotal, currency)}
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-slate-200 px-2 text-sm dark:divide-slate-700">
+                    {group.entries.map(({ item, index }) => {
+                      const quantity = Number(item?.quantity || 0);
+                      const unitPrice = Number(item?.unitPrice || 0);
+                      const lineTotal = quantity * unitPrice;
+                      return (
+                        <div
+                          key={`invoice-overview-${group.key}-${index}`}
+                          className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 py-1.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium">
+                              {compactInvoiceValue(item?.description) ||
+                                "Unbenannte Leistung"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {quantity > 0
+                                ? `${quantity} ${compactInvoiceValue(item?.unit) || "–"}`
+                                : "Menge prüfen"}
+                              {" · "}
+                              {unitPrice > 0
+                                ? formatCurrency(unitPrice, currency)
+                                : "Preis prüfen"}
+                            </div>
+                          </div>
+                          <div className="text-right font-mono text-sm font-medium">
+                            {formatCurrency(
+                              Number.isFinite(lineTotal) ? lineTotal : 0,
+                              currency,
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="flex justify-between rounded-md border border-slate-300 bg-muted/70 px-3 py-2 text-sm font-semibold dark:border-slate-700">
+              <span>Gesamt netto</span>
+              <span className="font-mono text-primary">
+                {formatCurrency(subtotal, currency)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {invoiceServiceOverviewOpen && !hasMultipleOverviewSites && (
+          <div className="mt-2 overflow-x-auto rounded-lg border-2 border-slate-300 dark:border-slate-700">
+            <table className="w-full min-w-[680px] border-collapse text-[13px] leading-snug">
+              <thead className="bg-slate-50 text-left dark:bg-slate-900/70">
+                <tr className="border-b border-slate-300 dark:border-slate-700">
+                  <th className="w-12 px-2 py-1.5 font-semibold">Nr.</th>
+                  <th className="px-2 py-1.5 font-semibold">Leistung</th>
+                  <th className="w-32 px-2 py-1.5 font-semibold">Einheit</th>
+                  <th className="w-20 px-2 py-1.5 text-right font-semibold">Menge</th>
+                  <th className="w-32 px-2 py-1.5 text-right font-semibold">Einzelpreis</th>
+                  <th className="w-32 px-2 py-1.5 text-right font-semibold">Summe</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overviewItems.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-2 py-3 text-center text-muted-foreground"
+                    >
+                      Keine Leistung erfasst.
+                    </td>
+                  </tr>
+                ) : (
+                  overviewItems.map((item: InvoiceItem, index: number) => {
+                    const quantity = Number(item?.quantity || 0);
+                    const unitPrice = Number(item?.unitPrice || 0);
+                    const lineTotal = quantity * unitPrice;
+                    return (
+                      <tr
+                        key={`invoice-overview-row-${index}`}
+                        className="border-b border-slate-200 last:border-b-0 dark:border-slate-800"
+                      >
+                        <td className="px-2 py-1.5 align-top">{index + 1}</td>
+                        <td className="px-2 py-1.5 align-top font-medium">
+                          {item.description}
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          {compactInvoiceValue(item.unit) || "–"}
+                        </td>
+                        <td className="px-2 py-1.5 text-right align-top font-mono">
+                          {Number.isFinite(quantity) ? quantity : 0}
+                        </td>
+                        <td className="px-2 py-1.5 text-right align-top font-mono">
+                          {formatCurrency(
+                            Number.isFinite(unitPrice) ? unitPrice : 0,
+                            currency,
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 text-right align-top font-mono">
+                          {formatCurrency(
+                            Number.isFinite(lineTotal) ? lineTotal : 0,
+                            currency,
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold dark:border-slate-700 dark:bg-slate-900/70">
+                  <td colSpan={5} className="px-2 py-2">
+                    Gesamt
+                  </td>
+                  <td className="px-2 py-2 text-right font-mono text-primary">
+                    {formatCurrency(subtotal, currency)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const onCustomerChange = (customerId: string) => {
     // A manually created invoice must not silently inherit every open order of
     // the selected customer. Hidden orderIds could trigger source-order
@@ -3174,10 +3402,9 @@ export default function RechnungenPage() {
                       <span
                         className={
                           placement === "compact"
-                            ? "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
-                            : "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
+                            ? "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
+                            : "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
                         }
-                        style={{ left: "61%" }}
                       >
                         <button
                           type="button"
@@ -3429,7 +3656,7 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center md:pr-3"
                                   >
                                     <button
                                       type="button"
@@ -3655,7 +3882,7 @@ export default function RechnungenPage() {
 
                               <div className="relative mt-3 flex min-h-12 flex-wrap items-end gap-2 border-t pt-3">
                                 <span
-                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center md:pr-3"
                                 >
                                   <button
                                     type="button"
@@ -5282,6 +5509,8 @@ export default function RechnungenPage() {
                     </div>
                   </div>
 
+                  {!editOrderCtx && renderInvoiceServiceOverview()}
+
                   {editOrderCtx && (() => {
                     const parsed = splitSpecialNotes(editOrderCtx.specialNotes);
                     const rawHazards = uniqueInvoiceLines(parsed.safetyWarnings || []);
@@ -5373,6 +5602,8 @@ export default function RechnungenPage() {
                             </div>
                           </div>
                         )}
+
+                        {renderInvoiceServiceOverview()}
 
                         <details className="rounded-xl border p-3 sm:p-4" open>
                           <summary className="cursor-pointer list-none text-base font-semibold [&::-webkit-details-marker]:hidden">
