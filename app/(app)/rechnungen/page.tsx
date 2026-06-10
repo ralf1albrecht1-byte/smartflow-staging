@@ -4583,16 +4583,17 @@ export default function RechnungenPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border bg-muted/20 p-3 sm:p-4">
-                    <div className="mb-3">
-                      <h3 className="text-base font-semibold">
+                  <div className="space-y-4 border-t-4 border-slate-300 pt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-base font-semibold">
                         Rechnungsdaten & Betrag
-                      </h3>
-                      <p className="text-xs text-muted-foreground">
-                        Datum, Zahlungsfrist, Status, Währung und Gesamtsumme.
-                      </p>
+                      </Label>
+                      <span className="text-xs text-muted-foreground">
+                        Klar getrennt von den Leistungen
+                      </span>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                       <div>
                         <Label>Rechnungsdatum</Label>
                         <Input
@@ -4647,12 +4648,15 @@ export default function RechnungenPage() {
                               })
                             }
                           >
-                            {invoiceStatuses.map((s) => (
+                            {invoiceStatuses.map((status) => (
                               <option
-                                key={s}
-                                style={getStatusStyle(INVOICE_STATUS_STYLES, s)}
+                                key={status}
+                                style={getStatusStyle(
+                                  INVOICE_STATUS_STYLES,
+                                  status,
+                                )}
                               >
-                                {s}
+                                {status}
                               </option>
                             ))}
                           </select>
@@ -4674,25 +4678,26 @@ export default function RechnungenPage() {
                         </select>
                       </div>
                     </div>
-                    <div className="mt-4 grid gap-4 border-t pt-4 sm:grid-cols-[minmax(0,1fr)_280px]">
+
+                    <div className="min-w-0 space-y-3 rounded-xl border-2 border-slate-400 bg-slate-100/90 p-2 sm:p-4 dark:border-slate-700 dark:bg-slate-900/70">
                       <MwStControl vatRate={vatRate} onChange={setVatRate} />
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between">
-                          <span>Netto</span>
+                      <div className="min-w-0 space-y-1 border-t border-slate-300 pt-2 text-xs sm:text-sm">
+                        <div className="flex min-w-0 justify-between">
+                          <span className="shrink-0">Netto</span>
                           <span className="font-mono">
                             {formatCurrency(subtotal, currency)}
                           </span>
                         </div>
                         {vatRate > 0 && (
-                          <div className="flex justify-between">
-                            <span>MwSt. {vatRate}%</span>
+                          <div className="flex min-w-0 justify-between">
+                            <span className="shrink-0">MwSt. {vatRate}%</span>
                             <span className="font-mono">
                               {formatCurrency(vatAmount, currency)}
                             </span>
                           </div>
                         )}
-                        <div className="flex justify-between border-t pt-2 text-base font-bold">
-                          <span>Total</span>
+                        <div className="flex min-w-0 justify-between border-t-2 border-slate-300 pt-2 text-sm font-bold sm:text-base">
+                          <span className="shrink-0">Total</span>
                           <span className="font-mono text-primary">
                             {formatCurrency(total, currency)}
                           </span>
@@ -4702,57 +4707,80 @@ export default function RechnungenPage() {
                   </div>
 
                   {!showNewCustomer && (
-                    <div className="flex flex-wrap justify-center gap-2 sm:justify-end">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setDialogOpen(false);
-                          setEditingInvoice(null);
-                        }}
-                      >
-                        Abbrechen
-                      </Button>
-                      {editingInvoice ? (
-                        <>
-                          <Button
-                            variant="outline"
-                            onClick={() => saveEdit(false)}
-                            disabled={saving}
-                          >
-                            {saving ? "Speichern..." : "Speichern"}
-                          </Button>
-                          <Button
-                            onClick={() => saveEdit(true)}
-                            disabled={saving}
-                          >
-                            {saving ? "Speichern..." : "Speichern & schließen"}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            onClick={saveAndArchive}
-                            disabled={saving}
-                            className="bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
-                          >
-                            <Archive className="mr-1 h-4 w-4" /> Archivieren
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            variant="outline"
-                            onClick={() => save(false)}
-                            disabled={saving}
-                          >
-                            {saving ? "Speichern..." : "Speichern"}
-                          </Button>
-                          <Button
-                            onClick={() => save(true)}
-                            disabled={saving}
-                          >
-                            {saving ? "Speichern..." : "Speichern & schließen"}
-                          </Button>
-                        </>
-                      )}
+                    <div className="rounded-xl border bg-background p-2 sm:p-3">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setDialogOpen(false);
+                            setEditingInvoice(null);
+                          }}
+                          disabled={saving}
+                          className="order-3 w-full lg:order-1 lg:w-auto"
+                        >
+                          Abbrechen
+                        </Button>
+
+                        <div
+                          className={`order-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-2 ${
+                            editingInvoice
+                              ? "lg:min-w-[650px] lg:grid-cols-3"
+                              : "lg:min-w-[430px]"
+                          }`}
+                        >
+                          {editingInvoice ? (
+                            <>
+                              <Button
+                                type="button"
+                                onClick={() => saveEdit(false)}
+                                disabled={saving}
+                                className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                              >
+                                {saving ? "Speichern..." : "Speichern"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => saveEdit(true)}
+                                disabled={saving}
+                                className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                              >
+                                {saving ? "Speichern..." : "Speichern & schließen"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={saveAndArchive}
+                                disabled={saving}
+                                className="w-full border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                              >
+                                <Archive className="mr-1 h-4 w-4" /> Archivieren
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                type="button"
+                                onClick={() => save(false)}
+                                disabled={saving}
+                                className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                              >
+                                {saving ? "Speichern..." : "Speichern"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => save(true)}
+                                disabled={saving}
+                                className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                              >
+                                {saving ? "Speichern..." : "Speichern & schließen"}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
 

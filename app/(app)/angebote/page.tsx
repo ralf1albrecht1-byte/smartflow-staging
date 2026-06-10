@@ -4777,6 +4777,34 @@ export default function AngebotePage() {
                                         ? "Kunde nicht zugeordnet"
                                         : cardCustomerName}
                                     </span>
+                                    <select
+                                      onClick={(event) => event.stopPropagation()}
+                                      className="h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                      style={getStatusStyle(
+                                        OFFER_STATUS_STYLES,
+                                        off?.status ?? "",
+                                      )}
+                                      value={off?.status ?? ""}
+                                      onChange={(event: any) => {
+                                        event.stopPropagation();
+                                        updateStatus(
+                                          off?.id,
+                                          event?.target?.value ?? "",
+                                        );
+                                      }}
+                                    >
+                                      {offerStatuses.map((status) => (
+                                        <option
+                                          key={status}
+                                          style={getStatusStyle(
+                                            OFFER_STATUS_STYLES,
+                                            status,
+                                          )}
+                                        >
+                                          {status}
+                                        </option>
+                                      ))}
+                                    </select>
                                     {offerExecutionSites.length > 0 && (
                                       <button
                                         type="button"
@@ -4818,7 +4846,7 @@ export default function AngebotePage() {
                                             openOfferSection(off, "execution");
                                           }
                                         }}
-                                        className="group relative inline-flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:max-w-[18rem]"
+                                        className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:max-w-[18rem]"
                                         aria-label="Ausführungsort anzeigen"
                                       >
                                         <MapPin className="h-3 w-3 shrink-0" />
@@ -4855,7 +4883,7 @@ export default function AngebotePage() {
                                             openOfferSection(off, "details", appointmentLabel);
                                           }
                                         }}
-                                        className="group relative ml-auto mr-3 inline-flex min-w-0 max-w-[12rem] shrink items-center sm:mr-5 rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 hover:bg-violet-100 sm:inline-flex"
+                                        className="group relative ml-auto mr-3 inline-flex min-h-9 min-w-0 max-w-[14rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 sm:mr-5 sm:inline-flex"
                                       >
                                         <span className="truncate">{appointmentLabel}</span>
                                         {!useTouchChipPopovers && (
@@ -4950,7 +4978,7 @@ export default function AngebotePage() {
                                           openOfferChipTarget("execution", event);
                                         }
                                       }}
-                                      className="group relative inline-flex min-w-0 max-w-full flex-[0_1_auto] items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-800 outline-none hover:bg-cyan-100 focus:ring-2 focus:ring-cyan-300"
+                                      className="group relative inline-flex min-w-0 basis-full max-w-full flex-[1_1_14rem] items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-1 text-[11px] font-medium text-cyan-800 outline-none hover:bg-cyan-100 focus:ring-2 focus:ring-cyan-300 sm:basis-auto"
                                       aria-label="Ausführungsadresse anzeigen"
                                     >
                                       <MapPin className="h-3 w-3 shrink-0" />
@@ -5244,7 +5272,7 @@ export default function AngebotePage() {
                                                 appointmentLabel,
                                               )
                                         }
-                                        className="group relative inline-flex max-w-full items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700"
+                                        className="group relative inline-flex min-h-9 max-w-full items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm"
                                       >
                                         <span className="truncate">{appointmentLabel}</span>
                                         {!useTouchChipPopovers && (

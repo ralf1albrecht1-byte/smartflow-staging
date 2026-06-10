@@ -12056,6 +12056,24 @@ export default function AuftraegePage() {
 
   const hasMultipleEditWorkSites = currentEditWorkSites.length > 1;
 
+  const currentEditSystemBadges = currentEditOrder
+    ? getSystemBadges(currentEditOrder, services)
+    : [];
+  const currentEditExecutionHeaderBadge =
+    currentEditSystemBadges.find((badge) => badge.key === "site_address") ||
+    currentEditSystemBadges.find((badge) => badge.key === "address_review") ||
+    (currentEditOrder && hasMultipleEditWorkSites
+      ? {
+          key: "site_address",
+          label: `Ausführungsorte · ${currentEditWorkSites.length}`,
+          className: "bg-cyan-50 text-cyan-800 border border-cyan-300",
+          tooltip: formatExecutionAddressTooltip(currentEditOrder),
+        }
+      : null);
+  const currentEditMergedHeaderBadge = currentEditSystemBadges.find(
+    (badge) => badge.key === "merged",
+  );
+
   const normalizeWorkSiteText = (value?: string | null) =>
     compactText(value).toLowerCase();
 
@@ -15190,6 +15208,7 @@ export default function AuftraegePage() {
               badge: ReviewBadge,
               slot: string,
               align: "left" | "right" = "right",
+              prominent = false,
             ) => {
               const title = compactText(badge.tooltip) || badge.label;
               return (
@@ -15204,7 +15223,11 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, slot, event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                    prominent
+                      ? "min-h-9 px-3 py-1.5 text-xs shadow-sm"
+                      : "px-1.5 py-0.5 text-[10px]"
+                  } ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   <span className="truncate">{badge.label}</span>
                   {renderMobileChipTooltip(badge, slot, align)}
@@ -15388,8 +15411,36 @@ export default function AuftraegePage() {
                                   ? "Kunde nicht zugeordnet"
                                   : o.customer?.name || "–"}
                               </span>
+                              <select
+                                onClick={(event) => event.stopPropagation()}
+                                className="h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                style={getStatusStyle(
+                                  ORDER_STATUS_STYLES,
+                                  o?.status ?? "",
+                                )}
+                                value={o?.status ?? ""}
+                                onChange={(event: any) =>
+                                  updateOrderStatus(
+                                    event,
+                                    o?.id,
+                                    event?.target?.value ?? "",
+                                  )
+                                }
+                              >
+                                {orderStatuses.map((status) => (
+                                  <option
+                                    key={status}
+                                    style={getStatusStyle(
+                                      ORDER_STATUS_STYLES,
+                                      status,
+                                    )}
+                                  >
+                                    {status}
+                                  </option>
+                                ))}
+                              </select>
                               {compactExecutionAddressBadge && (
-                                <span className="min-w-0 max-w-[9rem] shrink sm:max-w-[18rem]">
+                                <span className="min-w-0 basis-full max-w-full shrink sm:basis-auto sm:max-w-[18rem]">
                                   {renderInteractiveMobileTextBadge(
                                     compactExecutionAddressBadge,
                                     "compact_header_address",
@@ -15407,6 +15458,7 @@ export default function AuftraegePage() {
                                   badge,
                                   "compact_header_appointment",
                                   "left",
+                                  true,
                                 )}
                               </span>
                             ))}
@@ -15455,7 +15507,7 @@ export default function AuftraegePage() {
                               </span>
                             )}
                           {compactExecutionAddressBadge && (
-                            <span className="min-w-0 max-w-[18rem] shrink">
+                            <span className="min-w-0 basis-full max-w-full shrink sm:basis-auto sm:max-w-[18rem]">
                               {renderInteractiveMobileTextBadge(
                                 compactExecutionAddressBadge,
                                 "mobile_header_address",
@@ -15551,6 +15603,7 @@ export default function AuftraegePage() {
                                   badge,
                                   "mobile_appointment",
                                   "left",
+                                  true,
                                 ),
                               )}
                             {rightSideBadges.map((badge) =>
@@ -16795,11 +16848,24 @@ export default function AuftraegePage() {
                   >
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Label className="whitespace-nowrap text-base font-semibold">
-                          {hasMultipleEditWorkSites
-                            ? "Arbeitsorte & Leistungen"
-                            : `Leistungen · ${formItems.filter((item) => item.serviceName.trim()).length} *`}
-                        </Label>
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <Label className="whitespace-nowrap text-base font-semibold">
+                            {hasMultipleEditWorkSites
+                              ? "Arbeitsorte & Leistungen"
+                              : `Leistungen · ${formItems.filter((item) => item.serviceName.trim()).length} *`}
+                          </Label>
+                          {currentEditMergedHeaderBadge &&
+                            currentEditExecutionHeaderBadge &&
+                            renderOrderCardBadge(
+                              currentEditExecutionHeaderBadge,
+                              "left",
+                            )}
+                          {currentEditMergedHeaderBadge &&
+                            renderOrderCardBadge(
+                              currentEditMergedHeaderBadge,
+                              "left",
+                            )}
+                        </div>
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           {hasMultipleEditWorkSites && (
                             <Button
@@ -18234,99 +18300,104 @@ export default function AuftraegePage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <Label>Datum</Label>
-                      <Input
-                        type="date"
-                        value={form.date}
-                        onChange={(e: any) =>
-                          setForm({ ...form, date: e?.target?.value ?? "" })
-                        }
-                      />
+                  <div className="space-y-4 border-t-4 border-slate-300 pt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-base font-semibold">
+                        Auftragsdaten & Betrag
+                      </Label>
+                      <span className="text-xs text-muted-foreground">
+                        Klar getrennt von den Leistungen
+                      </span>
                     </div>
 
-                    <div>
-                      <Label>Status</Label>
-                      <select
-                        className="flex w-full rounded-md border border-input px-3 py-2 text-sm"
-                        style={getStatusStyle(ORDER_STATUS_STYLES, form.status)}
-                        value={form.status}
-                        onChange={(e: any) =>
-                          setForm({
-                            ...form,
-                            status: e?.target?.value ?? "Offen",
-                          })
-                        }
-                      >
-                        {orderStatuses.map((s) => (
-                          <option
-                            key={s}
-                            style={getStatusStyle(ORDER_STATUS_STYLES, s)}
-                          >
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <Label>Währung</Label>
-                      <select
-                        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={currency}
-                        onChange={(e: any) =>
-                          setCurrency(
-                            e?.target?.value === "EUR" ? "EUR" : "CHF",
-                          )
-                        }
-                      >
-                        <option value="CHF">CHF</option>
-                        <option value="EUR">EUR</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* MwSt block — mirrors the UI used in Angebot/Rechnung bearbeiten.
-                Order itself persists only the net total in `totalPrice`. VAT is
-                a display-only preview here so the user sees the same breakdown
-                they would see after converting the order to an offer/invoice.
-                `orderVatRate` is local-only state and is NOT sent to the API. */}
-                  <div className="p-1.5 sm:p-4 bg-muted rounded-lg space-y-3 min-w-0">
-                    <MwStControl
-                      vatRate={orderVatRate}
-                      onChange={setOrderVatRate}
-                    />
-                    <div className="space-y-1 border-t pt-2 min-w-0 text-xs sm:text-sm">
-                      <div className="flex justify-between min-w-0">
-                        <span className="shrink-0">Netto</span>
-                        <span className="font-mono">
-                          {formatCurrency(itemsTotal, currency)}
-                        </span>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <div>
+                        <Label>Auftragsdatum</Label>
+                        <Input
+                          type="date"
+                          value={form.date}
+                          onChange={(e: any) =>
+                            setForm({ ...form, date: e?.target?.value ?? "" })
+                          }
+                        />
                       </div>
-                      {orderVatRate > 0 && (
-                        <div className="flex justify-between min-w-0">
-                          <span className="shrink-0">
-                            MwSt. {orderVatRate}%
-                          </span>
+
+                      <div>
+                        <Label>Status</Label>
+                        <select
+                          className="flex w-full rounded-md border border-input px-3 py-2 text-sm"
+                          style={getStatusStyle(ORDER_STATUS_STYLES, form.status)}
+                          value={form.status}
+                          onChange={(e: any) =>
+                            setForm({
+                              ...form,
+                              status: e?.target?.value ?? "Offen",
+                            })
+                          }
+                        >
+                          {orderStatuses.map((status) => (
+                            <option
+                              key={status}
+                              style={getStatusStyle(ORDER_STATUS_STYLES, status)}
+                            >
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <Label>Währung</Label>
+                        <select
+                          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={currency}
+                          onChange={(e: any) =>
+                            setCurrency(
+                              e?.target?.value === "EUR" ? "EUR" : "CHF",
+                            )
+                          }
+                        >
+                          <option value="CHF">CHF</option>
+                          <option value="EUR">EUR</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 space-y-3 rounded-xl border-2 border-slate-400 bg-slate-100/90 p-2 sm:p-4 dark:border-slate-700 dark:bg-slate-900/70">
+                      <MwStControl
+                        vatRate={orderVatRate}
+                        onChange={setOrderVatRate}
+                      />
+                      <div className="min-w-0 space-y-1 border-t border-slate-300 pt-2 text-xs sm:text-sm">
+                        <div className="flex min-w-0 justify-between">
+                          <span className="shrink-0">Netto</span>
                           <span className="font-mono">
-                            {formatCurrency(
-                              (itemsTotal * orderVatRate) / 100,
-                              currency,
-                            )}
+                            {formatCurrency(itemsTotal, currency)}
                           </span>
                         </div>
-                      )}
-                      <div className="flex justify-between font-bold border-t pt-2 min-w-0 text-sm sm:text-base">
-                        <span className="shrink-0">Total</span>
-                        <span className="font-mono text-primary">
-                          {formatCurrency(totalWithVat, currency)}
-                        </span>
+                        {orderVatRate > 0 && (
+                          <div className="flex min-w-0 justify-between">
+                            <span className="shrink-0">
+                              MwSt. {orderVatRate}%
+                            </span>
+                            <span className="font-mono">
+                              {formatCurrency(
+                                (itemsTotal * orderVatRate) / 100,
+                                currency,
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex min-w-0 justify-between border-t-2 border-slate-300 pt-2 text-sm font-bold sm:text-base">
+                          <span className="shrink-0">Total</span>
+                          <span className="font-mono text-primary">
+                            {formatCurrency(totalWithVat, currency)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Order action buttons — high position directly below Total */}
                   {!showNewCustomer && (
                     <div className="rounded-xl border bg-background p-2 sm:p-3">
                       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -18335,12 +18406,29 @@ export default function AuftraegePage() {
                           variant="outline"
                           onClick={() => setDialogOpen(false)}
                           disabled={saving}
-                          className="order-5 w-full lg:order-1 lg:w-auto"
+                          className="order-3 w-full lg:order-1 lg:w-auto"
                         >
                           Abbrechen
                         </Button>
 
-                        <div className="order-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-2 lg:min-w-[310px]">
+                        <div className="order-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-2 lg:min-w-[760px] xl:grid-cols-4">
+                          <Button
+                            type="button"
+                            onClick={() => save()}
+                            disabled={saving}
+                            className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                          >
+                            {saving ? "Speichere..." : "Speichern"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={saveAndClose}
+                            disabled={saving}
+                            className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          >
+                            Speichern & schließen
+                          </Button>
                           <Button
                             type="button"
                             variant="outline"
@@ -18360,26 +18448,6 @@ export default function AuftraegePage() {
                           >
                             <FileText className="mr-1.5 h-4 w-4" />
                             Rechnung erstellen
-                          </Button>
-                        </div>
-
-                        <div className="order-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:order-3 lg:min-w-[340px]">
-                          <Button
-                            type="button"
-                            onClick={() => save()}
-                            disabled={saving}
-                            className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                          >
-                            {saving ? "Speichere..." : "Speichern"}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={saveAndClose}
-                            disabled={saving}
-                            className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                          >
-                            Speichern & schließen
                           </Button>
                         </div>
                       </div>
