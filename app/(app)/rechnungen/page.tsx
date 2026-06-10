@@ -195,6 +195,51 @@ const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabe
   };
 };
 
+
+// V17.90L169: Der Termin im Popover wird in Datum, Uhrzeit und Zusatz gegliedert.
+type StructuredInvoiceAppointmentTooltipV17_90L169 = {
+  date: string;
+  time: string;
+  note: string;
+  fallback: string;
+};
+
+const parseInvoiceAppointmentTooltipV17_90L169 = (
+  value: unknown,
+): StructuredInvoiceAppointmentTooltipV17_90L169 => {
+  const fallback = compactInvoiceValue(value) || "Termin klären";
+  const source = fallback.replace(/\n+/g, " · ").replace(/\s+/g, " ").trim();
+  const dateMatch = source.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
+  const date = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${
+        dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
+      }`
+    : "";
+  const clockMatches = Array.from(
+    source.matchAll(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g),
+  ).map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
+  const uniqueTimes = Array.from(new Set(clockMatches));
+  const time =
+    uniqueTimes.length >= 2
+      ? `${uniqueTimes[0]}–${uniqueTimes[1]} Uhr`
+      : uniqueTimes[0]
+        ? `${uniqueTimes[0]} Uhr`
+        : "";
+  let note = source;
+  if (dateMatch) note = note.replace(dateMatch[0], " ");
+  note = note
+    .replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g, " ")
+    .replace(/\b(?:Ausführungstermin|Ausfuehrungstermin|Termin|Uhr)\b/gi, " ")
+    .replace(/[·•|]+/g, " ")
+    .replace(/\s*[–—-]\s*(?=\s|$)/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^(?:um|von|bis)\s+/i, "")
+    .replace(/[,:;\-–—.\s]+$/g, "")
+    .replace(/^[,:;\-–—.\s]+/g, "")
+    .trim();
+  return { date, time, note, fallback };
+};
+
 const serializeInvoiceExecutionSiteForEdit = (
   site?: InvoiceExecutionSite | null,
 ) =>
@@ -982,6 +1027,48 @@ function InvoiceViewportTooltip({
           document.body,
         )}
     </>
+  );
+}
+
+
+function InvoiceAppointmentTooltipContentV17_90L169({
+  text,
+}: {
+  text: string;
+}) {
+  const parts = parseInvoiceAppointmentTooltipV17_90L169(text);
+  return (
+    <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
+      <span className="flex items-start gap-2">
+        <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-violet-700 dark:text-violet-300" />
+        <span className="min-w-0 flex-1">
+          {parts.date ? (
+            <span className="block text-lg font-extrabold leading-none tracking-tight">
+              {parts.date}
+            </span>
+          ) : (
+            <span className="block text-sm font-extrabold leading-tight">
+              Termin
+            </span>
+          )}
+          {parts.time && (
+            <span className="mt-1.5 block text-sm font-extrabold leading-tight">
+              {parts.time}
+            </span>
+          )}
+          {parts.note && (
+            <span className="mt-2 block border-t border-violet-200 pt-2 text-[12px] font-medium leading-relaxed dark:border-violet-800/70">
+              {parts.note}
+            </span>
+          )}
+          {!parts.date && !parts.time && !parts.note && (
+            <span className="mt-1 block text-[12px] font-semibold leading-relaxed">
+              {parts.fallback}
+            </span>
+          )}
+        </span>
+      </span>
+    </span>
   );
 }
 
@@ -3855,14 +3942,11 @@ export default function RechnungenPage() {
                                         </span>
                                       )}
                                       <span className="sr-only">{invoiceAppointmentChipLabels.full}</span>
-                                      <InvoiceViewportTooltip preferredWidth={300}>
-                                        <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
-                                          Ausführungstermin
-                                        </span>
-                                        <span className="mt-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
-                                          {invoiceAppointmentDisplayLabel}
-                                        </span>
-                                      </InvoiceViewportTooltip>
+                                      <InvoiceViewportTooltip preferredWidth={320}>
+                                      <InvoiceAppointmentTooltipContentV17_90L169
+                                        text={invoiceAppointmentDisplayLabel}
+                                      />
+                                    </InvoiceViewportTooltip>
                                     </button>
                                   </span>
                                   <div className="flex min-w-0 items-center justify-end gap-2 pr-3 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0 sm:pr-5">
@@ -4080,13 +4164,10 @@ export default function RechnungenPage() {
                                         </span>
                                       )}
                                       <span className="sr-only">{invoiceAppointmentChipLabels.full}</span>
-                                    <InvoiceViewportTooltip preferredWidth={300}>
-                                      <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
-                                        Ausführungstermin
-                                      </span>
-                                      <span className="mt-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
-                                        {invoiceAppointmentDisplayLabel}
-                                      </span>
+                                    <InvoiceViewportTooltip preferredWidth={320}>
+                                      <InvoiceAppointmentTooltipContentV17_90L169
+                                        text={invoiceAppointmentDisplayLabel}
+                                      />
                                     </InvoiceViewportTooltip>
                                   </button>
                                 </span>

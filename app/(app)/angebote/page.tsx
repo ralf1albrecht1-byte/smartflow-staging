@@ -212,6 +212,51 @@ const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabe
   };
 };
 
+
+// V17.90L169: Einheitlich gegliederte Termin-, Warn- und Besonderheitenfenster.
+type StructuredOfferAppointmentTooltipV17_90L169 = {
+  date: string;
+  time: string;
+  note: string;
+  fallback: string;
+};
+
+const parseOfferAppointmentTooltipV17_90L169 = (
+  value: unknown,
+): StructuredOfferAppointmentTooltipV17_90L169 => {
+  const fallback = compactOfferValue(value) || "Termin klären";
+  const source = fallback.replace(/\n+/g, " · ").replace(/\s+/g, " ").trim();
+  const dateMatch = source.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
+  const date = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${
+        dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
+      }`
+    : "";
+  const clockMatches = Array.from(
+    source.matchAll(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g),
+  ).map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
+  const uniqueTimes = Array.from(new Set(clockMatches));
+  const time =
+    uniqueTimes.length >= 2
+      ? `${uniqueTimes[0]}–${uniqueTimes[1]} Uhr`
+      : uniqueTimes[0]
+        ? `${uniqueTimes[0]} Uhr`
+        : "";
+  let note = source;
+  if (dateMatch) note = note.replace(dateMatch[0], " ");
+  note = note
+    .replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g, " ")
+    .replace(/\b(?:Ausführungstermin|Ausfuehrungstermin|Termin|Uhr)\b/gi, " ")
+    .replace(/[·•|]+/g, " ")
+    .replace(/\s*[–—-]\s*(?=\s|$)/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^(?:um|von|bis)\s+/i, "")
+    .replace(/[,:;\-–—.\s]+$/g, "")
+    .replace(/^[,:;\-–—.\s]+/g, "")
+    .trim();
+  return { date, time, note, fallback };
+};
+
 const serializeOfferExecutionSitesForEdit = (
   sites: OfferExecutionSite[],
 ) =>
@@ -1578,6 +1623,126 @@ function OfferPlainTooltip({
   return (
     <OfferViewportTooltipV17_95 align={align}>
       <span className="whitespace-pre-wrap break-words">{text}</span>
+    </OfferViewportTooltipV17_95>
+  );
+}
+
+
+function OfferAppointmentTooltipContentV17_90L169({
+  text,
+}: {
+  text: string;
+}) {
+  const parts = parseOfferAppointmentTooltipV17_90L169(text);
+  return (
+    <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
+      <span className="flex items-start gap-2">
+        <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-violet-700 dark:text-violet-300" />
+        <span className="min-w-0 flex-1">
+          {parts.date ? (
+            <span className="block text-lg font-extrabold leading-none tracking-tight">
+              {parts.date}
+            </span>
+          ) : (
+            <span className="block text-sm font-extrabold leading-tight">
+              Termin
+            </span>
+          )}
+          {parts.time && (
+            <span className="mt-1.5 block text-sm font-extrabold leading-tight">
+              {parts.time}
+            </span>
+          )}
+          {parts.note && (
+            <span className="mt-2 block border-t border-violet-200 pt-2 text-[12px] font-medium leading-relaxed dark:border-violet-800/70">
+              {parts.note}
+            </span>
+          )}
+          {!parts.date && !parts.time && !parts.note && (
+            <span className="mt-1 block text-[12px] font-semibold leading-relaxed">
+              {parts.fallback}
+            </span>
+          )}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function OfferAppointmentTooltipV17_90L169({
+  text,
+  align = "left",
+}: {
+  text: string;
+  align?: "left" | "right";
+}) {
+  if (!text.trim()) return null;
+  return (
+    <OfferViewportTooltipV17_95 align={align} preferredWidth={320}>
+      <OfferAppointmentTooltipContentV17_90L169 text={text} />
+    </OfferViewportTooltipV17_95>
+  );
+}
+
+function OfferOperationalTooltipContentV17_90L169({
+  chip,
+}: {
+  chip: OfferOperationalChip;
+}) {
+  const isDanger = chip.tone === "danger";
+  const lines = uniqueOfferLines(String(chip.title || "").split(/\n+/g));
+  const heading = isDanger
+    ? chip.key === "dog"
+      ? "Vorsicht: Hund"
+      : "Vorsicht"
+    : "Besonderheiten";
+  return (
+    <span
+      className={`block rounded-xl border-2 p-3 text-slate-950 dark:text-slate-50 ${
+        isDanger
+          ? "border-red-400 bg-red-100 dark:border-red-700 dark:bg-red-950/55"
+          : "border-amber-400 bg-amber-100 dark:border-amber-700 dark:bg-amber-950/45"
+      }`}
+    >
+      <span className="mb-2 flex items-center gap-2 text-sm font-extrabold leading-tight">
+        <AlertTriangle
+          className={`h-4 w-4 shrink-0 ${
+            isDanger
+              ? "text-red-700 dark:text-red-300"
+              : "text-amber-700 dark:text-amber-300"
+          }`}
+        />
+        {heading}
+      </span>
+      <span className="block space-y-1.5">
+        {lines.map((line, index) => (
+          <span
+            key={`offer_operational_${chip.key}_${index}`}
+            className={`block rounded-lg border bg-white/75 px-2.5 py-2 text-[12px] font-semibold leading-relaxed text-slate-950 dark:bg-slate-950/35 dark:text-slate-50 ${
+              isDanger
+                ? "border-red-200 dark:border-red-900/70"
+                : "border-amber-200 dark:border-amber-900/70"
+            }`}
+          >
+            {line}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
+function OfferOperationalTooltipV17_90L169({
+  chip,
+  align = "left",
+}: {
+  chip: OfferOperationalChip;
+  align?: "left" | "right";
+}) {
+  if (!String(chip.title || "").trim()) return null;
+  return (
+    <OfferViewportTooltipV17_95 align={align} preferredWidth={360}>
+      <OfferOperationalTooltipContentV17_90L169 chip={chip} />
     </OfferViewportTooltipV17_95>
   );
 }
@@ -4155,6 +4320,12 @@ export default function AngebotePage() {
         !primaryKeys.has(normalizeOfferHint(line)),
     );
     const textValue = String(activeMobileTooltip.text || "").trim();
+    const mobileTooltipKeyTail = activeMobileTooltip.key.split(":").pop() || "";
+    const isAppointmentTooltip = mobileTooltipKeyTail === "appointment";
+    const isOperationalDanger = ["dog", "danger"].includes(mobileTooltipKeyTail);
+    const isOperationalWarning = ["parking", "ladder", "key", "access"].includes(
+      mobileTooltipKeyTail,
+    );
     const isServiceReview =
       activeMobileTooltip.kind === "service_review" ||
       Boolean(
@@ -4299,7 +4470,20 @@ export default function AngebotePage() {
                   </div>
                 )}
                 {textValue && safety.length === 0 && primary.length === 0 && hints.length === 0 && (
-                  <div className="whitespace-pre-wrap break-words">{textValue}</div>
+                  isAppointmentTooltip ? (
+                    <OfferAppointmentTooltipContentV17_90L169 text={textValue} />
+                  ) : isOperationalDanger || isOperationalWarning ? (
+                    <OfferOperationalTooltipContentV17_90L169
+                      chip={{
+                        key: mobileTooltipKeyTail || "hint",
+                        title: textValue,
+                        icon: isOperationalDanger ? "⚠️" : "!",
+                        tone: isOperationalDanger ? "danger" : "warning",
+                      }}
+                    />
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{textValue}</div>
+                  )
                 )}
               </>
             )}
@@ -4963,7 +5147,7 @@ export default function AngebotePage() {
                         >
                           {renderOfferOperationalChipIcon(chip)}
                           {!useTouchChipPopovers && (
-                            <OfferPlainTooltip text={chip.title} />
+                            <OfferOperationalTooltipV17_90L169 chip={chip} />
                           )}
                         </button>
                       ))}
@@ -4998,7 +5182,7 @@ export default function AngebotePage() {
                         >
                           {renderOfferOperationalChipIcon(chip)}
                           {!useTouchChipPopovers && (
-                            <OfferPlainTooltip text={chip.title} />
+                            <OfferOperationalTooltipV17_90L169 chip={chip} />
                           )}
                         </button>
                       ))}
@@ -5300,7 +5484,7 @@ export default function AngebotePage() {
                                       )}
                                       <span className="sr-only">{appointmentChipLabels.full}</span>
                                       {!useTouchChipPopovers && (
-                                        <OfferPlainTooltip text={appointmentDisplayLabel} />
+                                        <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
                                       )}
                                     </button>
                                   </span>
@@ -5627,7 +5811,7 @@ export default function AngebotePage() {
                                     >
                                       {renderOfferOperationalChipIcon(chip)}
                                       {!useTouchChipPopovers && (
-                                        <OfferPlainTooltip text={chip.title} />
+                                        <OfferOperationalTooltipV17_90L169 chip={chip} />
                                       )}
                                     </button>
                                   ))}
@@ -5662,7 +5846,7 @@ export default function AngebotePage() {
                                     >
                                       {renderOfferOperationalChipIcon(chip)}
                                       {!useTouchChipPopovers && (
-                                        <OfferPlainTooltip text={chip.title} />
+                                        <OfferOperationalTooltipV17_90L169 chip={chip} />
                                       )}
                                     </button>
                                   ))}
@@ -5722,7 +5906,7 @@ export default function AngebotePage() {
                                       )}
                                       <span className="sr-only">{appointmentChipLabels.full}</span>
                                       {!useTouchChipPopovers && (
-                                        <OfferPlainTooltip text={appointmentDisplayLabel} />
+                                        <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
                                       )}
                                     </button>
                                   </span>
@@ -5983,7 +6167,7 @@ export default function AngebotePage() {
                                         aria-label={chip.title}
                                       >
                                         {renderOfferOperationalChipIcon(chip)}
-                                        <OfferPlainTooltip text={chip.title} />
+                                        <OfferOperationalTooltipV17_90L169 chip={chip} />
                                       </button>
                                     ))}
 
@@ -6003,7 +6187,7 @@ export default function AngebotePage() {
                                         aria-label={chip.title}
                                       >
                                         {renderOfferOperationalChipIcon(chip)}
-                                        <OfferPlainTooltip text={chip.title} />
+                                        <OfferOperationalTooltipV17_90L169 chip={chip} />
                                       </button>
                                     ))}
                                   </div>
@@ -6042,7 +6226,7 @@ export default function AngebotePage() {
                                         className="group relative inline-flex shrink-0 items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 outline-none hover:bg-violet-100 focus:ring-2 focus:ring-violet-300"
                                       >
                                         {appointmentLabel}
-                                        <OfferPlainTooltip
+                                        <OfferAppointmentTooltipV17_90L169
                                           text={appointmentLabel}
                                           align="right"
                                         />

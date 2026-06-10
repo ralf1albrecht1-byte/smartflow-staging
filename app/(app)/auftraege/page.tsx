@@ -631,6 +631,181 @@ const cleanVisibleTooltipTextV17_35 = (value?: string | null) =>
     .filter(Boolean)
     .join("\n");
 
+
+// V17.90L169: Termin- und operative Hinweisfenster werden lesbar gegliedert.
+type StructuredAppointmentTooltipV17_90L169 = {
+  date: string;
+  time: string;
+  note: string;
+  fallback: string;
+};
+
+const parseStructuredAppointmentTooltipV17_90L169 = (
+  value?: string | null,
+): StructuredAppointmentTooltipV17_90L169 => {
+  const fallback = cleanVisibleTooltipTextV17_35(value) || "Termin klären";
+  const source = fallback.replace(/\n+/g, " · ").replace(/\s+/g, " ").trim();
+  const dateMatch = source.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
+  const date = dateMatch
+    ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${
+        dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
+      }`
+    : "";
+  const clockMatches = Array.from(
+    source.matchAll(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g),
+  ).map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
+  const uniqueTimes = Array.from(new Set(clockMatches));
+  const time =
+    uniqueTimes.length >= 2
+      ? `${uniqueTimes[0]}–${uniqueTimes[1]} Uhr`
+      : uniqueTimes[0]
+        ? `${uniqueTimes[0]} Uhr`
+        : "";
+
+  let note = source;
+  if (dateMatch) note = note.replace(dateMatch[0], " ");
+  note = note
+    .replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g, " ")
+    .replace(/\b(?:Ausführungstermin|Ausfuehrungstermin|Termin|Uhr)\b/gi, " ")
+    .replace(/[·•|]+/g, " ")
+    .replace(/\s*[–—-]\s*(?=\s|$)/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^(?:um|von|bis)\s+/i, "")
+    .replace(/[,:;\-–—.\s]+$/g, "")
+    .replace(/^[,:;\-–—.\s]+/g, "")
+    .trim();
+
+  return { date, time, note, fallback };
+};
+
+const isAppointmentBadgeV17_90L169 = (badge: ReviewBadge) =>
+  ["appointment", "appointments_multiple", "appointment_clarify"].includes(
+    badge.key,
+  );
+
+const isOperationalDetailBadgeV17_90L169 = (badge: ReviewBadge) =>
+  badge.focusTarget === "specialNotes" &&
+  !["special_notes_summary", "callback_request", "appointment_clarify"].includes(
+    badge.key,
+  );
+
+const renderOrderAppointmentTooltipContentV17_90L169 = (
+  badge: ReviewBadge,
+  tooltip: string,
+) => {
+  if (badge.key === "appointments_multiple") {
+    return (
+      <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
+        <span className="mb-2 flex items-center gap-2 text-sm font-extrabold">
+          <CalendarDays className="h-4 w-4 text-violet-700 dark:text-violet-300" />
+          Mehrere Termine
+        </span>
+        <span className="block space-y-1.5">
+          {tooltip.split(/\n+/g).filter(Boolean).map((line, index) => (
+            <span
+              key={`appointment_multiple_${index}`}
+              className="block rounded-lg border border-violet-200 bg-white/80 px-2.5 py-2 text-[12px] font-semibold leading-relaxed dark:border-violet-900/60 dark:bg-slate-950/40"
+            >
+              {line}
+            </span>
+          ))}
+        </span>
+      </span>
+    );
+  }
+
+  const parts = parseStructuredAppointmentTooltipV17_90L169(tooltip);
+  return (
+    <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
+      <span className="flex items-start gap-2">
+        <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-violet-700 dark:text-violet-300" />
+        <span className="min-w-0 flex-1">
+          {parts.date ? (
+            <span className="block text-lg font-extrabold leading-none tracking-tight">
+              {parts.date}
+            </span>
+          ) : (
+            <span className="block text-sm font-extrabold leading-tight">
+              Termin
+            </span>
+          )}
+          {parts.time && (
+            <span className="mt-1.5 block text-sm font-extrabold leading-tight">
+              {parts.time}
+            </span>
+          )}
+          {parts.note && (
+            <span className="mt-2 block border-t border-violet-200 pt-2 text-[12px] font-medium leading-relaxed dark:border-violet-800/70">
+              {parts.note}
+            </span>
+          )}
+          {!parts.date && !parts.time && !parts.note && (
+            <span className="mt-1 block text-[12px] font-semibold leading-relaxed">
+              {parts.fallback}
+            </span>
+          )}
+        </span>
+      </span>
+    </span>
+  );
+};
+
+const renderOrderOperationalTooltipContentV17_90L169 = (
+  badge: ReviewBadge,
+  tooltip: string,
+) => {
+  const isDanger = /(?:^|\s)(?:bg|text|border)-red-/.test(
+    badge.className || "",
+  );
+  const lines = tooltip
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const normalizedLabel = normalizeForMatch(badge.label);
+  const heading = isDanger
+    ? normalizedLabel === "hund"
+      ? "Vorsicht: Hund"
+      : normalizedLabel && normalizedLabel !== "achtung"
+        ? `Vorsicht: ${badge.label}`
+        : "Vorsicht"
+    : "Besonderheiten";
+
+  return (
+    <span
+      className={`block rounded-xl border-2 p-3 text-slate-950 dark:text-slate-50 ${
+        isDanger
+          ? "border-red-400 bg-red-100 dark:border-red-700 dark:bg-red-950/55"
+          : "border-amber-400 bg-amber-100 dark:border-amber-700 dark:bg-amber-950/45"
+      }`}
+    >
+      <span className="mb-2 flex items-center gap-2 text-sm font-extrabold leading-tight">
+        <AlertTriangle
+          className={`h-4 w-4 shrink-0 ${
+            isDanger
+              ? "text-red-700 dark:text-red-300"
+              : "text-amber-700 dark:text-amber-300"
+          }`}
+        />
+        {heading}
+      </span>
+      <span className="block space-y-1.5">
+        {lines.map((line, index) => (
+          <span
+            key={`operational_${badge.key}_${index}`}
+            className={`block rounded-lg border bg-white/75 px-2.5 py-2 text-[12px] font-semibold leading-relaxed text-slate-950 dark:bg-slate-950/35 dark:text-slate-50 ${
+              isDanger
+                ? "border-red-200 dark:border-red-900/70"
+                : "border-amber-200 dark:border-amber-900/70"
+            }`}
+          >
+            {line}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+};
+
 const normalizeForMatch = (value?: string | null) =>
   compactText(value)
     .toLowerCase()
@@ -7830,14 +8005,18 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
             ? renderExecutionAddressTooltipContentV17_95(tooltip)
             : badge.key === "special_notes_summary"
               ? renderOrderSpecialNotesTooltipContentV17_95(tooltip)
-              : tooltip.split("\n").map((line, index) => (
-                  <span
-                    key={`viewport_plain_${badge.key}_${index}`}
-                    className="block whitespace-pre-wrap break-words"
-                  >
-                    {line}
-                  </span>
-                ))}
+              : isAppointmentBadgeV17_90L169(badge)
+                ? renderOrderAppointmentTooltipContentV17_90L169(badge, tooltip)
+                : isOperationalDetailBadgeV17_90L169(badge)
+                  ? renderOrderOperationalTooltipContentV17_90L169(badge, tooltip)
+                  : tooltip.split("\n").map((line, index) => (
+                      <span
+                        key={`viewport_plain_${badge.key}_${index}`}
+                        className="block whitespace-pre-wrap break-words"
+                      >
+                        {line}
+                      </span>
+                    ))}
         </span>,
           document.body,
         )}
@@ -8515,6 +8694,28 @@ const renderMobileSafeBadgeTooltip = (
 
   const tooltip = cleanVisibleTooltipTextV17_35(badge.tooltip);
   if (!tooltip) return null;
+
+  if (isAppointmentBadgeV17_90L169(badge)) {
+    return (
+      <span
+        style={{ left: "1rem", right: "1rem", width: "calc(100vw - 2rem)", maxWidth: "calc(100vw - 2rem)" }}
+        className={`pointer-events-auto fixed top-1/2 z-[10000] block max-h-[62vh] -translate-y-1/2 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white p-3 text-left shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${forceVisible ? "block" : "hidden group-focus:block group-hover:block"}`}
+      >
+        {renderOrderAppointmentTooltipContentV17_90L169(badge, tooltip)}
+      </span>
+    );
+  }
+
+  if (isOperationalDetailBadgeV17_90L169(badge)) {
+    return (
+      <span
+        style={{ left: "1rem", right: "1rem", width: "calc(100vw - 2rem)", maxWidth: "calc(100vw - 2rem)" }}
+        className={`pointer-events-auto fixed top-1/2 z-[10000] block max-h-[62vh] -translate-y-1/2 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white p-3 text-left shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${forceVisible ? "block" : "hidden group-focus:block group-hover:block"}`}
+      >
+        {renderOrderOperationalTooltipContentV17_90L169(badge, tooltip)}
+      </span>
+    );
+  }
 
   const tooltipLines = tooltip.split("\n");
   const isServiceReviewSummary = badge.key === "service_review_summary";
@@ -9615,7 +9816,14 @@ export default function AuftraegePage() {
     key: string;
     tooltip: string;
     title?: string;
-    kind?: "service_review" | "order_review" | "execution_address" | "default";
+    kind?:
+      | "service_review"
+      | "order_review"
+      | "execution_address"
+      | "appointment"
+      | "operational_danger"
+      | "operational_hint"
+      | "default";
     anchorRect?: {
       top: number;
       bottom: number;
@@ -14556,6 +14764,10 @@ export default function AuftraegePage() {
     const isServiceReview = activeMobileTooltip.kind === "service_review";
     const isOrderReview = activeMobileTooltip.kind === "order_review";
     const isExecutionAddress = activeMobileTooltip.kind === "execution_address";
+    const isAppointmentTooltip = activeMobileTooltip.kind === "appointment";
+    const isOperationalDanger =
+      activeMobileTooltip.kind === "operational_danger";
+    const isOperationalHint = activeMobileTooltip.kind === "operational_hint";
     const serviceReviewSections = isServiceReview
       ? tooltip
           .split(SERVICE_REVIEW_TOOLTIP_SEPARATOR)
@@ -14705,6 +14917,33 @@ export default function AuftraegePage() {
               </div>
             ) : isExecutionAddress ? (
               <div>{renderExecutionAddressTooltipContentV17_95(tooltip)}</div>
+            ) : isAppointmentTooltip ? (
+              <div>
+                {renderOrderAppointmentTooltipContentV17_90L169(
+                  {
+                    key: activeMobileTooltip.key.includes("appointments_multiple")
+                      ? "appointments_multiple"
+                      : activeMobileTooltip.key.includes("appointment_clarify")
+                        ? "appointment_clarify"
+                        : "appointment",
+                    label: activeMobileTooltip.title || "Termin",
+                    className: "",
+                  },
+                  tooltip,
+                )}
+              </div>
+            ) : isOperationalDanger || isOperationalHint ? (
+              <div>
+                {renderOrderOperationalTooltipContentV17_90L169(
+                  {
+                    key: activeMobileTooltip.key,
+                    label: activeMobileTooltip.title || (isOperationalDanger ? "Achtung" : "Besonderheiten"),
+                    className: isOperationalDanger ? "bg-red-100" : "bg-amber-100",
+                    focusTarget: "specialNotes",
+                  },
+                  tooltip,
+                )}
+              </div>
             ) : (
               <div className="whitespace-pre-wrap break-words">{tooltip}</div>
             )}
@@ -15153,18 +15392,26 @@ export default function AuftraegePage() {
                             ? "execution_address"
                             : badge.key === "service_review_summary"
                               ? "service_review"
-                              : [
-                                  "order_review_summary",
-                                  "recognition_review",
-                                  "currency_review",
-                                  "price_quantity",
-                                  "unit_conflict",
-                                ].includes(badge.key) &&
-                                /(?:^|\s)(?:bg|text|border)-red-/.test(
-                                  badge.className || "",
-                                )
-                                ? "order_review"
-                                : "default",
+                              : isAppointmentBadgeV17_90L169(badge)
+                                ? "appointment"
+                                : isOperationalDetailBadgeV17_90L169(badge)
+                                  ? /(?:^|\s)(?:bg|text|border)-red-/.test(
+                                      badge.className || "",
+                                    )
+                                    ? "operational_danger"
+                                    : "operational_hint"
+                                  : [
+                                      "order_review_summary",
+                                      "recognition_review",
+                                      "currency_review",
+                                      "price_quantity",
+                                      "unit_conflict",
+                                    ].includes(badge.key) &&
+                                    /(?:^|\s)(?:bg|text|border)-red-/.test(
+                                      badge.className || "",
+                                    )
+                                    ? "order_review"
+                                    : "default",
                         anchorRect: rect
                           ? {
                               top: rect.top,
