@@ -17578,10 +17578,10 @@ export default function AuftraegePage() {
                             site && groupItemCount === 0,
                           );
                           const siteAccentClass = siteNeedsReview
-                            ? "border-red-300 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
+                            ? "border-red-400 bg-red-100/70 text-red-900 hover:bg-red-200/60 dark:border-red-800/70 dark:bg-red-950/25 dark:text-red-100 dark:hover:bg-red-900/30"
                             : siteHasNoItems
-                              ? "border-amber-300 bg-amber-50/80 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/20 dark:text-amber-100"
-                              : "border-cyan-300 bg-cyan-50/80 text-slate-900 dark:border-cyan-800/70 dark:bg-cyan-950/20 dark:text-slate-50";
+                              ? "border-amber-400 bg-amber-100/70 text-amber-900 hover:bg-amber-200/60 dark:border-amber-800 dark:bg-amber-950/25 dark:text-amber-100 dark:hover:bg-amber-900/30"
+                              : "border-cyan-400 bg-cyan-100/70 text-slate-900 hover:bg-cyan-200/60 dark:border-cyan-700 dark:bg-cyan-950/25 dark:text-slate-50 dark:hover:bg-cyan-900/30";
                           const itemAccentClass = siteNeedsReview
                             ? "border-l-red-400"
                             : siteHasNoItems
@@ -17625,10 +17625,10 @@ export default function AuftraegePage() {
                                       toggleWorkSiteGroup(site);
                                     }
                                   }}
-                                  className={`rounded-xl border-2 px-3 py-2 shadow-sm ${groupExpanded ? "rounded-b-none border-b-0" : ""} ${
+                                  className={`cursor-pointer rounded-xl border-2 px-3 py-2 shadow-sm transition-colors ${groupExpanded ? "rounded-b-none border-b-0" : ""} ${
                                     site
                                       ? siteAccentClass
-                                      : "border-red-200 bg-red-50/80 text-red-900 dark:border-red-800/70 dark:bg-red-950/20 dark:text-red-100"
+                                      : "border-red-400 bg-red-100/70 text-red-900 hover:bg-red-200/60 dark:border-red-800/70 dark:bg-red-950/25 dark:text-red-100 dark:hover:bg-red-900/30"
                                   } ${isActiveSite ? "ring-2 ring-offset-1 ring-cyan-300" : ""}`}
                                 >
                                   <div className="flex items-start justify-between gap-3">
@@ -17913,7 +17913,15 @@ export default function AuftraegePage() {
                                       site && setActiveWorkSiteId(site.id)
                                     }
                                   >
-                                    <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-xl px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                                    <summary
+                                      className={`grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-xl px-3 py-2.5 transition-colors [&::-webkit-details-marker]:hidden ${
+                                        hasCriticalItemReview
+                                          ? "hover:bg-red-100/70 dark:hover:bg-red-900/25"
+                                          : hasAnyItemReview
+                                            ? "hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
+                                            : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
+                                      }`}
+                                    >
                                       <div className="min-w-0">
                                         <div className="min-w-0">
                                           <span className="block truncate text-sm font-semibold text-foreground sm:text-base">
