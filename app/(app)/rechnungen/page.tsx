@@ -173,6 +173,26 @@ const compactInvoiceValue = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+
+type AdaptiveAppointmentLabels = {
+  full: string;
+  medium: string;
+};
+
+const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabels => {
+  const full = compactInvoiceValue(value) || "Termin klären";
+  if (/(?:termin\s*)?(?:klären|klaeren)|noch\s+offen|termin\s+offen/i.test(full)) {
+    return { full: "Termin klären", medium: "Klären" };
+  }
+  const countMatch = full.match(/\bTermine?\s*[·:]\s*(\d+)\b/i);
+  if (countMatch) return { full, medium: `Termine · ${countMatch[1]}` };
+  const dateMatch = full.match(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?\b/);
+  if (dateMatch) {
+    return { full, medium: `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.` };
+  }
+  return { full, medium: "Termin" };
+};
+
 const serializeInvoiceExecutionSiteForEdit = (
   site?: InvoiceExecutionSite | null,
 ) =>
@@ -3099,6 +3119,8 @@ export default function RechnungenPage() {
                   const invoiceAppointmentLabel = formatInvoiceAppointmentLabel(inv);
                   const invoiceAppointmentDisplayLabel =
                     invoiceAppointmentLabel || "Termin klären";
+                  const invoiceAppointmentChipLabels =
+                    buildAdaptiveAppointmentLabels(invoiceAppointmentDisplayLabel);
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
                   const mergedCount = getInvoiceMergedCount(inv);
                   const mergedContactEntries = buildMergedContactReviewEntries(
@@ -3405,8 +3427,7 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:top-0.5 md:ml-0"
-                                    style={{ left: "61%" }}
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem] md:absolute md:left-[61%] md:right-48 md:top-0.5 md:ml-0"
                                   >
                                     <button
                                       type="button"
@@ -3416,15 +3437,17 @@ export default function RechnungenPage() {
                                         event.preventDefault();
                                         event.stopPropagation();
                                       }}
-                                      className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[5.5rem] lg:px-2.5 2xl:max-w-[12rem]"
+                                      className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[6.5rem] lg:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                       aria-label={invoiceAppointmentDisplayLabel}
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="hidden min-w-0 truncate 2xl:ml-1.5 2xl:inline">
-                                        {invoiceAppointmentDisplayLabel}
+                                      <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
+                                        {invoiceAppointmentChipLabels.full}
                                       </span>
-                                      <span className="hidden lg:ml-1.5 lg:inline 2xl:hidden">Termin</span>
-                                      <span className="sr-only lg:hidden">{invoiceAppointmentDisplayLabel}</span>
+                                      <span className="hidden min-w-0 truncate lg:ml-1.5 lg:inline xl:hidden">
+                                        {invoiceAppointmentChipLabels.medium}
+                                      </span>
+                                      <span className="sr-only lg:hidden">{invoiceAppointmentChipLabels.full}</span>
                                       <InvoiceViewportTooltip preferredWidth={300}>
                                         <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
                                           Ausführungstermin
@@ -3630,8 +3653,7 @@ export default function RechnungenPage() {
 
                               <div className="relative mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
                                 <span
-                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:bottom-1 md:ml-0"
-                                  style={{ left: "61%" }}
+                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem] md:absolute md:left-[61%] md:right-48 md:bottom-1 md:ml-0"
                                 >
                                   <button
                                     type="button"
@@ -3641,15 +3663,17 @@ export default function RechnungenPage() {
                                       event.preventDefault();
                                       event.stopPropagation();
                                     }}
-                                    className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[5.5rem] lg:px-2.5 2xl:max-w-[12rem]"
+                                    className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 lg:w-auto lg:max-w-[6.5rem] lg:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                     aria-label={invoiceAppointmentDisplayLabel}
                                   >
                                     <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="hidden min-w-0 truncate 2xl:ml-1.5 2xl:inline">
-                                        {invoiceAppointmentDisplayLabel}
+                                      <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
+                                        {invoiceAppointmentChipLabels.full}
                                       </span>
-                                      <span className="hidden lg:ml-1.5 lg:inline 2xl:hidden">Termin</span>
-                                      <span className="sr-only lg:hidden">{invoiceAppointmentDisplayLabel}</span>
+                                      <span className="hidden min-w-0 truncate lg:ml-1.5 lg:inline xl:hidden">
+                                        {invoiceAppointmentChipLabels.medium}
+                                      </span>
+                                      <span className="sr-only lg:hidden">{invoiceAppointmentChipLabels.full}</span>
                                     <InvoiceViewportTooltip preferredWidth={300}>
                                       <span className="block text-xs font-semibold text-violet-900 dark:text-violet-200">
                                         Ausführungstermin

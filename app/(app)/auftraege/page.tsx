@@ -574,6 +574,29 @@ type ReviewBadge = {
 const compactText = (value?: string | null) =>
   (value || "").replace(/\s+/g, " ").trim();
 
+
+type AdaptiveAppointmentLabels = {
+  full: string;
+  medium: string;
+};
+
+const buildAdaptiveAppointmentLabels = (value?: string | null): AdaptiveAppointmentLabels => {
+  const full = compactText(value) || "Termin klären";
+  if (/(?:termin\s*)?(?:klären|klaeren)|noch\s+offen|termin\s+offen/i.test(full)) {
+    return { full: "Termin klären", medium: "Klären" };
+  }
+  const countMatch = full.match(/\bTermine?\s*[·:]\s*(\d+)\b/i);
+  if (countMatch) return { full, medium: `Termine · ${countMatch[1]}` };
+  const dateMatch = full.match(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?\b/);
+  if (dateMatch) {
+    return {
+      full,
+      medium: `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.`,
+    };
+  }
+  return { full, medium: "Termin" };
+};
+
 const serializeOrderExecutionAddressForEdit = (source: {
   siteName?: string | null;
   siteAddress?: string | null;
@@ -15338,6 +15361,7 @@ export default function AuftraegePage() {
               align: "left" | "right" = "left",
             ) => {
               const title = compactText(badge.tooltip) || badge.label;
+              const appointmentLabels = buildAdaptiveAppointmentLabels(badge.label);
               return (
                 <button
                   key={`${slot}_${badge.key}`}
@@ -15350,16 +15374,16 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, slot, event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 lg:w-auto lg:max-w-[5.5rem] lg:px-2.5 2xl:max-w-[12rem] ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full px-0 text-xs font-semibold shadow-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 lg:w-auto lg:max-w-[6.5rem] lg:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem] ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                  <span className="hidden min-w-0 truncate 2xl:ml-1.5 2xl:inline">
-                    {badge.label}
+                  <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
+                    {appointmentLabels.full}
                   </span>
-                  <span className="hidden lg:ml-1.5 lg:inline 2xl:hidden">
-                    Termin
+                  <span className="hidden min-w-0 truncate lg:ml-1.5 lg:inline xl:hidden">
+                    {appointmentLabels.medium}
                   </span>
-                  <span className="sr-only lg:hidden">{badge.label}</span>
+                  <span className="sr-only lg:hidden">{appointmentLabels.full}</span>
                   {renderMobileChipTooltip(badge, slot, align)}
                 </button>
               );
@@ -15639,8 +15663,7 @@ export default function AuftraegePage() {
                             {appointmentBadges.slice(0, 1).map((badge) => (
                               <span
                                 key={`compact_appointment_wrap_${badge.key}`}
-                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:top-0.5 md:ml-0"
-                                style={{ left: "61%" }}
+                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem] md:absolute md:left-[61%] md:right-48 md:top-0.5 md:ml-0"
                               >
                                 {renderResponsiveAppointmentBadge(
                                   badge,
@@ -15806,8 +15829,7 @@ export default function AuftraegePage() {
                           {appointmentBadges.slice(0, 1).map((badge) => (
                             <span
                               key={`mobile_appointment_wrap_${badge.key}`}
-                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[5.5rem] 2xl:max-w-[12rem] md:absolute md:bottom-1 md:ml-0"
-                              style={{ left: "61%" }}
+                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 lg:max-w-[6.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem] md:absolute md:left-[61%] md:right-48 md:bottom-1 md:ml-0"
                             >
                               {renderResponsiveAppointmentBadge(
                                 badge,
