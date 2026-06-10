@@ -15530,7 +15530,8 @@ export default function AuftraegePage() {
                                   renderInteractiveMobileRightReviewBadge(badge),
                                 )}
                                 {serviceReviewBadge && (
-                                  <span className="inline-flex lg:absolute lg:bottom-0 lg:left-[61%]">
+                                  <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
+                                    style={{ left: "61%" }}>
                                     <span className="hidden lg:inline-flex">
                                       {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                                     </span>
@@ -15693,7 +15694,8 @@ export default function AuftraegePage() {
                           )}
 
                           {serviceReviewBadge && (
-                            <span className="inline-flex lg:absolute lg:left-[61%] lg:top-1/2 lg:-translate-y-1/2">
+                            <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
+                              style={{ left: "61%" }}>
                               {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                             </span>
                           )}
@@ -17914,14 +17916,16 @@ export default function AuftraegePage() {
                                               : "Preis prüfen"}
                                           </div>
                                           {hasAnyItemReview && (
-                                            <span
-                                              className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                                                hasCriticalItemReview
-                                                  ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200"
-                                                  : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
-                                              }`}
-                                            >
-                                              {itemReviewReasonV17_90L134}
+                                            <span className="inline-flex min-w-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                              <span
+                                                className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                                  hasCriticalItemReview
+                                                    ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200"
+                                                    : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                                                }`}
+                                              >
+                                                {itemReviewReasonV17_90L134}
+                                              </span>
                                             </span>
                                           )}
                                         </div>

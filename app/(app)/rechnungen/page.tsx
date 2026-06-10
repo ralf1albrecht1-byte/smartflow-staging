@@ -3086,9 +3086,10 @@ export default function RechnungenPage() {
                       <span
                         className={
                           placement === "compact"
-                            ? "inline-flex lg:absolute lg:bottom-0 lg:left-[61%]"
-                            : "inline-flex lg:absolute lg:left-[61%] lg:top-1/2 lg:-translate-y-1/2"
+                            ? "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
+                            : "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
                         }
+                        style={{ left: "61%" }}
                       >
                         <button
                           type="button"
@@ -4566,8 +4567,10 @@ export default function RechnungenPage() {
                                       : "Preis prüfen"}
                                   </div>
                                   {itemNeedsReview && (
-                                    <span className="w-fit shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                                      {itemReviewReasonV17_90L134}
+                                    <span className="inline-flex min-w-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                      <span className="w-fit shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                        {itemReviewReasonV17_90L134}
+                                      </span>
                                     </span>
                                   )}
                                 </div>

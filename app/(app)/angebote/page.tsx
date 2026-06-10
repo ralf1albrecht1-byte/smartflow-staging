@@ -4902,7 +4902,8 @@ export default function AngebotePage() {
 
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ? (
-                      <span className="inline-flex lg:absolute lg:bottom-0 lg:left-[61%]">
+                      <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
+                        style={{ left: "61%" }}>
                         <button
                           type="button"
                           onPointerDown={(event) => event.stopPropagation()}
@@ -5572,7 +5573,8 @@ export default function AngebotePage() {
 
 
                                   {serviceReview.reviewCount > 0 && (
-                                    <span className="inline-flex lg:absolute lg:left-[61%] lg:top-1/2 lg:-translate-y-1/2">
+                                    <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
+                                      style={{ left: "61%" }}>
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -6837,14 +6839,16 @@ export default function AngebotePage() {
                                       : "Preis prüfen"}
                                   </div>
                                   {itemNeedsReview && (
-                                    <span
-                                      className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                                        hasCriticalReview
-                                          ? "border-red-300 bg-red-100 text-red-800"
-                                          : "border-amber-300 bg-amber-100 text-amber-800"
-                                      }`}
-                                    >
-                                      {itemReviewReasonV17_90L134}
+                                    <span className="inline-flex min-w-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
+                                      <span
+                                        className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                          hasCriticalReview
+                                            ? "border-red-300 bg-red-100 text-red-800"
+                                            : "border-amber-300 bg-amber-100 text-amber-800"
+                                        }`}
+                                      >
+                                        {itemReviewReasonV17_90L134}
+                                      </span>
                                     </span>
                                   )}
                                 </div>
