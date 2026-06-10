@@ -15824,7 +15824,7 @@ export default function AuftraegePage() {
                         </div>
 
 
-                        <div className="relative mt-2 flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
+                        <div className="relative mt-2 flex min-h-12 flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                             {otherRightSideBadges.map((badge) =>
                               renderInteractiveMobileRightReviewBadge(badge),
@@ -15834,7 +15834,7 @@ export default function AuftraegePage() {
                           {appointmentBadges.slice(0, 1).map((badge) => (
                             <span
                               key={`mobile_appointment_wrap_${badge.key}`}
-                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-4 md:bottom-auto md:ml-0 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
+                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
                             >
                               {renderResponsiveAppointmentBadge(
                                 badge,
