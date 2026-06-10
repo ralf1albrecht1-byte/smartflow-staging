@@ -468,7 +468,7 @@ function buildInvoiceServiceReviewEntriesV17_90L135G(
         item,
         description,
         category: "missing" as const,
-        details: [`Aktuell: ${currentCalculation}`, "Nicht im Leistungskatalog."],
+        details: [`Aktuell: ${currentCalculation}`],
       }];
     }
     const catalogUnit = compactInvoiceValue(matchedService?.unit);
@@ -806,6 +806,7 @@ function InvoiceViewportTooltip({
 }
 
 
+// V17.90L136: Einheitliche Leistungsdarstellung innen und außen.
 function InvoiceServiceReviewSectionsV17_90L135G({
   entries,
 }: {
@@ -832,23 +833,32 @@ function InvoiceServiceReviewSectionsV17_90L135G({
             {sectionItems.map((entry, reviewIndex) => (
               <span
                 key={`${entry.description}-${reviewIndex}`}
-                className={`block ${reviewIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+                className={`block ${reviewIndex > 0 ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
               >
                 <span className="block break-words font-bold text-foreground">
-                  {entry.description}
+                  * {entry.description}
                 </span>
-                {entry.details.map((detail, detailIndex) => (
-                  <span
-                    key={`${entry.description}-${detailIndex}`}
-                    className={`block break-words text-xs ${
-                      /^Katalogpreis:/i.test(detail)
-                        ? "font-bold text-slate-950 dark:text-slate-50"
-                        : "text-slate-600 dark:text-slate-300"
-                    }`}
-                  >
-                    {detail}
-                  </span>
-                ))}
+                {entry.details.map((detail, detailIndex) => {
+                  const trimmedDetail = detail.trim();
+                  const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                    trimmedDetail,
+                  );
+                  const isCatalogPrice = /^Katalogpreis:/i.test(trimmedDetail);
+                  return (
+                    <span
+                      key={`${entry.description}-${detailIndex}`}
+                      className={`block break-words text-xs ${
+                        isCurrentPrice
+                          ? "font-bold text-slate-950 dark:text-slate-50"
+                          : isCatalogPrice
+                            ? "font-normal text-slate-500 dark:text-slate-400"
+                            : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      {detail}
+                    </span>
+                  );
+                })}
               </span>
             ))}
           </span>

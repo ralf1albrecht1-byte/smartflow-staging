@@ -4778,7 +4778,7 @@ const formatServiceReviewItemLine = (
   const priceLabel =
     unitPrice > 0 ? formatCurrency(unitPrice, safeCurrency) : "Preis prüfen";
   const calculation = formatServiceReviewCalculation(item, currency);
-  const baseLine = `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
+  const baseLine = `* ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — ${quantityLabel} · ${priceLabel}`;
 
   return calculation ? `${baseLine}\n  Berechnung: ${calculation}` : baseLine;
 };
@@ -4877,7 +4877,7 @@ const formatServiceReviewSummaryTooltip = (input: {
       );
       const calculation = formatServiceReviewCalculation(item, input.currency);
       lines.push(
-        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — manuell eingetragen: ${unitLabel || "prüfen"}`,
+        `* ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"} — manuell eingetragen: ${unitLabel || "prüfen"}`,
       );
       if (calculation) lines.push(`  Berechnung: ${calculation}`);
     });
@@ -4900,7 +4900,7 @@ const formatServiceReviewSummaryTooltip = (input: {
       const catalogUnit = formatReviewUnitLabel(catalog?.unit || "") || "–";
       const calculation = formatServiceReviewCalculation(item, input.currency);
       lines.push(
-        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
+        `* ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
       );
       if (calculation) lines.push(`  Aktuell: ${calculation}`);
       lines.push(`  Katalogpreis: ${catalogPrice} / ${catalogUnit}`);
@@ -4917,7 +4917,7 @@ const formatServiceReviewSummaryTooltip = (input: {
     missingItems.forEach((item) => {
       const calculation = formatServiceReviewCalculation(item, input.currency);
       lines.push(
-        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
+        `* ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
       );
       if (calculation) lines.push(`  Aktuell: ${calculation}`);
     });
@@ -4981,7 +4981,7 @@ const buildUnifiedServiceReviewSummaryV17_90L61 = (input: {
     deviations.forEach(({ item, catalog, sameUnit, samePrice }) => {
       const calculation = formatServiceReviewCalculation(item, safeCurrency);
       lines.push(
-        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
+        `* ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
       );
       if (calculation) lines.push(`  Aktuell: ${calculation}`);
       lines.push(
@@ -5002,7 +5002,7 @@ const buildUnifiedServiceReviewSummaryV17_90L61 = (input: {
     missing.forEach((item) => {
       const calculation = formatServiceReviewCalculation(item, safeCurrency);
       lines.push(
-        `• ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
+        `* ${canonicalServiceNameForOrderItem(item.serviceName) || "Leistung"}`,
       );
       if (calculation) lines.push(`  Aktuell: ${calculation}`);
     });
@@ -5074,7 +5074,7 @@ const buildOrderStructuredServiceReviewV17_90L135G = (
         ? "Nicht im Leistungskatalog"
         : "Preis oder Einheit abweichend";
     const name = canonicalServiceNameForOrderItem(normalizedItem.serviceName) || "Leistung";
-    const lines = [name];
+    const lines = [`* ${name}`];
     const calculation = formatServiceReviewCalculation(normalizedItem, safeCurrency);
     if (calculation) lines.push(`Aktuell: ${calculation}`);
 
@@ -5088,9 +5088,7 @@ const buildOrderStructuredServiceReviewV17_90L135G = (
       );
     }
 
-    if (reason === "Nicht im Leistungskatalog") {
-      lines.push("Nicht im Leistungskatalog.");
-    } else if (reason === "Preis abweichend") {
+    if (reason === "Preis abweichend") {
       lines.push("Preis weicht vom Katalog ab.");
     } else if (reason === "Einheit abweichend") {
       lines.push("Einheit weicht vom Katalog ab.");
@@ -7790,16 +7788,19 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   );
 };
 
+// V17.90L136: Einheitliche Leistungsdarstellung innen und außen.
 const renderOrderServiceReviewTooltipLinesV17_135G = (
   tooltip: string,
   keyPrefix: string,
 ) => {
   const headingPattern =
     /^(?:Preis \/ Menge \/ Einheit prüfen|Einheit abweichend(?: · Einheit aus Text übernommen)?|Einheit ergänzt|Einheit prüfen|Preis abweichend(?: · Preis aus Text übernommen)?|Preis oder Einheit abweichend|Nicht im Katalog|Nicht im Leistungskatalog|Währung prüfen|Betrag prüfen|Leistungen prüfen|Auftrag prüfen)$/;
+  let serviceIndexInSection = 0;
 
   return tooltip.split("\n").map((line, index) => {
     const trimmed = line.trim();
     if (/^[-─—–_]{6,}$/.test(trimmed)) {
+      serviceIndexInSection = 0;
       return (
         <span
           key={`${keyPrefix}_sep_${index}`}
@@ -7807,21 +7808,36 @@ const renderOrderServiceReviewTooltipLinesV17_135G = (
         />
       );
     }
+
+    const isHeading = headingPattern.test(trimmed);
+    if (isHeading) serviceIndexInSection = 0;
+    const isServiceTitle = /^(?:\*|•)\s+/.test(trimmed);
+    const showServiceSeparator = isServiceTitle && serviceIndexInSection > 0;
+    if (isServiceTitle) serviceIndexInSection += 1;
+    const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(trimmed);
+    const isCatalogPrice = /^Katalogpreis:/i.test(trimmed);
     const emphasizeLine =
-      headingPattern.test(trimmed) ||
-      /^•\s+/.test(trimmed) ||
-      /^Katalogpreis:/i.test(trimmed) ||
+      isHeading ||
+      isServiceTitle ||
+      isCurrentPrice ||
       /—\s*Text\s+/i.test(trimmed);
+
     return (
-      <span
-        key={`${keyPrefix}_line_${index}`}
-        className={`block min-w-0 whitespace-pre-wrap break-words ${
-          emphasizeLine
-            ? "font-bold text-slate-950 dark:text-slate-50"
-            : "text-slate-600 dark:text-slate-300"
-        }`}
-      >
-        {line}
+      <span key={`${keyPrefix}_line_${index}`} className="block min-w-0">
+        {showServiceSeparator && (
+          <span className="my-2 block border-t border-slate-200 dark:border-slate-700" />
+        )}
+        <span
+          className={`block min-w-0 whitespace-pre-wrap break-words ${
+            emphasizeLine
+              ? "font-bold text-slate-950 dark:text-slate-50"
+              : isCatalogPrice
+                ? "font-normal text-slate-500 dark:text-slate-400"
+                : "text-slate-600 dark:text-slate-300"
+          }`}
+        >
+          {line}
+        </span>
       </span>
     );
   });
@@ -14444,8 +14460,8 @@ export default function AuftraegePage() {
             let current: { title: string; details: string[] } | null = null;
 
             lines.forEach((line) => {
-              if (line.startsWith("•")) {
-                const content = line.replace(/^•\s*/, "").trim();
+              if (/^(?:\*|•)\s+/.test(line)) {
+                const content = line.replace(/^(?:\*|•)\s*/, "").trim();
                 const [itemTitle, ...detailParts] = content.split(/\s+—\s+/);
                 current = {
                   title: itemTitle || "Leistung",
@@ -14641,17 +14657,25 @@ export default function AuftraegePage() {
                         className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
                       >
                         <div className="font-bold text-slate-950 dark:text-slate-50">
-                          {item.title}
+                          * {item.title}
                         </div>
                         {item.details.map((detail, detailIndex) => {
-                          const isCatalogPrice = /^Katalogpreis:/i.test(detail);
+                          const trimmedDetail = detail.trim();
+                          const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                            trimmedDetail,
+                          );
+                          const isCatalogPrice = /^Katalogpreis:/i.test(
+                            trimmedDetail,
+                          );
                           return (
                             <div
                               key={`order_mobile_review_detail_${detailIndex}`}
                               className={`break-words text-[13px] ${
-                                isCatalogPrice
+                                isCurrentPrice
                                   ? "font-bold text-slate-950 dark:text-slate-50"
-                                  : "text-slate-600 dark:text-slate-300"
+                                  : isCatalogPrice
+                                    ? "font-normal text-slate-500 dark:text-slate-400"
+                                    : "text-slate-600 dark:text-slate-300"
                               }`}
                             >
                               {detail}

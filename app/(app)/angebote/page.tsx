@@ -1796,10 +1796,7 @@ function buildOfferServiceReviewSummary(
     if (!matchedService) {
       missingCatalog.push({
         title: name,
-        details: [
-          `Aktuell: ${currentCalculation}`,
-          "Nicht im Leistungskatalog.",
-        ],
+        details: [`Aktuell: ${currentCalculation}`],
       });
       return;
     }
@@ -1877,6 +1874,7 @@ function buildOfferServiceReviewSiteGroupsV17_90L135G(
     .filter((group) => group.count > 0);
 }
 
+// V17.90L136: Einheitliche Leistungsdarstellung innen und außen.
 function OfferServiceReviewSectionsContentV17_90L135G({
   sections,
 }: {
@@ -1895,21 +1893,30 @@ function OfferServiceReviewSectionsContentV17_90L135G({
           {section.items.map((item, itemIndex) => (
             <span
               key={`${item.title}_${itemIndex}`}
-              className={`${itemIndex > 0 ? "mt-2 border-t border-dashed border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+              className={`${itemIndex > 0 ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
             >
-              <span className="block break-words font-bold">{item.title}</span>
-              {item.details.map((detail, detailIndex) => (
-                <span
-                  key={`${item.title}_${detailIndex}`}
-                  className={`block break-words ${
-                    /^Katalogpreis:/i.test(detail.trim())
-                      ? "font-bold text-slate-950 dark:text-slate-50"
-                      : "text-slate-600 dark:text-slate-300"
-                  }`}
-                >
-                  {detail}
-                </span>
-              ))}
+              <span className="block break-words font-bold">* {item.title}</span>
+              {item.details.map((detail, detailIndex) => {
+                const trimmedDetail = detail.trim();
+                const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                  trimmedDetail,
+                );
+                const isCatalogPrice = /^Katalogpreis:/i.test(trimmedDetail);
+                return (
+                  <span
+                    key={`${item.title}_${detailIndex}`}
+                    className={`block break-words ${
+                      isCurrentPrice
+                        ? "font-bold text-slate-950 dark:text-slate-50"
+                        : isCatalogPrice
+                          ? "font-normal text-slate-500 dark:text-slate-400"
+                          : "text-slate-600 dark:text-slate-300"
+                    }`}
+                  >
+                    {detail}
+                  </span>
+                );
+              })}
             </span>
           ))}
         </span>
@@ -4283,19 +4290,25 @@ export default function AngebotePage() {
                               className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
                             >
                               <div className="font-bold text-slate-950 dark:text-slate-50">
-                                {item.title}
+                                * {item.title}
                               </div>
                               {item.details.map((detail, detailIndex) => {
+                                const trimmedDetail = detail.trim();
+                                const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                                  trimmedDetail,
+                                );
                                 const isCatalogPrice = /^Katalogpreis:/i.test(
-                                  detail.trim(),
+                                  trimmedDetail,
                                 );
                                 return (
                                   <div
                                     key={`offer_mobile_review_detail_${detailIndex}`}
                                     className={`break-words text-[13px] ${
-                                      isCatalogPrice
+                                      isCurrentPrice
                                         ? "font-bold text-slate-950 dark:text-slate-50"
-                                        : "text-slate-600 dark:text-slate-300"
+                                        : isCatalogPrice
+                                          ? "font-normal text-slate-500 dark:text-slate-400"
+                                          : "text-slate-600 dark:text-slate-300"
                                     }`}
                                   >
                                     {detail}
