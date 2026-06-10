@@ -5303,7 +5303,15 @@ export default function AngebotePage() {
                                   )}
                                 </div>
 
-                                <div className="mt-1 flex items-center">
+                                <ResponsiveOfferServicePreviewV17_95
+                                  offerId={off.id}
+                                  serviceNames={mobileOfferServiceNames}
+                                  expanded={mobileOfferServicesExpanded}
+                                  onToggle={() => toggleMobileServiceCard(off.id)}
+                                  onOpenItems={() => openOfferSection(off, "items")}
+                                />
+
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
                                   <select
                                     onClick={(event) => event.stopPropagation()}
                                     className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -5332,17 +5340,7 @@ export default function AngebotePage() {
                                       </option>
                                     ))}
                                   </select>
-                                </div>
 
-                                <ResponsiveOfferServicePreviewV17_95
-                                  offerId={off.id}
-                                  serviceNames={mobileOfferServiceNames}
-                                  expanded={mobileOfferServicesExpanded}
-                                  onToggle={() => toggleMobileServiceCard(off.id)}
-                                  onOpenItems={() => openOfferSection(off, "items")}
-                                />
-
-                                <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
                                   <div
                                     className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                     onPointerDown={(event) => event.stopPropagation()}

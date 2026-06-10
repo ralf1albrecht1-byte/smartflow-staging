@@ -3153,35 +3153,6 @@ export default function RechnungenPage() {
                                 </span>
                               </div>
 
-                              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
-                                <select
-                                  onClick={(event) => event.stopPropagation()}
-                                  className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
-                                  style={getStatusStyle(
-                                    INVOICE_STATUS_STYLES,
-                                    effectiveStatus,
-                                  )}
-                                  value={effectiveStatus}
-                                  onChange={(event) =>
-                                    updateStatus(event, inv.id, event.target.value)
-                                  }
-                                >
-                                  {invoiceStatuses.map((status) => (
-                                    <option
-                                      key={status}
-                                      style={getStatusStyle(
-                                        INVOICE_STATUS_STYLES,
-                                        status,
-                                      )}
-                                    >
-                                      {status}
-                                    </option>
-                                  ))}
-                                </select>
-                                {renderInvoiceCompactFunctionalChips()}
-                                {renderInvoiceServicesChip()}
-                              </div>
-
                               <div
                                 className="mt-3 cursor-pointer rounded-xl border bg-muted/20 p-3 transition-colors hover:bg-muted/35"
                                 onClick={(event) => {
@@ -3243,6 +3214,35 @@ export default function RechnungenPage() {
                                       : `+ ${visibleItems.length - 6} weitere Leistungen`}
                                   </button>
                                 )}
+                              </div>
+
+                              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                <select
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                  style={getStatusStyle(
+                                    INVOICE_STATUS_STYLES,
+                                    effectiveStatus,
+                                  )}
+                                  value={effectiveStatus}
+                                  onChange={(event) =>
+                                    updateStatus(event, inv.id, event.target.value)
+                                  }
+                                >
+                                  {invoiceStatuses.map((status) => (
+                                    <option
+                                      key={status}
+                                      style={getStatusStyle(
+                                        INVOICE_STATUS_STYLES,
+                                        status,
+                                      )}
+                                    >
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                                {renderInvoiceCompactFunctionalChips()}
+                                {renderInvoiceServicesChip()}
                               </div>
 
                               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">

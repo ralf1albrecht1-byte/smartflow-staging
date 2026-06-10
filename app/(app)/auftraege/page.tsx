@@ -15588,6 +15588,28 @@ export default function AuftraegePage() {
                           )}
                         </div>
 
+                        {mobileSystemBadges.length > 0 && (
+                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+                            {mobileSystemBadges
+                              .slice(0, 3)
+                              .map((badge) =>
+                                renderInteractiveMobileTextBadge(
+                                  badge,
+                                  "mobile_system",
+                                  "left",
+                                ),
+                              )}
+                          </div>
+                        )}
+
+                        <ResponsiveOrderServicePreviewV17_95
+                          orderId={o.id}
+                          serviceNames={mobileOrderServiceNames}
+                          expanded={mobileOrderServicesExpanded}
+                          onToggle={() => toggleMobileServiceCard(o.id)}
+                          onOpenItems={() => openEdit(o, { focusSection: "items" })}
+                        />
+
                         <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                           <select
                             onClick={(event) => event.stopPropagation()}
@@ -15649,27 +15671,6 @@ export default function AuftraegePage() {
                           )}
                         </div>
 
-                        {mobileSystemBadges.length > 0 && (
-                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
-                            {mobileSystemBadges
-                              .slice(0, 3)
-                              .map((badge) =>
-                                renderInteractiveMobileTextBadge(
-                                  badge,
-                                  "mobile_system",
-                                  "left",
-                                ),
-                              )}
-                          </div>
-                        )}
-
-                        <ResponsiveOrderServicePreviewV17_95
-                          orderId={o.id}
-                          serviceNames={mobileOrderServiceNames}
-                          expanded={mobileOrderServicesExpanded}
-                          onToggle={() => toggleMobileServiceCard(o.id)}
-                          onOpenItems={() => openEdit(o, { focusSection: "items" })}
-                        />
 
                         <div className="mt-2 flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
