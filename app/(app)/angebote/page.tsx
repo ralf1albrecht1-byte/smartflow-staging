@@ -4632,6 +4632,280 @@ export default function AngebotePage() {
                     openOfferSection(off, section, detail);
                   };
 
+
+                  const renderOfferCompactFunctionalChips = () => (
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                      <div
+                        className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          const actionHref = findOfferCommunicationActionHref(
+                            event.target,
+                          );
+                          if (actionHref) {
+                            event.stopPropagation();
+                            setActiveMobileTooltip(null);
+                            return;
+                          }
+                          const element = (
+                            event.target as HTMLElement
+                          ).closest<HTMLElement>(
+                            "[aria-label], [title], button, a",
+                          );
+                          const detail =
+                            element?.getAttribute("aria-label") ||
+                            element?.getAttribute("title") ||
+                            "Kontakt";
+                          toggleOfferMobileTooltip(
+                            {
+                              key: `${off.id}:compact-contact:${detail}`,
+                              text: detail,
+                            },
+                            event,
+                          );
+                        }}
+                      >
+                        {hasMergedContactReview ? (
+                          <MergedContactReviewChip
+                            records={(off.orders || []) as any}
+                            compact
+                          />
+                        ) : (
+                          <CommunicationChips
+                            data={contactChipData}
+                            compact
+                            onAudioClick={() =>
+                              orderCtx.mediaUrl &&
+                              openMedia(orderCtx.mediaUrl, "audio")
+                            }
+                            onImageClick={() => {
+                              const imgs = orderCtx.imageUrls;
+                              if (imgs && imgs.length > 0) openImageGallery(imgs);
+                              else if (orderCtx.mediaUrl)
+                                openMedia(orderCtx.mediaUrl, "image");
+                            }}
+                          />
+                        )}
+                      </div>
+
+                      {!hasMergedContactReview && callbackChip &&
+                        (callbackChip.href ? (
+                          <a
+                            href={callbackChip.href}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setActiveMobileTooltip(null);
+                            }}
+                            className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                            aria-label={callbackChip.title}
+                          >
+                            <Phone className="h-4 w-4" />
+                            {!useTouchChipPopovers && (
+                              <OfferContactTooltip
+                                heading="Telefonkontakt"
+                                name={callbackChip.name}
+                                value={callbackChip.displayPhone}
+                                hint="Antippen oder anklicken, um anzurufen."
+                              />
+                            )}
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onTouchStart={(event) => event.stopPropagation()}
+                            onClick={(event) =>
+                              useTouchChipPopovers
+                                ? toggleOfferMobileTooltip(
+                                    {
+                                      key: `${off.id}:compact-callback`,
+                                      text: callbackChip.title,
+                                    },
+                                    event,
+                                  )
+                                : openOfferChipTarget(
+                                    "details",
+                                    event,
+                                    callbackChip.title,
+                                  )
+                            }
+                            className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                            aria-label={callbackChip.title}
+                          >
+                            <Phone className="h-4 w-4" />
+                            {!useTouchChipPopovers && (
+                              <OfferContactTooltip
+                                heading="Telefonkontakt"
+                                name={callbackChip.name}
+                                value={callbackChip.displayPhone}
+                                hint="Antippen oder anklicken, um anzurufen."
+                              />
+                            )}
+                          </button>
+                        ))}
+
+                      {hasInfoTooltip && (
+                        <button
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) =>
+                            useTouchChipPopovers
+                              ? toggleOfferMobileTooltip(
+                                  {
+                                    key: `${off.id}:compact-info`,
+                                    safetyWarnings: infoSummary.safety,
+                                    primaryHints: infoSummary.primary,
+                                    jobHints: infoSummary.additional,
+                                  },
+                                  event,
+                                )
+                              : openOfferChipTarget(
+                                  "details",
+                                  event,
+                                  "Besonderheiten",
+                                )
+                          }
+                          className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 text-blue-700"
+                          aria-label="Besonderheiten anzeigen"
+                        >
+                          <Info className="h-4 w-4" />
+                          {!useTouchChipPopovers && (
+                            <OfferInfoTooltip summary={infoSummary} />
+                          )}
+                        </button>
+                      )}
+
+                      {dangerChips.map((chip) => (
+                        <button
+                          key={`compact_${chip.key}`}
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) =>
+                            useTouchChipPopovers
+                              ? toggleOfferMobileTooltip(
+                                  {
+                                    key: `${off.id}:compact:${chip.key}`,
+                                    text: chip.title,
+                                  },
+                                  event,
+                                )
+                              : openOfferChipTarget(
+                                  "details",
+                                  event,
+                                  chip.title,
+                                )
+                          }
+                          className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-red-300 bg-red-100 text-[17px] text-red-800"
+                          aria-label={chip.title}
+                        >
+                          {renderOfferOperationalChipIcon(chip)}
+                          {!useTouchChipPopovers && (
+                            <OfferPlainTooltip text={chip.title} />
+                          )}
+                        </button>
+                      ))}
+
+                      {warningChips.map((chip) => (
+                        <button
+                          key={`compact_${chip.key}`}
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) =>
+                            useTouchChipPopovers
+                              ? toggleOfferMobileTooltip(
+                                  {
+                                    key: `${off.id}:compact:${chip.key}`,
+                                    text: chip.title,
+                                  },
+                                  event,
+                                )
+                              : openOfferChipTarget(
+                                  "details",
+                                  event,
+                                  chip.title,
+                                )
+                          }
+                          className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 text-[17px] ${
+                            chip.key === "parking"
+                              ? "border-blue-300 bg-blue-50 font-semibold text-blue-700"
+                              : "border-amber-300 bg-amber-100 text-amber-800"
+                          }`}
+                          aria-label={chip.title}
+                        >
+                          {renderOfferOperationalChipIcon(chip)}
+                          {!useTouchChipPopovers && (
+                            <OfferPlainTooltip text={chip.title} />
+                          )}
+                        </button>
+                      ))}
+
+                      {serviceReview.blockerCount > 0 && (
+                        <button
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) =>
+                            useTouchChipPopovers
+                              ? toggleOfferMobileTooltip(
+                                  {
+                                    key: `${off.id}:compact-service-blocker`,
+                                    reviewTitle: "Preis / Menge prüfen",
+                                    reviewSections: serviceReview.blockerSections,
+                                  },
+                                  event,
+                                )
+                              : openOfferChipTarget("items", event)
+                          }
+                          className="group relative inline-flex max-w-full rounded-full border border-red-300 bg-red-100 px-2 py-1 text-[10px] font-semibold text-red-800"
+                        >
+                          Preis/Menge prüfen
+                          {!useTouchChipPopovers && (
+                            <OfferServiceReviewTooltip
+                              title="Preis / Menge prüfen"
+                              sections={serviceReview.blockerSections}
+                              align="right"
+                            />
+                          )}
+                        </button>
+                      )}
+
+                      {serviceReview.reviewCount > 0 && (
+                        <button
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) =>
+                            useTouchChipPopovers
+                              ? toggleOfferMobileTooltip(
+                                  {
+                                    key: `${off.id}:compact-service-review`,
+                                    reviewTitle: `Leistungen prüfen · ${serviceReview.reviewCount}`,
+                                    reviewSections: serviceReview.reviewSections,
+                                  },
+                                  event,
+                                )
+                              : openOfferChipTarget("items", event)
+                          }
+                          className="group relative inline-flex max-w-full rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
+                        >
+                          Leistungen prüfen · {serviceReview.reviewCount}
+                          {!useTouchChipPopovers && (
+                            <OfferServiceReviewTooltip
+                              title={`Leistungen prüfen · ${serviceReview.reviewCount}`}
+                              sections={serviceReview.reviewSections}
+                              siteGroups={offerReviewSiteGroups}
+                              align="right"
+                            />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  );
+
                   return (
                     <motion.div
                       key={off?.id}
@@ -4838,34 +5112,37 @@ export default function AngebotePage() {
                                         </button>
                                       )}
                                     </div>
-                                    <select
-                                      onClick={(event) => event.stopPropagation()}
-                                      className="mt-1 h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
-                                      style={getStatusStyle(
-                                        OFFER_STATUS_STYLES,
-                                        off?.status ?? "",
-                                      )}
-                                      value={off?.status ?? ""}
-                                      onChange={(event: any) => {
-                                        event.stopPropagation();
-                                        updateStatus(
-                                          off?.id,
-                                          event?.target?.value ?? "",
-                                        );
-                                      }}
-                                    >
-                                      {offerStatuses.map((status) => (
-                                        <option
-                                          key={status}
-                                          style={getStatusStyle(
-                                            OFFER_STATUS_STYLES,
-                                            status,
-                                          )}
-                                        >
-                                          {status}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                      <select
+                                        onClick={(event) => event.stopPropagation()}
+                                        className="h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                        style={getStatusStyle(
+                                          OFFER_STATUS_STYLES,
+                                          off?.status ?? "",
+                                        )}
+                                        value={off?.status ?? ""}
+                                        onChange={(event: any) => {
+                                          event.stopPropagation();
+                                          updateStatus(
+                                            off?.id,
+                                            event?.target?.value ?? "",
+                                          );
+                                        }}
+                                      >
+                                        {offerStatuses.map((status) => (
+                                          <option
+                                            key={status}
+                                            style={getStatusStyle(
+                                              OFFER_STATUS_STYLES,
+                                              status,
+                                            )}
+                                          >
+                                            {status}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {renderOfferCompactFunctionalChips()}
+                                    </div>
                                   </div>
                                   <div className="flex min-w-0 items-center justify-end gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0">
                                     <button
@@ -6174,10 +6451,10 @@ export default function AngebotePage() {
                 <>
                   <div
                     ref={executionAddressRef}
-                    className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 sm:p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20"
+                    className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <label className="flex cursor-pointer items-start gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
                         <input
                           type="checkbox"
                           className="mt-1 h-4 w-4 rounded border-slate-400"
@@ -6197,12 +6474,12 @@ export default function AngebotePage() {
                         </span>
                       </label>
                       {executionSites.length > 0 && !editingExecutionAddress && (
-                        <div className="flex flex-wrap items-center justify-end gap-2">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 shrink-0"
+                            className="h-7 shrink-0 px-2 text-xs"
                             onClick={addExecutionSite}
                             disabled={saving}
                           >
@@ -6213,7 +6490,7 @@ export default function AngebotePage() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 shrink-0"
+                            className="h-7 shrink-0 px-2 text-xs"
                             onClick={() => setEditingExecutionAddress(true)}
                             disabled={saving}
                           >

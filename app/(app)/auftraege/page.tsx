@@ -15422,34 +15422,66 @@ export default function AuftraegePage() {
                                   </span>
                                 )}
                               </div>
-                              <select
-                                onClick={(event) => event.stopPropagation()}
-                                className="mt-1 h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
-                                style={getStatusStyle(
-                                  ORDER_STATUS_STYLES,
-                                  o?.status ?? "",
-                                )}
-                                value={o?.status ?? ""}
-                                onChange={(event: any) =>
-                                  updateOrderStatus(
-                                    event,
-                                    o?.id,
-                                    event?.target?.value ?? "",
-                                  )
-                                }
-                              >
-                                {orderStatuses.map((status) => (
-                                  <option
-                                    key={status}
-                                    style={getStatusStyle(
-                                      ORDER_STATUS_STYLES,
-                                      status,
-                                    )}
+                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                <select
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
+                                  style={getStatusStyle(
+                                    ORDER_STATUS_STYLES,
+                                    o?.status ?? "",
+                                  )}
+                                  value={o?.status ?? ""}
+                                  onChange={(event: any) =>
+                                    updateOrderStatus(
+                                      event,
+                                      o?.id,
+                                      event?.target?.value ?? "",
+                                    )
+                                  }
+                                >
+                                  {orderStatuses.map((status) => (
+                                    <option
+                                      key={status}
+                                      style={getStatusStyle(
+                                        ORDER_STATUS_STYLES,
+                                        status,
+                                      )}
+                                    >
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                {!hasMultipleMergedData && (
+                                  <div
+                                    className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onTouchStart={(event) => event.stopPropagation()}
+                                    onClick={(event) => event.stopPropagation()}
                                   >
-                                    {status}
-                                  </option>
-                                ))}
-                              </select>
+                                    <CommunicationChips
+                                      compact
+                                      data={buildCommunicationChipDataV17_52(cardOrderForChips)}
+                                      onAudioClick={() => openMedia(o)}
+                                      onImageClick={() => openMedia(o)}
+                                    />
+                                  </div>
+                                )}
+
+                                {hasMultipleMergedData && (
+                                  <MergedContactReviewChip
+                                    records={[cardOrderForChips as any]}
+                                    compact
+                                  />
+                                )}
+
+                                {mobileActionBadges.map((badge) =>
+                                  renderInteractiveMobileActionBadge(badge),
+                                )}
+                                {rightSideBadges.map((badge) =>
+                                  renderInteractiveMobileRightReviewBadge(badge),
+                                )}
+                              </div>
                             </div>
                             <div className="flex min-w-0 items-center justify-end gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0">
                               {appointmentBadges.slice(0, 1).map((badge) => (
@@ -16544,10 +16576,10 @@ export default function AuftraegePage() {
                 <div
                   ref={!shouldShowAddressRoleReviewBoxV17_62 ? executionAddressRef : undefined}
                   tabIndex={-1}
-                  className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 space-y-3 outline-none ring-cyan-300 focus:ring-2 dark:border-cyan-900/60 dark:bg-cyan-950/20"
+                  className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 space-y-2.5 outline-none ring-cyan-300 focus:ring-2 dark:border-cyan-900/60 dark:bg-cyan-950/20"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <label className="flex items-start gap-2 cursor-pointer">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <label className="flex min-w-0 flex-1 items-start gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={Boolean(form.siteAddressDifferent)}
@@ -16593,11 +16625,12 @@ export default function AuftraegePage() {
                       </span>
                     </label>
                     {form.siteAddressDifferent && !siteAddressEditing && (
-                      <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
+                          className="h-7 px-2 text-xs"
                           onClick={addFormWorkSite}
                           disabled={saving}
                         >
@@ -16608,6 +16641,7 @@ export default function AuftraegePage() {
                           type="button"
                           size="sm"
                           variant="outline"
+                          className="h-7 px-2 text-xs"
                           onClick={() => setSiteAddressEditing(true)}
                           disabled={saving}
                         >

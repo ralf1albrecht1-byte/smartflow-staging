@@ -2754,6 +2754,29 @@ export default function RechnungenPage() {
                   );
                   const hasMergedContactReview =
                     mergedCount > 1 && mergedContactEntries.length > 1;
+
+                  const renderInvoiceCompactFunctionalChips = () => (
+                    <div
+                      className="inline-flex min-w-0 flex-wrap items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onTouchStart={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {hasMergedContactReview ? (
+                        <MergedContactReviewChip
+                          records={(inv.orders || []) as any}
+                          compact
+                        />
+                      ) : (
+                        <CommunicationChips
+                          data={invoiceContactData}
+                          compact
+                          contactsOnly
+                          showInfoChip
+                        />
+                      )}
+                    </div>
+                  );
                   return (
                     <motion.div
                       key={inv?.id}
@@ -2951,29 +2974,32 @@ export default function RechnungenPage() {
                                         </button>
                                       )}
                                     </div>
-                                    <select
-                                      value={effectiveStatus}
-                                      onMouseDown={(event) => event.stopPropagation()}
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                      onPointerUp={(event) => event.stopPropagation()}
-                                      onTouchStart={(event) => event.stopPropagation()}
-                                      onClick={(event) => event.stopPropagation()}
-                                      onChange={(event) =>
-                                        updateStatus(event, inv.id, event.target.value)
-                                      }
-                                      className="mt-1 h-7 rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-                                      style={getStatusStyle(
-                                        INVOICE_STATUS_STYLES,
-                                        effectiveStatus,
-                                      )}
-                                      aria-label={`Status bearbeiten: ${effectiveStatus}`}
-                                    >
-                                      {invoiceStatuses.map((status) => (
-                                        <option key={status} value={status}>
-                                          {status}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                      <select
+                                        value={effectiveStatus}
+                                        onMouseDown={(event) => event.stopPropagation()}
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onPointerUp={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) => event.stopPropagation()}
+                                        onChange={(event) =>
+                                          updateStatus(event, inv.id, event.target.value)
+                                        }
+                                        className="h-7 rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                                        style={getStatusStyle(
+                                          INVOICE_STATUS_STYLES,
+                                          effectiveStatus,
+                                        )}
+                                        aria-label={`Status bearbeiten: ${effectiveStatus}`}
+                                      >
+                                        {invoiceStatuses.map((status) => (
+                                          <option key={status} value={status}>
+                                            {status}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {renderInvoiceCompactFunctionalChips()}
+                                    </div>
                                   </div>
                                   <div className="flex min-w-0 items-center justify-end gap-2 pr-3 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0 sm:pr-5">
                                     <button
@@ -3199,7 +3225,6 @@ export default function RechnungenPage() {
                                       data={invoiceContactData}
                                       compact
                                       contactsOnly
-                                      showMediaChips
                                       showInfoChip
                                       onAudioClick={() =>
                                         invoiceContactData.mediaUrl &&
@@ -3746,9 +3771,9 @@ export default function RechnungenPage() {
                 )}
               </div>
               {!dupCheckOpen && !editingInvoice && (
-                <div className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 sm:p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <label className="flex cursor-pointer items-start gap-2">
+                <div className="scroll-mt-20 rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
                       <input
                         type="checkbox"
                         className="mt-1 h-4 w-4 rounded border-slate-400"
@@ -3770,12 +3795,12 @@ export default function RechnungenPage() {
                       </span>
                     </label>
                     {newInvoiceExecutionSite && !editingExecutionAddress && (
-                      <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="h-8 shrink-0"
+                          className="h-7 shrink-0 px-2 text-xs"
                           onClick={addInvoiceExecutionSite}
                           disabled={saving}
                         >
@@ -3786,7 +3811,7 @@ export default function RechnungenPage() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="h-8 shrink-0"
+                          className="h-7 shrink-0 px-2 text-xs"
                           onClick={() => setEditingExecutionAddress(true)}
                           disabled={saving}
                         >
@@ -3967,14 +3992,14 @@ export default function RechnungenPage() {
                           setEditingExecutionAddress(true);
                         }
                       }}
-                      className={`rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 sm:p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20 ${
+                      className={`rounded-xl border border-cyan-200 bg-cyan-50/40 p-2.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 sm:p-3 dark:border-cyan-900/60 dark:bg-cyan-950/20 ${
                         editingExecutionAddress
                           ? ""
                           : "cursor-pointer hover:bg-cyan-50/50"
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-2">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="flex min-w-0 flex-1 items-start gap-2">
                           <input
                             type="checkbox"
                             checked
@@ -3993,7 +4018,7 @@ export default function RechnungenPage() {
                           </div>
                         </div>
                         {!editingExecutionAddress && (
-                          <div className="flex flex-wrap items-center justify-end gap-2">
+                          <div className="flex flex-wrap items-center justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={(event) => {
@@ -4001,7 +4026,7 @@ export default function RechnungenPage() {
                                 addInvoiceExecutionSite();
                               }}
                               disabled={saving}
-                              className="inline-flex h-8 shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                              className="inline-flex h-7 shrink-0 items-center rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
                             >
                               <Plus className="mr-1 h-3.5 w-3.5" />
                               Arbeitsort hinzufügen
@@ -4013,7 +4038,7 @@ export default function RechnungenPage() {
                                 setEditingExecutionAddress(true);
                               }}
                               disabled={saving}
-                              className="inline-flex h-8 shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                              className="inline-flex h-7 shrink-0 items-center rounded-md border border-slate-200 bg-white px-2 text-xs font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
                             >
                               <Pencil className="mr-1 h-3.5 w-3.5" />
                               Bearbeiten
