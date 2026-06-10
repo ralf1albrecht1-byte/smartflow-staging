@@ -176,6 +176,7 @@ const compactInvoiceValue = (value: unknown) =>
 
 // V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
 // V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
+// V17.90L156: Leistungs- und Terminchip nutzen eine feste, rechts verankerte Mittelspalte ohne Breitenkollaps.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -3175,8 +3176,8 @@ export default function RechnungenPage() {
                       <span
                         className={
                           placement === "compact"
-                            ? "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
-                            : "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
+                            ? "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:right-48 md:w-56 md:ml-0 md:justify-center"
+                            : "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:top-1/2 md:w-56 md:ml-0 md:-translate-y-1/2 md:justify-center"
                         }
                       >
                         <button
@@ -3189,7 +3190,7 @@ export default function RechnungenPage() {
                             openEditInvoice(inv);
                             setExpandedItemIndex(0);
                           }}
-                          className="group relative inline-flex h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 text-[10px] font-semibold text-amber-900 shadow-sm hover:bg-amber-200"
+                          className="group relative inline-flex h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 text-[10px] font-semibold whitespace-nowrap text-amber-900 shadow-sm hover:bg-amber-200"
                           aria-label={`Leistungen anzeigen · ${visibleItems.length}`}
                         >
                           Leistungen · {visibleItems.length}
@@ -3345,7 +3346,7 @@ export default function RechnungenPage() {
                                 }}
                               >
                                 <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
-                                  <div className="min-w-0">
+                                  <div className="min-w-0 md:pr-60">
                                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                         {(() => {
@@ -3429,7 +3430,7 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center md:pr-3"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:-top-1 md:w-56 md:ml-0 md:max-w-none md:justify-center"
                                   >
                                     <button
                                       type="button"
@@ -3619,7 +3620,7 @@ export default function RechnungenPage() {
                                 )}
                               </div>
 
-                              <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                              <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:pr-60">
                                 <select
                                   onClick={(event) => event.stopPropagation()}
                                   className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -3655,7 +3656,7 @@ export default function RechnungenPage() {
 
                               <div className="relative mt-3 flex min-h-12 flex-wrap items-end gap-2 border-t pt-3">
                                 <span
-                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center md:pr-3"
+                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:top-1/2 md:w-56 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center"
                                 >
                                   <button
                                     type="button"

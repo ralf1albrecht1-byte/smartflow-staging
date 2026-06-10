@@ -193,6 +193,7 @@ const compactOfferValue = (value: unknown) =>
 
 // V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
 // V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
+// V17.90L156: Leistungs- und Terminchip nutzen eine feste, rechts verankerte Mittelspalte ohne Breitenkollaps.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -4974,7 +4975,7 @@ export default function AngebotePage() {
 
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ? (
-                      <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
+                      <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:right-48 md:w-56 md:ml-0 md:justify-center">
                         <button
                           type="button"
                           onPointerDown={(event) => event.stopPropagation()}
@@ -4991,7 +4992,7 @@ export default function AngebotePage() {
                                 )
                               : openOfferChipTarget("items", event)
                           }
-                          className="group relative inline-flex max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
+                          className="group relative inline-flex max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2 py-1 text-[10px] font-semibold whitespace-nowrap text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
                           aria-label={`Leistungen prüfen · ${serviceReview.reviewCount}`}
                         >
                           <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
@@ -5140,7 +5141,7 @@ export default function AngebotePage() {
                                 }}
                               >
                                 <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
-                                  <div className="min-w-0">
+                                  <div className="min-w-0 md:pr-60">
                                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                         {(() => {
@@ -5253,7 +5254,7 @@ export default function AngebotePage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center md:pr-3"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:-top-1 md:w-56 md:ml-0 md:max-w-none md:justify-center"
                                   >
                                     <button
                                       type="button"
@@ -5658,7 +5659,7 @@ export default function AngebotePage() {
 
 
                                   {serviceReview.reviewCount > 0 && (
-                                    <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                                    <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:top-1/2 md:w-56 md:ml-0 md:-translate-y-1/2 md:justify-center">
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -5675,7 +5676,7 @@ export default function AngebotePage() {
                                               )
                                             : openOfferChipTarget("items", event)
                                         }
-                                        className="group relative inline-flex h-8 max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2.5 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
+                                        className="group relative inline-flex h-8 max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2.5 text-[10px] font-semibold whitespace-nowrap text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
                                       >
                                         <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
                                         Leistungen prüfen · {serviceReview.reviewCount}
@@ -5727,7 +5728,7 @@ export default function AngebotePage() {
                                   </div>
 
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center md:pr-3"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:top-1/2 md:w-56 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center"
                                   >
                                     <button
                                       type="button"
