@@ -15651,8 +15651,7 @@ export default function AuftraegePage() {
                                   renderInteractiveMobileRightReviewBadge(badge),
                                 )}
                                 {serviceReviewBadge && (
-                                  <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
-                                    style={{ left: "61%" }}>
+                                  <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
                                     <span className="hidden lg:inline-flex">
                                       {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                                     </span>
@@ -15669,7 +15668,7 @@ export default function AuftraegePage() {
                             {appointmentBadges.slice(0, 1).map((badge) => (
                               <span
                                 key={`compact_appointment_wrap_${badge.key}`}
-                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center"
+                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center md:pr-3"
                               >
                                 {renderResponsiveAppointmentBadge(
                                   badge,
@@ -15817,8 +15816,7 @@ export default function AuftraegePage() {
                           )}
 
                           {serviceReviewBadge && (
-                            <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
-                              style={{ left: "61%" }}>
+                            <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                               {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                             </span>
                           )}
@@ -15835,7 +15833,7 @@ export default function AuftraegePage() {
                           {appointmentBadges.slice(0, 1).map((badge) => (
                             <span
                               key={`mobile_appointment_wrap_${badge.key}`}
-                              className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center"
+                              className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center md:pr-3"
                             >
                               {renderResponsiveAppointmentBadge(
                                 badge,

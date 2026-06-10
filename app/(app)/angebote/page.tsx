@@ -4974,8 +4974,7 @@ export default function AngebotePage() {
 
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ? (
-                      <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
-                        style={{ left: "61%" }}>
+                      <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
                         <button
                           type="button"
                           onPointerDown={(event) => event.stopPropagation()}
@@ -5254,7 +5253,7 @@ export default function AngebotePage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center md:pr-3"
                                   >
                                     <button
                                       type="button"
@@ -5659,8 +5658,7 @@ export default function AngebotePage() {
 
 
                                   {serviceReview.reviewCount > 0 && (
-                                    <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
-                                      style={{ left: "61%" }}>
+                                    <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -5729,7 +5727,7 @@ export default function AngebotePage() {
                                   </div>
 
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center md:pr-3"
                                   >
                                     <button
                                       type="button"
