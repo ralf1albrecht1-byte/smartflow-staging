@@ -19,6 +19,10 @@ import {
   roundMoney,
 } from "@/lib/currency";
 
+const DEFAULT_PAYMENT_DAYS = 14;
+const MIN_PAYMENT_DAYS = 1;
+const MAX_PAYMENT_DAYS = 365;
+
 const HARD_CURRENCY_SOURCE_ORDER_REVIEW_PATTERNS = [
   /^currency_/,
   /^item_currency_mismatch/,
@@ -230,6 +234,34 @@ function validateDocumentItems(items: any[]) {
   return invalid
     ? "Preis/Menge prüfen: Angebot/Rechnung kann nicht mit leeren oder 0-Positionen erstellt werden."
     : null;
+}
+
+function normalizePaymentDays(value: unknown): number | null {
+  const days = Number(value);
+  if (!Number.isInteger(days)) return null;
+  if (days < MIN_PAYMENT_DAYS || days > MAX_PAYMENT_DAYS) return null;
+  return days;
+}
+
+async function resolvePaymentDays(userId: string, requestedValue: unknown) {
+  const requested = normalizePaymentDays(requestedValue);
+  if (requested !== null) return requested;
+
+  try {
+    const stored = await prisma.counter.findUnique({
+      where: { name: `invoice-payment-days:${userId}` },
+      select: { value: true },
+    });
+    return normalizePaymentDays(stored?.value) ?? DEFAULT_PAYMENT_DAYS;
+  } catch {
+    return DEFAULT_PAYMENT_DAYS;
+  }
+}
+
+function parseInvoiceDateInput(value: unknown): Date | null {
+  if (!value) return null;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 
@@ -498,8 +530,22 @@ export async function POST(request: Request) {
       })),
       vatRate,
     );
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + Number(data?.paymentDays ?? 30));
+    const invoiceDate = parseInvoiceDateInput(data?.invoiceDate) ?? new Date();
+    const requestedDueDate = parseInvoiceDateInput(data?.dueDate);
+    const paymentDays = await resolvePaymentDays(userId, data?.paymentDays);
+    const dueDate = requestedDueDate ?? new Date(invoiceDate);
+
+    if (!requestedDueDate) {
+      dueDate.setDate(dueDate.getDate() + paymentDays);
+    }
+
+    if (dueDate.getTime() < invoiceDate.getTime()) {
+      return NextResponse.json(
+        { error: "Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen." },
+        { status: 400 },
+      );
+    }
+
     // Guard: reject creation linked to an archived customer
     if (data?.customerId) {
       const activeCustomer = await prisma.customer.findFirst({
@@ -553,9 +599,7 @@ export async function POST(request: Request) {
             vatAmount,
             total,
             currency,
-            invoiceDate: data?.invoiceDate
-              ? new Date(data.invoiceDate)
-              : new Date(),
+            invoiceDate,
             dueDate,
             notes: data?.notes || null,
             status: data?.status ?? "Entwurf",
