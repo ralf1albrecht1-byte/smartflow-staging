@@ -4950,7 +4950,7 @@ export default function AngebotePage() {
                       transition={{ delay: i * 0.015 }}
                     >
                       <Card
-                        className="border-2 border-slate-300 hover:border-slate-400 hover:shadow-sm transition-all tap-safe rounded-xl"
+                        className="border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 hover:shadow-sm transition-all tap-safe rounded-xl"
                         aria-expanded={offerCardExpanded}
                         onClick={(event) => {
                           if (

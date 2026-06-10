@@ -3123,7 +3123,7 @@ export default function RechnungenPage() {
                       transition={{ delay: i * 0.02 }}
                     >
                       <Card
-                        className="transition-shadow hover:shadow-md tap-safe"
+                        className="border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 transition-shadow hover:shadow-md tap-safe"
                         aria-expanded={invoiceCardExpanded}
                         onClick={(event) => {
                           if (

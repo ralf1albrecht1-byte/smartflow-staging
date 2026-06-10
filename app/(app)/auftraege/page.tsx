@@ -15317,7 +15317,7 @@ export default function AuftraegePage() {
                 transition={{ delay: i * 0.015 }}
               >
                 <Card
-                  className={`border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:shadow-sm transition-shadow tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
+                  className={`border-2 border-slate-400 dark:border-slate-600 hover:border-slate-500 dark:hover:border-slate-500 hover:shadow-sm transition-shadow tap-safe max-w-full overflow-visible ${isMergeMode && isSelected ? "ring-2 ring-primary/40" : ""}`}
                   aria-expanded={orderCardExpanded}
                   onClick={(event) => {
                     if (
