@@ -176,7 +176,7 @@ const compactInvoiceValue = (value: unknown) =>
 
 
 // V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
-// V17.90L167: Ausführungsort bricht vor der festen Terminspalte um; Datum bleibt vollständig oder der Chip zeigt nur das Kalenderzeichen.
+// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -191,7 +191,7 @@ const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabe
   if (countMatch) return { full, medium: `Termine · ${countMatch[1]}` };
   const dateMatch = full.match(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?\b/);
   if (dateMatch) {
-    return { full, medium: `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}${dateMatch[3] ? `.${dateMatch[3]}` : "."}` };
+    return { full, medium: `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.` };
   }
   return { full, medium: "Termin" };
 };
@@ -3751,7 +3751,7 @@ export default function RechnungenPage() {
                                   toggleInvoiceCard(inv.id);
                                 }}
                               >
-                                <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 md:grid-cols-[minmax(0,1fr)_minmax(8.5rem,11rem)_12rem]">
+                                <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                                   <div className="min-w-0">
                                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
@@ -3790,7 +3790,7 @@ export default function RechnungenPage() {
                                               120,
                                             );
                                           }}
-                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink-0 items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto"
+                                          className="group relative inline-flex min-w-0 basis-full max-w-full shrink items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-800 hover:bg-cyan-100 sm:basis-auto sm:max-w-[18rem]"
                                           aria-label="Ausführungsort anzeigen und bearbeiten"
                                         >
                                           <MapPin className="h-3 w-3 shrink-0" />
@@ -3836,7 +3836,7 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <span
-                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:col-start-2 md:row-start-1 md:ml-0 md:h-full md:max-w-none md:self-stretch md:justify-center md:px-3"
+                                    className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-none md:justify-center md:pr-3"
                                   >
                                     <button
                                       type="button"
@@ -3846,11 +3846,14 @@ export default function RechnungenPage() {
                                         event.preventDefault();
                                         event.stopPropagation();
                                       }}
-                                      className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:min-w-[7.5rem] md:px-2.5"
+                                      className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                       aria-label={invoiceAppointmentDisplayLabel}
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                      <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
+                                        {invoiceAppointmentChipLabels.full}
+                                      </span>
+                                      <span className="hidden min-w-0 truncate md:ml-1.5 md:inline xl:hidden">
                                         {invoiceAppointmentChipLabels.medium}
                                       </span>
                                       <span className="sr-only md:hidden">{invoiceAppointmentChipLabels.full}</span>
@@ -3864,7 +3867,7 @@ export default function RechnungenPage() {
                                       </InvoiceViewportTooltip>
                                     </button>
                                   </span>
-                                  <div className="flex min-w-0 items-center justify-end gap-2 pr-3 md:col-start-3 md:row-start-1 md:shrink-0 md:pr-5">
+                                  <div className="flex min-w-0 items-center justify-end gap-2 pr-3 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0 sm:pr-5">
                                     <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
                                       {formatCurrency(
                                         Number(inv?.total ?? 0),
@@ -3929,7 +3932,7 @@ export default function RechnungenPage() {
                                         120,
                                       );
                                     }}
-                                    className="group relative inline-flex min-w-0 basis-full max-w-full shrink-0 items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 sm:basis-auto"
+                                    className="group relative inline-flex max-w-full items-center gap-1 rounded-full border border-cyan-300 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800 hover:bg-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
                                     aria-label="Ausführungsadresse anzeigen und bearbeiten"
                                   >
                                     <MapPin className="h-3 w-3 shrink-0" />
@@ -4057,9 +4060,9 @@ export default function RechnungenPage() {
                                 )}
                               </div>
 
-                              <div className="relative mt-3 grid min-h-12 grid-cols-1 items-end gap-2 border-t pt-3 md:grid-cols-[minmax(0,1fr)_minmax(8.5rem,11rem)_12rem] md:gap-3">
+                              <div className="relative mt-3 flex min-h-12 flex-wrap items-end gap-2 border-t pt-3">
                                 <span
-                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:col-start-2 md:row-start-1 md:ml-0 md:h-full md:max-w-none md:self-stretch md:justify-center md:px-3"
+                                  className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center md:pr-3"
                                 >
                                   <button
                                     type="button"
@@ -4069,11 +4072,14 @@ export default function RechnungenPage() {
                                       event.preventDefault();
                                       event.stopPropagation();
                                     }}
-                                    className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:min-w-[7.5rem] md:px-2.5"
+                                    className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                     aria-label={invoiceAppointmentDisplayLabel}
                                   >
                                     <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <span className="hidden whitespace-nowrap md:ml-1.5 md:inline">
+                                      <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
+                                        {invoiceAppointmentChipLabels.full}
+                                      </span>
+                                      <span className="hidden min-w-0 truncate md:ml-1.5 md:inline xl:hidden">
                                         {invoiceAppointmentChipLabels.medium}
                                       </span>
                                       <span className="sr-only md:hidden">{invoiceAppointmentChipLabels.full}</span>
@@ -4087,7 +4093,7 @@ export default function RechnungenPage() {
                                     </InvoiceViewportTooltip>
                                   </button>
                                 </span>
-                                <div className="ml-auto flex min-w-0 items-end gap-3 md:col-start-3 md:row-start-1 md:justify-end">
+                                <div className="ml-auto flex min-w-0 items-end gap-3">
                                   <div className="shrink-0 text-right">
                                     <div
                                       className={`font-mono text-lg font-bold tabular-nums ${isPaid ? "text-muted-foreground" : "text-foreground"}`}
