@@ -576,8 +576,6 @@ const compactText = (value?: string | null) =>
 
 
 // V17.90L151: Terminchip bleibt in seiner Spalte; Chip-Popover bevorzugt oben.
-// V17.90L154: Terminchip innerhalb der reservierten Spalte exakt zentriert.
-// V17.90L156: Leistungs- und Terminchip nutzen eine feste, rechts verankerte Mittelspalte ohne Breitenkollaps.
 type AdaptiveAppointmentLabels = {
   full: string;
   medium: string;
@@ -15412,7 +15410,7 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, "mobile_right", event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex h-7 max-w-full shrink-0 items-center rounded-full px-2 text-[10px] font-semibold whitespace-nowrap outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex h-7 max-w-full shrink-0 items-center rounded-full px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
                   {badge.key === "service_review_summary" &&
                     !badge.label.trim().startsWith("⚠") && (
@@ -15553,7 +15551,7 @@ export default function AuftraegePage() {
                           }}
                         >
                           <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
-                            <div className="min-w-0 md:pr-60">
+                            <div className="min-w-0">
                               <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                 <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
                                   {o.createdAt
@@ -15652,7 +15650,8 @@ export default function AuftraegePage() {
                                   renderInteractiveMobileRightReviewBadge(badge),
                                 )}
                                 {serviceReviewBadge && (
-                                  <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:right-48 md:w-56 md:ml-0 md:justify-center">
+                                  <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
+                                    style={{ left: "61%" }}>
                                     <span className="hidden lg:inline-flex">
                                       {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                                     </span>
@@ -15669,7 +15668,7 @@ export default function AuftraegePage() {
                             {appointmentBadges.slice(0, 1).map((badge) => (
                               <span
                                 key={`compact_appointment_wrap_${badge.key}`}
-                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:-top-1 md:w-56 md:ml-0 md:max-w-none md:justify-center"
+                                className="ml-auto inline-flex min-w-0 max-w-8 shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:-top-1 md:ml-0 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
                               >
                                 {renderResponsiveAppointmentBadge(
                                   badge,
@@ -15757,7 +15756,7 @@ export default function AuftraegePage() {
                           onOpenItems={() => openEdit(o, { focusSection: "items" })}
                         />
 
-                        <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:pr-60">
+                        <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                           <select
                             onClick={(event) => event.stopPropagation()}
                             className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -15817,7 +15816,8 @@ export default function AuftraegePage() {
                           )}
 
                           {serviceReviewBadge && (
-                            <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:top-1/2 md:w-56 md:ml-0 md:-translate-y-1/2 md:justify-center">
+                            <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:top-1/2 md:ml-0 md:-translate-y-1/2"
+                              style={{ left: "61%" }}>
                               {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                             </span>
                           )}
@@ -15834,7 +15834,7 @@ export default function AuftraegePage() {
                           {appointmentBadges.slice(0, 1).map((badge) => (
                             <span
                               key={`mobile_appointment_wrap_${badge.key}`}
-                              className="ml-auto inline-flex min-w-0 max-w-8 items-center justify-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:right-48 md:top-1/2 md:w-56 md:ml-0 md:max-w-none md:-translate-y-1/2 md:justify-center"
+                              className="ml-auto inline-flex min-w-0 max-w-8 items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:max-w-[7.5rem] xl:max-w-[10rem] 2xl:max-w-[12rem]"
                             >
                               {renderResponsiveAppointmentBadge(
                                 badge,
