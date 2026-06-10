@@ -1,4 +1,5 @@
 "use client";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -1542,7 +1543,10 @@ function OfferViewportTooltipV17_95({
   return (
     <>
       <span ref={anchorRef} className="hidden" aria-hidden="true" />
-      {open && position && (
+      {open &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(
         <span
           role="tooltip"
           onPointerEnter={clearHideTimer}
@@ -1554,11 +1558,12 @@ function OfferViewportTooltipV17_95({
             top: position.top,
             bottom: position.bottom,
           }}
-          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         >
           {children}
-        </span>
-      )}
+        </span>,
+          document.body,
+        )}
     </>
   );
 }
@@ -2118,7 +2123,10 @@ function OfferServiceReviewTooltip({
   return (
     <>
       <span ref={anchorRef} className="hidden" aria-hidden="true" />
-      {open && position && (
+      {open &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(
         <span
           role="tooltip"
           onPointerEnter={clearHideTimer}
@@ -2130,7 +2138,7 @@ function OfferServiceReviewTooltip({
             top: position.top,
             bottom: position.bottom,
           }}
-          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         >
           <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
             {title}
@@ -2202,8 +2210,9 @@ function OfferServiceReviewTooltip({
           ) : (
             <OfferServiceReviewSectionsContentV17_90L135G sections={sections} />
           )}
-        </span>
-      )}
+        </span>,
+          document.body,
+        )}
     </>
   );
 }

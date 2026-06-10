@@ -1,4 +1,5 @@
 "use client";
+import { createPortal } from "react-dom";
 // CARD_BADGE_SPLIT_FINAL_V8
 import {
   type ComponentType,
@@ -7797,7 +7798,10 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
   return (
     <>
       <span ref={anchorRef} className="hidden" aria-hidden="true" />
-      {open && position && (
+      {open &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(
         <span
           role="tooltip"
           onPointerEnter={clearHideTimer}
@@ -7809,7 +7813,7 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
             top: position.top,
             bottom: position.bottom,
           }}
-          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         >
           {badge.key === "site_address"
             ? renderExecutionAddressTooltipContentV17_95(tooltip)
@@ -7823,8 +7827,9 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
                     {line}
                   </span>
                 ))}
-        </span>
-      )}
+        </span>,
+          document.body,
+        )}
     </>
   );
 };
@@ -8116,7 +8121,10 @@ const ViewportAwareOrderServiceTooltip = ({
   return (
     <>
       <span ref={anchorRef} className="hidden" aria-hidden="true" />
-      {open && position && (
+      {open &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(
         <span
           role="tooltip"
           onPointerEnter={clearHideTimer}
@@ -8128,11 +8136,12 @@ const ViewportAwareOrderServiceTooltip = ({
             top: position.top,
             bottom: position.bottom,
           }}
-          className="fixed z-[14000] overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         >
           <OrderServiceReviewTooltipContentV17_135G badge={badge} />
-        </span>
-      )}
+        </span>,
+          document.body,
+        )}
     </>
   );
 };
@@ -8280,7 +8289,10 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
   return (
     <>
       <span ref={anchorRef} className="hidden" aria-hidden="true" />
-      {open && position && (
+      {open &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(
         <span
           role="tooltip"
           onPointerEnter={clearHideTimer}
@@ -8292,7 +8304,7 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
             top: position.top,
             bottom: position.bottom,
           }}
-          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         >
           <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
             {badge.label}
@@ -8301,8 +8313,9 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
             tooltip,
             `viewport_red_${badge.key}`,
           )}
-        </span>
-      )}
+        </span>,
+          document.body,
+        )}
     </>
   );
 };

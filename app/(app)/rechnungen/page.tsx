@@ -1,4 +1,5 @@
 "use client";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -960,7 +961,10 @@ function InvoiceViewportTooltip({
   return (
     <>
       <span ref={anchorRef} className="hidden" aria-hidden="true" />
-      {open && position && (
+      {open &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(
         <span
           role="tooltip"
           onPointerEnter={clearHideTimer}
@@ -972,11 +976,12 @@ function InvoiceViewportTooltip({
             top: position.top,
             bottom: position.bottom,
           }}
-          className="fixed z-[14000] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         >
           {children}
-        </span>
-      )}
+        </span>,
+          document.body,
+        )}
     </>
   );
 }
