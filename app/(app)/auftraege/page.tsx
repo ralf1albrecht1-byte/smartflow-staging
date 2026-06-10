@@ -15384,6 +15384,7 @@ export default function AuftraegePage() {
                   key={`${slot}_${badge.key}`}
                   type="button"
                   aria-label={title}
+                  title={title}
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) =>
@@ -15415,6 +15416,7 @@ export default function AuftraegePage() {
                   key={`mobile_right_${badge.key}`}
                   type="button"
                   aria-label={title}
+                  title={title}
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                   onClick={(event) =>
@@ -18094,7 +18096,7 @@ export default function AuftraegePage() {
                                             {item.serviceName.trim() || "Leistung auswählen"}
                                           </span>
                                         </div>
-                                        <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
+                                        <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-4 gap-y-1 sm:grid-cols-[14rem_minmax(0,12rem)]">
                                           <div className="truncate text-xs text-muted-foreground sm:text-sm">
                                             {Number(item.quantity || 0) > 0
                                               ? item.quantity

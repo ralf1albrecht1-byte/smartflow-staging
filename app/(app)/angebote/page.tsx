@@ -5675,6 +5675,10 @@ export default function AngebotePage() {
                                               )
                                             : openOfferChipTarget("items", event)
                                         }
+                                        title={
+                                          serviceReview.reviewTooltip ||
+                                          `Leistungen prüfen · ${serviceReview.reviewCount}`
+                                        }
                                         className="group relative inline-flex h-8 max-w-full items-center rounded-full border border-yellow-400 bg-yellow-100 px-2.5 text-[10px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
                                       >
                                         <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
@@ -5748,6 +5752,7 @@ export default function AngebotePage() {
                                               appointmentDisplayLabel,
                                             )
                                       }
+                                      title={appointmentDisplayLabel}
                                       className="group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -6080,6 +6085,10 @@ export default function AngebotePage() {
                                             serviceReview.reviewTooltip,
                                           );
                                         }}
+                                        title={
+                                          serviceReview.reviewTooltip ||
+                                          `Leistungen prüfen · ${serviceReview.reviewCount}`
+                                        }
                                         className="group relative inline-flex rounded-full border border-yellow-400 bg-yellow-100 px-2 py-0.5 text-[11px] font-semibold text-yellow-900 shadow-sm ring-1 ring-yellow-200/70"
                                       >
                                         Leistungen prüfen · {serviceReview.reviewCount}
@@ -6105,6 +6114,7 @@ export default function AngebotePage() {
                                             appointmentLabel,
                                           );
                                         }}
+                                        title={appointmentLabel}
                                         className="group relative inline-flex shrink-0 items-center rounded-full border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 outline-none hover:bg-violet-100 focus:ring-2 focus:ring-violet-300"
                                       >
                                         {appointmentLabel}

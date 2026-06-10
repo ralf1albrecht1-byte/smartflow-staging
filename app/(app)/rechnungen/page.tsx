@@ -3394,6 +3394,12 @@ export default function RechnungenPage() {
                       services || [],
                       inv.currency === "EUR" ? "EUR" : "CHF",
                     );
+                  const invoiceServicesTooltipText =
+                    invoiceServiceDisplayEntries
+                      .map((entry) =>
+                        [`* ${entry.description}`, ...entry.details].join("\n"),
+                      )
+                      .join("\n\n") || `Leistungen · ${visibleItems.length}`;
 
                   const renderInvoiceServicesChip = (
                     placement: "compact" | "expanded" = "compact",
@@ -3418,6 +3424,7 @@ export default function RechnungenPage() {
                           }}
                           className="group relative inline-flex h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 text-[10px] font-semibold text-amber-900 shadow-sm hover:bg-amber-200"
                           aria-label={`Leistungen anzeigen · ${visibleItems.length}`}
+                          title={invoiceServicesTooltipText}
                         >
                           Leistungen · {visibleItems.length}
                           <InvoiceViewportTooltip preferredWidth={432}>
@@ -3668,6 +3675,7 @@ export default function RechnungenPage() {
                                       }}
                                       className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                       aria-label={invoiceAppointmentDisplayLabel}
+                                      title={invoiceAppointmentDisplayLabel}
                                     >
                                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                       <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
@@ -3894,6 +3902,7 @@ export default function RechnungenPage() {
                                     }}
                                     className="relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 md:w-auto md:max-w-[7.5rem] md:px-2.5 xl:max-w-[10rem] 2xl:max-w-[12rem]"
                                     aria-label={invoiceAppointmentDisplayLabel}
+                                    title={invoiceAppointmentDisplayLabel}
                                   >
                                     <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                       <span className="hidden min-w-0 truncate xl:ml-1.5 xl:inline">
