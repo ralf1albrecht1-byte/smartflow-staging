@@ -1893,7 +1893,7 @@ function OfferServiceReviewSectionsContentV17_90L135G({
           {section.items.map((item, itemIndex) => (
             <span
               key={`${item.title}_${itemIndex}`}
-              className={`${itemIndex > 0 ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700" : ""} block`}
+              className={`${itemIndex > 0 ? "mt-2" : ""} block`}
             >
               <span className="block break-words font-bold">* {item.title}</span>
               {item.details.map((detail, detailIndex) => {

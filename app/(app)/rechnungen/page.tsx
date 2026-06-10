@@ -929,10 +929,15 @@ function InvoiceServiceReviewSectionsV17_90L135G({
       {sections.map((section, sectionIndex) => {
         const sectionItems = entries.filter((entry) => entry.category === section.key);
         if (sectionItems.length === 0) return null;
+        const hasPreviousVisibleSection = sections
+          .slice(0, sectionIndex)
+          .some((candidate) =>
+            entries.some((entry) => entry.category === candidate.key),
+          );
         return (
           <span
             key={section.key}
-            className={`block ${sectionIndex > 0 ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+            className={`block ${hasPreviousVisibleSection ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
           >
             <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
               {section.title}
@@ -940,7 +945,7 @@ function InvoiceServiceReviewSectionsV17_90L135G({
             {sectionItems.map((entry, reviewIndex) => (
               <span
                 key={`${entry.description}-${reviewIndex}`}
-                className={`block ${reviewIndex > 0 ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700" : ""}`}
+                className={`block ${reviewIndex > 0 ? "mt-2" : ""}`}
               >
                 <span className="block break-words font-bold text-foreground">
                   * {entry.description}
@@ -1015,9 +1020,7 @@ function InvoiceServiceDisplaySectionsV17_90L136({
               <span
                 key={`${entry.description}-${itemIndex}`}
                 className={`block ${
-                  itemIndex > 0
-                    ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700"
-                    : ""
+                  itemIndex > 0 ? "mt-2" : ""
                 }`}
               >
                 <span className="block break-words font-bold text-foreground">

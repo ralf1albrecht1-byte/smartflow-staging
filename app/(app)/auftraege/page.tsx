@@ -7812,7 +7812,7 @@ const renderOrderServiceReviewTooltipLinesV17_135G = (
     const isHeading = headingPattern.test(trimmed);
     if (isHeading) serviceIndexInSection = 0;
     const isServiceTitle = /^(?:\*|•)\s+/.test(trimmed);
-    const showServiceSeparator = isServiceTitle && serviceIndexInSection > 0;
+    const addServiceSpacing = isServiceTitle && serviceIndexInSection > 0;
     if (isServiceTitle) serviceIndexInSection += 1;
     const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(trimmed);
     const isCatalogPrice = /^Katalogpreis:/i.test(trimmed);
@@ -7823,10 +7823,10 @@ const renderOrderServiceReviewTooltipLinesV17_135G = (
       /—\s*Text\s+/i.test(trimmed);
 
     return (
-      <span key={`${keyPrefix}_line_${index}`} className="block min-w-0">
-        {showServiceSeparator && (
-          <span className="my-2 block border-t border-slate-200 dark:border-slate-700" />
-        )}
+      <span
+        key={`${keyPrefix}_line_${index}`}
+        className={`block min-w-0 ${addServiceSpacing ? "mt-2" : ""}`}
+      >
         <span
           className={`block min-w-0 whitespace-pre-wrap break-words ${
             emphasizeLine
