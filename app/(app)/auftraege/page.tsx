@@ -16884,17 +16884,6 @@ export default function AuftraegePage() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={addFormWorkSite}
-                            disabled={saving}
-                            className="h-7 px-2 text-xs"
-                          >
-                            <Plus className="mr-1 h-3.5 w-3.5" />
-                            Arbeitsort hinzufügen
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
                             onClick={addItem}
                             className="h-7 px-2 text-xs"
                           >

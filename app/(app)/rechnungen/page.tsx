@@ -4143,15 +4143,6 @@ export default function RechnungenPage() {
                                       : "Alle öffnen"}
                                   </Button>
                                 )}
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={addInvoiceExecutionSite}
-                                  disabled={saving}
-                                >
-                                  <Plus className="mr-1 h-4 w-4" /> Arbeitsort hinzufügen
-                                </Button>
                                 <Button variant="outline" size="sm" onClick={addItem}>
                                   <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
                                 </Button>

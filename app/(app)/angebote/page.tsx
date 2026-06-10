@@ -6393,17 +6393,6 @@ export default function AngebotePage() {
                           )}
                           <Button
                             type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={addExecutionSite}
-                            disabled={saving}
-                          >
-                            <Plus className="mr-1 h-3.5 w-3.5" />
-                            Arbeitsort hinzufügen
-                          </Button>
-                          <Button
-                            type="button"
                             size="sm"
                             onClick={addItem}
                             className="h-7 shrink-0 px-2 text-xs"
