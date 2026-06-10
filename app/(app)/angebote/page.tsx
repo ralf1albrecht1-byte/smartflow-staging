@@ -4657,7 +4657,7 @@ export default function AngebotePage() {
                   const renderOfferCompactFunctionalChips = () => (
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                       <div
-                        className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                        className="mr-1 inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
                         onPointerDown={(event) => event.stopPropagation()}
                         onTouchStart={(event) => event.stopPropagation()}
                         onClick={(event) => {
@@ -5142,7 +5142,7 @@ export default function AngebotePage() {
                                         </button>
                                       )}
                                     </div>
-                                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                       <select
                                         onClick={(event) => event.stopPropagation()}
                                         className="h-7 shrink-0 rounded-lg border px-2 text-[11px] font-medium"

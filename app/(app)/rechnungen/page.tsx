@@ -3045,7 +3045,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceCompactFunctionalChips = () => (
                     <div
-                      className="inline-flex min-w-0 flex-wrap items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                      className="mr-1 inline-flex min-w-0 flex-wrap items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -3303,7 +3303,7 @@ export default function RechnungenPage() {
                                         </button>
                                       )}
                                     </div>
-                                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                       <select
                                         value={effectiveStatus}
                                         onMouseDown={(event) => event.stopPropagation()}
