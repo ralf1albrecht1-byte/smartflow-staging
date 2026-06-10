@@ -5362,7 +5362,7 @@ export default function AngebotePage() {
                                   </select>
 
                                   <div
-                                    className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                    className={`${!hasMergedContactReview && callbackChip ? "" : "mr-1 border-r border-slate-200 pr-2 dark:border-slate-700"} inline-flex empty:hidden [&_svg]:h-[18px] [&_svg]:w-[18px]`}
                                     onPointerDown={(event) => event.stopPropagation()}
                                     onTouchStart={(event) => event.stopPropagation()}
                                     onClick={(event) => {
@@ -5417,8 +5417,9 @@ export default function AngebotePage() {
                                     )}
                                   </div>
 
-                                  {!hasMergedContactReview && callbackChip &&
-                                    (callbackChip.href ? (
+                                  {!hasMergedContactReview && callbackChip && (
+                                    <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
+                                      {callbackChip.href ? (
                                       <a
                                         href={callbackChip.href}
                                         onClick={(event) => {
@@ -5471,7 +5472,9 @@ export default function AngebotePage() {
                                           />
                                         )}
                                       </button>
-                                    ))}
+                                      )}
+                                    </span>
+                                  )}
 
                                   {hasInfoTooltip && (
                                     <button
@@ -5801,7 +5804,7 @@ export default function AngebotePage() {
                                       ))}
                                     </select>
                                     <div
-                                      className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                      className={`${!hasMergedContactReview && callbackChip ? "" : "mr-1 border-r border-slate-200 pr-2 dark:border-slate-700"} inline-flex empty:hidden [&_svg]:h-[18px] [&_svg]:w-[18px]`}
                                       onClick={(event) => {
                                         const actionHref =
                                           findOfferCommunicationActionHref(
@@ -5850,8 +5853,9 @@ export default function AngebotePage() {
                                       )}
                                     </div>
 
-                                    {!hasMergedContactReview && callbackChip &&
-                                      (callbackChip.href ? (
+                                    {!hasMergedContactReview && callbackChip && (
+                                      <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
+                                        {callbackChip.href ? (
                                         <a
                                           href={callbackChip.href}
                                           onClick={(event) => event.stopPropagation()}
@@ -5888,7 +5892,9 @@ export default function AngebotePage() {
                                             hint="Antippen oder anklicken, um anzurufen."
                                           />
                                         </button>
-                                      ))}
+                                        )}
+                                      </span>
+                                    )}
 
                                     {hasInfoTooltip && (
                                       <button

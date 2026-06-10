@@ -14969,17 +14969,26 @@ export default function AuftraegePage() {
             // Mobile: do not repeat the address pin as a large action icon.
             // The address remains visible on desktop and in the edit dialog; the
             // mobile icon row is reserved for real actions/hints.
-            const mobileActionBadges = [
-              ...mobileFocusBadges,
+            // V17.90L143: Communication channel chips and explicit callback/SMS
+            // actions form one contact group. The separator belongs after the
+            // final contact action, never between WhatsApp/SMS and phone.
+            const mobileContactActionBadges = [
               ...callbackBadges,
               ...messageBadges,
+            ];
+            const mobileActionBadges = [
+              ...mobileFocusBadges,
               ...operationalBadges,
               ...otherFooterBadges,
             ];
-            const mobileVisibleActionBadges = mobileActionBadges.slice(0, 4);
+            const mobileAllActionBadges = [
+              ...mobileContactActionBadges,
+              ...mobileActionBadges,
+            ];
+            const mobileVisibleActionBadges = mobileAllActionBadges.slice(0, 4);
             const mobileHiddenActionCount = Math.max(
               0,
-              mobileActionBadges.length - mobileVisibleActionBadges.length,
+              mobileAllActionBadges.length - mobileVisibleActionBadges.length,
             );
 
             const openOrderAtSpecialNotes = (event: any) => {
@@ -15500,7 +15509,7 @@ export default function AuftraegePage() {
 
                                 {!hasMultipleMergedData && (
                                   <div
-                                    className="mr-1 inline-flex border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                    className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                     onPointerDown={(event) => event.stopPropagation()}
                                     onTouchStart={(event) => event.stopPropagation()}
                                     onClick={(event) => event.stopPropagation()}
@@ -15511,6 +15520,9 @@ export default function AuftraegePage() {
                                       onAudioClick={() => openMedia(o)}
                                       onImageClick={() => openMedia(o)}
                                     />
+                                    {mobileContactActionBadges.map((badge) =>
+                                      renderInteractiveMobileActionBadge(badge),
+                                    )}
                                   </div>
                                 )}
 
@@ -15666,7 +15678,7 @@ export default function AuftraegePage() {
 
                           {!hasMultipleMergedData && (
                             <div
-                              className="mr-1 inline-flex border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                              className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                               onPointerDown={(event) => event.stopPropagation()}
                               onTouchStart={(event) => event.stopPropagation()}
                               onClick={(event) => event.stopPropagation()}
@@ -15677,6 +15689,9 @@ export default function AuftraegePage() {
                                 onAudioClick={() => openMedia(o)}
                                 onImageClick={() => openMedia(o)}
                               />
+                              {mobileContactActionBadges.map((badge) =>
+                                renderInteractiveMobileActionBadge(badge),
+                              )}
                             </div>
                           )}
 
@@ -15833,7 +15848,7 @@ export default function AuftraegePage() {
 
                             {!hasMultipleMergedData && (
                               <div
-                                className="mr-1 inline-flex border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                 onPointerDown={(event) =>
                                   event.stopPropagation()
                                 }
@@ -15848,22 +15863,22 @@ export default function AuftraegePage() {
                                   onAudioClick={() => openMedia(o)}
                                   onImageClick={() => openMedia(o)}
                                 />
+                                {callbackBadges.map((badge) =>
+                                  renderCallbackCardBadge(cardOrderForChips, badge),
+                                )}
+                                {messageBadges.map((badge) =>
+                                  renderInteractiveOrderCardBadge(badge),
+                                )}
                               </div>
                             )}
 
                             {hasMultipleMergedData && (
-                              <MergedContactReviewChip
-                                records={[cardOrderForChips as any]}
-                                compact
-                              />
-                            )}
-
-                            {callbackBadges.map((badge) =>
-                              renderCallbackCardBadge(cardOrderForChips, badge),
-                            )}
-
-                            {messageBadges.map((badge) =>
-                              renderInteractiveOrderCardBadge(badge),
+                              <span className="mr-1 inline-flex border-r border-slate-200 pr-2 dark:border-slate-700">
+                                <MergedContactReviewChip
+                                  records={[cardOrderForChips as any]}
+                                  compact
+                                />
+                              </span>
                             )}
 
                             {operationalBadges.map((badge) =>
