@@ -4902,7 +4902,7 @@ export default function AngebotePage() {
 
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ? (
-                      <span className="inline-flex lg:ml-auto">
+                      <span className="inline-flex lg:absolute lg:bottom-0 lg:left-[61%]">
                         <button
                           type="button"
                           onPointerDown={(event) => event.stopPropagation()}
@@ -5067,7 +5067,7 @@ export default function AngebotePage() {
                                   toggleOfferCard(off.id);
                                 }}
                               >
-                                <div className="grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                                   <div className="min-w-0">
                                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
@@ -5330,7 +5330,7 @@ export default function AngebotePage() {
                                   onOpenItems={() => openOfferSection(off, "items")}
                                 />
 
-                                <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
+                                <div className="relative mt-2 flex min-h-8 flex-wrap items-center gap-1.5 overflow-visible">
                                   <select
                                     onClick={(event) => event.stopPropagation()}
                                     className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -5572,7 +5572,7 @@ export default function AngebotePage() {
 
 
                                   {serviceReview.reviewCount > 0 && (
-                                    <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
+                                    <span className="inline-flex lg:absolute lg:left-[61%] lg:top-1/2 lg:-translate-y-1/2">
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -6818,13 +6818,27 @@ export default function AngebotePage() {
                                 }}
                                 className="min-w-0 text-left"
                               >
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <span className="truncate font-medium">
+                                <div className="min-w-0">
+                                  <span className="block truncate font-medium">
                                     {item?.description || "Neue Leistung"}
                                   </span>
+                                </div>
+                                <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
+                                  <div className="truncate text-xs text-muted-foreground">
+                                    {Number(item?.quantity ?? 0) > 0
+                                      ? item.quantity
+                                      : "prüfen"}{" "}
+                                    {item?.unit || "Einheit prüfen"} ×{" "}
+                                    {Number(item?.unitPrice ?? 0) > 0
+                                      ? formatCurrency(
+                                          Number(item.unitPrice),
+                                          currency,
+                                        )
+                                      : "Preis prüfen"}
+                                  </div>
                                   {itemNeedsReview && (
                                     <span
-                                      className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                      className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                         hasCriticalReview
                                           ? "border-red-300 bg-red-100 text-red-800"
                                           : "border-amber-300 bg-amber-100 text-amber-800"
@@ -6833,18 +6847,6 @@ export default function AngebotePage() {
                                       {itemReviewReasonV17_90L134}
                                     </span>
                                   )}
-                                </div>
-                                <div className="mt-0.5 text-xs text-muted-foreground">
-                                  {Number(item?.quantity ?? 0) > 0
-                                    ? item.quantity
-                                    : "prüfen"}{" "}
-                                  {item?.unit || "Einheit prüfen"} ×{" "}
-                                  {Number(item?.unitPrice ?? 0) > 0
-                                    ? formatCurrency(
-                                        Number(item.unitPrice),
-                                        currency,
-                                      )
-                                    : "Preis prüfen"}
                                 </div>
                               </button>
 

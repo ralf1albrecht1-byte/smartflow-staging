@@ -3079,9 +3079,17 @@ export default function RechnungenPage() {
                       inv.currency === "EUR" ? "EUR" : "CHF",
                     );
 
-                  const renderInvoiceServicesChip = () =>
+                  const renderInvoiceServicesChip = (
+                    placement: "compact" | "expanded" = "compact",
+                  ) =>
                     visibleItems.length > 0 ? (
-                      <span className="inline-flex lg:ml-auto">
+                      <span
+                        className={
+                          placement === "compact"
+                            ? "inline-flex lg:absolute lg:bottom-0 lg:left-[61%]"
+                            : "inline-flex lg:absolute lg:left-[61%] lg:top-1/2 lg:-translate-y-1/2"
+                        }
+                      >
                         <button
                           type="button"
                           onPointerDown={(event) => event.stopPropagation()}
@@ -3247,7 +3255,7 @@ export default function RechnungenPage() {
                                   toggleInvoiceCard(inv.id);
                                 }}
                               >
-                                <div className="grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                                   <div className="min-w-0">
                                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
@@ -3328,7 +3336,7 @@ export default function RechnungenPage() {
                                         ))}
                                       </select>
                                       {renderInvoiceCompactFunctionalChips()}
-                                      {renderInvoiceServicesChip()}
+                                      {renderInvoiceServicesChip("compact")}
                                     </div>
                                   </div>
                                   <div className="flex min-w-0 items-center justify-end gap-2 pr-3 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0 sm:pr-5">
@@ -3513,7 +3521,7 @@ export default function RechnungenPage() {
                                 )}
                               </div>
 
-                              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                              <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                 <select
                                   onClick={(event) => event.stopPropagation()}
                                   className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -3539,7 +3547,7 @@ export default function RechnungenPage() {
                                   ))}
                                 </select>
                                 {renderInvoiceCompactFunctionalChips()}
-                                {renderInvoiceServicesChip()}
+                                {renderInvoiceServicesChip("expanded")}
                               </div>
 
                               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
@@ -4545,21 +4553,23 @@ export default function RechnungenPage() {
                                 }}
                                 className="min-w-0 text-left"
                               >
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <span className="truncate font-medium">
+                                <div className="min-w-0">
+                                  <span className="block truncate font-medium">
                                     {item?.description || "Neue Leistung"}
                                   </span>
+                                </div>
+                                <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
+                                  <div className="truncate text-xs text-muted-foreground">
+                                    {quantity > 0 ? quantity : "prüfen"} {item?.unit || "Einheit prüfen"} × {" "}
+                                    {unitPrice > 0
+                                      ? formatCurrency(unitPrice, currency)
+                                      : "Preis prüfen"}
+                                  </div>
                                   {itemNeedsReview && (
-                                    <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                    <span className="w-fit shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                                       {itemReviewReasonV17_90L134}
                                     </span>
                                   )}
-                                </div>
-                                <div className="mt-0.5 text-xs text-muted-foreground">
-                                  {quantity > 0 ? quantity : "prüfen"} {item?.unit || "Einheit prüfen"} × {" "}
-                                  {unitPrice > 0
-                                    ? formatCurrency(unitPrice, currency)
-                                    : "Preis prüfen"}
                                 </div>
                               </button>
 

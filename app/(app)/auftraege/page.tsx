@@ -15433,7 +15433,7 @@ export default function AuftraegePage() {
                             toggleOrderCard(o.id);
                           }}
                         >
-                          <div className="grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
+                          <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                             <div className="min-w-0">
                               <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                 <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
@@ -15530,7 +15530,7 @@ export default function AuftraegePage() {
                                   renderInteractiveMobileRightReviewBadge(badge),
                                 )}
                                 {serviceReviewBadge && (
-                                  <span className="inline-flex lg:ml-auto">
+                                  <span className="inline-flex lg:absolute lg:bottom-0 lg:left-[61%]">
                                     <span className="hidden lg:inline-flex">
                                       {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                                     </span>
@@ -15636,7 +15636,7 @@ export default function AuftraegePage() {
                           onOpenItems={() => openEdit(o, { focusSection: "items" })}
                         />
 
-                        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
+                        <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                           <select
                             onClick={(event) => event.stopPropagation()}
                             className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -15693,7 +15693,7 @@ export default function AuftraegePage() {
                           )}
 
                           {serviceReviewBadge && (
-                            <span className="ml-2 inline-flex">
+                            <span className="inline-flex lg:absolute lg:left-[61%] lg:top-1/2 lg:-translate-y-1/2">
                               {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
                             </span>
                           )}
@@ -17898,13 +17898,24 @@ export default function AuftraegePage() {
                                   >
                                     <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-xl px-3 py-2.5 [&::-webkit-details-marker]:hidden">
                                       <div className="min-w-0">
-                                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                          <span className="truncate text-sm font-semibold text-foreground sm:text-base">
+                                        <div className="min-w-0">
+                                          <span className="block truncate text-sm font-semibold text-foreground sm:text-base">
                                             {item.serviceName.trim() || "Leistung auswählen"}
                                           </span>
+                                        </div>
+                                        <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
+                                          <div className="truncate text-xs text-muted-foreground sm:text-sm">
+                                            {Number(item.quantity || 0) > 0
+                                              ? item.quantity
+                                              : "Menge prüfen"}{" "}
+                                            {unitShortLabel(item.unit)} ×{" "}
+                                            {itemPriceNumber > 0
+                                              ? formatCurrency(itemPriceNumber, currency)
+                                              : "Preis prüfen"}
+                                          </div>
                                           {hasAnyItemReview && (
                                             <span
-                                              className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                              className={`w-fit shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                                                 hasCriticalItemReview
                                                   ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200"
                                                   : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
@@ -17913,15 +17924,6 @@ export default function AuftraegePage() {
                                               {itemReviewReasonV17_90L134}
                                             </span>
                                           )}
-                                        </div>
-                                        <div className="mt-0.5 truncate text-xs text-muted-foreground sm:text-sm">
-                                          {Number(item.quantity || 0) > 0
-                                            ? item.quantity
-                                            : "Menge prüfen"}{" "}
-                                          {unitShortLabel(item.unit)} ×{" "}
-                                          {itemPriceNumber > 0
-                                            ? formatCurrency(itemPriceNumber, currency)
-                                            : "Preis prüfen"}
                                         </div>
                                       </div>
 
