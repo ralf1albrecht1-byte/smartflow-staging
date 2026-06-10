@@ -3403,7 +3403,10 @@ export default function RechnungenPage() {
                                       {renderInvoiceServicesChip("compact")}
                                     </div>
                                   </div>
-                                  <div className="flex min-w-0 items-center justify-end gap-2 pr-3 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0 sm:pr-5">
+                                  <span
+                                    className="ml-auto inline-flex min-w-0 max-w-[10rem] shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 sm:max-w-[14rem] md:absolute md:top-0 md:ml-0"
+                                    style={{ left: "61%" }}
+                                  >
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
@@ -3412,7 +3415,7 @@ export default function RechnungenPage() {
                                         event.preventDefault();
                                         event.stopPropagation();
                                       }}
-                                      className="relative inline-flex min-h-9 min-w-0 max-w-[10rem] shrink items-center sm:max-w-[14rem] rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
+                                      className="relative inline-flex min-h-9 min-w-0 max-w-full shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
                                       aria-label={invoiceAppointmentDisplayLabel}
                                     >
                                       <span className="truncate">
@@ -3427,6 +3430,8 @@ export default function RechnungenPage() {
                                         </span>
                                       </InvoiceViewportTooltip>
                                     </button>
+                                  </span>
+                                  <div className="flex min-w-0 items-center justify-end gap-2 pr-3 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0 sm:pr-5">
                                     <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
                                       {formatCurrency(
                                         Number(inv?.total ?? 0),
@@ -3614,8 +3619,11 @@ export default function RechnungenPage() {
                                 {renderInvoiceServicesChip("expanded")}
                               </div>
 
-                              <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
-                                <div className="ml-auto flex min-w-0 items-end gap-3">
+                              <div className="relative mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
+                                <span
+                                  className="ml-auto inline-flex min-w-0 max-w-[14rem] items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
+                                  style={{ left: "61%" }}
+                                >
                                   <button
                                     type="button"
                                     onPointerDown={(event) => event.stopPropagation()}
@@ -3624,7 +3632,7 @@ export default function RechnungenPage() {
                                       event.preventDefault();
                                       event.stopPropagation();
                                     }}
-                                    className="relative inline-flex min-h-9 min-w-0 max-w-[14rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
+                                    className="relative inline-flex min-h-9 min-w-0 max-w-full shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
                                     aria-label={invoiceAppointmentDisplayLabel}
                                   >
                                     <span className="truncate">
@@ -3639,6 +3647,8 @@ export default function RechnungenPage() {
                                       </span>
                                     </InvoiceViewportTooltip>
                                   </button>
+                                </span>
+                                <div className="ml-auto flex min-w-0 items-end gap-3">
                                   <div className="shrink-0 text-right">
                                     {dueLabel && (
                                       <div className="text-xs text-muted-foreground">

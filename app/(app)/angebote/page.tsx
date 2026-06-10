@@ -5225,7 +5225,10 @@ export default function AngebotePage() {
                                       {renderOfferCompactServiceReviewChip()}
                                     </div>
                                   </div>
-                                  <div className="flex min-w-0 items-center justify-end gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0">
+                                  <span
+                                    className="ml-auto inline-flex min-w-0 max-w-[10rem] shrink items-center border-l border-slate-200 pl-3 dark:border-slate-700 sm:max-w-[14rem] md:absolute md:top-0 md:ml-0"
+                                    style={{ left: "61%" }}
+                                  >
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
@@ -5249,13 +5252,15 @@ export default function AngebotePage() {
                                           );
                                         }
                                       }}
-                                      className="group relative inline-flex min-h-9 min-w-0 max-w-[10rem] shrink items-center sm:max-w-[14rem] rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
+                                      className="group relative inline-flex min-h-9 min-w-0 max-w-full shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100"
                                     >
                                       <span className="truncate">{appointmentDisplayLabel}</span>
                                       {!useTouchChipPopovers && (
                                         <OfferPlainTooltip text={appointmentDisplayLabel} />
                                       )}
                                     </button>
+                                  </span>
+                                  <div className="flex min-w-0 items-center justify-end gap-2 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0">
                                     <div className="shrink-0 text-right">
                                       <div className="font-mono text-sm font-bold tabular-nums">
                                         {formatCurrency(
@@ -5655,7 +5660,7 @@ export default function AngebotePage() {
                                   )}
                                 </div>
 
-                                <div className="mt-2 flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
+                                <div className="relative mt-2 flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                                     {serviceReview.blockerCount > 0 && (
                                       <button
@@ -5689,7 +5694,10 @@ export default function AngebotePage() {
                                     )}
                                   </div>
 
-                                  <div className="flex min-w-0 shrink-0 items-end gap-3">
+                                  <span
+                                    className="ml-auto inline-flex min-w-0 max-w-[14rem] items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:ml-0"
+                                    style={{ left: "61%" }}
+                                  >
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
@@ -5709,13 +5717,16 @@ export default function AngebotePage() {
                                               appointmentDisplayLabel,
                                             )
                                       }
-                                      className="group relative inline-flex min-h-9 min-w-0 max-w-[14rem] shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm"
+                                      className="group relative inline-flex min-h-9 min-w-0 max-w-full shrink items-center rounded-full border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm"
                                     >
                                       <span className="truncate">{appointmentDisplayLabel}</span>
                                       {!useTouchChipPopovers && (
                                         <OfferPlainTooltip text={appointmentDisplayLabel} />
                                       )}
                                     </button>
+                                  </span>
+
+                                  <div className="flex min-w-0 shrink-0 items-end gap-3">
                                     <div className="shrink-0 whitespace-nowrap text-right leading-tight">
                                       <div className="font-mono text-[16px] font-bold tabular-nums">
                                         {formatCurrency(
