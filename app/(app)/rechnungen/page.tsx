@@ -430,6 +430,113 @@ type InvoiceServiceReviewSiteGroup = {
   entries: InvoiceServiceReviewEntry[];
 };
 
+type InvoiceServiceDisplayEntry = {
+  item: InvoiceItem;
+  description: string;
+  category: "blocker" | "deviation" | "missing" | "catalog";
+  details: string[];
+};
+
+type InvoiceServiceDisplaySiteGroup = {
+  key: string;
+  site: InvoiceExecutionSite | null;
+  entries: InvoiceServiceDisplayEntry[];
+};
+
+function buildInvoiceServiceDisplayEntriesV17_90L136(
+  items: InvoiceItem[],
+  services: any[],
+  currency: "CHF" | "EUR",
+): InvoiceServiceDisplayEntry[] {
+  return (items || []).map((item) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unitPrice ?? 0);
+    const description =
+      compactInvoiceValue(item?.description) || "Unbenannte Leistung";
+    const unit = compactInvoiceValue(item?.unit);
+    const matchedService = (services || []).find(
+      (service: any) =>
+        normalizeInvoiceServiceName(service?.name) ===
+        normalizeInvoiceServiceName(description),
+    );
+    const currentCalculation = `${quantity > 0 ? quantity : "prüfen"} ${
+      unit || "–"
+    } × ${
+      unitPrice > 0 ? formatCurrency(unitPrice, currency) : "Preis prüfen"
+    } = ${formatCurrency(
+      Math.max(0, quantity) * Math.max(0, unitPrice),
+      currency,
+    )}`;
+    const missingReasons = [
+      !compactInvoiceValue(item?.description) ? "Leistungsname fehlt" : "",
+      !unit ? "Einheit fehlt" : "",
+      quantity <= 0 ? "Menge fehlt oder ist 0" : "",
+      unitPrice <= 0 ? "Preis fehlt oder ist 0" : "",
+    ].filter(Boolean);
+
+    if (missingReasons.length > 0) {
+      return {
+        item,
+        description,
+        category: "blocker" as const,
+        details: [`Aktuell: ${currentCalculation}`, ...missingReasons],
+      };
+    }
+
+    if (!matchedService) {
+      return {
+        item,
+        description,
+        category: "missing" as const,
+        details: [`Aktuell: ${currentCalculation}`],
+      };
+    }
+
+    const catalogUnit = compactInvoiceValue(matchedService?.unit);
+    const catalogPrice = Number(matchedService?.defaultPrice || 0);
+    const sameUnit = !catalogUnit || catalogUnit === unit;
+    const samePrice = Math.abs(catalogPrice - unitPrice) < 0.001;
+    const details = [
+      `Aktuell: ${currentCalculation}`,
+      `Katalogpreis: ${formatCurrency(catalogPrice, currency)} / ${
+        catalogUnit || "–"
+      }`,
+      ...[
+        !sameUnit
+          ? `Einheit weicht ab: ${unit || "–"} statt ${catalogUnit || "–"}`
+          : "",
+        !samePrice ? "Preis weicht vom Katalog ab." : "",
+      ].filter(Boolean),
+    ];
+
+    return {
+      item,
+      description,
+      category: sameUnit && samePrice ? ("catalog" as const) : ("deviation" as const),
+      details,
+    };
+  });
+}
+
+function buildInvoiceServiceDisplaySiteGroupsV17_90L136(
+  items: InvoiceItem[],
+  sites: InvoiceExecutionSite[],
+  services: any[],
+  currency: "CHF" | "EUR",
+): InvoiceServiceDisplaySiteGroup[] {
+  return groupInvoiceItemsByExecutionSite(items, sites)
+    .map((group) => ({
+      key: group.key,
+      site: group.site,
+      entries: buildInvoiceServiceDisplayEntriesV17_90L136(
+        group.entries.map((entry) => entry.item),
+        services,
+        currency,
+      ),
+    }))
+    .filter((group) => group.entries.length > 0);
+}
+
 function buildInvoiceServiceReviewEntriesV17_90L135G(
   items: InvoiceItem[],
   services: any[],
@@ -864,6 +971,183 @@ function InvoiceServiceReviewSectionsV17_90L135G({
           </span>
         );
       })}
+    </span>
+  );
+}
+
+function InvoiceServiceDisplaySectionsV17_90L136({
+  entries,
+}: {
+  entries: InvoiceServiceDisplayEntry[];
+}) {
+  const sections = [
+    { key: "blocker", title: "Preis / Menge / Einheit prüfen" },
+    { key: "deviation", title: "Preis oder Einheit abweichend" },
+    { key: "missing", title: "Nicht im Leistungskatalog" },
+    { key: "catalog", title: "Im Leistungskatalog" },
+  ] as const;
+
+  return (
+    <span className="block text-left font-normal">
+      {sections.map((section, sectionIndex) => {
+        const sectionItems = entries.filter(
+          (entry) => entry.category === section.key,
+        );
+        if (sectionItems.length === 0) return null;
+        const visibleSectionIndex = sections
+          .slice(0, sectionIndex)
+          .some((candidate) =>
+            entries.some((entry) => entry.category === candidate.key),
+          );
+        return (
+          <span
+            key={section.key}
+            className={`block ${
+              visibleSectionIndex
+                ? "mt-3 border-t border-slate-200 pt-2 dark:border-slate-700"
+                : ""
+            }`}
+          >
+            <span className="mb-1.5 block font-bold text-slate-950 dark:text-slate-50">
+              {section.title}
+            </span>
+            {sectionItems.map((entry, itemIndex) => (
+              <span
+                key={`${entry.description}-${itemIndex}`}
+                className={`block ${
+                  itemIndex > 0
+                    ? "mt-2 border-t border-slate-200 pt-2 dark:border-slate-700"
+                    : ""
+                }`}
+              >
+                <span className="block break-words font-bold text-foreground">
+                  * {entry.description}
+                </span>
+                {entry.details.map((detail, detailIndex) => {
+                  const trimmedDetail = detail.trim();
+                  const isCurrentPrice = /^(?:Aktuell|Berechnung):/i.test(
+                    trimmedDetail,
+                  );
+                  const isCatalogPrice = /^Katalogpreis:/i.test(trimmedDetail);
+                  return (
+                    <span
+                      key={`${entry.description}-${detailIndex}`}
+                      className={`block break-words text-xs ${
+                        isCurrentPrice
+                          ? "font-bold text-slate-950 dark:text-slate-50"
+                          : isCatalogPrice
+                            ? "font-normal text-slate-500 dark:text-slate-400"
+                            : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      {detail}
+                    </span>
+                  );
+                })}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function InvoiceServiceDisplayTooltipContentV17_90L136({
+  total,
+  entries,
+  siteGroups = [],
+}: {
+  total: number;
+  entries: InvoiceServiceDisplayEntry[];
+  siteGroups?: InvoiceServiceDisplaySiteGroup[];
+}) {
+  const [activeSiteKey, setActiveSiteKey] = useState<string | null>(null);
+  const multipleSites = siteGroups.length > 1;
+
+  return (
+    <span className="block text-left font-normal">
+      <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+        Leistungen · {total}
+      </span>
+      {multipleSites ? (
+        <span className="block space-y-2">
+          {siteGroups.map((group, index) => {
+            const active = activeSiteKey === group.key;
+            const address =
+              [
+                group.site?.siteAddress,
+                [group.site?.sitePlz, group.site?.siteCity]
+                  .filter(Boolean)
+                  .join(" "),
+              ]
+                .filter(Boolean)
+                .join(" · ") || "Adresse nicht angegeben";
+            return (
+              <span
+                key={group.key}
+                role="button"
+                tabIndex={0}
+                onPointerEnter={() => setActiveSiteKey(group.key)}
+                onFocus={() => setActiveSiteKey(group.key)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveSiteKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveSiteKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
+                }}
+                className={`block cursor-pointer overflow-hidden rounded-lg border bg-white outline-none dark:bg-slate-900 ${
+                  active
+                    ? "border-cyan-300 dark:border-cyan-800"
+                    : "border-slate-200 hover:border-cyan-200 dark:border-slate-700"
+                }`}
+              >
+                <span
+                  className={`flex items-start justify-between gap-3 p-2 ${
+                    active
+                      ? "bg-cyan-50 dark:bg-cyan-950/30"
+                      : "bg-slate-50 hover:bg-cyan-50/60 dark:bg-slate-900"
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="block font-bold text-slate-950 dark:text-slate-50">
+                      {index + 1}. {
+                        group.site?.siteName ||
+                        group.site?.siteAddress ||
+                        `Ausführungsort ${index + 1}`
+                      }
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-slate-600 dark:text-slate-300">
+                      {address}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                    Leistungen · {group.entries.length}
+                  </span>
+                </span>
+                {active && (
+                  <span className="block border-t border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900/60 dark:bg-amber-950/15">
+                    <InvoiceServiceDisplaySectionsV17_90L136
+                      entries={group.entries}
+                    />
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        <InvoiceServiceDisplaySectionsV17_90L136 entries={entries} />
+      )}
     </span>
   );
 }
@@ -2778,6 +3062,20 @@ export default function RechnungenPage() {
                     </div>
                   );
 
+                  const invoiceServiceDisplayEntries =
+                    buildInvoiceServiceDisplayEntriesV17_90L136(
+                      visibleItems as InvoiceItem[],
+                      services || [],
+                      inv.currency === "EUR" ? "EUR" : "CHF",
+                    );
+                  const invoiceServiceDisplaySiteGroups =
+                    buildInvoiceServiceDisplaySiteGroupsV17_90L136(
+                      visibleItems as InvoiceItem[],
+                      invoiceExecutionSites,
+                      services || [],
+                      inv.currency === "EUR" ? "EUR" : "CHF",
+                    );
+
                   const renderInvoiceServicesChip = () =>
                     visibleItems.length > 0 ? (
                       <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
@@ -2795,26 +3093,12 @@ export default function RechnungenPage() {
                           aria-label={`Leistungen anzeigen · ${visibleItems.length}`}
                         >
                           Leistungen
-                          <InvoiceViewportTooltip preferredWidth={360}>
-                            <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
-                              Leistungen · {visibleItems.length}
-                            </span>
-                            <span className="block space-y-1">
-                              {visibleItems.slice(0, 10).map((item: any, itemIndex: number) => (
-                                <span
-                                  key={`${inv.id}-service-chip-${itemIndex}`}
-                                  className="flex items-start gap-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
-                                >
-                                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                                  <span className="min-w-0 break-words">{item.description}</span>
-                                </span>
-                              ))}
-                              {visibleItems.length > 10 && (
-                                <span className="block pt-1 text-xs font-semibold text-amber-800 dark:text-amber-200">
-                                  + {visibleItems.length - 10} weitere Leistungen
-                                </span>
-                              )}
-                            </span>
+                          <InvoiceViewportTooltip preferredWidth={432}>
+                            <InvoiceServiceDisplayTooltipContentV17_90L136
+                              total={visibleItems.length}
+                              entries={invoiceServiceDisplayEntries}
+                              siteGroups={invoiceServiceDisplaySiteGroups}
+                            />
                           </InvoiceViewportTooltip>
                         </button>
                       </span>
