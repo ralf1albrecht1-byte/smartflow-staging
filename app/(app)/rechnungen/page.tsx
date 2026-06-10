@@ -706,7 +706,13 @@ function InvoiceViewportTooltip({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const openBelow = availableAbove < 140 && availableBelow > availableAbove;
+    const desiredHeight = 320;
+    const openBelow =
+      availableAbove >= desiredHeight
+        ? false
+        : availableBelow >= desiredHeight
+          ? true
+          : availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(560, available));
     return openBelow
@@ -2728,21 +2734,6 @@ export default function RechnungenPage() {
                   const displayedInvoiceItems = invoiceServicesExpanded
                     ? visibleItems
                     : visibleItems.slice(0, 6);
-                  const invoiceReviewCurrency: "CHF" | "EUR" =
-                    inv.currency === "EUR" ? "EUR" : "CHF";
-                  const reviewItems =
-                    buildInvoiceServiceReviewEntriesV17_90L135G(
-                      visibleItems,
-                      services || [],
-                      invoiceReviewCurrency,
-                    );
-                  const invoiceReviewSiteGroups =
-                    buildInvoiceServiceReviewSiteGroupsV17_90L135G(
-                      visibleItems,
-                      invoiceExecutionSites,
-                      services || [],
-                      invoiceReviewCurrency,
-                    );
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   const invoiceAppointmentLabel = formatInvoiceAppointmentLabel(inv);
                   const invoiceAppointmentDisplayLabel =
@@ -2772,11 +2763,52 @@ export default function RechnungenPage() {
                           data={invoiceContactData}
                           compact
                           contactsOnly
-                          showInfoChip
                         />
                       )}
                     </div>
                   );
+
+                  const renderInvoiceServicesChip = () =>
+                    visibleItems.length > 0 ? (
+                      <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
+                        <button
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openEditInvoice(inv);
+                            setExpandedItemIndex(0);
+                          }}
+                          className="group relative inline-flex h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-2.5 text-[10px] font-semibold text-amber-900 shadow-sm hover:bg-amber-200"
+                          aria-label={`Leistungen anzeigen · ${visibleItems.length}`}
+                        >
+                          Leistungen
+                          <InvoiceViewportTooltip preferredWidth={360}>
+                            <span className="mb-2 block text-sm font-bold text-slate-950 dark:text-slate-50">
+                              Leistungen · {visibleItems.length}
+                            </span>
+                            <span className="block space-y-1">
+                              {visibleItems.slice(0, 10).map((item: any, itemIndex: number) => (
+                                <span
+                                  key={`${inv.id}-service-chip-${itemIndex}`}
+                                  className="flex items-start gap-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+                                >
+                                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                                  <span className="min-w-0 break-words">{item.description}</span>
+                                </span>
+                              ))}
+                              {visibleItems.length > 10 && (
+                                <span className="block pt-1 text-xs font-semibold text-amber-800 dark:text-amber-200">
+                                  + {visibleItems.length - 10} weitere Leistungen
+                                </span>
+                              )}
+                            </span>
+                          </InvoiceViewportTooltip>
+                        </button>
+                      </span>
+                    ) : null;
                   return (
                     <motion.div
                       key={inv?.id}
@@ -2999,6 +3031,7 @@ export default function RechnungenPage() {
                                         ))}
                                       </select>
                                       {renderInvoiceCompactFunctionalChips()}
+                                      {renderInvoiceServicesChip()}
                                     </div>
                                   </div>
                                   <div className="flex min-w-0 items-center justify-end gap-2 pr-3 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:shrink-0 sm:pr-5">
@@ -3120,7 +3153,7 @@ export default function RechnungenPage() {
                                 </span>
                               </div>
 
-                              <div className="mt-1 flex items-center">
+                              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                 <select
                                   onClick={(event) => event.stopPropagation()}
                                   className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -3145,6 +3178,8 @@ export default function RechnungenPage() {
                                     </option>
                                   ))}
                                 </select>
+                                {renderInvoiceCompactFunctionalChips()}
+                                {renderInvoiceServicesChip()}
                               </div>
 
                               <div
@@ -3211,77 +3246,6 @@ export default function RechnungenPage() {
                               </div>
 
                               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
-                                <div
-                                  className="inline-flex items-center gap-1.5 [&_svg]:h-[18px] [&_svg]:w-[18px]"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  {hasMergedContactReview ? (
-                                    <MergedContactReviewChip
-                                      records={(inv.orders || []) as any}
-                                      compact
-                                    />
-                                  ) : (
-                                    <CommunicationChips
-                                      data={invoiceContactData}
-                                      compact
-                                      contactsOnly
-                                      showInfoChip
-                                      onAudioClick={() =>
-                                        invoiceContactData.mediaUrl &&
-                                        openMedia(invoiceContactData.mediaUrl, "audio")
-                                      }
-                                      onImageClick={() => {
-                                        const images = invoiceContactData.imageUrls || [];
-                                        if (images.length > 0) openImageGallery(images);
-                                        else if (invoiceContactData.mediaUrl)
-                                          openMedia(invoiceContactData.mediaUrl, "image");
-                                      }}
-                                    />
-                                  )}
-                                </div>
-                                {reviewItems.length > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openEditInvoice(inv);
-                                      setExpandedItemIndex(
-                                        Math.max(
-                                          0,
-                                          (inv.items || []).findIndex((item: any) => {
-                                            const quantity = Number(item?.quantity ?? 0);
-                                            const unitPrice = Number(item?.unitPrice ?? 0);
-                                            const unit = compactInvoiceValue(item?.unit);
-                                            const match = services.find(
-                                              (service: any) =>
-                                                normalizeInvoiceServiceName(service?.name) ===
-                                                normalizeInvoiceServiceName(item?.description),
-                                            );
-                                            return (
-                                              !compactInvoiceValue(item?.description) ||
-                                              !unit ||
-                                              quantity <= 0 ||
-                                              unitPrice <= 0 ||
-                                              !match ||
-                                              compactInvoiceValue(match?.unit) !== unit ||
-                                              Math.abs(Number(match?.defaultPrice || 0) - unitPrice) >= 0.001
-                                            );
-                                          }),
-                                        ),
-                                      );
-                                    }}
-                                    className="relative inline-flex h-9 items-center rounded-lg border border-amber-300 bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200"
-                                  >
-                                    Leistungen prüfen · {reviewItems.length}
-                                    <InvoiceViewportTooltip preferredWidth={480}>
-                                      <InvoiceServiceReviewTooltipContentV17_90L135G
-                                        total={reviewItems.length}
-                                        entries={reviewItems}
-                                        siteGroups={invoiceReviewSiteGroups}
-                                      />
-                                    </InvoiceViewportTooltip>
-                                  </button>
-                                )}
                                 <div className="ml-auto flex min-w-0 items-end gap-3">
                                   <button
                                     type="button"

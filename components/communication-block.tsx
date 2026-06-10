@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Volume2, ImageIcon, AlertTriangle, ChevronLeft, ChevronRight, Globe, Mic, Camera, FileImage, Mail, Info, Phone } from 'lucide-react';
 import { splitSpecialNotes, splitJobHints, detectCallbackRequest } from '@/lib/special-notes-utils';
 import { formatAudioDuration } from '@/lib/audio-format';
@@ -68,6 +68,109 @@ function useHoverIntentState(
   };
 }
 
+type AdaptiveChipPopoverProps = {
+  open: boolean;
+  preferredWidth?: number;
+  maxHeight?: number;
+  className?: string;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+  children: ReactNode;
+};
+
+function AdaptiveChipPopover({
+  open,
+  preferredWidth = 352,
+  maxHeight = 560,
+  className = '',
+  onMouseEnter,
+  onMouseLeave,
+  children,
+}: AdaptiveChipPopoverProps) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLSpanElement>(null);
+  const [position, setPosition] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+
+  const updatePosition = () => {
+    if (!open || typeof window === 'undefined') return;
+    const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 8;
+    const width = Math.max(220, Math.min(preferredWidth, window.innerWidth - viewportPadding * 2));
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+    const availableAbove = Math.max(0, rect.top - gap - viewportPadding);
+    const availableBelow = Math.max(0, window.innerHeight - rect.bottom - gap - viewportPadding);
+    const measuredHeight = panelRef.current?.scrollHeight || 220;
+    const desiredHeight = Math.min(maxHeight, measuredHeight);
+    const placeBelow =
+      availableAbove >= desiredHeight
+        ? false
+        : availableBelow >= desiredHeight
+          ? true
+          : availableBelow > availableAbove;
+    const available = placeBelow ? availableBelow : availableAbove;
+    const resolvedMaxHeight = Math.max(1, Math.min(maxHeight, available || maxHeight));
+
+    setPosition(
+      placeBelow
+        ? { left, top: rect.bottom + gap, width, maxHeight: resolvedMaxHeight }
+        : {
+            left,
+            bottom: window.innerHeight - rect.top + gap,
+            width,
+            maxHeight: resolvedMaxHeight,
+          },
+    );
+  };
+
+  useEffect(() => {
+    if (!open) {
+      setPosition(null);
+      return;
+    }
+    const frame = window.requestAnimationFrame(updatePosition);
+    const secondFrame = window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(updatePosition),
+    );
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(secondFrame);
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, preferredWidth, maxHeight]);
+
+  return (
+    <>
+      <span ref={anchorRef} className="hidden" aria-hidden="true" />
+      {open && (
+        <span
+          ref={panelRef}
+          onMouseEnter={onMouseEnter}
+          onMouseLeave={onMouseLeave}
+          style={position || { left: -10000, top: 0, width: preferredWidth, maxHeight }}
+          className={`fixed z-[15000] block overflow-y-auto overscroll-contain ${className}`}
+        >
+          {children}
+        </span>
+      )}
+    </>
+  );
+}
 
 function WhatsAppIcon({ className = 'w-3 h-3' }: { className?: string }) {
   return (
@@ -1288,12 +1391,14 @@ export function MergedContactReviewChip({
         {!compact && <span>Kontakte prüfen</span>}
       </button>
       {hoverIntent.open && (
-        <span
-          className="pointer-events-auto absolute bottom-full left-0 z-[9999] block w-[min(28rem,calc(100vw-2rem))] pb-2"
+        <AdaptiveChipPopover
+          open={hoverIntent.open}
+          preferredWidth={448}
           onMouseEnter={hoverIntent.keepOpen}
           onMouseLeave={hoverIntent.scheduleClose}
+          className="pointer-events-auto rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl dark:bg-slate-950 dark:text-slate-100"
         >
-          <span className="block max-h-[65vh] overflow-y-auto rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl dark:bg-slate-950 dark:text-slate-100">
+          <span className="block">
           <span className="mb-2 block font-bold text-emerald-800 dark:text-emerald-200">
             Kontakte prüfen
           </span>
@@ -1329,7 +1434,7 @@ export function MergedContactReviewChip({
             ))}
           </span>
           </span>
-        </span>
+        </AdaptiveChipPopover>
       )}
     </span>
   );
@@ -1566,12 +1671,14 @@ function Chip({
     >
       {trigger}
       {hasTooltip && hoverIntent.open && (
-        <span
-          className="pointer-events-auto absolute bottom-full left-0 z-[9999] block w-[min(20rem,calc(100vw-2rem))] pb-2"
+        <AdaptiveChipPopover
+          open={hoverIntent.open}
+          preferredWidth={320}
           onMouseEnter={hoverIntent.keepOpen}
           onMouseLeave={hoverIntent.scheduleClose}
+          className="pointer-events-auto rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl dark:border-slate-700 dark:bg-slate-950"
         >
-          <span className="block rounded-xl border border-blue-200 bg-white p-3 text-left font-normal shadow-xl dark:border-slate-700 dark:bg-slate-950">
+          <span className="block">
             {isStructuredContactTooltip ? (
               <>
                 <span className="block text-xs font-semibold text-blue-800 dark:text-blue-200">
@@ -1608,7 +1715,7 @@ function Chip({
               </span>
             )}
           </span>
-        </span>
+        </AdaptiveChipPopover>
       )}
     </span>
   );
@@ -2220,10 +2327,13 @@ export function CommunicationChips({
           >
             <ImageIcon className="w-3.5 h-3.5" />{!compact && (imgCount > 1 ? ` (${imgCount})` : '')}
             {cardImagePreviewUrls[0] && imagePreviewHover.open && (
-              <span
-                className="pointer-events-auto absolute bottom-full left-0 z-[10000] mb-2 block w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+              <AdaptiveChipPopover
+                open={imagePreviewHover.open}
+                preferredWidth={176}
+                maxHeight={240}
                 onMouseEnter={imagePreviewHover.keepOpen}
                 onMouseLeave={imagePreviewHover.scheduleClose}
+                className="pointer-events-auto rounded-xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
               >
                 <img
                   src={cardImagePreviewUrls[0]}
@@ -2234,7 +2344,7 @@ export function CommunicationChips({
                 <span className="mt-1 block text-left text-[10px] font-medium text-slate-600 dark:text-slate-300">
                   {imgCount > 1 ? `${imgCount} Bilder · anklicken zum Öffnen` : "Anklicken zum Öffnen"}
                 </span>
-              </span>
+              </AdaptiveChipPopover>
             )}
           </button>
         );
@@ -2332,10 +2442,12 @@ export function CommunicationChips({
           <Info className="h-4 w-4" />
           {!compact && "Info"}
           {infoHover.open && (
-            <span
-              className="pointer-events-auto absolute bottom-full left-0 z-[9999] mb-2 block max-h-[65vh] w-[min(25rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-left font-normal shadow-2xl dark:border-slate-700 dark:bg-slate-950"
+            <AdaptiveChipPopover
+              open={infoHover.open}
+              preferredWidth={400}
               onMouseEnter={infoHover.keepOpen}
               onMouseLeave={infoHover.scheduleClose}
+              className="pointer-events-auto rounded-xl border border-slate-200 bg-white p-3 text-left font-normal shadow-2xl dark:border-slate-700 dark:bg-slate-950"
             >
               <span className="block space-y-2">
               {structuredInfo.safety.length > 0 && (
@@ -2373,7 +2485,7 @@ export function CommunicationChips({
                 </span>
               )}
               </span>
-            </span>
+            </AdaptiveChipPopover>
           )}
         </button>
       )}

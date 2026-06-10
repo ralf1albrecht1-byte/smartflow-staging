@@ -7667,11 +7667,16 @@ const ViewportAwareOrderBadgeTooltipV17_95 = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const minimumPreferredSpace = 140;
+    const desiredHeight =
+      badge.key === "site_address" || badge.key === "special_notes_summary"
+        ? 400
+        : 320;
     const openBelow =
-      badge.key === "site_address"
-        ? availableAbove < 80 && availableBelow > availableAbove
-        : availableAbove < minimumPreferredSpace && availableBelow > availableAbove;
+      availableAbove >= desiredHeight
+        ? false
+        : availableBelow >= desiredHeight
+          ? true
+          : availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(560, available));
 
@@ -7965,10 +7970,13 @@ const ViewportAwareOrderServiceTooltip = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const minimumPreferredSpace = 140;
+    const desiredHeight = 320;
     const openBelow =
-      availableAbove < minimumPreferredSpace &&
-      availableBelow > availableAbove;
+      availableAbove >= desiredHeight
+        ? false
+        : availableBelow >= desiredHeight
+          ? true
+          : availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(560, available));
 
@@ -8125,10 +8133,13 @@ const ViewportAwareOrderRedTooltipV17_90L78 = ({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const minimumPreferredSpace = 140;
+    const desiredHeight = 320;
     const openBelow =
-      availableAbove < minimumPreferredSpace &&
-      availableBelow > availableAbove;
+      availableAbove >= desiredHeight
+        ? false
+        : availableBelow >= desiredHeight
+          ? true
+          : availableBelow > availableAbove;
     const available = openBelow ? availableBelow : availableAbove;
     const maxHeight = Math.max(1, Math.min(480, available));
 
@@ -14476,10 +14487,12 @@ export default function AuftraegePage() {
         ? Math.max(0, viewportHeight - rect.bottom - edge - gap)
         : viewportHeight - edge * 2;
       const desiredHeight = Math.min(560, Math.floor(viewportHeight * 0.68));
-      const minimumPreferredSpace = Math.min(desiredHeight, 140);
       const placeBelow = rect
-        ? availableAbove < minimumPreferredSpace &&
-          availableBelow > availableAbove
+        ? availableAbove >= desiredHeight
+          ? false
+          : availableBelow >= desiredHeight
+            ? true
+            : availableBelow > availableAbove
         : false;
       const availableHeight = placeBelow ? availableBelow : availableAbove;
       const maxHeight = Math.max(1, Math.min(desiredHeight, availableHeight || desiredHeight));
@@ -14890,10 +14903,15 @@ export default function AuftraegePage() {
                   ].includes(badge.key),
             );
             const rightSideBadges = amountReviewBadges;
-            const mobilePrimaryRightBadges = rightSideBadges.slice(0, 2);
+            const serviceReviewBadge =
+              rightSideBadges.find((badge) => badge.key === "service_review_summary") || null;
+            const otherRightSideBadges = rightSideBadges.filter(
+              (badge) => badge.key !== "service_review_summary",
+            );
+            const mobilePrimaryRightBadges = otherRightSideBadges.slice(0, 2);
             const mobileRightHiddenCount = Math.max(
               0,
-              rightSideBadges.length - mobilePrimaryRightBadges.length,
+              otherRightSideBadges.length - mobilePrimaryRightBadges.length,
             );
             // Mobile: customer/address-state chips belong in the card header near
             // customer number, not in the lower action icon row. On touch they
@@ -15251,8 +15269,12 @@ export default function AuftraegePage() {
                       ? toggleMobileTooltip(badge, "mobile_right", event)
                       : openOrderForBadgeOnDesktop(badge, event)
                   }
-                  className={`group relative inline-flex max-w-full shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
+                  className={`group relative inline-flex h-7 max-w-full shrink-0 items-center rounded-full px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${getStrongerCardBadgeClassName(badge.className)}`}
                 >
+                  {badge.key === "service_review_summary" &&
+                    !badge.label.trim().startsWith("⚠") && (
+                      <AlertTriangle className="mr-1 h-3 w-3 shrink-0" />
+                    )}
                   <span className="truncate">{badge.label}</span>
                   {renderMobileChipTooltip(badge, "mobile_right", "right")}
                 </button>
@@ -15478,8 +15500,21 @@ export default function AuftraegePage() {
                                 {mobileActionBadges.map((badge) =>
                                   renderInteractiveMobileActionBadge(badge),
                                 )}
-                                {rightSideBadges.map((badge) =>
+                                {otherRightSideBadges.map((badge) =>
                                   renderInteractiveMobileRightReviewBadge(badge),
+                                )}
+                                {serviceReviewBadge && (
+                                  <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
+                                    <span className="hidden lg:inline-flex">
+                                      {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
+                                    </span>
+                                    <span className="inline-flex lg:hidden">
+                                      {renderInteractiveMobileRightReviewBadge({
+                                        ...serviceReviewBadge,
+                                        label: `⚠ ${serviceReviewBadge.label.match(/\d+/)?.[0] || ""}`,
+                                      })}
+                                    </span>
+                                  </span>
                                 )}
                               </div>
                             </div>
@@ -15553,7 +15588,7 @@ export default function AuftraegePage() {
                           )}
                         </div>
 
-                        <div className="mt-1 flex items-center">
+                        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                           <select
                             onClick={(event) => event.stopPropagation()}
                             className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
@@ -15579,31 +15614,7 @@ export default function AuftraegePage() {
                               </option>
                             ))}
                           </select>
-                        </div>
 
-                        {mobileSystemBadges.length > 0 && (
-                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
-                            {mobileSystemBadges
-                              .slice(0, 3)
-                              .map((badge) =>
-                                renderInteractiveMobileTextBadge(
-                                  badge,
-                                  "mobile_system",
-                                  "left",
-                                ),
-                              )}
-                          </div>
-                        )}
-
-                        <ResponsiveOrderServicePreviewV17_95
-                          orderId={o.id}
-                          serviceNames={mobileOrderServiceNames}
-                          expanded={mobileOrderServicesExpanded}
-                          onToggle={() => toggleMobileServiceCard(o.id)}
-                          onOpenItems={() => openEdit(o, { focusSection: "items" })}
-                        />
-
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 overflow-visible">
                           {!hasMultipleMergedData && (
                             <div
                               className="inline-flex [&_svg]:h-[18px] [&_svg]:w-[18px]"
@@ -15630,11 +15641,39 @@ export default function AuftraegePage() {
                           {mobileActionBadges.map((badge) =>
                             renderInteractiveMobileActionBadge(badge),
                           )}
+
+                          {serviceReviewBadge && (
+                            <span className="ml-2 inline-flex border-l border-slate-200 pl-2 dark:border-slate-700">
+                              {renderInteractiveMobileRightReviewBadge(serviceReviewBadge)}
+                            </span>
+                          )}
                         </div>
+
+                        {mobileSystemBadges.length > 0 && (
+                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+                            {mobileSystemBadges
+                              .slice(0, 3)
+                              .map((badge) =>
+                                renderInteractiveMobileTextBadge(
+                                  badge,
+                                  "mobile_system",
+                                  "left",
+                                ),
+                              )}
+                          </div>
+                        )}
+
+                        <ResponsiveOrderServicePreviewV17_95
+                          orderId={o.id}
+                          serviceNames={mobileOrderServiceNames}
+                          expanded={mobileOrderServicesExpanded}
+                          onToggle={() => toggleMobileServiceCard(o.id)}
+                          onOpenItems={() => openEdit(o, { focusSection: "items" })}
+                        />
 
                         <div className="mt-2 flex flex-col gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                            {rightSideBadges.map((badge) =>
+                            {otherRightSideBadges.map((badge) =>
                               renderInteractiveMobileRightReviewBadge(badge),
                             )}
                           </div>
