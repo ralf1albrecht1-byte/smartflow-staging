@@ -3460,7 +3460,7 @@ export default function RechnungenPage() {
                               </div>
 
                               <div
-                                className="mt-3 cursor-pointer rounded-xl border bg-muted/20 p-3 transition-colors hover:bg-muted/35"
+                                className="mt-3 cursor-pointer rounded-xl border border-slate-300 bg-slate-100/90 p-3 transition-colors hover:bg-slate-200/70 dark:border-slate-600 dark:bg-slate-800/70 dark:hover:bg-slate-800"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   openEditInvoice(inv);

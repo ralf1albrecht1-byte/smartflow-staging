@@ -9268,7 +9268,7 @@ function ResponsiveOrderServicePreviewV17_95({
 
   return (
     <div
-      className="mt-2 cursor-pointer rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 transition-colors hover:bg-slate-100/80 dark:border-slate-700 dark:bg-slate-800/50 dark:hover:bg-slate-800"
+      className="mt-2 cursor-pointer rounded-xl border border-slate-300 bg-slate-100/90 px-3 py-2 transition-colors hover:bg-slate-200/70 dark:border-slate-600 dark:bg-slate-800/70 dark:hover:bg-slate-800"
       onClick={(event) => {
         event.stopPropagation();
         onOpenItems();
