@@ -31,12 +31,12 @@ import { TouchImageViewer } from "@/components/touch-image-viewer";
 import {
   CommunicationBlock,
   CommunicationChips,
-  MergedContactReviewChip,
   buildMergedContactReviewEntries,
   resolveCommunicationData,
   stripForwardedMessage,
   type CommunicationData,
 } from "@/components/communication-block";
+import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import { autoFillCustomerFromNotes } from "@/lib/extract-from-notes";
 import {

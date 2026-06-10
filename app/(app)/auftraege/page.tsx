@@ -43,9 +43,9 @@ import {
   CommunicationBlock,
   CommunicationChips,
   ContactActionChip,
-  MergedContactReviewChip,
   formatMergedContactReviewTooltip,
 } from "@/components/communication-block";
+import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import {
   mergeCustomerIntoForm,
