@@ -192,8 +192,6 @@ const statusColors: Record<string, string> = {
 };
 
 const offerStatuses = ["Entwurf", "Gesendet", "Angenommen", "Abgelehnt"];
-/** Statuses that are considered "active" — used for default list view */
-const ACTIVE_OFFER_STATUSES = ["Entwurf", "Gesendet"];
 
 const compactOfferValue = (value: unknown) =>
   String(value ?? "")
@@ -2806,7 +2804,7 @@ export default function AngebotePage() {
   const router = useRouter();
   const [offers, setOffers] = useState<Offer[]>([]);
   const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState("Aktiv");
+  const [statusFilter, setStatusFilter] = useState("Alle");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name" | "amount">(
     "newest",
   );
@@ -5149,8 +5147,7 @@ export default function AngebotePage() {
           value={statusFilter}
           onChange={(e: any) => setStatusFilter(e?.target?.value ?? "Alle")}
         >
-          <option value="Aktiv">Status: Aktiv</option>
-          <option value="Alle">Alle inkl. abgeschlossen</option>
+          <option value="Alle">Alle</option>
           <option value="Entwurf">Entwurf</option>
           <option value="Gesendet">Gesendet</option>
           <option value="Angenommen">Angenommen</option>
@@ -5172,16 +5169,7 @@ export default function AngebotePage() {
         {(() => {
           const filteredOffers = offers
             .filter((off: Offer) => {
-              if (
-                statusFilter === "Aktiv" &&
-                !ACTIVE_OFFER_STATUSES.includes(off.status)
-              )
-                return false;
-              if (
-                statusFilter !== "Aktiv" &&
-                statusFilter !== "Alle" &&
-                off.status !== statusFilter
-              )
+              if (statusFilter !== "Alle" && off.status !== statusFilter)
                 return false;
               const s = searchText?.toLowerCase() ?? "";
               if (!s) return true;

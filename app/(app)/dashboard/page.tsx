@@ -50,7 +50,7 @@ interface DashboardData {
     currentPeriodEnd: string | null;
   };
   activeOrders: number;
-  activeOffers: number;
+  totalOffers: number;
   totalInvoices: number;
   needsReview: number;
   review: ReviewData;
@@ -249,8 +249,9 @@ export default function DashboardPage() {
           ...dashboard,
           activeOrders:
             visibleOrders?.length ?? Number(dashboard?.activeOrders ?? 0),
-          activeOffers:
-            visibleOffers?.length ?? Number(dashboard?.activeOffers ?? 0),
+          totalOffers:
+            visibleOffers?.length ??
+            Number(dashboard?.totalOffers ?? dashboard?.activeOffers ?? 0),
           totalInvoices:
             visibleInvoices?.length ?? Number(dashboard?.totalInvoices ?? 0),
           needsReview: reviewTotal,
@@ -309,7 +310,7 @@ export default function DashboardPage() {
     },
     {
       label: "Angebote",
-      value: data?.activeOffers ?? 0,
+      value: data?.totalOffers ?? 0,
       icon: FileCheck,
       href: "/angebote",
       color: "text-blue-600 bg-blue-50 dark:bg-blue-900/20",
