@@ -118,7 +118,11 @@ interface Invoice {
     sitePlz?: string | null;
     siteCity?: string | null;
     siteNote?: string | null;
-    customer?: { name?: string | null; phone?: string | null; email?: string | null } | null;
+    customer?: {
+      name?: string | null;
+      phone?: string | null;
+      email?: string | null;
+    } | null;
     workSites?: Array<{
       id?: string | null;
       siteName?: string | null;
@@ -188,6 +192,139 @@ const compactInvoiceValue = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+function InvoiceWhatsAppIcon({
+  className = "h-4 w-4",
+}: {
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5.2 19.1 6 15.9a7.4 7.4 0 1 1 2.8 2.7z" />
+      <path d="M9.1 8.7c.2-.5.4-.5.7-.5h.5c.2 0 .4.1.5.4l.7 1.6c.1.3.1.5-.1.7l-.4.5c.6 1.1 1.4 1.9 2.5 2.5l.5-.4c.2-.2.5-.2.7-.1l1.6.7c.3.1.4.3.4.5v.5c0 .3 0 .5-.5.7-.6.3-1.4.4-2.5 0-2.4-.8-4.4-2.8-5.2-5.2-.4-1.1-.3-1.9 0-2.5z" />
+    </svg>
+  );
+}
+
+function InvoicePdfDocumentIcon({
+  withDownload = false,
+}: {
+  withDownload?: boolean;
+}) {
+  return (
+    <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
+      <FileText className="h-5 w-5" strokeWidth={1.9} />
+      <span className="absolute inset-x-[3px] top-[7px] rounded-[2px] bg-current px-[1px] py-[0.5px] text-center text-[5px] font-black leading-none text-white dark:text-slate-950">
+        PDF
+      </span>
+      {withDownload && (
+        <span className="absolute -bottom-1 -right-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-blue-200 bg-white text-blue-700 shadow-sm dark:border-blue-700 dark:bg-slate-950 dark:text-blue-200">
+          <Download className="h-2.5 w-2.5" strokeWidth={2.4} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function InvoicePdfWhatsAppIcon() {
+  return (
+    <span className="relative inline-flex h-5 w-6 shrink-0 items-center justify-start">
+      <InvoicePdfDocumentIcon />
+      <span className="absolute -bottom-1 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-200 bg-emerald-500 text-white shadow-sm dark:border-emerald-700">
+        <InvoiceWhatsAppIcon className="h-3 w-3" />
+      </span>
+    </span>
+  );
+}
+
+type InvoiceMergedAppointmentEntry = ReturnType<
+  typeof collectMergedAppointmentEntries
+>[number];
+
+const normalizeInvoiceAppointmentDisplayKey = (value: unknown) =>
+  compactInvoiceValue(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getInvoiceAppointmentDayKey = (value: unknown): string => {
+  const label = compactInvoiceValue(value);
+  const dateMatch = label.match(
+    /^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?/,
+  );
+  if (dateMatch) {
+    const day = dateMatch[1].padStart(2, "0");
+    const month = dateMatch[2].padStart(2, "0");
+    const year = dateMatch[3] || "";
+    return `${day}.${month}${year ? `.${year}` : ""}`;
+  }
+  const relativeMatch = label.match(
+    /^(heute|morgen|übermorgen|uebermorgen|(?:(?:nächsten?|naechsten?|kommenden?|diesen?)\s+)?(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))/i,
+  );
+  return normalizeInvoiceAppointmentDisplayKey(relativeMatch?.[1] || "");
+};
+
+const compactInvoiceAppointmentEntriesForDisplay = (
+  entries: InvoiceMergedAppointmentEntry[],
+): InvoiceMergedAppointmentEntry[] => {
+  const result: InvoiceMergedAppointmentEntry[] = [];
+
+  for (const entry of entries) {
+    const siteKey = normalizeInvoiceAppointmentDisplayKey(entry.site);
+    const labelKey = normalizeInvoiceAppointmentDisplayKey(entry.label);
+    if (!labelKey) continue;
+
+    const exactIndex = result.findIndex(
+      (current) =>
+        normalizeInvoiceAppointmentDisplayKey(current.site) === siteKey &&
+        normalizeInvoiceAppointmentDisplayKey(current.label) === labelKey,
+    );
+    if (exactIndex >= 0) {
+      if (
+        String(entry.source || "").length >
+        String(result[exactIndex].source || "").length
+      ) {
+        result[exactIndex] = entry;
+      }
+      continue;
+    }
+
+    const dayKey = getInvoiceAppointmentDayKey(entry.label);
+    const hasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(entry.label);
+    if (dayKey) {
+      const sameDaySiteIndex = result.findIndex(
+        (current) =>
+          normalizeInvoiceAppointmentDisplayKey(current.site) === siteKey &&
+          getInvoiceAppointmentDayKey(current.label) === dayKey,
+      );
+      if (sameDaySiteIndex >= 0) {
+        const currentHasTime = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(
+          result[sameDaySiteIndex].label,
+        );
+        if (currentHasTime && !hasTime) continue;
+        if (!currentHasTime && hasTime) {
+          result[sameDaySiteIndex] = entry;
+          continue;
+        }
+      }
+    }
+
+    result.push(entry);
+  }
+
+  return result;
+};
 
 // V17.90L168: Die vorhandenen Trennlinien bleiben feste Layoutgrenzen.
 // Nur ein reines Datum wird im Terminchip ausgeschrieben; jeder Zusatz zeigt nur das Kalendersymbol.
@@ -196,7 +333,9 @@ type AdaptiveAppointmentLabels = {
   dateOnly: string | null;
 };
 
-const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabels => {
+const buildAdaptiveAppointmentLabels = (
+  value: unknown,
+): AdaptiveAppointmentLabels => {
   const full = compactInvoiceValue(value) || "Termin klären";
   const dateMatch = full.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
   if (!dateMatch) return { full, dateOnly: null };
@@ -208,7 +347,6 @@ const buildAdaptiveAppointmentLabels = (value: unknown): AdaptiveAppointmentLabe
     dateOnly: year ? `${day}.${month}.${year}` : `${day}.${month}.`,
   };
 };
-
 
 // V17.90L169: Der Termin im Popover wird in Datum, Uhrzeit und Zusatz gegliedert.
 type StructuredInvoiceAppointmentTooltipV17_90L169 = {
@@ -223,13 +361,17 @@ const parseInvoiceAppointmentTooltipV17_90L169 = (
 ): StructuredInvoiceAppointmentTooltipV17_90L169 => {
   const fallback = compactInvoiceValue(value) || "Termin klären";
   const source = fallback.replace(/\n+/g, " · ").replace(/\s+/g, " ").trim();
-  const dateMatch = source.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/);
+  const dateMatch = source.match(
+    /\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\.?\b/,
+  );
   const date = dateMatch
     ? `${dateMatch[1].padStart(2, "0")}.${dateMatch[2].padStart(2, "0")}.${
         dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
       }`
     : "";
-  const sourceWithoutDate = dateMatch ? source.replace(dateMatch[0], " ") : source;
+  const sourceWithoutDate = dateMatch
+    ? source.replace(dateMatch[0], " ")
+    : source;
   const clockMatches = Array.from(
     sourceWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
   ).map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
@@ -339,7 +481,10 @@ const cleanInvoiceCustomerMessage = (value?: string | null) =>
       const trimmed = line.trim();
       if (!trimmed) return true;
       if (/^\s*\[META\]/i.test(trimmed)) return false;
-      if (/^\s*\[(?:Titel|Title|Priorität|Prioritaet|Priority)\s*:/i.test(trimmed)) return false;
+      if (
+        /^\s*\[(?:Titel|Title|Priorität|Prioritaet|Priority)\s*:/i.test(trimmed)
+      )
+        return false;
       return true;
     })
     .join("\n")
@@ -350,7 +495,9 @@ const isPrimaryInvoiceInformationLine = (value?: string | null) => {
   const text = normalizeInvoiceServiceName(value);
   if (!text) return false;
   return (
-    /\b(?:termin|datum|uhr|kontakt|telefon|tel|sms|whatsapp|mail|email|anrufen|melden|arbeitsbeginn|ankunft|vor ort)\b/.test(text) ||
+    /\b(?:termin|datum|uhr|kontakt|telefon|tel|sms|whatsapp|mail|email|anrufen|melden|arbeitsbeginn|ankunft|vor ort)\b/.test(
+      text,
+    ) ||
     /\b\d{1,2}[:.]\d{2}\b/.test(text) ||
     /\b(?:0|\+41)[0-9\s()./-]{7,}\b/.test(text)
   );
@@ -416,10 +563,14 @@ function collectInvoiceExecutionSites(source: {
   (source.orders || []).forEach((order) => {
     const workSites = Array.isArray(order?.workSites)
       ? [...order.workSites].sort(
-          (a, b) => Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) || Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+          (a, b) =>
+            Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+            Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
         )
       : [];
-    workSites.forEach((site) => add({ ...site, sourceOrderId: site.sourceOrderId || order.id }));
+    workSites.forEach((site) =>
+      add({ ...site, sourceOrderId: site.sourceOrderId || order.id }),
+    );
     if (workSites.length === 0 || order?.siteAddressDifferent) {
       add({
         siteName: order?.siteName,
@@ -434,7 +585,6 @@ function collectInvoiceExecutionSites(source: {
   return sites;
 }
 
-
 type InvoiceItemGroup = {
   key: string;
   site: InvoiceExecutionSite | null;
@@ -445,7 +595,7 @@ type InvoiceItemGroup = {
 const invoiceSiteKey = (site: InvoiceExecutionSite) =>
   [site.siteName, site.siteAddress, site.sitePlz, site.siteCity, site.siteNote]
     .map((value) => compactInvoiceValue(value).toLowerCase())
-    .join('|');
+    .join("|");
 
 function groupInvoiceItemsByExecutionSite(
   sourceItems: InvoiceItem[],
@@ -459,7 +609,8 @@ function groupInvoiceItemsByExecutionSite(
         ? sites.find((site) => site.sourceOrderId === item.sourceOrderId)
         : undefined) ||
       (sites.length === 1 ? sites[0] : null);
-    const site = matchedSite ||
+    const site =
+      matchedSite ||
       (item.siteName || item.siteAddress || item.sitePlz || item.siteCity
         ? {
             siteName: item.siteName || null,
@@ -470,7 +621,9 @@ function groupInvoiceItemsByExecutionSite(
             sourceOrderId: item.sourceOrderId || null,
           }
         : null);
-    const key = site ? `${site.sourceOrderId || ''}|${invoiceSiteKey(site)}` : 'general';
+    const key = site
+      ? `${site.sourceOrderId || ""}|${invoiceSiteKey(site)}`
+      : "general";
     const lineTotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
     const group = groups.get(key) || { key, site, entries: [], subtotal: 0 };
     group.entries.push({ item, index });
@@ -496,7 +649,13 @@ function buildInvoiceGroupReviewRows(
         normalizeInvoiceServiceName(name),
     );
     const reasons: string[] = [];
-    if (!name || quantity <= 0 || unitPrice <= 0 || !unit || /(?:prüfen|pruefen|prufen)/i.test(unit))
+    if (
+      !name ||
+      quantity <= 0 ||
+      unitPrice <= 0 ||
+      !unit ||
+      /(?:prüfen|pruefen|prufen)/i.test(unit)
+    )
       reasons.push("Preis, Menge oder Einheit prüfen");
     if (!matched) reasons.push("nicht im Leistungskatalog");
     if (matched) {
@@ -505,13 +664,18 @@ function buildInvoiceGroupReviewRows(
       if (catalogUnit && catalogUnit !== unit)
         reasons.push(`Einheit: ${unit || "–"} statt ${catalogUnit}`);
       if (Math.abs(catalogPrice - unitPrice) >= 0.001)
-        reasons.push(`Preis: ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`);
+        reasons.push(
+          `Preis: ${formatCurrency(unitPrice, currency)} statt ${formatCurrency(catalogPrice, currency)}`,
+        );
     }
-    return reasons.length > 0 ? [`${name}
-${reasons.join(" · ")}`] : [];
+    return reasons.length > 0
+      ? [
+          `${name}
+${reasons.join(" · ")}`,
+        ]
+      : [];
   });
 }
-
 
 type InvoiceServiceReviewEntry = {
   item: InvoiceItem;
@@ -608,7 +772,8 @@ function buildInvoiceServiceDisplayEntriesV17_90L136(
     return {
       item,
       description,
-      category: sameUnit && samePrice ? ("catalog" as const) : ("deviation" as const),
+      category:
+        sameUnit && samePrice ? ("catalog" as const) : ("deviation" as const),
       details,
     };
   });
@@ -641,7 +806,8 @@ function buildInvoiceServiceReviewEntriesV17_90L135G(
   return (items || []).flatMap<InvoiceServiceReviewEntry>((item) => {
     const quantity = Number(item?.quantity ?? 0);
     const unitPrice = Number(item?.unitPrice ?? 0);
-    const description = compactInvoiceValue(item?.description) || "Unbenannte Leistung";
+    const description =
+      compactInvoiceValue(item?.description) || "Unbenannte Leistung";
     const unit = compactInvoiceValue(item?.unit);
     const matchedService = (services || []).find(
       (service: any) =>
@@ -659,39 +825,47 @@ function buildInvoiceServiceReviewEntriesV17_90L135G(
     ].filter(Boolean);
 
     if (missingReasons.length > 0) {
-      return [{
-        item,
-        description,
-        category: "blocker" as const,
-        details: [...missingReasons, `Aktuell: ${currentCalculation}`],
-      }];
+      return [
+        {
+          item,
+          description,
+          category: "blocker" as const,
+          details: [...missingReasons, `Aktuell: ${currentCalculation}`],
+        },
+      ];
     }
     if (!matchedService) {
-      return [{
-        item,
-        description,
-        category: "missing" as const,
-        details: [`Aktuell: ${currentCalculation}`],
-      }];
+      return [
+        {
+          item,
+          description,
+          category: "missing" as const,
+          details: [`Aktuell: ${currentCalculation}`],
+        },
+      ];
     }
     const catalogUnit = compactInvoiceValue(matchedService?.unit);
     const catalogPrice = Number(matchedService?.defaultPrice || 0);
     const sameUnit = catalogUnit === unit;
     const samePrice = Math.abs(catalogPrice - unitPrice) < 0.001;
     if (sameUnit && samePrice) return [];
-    return [{
-      item,
-      description,
-      category: "deviation" as const,
-      details: [
-        `Aktuell: ${currentCalculation}`,
-        `Katalogpreis: ${formatCurrency(catalogPrice, currency)} / ${catalogUnit || "–"}`,
-        ...[
-          !sameUnit ? `Einheit weicht ab: ${unit || "–"} statt ${catalogUnit || "–"}` : "",
-          !samePrice ? "Preis weicht vom Katalog ab." : "",
-        ].filter(Boolean),
-      ],
-    }];
+    return [
+      {
+        item,
+        description,
+        category: "deviation" as const,
+        details: [
+          `Aktuell: ${currentCalculation}`,
+          `Katalogpreis: ${formatCurrency(catalogPrice, currency)} / ${catalogUnit || "–"}`,
+          ...[
+            !sameUnit
+              ? `Einheit weicht ab: ${unit || "–"} statt ${catalogUnit || "–"}`
+              : "",
+            !samePrice ? "Preis weicht vom Katalog ab." : "",
+          ].filter(Boolean),
+        ],
+      },
+    ];
   });
 }
 
@@ -719,12 +893,14 @@ function getInvoiceMergedCount(invoice: Invoice): number {
   const originCount = Math.max(
     0,
     ...(invoice.orders || []).map((order) =>
-      Array.isArray(order.originOrderIds) ? order.originOrderIds.filter(Boolean).length : 0,
+      Array.isArray(order.originOrderIds)
+        ? order.originOrderIds.filter(Boolean).length
+        : 0,
     ),
   );
   const hasMergeReason = (invoice.orders || []).some((order) =>
     (order.reviewReasons || []).some((reason) =>
-      ['manual_order_merge', 'double_merge'].includes(String(reason || '')),
+      ["manual_order_merge", "double_merge"].includes(String(reason || "")),
     ),
   );
   return Math.max(orderCount, originCount, hasMergeReason ? 2 : 0);
@@ -771,7 +947,11 @@ function toInvoiceDateInputValue(value?: string | null): string {
 function addDaysToInvoiceDate(value: string, days: number): string {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return "";
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+  );
   if (Number.isNaN(date.getTime())) return "";
   date.setDate(date.getDate() + days);
   const year = date.getFullYear();
@@ -794,7 +974,9 @@ type InvoiceAppointmentEntryV17_90L177R = {
   source: string;
 };
 
-function normalizeInvoiceAppointmentKeyV17_90L177R(value?: string | null): string {
+function normalizeInvoiceAppointmentKeyV17_90L177R(
+  value?: string | null,
+): string {
   return compactInvoiceValue(value)
     .toLowerCase()
     .normalize("NFD")
@@ -804,9 +986,7 @@ function normalizeInvoiceAppointmentKeyV17_90L177R(value?: string | null): strin
     .trim();
 }
 
-function parseInvoiceAppointmentLineV17_90L177R(
-  value?: string | null,
-): string {
+function parseInvoiceAppointmentLineV17_90L177R(value?: string | null): string {
   const line = compactInvoiceValue(
     String(value || "").replace(/\[(?:HINWEIS|NOTE)\]\s*/gi, ""),
   );
@@ -1202,30 +1382,32 @@ function InvoiceViewportTooltip({
         position &&
         typeof document !== "undefined" &&
         createPortal(
-        <span
-          role="tooltip"
-          onPointerEnter={() => { clearHideTimer(); clearAutoCloseTimer(); }}
-          onPointerDown={clearAutoCloseTimer}
-          onPointerUp={scheduleAutoClose}
-          onScroll={clearAutoCloseTimer}
-          onPointerLeave={scheduleHide}
-          style={{
-            left: position.left,
-            width: position.width,
-            maxHeight: position.maxHeight,
-            top: position.top,
-            bottom: position.bottom,
-          }}
-          className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-        >
-          {children}
-        </span>,
+          <span
+            role="tooltip"
+            onPointerEnter={() => {
+              clearHideTimer();
+              clearAutoCloseTimer();
+            }}
+            onPointerDown={clearAutoCloseTimer}
+            onPointerUp={scheduleAutoClose}
+            onScroll={clearAutoCloseTimer}
+            onPointerLeave={scheduleHide}
+            style={{
+              left: position.left,
+              width: position.width,
+              maxHeight: position.maxHeight,
+              top: position.top,
+              bottom: position.bottom,
+            }}
+            className="pointer-events-auto fixed z-[2147483000] isolate opacity-100 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-left text-[11px] font-medium leading-snug text-slate-800 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          >
+            {children}
+          </span>,
           document.body,
         )}
     </>
   );
 }
-
 
 function InvoiceAppointmentTooltipContentV17_90L169({
   text,
@@ -1276,8 +1458,14 @@ function InvoiceAppointmentTooltipContentV17_90L169({
                   {index + 1}. {entry.site}
                 </span>
                 <span className="mt-1.5 block text-[12px] font-semibold leading-relaxed">
-                  {entry.appointment}
+                  {[parts.date, parts.time].filter(Boolean).join(" · ") ||
+                    parts.fallback}
                 </span>
+                {parts.note && (
+                  <span className="mt-1 block text-[11px] font-medium leading-relaxed text-slate-600 dark:text-slate-300">
+                    {parts.note}
+                  </span>
+                )}
               </span>
             );
           })}
@@ -1336,7 +1524,9 @@ function InvoiceServiceReviewSectionsV17_90L135G({
   return (
     <span className="block text-left font-normal">
       {sections.map((section, sectionIndex) => {
-        const sectionItems = entries.filter((entry) => entry.category === section.key);
+        const sectionItems = entries.filter(
+          (entry) => entry.category === section.key,
+        );
         if (sectionItems.length === 0) return null;
         const hasPreviousVisibleSection = sections
           .slice(0, sectionIndex)
@@ -1428,9 +1618,7 @@ function InvoiceServiceDisplaySectionsV17_90L136({
             {sectionItems.map((entry, itemIndex) => (
               <span
                 key={`${entry.description}-${itemIndex}`}
-                className={`block ${
-                  itemIndex > 0 ? "mt-2" : ""
-                }`}
+                className={`block ${itemIndex > 0 ? "mt-2" : ""}`}
               >
                 <span className="block break-words font-bold text-foreground">
                   * {entry.description}
@@ -1532,11 +1720,10 @@ function InvoiceServiceDisplayTooltipContentV17_90L136({
                 >
                   <span className="min-w-0">
                     <span className="block font-bold text-slate-950 dark:text-slate-50">
-                      {index + 1}. {
-                        group.site?.siteName ||
+                      {index + 1}.{" "}
+                      {group.site?.siteName ||
                         group.site?.siteAddress ||
-                        `Ausführungsort ${index + 1}`
-                      }
+                        `Ausführungsort ${index + 1}`}
                     </span>
                     <span className="mt-0.5 block text-[10px] text-slate-600 dark:text-slate-300">
                       {address}
@@ -1586,10 +1773,15 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
         <span className="block space-y-2">
           {siteGroups.map((group, index) => {
             const active = activeSiteKey === group.key;
-            const address = [
-              group.site?.siteAddress,
-              [group.site?.sitePlz, group.site?.siteCity].filter(Boolean).join(" "),
-            ].filter(Boolean).join(" · ") || "Adresse nicht angegeben";
+            const address =
+              [
+                group.site?.siteAddress,
+                [group.site?.sitePlz, group.site?.siteCity]
+                  .filter(Boolean)
+                  .join(" "),
+              ]
+                .filter(Boolean)
+                .join(" · ") || "Adresse nicht angegeben";
             return (
               <span
                 key={group.key}
@@ -1600,13 +1792,17 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  setActiveSiteKey((current) => current === group.key ? null : group.key);
+                  setActiveSiteKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
                 }}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" && event.key !== " ") return;
                   event.preventDefault();
                   event.stopPropagation();
-                  setActiveSiteKey((current) => current === group.key ? null : group.key);
+                  setActiveSiteKey((current) =>
+                    current === group.key ? null : group.key,
+                  );
                 }}
                 className={`block cursor-pointer overflow-hidden rounded-lg border bg-white outline-none dark:bg-slate-900 ${
                   active
@@ -1614,14 +1810,19 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
                     : "border-slate-200 hover:border-cyan-200 dark:border-slate-700"
                 }`}
               >
-                <span className={`flex items-start justify-between gap-3 p-2 ${
-                  active
-                    ? "bg-cyan-50 dark:bg-cyan-950/30"
-                    : "bg-slate-50 hover:bg-cyan-50/60 dark:bg-slate-900"
-                }`}>
+                <span
+                  className={`flex items-start justify-between gap-3 p-2 ${
+                    active
+                      ? "bg-cyan-50 dark:bg-cyan-950/30"
+                      : "bg-slate-50 hover:bg-cyan-50/60 dark:bg-slate-900"
+                  }`}
+                >
                   <span className="min-w-0">
                     <span className="block font-bold text-slate-950 dark:text-slate-50">
-                      {index + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${index + 1}`}
+                      {index + 1}.{" "}
+                      {group.site?.siteName ||
+                        group.site?.siteAddress ||
+                        `Ausführungsort ${index + 1}`}
                     </span>
                     <span className="mt-0.5 block text-[10px] text-slate-600 dark:text-slate-300">
                       {address}
@@ -1633,7 +1834,9 @@ function InvoiceServiceReviewTooltipContentV17_90L135G({
                 </span>
                 {active && (
                   <span className="block border-t border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900/60 dark:bg-amber-950/15">
-                    <InvoiceServiceReviewSectionsV17_90L135G entries={group.entries} />
+                    <InvoiceServiceReviewSectionsV17_90L135G
+                      entries={group.entries}
+                    />
                   </span>
                 )}
               </span>
@@ -1693,14 +1896,15 @@ function InvoiceMobileServiceReviewSheetV17_90L174({
             <div className="space-y-2">
               {state.siteGroups.map((group, groupIndex) => {
                 const active = activeSiteKey === group.key;
-                const address = [
-                  group.site?.siteAddress,
-                  [group.site?.sitePlz, group.site?.siteCity]
+                const address =
+                  [
+                    group.site?.siteAddress,
+                    [group.site?.sitePlz, group.site?.siteCity]
+                      .filter(Boolean)
+                      .join(" "),
+                  ]
                     .filter(Boolean)
-                    .join(" "),
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || "Adresse nicht angegeben";
+                    .join(" · ") || "Adresse nicht angegeben";
                 return (
                   <div
                     key={`invoice_mobile_group_${group.key}`}
@@ -1725,7 +1929,10 @@ function InvoiceMobileServiceReviewSheetV17_90L174({
                     >
                       <span className="min-w-0">
                         <span className="block break-words font-bold text-slate-950 dark:text-slate-50">
-                          {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                          {groupIndex + 1}.{" "}
+                          {group.site?.siteName ||
+                            group.site?.siteAddress ||
+                            `Ausführungsort ${groupIndex + 1}`}
                         </span>
                         <span className="mt-0.5 block break-words text-[11px] text-slate-600 dark:text-slate-300">
                           {address}
@@ -1905,7 +2112,8 @@ export default function RechnungenPage() {
   const [loadError, setLoadError] = useState<string[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
-  const [editingInvoiceCustomer, setEditingInvoiceCustomer] = useState<Customer | null>(null);
+  const [editingInvoiceCustomer, setEditingInvoiceCustomer] =
+    useState<Customer | null>(null);
   const initialInvoiceDate = getTodayInvoiceDateInputValue();
   const [defaultPaymentDays, setDefaultPaymentDays] = useState(14);
   const [form, setForm] = useState({
@@ -1934,18 +2142,31 @@ export default function RechnungenPage() {
   });
 
   const [items, setItems] = useState<InvoiceItem[]>([getEmptyItem()]);
-  const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(null);
-  const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<number | null>(null);
+  const [expandedItemIndex, setExpandedItemIndex] = useState<number | null>(
+    null,
+  );
+  const [serviceActionMenuIndex, setServiceActionMenuIndex] = useState<
+    number | null
+  >(null);
   const [editingExecutionAddress, setEditingExecutionAddress] = useState(false);
   const [executionAddressEditSnapshot, setExecutionAddressEditSnapshot] =
     useState("");
-  const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<Set<string>>(new Set());
-  const [newInvoiceItemSiteKey, setNewInvoiceItemSiteKey] = useState<string>("");
-  const [expandedInvoiceCardIds, setExpandedInvoiceCardIds] = useState<Set<string>>(new Set());
-  const [invoiceCardExpansionRestored, setInvoiceCardExpansionRestored] = useState(false);
-  const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] = useState(false);
-  const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] = useState<Set<string>>(new Set());
-  const [invoiceServiceOverviewOpen, setInvoiceServiceOverviewOpen] = useState(false);
+  const [expandedInvoiceSiteKeys, setExpandedInvoiceSiteKeys] = useState<
+    Set<string>
+  >(new Set());
+  const [newInvoiceItemSiteKey, setNewInvoiceItemSiteKey] =
+    useState<string>("");
+  const [expandedInvoiceCardIds, setExpandedInvoiceCardIds] = useState<
+    Set<string>
+  >(new Set());
+  const [invoiceCardExpansionRestored, setInvoiceCardExpansionRestored] =
+    useState(false);
+  const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] =
+    useState(false);
+  const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] =
+    useState<Set<string>>(new Set());
+  const [invoiceServiceOverviewOpen, setInvoiceServiceOverviewOpen] =
+    useState(false);
   const [activeInvoiceServiceSheet, setActiveInvoiceServiceSheet] =
     useState<InvoiceMobileServiceSheetStateV17_90L174 | null>(null);
   const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
@@ -1992,7 +2213,9 @@ export default function RechnungenPage() {
     setInvoiceCardInitialStateApplied(restored);
     setInvoiceCardExpansionRestored(true);
   }, []);
-  const [editingInvoiceSiteKey, setEditingInvoiceSiteKey] = useState<string | null>(null);
+  const [editingInvoiceSiteKey, setEditingInvoiceSiteKey] = useState<
+    string | null
+  >(null);
   const [newInvoiceExecutionSite, setNewInvoiceExecutionSite] =
     useState<InvoiceExecutionSite | null>(null);
   const [saving, setSaving] = useState(false);
@@ -2294,10 +2517,9 @@ export default function RechnungenPage() {
       setLoading(true);
       setLoadError(null);
     }
-    const paymentTermsPromise = fetch(
-      "/api/settings/invoice-payment-terms",
-      { cache: "no-store" },
-    )
+    const paymentTermsPromise = fetch("/api/settings/invoice-payment-terms", {
+      cache: "no-store",
+    })
       .then(async (response) =>
         response.ok ? await response.json() : { paymentDays: 14 },
       )
@@ -2768,7 +2990,9 @@ export default function RechnungenPage() {
       setEditingExecutionAddress(false);
       return;
     }
-    setNewInvoiceExecutionSite((current) => current || getEmptyInvoiceExecutionSite());
+    setNewInvoiceExecutionSite(
+      (current) => current || getEmptyInvoiceExecutionSite(),
+    );
     setEditingExecutionAddress(true);
   };
 
@@ -2809,8 +3033,8 @@ export default function RechnungenPage() {
       ...current,
     ]);
     if (requestedKey)
-      setExpandedInvoiceSiteKeys((current) =>
-        new Set([...current, requestedKey]),
+      setExpandedInvoiceSiteKeys(
+        (current) => new Set([...current, requestedKey]),
       );
     setExpandedItemIndex(0);
     setServiceActionMenuIndex(null);
@@ -2837,7 +3061,11 @@ export default function RechnungenPage() {
     }
     setItems(items.filter((_: any, idx: number) => idx !== i));
     setExpandedItemIndex((current) =>
-      current === i ? null : current != null && current > i ? current - 1 : current,
+      current === i
+        ? null
+        : current != null && current > i
+          ? current - 1
+          : current,
     );
     setServiceActionMenuIndex(null);
   };
@@ -2997,8 +3225,8 @@ export default function RechnungenPage() {
       const unfinishedKey = invoiceGroupKeyForSite(unfinishedSite);
       setEditingInvoiceSiteKey(unfinishedKey);
       setNewInvoiceItemSiteKey(unfinishedKey);
-      setExpandedInvoiceSiteKeys((current) =>
-        new Set([...current, unfinishedKey]),
+      setExpandedInvoiceSiteKeys(
+        (current) => new Set([...current, unfinishedKey]),
       );
       toast.info("Leeren Arbeitsort zuerst ausfüllen oder löschen.");
       return;
@@ -3018,7 +3246,10 @@ export default function RechnungenPage() {
     setExpandedInvoiceSiteKeys((current) => new Set([...current, key]));
     setExpandedItemIndex(0);
     requestAnimationFrame(() =>
-      serviceItemsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      serviceItemsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      }),
     );
   };
 
@@ -3069,8 +3300,8 @@ export default function RechnungenPage() {
     const hasRealItems = group.entries.some(({ item }) =>
       Boolean(
         compactInvoiceValue(item.description) ||
-          Number(item.quantity || 0) > 0 ||
-          Number(item.unitPrice || 0) > 0,
+        Number(item.quantity || 0) > 0 ||
+        Number(item.unitPrice || 0) > 0,
       ),
     );
     if (hasRealItems) {
@@ -3152,9 +3383,7 @@ export default function RechnungenPage() {
             type="button"
             size="sm"
             variant="outline"
-            onClick={() =>
-              setInvoiceServiceOverviewOpen((current) => !current)
-            }
+            onClick={() => setInvoiceServiceOverviewOpen((current) => !current)}
             className="h-7 w-full px-2 text-[11px] sm:w-auto"
           >
             {invoiceServiceOverviewOpen ? "Einklappen" : "Anzeigen"}
@@ -3278,9 +3507,15 @@ export default function RechnungenPage() {
                   <th className="w-12 px-2 py-1.5 font-semibold">Nr.</th>
                   <th className="px-2 py-1.5 font-semibold">Leistung</th>
                   <th className="w-32 px-2 py-1.5 font-semibold">Einheit</th>
-                  <th className="w-20 px-2 py-1.5 text-right font-semibold">Menge</th>
-                  <th className="w-32 px-2 py-1.5 text-right font-semibold">Einzelpreis</th>
-                  <th className="w-32 px-2 py-1.5 text-right font-semibold">Summe</th>
+                  <th className="w-20 px-2 py-1.5 text-right font-semibold">
+                    Menge
+                  </th>
+                  <th className="w-32 px-2 py-1.5 text-right font-semibold">
+                    Einzelpreis
+                  </th>
+                  <th className="w-32 px-2 py-1.5 text-right font-semibold">
+                    Summe
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -3373,7 +3608,9 @@ export default function RechnungenPage() {
       return false;
     }
     if (form.dueDate < form.invoiceDate) {
-      toast.error("Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen");
+      toast.error(
+        "Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen",
+      );
       return false;
     }
     setSaving(true);
@@ -3381,12 +3618,16 @@ export default function RechnungenPage() {
       const itemsForCreate = newInvoiceExecutionSite
         ? items.map((item) => ({
             ...item,
-            siteName: compactInvoiceValue(newInvoiceExecutionSite.siteName) || null,
+            siteName:
+              compactInvoiceValue(newInvoiceExecutionSite.siteName) || null,
             siteAddress:
               compactInvoiceValue(newInvoiceExecutionSite.siteAddress) || null,
-            sitePlz: compactInvoiceValue(newInvoiceExecutionSite.sitePlz) || null,
-            siteCity: compactInvoiceValue(newInvoiceExecutionSite.siteCity) || null,
-            siteNote: compactInvoiceValue(newInvoiceExecutionSite.siteNote) || null,
+            sitePlz:
+              compactInvoiceValue(newInvoiceExecutionSite.sitePlz) || null,
+            siteCity:
+              compactInvoiceValue(newInvoiceExecutionSite.siteCity) || null,
+            siteNote:
+              compactInvoiceValue(newInvoiceExecutionSite.siteNote) || null,
           }))
         : items;
       const res = await fetch("/api/invoices", {
@@ -3424,7 +3665,11 @@ export default function RechnungenPage() {
           });
         } else if (createdInvoice?.id) {
           setEditingInvoice(createdInvoice);
-          setItems(Array.isArray(createdInvoice.items) ? createdInvoice.items : itemsForCreate);
+          setItems(
+            Array.isArray(createdInvoice.items)
+              ? createdInvoice.items
+              : itemsForCreate,
+          );
           setExecutionAddressEditSnapshot(
             serializeInvoiceExecutionSiteForEdit(newInvoiceExecutionSite),
           );
@@ -3434,7 +3679,9 @@ export default function RechnungenPage() {
         return true;
       } else {
         const errorData = await res.json().catch(() => null);
-        toast.error(errorData?.error || "Rechnung konnte nicht erstellt werden");
+        toast.error(
+          errorData?.error || "Rechnung konnte nicht erstellt werden",
+        );
         return false;
       }
     } catch (error) {
@@ -3453,7 +3700,9 @@ export default function RechnungenPage() {
       return false;
     }
     if (form.dueDate < form.invoiceDate) {
-      toast.error("Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen");
+      toast.error(
+        "Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen",
+      );
       return false;
     }
     setSaving(true);
@@ -3493,10 +3742,11 @@ export default function RechnungenPage() {
   const saveInvoiceExecutionAddress = async () => {
     const saved = await saveEdit(false);
     if (saved) {
-      const currentSite = collectInvoiceExecutionSites({
-        items,
-        orders: editingInvoice?.orders || [],
-      })[0] || null;
+      const currentSite =
+        collectInvoiceExecutionSites({
+          items,
+          orders: editingInvoice?.orders || [],
+        })[0] || null;
       setExecutionAddressEditSnapshot(
         serializeInvoiceExecutionSiteForEdit(currentSite),
       );
@@ -3512,7 +3762,9 @@ export default function RechnungenPage() {
       return;
     }
     if (form.dueDate < form.invoiceDate) {
-      toast.error("Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen");
+      toast.error(
+        "Das Fälligkeitsdatum darf nicht vor dem Rechnungsdatum liegen",
+      );
       return;
     }
     setSaving(true);
@@ -3631,9 +3883,7 @@ export default function RechnungenPage() {
   };
 
   const removeInvoiceFromActiveList = (id: string) => {
-    setInvoices((current) =>
-      current.filter((invoice) => invoice.id !== id),
-    );
+    setInvoices((current) => current.filter((invoice) => invoice.id !== id));
     setExpandedInvoiceCardIds((current) => {
       if (!current.has(id)) return current;
       const next = new Set(current);
@@ -3672,8 +3922,7 @@ export default function RechnungenPage() {
   ) => {
     if ("stopPropagation" in e) e.stopPropagation();
     const previousIndex = invoices.findIndex((invoice) => invoice.id === id);
-    const previousInvoice =
-      previousIndex >= 0 ? invoices[previousIndex] : null;
+    const previousInvoice = previousIndex >= 0 ? invoices[previousIndex] : null;
     const previousStatus = previousInvoice?.status;
     const movesToArchive = status === "Erledigt";
 
@@ -3847,7 +4096,9 @@ export default function RechnungenPage() {
 
   const unpaidCount = invoices.filter((i) => i.status !== "Bezahlt").length;
   const paidCount = invoices.filter((i) => i.status === "Bezahlt").length;
-  const visibleInvoiceIds = sorted.slice(0, visibleCount).map((invoice) => invoice.id);
+  const visibleInvoiceIds = sorted
+    .slice(0, visibleCount)
+    .map((invoice) => invoice.id);
   const visibleInvoiceIdsKey = visibleInvoiceIds.join("\u241f");
 
   useEffect(() => {
@@ -3937,7 +4188,9 @@ export default function RechnungenPage() {
         />
       )}
       <div className="pointer-events-none fixed left-16 top-0 z-40 flex h-14 items-center">
-        <span className="font-display text-sm font-bold sm:text-base">Rechnungen</span>
+        <span className="font-display text-sm font-bold sm:text-base">
+          Rechnungen
+        </span>
       </div>
 
       <div className="fixed left-1/2 top-0 z-40 flex h-14 -translate-x-1/2 items-center">
@@ -3966,7 +4219,9 @@ export default function RechnungenPage() {
               onClick={toggleAllInvoiceCards}
               disabled={visibleInvoiceIds.length === 0}
             >
-              {allVisibleInvoiceCardsExpanded ? "Alle schließen" : "Alle öffnen"}
+              {allVisibleInvoiceCardsExpanded
+                ? "Alle schließen"
+                : "Alle öffnen"}
             </Button>
             <Button className="h-8 px-2.5 text-xs" onClick={openNewInvoice}>
               <Plus className="mr-1 h-4 w-4" />
@@ -4054,12 +4309,15 @@ export default function RechnungenPage() {
                   // stored status remains in the DB until the user actively
                   // changes it via the dropdown.
                   const effectiveStatus = getEffectiveInvoiceStatus(inv);
-                  const invoiceExecutionSites = collectInvoiceExecutionSites(inv);
+                  const invoiceExecutionSites =
+                    collectInvoiceExecutionSites(inv);
                   const executionSite = invoiceExecutionSites[0] || null;
                   const visibleItems = (inv.items || []).filter((item: any) =>
                     Boolean(String(item?.description || "").trim()),
                   );
-                  const invoiceCardExpanded = expandedInvoiceCardIds.has(inv.id);
+                  const invoiceCardExpanded = expandedInvoiceCardIds.has(
+                    inv.id,
+                  );
                   const invoiceServicesExpanded =
                     expandedInvoiceServiceCardIds.has(inv.id);
                   const displayedInvoiceItems = invoiceServicesExpanded
@@ -4067,14 +4325,20 @@ export default function RechnungenPage() {
                     : visibleItems.slice(0, 6);
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   const invoiceAppointmentEntries =
-                    collectMergedAppointmentEntries((inv.orders || []) as any);
+                    compactInvoiceAppointmentEntriesForDisplay(
+                      collectMergedAppointmentEntries(
+                        (inv.orders || []) as any,
+                      ),
+                    );
                   const invoiceAppointmentLabel =
                     formatMergedAppointmentTooltip(invoiceAppointmentEntries) ||
                     formatInvoiceAppointmentLabel(inv);
                   const invoiceAppointmentDisplayLabel =
                     invoiceAppointmentLabel;
                   const invoiceAppointmentChipLabels =
-                    buildAdaptiveAppointmentLabels(invoiceAppointmentDisplayLabel);
+                    buildAdaptiveAppointmentLabels(
+                      invoiceAppointmentDisplayLabel,
+                    );
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
                   const mergedCount = getInvoiceMergedCount(inv);
                   const mergedContactEntries = buildMergedContactReviewEntries(
@@ -4085,7 +4349,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceQuickActions = () => (
                     <div
-                      className="ml-3 inline-flex shrink-0 items-center gap-1 sm:ml-6 lg:ml-8"
+                      className="ml-4 inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-4 sm:ml-8 sm:pl-6 lg:ml-10 lg:pl-8 dark:border-slate-700"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -4093,12 +4357,11 @@ export default function RechnungenPage() {
                       <button
                         type="button"
                         onClick={(event) => downloadPdf(event, inv.id)}
-                        className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 text-[10px] font-semibold text-blue-700 shadow-sm hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
+                        className="inline-flex h-8 w-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700 shadow-sm transition hover:-translate-y-px hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
                         title="PDF herunterladen"
                         aria-label="PDF herunterladen"
                       >
-                        <Download className="h-3.5 w-3.5" />
-                        <span className="hidden lg:inline">PDF</span>
+                        <InvoicePdfDocumentIcon withDownload />
                       </button>
                       {whatsappEnabled && businessWhatsappNumber && (
                         <button
@@ -4109,19 +4372,15 @@ export default function RechnungenPage() {
                             void sendPdfToWhatsApp(inv);
                           }}
                           disabled={downloading === inv.id}
-                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-1 disabled:cursor-wait disabled:opacity-60 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
-                          title="PDF an WhatsApp senden"
-                          aria-label="PDF an WhatsApp senden"
+                          className="inline-flex h-8 w-10 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition hover:-translate-y-px hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-1 disabled:cursor-wait disabled:opacity-60 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
+                          title="PDF per WhatsApp senden"
+                          aria-label="PDF per WhatsApp senden"
                         >
                           {downloading === inv.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            <span className="relative inline-flex h-4 w-4 items-center justify-center">
-                              <MessageCircle className="h-4 w-4" />
-                              <FileText className="absolute -bottom-1 -right-1 h-2.5 w-2.5 rounded-[2px] bg-emerald-50 p-[1px] text-emerald-800 dark:bg-emerald-950" />
-                            </span>
+                            <InvoicePdfWhatsAppIcon />
                           )}
-                          <span className="hidden lg:inline">PDF → WhatsApp</span>
                         </button>
                       )}
                     </div>
@@ -4254,7 +4513,10 @@ export default function RechnungenPage() {
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         <span>{entries.length}</span>
                         {!useTouchChipPopovers && (
-                          <InvoiceViewportTooltip preferredWidth={432} autoClose={false}>
+                          <InvoiceViewportTooltip
+                            preferredWidth={432}
+                            autoClose={false}
+                          >
                             <InvoiceServiceReviewTooltipContentV17_90L135G
                               total={entries.length}
                               entries={entries}
@@ -4353,8 +4615,10 @@ export default function RechnungenPage() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
                                     openEditInvoice(inv);
                                   }}
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -4366,8 +4630,10 @@ export default function RechnungenPage() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
                                     void updateStatus(e, inv.id, "Erledigt");
                                   }}
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -4378,8 +4644,10 @@ export default function RechnungenPage() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
                                     revertToOffer(inv);
                                   }}
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -4393,9 +4661,14 @@ export default function RechnungenPage() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu = e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
-                                    remove({ stopPropagation: () => {} } as any, inv.id);
+                                    const menu =
+                                      e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement)
+                                      menu.open = false;
+                                    remove(
+                                      { stopPropagation: () => {} } as any,
+                                      inv.id,
+                                    );
                                   }}
                                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                                 >
@@ -4423,10 +4696,14 @@ export default function RechnungenPage() {
                                             inv.createdAt ||
                                             inv.invoiceDate;
                                           return dt
-                                            ? `${new Date(dt).toLocaleDateString("de-CH", {
+                                            ? `${new Date(
+                                                dt,
+                                              ).toLocaleDateString("de-CH", {
                                                 day: "2-digit",
                                                 month: "2-digit",
-                                              })} ${new Date(dt).toLocaleTimeString("de-CH", {
+                                              })} ${new Date(
+                                                dt,
+                                              ).toLocaleTimeString("de-CH", {
                                                 hour: "2-digit",
                                                 minute: "2-digit",
                                               })}`
@@ -4434,21 +4711,30 @@ export default function RechnungenPage() {
                                         })()}
                                       </span>
                                       <span className="min-w-0 max-w-[20rem] shrink truncate text-sm font-semibold">
-                                        {isFallbackCustomerName(inv?.customer?.name)
+                                        {isFallbackCustomerName(
+                                          inv?.customer?.name,
+                                        )
                                           ? "Kunde nicht zugeordnet"
                                           : inv?.customer?.name || "–"}
                                       </span>
                                       {invoiceExecutionSites.length > 0 && (
                                         <button
                                           type="button"
-                                          onPointerDown={(event) => event.stopPropagation()}
-                                          onTouchStart={(event) => event.stopPropagation()}
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onTouchStart={(event) =>
+                                            event.stopPropagation()
+                                          }
                                           onClick={(event) => {
                                             event.preventDefault();
                                             event.stopPropagation();
                                             openEditInvoice(inv);
                                             window.setTimeout(
-                                              () => setEditingExecutionAddress(true),
+                                              () =>
+                                                setEditingExecutionAddress(
+                                                  true,
+                                                ),
                                               120,
                                             );
                                           }}
@@ -4475,16 +4761,31 @@ export default function RechnungenPage() {
                                     <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                       <select
                                         value={effectiveStatus}
-                                        onMouseDown={(event) => event.stopPropagation()}
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onPointerUp={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) => event.stopPropagation()}
+                                        onMouseDown={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onPointerDown={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onPointerUp={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onTouchStart={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
                                         onChange={(event) =>
-                                          updateStatus(event, inv.id, event.target.value)
+                                          updateStatus(
+                                            event,
+                                            inv.id,
+                                            event.target.value,
+                                          )
                                         }
                                         className={`h-7 rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
-                                          statusColors[effectiveStatus] || statusColors.Entwurf
+                                          statusColors[effectiveStatus] ||
+                                          statusColors.Entwurf
                                         }`}
                                         style={getInvoiceStatusInlineStyle(
                                           effectiveStatus,
@@ -4495,7 +4796,9 @@ export default function RechnungenPage() {
                                           <option
                                             key={status}
                                             value={status}
-                                            style={getInvoiceStatusInlineStyle(status)}
+                                            style={getInvoiceStatusInlineStyle(
+                                              status,
+                                            )}
                                           >
                                             {status}
                                           </option>
@@ -4504,29 +4807,46 @@ export default function RechnungenPage() {
                                       {renderInvoiceCompactFunctionalChips()}
                                       {renderInvoiceQuickActions()}
                                       {useTouchChipPopovers ? (
-                                        (invoiceYellowReviewEntries.length > 0 ||
+                                        (invoiceYellowReviewEntries.length >
+                                          0 ||
                                           invoiceBlockerEntries.length > 0 ||
-                                          Boolean(invoiceAppointmentDisplayLabel)) && (
+                                          Boolean(
+                                            invoiceAppointmentDisplayLabel,
+                                          )) && (
                                           <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
                                             <span className="inline-flex items-center gap-1.5">
-                                              {renderInvoiceCompactReviewChip("yellow")}
-                                              {renderInvoiceCompactReviewChip("red")}
+                                              {renderInvoiceCompactReviewChip(
+                                                "yellow",
+                                              )}
+                                              {renderInvoiceCompactReviewChip(
+                                                "red",
+                                              )}
                                               {invoiceAppointmentDisplayLabel && (
                                                 <button
                                                   type="button"
-                                                  onPointerDown={(event) => event.stopPropagation()}
-                                                  onTouchStart={(event) => event.stopPropagation()}
+                                                  onPointerDown={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  onTouchStart={(event) =>
+                                                    event.stopPropagation()
+                                                  }
                                                   onClick={(event) => {
                                                     event.preventDefault();
                                                     event.stopPropagation();
                                                   }}
                                                   className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
-                                                  aria-label={invoiceAppointmentDisplayLabel}
+                                                  aria-label={
+                                                    invoiceAppointmentDisplayLabel
+                                                  }
                                                 >
                                                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                                  <InvoiceViewportTooltip preferredWidth={320}>
+                                                  <InvoiceViewportTooltip
+                                                    preferredWidth={320}
+                                                  >
                                                     <InvoiceAppointmentTooltipContentV17_90L169
-                                                      text={invoiceAppointmentDisplayLabel}
+                                                      text={
+                                                        invoiceAppointmentDisplayLabel
+                                                      }
                                                     />
                                                   </InvoiceViewportTooltip>
                                                 </button>
@@ -4537,7 +4857,6 @@ export default function RechnungenPage() {
                                       ) : (
                                         <>
                                           {renderInvoiceServicesChip("compact")}
-
                                         </>
                                       )}
                                     </div>
@@ -4545,7 +4864,9 @@ export default function RechnungenPage() {
                                       <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
                                         {formatCurrency(
                                           Number(inv?.total ?? 0),
-                                          inv.currency === "EUR" ? "EUR" : "CHF",
+                                          inv.currency === "EUR"
+                                            ? "EUR"
+                                            : "CHF",
                                         )}
                                       </div>
                                       <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -4556,7 +4877,9 @@ export default function RechnungenPage() {
                                       <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
                                         {formatCurrency(
                                           Number(inv?.total ?? 0),
-                                          inv.currency === "EUR" ? "EUR" : "CHF",
+                                          inv.currency === "EUR"
+                                            ? "EUR"
+                                            : "CHF",
                                         )}
                                       </div>
                                       <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -4607,8 +4930,12 @@ export default function RechnungenPage() {
                                 {invoiceExecutionSites.length > 0 && (
                                   <button
                                     type="button"
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onTouchStart={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onTouchStart={(event) =>
+                                      event.stopPropagation()
+                                    }
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
@@ -4659,7 +4986,10 @@ export default function RechnungenPage() {
                                 role="button"
                                 tabIndex={0}
                                 onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === " ") {
+                                  if (
+                                    event.key === "Enter" ||
+                                    event.key === " "
+                                  ) {
                                     event.preventDefault();
                                     openEditInvoice(inv);
                                     setExpandedItemIndex(null);
@@ -4696,8 +5026,12 @@ export default function RechnungenPage() {
                                 {visibleItems.length > 6 && (
                                   <button
                                     type="button"
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onTouchStart={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onTouchStart={(event) =>
+                                      event.stopPropagation()
+                                    }
                                     onClick={(event) => {
                                       event.preventDefault();
                                       event.stopPropagation();
@@ -4716,14 +5050,19 @@ export default function RechnungenPage() {
                                 <select
                                   onClick={(event) => event.stopPropagation()}
                                   className={`h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium ${
-                                    statusColors[effectiveStatus] || statusColors.Entwurf
+                                    statusColors[effectiveStatus] ||
+                                    statusColors.Entwurf
                                   }`}
                                   style={getInvoiceStatusInlineStyle(
                                     effectiveStatus,
                                   )}
                                   value={effectiveStatus}
                                   onChange={(event) =>
-                                    updateStatus(event, inv.id, event.target.value)
+                                    updateStatus(
+                                      event,
+                                      inv.id,
+                                      event.target.value,
+                                    )
                                   }
                                 >
                                   {invoiceStatuses.map((status) => (
@@ -4743,27 +5082,41 @@ export default function RechnungenPage() {
                                 {useTouchChipPopovers ? (
                                   (invoiceYellowReviewEntries.length > 0 ||
                                     invoiceBlockerEntries.length > 0 ||
-                                    Boolean(invoiceAppointmentDisplayLabel)) && (
+                                    Boolean(
+                                      invoiceAppointmentDisplayLabel,
+                                    )) && (
                                     <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
                                       <span className="inline-flex items-center gap-1.5">
-                                        {renderInvoiceCompactReviewChip("yellow")}
+                                        {renderInvoiceCompactReviewChip(
+                                          "yellow",
+                                        )}
                                         {renderInvoiceCompactReviewChip("red")}
                                         {invoiceAppointmentDisplayLabel && (
                                           <button
                                             type="button"
-                                            onPointerDown={(event) => event.stopPropagation()}
-                                            onTouchStart={(event) => event.stopPropagation()}
+                                            onPointerDown={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onTouchStart={(event) =>
+                                              event.stopPropagation()
+                                            }
                                             onClick={(event) => {
                                               event.preventDefault();
                                               event.stopPropagation();
                                             }}
                                             className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
-                                            aria-label={invoiceAppointmentDisplayLabel}
+                                            aria-label={
+                                              invoiceAppointmentDisplayLabel
+                                            }
                                           >
                                             <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                            <InvoiceViewportTooltip preferredWidth={320}>
+                                            <InvoiceViewportTooltip
+                                              preferredWidth={320}
+                                            >
                                               <InvoiceAppointmentTooltipContentV17_90L169
-                                                text={invoiceAppointmentDisplayLabel}
+                                                text={
+                                                  invoiceAppointmentDisplayLabel
+                                                }
                                               />
                                             </InvoiceViewportTooltip>
                                           </button>
@@ -4772,9 +5125,7 @@ export default function RechnungenPage() {
                                     </span>
                                   )
                                 ) : (
-                                  <>
-                                    {renderInvoiceServicesChip("expanded")}
-                                  </>
+                                  <>{renderInvoiceServicesChip("expanded")}</>
                                 )}
                                 {dueLabel && (
                                   <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] font-medium text-muted-foreground md:absolute md:right-0 md:ml-0">
@@ -4922,21 +5273,21 @@ export default function RechnungenPage() {
                   {!showNewCustomer &&
                     form.customerId &&
                     !historicalInvoiceCustomerLocked && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                        onClick={() => openCustomerEditor()}
-                      >
-                        ✏️ Bearbeiten
-                      </button>
-                      <button
-                        className="text-xs text-amber-600 hover:underline flex items-center gap-1"
-                        onClick={() => setDupCheckOpen(true)}
-                      >
-                        🔍 Duplikate prüfen
-                      </button>
-                    </div>
-                  )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                          onClick={() => openCustomerEditor()}
+                        >
+                          ✏️ Bearbeiten
+                        </button>
+                        <button
+                          className="text-xs text-amber-600 hover:underline flex items-center gap-1"
+                          onClick={() => setDupCheckOpen(true)}
+                        >
+                          🔍 Duplikate prüfen
+                        </button>
+                      </div>
+                    )}
                 </div>
                 {!showNewCustomer ? (
                   <>
@@ -5270,7 +5621,8 @@ export default function RechnungenPage() {
                     tabIndex={newInvoiceExecutionSite ? 0 : -1}
                     onClick={(event) => {
                       const target = event.target as HTMLElement;
-                      if (target.closest("button,input,select,textarea,a")) return;
+                      if (target.closest("button,input,select,textarea,a"))
+                        return;
                       toggleInvoiceExecutionAddressEditor(
                         newInvoiceExecutionSite,
                       );
@@ -5309,7 +5661,8 @@ export default function RechnungenPage() {
                           Ausführungsadresse abweichend von Rechnungsadresse
                         </span>
                         <span className="block max-w-2xl text-xs leading-4 text-muted-foreground">
-                          Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
+                          Nur aktivieren, wenn die Arbeit an einem anderen Ort
+                          ausgeführt wird.
                         </span>
                       </span>
                     </div>
@@ -5486,8 +5839,12 @@ export default function RechnungenPage() {
                 </div>
               )}
 
-              {!dupCheckOpen && editingInvoice &&
-                collectInvoiceExecutionSites({ items, orders: editingInvoice?.orders || [] }).length <= 1 &&
+              {!dupCheckOpen &&
+                editingInvoice &&
+                collectInvoiceExecutionSites({
+                  items,
+                  orders: editingInvoice?.orders || [],
+                }).length <= 1 &&
                 (() => {
                   const executionSite = collectInvoiceExecutionSites({
                     items,
@@ -5501,7 +5858,8 @@ export default function RechnungenPage() {
                         tabIndex={0}
                         onClick={(event) => {
                           const target = event.target as HTMLElement;
-                          if (target.closest("button,input,select,textarea,a")) return;
+                          if (target.closest("button,input,select,textarea,a"))
+                            return;
                           toggleInvoiceExecutionAddressEditor(executionSite);
                         }}
                         onKeyDown={(event) => {
@@ -5526,7 +5884,8 @@ export default function RechnungenPage() {
                               Ausführungsadresse abweichend von Rechnungsadresse
                             </div>
                             <p className="max-w-2xl text-xs leading-4 text-muted-foreground">
-                              Nur aktivieren, wenn die Arbeit an einem anderen Ort ausgeführt wird.
+                              Nur aktivieren, wenn die Arbeit an einem anderen
+                              Ort ausgeführt wird.
                             </p>
                           </div>
                         </div>
@@ -5564,7 +5923,9 @@ export default function RechnungenPage() {
                         {editingExecutionAddress ? (
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                             <div className="sm:col-span-2">
-                              <Label className="text-xs">Objekt / Bereich</Label>
+                              <Label className="text-xs">
+                                Objekt / Bereich
+                              </Label>
                               <Input
                                 value={executionSite.siteName || ""}
                                 onChange={(event: any) =>
@@ -5646,13 +6007,20 @@ export default function RechnungenPage() {
                                 {executionSite.siteName || "Ausführungsadresse"}
                               </div>
                               <div className="mt-1 grid grid-cols-[74px_1fr] gap-x-2 gap-y-1 text-sm">
-                                <span className="text-muted-foreground">Strasse:</span>
+                                <span className="text-muted-foreground">
+                                  Strasse:
+                                </span>
                                 <span className="break-words">
                                   {executionSite.siteAddress || "–"}
                                 </span>
-                                <span className="text-muted-foreground">PLZ / Ort:</span>
+                                <span className="text-muted-foreground">
+                                  PLZ / Ort:
+                                </span>
                                 <span className="break-words">
-                                  {[executionSite.sitePlz, executionSite.siteCity]
+                                  {[
+                                    executionSite.sitePlz,
+                                    executionSite.siteCity,
+                                  ]
                                     .filter(Boolean)
                                     .join(" ") || "–"}
                                 </span>
@@ -5681,7 +6049,10 @@ export default function RechnungenPage() {
                 </div>
               ) : (
                 <>
-                  <div ref={serviceItemsRef} className="scroll-mt-24 space-y-3 rounded-xl border bg-background p-3 sm:p-4">
+                  <div
+                    ref={serviceItemsRef}
+                    className="scroll-mt-24 space-y-3 rounded-xl border bg-background p-3 sm:p-4"
+                  >
                     <div className="space-y-2">
                       {(() => {
                         const currentSites = collectInvoiceExecutionSites({
@@ -5699,22 +6070,37 @@ export default function RechnungenPage() {
                               </h3>
                               <div className="flex flex-wrap items-center justify-end gap-2">
                                 {multiSite && (
-                                  <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={toggleAllInvoiceSites}>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={toggleAllInvoiceSites}
+                                  >
                                     {expandedInvoiceSiteKeys.size ===
-                                    groupInvoiceItemsByExecutionSite(items || [], currentSites).length
+                                    groupInvoiceItemsByExecutionSite(
+                                      items || [],
+                                      currentSites,
+                                    ).length
                                       ? "Übersicht"
                                       : "Alle öffnen"}
                                   </Button>
                                 )}
-                                <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={addItem}>
-                                  <Plus className="mr-1 h-4 w-4" /> Leistung hinzufügen
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={addItem}
+                                >
+                                  <Plus className="mr-1 h-4 w-4" /> Leistung
+                                  hinzufügen
                                 </Button>
                               </div>
                             </div>
                             {multiSite ? (
                               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                                 <span className="min-w-0 truncate">
-                                  {currentSites.length} Arbeitsorte · {items?.length || 0} Leistungen
+                                  {currentSites.length} Arbeitsorte ·{" "}
+                                  {items?.length || 0} Leistungen
                                 </span>
                                 <span className="shrink-0 font-mono font-medium text-foreground">
                                   {formatCurrency(subtotal, currency)}
@@ -5722,7 +6108,8 @@ export default function RechnungenPage() {
                               </div>
                             ) : (
                               <p className="text-xs text-muted-foreground">
-                                Kompakte Übersicht. Zum Bearbeiten die Leistung aufklappen.
+                                Kompakte Übersicht. Zum Bearbeiten die Leistung
+                                aufklappen.
                               </p>
                             )}
                           </>
@@ -5743,305 +6130,358 @@ export default function RechnungenPage() {
                           entries: Array<{ item: InvoiceItem; index: number }>,
                         ) =>
                           entries.map(({ item, index: idx }) => {
-                        const quantity = Number(item?.quantity ?? 0);
-                        const unitPrice = Number(item?.unitPrice ?? 0);
-                        const lineTotal = unitPrice * quantity;
-                        const matchedService = services.find(
-                          (service: any) =>
-                            normalizeInvoiceServiceName(service?.name) ===
-                            normalizeInvoiceServiceName(item?.description),
-                        );
-                        const hasMissingValues =
-                          !compactInvoiceValue(item?.description) ||
-                          !compactInvoiceValue(item?.unit) ||
-                          quantity <= 0 ||
-                          unitPrice <= 0;
-                        const catalogMismatch = Boolean(
-                          matchedService &&
-                            (compactInvoiceValue(matchedService.unit) !==
-                              compactInvoiceValue(item?.unit) ||
-                              Math.abs(
-                                Number(matchedService.defaultPrice || 0) - unitPrice,
-                              ) >= 0.001),
-                        );
-                        const itemNeedsReview =
-                          hasMissingValues || !matchedService || catalogMismatch;
-                        const itemReviewReasonV17_90L134 =
-                          getInvoiceServiceReviewReasonV17_90L134(
-                            item,
-                            services || [],
-                          ) || (itemNeedsReview ? "Manuell prüfen" : "");
-                        const isExpanded = expandedItemIndex === idx;
-                        const isMenuOpen = serviceActionMenuIndex === idx;
+                            const quantity = Number(item?.quantity ?? 0);
+                            const unitPrice = Number(item?.unitPrice ?? 0);
+                            const lineTotal = unitPrice * quantity;
+                            const matchedService = services.find(
+                              (service: any) =>
+                                normalizeInvoiceServiceName(service?.name) ===
+                                normalizeInvoiceServiceName(item?.description),
+                            );
+                            const hasMissingValues =
+                              !compactInvoiceValue(item?.description) ||
+                              !compactInvoiceValue(item?.unit) ||
+                              quantity <= 0 ||
+                              unitPrice <= 0;
+                            const catalogMismatch = Boolean(
+                              matchedService &&
+                              (compactInvoiceValue(matchedService.unit) !==
+                                compactInvoiceValue(item?.unit) ||
+                                Math.abs(
+                                  Number(matchedService.defaultPrice || 0) -
+                                    unitPrice,
+                                ) >= 0.001),
+                            );
+                            const itemNeedsReview =
+                              hasMissingValues ||
+                              !matchedService ||
+                              catalogMismatch;
+                            const itemReviewReasonV17_90L134 =
+                              getInvoiceServiceReviewReasonV17_90L134(
+                                item,
+                                services || [],
+                              ) || (itemNeedsReview ? "Manuell prüfen" : "");
+                            const isExpanded = expandedItemIndex === idx;
+                            const isMenuOpen = serviceActionMenuIndex === idx;
 
-                        return (
-                          <div
-                            key={idx}
-                            data-service-item-index={idx}
-                            className={`relative overflow-visible rounded-xl border transition-colors ${
-                              hasMissingValues
-                                ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
-                                : itemNeedsReview
-                                  ? "border-amber-300 bg-amber-50/30"
-                                  : "border-slate-200 bg-background"
-                            }`}
-                          >
-                            <div
-                              className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5 transition-colors ${
-                                isExpanded ? "rounded-t-xl" : "rounded-xl"
-                              } ${
-                                hasMissingValues
-                                  ? "hover:bg-red-100/70 dark:hover:bg-red-900/25"
-                                  : itemNeedsReview
-                                    ? "hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
-                                    : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setExpandedItemIndex((current) =>
-                                    current === idx ? null : idx,
-                                  );
-                                  setServiceActionMenuIndex(null);
-                                }}
-                                className="min-w-0 text-left"
+                            return (
+                              <div
+                                key={idx}
+                                data-service-item-index={idx}
+                                className={`relative overflow-visible rounded-xl border transition-colors ${
+                                  hasMissingValues
+                                    ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                    : itemNeedsReview
+                                      ? "border-amber-300 bg-amber-50/30"
+                                      : "border-slate-200 bg-background"
+                                }`}
                               >
-                                <div className="min-w-0">
-                                  <span className="block truncate font-medium">
-                                    {item?.description || "Neue Leistung"}
-                                  </span>
-                                </div>
-                                <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
-                                  <div className="truncate text-xs text-muted-foreground">
-                                    {quantity > 0 ? quantity : "prüfen"} {item?.unit || "Einheit prüfen"} × {" "}
-                                    {unitPrice > 0
-                                      ? formatCurrency(unitPrice, currency)
-                                      : "Preis prüfen"}
-                                  </div>
-                                  {itemNeedsReview && (
-                                    <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
-                                      <span
-                                        title={itemReviewReasonV17_90L134}
-                                        className={`max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                                          hasMissingValues
-                                            ? "border-red-300 bg-red-100 text-red-800"
-                                            : "border-amber-300 bg-amber-100 text-amber-800"
-                                        }`}
-                                      >
-                                        {itemReviewReasonV17_90L134}
-                                      </span>
-                                    </span>
-                                  )}
-                                </div>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setExpandedItemIndex((current) =>
-                                    current === idx ? null : idx,
-                                  );
-                                  setServiceActionMenuIndex(null);
-                                }}
-                                className="flex items-center gap-2 whitespace-nowrap"
-                              >
-                                <span className="font-mono font-semibold">
-                                  {formatCurrency(lineTotal, currency)}
-                                </span>
-                                <ChevronDown
-                                  className={`h-4 w-4 text-muted-foreground transition-transform ${
-                                    isExpanded ? "rotate-180" : ""
+                                <div
+                                  className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5 transition-colors ${
+                                    isExpanded ? "rounded-t-xl" : "rounded-xl"
+                                  } ${
+                                    hasMissingValues
+                                      ? "hover:bg-red-100/70 dark:hover:bg-red-900/25"
+                                      : itemNeedsReview
+                                        ? "hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
+                                        : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
                                   }`}
-                                />
-                              </button>
-
-                              <div className="relative">
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setServiceActionMenuIndex((current) =>
-                                      current === idx ? null : idx,
-                                    );
-                                  }}
-                                  className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
-                                  title="Aktionen"
                                 >
-                                  <MoreVertical className="h-4 w-4" />
-                                </button>
-                                {isMenuOpen && (
-                                  <div
-                                    onClick={(event) => event.stopPropagation()}
-                                    className="absolute bottom-full right-0 z-50 mb-1 w-60 rounded-md border bg-background py-1 text-sm shadow-xl"
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedItemIndex((current) =>
+                                        current === idx ? null : idx,
+                                      );
+                                      setServiceActionMenuIndex(null);
+                                    }}
+                                    className="min-w-0 text-left"
                                   >
-                                    {compactInvoiceValue(item?.description) && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          saveInvoiceItemToServices(idx)
-                                        }
-                                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
-                                      >
-                                        <Plus className="h-3.5 w-3.5" />
-                                        In Leistungskatalog übernehmen
-                                      </button>
-                                    )}
+                                    <div className="min-w-0">
+                                      <span className="block truncate font-medium">
+                                        {item?.description || "Neue Leistung"}
+                                      </span>
+                                    </div>
+                                    <div className="mt-0.5 grid min-w-0 grid-cols-1 items-center gap-x-8 gap-y-1 sm:grid-cols-[17rem_auto]">
+                                      <div className="truncate text-xs text-muted-foreground">
+                                        {quantity > 0 ? quantity : "prüfen"}{" "}
+                                        {item?.unit || "Einheit prüfen"} ×{" "}
+                                        {unitPrice > 0
+                                          ? formatCurrency(unitPrice, currency)
+                                          : "Preis prüfen"}
+                                      </div>
+                                      {itemNeedsReview && (
+                                        <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
+                                          <span
+                                            title={itemReviewReasonV17_90L134}
+                                            className={`max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                              hasMissingValues
+                                                ? "border-red-300 bg-red-100 text-red-800"
+                                                : "border-amber-300 bg-amber-100 text-amber-800"
+                                            }`}
+                                          >
+                                            {itemReviewReasonV17_90L134}
+                                          </span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedItemIndex((current) =>
+                                        current === idx ? null : idx,
+                                      );
+                                      setServiceActionMenuIndex(null);
+                                    }}
+                                    className="flex items-center gap-2 whitespace-nowrap"
+                                  >
+                                    <span className="font-mono font-semibold">
+                                      {formatCurrency(lineTotal, currency)}
+                                    </span>
+                                    <ChevronDown
+                                      className={`h-4 w-4 text-muted-foreground transition-transform ${
+                                        isExpanded ? "rotate-180" : ""
+                                      }`}
+                                    />
+                                  </button>
+
+                                  <div className="relative">
                                     <button
                                       type="button"
-                                      onClick={() => removeItem(idx)}
-                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setServiceActionMenuIndex((current) =>
+                                          current === idx ? null : idx,
+                                        );
+                                      }}
+                                      className="rounded-md border border-slate-200 bg-background p-1.5 text-slate-600 hover:bg-muted"
+                                      title="Aktionen"
                                     >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                      Löschen
+                                      <MoreVertical className="h-4 w-4" />
                                     </button>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {isExpanded && (
-                              <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
-                                {collectInvoiceExecutionSites({
-                                  items,
-                                  orders: editingInvoice?.orders || [],
-                                }).length > 1 && (
-                                  <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
-                                    <Label className="text-xs">Arbeitsort</Label>
-                                    <select
-                                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                      value={(() => {
-                                        const sites = collectInvoiceExecutionSites({
-                                          items,
-                                          orders: editingInvoice?.orders || [],
-                                        });
-                                        const matched = sites.find(
-                                          (site) => invoiceSiteKey(site) === invoiceSiteKey(item),
-                                        );
-                                        return matched ? invoiceGroupKeyForSite(matched) : "";
-                                      })()}
-                                      onChange={(event) =>
-                                        assignInvoiceItemToSite(idx, event.target.value)
-                                      }
-                                    >
-                                      <option value="">Arbeitsort wählen…</option>
-                                      {collectInvoiceExecutionSites({
-                                        items,
-                                        orders: editingInvoice?.orders || [],
-                                      }).map((site, siteIndex) => {
-                                        const key = invoiceGroupKeyForSite(site);
-                                        return (
-                                          <option key={`${key}-${siteIndex}`} value={key}>
-                                            {siteIndex + 1}. {site.siteName || site.siteAddress || "Neuer Arbeitsort"}
-                                          </option>
-                                        );
-                                      })}
-                                    </select>
-                                  </div>
-                                )}
-                                <ServiceCombobox
-                                  value={item?.description ?? ""}
-                                  services={services as ServiceOption[]}
-                                  onChange={(name, svc) =>
-                                    onItemServiceSelect(idx, name, svc)
-                                  }
-                                  onServiceCreated={handleServiceCreated}
-                                  currentPrice={
-                                    item?.unitPrice != null
-                                      ? String(item.unitPrice)
-                                      : undefined
-                                  }
-                                  currentUnit={item?.unit}
-                                  contextLabel="Rechnung"
-                                  saveButtonPlacement="none"
-                                />
-                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                  <div>
-                                    <Label className="text-xs">Einheit</Label>
-                                    <select
-                                      className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                      value={item?.unit ?? ""}
-                                      onChange={(event: any) =>
-                                        updateItem(
-                                          idx,
-                                          "unit",
-                                          event?.target?.value ?? "",
-                                        )
-                                      }
-                                    >
-                                      <option value="">Einheit prüfen</option>
-                                      <option value="Stunde">Stunde</option>
-                                      <option value="Tag">Tag</option>
-                                      <option value="Pauschal">Pauschal</option>
-                                      <option value="Meter">Meter</option>
-                                      <option value="Quadratmeter">Quadratmeter</option>
-                                      <option value="Kubikmeter">Kubikmeter</option>
-                                      <option value="Stück">Stück</option>
-                                      <option value="Kilogramm">Kilogramm</option>
-                                      <option value="Tonne">Tonne</option>
-                                      <option value="Liter">Liter</option>
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <Label className="text-xs">Menge</Label>
-                                    <Input
-                                      type="number"
-                                      step="0.25"
-                                      placeholder="prüfen"
-                                      className={`h-9 ${quantity <= 0 ? "border-red-500 bg-red-50" : ""}`}
-                                      value={quantity <= 0 ? "" : item?.quantity ?? ""}
-                                      onChange={(event: any) =>
-                                        updateItem(
-                                          idx,
-                                          "quantity",
-                                          event?.target?.value ?? "0",
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label className="text-xs">Preis ({currency})</Label>
-                                    <Input
-                                      type="number"
-                                      step="0.05"
-                                      placeholder="prüfen"
-                                      className={`h-9 ${unitPrice <= 0 ? "border-red-500 bg-red-50" : ""}`}
-                                      value={unitPrice <= 0 ? "" : item?.unitPrice ?? ""}
-                                      onChange={(event: any) =>
-                                        updateItem(
-                                          idx,
-                                          "unitPrice",
-                                          event?.target?.value ?? "0",
-                                        )
-                                      }
-                                    />
+                                    {isMenuOpen && (
+                                      <div
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        className="absolute bottom-full right-0 z-50 mb-1 w-60 rounded-md border bg-background py-1 text-sm shadow-xl"
+                                      >
+                                        {compactInvoiceValue(
+                                          item?.description,
+                                        ) && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              saveInvoiceItemToServices(idx)
+                                            }
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                                          >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            In Leistungskatalog übernehmen
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => removeItem(idx)}
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                          Löschen
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
-                                {itemNeedsReview && (
-                                  <div
-                                    className={`rounded-lg border px-3 py-2 text-xs ${
-                                      hasMissingValues
-                                        ? "border-red-300 bg-red-100/70 text-red-900"
-                                        : "border-amber-300 bg-amber-50 text-amber-900"
-                                    }`}
-                                  >
-                                    <div className="font-semibold">
-                                      {hasMissingValues ? "Leistung prüfen" : "Manuell prüfen"}
+
+                                {isExpanded && (
+                                  <div className="space-y-3 border-t border-slate-200 bg-background p-3 dark:border-slate-700">
+                                    {collectInvoiceExecutionSites({
+                                      items,
+                                      orders: editingInvoice?.orders || [],
+                                    }).length > 1 && (
+                                      <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
+                                        <Label className="text-xs">
+                                          Arbeitsort
+                                        </Label>
+                                        <select
+                                          className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                          value={(() => {
+                                            const sites =
+                                              collectInvoiceExecutionSites({
+                                                items,
+                                                orders:
+                                                  editingInvoice?.orders || [],
+                                              });
+                                            const matched = sites.find(
+                                              (site) =>
+                                                invoiceSiteKey(site) ===
+                                                invoiceSiteKey(item),
+                                            );
+                                            return matched
+                                              ? invoiceGroupKeyForSite(matched)
+                                              : "";
+                                          })()}
+                                          onChange={(event) =>
+                                            assignInvoiceItemToSite(
+                                              idx,
+                                              event.target.value,
+                                            )
+                                          }
+                                        >
+                                          <option value="">
+                                            Arbeitsort wählen…
+                                          </option>
+                                          {collectInvoiceExecutionSites({
+                                            items,
+                                            orders:
+                                              editingInvoice?.orders || [],
+                                          }).map((site, siteIndex) => {
+                                            const key =
+                                              invoiceGroupKeyForSite(site);
+                                            return (
+                                              <option
+                                                key={`${key}-${siteIndex}`}
+                                                value={key}
+                                              >
+                                                {siteIndex + 1}.{" "}
+                                                {site.siteName ||
+                                                  site.siteAddress ||
+                                                  "Neuer Arbeitsort"}
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                      </div>
+                                    )}
+                                    <ServiceCombobox
+                                      value={item?.description ?? ""}
+                                      services={services as ServiceOption[]}
+                                      onChange={(name, svc) =>
+                                        onItemServiceSelect(idx, name, svc)
+                                      }
+                                      onServiceCreated={handleServiceCreated}
+                                      currentPrice={
+                                        item?.unitPrice != null
+                                          ? String(item.unitPrice)
+                                          : undefined
+                                      }
+                                      currentUnit={item?.unit}
+                                      contextLabel="Rechnung"
+                                      saveButtonPlacement="none"
+                                    />
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                      <div>
+                                        <Label className="text-xs">
+                                          Einheit
+                                        </Label>
+                                        <select
+                                          className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                          value={item?.unit ?? ""}
+                                          onChange={(event: any) =>
+                                            updateItem(
+                                              idx,
+                                              "unit",
+                                              event?.target?.value ?? "",
+                                            )
+                                          }
+                                        >
+                                          <option value="">
+                                            Einheit prüfen
+                                          </option>
+                                          <option value="Stunde">Stunde</option>
+                                          <option value="Tag">Tag</option>
+                                          <option value="Pauschal">
+                                            Pauschal
+                                          </option>
+                                          <option value="Meter">Meter</option>
+                                          <option value="Quadratmeter">
+                                            Quadratmeter
+                                          </option>
+                                          <option value="Kubikmeter">
+                                            Kubikmeter
+                                          </option>
+                                          <option value="Stück">Stück</option>
+                                          <option value="Kilogramm">
+                                            Kilogramm
+                                          </option>
+                                          <option value="Tonne">Tonne</option>
+                                          <option value="Liter">Liter</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <Label className="text-xs">Menge</Label>
+                                        <Input
+                                          type="number"
+                                          step="0.25"
+                                          placeholder="prüfen"
+                                          className={`h-9 ${quantity <= 0 ? "border-red-500 bg-red-50" : ""}`}
+                                          value={
+                                            quantity <= 0
+                                              ? ""
+                                              : (item?.quantity ?? "")
+                                          }
+                                          onChange={(event: any) =>
+                                            updateItem(
+                                              idx,
+                                              "quantity",
+                                              event?.target?.value ?? "0",
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label className="text-xs">
+                                          Preis ({currency})
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          step="0.05"
+                                          placeholder="prüfen"
+                                          className={`h-9 ${unitPrice <= 0 ? "border-red-500 bg-red-50" : ""}`}
+                                          value={
+                                            unitPrice <= 0
+                                              ? ""
+                                              : (item?.unitPrice ?? "")
+                                          }
+                                          onChange={(event: any) =>
+                                            updateItem(
+                                              idx,
+                                              "unitPrice",
+                                              event?.target?.value ?? "0",
+                                            )
+                                          }
+                                        />
+                                      </div>
                                     </div>
-                                    <div className="mt-0.5">
-                                      {hasMissingValues
-                                        ? "Leistung, Einheit, Menge oder Preis vervollständigen."
-                                        : !matchedService
-                                          ? "Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen."
-                                          : "Preis oder Einheit weicht vom Leistungskatalog ab."}
-                                    </div>
+                                    {itemNeedsReview && (
+                                      <div
+                                        className={`rounded-lg border px-3 py-2 text-xs ${
+                                          hasMissingValues
+                                            ? "border-red-300 bg-red-100/70 text-red-900"
+                                            : "border-amber-300 bg-amber-50 text-amber-900"
+                                        }`}
+                                      >
+                                        <div className="font-semibold">
+                                          {hasMissingValues
+                                            ? "Leistung prüfen"
+                                            : "Manuell prüfen"}
+                                        </div>
+                                        <div className="mt-0.5">
+                                          {hasMissingValues
+                                            ? "Leistung, Einheit, Menge oder Preis vervollständigen."
+                                            : !matchedService
+                                              ? "Nicht im Leistungskatalog. Optional über das Drei-Punkte-Menü übernehmen."
+                                              : "Preis oder Einheit weicht vom Leistungskatalog ab."}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
-                            )}
-                          </div>
-                        );
-                                                });
+                            );
+                          });
 
                         if (groups.length <= 1) {
                           return renderEntries(groups[0]?.entries || []);
@@ -6071,10 +6511,18 @@ export default function RechnungenPage() {
                             >
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-semibold">
-                                  📍 {groupIndex + 1}. {group.site?.siteName || group.site?.siteAddress || `Ausführungsort ${groupIndex + 1}`}
+                                  📍 {groupIndex + 1}.{" "}
+                                  {group.site?.siteName ||
+                                    group.site?.siteAddress ||
+                                    `Ausführungsort ${groupIndex + 1}`}
                                 </div>
                                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                                  {[group.site?.siteAddress, [group.site?.sitePlz, group.site?.siteCity].filter(Boolean).join(" ")]
+                                  {[
+                                    group.site?.siteAddress,
+                                    [group.site?.sitePlz, group.site?.siteCity]
+                                      .filter(Boolean)
+                                      .join(" "),
+                                  ]
                                     .filter(Boolean)
                                     .join(" · ") || "Adresse nicht angegeben"}
                                 </div>
@@ -6085,12 +6533,14 @@ export default function RechnungenPage() {
                                       services || [],
                                       currency,
                                     );
-                                  const groupBlockerEntries = groupReviewEntries.filter(
-                                    (entry) => entry.category === "blocker",
-                                  );
-                                  const groupYellowEntries = groupReviewEntries.filter(
-                                    (entry) => entry.category !== "blocker",
-                                  );
+                                  const groupBlockerEntries =
+                                    groupReviewEntries.filter(
+                                      (entry) => entry.category === "blocker",
+                                    );
+                                  const groupYellowEntries =
+                                    groupReviewEntries.filter(
+                                      (entry) => entry.category !== "blocker",
+                                    );
                                   if (
                                     groupYellowEntries.length === 0 &&
                                     groupBlockerEntries.length === 0
@@ -6103,13 +6553,21 @@ export default function RechnungenPage() {
                                           className="relative inline-flex max-w-[12rem] items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900"
                                           role="button"
                                           tabIndex={0}
-                                          onClick={(event) => event.stopPropagation()}
-                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
+                                          }
                                         >
                                           <span className="truncate whitespace-nowrap">
-                                            Leistungen prüfen · {groupYellowEntries.length}
+                                            Leistungen prüfen ·{" "}
+                                            {groupYellowEntries.length}
                                           </span>
-                                          <InvoiceViewportTooltip preferredWidth={432} autoClose={false}>
+                                          <InvoiceViewportTooltip
+                                            preferredWidth={432}
+                                            autoClose={false}
+                                          >
                                             <InvoiceServiceReviewTooltipContentV17_90L135G
                                               total={groupYellowEntries.length}
                                               entries={groupYellowEntries}
@@ -6123,14 +6581,22 @@ export default function RechnungenPage() {
                                           className="relative inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-800"
                                           role="button"
                                           tabIndex={0}
-                                          onClick={(event) => event.stopPropagation()}
-                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
+                                          }
                                         >
                                           <AlertTriangle className="h-3 w-3 shrink-0" />
                                           <span className="truncate whitespace-nowrap">
-                                            Rechnung prüfen · {groupBlockerEntries.length}
+                                            Rechnung prüfen ·{" "}
+                                            {groupBlockerEntries.length}
                                           </span>
-                                          <InvoiceViewportTooltip preferredWidth={432} autoClose={false}>
+                                          <InvoiceViewportTooltip
+                                            preferredWidth={432}
+                                            autoClose={false}
+                                          >
                                             <InvoiceServiceReviewTooltipContentV17_90L135G
                                               total={groupBlockerEntries.length}
                                               entries={groupBlockerEntries}
@@ -6159,8 +6625,9 @@ export default function RechnungenPage() {
                                     setEditingInvoiceSiteKey((current) =>
                                       current === group.key ? null : group.key,
                                     );
-                                    setExpandedInvoiceSiteKeys((current) =>
-                                      new Set([...current, group.key]),
+                                    setExpandedInvoiceSiteKeys(
+                                      (current) =>
+                                        new Set([...current, group.key]),
                                     );
                                   }}
                                 >
@@ -6168,40 +6635,90 @@ export default function RechnungenPage() {
                                 </button>
                               </div>
                             </summary>
-                            {editingInvoiceSiteKey === group.key && group.site && (
-                              <div className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2">
-                                <div className="sm:col-span-2">
-                                  <Label className="text-xs">Objekt / Bereich</Label>
-                                  <Input value={group.site.siteName || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "siteName", event.target.value)} />
-                                </div>
-                                <div className="sm:col-span-2">
-                                  <Label className="text-xs">Strasse</Label>
-                                  <Input value={group.site.siteAddress || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "siteAddress", event.target.value)} />
-                                </div>
-                                <div>
-                                  <Label className="text-xs">PLZ</Label>
-                                  <Input value={group.site.sitePlz || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "sitePlz", event.target.value)} />
-                                </div>
-                                <div>
-                                  <Label className="text-xs">Ort</Label>
-                                  <Input value={group.site.siteCity || ""} onChange={(event) => updateInvoiceGroupSite(group.key, "siteCity", event.target.value)} />
-                                </div>
-                                <div className="sm:col-span-2 flex justify-end">
-                                  {!group.site.sourceOrderId && (
+                            {editingInvoiceSiteKey === group.key &&
+                              group.site && (
+                                <div className="ml-2 grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-background p-3 sm:grid-cols-2">
+                                  <div className="sm:col-span-2">
+                                    <Label className="text-xs">
+                                      Objekt / Bereich
+                                    </Label>
+                                    <Input
+                                      value={group.site.siteName || ""}
+                                      onChange={(event) =>
+                                        updateInvoiceGroupSite(
+                                          group.key,
+                                          "siteName",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div className="sm:col-span-2">
+                                    <Label className="text-xs">Strasse</Label>
+                                    <Input
+                                      value={group.site.siteAddress || ""}
+                                      onChange={(event) =>
+                                        updateInvoiceGroupSite(
+                                          group.key,
+                                          "siteAddress",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">PLZ</Label>
+                                    <Input
+                                      value={group.site.sitePlz || ""}
+                                      onChange={(event) =>
+                                        updateInvoiceGroupSite(
+                                          group.key,
+                                          "sitePlz",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">Ort</Label>
+                                    <Input
+                                      value={group.site.siteCity || ""}
+                                      onChange={(event) =>
+                                        updateInvoiceGroupSite(
+                                          group.key,
+                                          "siteCity",
+                                          event.target.value,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div className="sm:col-span-2 flex justify-end">
+                                    {!group.site.sourceOrderId && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                        onClick={() =>
+                                          removeInvoiceExecutionSite(group.key)
+                                        }
+                                      >
+                                        Arbeitsort löschen
+                                      </Button>
+                                    )}
                                     <Button
                                       type="button"
                                       size="sm"
                                       variant="outline"
-                                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                                      onClick={() => removeInvoiceExecutionSite(group.key)}
+                                      onClick={() =>
+                                        setEditingInvoiceSiteKey(null)
+                                      }
                                     >
-                                      Arbeitsort löschen
+                                      Fertig
                                     </Button>
-                                  )}
-                                  <Button type="button" size="sm" variant="outline" onClick={() => setEditingInvoiceSiteKey(null)}>Fertig</Button>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
                             <div className="ml-2 space-y-2 bg-background pt-1">
                               {renderEntries(group.entries)}
                             </div>
@@ -6255,7 +6772,8 @@ export default function RechnungenPage() {
                           }
                         />
                         <p className="mt-1 text-[11px] text-muted-foreground">
-                          Standardmäßig {defaultPaymentDays} Tage. Für diese Rechnung frei änderbar.
+                          Standardmäßig {defaultPaymentDays} Tage. Für diese
+                          Rechnung frei änderbar.
                         </p>
                       </div>
                       {editingInvoice && (
@@ -6360,7 +6878,9 @@ export default function RechnungenPage() {
                               disabled={saving}
                               className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                             >
-                              {saving ? "Speichern..." : "Speichern & schließen"}
+                              {saving
+                                ? "Speichern..."
+                                : "Speichern & schließen"}
                             </Button>
                             <Button
                               type="button"
@@ -6389,7 +6909,9 @@ export default function RechnungenPage() {
                               disabled={saving}
                               className="w-full border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                             >
-                              {saving ? "Speichern..." : "Speichern & schließen"}
+                              {saving
+                                ? "Speichern..."
+                                : "Speichern & schließen"}
                             </Button>
                           </>
                         )}
@@ -6418,7 +6940,9 @@ export default function RechnungenPage() {
                     </p>
                     <div className="space-y-3">
                       <div>
-                        <Label className="text-xs">Titel im Rechnungs-PDF</Label>
+                        <Label className="text-xs">
+                          Titel im Rechnungs-PDF
+                        </Label>
                         <Input
                           placeholder="z. B. Zusätzliche Informationen"
                           value={form.pdfTitle}
@@ -6450,132 +6974,172 @@ export default function RechnungenPage() {
 
                   {!editOrderCtx && renderInvoiceServiceOverview()}
 
-                  {editOrderCtx && (() => {
-                    const parsed = splitSpecialNotes(editOrderCtx.specialNotes);
-                    const rawHazards = uniqueInvoiceLines(parsed.safetyWarnings || []);
-                    const isContactInstruction = (line: string) =>
-                      /\b(?:whatsapp|sms|e-?mail|mail|telefon|anruf|anrufen|rueckruf|rückruf|kontakt|melden|keine\s+anrufe?|nicht\s+anrufen)\b/i.test(line);
-                    const communicationHazards = rawHazards.filter(isContactInstruction);
-                    const hazards = rawHazards.filter((line) => !isContactInstruction(line));
-                    const allHints = uniqueInvoiceLines([
-                      ...(parsed.jobHints || []),
-                      ...communicationHazards,
-                    ]);
-                    const primaryHints = allHints.filter(isPrimaryInvoiceInformationLine);
-                    const primaryKeys = new Set(
-                      primaryHints.map((line) => normalizeInvoiceServiceName(line)),
-                    );
-                    const otherHints = allHints.filter(
-                      (line) => !primaryKeys.has(normalizeInvoiceServiceName(line)),
-                    );
-                    const customerMessageBlocks = (editingInvoice?.orders || [])
-                      .map((order, index) => {
-                        const sites = Array.isArray(order?.workSites)
-                          ? [...order.workSites].sort(
-                              (a, b) =>
-                                Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
-                                Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
-                            )
-                          : [];
-                        const title =
-                          sites[0]?.siteName ||
-                          order?.siteName ||
-                          order?.siteAddress ||
-                          `Quellauftrag ${index + 1}`;
-                        const message = String(order?.notes || order?.audioTranscript || "").trim();
-                        return {
-                          title,
-                          message,
-                          transcript: order?.audioTranscript || "",
-                          order,
-                        };
-                      })
-                      .filter(
-                        (entry) =>
-                          entry.message ||
-                          entry.order?.mediaUrl ||
-                          (entry.order?.imageUrls || []).length > 0,
+                  {editOrderCtx &&
+                    (() => {
+                      const parsed = splitSpecialNotes(
+                        editOrderCtx.specialNotes,
                       );
+                      const rawHazards = uniqueInvoiceLines(
+                        parsed.safetyWarnings || [],
+                      );
+                      const isContactInstruction = (line: string) =>
+                        /\b(?:whatsapp|sms|e-?mail|mail|telefon|anruf|anrufen|rueckruf|rückruf|kontakt|melden|keine\s+anrufe?|nicht\s+anrufen)\b/i.test(
+                          line,
+                        );
+                      const communicationHazards =
+                        rawHazards.filter(isContactInstruction);
+                      const hazards = rawHazards.filter(
+                        (line) => !isContactInstruction(line),
+                      );
+                      const allHints = uniqueInvoiceLines([
+                        ...(parsed.jobHints || []),
+                        ...communicationHazards,
+                      ]);
+                      const primaryHints = allHints.filter(
+                        isPrimaryInvoiceInformationLine,
+                      );
+                      const primaryKeys = new Set(
+                        primaryHints.map((line) =>
+                          normalizeInvoiceServiceName(line),
+                        ),
+                      );
+                      const otherHints = allHints.filter(
+                        (line) =>
+                          !primaryKeys.has(normalizeInvoiceServiceName(line)),
+                      );
+                      const customerMessageBlocks = (
+                        editingInvoice?.orders || []
+                      )
+                        .map((order, index) => {
+                          const sites = Array.isArray(order?.workSites)
+                            ? [...order.workSites].sort(
+                                (a, b) =>
+                                  Number(Boolean(b?.isPrimary)) -
+                                    Number(Boolean(a?.isPrimary)) ||
+                                  Number(a?.sortOrder || 0) -
+                                    Number(b?.sortOrder || 0),
+                              )
+                            : [];
+                          const title =
+                            sites[0]?.siteName ||
+                            order?.siteName ||
+                            order?.siteAddress ||
+                            `Quellauftrag ${index + 1}`;
+                          const message = String(
+                            order?.notes || order?.audioTranscript || "",
+                          ).trim();
+                          return {
+                            title,
+                            message,
+                            transcript: order?.audioTranscript || "",
+                            order,
+                          };
+                        })
+                        .filter(
+                          (entry) =>
+                            entry.message ||
+                            entry.order?.mediaUrl ||
+                            (entry.order?.imageUrls || []).length > 0,
+                        );
 
-                    return (
-                      <div className="space-y-3">
-                        {(primaryHints.length > 0 || hazards.length > 0 || otherHints.length > 0) && (
-                          <div className="rounded-xl border p-3 sm:p-4">
-                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                              <h3 className="text-base font-semibold">Besonderheiten</h3>
-                              <span className="text-xs text-muted-foreground">
-                                Intern – nicht automatisch im Kunden-PDF
-                              </span>
-                            </div>
-                            <div className="space-y-3">
-                              {primaryHints.length > 0 && (
-                                <div className="rounded-xl border border-blue-300 bg-blue-50 p-3 text-blue-950">
-                                  <div className="font-semibold">Wichtige Informationen</div>
-                                  <ul className="mt-1.5 space-y-1 text-sm">
-                                    {primaryHints.map((line, index) => (
-                                      <li key={`invoice-primary-${index}`}>• {line}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {hazards.length > 0 && (
-                                <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-red-950">
-                                  <div className="font-semibold">Wichtige Gefahren / Warnhinweise</div>
-                                  <ul className="mt-1.5 space-y-1 text-sm">
-                                    {hazards.map((line, index) => (
-                                      <li key={`invoice-hazard-${index}`}>• {line}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {otherHints.length > 0 && (
-                                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
-                                  <div className="font-semibold">Weitere Besonderheiten</div>
-                                  <ul className="mt-1.5 space-y-1 text-sm">
-                                    {otherHints.map((line, index) => (
-                                      <li key={`invoice-hint-${index}`}>• {line}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {renderInvoiceServiceOverview()}
-
-                        <details className="rounded-xl border p-3 sm:p-4" open>
-                          <summary className="cursor-pointer list-none text-base font-semibold [&::-webkit-details-marker]:hidden">
-                            Kundennachrichten · {customerMessageBlocks.length}
-                          </summary>
-                          <div className="mt-3 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
-                            {customerMessageBlocks.length > 0 ? (
-                              customerMessageBlocks.map((entry, index) => (
-                                <div
-                                  key={`invoice-customer-message-${index}`}
-                                  className="rounded-lg border bg-muted/20 p-3 text-sm"
-                                >
-                                  <div className="mb-2 font-semibold text-sky-800">
-                                    {index + 1}. {entry.title}
-                                  </div>
-                                  <CommunicationBlock
-                                    data={entry.order as any}
-                                    showChips={false}
-                                    showSpecialNotes={false}
-                                    showCustomerMessage
-                                  />
-                                </div>
-                              ))
-                            ) : (
-                              <div className="text-sm text-muted-foreground">
-                                Keine Kundennachricht vorhanden.
+                      return (
+                        <div className="space-y-3">
+                          {(primaryHints.length > 0 ||
+                            hazards.length > 0 ||
+                            otherHints.length > 0) && (
+                            <div className="rounded-xl border p-3 sm:p-4">
+                              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                <h3 className="text-base font-semibold">
+                                  Besonderheiten
+                                </h3>
+                                <span className="text-xs text-muted-foreground">
+                                  Intern – nicht automatisch im Kunden-PDF
+                                </span>
                               </div>
-                            )}
-                          </div>
-                        </details>
-                      </div>
-                    );
-                  })()}
+                              <div className="space-y-3">
+                                {primaryHints.length > 0 && (
+                                  <div className="rounded-xl border border-blue-300 bg-blue-50 p-3 text-blue-950">
+                                    <div className="font-semibold">
+                                      Wichtige Informationen
+                                    </div>
+                                    <ul className="mt-1.5 space-y-1 text-sm">
+                                      {primaryHints.map((line, index) => (
+                                        <li key={`invoice-primary-${index}`}>
+                                          • {line}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {hazards.length > 0 && (
+                                  <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-red-950">
+                                    <div className="font-semibold">
+                                      Wichtige Gefahren / Warnhinweise
+                                    </div>
+                                    <ul className="mt-1.5 space-y-1 text-sm">
+                                      {hazards.map((line, index) => (
+                                        <li key={`invoice-hazard-${index}`}>
+                                          • {line}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {otherHints.length > 0 && (
+                                  <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                                    <div className="font-semibold">
+                                      Weitere Besonderheiten
+                                    </div>
+                                    <ul className="mt-1.5 space-y-1 text-sm">
+                                      {otherHints.map((line, index) => (
+                                        <li key={`invoice-hint-${index}`}>
+                                          • {line}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {renderInvoiceServiceOverview()}
+
+                          <details
+                            className="rounded-xl border p-3 sm:p-4"
+                            open
+                          >
+                            <summary className="cursor-pointer list-none text-base font-semibold [&::-webkit-details-marker]:hidden">
+                              Kundennachrichten · {customerMessageBlocks.length}
+                            </summary>
+                            <div className="mt-3 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+                              {customerMessageBlocks.length > 0 ? (
+                                customerMessageBlocks.map((entry, index) => (
+                                  <div
+                                    key={`invoice-customer-message-${index}`}
+                                    className="rounded-lg border bg-muted/20 p-3 text-sm"
+                                  >
+                                    <div className="mb-2 font-semibold text-sky-800">
+                                      {index + 1}. {entry.title}
+                                    </div>
+                                    <CommunicationBlock
+                                      data={entry.order as any}
+                                      showChips={false}
+                                      showSpecialNotes={false}
+                                      showCustomerMessage
+                                    />
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-sm text-muted-foreground">
+                                  Keine Kundennachricht vorhanden.
+                                </div>
+                              )}
+                            </div>
+                          </details>
+                        </div>
+                      );
+                    })()}
                 </>
               )}
             </div>
@@ -6813,4 +7377,3 @@ export default function RechnungenPage() {
     </div>
   );
 }
-
