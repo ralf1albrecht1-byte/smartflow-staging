@@ -469,8 +469,34 @@ export async function GET() {
         },
       },
     });
+    // V17.90L193: Ein Angebot, das bereits als aktive Rechnung weitergeführt
+    // wurde, gehört nicht mehr in die normale Angebotsliste. Es bleibt als
+    // Quelldokument bestehen und erscheint automatisch wieder, sobald die
+    // verknüpfte Rechnung zurückgeführt oder gelöscht wurde.
+    const offerIds = offers.map((offer: any) => String(offer.id));
+    const linkedInvoices =
+      offerIds.length > 0
+        ? await prisma.invoice.findMany({
+            where: {
+              sourceOfferId: { in: offerIds },
+              userId,
+              dataScope,
+              deletedAt: null,
+            },
+            select: { sourceOfferId: true },
+          })
+        : [];
+    const invoicedOfferIds = new Set(
+      linkedInvoices
+        .map((invoice: any) => String(invoice.sourceOfferId || ""))
+        .filter(Boolean),
+    );
+    const visibleOffers = offers.filter(
+      (offer: any) => !invoicedOfferIds.has(String(offer.id)),
+    );
+
     return NextResponse.json(
-      offers?.map((o: any) => {
+      visibleOffers.map((o: any) => {
         const document = withDocumentCustomerSnapshot(o, "offer");
         return {
           ...document,
@@ -478,7 +504,7 @@ export async function GET() {
           vatAmount: roundMoney(Number(document?.vatAmount ?? 0)),
           total: roundMoney(Number(document?.total ?? 0)),
         };
-      }) ?? [],
+      }),
     );
   } catch (error: any) {
     console.error(error);

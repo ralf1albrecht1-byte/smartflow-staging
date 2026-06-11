@@ -4403,20 +4403,18 @@ export default function AngebotePage() {
           toast.success(`Rechnung ${invoice.invoiceNumber} erstellt`);
         }
 
-        // Update offer status to "Angenommen"
+        // V17.90L193: Die Rechnung-API setzt den Status atomar. Das Angebot
+        // wird sofort aus der normalen Angebotsliste entfernt und erscheint
+        // bei einer späteren Rückführung automatisch wieder.
         if (offerId) {
-          await fetch(`/api/offers/${offerId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "Angenommen" }),
-          });
           setOffers((current) =>
-            current.map((offer) =>
-              offer.id === offerId
-                ? { ...offer, status: "Angenommen" }
-                : offer,
-            ),
+            current.filter((offer) => offer.id !== offerId),
           );
+          setExpandedOfferCardIds((current) => {
+            const next = new Set(current);
+            next.delete(offerId);
+            return next;
+          });
         }
 
         setDialogOpen(false);
@@ -4705,26 +4703,23 @@ export default function AngebotePage() {
       });
       if (invRes.ok) {
         const invoice = await invRes.json();
-        // Angebot-Status auf "Angenommen" setzen
-        await fetch(`/api/offers/${off.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "Angenommen" }),
-        });
+        // V17.90L193: Das weitergeführte Angebot verschwindet aus der
+        // Angebotsliste. Die API hält Status und Dokumentverknüpfung zusammen.
         setOffers((current) =>
-          current.map((offer) =>
-            offer.id === off.id
-              ? { ...offer, status: "Angenommen" }
-              : offer,
-          ),
+          current.filter((offer) => offer.id !== off.id),
         );
+        setExpandedOfferCardIds((current) => {
+          const next = new Set(current);
+          next.delete(off.id);
+          return next;
+        });
         if (invoice.existed) {
           toast.info(
             `Rechnung ${invoice.invoiceNumber} existiert bereits — wird geöffnet`,
           );
         } else {
           toast.success(
-            `Rechnung ${invoice.invoiceNumber} erstellt — Angebot als Angenommen markiert`,
+            `Rechnung ${invoice.invoiceNumber} erstellt — Angebot zu Rechnungen verschoben`,
           );
         }
         window.location.href = "/rechnungen";

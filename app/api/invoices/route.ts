@@ -603,6 +603,18 @@ export async function POST(request: Request) {
         include: { customer: true, items: true },
       });
       if (existing) {
+        // V17.90L193: Auch bei einem bereits vorhandenen Folgedokument bleibt
+        // der Quellstatus konsistent. Die Angebotsliste blendet das Angebot
+        // anhand der aktiven sourceOfferId-Verknüpfung aus.
+        await prisma.offer.updateMany({
+          where: {
+            id: data.sourceOfferId,
+            userId,
+            dataScope,
+            deletedAt: null,
+          },
+          data: { status: "Angenommen" },
+        });
         const responseExisting = withDocumentCustomerSnapshot(
           existing,
           "invoice",
@@ -617,51 +629,75 @@ export async function POST(request: Request) {
       }
     }
 
-    // Retry loop: guards against P2002 (unique constraint on invoiceNumber)
-    // in case of a race condition between concurrent requests.
+    // V17.90L193: Rechnung, Auftragsverknüpfung und Angebotsweiterführung
+    // werden gemeinsam gespeichert. So entsteht nie eine sichtbare Kopie,
+    // falls ein nachgelagerter Schritt fehlschlägt.
     let invoice: any = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       const invoiceNumber = await generateInvoiceNumber(userId);
       try {
-        invoice = await prisma.invoice.create({
-          data: {
-            invoiceNumber,
-            customerId: data?.customerId,
-            subtotal,
-            vatRate,
-            vatAmount,
-            total,
-            currency,
-            invoiceDate,
-            dueDate,
-            notes: data?.notes || null,
-            status: requestedStatus,
-            ...customerSnapshotData,
-            sourceOfferId: data?.sourceOfferId ?? null,
-            userId,
-            dataScope,
-            items: {
-              create: items.map((item: any) => ({
-                description: item?.description ?? "",
-                quantity: Number(item?.quantity ?? 1),
-                unit: item?.unit ?? "Stunde",
-                unitPrice: roundMoney(Number(item?.unitPrice ?? 0)),
-                totalPrice: calculateLineTotal(
-                  item?.quantity ?? 1,
-                  item?.unitPrice ?? 0,
-                ),
-                siteName: item?.siteName || null,
-                siteAddress: item?.siteAddress || null,
-                sitePlz: item?.sitePlz || null,
-                siteCity: item?.siteCity || null,
-                siteNote: item?.siteNote || null,
-                sourceOrderId: item?.sourceOrderId || null,
-              })),
+        invoice = await prisma.$transaction(async (tx) => {
+          const createdInvoice = await tx.invoice.create({
+            data: {
+              invoiceNumber,
+              customerId: data?.customerId,
+              subtotal,
+              vatRate,
+              vatAmount,
+              total,
+              currency,
+              invoiceDate,
+              dueDate,
+              notes: data?.notes || null,
+              status: requestedStatus,
+              ...customerSnapshotData,
+              sourceOfferId: data?.sourceOfferId ?? null,
+              userId,
+              dataScope,
+              items: {
+                create: items.map((item: any) => ({
+                  description: item?.description ?? "",
+                  quantity: Number(item?.quantity ?? 1),
+                  unit: item?.unit ?? "Stunde",
+                  unitPrice: roundMoney(Number(item?.unitPrice ?? 0)),
+                  totalPrice: calculateLineTotal(
+                    item?.quantity ?? 1,
+                    item?.unitPrice ?? 0,
+                  ),
+                  siteName: item?.siteName || null,
+                  siteAddress: item?.siteAddress || null,
+                  sitePlz: item?.sitePlz || null,
+                  siteCity: item?.siteCity || null,
+                  siteNote: item?.siteNote || null,
+                  sourceOrderId: item?.sourceOrderId || null,
+                })),
+              },
             },
-          },
-          include: { customer: true, items: true },
+            include: { customer: true, items: true },
+          });
+
+          if (data?.orderIds?.length) {
+            await tx.order.updateMany({
+              where: { id: { in: data.orderIds }, userId, dataScope },
+              data: { invoiceId: createdInvoice.id },
+            });
+          }
+
+          if (data?.sourceOfferId) {
+            await tx.offer.updateMany({
+              where: {
+                id: data.sourceOfferId,
+                userId,
+                dataScope,
+                deletedAt: null,
+              },
+              data: { status: "Angenommen" },
+            });
+          }
+
+          return createdInvoice;
         });
-        break; // success
+        break;
       } catch (createErr: any) {
         if (createErr?.code === "P2002" && attempt < 2) {
           console.warn(
@@ -671,12 +707,6 @@ export async function POST(request: Request) {
         }
         throw createErr;
       }
-    }
-    if (data?.orderIds?.length) {
-      await prisma.order.updateMany({
-        where: { id: { in: data.orderIds }, userId, dataScope },
-        data: { invoiceId: invoice.id },
-      });
     }
     const su = await getSessionUser();
     logAuditAsync({
