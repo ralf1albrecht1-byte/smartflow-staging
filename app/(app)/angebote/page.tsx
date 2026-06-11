@@ -37,6 +37,10 @@ import {
   type CommunicationData,
 } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
+import {
+  collectMergedAppointmentEntries,
+  formatMergedAppointmentTooltip,
+} from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import { autoFillCustomerFromNotes } from "@/lib/extract-from-notes";
 import {
@@ -232,8 +236,9 @@ const parseOfferAppointmentTooltipV17_90L169 = (
         dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
       }`
     : "";
+  const sourceWithoutDate = dateMatch ? source.replace(dateMatch[0], " ") : source;
   const clockMatches = Array.from(
-    source.matchAll(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g),
+    sourceWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
   ).map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
   const uniqueTimes = Array.from(new Set(clockMatches));
   const time =
@@ -1759,6 +1764,55 @@ function OfferAppointmentTooltipContentV17_90L169({
 }: {
   text: string;
 }) {
+  const lines = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const multiple = /^Termine\s*·\s*\d+/i.test(lines[0] || "");
+
+  if (multiple) {
+    const entries = lines.slice(1).map((line, index) => {
+      const cleaned = line.replace(/^\d+\.\s*/, "").trim();
+      const [sitePart, ...appointmentParts] = cleaned.split(/\s+—\s+/);
+      return {
+        site:
+          appointmentParts.length > 0
+            ? sitePart.trim()
+            : `Arbeitsort ${index + 1}`,
+        appointment:
+          appointmentParts.length > 0
+            ? appointmentParts.join(" — ").trim()
+            : cleaned,
+      };
+    });
+
+    return (
+      <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
+        <span className="mb-2 flex items-center gap-2 text-sm font-extrabold leading-tight">
+          <CalendarDays className="h-4 w-4 shrink-0 text-violet-700 dark:text-violet-300" />
+          {lines[0]}
+        </span>
+        <span className="block space-y-2">
+          {entries.map((entry, index) => (
+            <span
+              key={`${entry.site}-${entry.appointment}-${index}`}
+              className="block rounded-lg border border-violet-200 bg-white/80 p-2.5 dark:border-violet-800/60 dark:bg-slate-950/25"
+            >
+              <span className="block break-words text-[12px] font-extrabold leading-tight">
+                {index + 1}. {entry.site}
+              </span>
+              <span className="mt-1.5 block text-[12px] font-semibold leading-relaxed">
+                {entry.appointment}
+              </span>
+            </span>
+          ))}
+        </span>
+      </span>
+    );
+  }
+
   const parts = parseOfferAppointmentTooltipV17_90L169(text);
   return (
     <span className="block rounded-xl border border-violet-300 bg-violet-50 p-3 text-slate-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-slate-50">
@@ -5137,8 +5191,10 @@ export default function AngebotePage() {
                   const parsedOfferNotes = splitSpecialNotes(
                     orderCtx.specialNotes,
                   );
+                  const offerAppointmentEntries =
+                    collectMergedAppointmentEntries((off.orders || []) as any);
                   const appointmentLabel =
-                    extractMergedOfferAppointmentLabelV17_90L175(off.orders) ||
+                    formatMergedAppointmentTooltip(offerAppointmentEntries) ||
                     extractOfferAppointmentLabel(
                       [orderCtx.specialNotes, orderCtx.notes]
                         .filter(Boolean)

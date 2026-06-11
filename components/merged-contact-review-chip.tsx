@@ -150,17 +150,26 @@ function matchMergedContactWorkSiteV17_90L178(
   fallbackIndex: number,
 ): any | null {
   const sectionKey = normalizeContactTextV17_90L175(sectionText);
-  const byAddress = workSites.find((site) => {
+  const byIdentity = workSites.find((site) => {
+    const nameKey = normalizeContactTextV17_90L175(site?.siteName);
     const addressKey = normalizeContactTextV17_90L175(site?.siteAddress);
+    return Boolean(
+      (nameKey && sectionKey.includes(nameKey)) ||
+        (addressKey && sectionKey.includes(addressKey)),
+    );
+  });
+  const byPlace = workSites.filter((site) => {
     const placeKey = normalizeContactTextV17_90L175(
       [site?.sitePlz, site?.siteCity].filter(Boolean).join(" "),
     );
-    return Boolean(
-      (addressKey && sectionKey.includes(addressKey)) ||
-        (placeKey && sectionKey.includes(placeKey)),
-    );
+    return Boolean(placeKey && sectionKey.includes(placeKey));
   });
-  return byAddress || workSites[fallbackIndex] || null;
+  return (
+    byIdentity ||
+    (byPlace.length === 1 ? byPlace[0] : null) ||
+    workSites[fallbackIndex] ||
+    null
+  );
 }
 
 function explicitMergedContactsV17_90L175(
@@ -540,82 +549,121 @@ function ContactEntries({
   onAction?: () => void;
 }) {
   return (
-    <div className="space-y-2.5">
-      {groups.map((group) => (
-        <section
-          key={group.key}
-          className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"
-        >
-          <div className="border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
-            <div className="break-words font-bold text-slate-950 dark:text-slate-50">
-              {group.title}
+    <div className="space-y-2">
+      {groups.map((group) => {
+        const isBillingContact = group.key === "billing_contact";
+        return (
+          <section
+            key={group.key}
+            className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div className="border-b border-slate-200 bg-white px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-950">
+              <div className="break-words font-bold text-slate-950 dark:text-slate-50">
+                {group.title}
+              </div>
+              {!isBillingContact && group.subtitle && (
+                <div className="mt-0.5 break-words text-[10px] text-slate-500 dark:text-slate-400">
+                  {group.subtitle}
+                </div>
+              )}
             </div>
-            {group.subtitle && (
-              <div className="mt-0.5 break-words text-[11px] text-slate-500 dark:text-slate-400">
-                {group.subtitle}
+
+            {isBillingContact ? (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-2">
+                {group.entries.map((entry, index) => {
+                  const href = actionHref(entry);
+                  return (
+                    <span
+                      key={`${group.key}-${entry.contactValue}-${index}`}
+                      className="inline-flex min-w-0 items-center gap-2"
+                    >
+                      {index > 0 && (
+                        <span className="text-slate-300 dark:text-slate-600">·</span>
+                      )}
+                      {href ? (
+                        <a
+                          href={href}
+                          target={href.startsWith("http") ? "_blank" : undefined}
+                          rel={href.startsWith("http") ? "noreferrer" : undefined}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onAction?.();
+                          }}
+                          className="min-w-0 break-all font-semibold text-blue-700 hover:underline dark:text-blue-300"
+                        >
+                          {entry.contactValue}
+                        </a>
+                      ) : (
+                        <span className="min-w-0 break-all font-semibold">
+                          {entry.contactValue}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                {group.entries.map((entry, index) => {
+                  const href = actionHref(entry);
+                  const entryTitle =
+                    String(entry.contactName || "").trim() ||
+                    String(entry.channelLabel || "Kontakt").trim();
+                  const detailLines = cleanMergedContactDetailV17_90L178(entry);
+
+                  return (
+                    <div
+                      key={`${group.key}-${entry.contactValue}-${index}`}
+                      className="px-2.5 py-1.5"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
+                        <div className="min-w-0 font-semibold text-slate-800 dark:text-slate-100">
+                          {entryTitle}
+                        </div>
+                        <div className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          {entry.channelLabel}
+                        </div>
+                      </div>
+
+                      {href ? (
+                        <a
+                          href={href}
+                          target={href.startsWith("http") ? "_blank" : undefined}
+                          rel={href.startsWith("http") ? "noreferrer" : undefined}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onAction?.();
+                          }}
+                          className="mt-0.5 block break-all font-semibold text-blue-700 hover:underline dark:text-blue-300"
+                        >
+                          {entry.contactValue}
+                        </a>
+                      ) : (
+                        <div className="mt-0.5 break-all font-semibold">
+                          {entry.contactValue}
+                        </div>
+                      )}
+
+                      {detailLines.length > 0 && (
+                        <div className="mt-0.5 space-y-0.5 text-[10px] text-muted-foreground">
+                          {detailLines.map((detailLine, detailIndex) => (
+                            <div
+                              key={`${group.key}-${entry.contactValue}-detail-${detailIndex}`}
+                              className="break-words"
+                            >
+                              {detailLine}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
-          </div>
-
-          <div className="divide-y divide-slate-200 dark:divide-slate-700">
-            {group.entries.map((entry, index) => {
-              const href = actionHref(entry);
-              const entryTitle =
-                String(entry.contactName || "").trim() ||
-                String(entry.channelLabel || "Kontakt").trim();
-              const detailLines = cleanMergedContactDetailV17_90L178(entry);
-
-              return (
-                <div
-                  key={`${group.key}-${entry.contactValue}-${index}`}
-                  className="px-3 py-2"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <div className="min-w-0 font-semibold text-slate-800 dark:text-slate-100">
-                      {entryTitle}
-                    </div>
-                    <div className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      {entry.channelLabel}
-                    </div>
-                  </div>
-
-                  {href ? (
-                    <a
-                      href={href}
-                      target={href.startsWith("http") ? "_blank" : undefined}
-                      rel={href.startsWith("http") ? "noreferrer" : undefined}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onAction?.();
-                      }}
-                      className="mt-1 block break-all rounded-md border border-blue-200 bg-white px-2 py-1.5 font-semibold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:bg-slate-950 dark:text-blue-300"
-                    >
-                      {entry.contactValue}
-                    </a>
-                  ) : (
-                    <div className="mt-1 break-all font-semibold">
-                      {entry.contactValue}
-                    </div>
-                  )}
-
-                  {detailLines.length > 0 && (
-                    <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
-                      {detailLines.map((detailLine, detailIndex) => (
-                        <div
-                          key={`${group.key}-${entry.contactValue}-detail-${detailIndex}`}
-                          className="break-words"
-                        >
-                          {detailLine}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+          </section>
+        );
+      })}
     </div>
   );
 }

@@ -33,6 +33,10 @@ import {
   stripForwardedMessage,
 } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
+import {
+  collectMergedAppointmentEntries,
+  formatMergedAppointmentTooltip,
+} from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import { autoFillCustomerFromNotes } from "@/lib/extract-from-notes";
 import {
@@ -215,8 +219,9 @@ const parseInvoiceAppointmentTooltipV17_90L169 = (
         dateMatch[3] ? String(dateMatch[3]).padStart(2, "0") : ""
       }`
     : "";
+  const sourceWithoutDate = dateMatch ? source.replace(dateMatch[0], " ") : source;
   const clockMatches = Array.from(
-    source.matchAll(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g),
+    sourceWithoutDate.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g),
   ).map((match) => `${match[1].padStart(2, "0")}:${match[2]}`);
   const uniqueTimes = Array.from(new Set(clockMatches));
   const time =
@@ -1228,16 +1233,17 @@ function InvoiceAppointmentTooltipContentV17_90L169({
   if (multiple) {
     const entries = lines.slice(1).map((line, index) => {
       const cleaned = line.replace(/^\d+\.\s*/, "").trim();
-      const markerIndex = cleaned.toLowerCase().lastIndexOf(": termin");
-      const site =
-        markerIndex >= 0
-          ? cleaned.slice(0, markerIndex).trim()
-          : `Arbeitsort ${index + 1}`;
-      const appointment =
-        markerIndex >= 0
-          ? cleaned.slice(markerIndex + 2).trim()
-          : cleaned;
-      return { site, appointment };
+      const [sitePart, ...appointmentParts] = cleaned.split(/\s+—\s+/);
+      return {
+        site:
+          appointmentParts.length > 0
+            ? sitePart.trim()
+            : `Arbeitsort ${index + 1}`,
+        appointment:
+          appointmentParts.length > 0
+            ? appointmentParts.join(" — ").trim()
+            : cleaned,
+      };
     });
 
     return (
@@ -1260,9 +1266,7 @@ function InvoiceAppointmentTooltipContentV17_90L169({
                   {index + 1}. {entry.site}
                 </span>
                 <span className="mt-1.5 block text-[12px] font-semibold leading-relaxed">
-                  {[parts.date, parts.time, parts.note]
-                    .filter(Boolean)
-                    .join(" · ") || parts.fallback}
+                  {entry.appointment}
                 </span>
               </span>
             );
@@ -3894,7 +3898,11 @@ export default function RechnungenPage() {
                     ? visibleItems
                     : visibleItems.slice(0, 6);
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
-                  const invoiceAppointmentLabel = formatInvoiceAppointmentLabel(inv);
+                  const invoiceAppointmentEntries =
+                    collectMergedAppointmentEntries((inv.orders || []) as any);
+                  const invoiceAppointmentLabel =
+                    formatMergedAppointmentTooltip(invoiceAppointmentEntries) ||
+                    formatInvoiceAppointmentLabel(inv);
                   const invoiceAppointmentDisplayLabel =
                     invoiceAppointmentLabel;
                   const invoiceAppointmentChipLabels =

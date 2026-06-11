@@ -46,6 +46,11 @@ import {
   formatMergedContactReviewTooltip,
 } from "@/components/communication-block";
 import { MergedContactReviewChip } from "@/components/merged-contact-review-chip";
+import {
+  collectMergedAppointmentEntries,
+  formatMergedAppointmentChipLabel,
+  formatMergedAppointmentTooltip,
+} from "@/lib/merged-appointment-utils";
 import { ServiceCombobox, ServiceOption } from "@/components/service-combobox";
 import {
   mergeCustomerIntoForm,
@@ -7606,55 +7611,22 @@ const getBottomBadges = (
   // Communication chips (Mail/SMS/WhatsApp) are rendered by CommunicationChips only.
   // Do not add an extra SMS review badge here; otherwise SMS appears twice.
 
-  const appointmentBaseDate = order.createdAt || order.date;
-  const semanticAppointmentSourceLines = splitAppointmentSources(
-    ...parsedNotes.jobHints,
-    order.specialNotes,
-  ).filter(
-    (line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line),
-  );
-  const rawAppointmentSourceLines = splitAppointmentSources(
-    order.notes,
-    order.audioTranscript,
-  ).filter(
-    (line) => !isCallbackTimeLine(line) && !isPreArrivalInstructionLine(line),
-  );
-  const appointmentSourceLines = semanticAppointmentSourceLines.some((line) =>
-    hasExplicitAppointmentBadgeSignalV17_90L10(line),
-  )
-    ? semanticAppointmentSourceLines
-    : rawAppointmentSourceLines;
+  // V17.90L179: Auftrag, Angebot und Rechnung verwenden dieselbe
+  // read-only Terminquelle. Datumswerte werden nie als Uhrzeiten interpretiert
+  // und jeder Termin bleibt dem Arbeitsort aus seiner Quellsektion zugeordnet.
+  const unifiedAppointmentEntries = collectMergedAppointmentEntries([
+    order as any,
+  ]);
 
-  const multipleAppointmentBadge = getMultipleAppointmentBadge(
-    order,
-    parsedNotes,
-  );
-
-  let appointmentBadgeLine = "";
-  const singleAppointmentBadge = appointmentSourceLines.reduce<ReturnType<typeof extractAppointmentBadge>>(
-    (found, line) => {
-      if (found) return found;
-      const badge = extractAppointmentBadge(line, appointmentBaseDate, order.status);
-      if (badge) appointmentBadgeLine = line;
-      return badge;
-    },
-    null,
-  );
-
-  const appointmentBadge = multipleAppointmentBadge || singleAppointmentBadge;
-
-  if (appointmentBadge) {
+  if (unifiedAppointmentEntries.length > 0) {
     pushUniqueBadge(badges, {
-      key: multipleAppointmentBadge ? "appointments_multiple" : "appointment",
-      label: appointmentBadge.label,
-      className: appointmentBadge.className,
-      icon: appointmentBadge.icon,
-      tooltip: multipleAppointmentBadge
-        ? multipleAppointmentBadge.tooltip
-        : compactSingleAppointmentTooltipV17_90L86(
-            appointmentBadgeLine,
-            appointmentBadge.label,
-          ),
+      key:
+        unifiedAppointmentEntries.length > 1
+          ? "appointments_multiple"
+          : "appointment",
+      label: formatMergedAppointmentChipLabel(unifiedAppointmentEntries),
+      className: "bg-violet-100 text-violet-700 border border-violet-300",
+      tooltip: formatMergedAppointmentTooltip(unifiedAppointmentEntries),
     });
   } else {
     const appointmentClarification = detectAppointmentClarificationHint(
