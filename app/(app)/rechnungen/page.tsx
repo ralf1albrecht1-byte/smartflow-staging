@@ -3492,10 +3492,12 @@ export default function RechnungenPage() {
         }),
       });
       if (res.ok) {
+        // L182: Nach erfolgreichem Archivieren sofort aus der aktiven Liste
+        // entfernen. Ein erneutes Laden der ganzen Seite ist nicht nötig.
+        removeInvoiceFromActiveList(editingInvoice.id);
         toast.success("Rechnung erledigt und archiviert");
         setDialogOpen(false);
         setEditingInvoice(null);
-        load();
       } else toast.error("Fehler");
     } catch {
       toast.error("Fehler");
@@ -3589,18 +3591,66 @@ export default function RechnungenPage() {
     }
   };
 
+  const removeInvoiceFromActiveList = (id: string) => {
+    setInvoices((current) =>
+      current.filter((invoice) => invoice.id !== id),
+    );
+    setExpandedInvoiceCardIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setExpandedInvoiceServiceCardIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const restoreInvoiceInActiveList = (
+    invoice: Invoice | null,
+    previousIndex: number,
+  ) => {
+    if (!invoice) return;
+    setInvoices((current) => {
+      if (current.some((entry) => entry.id === invoice.id)) return current;
+      const next = [...current];
+      next.splice(
+        Math.min(Math.max(previousIndex, 0), next.length),
+        0,
+        invoice,
+      );
+      return next;
+    });
+  };
+
   const updateStatus = async (
     e: React.MouseEvent | React.ChangeEvent,
     id: string,
     status: string,
   ) => {
     if ("stopPropagation" in e) e.stopPropagation();
-    const previousStatus = invoices.find((invoice) => invoice.id === id)?.status;
-    setInvoices((current) =>
-      current.map((invoice) =>
-        invoice.id === id ? { ...invoice, status } : invoice,
-      ),
-    );
+    const previousIndex = invoices.findIndex((invoice) => invoice.id === id);
+    const previousInvoice =
+      previousIndex >= 0 ? invoices[previousIndex] : null;
+    const previousStatus = previousInvoice?.status;
+    const movesToArchive = status === "Erledigt";
+
+    if (movesToArchive) {
+      // L182: Erfolgreich archivierte Rechnungen gehören nicht mehr in die
+      // aktive Rechnungsliste. Optimistisch sofort entfernen, damit Karte und
+      // Zähler ohne Reload reagieren. Bei API-Fehler exakt zurücksetzen.
+      removeInvoiceFromActiveList(id);
+    } else {
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === id ? { ...invoice, status } : invoice,
+        ),
+      );
+    }
+
     try {
       const response = await fetch(`/api/invoices/${id}`, {
         method: "PUT",
@@ -3608,16 +3658,26 @@ export default function RechnungenPage() {
         body: JSON.stringify({ status }),
       });
       if (!response.ok) throw new Error("status_update_failed");
-      toast.success("Status aktualisiert");
-    } catch {
-      setInvoices((current) =>
-        current.map((invoice) =>
-          invoice.id === id
-            ? { ...invoice, status: previousStatus || invoice.status }
-            : invoice,
-        ),
+      toast.success(
+        movesToArchive ? "Rechnung archiviert" : "Status aktualisiert",
       );
-      toast.error("Status konnte nicht gespeichert werden");
+    } catch {
+      if (movesToArchive) {
+        restoreInvoiceInActiveList(previousInvoice, previousIndex);
+      } else {
+        setInvoices((current) =>
+          current.map((invoice) =>
+            invoice.id === id
+              ? { ...invoice, status: previousStatus || invoice.status }
+              : invoice,
+          ),
+        );
+      }
+      toast.error(
+        movesToArchive
+          ? "Rechnung konnte nicht archiviert werden"
+          : "Status konnte nicht gespeichert werden",
+      );
     }
   };
 
