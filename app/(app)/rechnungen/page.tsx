@@ -4291,6 +4291,9 @@ export default function RechnungenPage() {
                                         </button>
                                       )}
                                     </div>
+                                    <div className="mt-1 text-[10px] font-medium text-muted-foreground sm:text-[11px]">
+                                      Leistungen · {visibleItems.length}
+                                    </div>
                                     <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                       <select
                                         value={effectiveStatus}
@@ -4315,9 +4318,6 @@ export default function RechnungenPage() {
                                           </option>
                                         ))}
                                       </select>
-                                      <span className="shrink-0 whitespace-nowrap text-[10px] font-semibold text-muted-foreground">
-                                        Leistungen · {visibleItems.length}
-                                      </span>
                                       {renderInvoiceCompactFunctionalChips()}
                                       {useTouchChipPopovers ? (
                                         (invoiceYellowReviewEntries.length > 0 ||

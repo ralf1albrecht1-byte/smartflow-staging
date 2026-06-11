@@ -144,6 +144,25 @@ type ExplicitMergedContactV17_90L175 = {
   detail: string;
 };
 
+function matchMergedContactWorkSiteV17_90L178(
+  sectionText: string,
+  workSites: any[],
+  fallbackIndex: number,
+): any | null {
+  const sectionKey = normalizeContactTextV17_90L175(sectionText);
+  const byAddress = workSites.find((site) => {
+    const addressKey = normalizeContactTextV17_90L175(site?.siteAddress);
+    const placeKey = normalizeContactTextV17_90L175(
+      [site?.sitePlz, site?.siteCity].filter(Boolean).join(" "),
+    );
+    return Boolean(
+      (addressKey && sectionKey.includes(addressKey)) ||
+        (placeKey && sectionKey.includes(placeKey)),
+    );
+  });
+  return byAddress || workSites[fallbackIndex] || null;
+}
+
 function explicitMergedContactsV17_90L175(
   records: CommunicationData[] | null | undefined,
 ): ExplicitMergedContactV17_90L175[] {
@@ -189,15 +208,20 @@ function explicitMergedContactsV17_90L175(
     const sections =
       workSites.length > 1 && mergedParts.length > 1
         ? mergedParts.map((text, index) => {
+            const matchedSite = matchMergedContactWorkSiteV17_90L178(
+              text,
+              workSites,
+              index,
+            );
             const storedLabel = String(
-              workSites[index]?.siteName || workSites[index]?.name || "",
+              matchedSite?.siteName || matchedSite?.name || "",
             )
               .replace(/\s+/g, " ")
               .trim();
             const inferredLabel = mergedSectionSiteLabelV17_90L176(text);
             const addressLabel = [
-              workSites[index]?.siteAddress,
-              [workSites[index]?.sitePlz, workSites[index]?.siteCity]
+              matchedSite?.siteAddress,
+              [matchedSite?.sitePlz, matchedSite?.siteCity]
                 .filter(Boolean)
                 .join(" "),
             ]
@@ -356,6 +380,48 @@ function mergedContactValueKeyV17_90L177(value: string): string {
   return normalizePhoneForAction(raw) || normalizeContactTextV17_90L175(raw);
 }
 
+function mergedContactChannelPriorityV17_90L178(value?: string | null): number {
+  const key = normalizeContactTextV17_90L175(value);
+  if (key.includes("whatsapp")) return 4;
+  if (key.includes("sms")) return 3;
+  if (key.includes("telefon") || key.includes("anruf")) return 2;
+  if (key.includes("mail")) return 1;
+  return 0;
+}
+
+function isGenericMergedContactNameV17_90L178(value?: string | null): boolean {
+  const key = normalizeContactTextV17_90L175(value);
+  return [
+    "kontakt",
+    "firmenkontakt",
+    "telefon",
+    "anruf",
+    "sms",
+    "whatsapp",
+    "e mail",
+    "email",
+  ].includes(key);
+}
+
+function uniqueMergedContactDetailsV17_90L178(values: string[]): string[] {
+  const result: string[] = [];
+  for (const raw of values) {
+    const line = String(raw || "").replace(/\s+/g, " ").trim();
+    const key = normalizeContactTextV17_90L175(line);
+    if (!key) continue;
+    const duplicate = result.some((existing) => {
+      const existingKey = normalizeContactTextV17_90L175(existing);
+      return (
+        existingKey === key ||
+        existingKey.includes(key) ||
+        key.includes(existingKey)
+      );
+    });
+    if (!duplicate) result.push(line);
+  }
+  return result;
+}
+
 function groupMergedContactEntriesV17_90L177(
   entries: MergedContactReviewEntry[],
 ): ContactEntryGroupV17_90L177[] {
@@ -374,29 +440,96 @@ function groupMergedContactEntriesV17_90L177(
       : `Arbeitsort: ${rawSite || "Nicht angegeben"}`;
     const subtitle = isBillingContact ? rawSite : "";
     const current = groups.get(key);
-    if (current) {
-      current.entries.push(entry);
-    } else {
-      groups.set(key, { key, title, subtitle, entries: [entry] });
-    }
+    if (current) current.entries.push(entry);
+    else groups.set(key, { key, title, subtitle, entries: [entry] });
   });
 
-  return Array.from(groups.values()).map((group) => ({
-    ...group,
-    entries: group.entries.filter((entry, index, all) => {
-      const value = mergedContactValueKeyV17_90L177(entry.contactValue);
-      const channel = normalizeContactTextV17_90L175(entry.channelLabel);
-      return all.findIndex((candidate) => {
-        const candidateValue = mergedContactValueKeyV17_90L177(
-          candidate.contactValue,
-        );
-        return (
-          candidateValue === value &&
-          normalizeContactTextV17_90L175(candidate.channelLabel) === channel
-        );
-      }) === index;
-    }),
-  }));
+  return Array.from(groups.values()).map((group) => {
+    const byValue = new Map<string, MergedContactReviewEntry>();
+    for (const entry of group.entries) {
+      const valueKey = mergedContactValueKeyV17_90L177(entry.contactValue);
+      const existing = byValue.get(valueKey);
+      if (!existing) {
+        byValue.set(valueKey, { ...entry });
+        continue;
+      }
+
+      const existingPriority = mergedContactChannelPriorityV17_90L178(
+        existing.channelLabel,
+      );
+      const incomingPriority = mergedContactChannelPriorityV17_90L178(
+        entry.channelLabel,
+      );
+      let merged: MergedContactReviewEntry = { ...existing };
+      if (incomingPriority > existingPriority) {
+        merged = {
+          ...merged,
+          channelLabel: entry.channelLabel,
+          href: entry.href,
+        };
+      }
+      if (
+        isGenericMergedContactNameV17_90L178(merged.contactName) &&
+        !isGenericMergedContactNameV17_90L178(entry.contactName)
+      ) {
+        merged = { ...merged, contactName: entry.contactName };
+      }
+      merged = {
+        ...merged,
+        detail: uniqueMergedContactDetailsV17_90L178([
+          String(merged.detail || ""),
+          String(entry.detail || ""),
+        ]).join("\n"),
+      };
+      byValue.set(valueKey, merged);
+    }
+    return { ...group, entries: Array.from(byValue.values()) };
+  });
+}
+
+function escapeMergedContactRegExpV17_90L178(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function cleanMergedContactDetailV17_90L178(
+  entry: MergedContactReviewEntry,
+): string[] {
+  const rawLines = String(entry.detail || "")
+    .split(/\n+/g)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const value = String(entry.contactValue || "").trim();
+  const valueDigits = normalizePhoneForAction(value).replace(/^\+/, "");
+  const name = String(entry.contactName || "").trim();
+  const titleKey = normalizeContactTextV17_90L175(name);
+  const channelKey = normalizeContactTextV17_90L175(entry.channelLabel);
+
+  const cleaned = rawLines.map((line) => {
+    let next = line;
+    if (value.includes("@")) {
+      next = next.replace(
+        new RegExp(escapeMergedContactRegExpV17_90L178(value), "ig"),
+        " ",
+      );
+    } else if (valueDigits.length >= 7) {
+      next = next.replace(/\+?\d[\d\s()./-]{6,}\d/g, (match) => {
+        const digits = normalizePhoneForAction(match).replace(/^\+/, "");
+        return digits === valueDigits ? " " : match;
+      });
+    }
+    next = next
+      .replace(/\b(?:unter|an)\s*(?=(?:anrufen|melden|kontaktieren|schreiben|senden|\.|,|$))/gi, " ")
+      .replace(/\s+([,.;:])/g, "$1")
+      .replace(/[,;:–—-]+\s*$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return next;
+  });
+
+  return uniqueMergedContactDetailsV17_90L178(cleaned).filter((line) => {
+    const key = normalizeContactTextV17_90L175(line);
+    return Boolean(key && key !== titleKey && key !== channelKey);
+  });
 }
 
 function ContactEntries({
@@ -430,13 +563,7 @@ function ContactEntries({
               const entryTitle =
                 String(entry.contactName || "").trim() ||
                 String(entry.channelLabel || "Kontakt").trim();
-              const detail = String(entry.detail || "").replace(/\s+/g, " ").trim();
-              const redundantDetail =
-                !detail ||
-                normalizeContactTextV17_90L175(detail) ===
-                  normalizeContactTextV17_90L175(entry.channelLabel) ||
-                normalizeContactTextV17_90L175(detail) ===
-                  normalizeContactTextV17_90L175(entryTitle);
+              const detailLines = cleanMergedContactDetailV17_90L178(entry);
 
               return (
                 <div
@@ -471,9 +598,16 @@ function ContactEntries({
                     </div>
                   )}
 
-                  {!redundantDetail && (
-                    <div className="mt-1 break-words text-[11px] text-muted-foreground">
-                      {detail}
+                  {detailLines.length > 0 && (
+                    <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                      {detailLines.map((detailLine, detailIndex) => (
+                        <div
+                          key={`${group.key}-${entry.contactValue}-detail-${detailIndex}`}
+                          className="break-words"
+                        >
+                          {detailLine}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

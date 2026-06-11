@@ -794,11 +794,15 @@ const renderOrderOperationalTooltipContentV17_90L169 = (
   const isDanger = /(?:^|\s)(?:bg|text|border)-red-/.test(
     badge.className || "",
   );
-  const lines = tooltip
+  const normalizedLabel = normalizeForMatch(badge.label);
+  const normalizedTooltip =
+    normalizedLabel === "hund"
+      ? sanitizeDogOnlyTooltipV17_90L175(tooltip)
+      : tooltip;
+  const lines = normalizedTooltip
     .split(/\n+/g)
     .map((line) => line.trim())
     .filter(Boolean);
-  const normalizedLabel = normalizeForMatch(badge.label);
   const heading = isDanger
     ? normalizedLabel === "hund"
       ? "Vorsicht: Hund"
@@ -3183,6 +3187,75 @@ const dedupeAppointmentDetails = (details: AppointmentDetail[]) => {
   return result;
 };
 
+const appointmentDetailHasExecutionDayContextV17_90L178 = (
+  detail: AppointmentDetail,
+): boolean => {
+  const source = [detail.label, detail.reason].filter(Boolean).join(" ");
+  return Boolean(
+    /\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/.test(source) ||
+      /\b(?:heute|morgen|uebermorgen|übermorgen|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(
+        source,
+      ),
+  );
+};
+
+const normalizeMergedAppointmentSitesV17_90L178 = (
+  order: Order,
+  details: AppointmentDetail[],
+): AppointmentDetail[] => {
+  const workSites = Array.isArray(order.workSites)
+    ? [...order.workSites].sort(
+        (a, b) =>
+          Number(Boolean(b?.isPrimary)) - Number(Boolean(a?.isPrimary)) ||
+          Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0),
+      )
+    : [];
+
+  return details.map((detail) => {
+    const currentSite = compactText(detail.site);
+    if (currentSite && !isBrokenWorkSiteRoleFragmentV17_90L176(currentSite)) {
+      return detail;
+    }
+
+    const peer = details.find(
+      (candidate) =>
+        candidate !== detail &&
+        normalizeForMatch(candidate.label) === normalizeForMatch(detail.label) &&
+        Boolean(
+          compactText(candidate.site) &&
+            !isBrokenWorkSiteRoleFragmentV17_90L176(candidate.site),
+        ),
+    );
+    if (peer) {
+      return {
+        ...detail,
+        site: compactText(peer.site),
+        address: compactText(detail.address) || compactText(peer.address),
+      };
+    }
+
+    const addressKey = normalizeForMatch(detail.address);
+    const reasonKey = normalizeForMatch(detail.reason);
+    const matched = workSites.find((site) => {
+      const siteAddressKey = normalizeForMatch(site?.siteAddress);
+      const sitePlaceKey = normalizeForMatch(
+        [site?.sitePlz, site?.siteCity].filter(Boolean).join(" "),
+      );
+      return Boolean(
+        (siteAddressKey &&
+          (addressKey.includes(siteAddressKey) || reasonKey.includes(siteAddressKey))) ||
+          (sitePlaceKey &&
+            (addressKey.includes(sitePlaceKey) || reasonKey.includes(sitePlaceKey))),
+      );
+    });
+
+    const correctedSite = compactText(matched?.siteName);
+    return correctedSite && !isBrokenWorkSiteRoleFragmentV17_90L176(correctedSite)
+      ? { ...detail, site: correctedSite }
+      : detail;
+  });
+};
+
 const getMultipleAppointmentBadge = (
   order: Order,
   parsedNotes: ReturnType<typeof splitSpecialNotes>,
@@ -3214,12 +3287,14 @@ const getMultipleAppointmentBadge = (
   // verworfen. Dadurch blieb nach dem Zusammenführen häufig nur ein Termin übrig
   // und außen erschien gar kein Termine-Chip. Die Quellen sind read-only und
   // werden erst danach semantisch dedupliziert.
-  const details = dedupeAppointmentDetails([
-    ...mergedDetails,
-    ...extractAppointmentDetailsFromRawText(order.specialNotes),
-    ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
-    ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
-  ]).filter((detail) => {
+  const details = dedupeAppointmentDetails(
+    normalizeMergedAppointmentSitesV17_90L178(order, [
+      ...mergedDetails,
+      ...extractAppointmentDetailsFromRawText(order.specialNotes),
+      ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
+      ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
+    ]),
+  ).filter((detail) => {
     const source = [detail.site, detail.address, detail.label, detail.reason]
       .filter(Boolean)
       .join(" ");
@@ -3246,7 +3321,7 @@ const getMultipleAppointmentBadge = (
     // If there is no date and the overall source contains a callback/contact
     // instruction for that time, keep it out of the Termine chip.
     if (
-      !/\d{1,2}[./-]\d{1,2}/.test(detail.label) &&
+      !appointmentDetailHasExecutionDayContextV17_90L178(detail) &&
       isAppointmentContactTimeLine(callbackSource)
     ) {
       return false;
@@ -16335,6 +16410,9 @@ export default function AuftraegePage() {
                                   </span>
                                 )}
                               </div>
+                              <div className="mt-1 text-[10px] font-medium text-muted-foreground sm:text-[11px]">
+                                Leistungen · {mobileOrderServiceNames.length}
+                              </div>
                               <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible border-t border-slate-200 pt-2 dark:border-slate-700">
                                 <select
                                   onClick={(event) => event.stopPropagation()}
@@ -16364,10 +16442,6 @@ export default function AuftraegePage() {
                                     </option>
                                   ))}
                                 </select>
-                                <span className="inline-flex h-7 shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                  Leistungen · {mobileOrderServiceNames.length}
-                                </span>
-
                                 {!hasMultipleMergedData && (
                                   <div
                                     className="mr-1 inline-flex items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
