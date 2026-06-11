@@ -3209,15 +3209,17 @@ const getMultipleAppointmentBadge = (
   // all read-only sources before deduplication; never discard the raw source
   // merely because one structured appointment already exists.
   const mergedDetails = extractMergedAppointmentDetailsV17_90L176(order);
-  const details = dedupeAppointmentDetails(
-    mergedDetails.length > 0
-      ? mergedDetails
-      : [
-          ...extractAppointmentDetailsFromRawText(order.specialNotes),
-          ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
-          ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
-        ],
-  ).filter((detail) => {
+  // V17.90L177: Merge-Termine immer aus allen verfügbaren Quellen bilden.
+  // L176 hat bei vorhandenen Merge-Details die strukturierten Hinweise komplett
+  // verworfen. Dadurch blieb nach dem Zusammenführen häufig nur ein Termin übrig
+  // und außen erschien gar kein Termine-Chip. Die Quellen sind read-only und
+  // werden erst danach semantisch dedupliziert.
+  const details = dedupeAppointmentDetails([
+    ...mergedDetails,
+    ...extractAppointmentDetailsFromRawText(order.specialNotes),
+    ...extractAppointmentDetailsFromGroupedNotes(parsedNotes),
+    ...extractAppointmentDetailsFromRawText(order.notes, order.audioTranscript),
+  ]).filter((detail) => {
     const source = [detail.site, detail.address, detail.label, detail.reason]
       .filter(Boolean)
       .join(" ");
@@ -4028,8 +4030,13 @@ const dogTooltipSemanticKeyV17_90L176 = (value?: string | null) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const isBareDogTooltipLineV17_90L177 = (value?: string | null) =>
+  /^(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros)[.!]?$/i.test(
+    compactText(value),
+  );
+
 const sanitizeDogOnlyTooltipV17_90L175 = (value?: string | null) => {
-  const lines = String(value || "")
+  const rawLines = String(value || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .split(/\n+|\s*[|]\s*/g)
@@ -4044,6 +4051,14 @@ const sanitizeDogOnlyTooltipV17_90L175 = (value?: string | null) => {
       ),
     )
     .filter((line) => /\b(?:hund|dog|chien|cane|perro)\b/i.test(line));
+
+  // V17.90L177: Ein isoliertes "Hund" ist nur ein Kategoriefragment. Sobald
+  // eine konkrete Hundaussage vorhanden ist, darf dieses Fragment nicht als
+  // zweiter Eintrag im Popover erscheinen.
+  const descriptiveLines = rawLines.filter(
+    (line) => !isBareDogTooltipLineV17_90L177(line),
+  );
+  const lines = descriptiveLines.length > 0 ? descriptiveLines : rawLines;
 
   const unique: string[] = [];
   for (const line of lines) {
@@ -15677,10 +15692,11 @@ export default function AuftraegePage() {
               "sms_request",
             ];
             const appointmentBadges = bottomBadges.filter((badge) =>
-              hasMultipleMergedData
-                ? badge.key === "appointments_multiple"
-                : badge.key === "appointment" ||
-                  badge.key === "appointments_multiple",
+              // V17.90L177: Auch ein einzelner, nach einem Merge noch gültiger
+              // Termin muss außen sichtbar bleiben. Mehrere Termine werden
+              // weiterhin als gemeinsamer "Termine · n"-Chip dargestellt.
+              badge.key === "appointment" ||
+              badge.key === "appointments_multiple",
             );
             const callbackBadges = hasMultipleMergedData
               ? []

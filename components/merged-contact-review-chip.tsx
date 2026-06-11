@@ -343,52 +343,145 @@ function sanitizeMergedContactReviewEntriesV17_90L175(
   });
 }
 
+type ContactEntryGroupV17_90L177 = {
+  key: string;
+  title: string;
+  subtitle: string;
+  entries: MergedContactReviewEntry[];
+};
+
+function mergedContactValueKeyV17_90L177(value: string): string {
+  const raw = String(value || "").trim();
+  if (raw.includes("@")) return normalizeContactTextV17_90L175(raw);
+  return normalizePhoneForAction(raw) || normalizeContactTextV17_90L175(raw);
+}
+
+function groupMergedContactEntriesV17_90L177(
+  entries: MergedContactReviewEntry[],
+): ContactEntryGroupV17_90L177[] {
+  const groups = new Map<string, ContactEntryGroupV17_90L177>();
+
+  entries.forEach((entry) => {
+    const isBillingContact =
+      normalizeContactTextV17_90L175(entry.contactName) === "firmenkontakt" ||
+      /rechnungsadresse|rechnungskontakt/i.test(String(entry.detail || ""));
+    const rawSite = String(entry.siteLabel || "").replace(/\s+/g, " ").trim();
+    const key = isBillingContact
+      ? "billing_contact"
+      : `site_${normalizeContactTextV17_90L175(rawSite) || "unknown"}`;
+    const title = isBillingContact
+      ? "Rechnungskontakt"
+      : `Arbeitsort: ${rawSite || "Nicht angegeben"}`;
+    const subtitle = isBillingContact ? rawSite : "";
+    const current = groups.get(key);
+    if (current) {
+      current.entries.push(entry);
+    } else {
+      groups.set(key, { key, title, subtitle, entries: [entry] });
+    }
+  });
+
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    entries: group.entries.filter((entry, index, all) => {
+      const value = mergedContactValueKeyV17_90L177(entry.contactValue);
+      const channel = normalizeContactTextV17_90L175(entry.channelLabel);
+      return all.findIndex((candidate) => {
+        const candidateValue = mergedContactValueKeyV17_90L177(
+          candidate.contactValue,
+        );
+        return (
+          candidateValue === value &&
+          normalizeContactTextV17_90L175(candidate.channelLabel) === channel
+        );
+      }) === index;
+    }),
+  }));
+}
+
 function ContactEntries({
-  entries,
+  groups,
   onAction,
 }: {
-  entries: MergedContactReviewEntry[];
+  groups: ContactEntryGroupV17_90L177[];
   onAction?: () => void;
 }) {
   return (
-    <div className="space-y-2">
-      {entries.map((entry, index) => {
-        const href = actionHref(entry);
-        return (
-          <div
-            key={`${entry.siteLabel}-${entry.contactValue}-${index}`}
-            className="rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900"
-          >
-            <div className="font-semibold text-slate-900 dark:text-slate-100">
-              {entry.siteLabel}
+    <div className="space-y-2.5">
+      {groups.map((group) => (
+        <section
+          key={group.key}
+          className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
+            <div className="break-words font-bold text-slate-950 dark:text-slate-50">
+              {group.title}
             </div>
-            <div className="mt-0.5 text-slate-700 dark:text-slate-200">
-              {entry.contactName}
-            </div>
-            {href ? (
-              <a
-                href={href}
-                target={href.startsWith("http") ? "_blank" : undefined}
-                rel={href.startsWith("http") ? "noreferrer" : undefined}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAction?.();
-                }}
-                className="mt-1 block break-all rounded-md border border-blue-200 bg-white px-2 py-1.5 font-semibold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:bg-slate-950 dark:text-blue-300"
-              >
-                {entry.contactValue}
-              </a>
-            ) : (
-              <div className="mt-1 break-all font-semibold">
-                {entry.contactValue}
+            {group.subtitle && (
+              <div className="mt-0.5 break-words text-[11px] text-slate-500 dark:text-slate-400">
+                {group.subtitle}
               </div>
             )}
-            <div className="mt-0.5 text-muted-foreground">
-              {entry.detail || entry.channelLabel}
-            </div>
           </div>
-        );
-      })}
+
+          <div className="divide-y divide-slate-200 dark:divide-slate-700">
+            {group.entries.map((entry, index) => {
+              const href = actionHref(entry);
+              const entryTitle =
+                String(entry.contactName || "").trim() ||
+                String(entry.channelLabel || "Kontakt").trim();
+              const detail = String(entry.detail || "").replace(/\s+/g, " ").trim();
+              const redundantDetail =
+                !detail ||
+                normalizeContactTextV17_90L175(detail) ===
+                  normalizeContactTextV17_90L175(entry.channelLabel) ||
+                normalizeContactTextV17_90L175(detail) ===
+                  normalizeContactTextV17_90L175(entryTitle);
+
+              return (
+                <div
+                  key={`${group.key}-${entry.contactValue}-${index}`}
+                  className="px-3 py-2"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <div className="min-w-0 font-semibold text-slate-800 dark:text-slate-100">
+                      {entryTitle}
+                    </div>
+                    <div className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      {entry.channelLabel}
+                    </div>
+                  </div>
+
+                  {href ? (
+                    <a
+                      href={href}
+                      target={href.startsWith("http") ? "_blank" : undefined}
+                      rel={href.startsWith("http") ? "noreferrer" : undefined}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onAction?.();
+                      }}
+                      className="mt-1 block break-all rounded-md border border-blue-200 bg-white px-2 py-1.5 font-semibold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:bg-slate-950 dark:text-blue-300"
+                    >
+                      {entry.contactValue}
+                    </a>
+                  ) : (
+                    <div className="mt-1 break-all font-semibold">
+                      {entry.contactValue}
+                    </div>
+                  )}
+
+                  {!redundantDetail && (
+                    <div className="mt-1 break-words text-[11px] text-muted-foreground">
+                      {detail}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
@@ -406,10 +499,21 @@ export function MergedContactReviewChip({
     const fallback = buildMergedContactReviewEntries(records);
     return sanitizeMergedContactReviewEntriesV17_90L175(records, fallback);
   }, [records]);
+  const groups = useMemo(
+    () => groupMergedContactEntriesV17_90L177(entries),
+    [entries],
+  );
   const [open, setOpen] = useState(false);
   const [touchMode, setTouchMode] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 12, width: 360 });
+  const [position, setPosition] = useState({
+    top: 12,
+    left: 12,
+    width: 360,
+    maxHeight: 420,
+    placement: "above" as "above" | "below",
+  });
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -422,44 +526,86 @@ export function MergedContactReviewChip({
   }, []);
 
   useEffect(() => {
-    if (!open || !touchMode || typeof window === "undefined") return;
+    if (!open || typeof window === "undefined") return;
+
     const updatePosition = () => {
       const rect = buttonRef.current?.getBoundingClientRect();
-      const width = Math.min(420, Math.max(280, window.innerWidth - 24));
+      if (!rect) return;
+
+      const margin = 12;
+      const gap = 8;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const width = touchMode
+        ? Math.min(430, Math.max(280, viewportWidth - margin * 2))
+        : Math.min(480, Math.max(320, viewportWidth - margin * 2));
       const left = Math.min(
-        Math.max(12, (rect?.left ?? 12) - width / 2 + (rect?.width ?? 0) / 2),
-        window.innerWidth - width - 12,
+        Math.max(margin, rect.left + rect.width / 2 - width / 2),
+        viewportWidth - width - margin,
       );
-      const estimatedHeight = Math.min(420, 95 + entries.length * 110);
-      const spaceBelow = window.innerHeight - (rect?.bottom ?? 0) - 12;
+      const estimatedHeight = Math.min(
+        560,
+        74 + groups.length * 58 + entries.length * 82,
+      );
+      const measuredHeight = popoverRef.current?.scrollHeight || estimatedHeight;
+      const desiredHeight = Math.min(measuredHeight, viewportHeight - margin * 2);
+      const spaceAbove = Math.max(0, rect.top - gap - margin);
+      const spaceBelow = Math.max(0, viewportHeight - rect.bottom - gap - margin);
+      const placement: "above" | "below" =
+        spaceAbove >= Math.min(desiredHeight, 260) || spaceAbove >= spaceBelow
+          ? "above"
+          : "below";
+      const availableHeight = placement === "above" ? spaceAbove : spaceBelow;
+      const maxHeight = Math.max(150, Math.min(desiredHeight, availableHeight));
       const top =
-        spaceBelow >= estimatedHeight
-          ? (rect?.bottom ?? 12) + 8
-          : Math.max(
-              12,
-              (rect?.top ?? window.innerHeight) - estimatedHeight - 8,
-            );
-      setPosition({ top, left, width });
+        placement === "above"
+          ? Math.max(margin, rect.top - gap - maxHeight)
+          : Math.min(viewportHeight - margin - maxHeight, rect.bottom + gap);
+
+      setPosition({ top, left, width, maxHeight, placement });
     };
+
     updatePosition();
+    const frame = window.requestAnimationFrame(updatePosition);
+    const observer =
+      typeof ResizeObserver !== "undefined" && popoverRef.current
+        ? new ResizeObserver(updatePosition)
+        : null;
+    if (popoverRef.current) observer?.observe(popoverRef.current);
     window.addEventListener("resize", updatePosition);
     window.addEventListener("orientationchange", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
     return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("orientationchange", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [entries.length, open, touchMode]);
+  }, [entries.length, groups.length, open, touchMode]);
 
   useEffect(() => {
-    if (!open || !touchMode) return;
+    if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (
+        target &&
+        !buttonRef.current?.contains(target) &&
+        !popoverRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
+    };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, touchMode]);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [open]);
 
   useEffect(
     () => () => {
@@ -478,30 +624,37 @@ export function MergedContactReviewChip({
   const closeDesktop = () => {
     if (touchMode) return;
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = setTimeout(() => setOpen(false), 180);
+    closeTimerRef.current = setTimeout(() => setOpen(false), 220);
   };
 
-  const mobilePopover =
-    open && touchMode && typeof document !== "undefined"
+  const popover =
+    open && typeof document !== "undefined"
       ? createPortal(
           <>
-            <button
-              type="button"
-              aria-label="Kontaktliste schließen"
-              className="fixed inset-0 z-[9998] cursor-default bg-black/20"
-              onClick={(event) => {
-                event.stopPropagation();
-                setOpen(false);
-              }}
-            />
+            {touchMode && (
+              <button
+                type="button"
+                aria-label="Kontaktliste schließen"
+                className="fixed inset-0 z-[9998] cursor-default bg-black/20"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpen(false);
+                }}
+              />
+            )}
             <div
-              className="fixed z-[9999] max-h-[min(420px,calc(100vh-24px))] overflow-y-auto rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl dark:bg-slate-950 dark:text-slate-100"
+              ref={popoverRef}
+              className="fixed z-[9999] overflow-y-auto overscroll-contain rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl dark:bg-slate-950 dark:text-slate-100"
               style={{
                 top: position.top,
                 left: position.left,
                 width: position.width,
+                maxHeight: position.maxHeight,
               }}
+              onMouseEnter={openDesktop}
+              onMouseLeave={closeDesktop}
               onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="font-bold text-emerald-800 dark:text-emerald-200">
@@ -517,7 +670,7 @@ export function MergedContactReviewChip({
                 </button>
               </div>
               <ContactEntries
-                entries={entries}
+                groups={groups}
                 onAction={() => setOpen(false)}
               />
             </div>
@@ -563,20 +716,7 @@ export function MergedContactReviewChip({
         <AlertTriangle className="h-4 w-4" />
         {!compact && <span>Kontakte prüfen</span>}
       </button>
-
-      {open && !touchMode && (
-        <span
-          className="absolute bottom-full left-0 z-[120] mb-2 block w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-emerald-300 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-800 shadow-2xl dark:bg-slate-950 dark:text-slate-100"
-          onMouseEnter={openDesktop}
-          onMouseLeave={closeDesktop}
-        >
-          <span className="mb-2 block font-bold text-emerald-800 dark:text-emerald-200">
-            Kontakte prüfen
-          </span>
-          <ContactEntries entries={entries} />
-        </span>
-      )}
-      {mobilePopover}
+      {popover}
     </span>
   );
 }

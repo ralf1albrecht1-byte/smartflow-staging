@@ -1051,6 +1051,51 @@ function sanitizeOfferDogLineV17_90L175(value?: string | null): string {
     .trim();
 }
 
+function offerDogSemanticKeyV17_90L177(value?: string | null): string {
+  return normalizeOfferHint(value || "")
+    .replace(
+      /\b(?:ein|eine|einen|einem|einer|der|die|das|ist|sind|war|waren|befindet|befinden|sich|steht|stehen|sitzt|sitzen|liegt|liegen)\b/g,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isBareOfferDogLineV17_90L177(value?: string | null): boolean {
+  return /^(?:hund|hunde|dog|dogs|chien|chiens|cane|cani|perro|perros)[.!]?$/i.test(
+    String(value || "").trim(),
+  );
+}
+
+function dedupeOfferDogLinesV17_90L177(values: string[]): string[] {
+  const sanitized = values
+    .map(sanitizeOfferDogLineV17_90L175)
+    .filter(Boolean);
+  const descriptive = sanitized.filter(
+    (line) => !isBareOfferDogLineV17_90L177(line),
+  );
+  const source = descriptive.length > 0 ? descriptive : sanitized;
+  const result: string[] = [];
+  for (const line of source) {
+    const key = offerDogSemanticKeyV17_90L177(line);
+    if (!key) continue;
+    const index = result.findIndex((existing) => {
+      const existingKey = offerDogSemanticKeyV17_90L177(existing);
+      return (
+        existingKey === key ||
+        existingKey.includes(key) ||
+        key.includes(existingKey)
+      );
+    });
+    if (index >= 0) {
+      if (line.length > result[index].length) result[index] = line;
+      continue;
+    }
+    result.push(line);
+  }
+  return result;
+}
+
 function buildOfferOperationalChips(
   safetyWarnings: string[],
   jobHints: string[],
@@ -1072,14 +1117,26 @@ function buildOfferOperationalChips(
   ]);
   if (parkingChip) pushOrMerge(parkingChip);
 
-  uniqueOfferLines([...safetyWarnings, ...jobHints.filter(isOfferDogHint)]).forEach((line) => {
+  const safetyAndDogLines = uniqueOfferLines([
+    ...safetyWarnings,
+    ...jobHints.filter(isOfferDogHint),
+  ]);
+  const dogLines = dedupeOfferDogLinesV17_90L177(
+    safetyAndDogLines.filter(isOfferDogHint),
+  );
+  if (dogLines.length > 0) {
+    pushOrMerge({
+      key: "dog",
+      title: dogLines.join("\n"),
+      icon: "🐶",
+      tone: "danger",
+    });
+  }
+
+  safetyAndDogLines.forEach((line) => {
     const text = normalizeOfferHint(line);
     if (/\b(?:[a-z0-9-]*parkplatz|park(?:en|ieren)?|parking|stellplatz|tiefgarage)\b/.test(text)) return;
-    if (isOfferDogHint(line)) {
-      const dogOnly = sanitizeOfferDogLineV17_90L175(line);
-      if (dogOnly) pushOrMerge({ key: "dog", title: dogOnly, icon: "🐶", tone: "danger" });
-      return;
-    }
+    if (isOfferDogHint(line)) return;
     pushOrMerge({ key: "danger", title: line, icon: "⚠️", tone: "danger" });
   });
 
