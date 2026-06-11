@@ -3336,8 +3336,9 @@ export default function AngebotePage() {
     setMediaDialogOpen(true);
   };
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (options?: { background?: boolean }) => {
+    const background = options?.background === true;
+    if (!background) setLoading(true);
     setLoadError(null);
     const {
       results: [off, cust, svc, settings],
@@ -3351,7 +3352,7 @@ export default function AngebotePage() {
     // If most critical endpoints failed, show error state
     if (errors.length >= 2) {
       setLoadError(errors);
-      setLoading(false);
+      if (!background) setLoading(false);
       return;
     }
     // Merge customers from offers without replacing a complete master name
@@ -3413,7 +3414,7 @@ export default function AngebotePage() {
     }
     if (errors.length > 0)
       toast.error("Einige Daten konnten nicht vollständig geladen werden");
-    setLoading(false);
+    if (!background) setLoading(false);
   };
   useEffect(() => {
     load();
@@ -3421,7 +3422,7 @@ export default function AngebotePage() {
 
   useEffect(() => {
     const refreshVisibleList = () => {
-      if (!dialogOpen) void load();
+      if (!dialogOpen) void load({ background: true });
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") refreshVisibleList();
@@ -5466,7 +5467,7 @@ export default function AngebotePage() {
                   const renderOfferCompactFunctionalChips = () => (
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                       <div
-                        className={`${!hasMergedContactReview && callbackChip ? "" : "mr-1 border-r border-slate-200 pr-2 dark:border-slate-700"} inline-flex empty:hidden [&_svg]:h-[18px] [&_svg]:w-[18px]`}
+                        className="inline-flex empty:hidden [&_svg]:h-[18px] [&_svg]:w-[18px]"
                         onPointerDown={(event) => event.stopPropagation()}
                         onTouchStart={(event) => event.stopPropagation()}
                         onClick={(event) => {
@@ -5683,7 +5684,7 @@ export default function AngebotePage() {
 
                   const renderOfferQuickActions = () => (
                     <div
-                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-4 md:mr-[36%] dark:border-slate-700"
+                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3 dark:border-slate-700"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -5728,7 +5729,7 @@ export default function AngebotePage() {
                     serviceReview.reviewCount > 0 ||
                     serviceReview.blockerCount > 0 ||
                     Boolean(appointmentDisplayLabel) ? (
-                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[64%] md:right-40 md:ml-0 md:justify-center md:pr-3">
+                      <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
                         <span className="inline-flex items-center gap-1.5">
                           {renderOfferCompactReviewChip(
                             "yellow",
@@ -5987,7 +5988,7 @@ export default function AngebotePage() {
                                         (serviceReview.reviewCount > 0 ||
                                           serviceReview.blockerCount > 0 ||
                                           Boolean(appointmentDisplayLabel)) && (
-                                          <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
                                             <span className="inline-flex items-center gap-1.5">
                                               {renderOfferCompactReviewChip(
                                                 "yellow",
@@ -6411,7 +6412,7 @@ export default function AngebotePage() {
                                     (serviceReview.reviewCount > 0 ||
                                       serviceReview.blockerCount > 0 ||
                                       Boolean(appointmentDisplayLabel)) && (
-                                      <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                      <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
                                         <span className="inline-flex items-center gap-1.5">
                                           {renderOfferCompactReviewChip(
                                             "yellow",
@@ -6449,7 +6450,7 @@ export default function AngebotePage() {
                                       {(serviceReview.reviewCount > 0 ||
                                         serviceReview.blockerCount > 0 ||
                                         Boolean(appointmentDisplayLabel)) && (
-                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[64%] md:right-40 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                                        <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
                                           <span className="inline-flex items-center gap-1.5">
                                             {renderOfferCompactReviewChip(
                                               "yellow",

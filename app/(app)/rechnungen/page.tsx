@@ -4386,7 +4386,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceQuickActions = () => (
                     <div
-                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-4 md:mr-[36%] dark:border-slate-700"
+                      className="ml-auto inline-flex shrink-0 items-center gap-2 border-l border-slate-200 pl-3 dark:border-slate-700"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -4425,7 +4425,7 @@ export default function RechnungenPage() {
 
                   const renderInvoiceCompactFunctionalChips = () => (
                     <div
-                      className="mr-1 inline-flex min-w-0 flex-wrap items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                      className="inline-flex min-w-0 flex-wrap items-center gap-1.5 empty:hidden [&_svg]:h-[18px] [&_svg]:w-[18px]"
                       onPointerDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
@@ -4575,8 +4575,8 @@ export default function RechnungenPage() {
                       <span
                         className={
                           placement === "compact"
-                            ? "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[64%] md:right-40 md:ml-0 md:justify-center md:pr-3"
-                            : "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[64%] md:right-40 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
+                            ? "inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700"
+                            : "inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700"
                         }
                       >
                         <span className="inline-flex items-center gap-1.5">
@@ -4850,7 +4850,7 @@ export default function RechnungenPage() {
                                           Boolean(
                                             invoiceAppointmentDisplayLabel,
                                           )) && (
-                                          <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                          <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
                                             <span className="inline-flex items-center gap-1.5">
                                               {renderInvoiceCompactReviewChip(
                                                 "yellow",
@@ -5122,7 +5122,7 @@ export default function RechnungenPage() {
                                     Boolean(
                                       invoiceAppointmentDisplayLabel,
                                     )) && (
-                                    <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                    <span className="inline-flex shrink-0 items-center border-l border-slate-200 pl-3 dark:border-slate-700">
                                       <span className="inline-flex items-center gap-1.5">
                                         {renderInvoiceCompactReviewChip(
                                           "yellow",
