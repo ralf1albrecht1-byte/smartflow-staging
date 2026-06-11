@@ -850,7 +850,9 @@ function formatInvoiceAppointmentLabel(invoice: Invoice): string {
     }
 
     if (timeLabel) return `Termin ${timeLabel}`;
-    return line.length > 42 ? `${line.slice(0, 39).trim()}…` : line;
+    if (/\btermin\b.*\b(?:klären|klaeren|offen|absprechen|vereinbaren)\b/i.test(line))
+      return "Termin klären";
+    return "";
   };
 
   for (const order of invoice.orders || []) {
@@ -1531,7 +1533,7 @@ export default function RechnungenPage() {
   const getEmptyItem = (): InvoiceItem => ({
     description: "",
     quantity: "",
-    unit: "Stunde",
+    unit: "",
     unitPrice: "",
   });
 
@@ -2432,9 +2434,7 @@ export default function RechnungenPage() {
     const svc = svcOpt ?? services?.find((s: any) => s.name === name);
     if (svc) {
       updateItem(idx, "description", svc.name);
-      // Rechnungen starten bewusst ohne automatisch übernommenen Katalogpreis.
-      // Der Preis muss für diese konkrete Rechnung bestätigt/eingetragen werden.
-      updateItem(idx, "unitPrice", "0");
+      updateItem(idx, "unitPrice", String(svc.defaultPrice ?? 0));
       updateItem(idx, "unit", compactInvoiceValue(svc.unit));
     } else if (!name) {
       updateItem(idx, "description", "");
@@ -3537,7 +3537,7 @@ export default function RechnungenPage() {
                   const dueLabel = formatInvoiceDateLabel(inv.dueDate);
                   const invoiceAppointmentLabel = formatInvoiceAppointmentLabel(inv);
                   const invoiceAppointmentDisplayLabel =
-                    invoiceAppointmentLabel || "Termin klären";
+                    invoiceAppointmentLabel;
                   const invoiceAppointmentChipLabels =
                     buildAdaptiveAppointmentLabels(invoiceAppointmentDisplayLabel);
                   const invoiceContactData = buildInvoiceCommunicationData(inv);
@@ -3686,8 +3686,8 @@ export default function RechnungenPage() {
                       <span
                         className={
                           placement === "compact"
-                            ? "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
-                            : "ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
+                            ? "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
+                            : "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
                         }
                       >
                         <span className="inline-flex items-center gap-1.5">
@@ -3837,7 +3837,7 @@ export default function RechnungenPage() {
                                   toggleInvoiceCard(inv.id);
                                 }}
                               >
-                                <div className="relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1">
+                                <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                                   <div className="min-w-0">
                                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:flex-nowrap md:pr-[40%]">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
@@ -3919,11 +3919,43 @@ export default function RechnungenPage() {
                                       </select>
                                       {renderInvoiceCompactFunctionalChips()}
                                       {renderInvoiceServicesChip("compact")}
+                                      {invoiceAppointmentDisplayLabel && (
+                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                          <button
+                                            type="button"
+                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onTouchStart={(event) => event.stopPropagation()}
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                            }}
+                                            className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                            aria-label={invoiceAppointmentDisplayLabel}
+                                          >
+                                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                            <InvoiceViewportTooltip preferredWidth={320}>
+                                              <InvoiceAppointmentTooltipContentV17_90L169
+                                                text={invoiceAppointmentDisplayLabel}
+                                              />
+                                            </InvoiceViewportTooltip>
+                                          </button>
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-end gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:hidden">
+                                      <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
+                                        {formatCurrency(
+                                          Number(inv?.total ?? 0),
+                                          inv.currency === "EUR" ? "EUR" : "CHF",
+                                        )}
+                                      </div>
+                                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                     </div>
                                   </div>
-                                  <div className="ml-auto flex min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700">
-                                    <span className="inline-flex min-w-0 items-center justify-center self-end">
-                                      <button
+                                  <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
+                                    {invoiceAppointmentDisplayLabel && (
+                                      <span className="inline-flex min-w-0 items-center justify-center self-end">
+                                        <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
                                         onTouchStart={(event) => event.stopPropagation()}
@@ -3946,8 +3978,9 @@ export default function RechnungenPage() {
                                           text={invoiceAppointmentDisplayLabel}
                                         />
                                       </InvoiceViewportTooltip>
-                                      </button>
-                                    </span>
+                                        </button>
+                                      </span>
+                                    )}
                                     <div className="flex min-w-0 items-center justify-end gap-2 self-end pr-3 sm:pr-5">
                                       <div className="shrink-0 whitespace-nowrap text-right font-mono text-sm font-bold tabular-nums">
                                         {formatCurrency(
@@ -4135,6 +4168,28 @@ export default function RechnungenPage() {
                                 </select>
                                 {renderInvoiceCompactFunctionalChips()}
                                 {renderInvoiceServicesChip("expanded")}
+                                {invoiceAppointmentDisplayLabel && (
+                                  <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onTouchStart={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                      }}
+                                      className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                      aria-label={invoiceAppointmentDisplayLabel}
+                                    >
+                                      <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                      <InvoiceViewportTooltip preferredWidth={320}>
+                                        <InvoiceAppointmentTooltipContentV17_90L169
+                                          text={invoiceAppointmentDisplayLabel}
+                                        />
+                                      </InvoiceViewportTooltip>
+                                    </button>
+                                  </span>
+                                )}
                                 {dueLabel && (
                                   <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] font-medium text-muted-foreground md:absolute md:right-0 md:ml-0">
                                     Fällig {dueLabel}
@@ -4142,10 +4197,11 @@ export default function RechnungenPage() {
                                 )}
                               </div>
 
-                              <div className="relative mt-3 flex min-h-12 items-start justify-between gap-3 border-t pt-3">
-                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" />
-                                <div className="ml-auto flex shrink-0 flex-col items-end gap-2 border-l border-slate-200 pl-3 dark:border-slate-700">
-                                  <span className="inline-flex min-w-0 items-center justify-center self-end">
+                              <div className="relative mt-3 flex min-h-0 items-start justify-end gap-3 border-t pt-2 sm:min-h-12 sm:justify-between sm:pt-3">
+                                <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
+                                <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
+                                  {invoiceAppointmentDisplayLabel && (
+                                  <span className="hidden min-w-0 items-center justify-center self-end sm:inline-flex">
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}
@@ -4171,6 +4227,7 @@ export default function RechnungenPage() {
                                       </InvoiceViewportTooltip>
                                     </button>
                                   </span>
+                                  )}
                                   <div className="shrink-0 text-right">
                                     <div
                                       className={`font-mono text-lg font-bold tabular-nums ${isPaid ? "text-muted-foreground" : "text-foreground"}`}
@@ -5160,18 +5217,22 @@ export default function RechnungenPage() {
                             key={idx}
                             data-service-item-index={idx}
                             className={`relative overflow-visible rounded-xl border transition-colors ${
-                              itemNeedsReview
-                                ? "border-amber-300 bg-amber-50/30"
-                                : "border-slate-200 bg-background"
+                              hasMissingValues
+                                ? "border-red-300 bg-red-50/30 dark:border-red-800/70 dark:bg-red-950/10"
+                                : itemNeedsReview
+                                  ? "border-amber-300 bg-amber-50/30"
+                                  : "border-slate-200 bg-background"
                             }`}
                           >
                             <div
                               className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2.5 transition-colors ${
                                 isExpanded ? "rounded-t-xl" : "rounded-xl"
                               } ${
-                                itemNeedsReview
-                                  ? "hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
-                                  : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
+                                hasMissingValues
+                                  ? "hover:bg-red-100/70 dark:hover:bg-red-900/25"
+                                  : itemNeedsReview
+                                    ? "hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
+                                    : "hover:bg-slate-100/80 dark:hover:bg-slate-800/60"
                               }`}
                             >
                               <button
@@ -5200,7 +5261,11 @@ export default function RechnungenPage() {
                                     <span className="inline-flex min-w-0 max-w-[12rem] items-center overflow-hidden border-l border-slate-200 pl-3 dark:border-slate-700">
                                       <span
                                         title={itemReviewReasonV17_90L134}
-                                        className="max-w-full truncate whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                                        className={`max-w-full truncate whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                          hasMissingValues
+                                            ? "border-red-300 bg-red-100 text-red-800"
+                                            : "border-amber-300 bg-amber-100 text-amber-800"
+                                        }`}
                                       >
                                         {itemReviewReasonV17_90L134}
                                       </span>
@@ -5333,15 +5398,16 @@ export default function RechnungenPage() {
                                     <Label className="text-xs">Einheit</Label>
                                     <select
                                       className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                      value={item?.unit ?? "Stunde"}
+                                      value={item?.unit ?? ""}
                                       onChange={(event: any) =>
                                         updateItem(
                                           idx,
                                           "unit",
-                                          event?.target?.value ?? "Stunde",
+                                          event?.target?.value ?? "",
                                         )
                                       }
                                     >
+                                      <option value="">Einheit prüfen</option>
                                       <option value="Stunde">Stunde</option>
                                       <option value="Tag">Tag</option>
                                       <option value="Pauschal">Pauschal</option>
@@ -5390,8 +5456,16 @@ export default function RechnungenPage() {
                                   </div>
                                 </div>
                                 {itemNeedsReview && (
-                                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                                    <div className="font-semibold">Manuell prüfen</div>
+                                  <div
+                                    className={`rounded-lg border px-3 py-2 text-xs ${
+                                      hasMissingValues
+                                        ? "border-red-300 bg-red-100/70 text-red-900"
+                                        : "border-amber-300 bg-amber-50 text-amber-900"
+                                    }`}
+                                  >
+                                    <div className="font-semibold">
+                                      {hasMissingValues ? "Leistung prüfen" : "Manuell prüfen"}
+                                    </div>
                                     <div className="mt-0.5">
                                       {hasMissingValues
                                         ? "Leistung, Einheit, Menge oder Preis vervollständigen."

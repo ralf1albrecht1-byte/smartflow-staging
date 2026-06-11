@@ -401,7 +401,7 @@ interface FormItem {
 const createEmptyItem = (): FormItem => ({
   key: Math.random().toString(36).slice(2),
   serviceName: "",
-  unit: "Stunde",
+  unit: "Einheit prüfen",
   unitPrice: "",
   quantity: "",
   catalogReviewConfirmed: false,
@@ -15853,7 +15853,7 @@ export default function AuftraegePage() {
                             toggleOrderCard(o.id);
                           }}
                         >
-                          <div className="relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1">
+                          <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                             <div className="min-w-0">
                               <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:flex-nowrap md:pr-[40%]">
                                 <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
@@ -15950,7 +15950,7 @@ export default function AuftraegePage() {
                                   renderInteractiveMobileActionBadge(badge),
                                 )}
                                 {orderedRightSideBadges.length > 0 && (
-                                  <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
+                                  <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
                                     <span className="inline-flex items-center gap-1.5">
                                       {orderedRightSideBadges.map((badge) =>
                                         renderInteractiveMobileRightReviewBadge(badge),
@@ -15958,9 +15958,32 @@ export default function AuftraegePage() {
                                     </span>
                                   </span>
                                 )}
+                                {appointmentBadges.slice(0, 1).map((badge) => (
+                                  <span
+                                    key={`compact_mobile_appointment_wrap_${badge.key}`}
+                                    className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden"
+                                  >
+                                    {renderResponsiveAppointmentBadge(
+                                      badge,
+                                      "compact_mobile_appointment",
+                                      "left",
+                                    )}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="mt-2 flex items-center justify-end gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:hidden">
+                                <div className="shrink-0 text-right">
+                                  <div className="font-mono text-sm font-bold tabular-nums">
+                                    {formatCurrency(
+                                      getSafeOrderTotal(o),
+                                      o.currency === "EUR" ? "EUR" : "CHF",
+                                    )}
+                                  </div>
+                                </div>
+                                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                               </div>
                             </div>
-                            <div className="ml-auto flex min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700">
+                            <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
                               {appointmentBadges.slice(0, 1).map((badge) => (
                                 <span
                                   key={`compact_appointment_wrap_${badge.key}`}
@@ -16113,7 +16136,7 @@ export default function AuftraegePage() {
                           )}
 
                           {orderedRightSideBadges.length > 0 && (
-                            <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                            <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                               <span className="inline-flex items-center gap-1.5">
                                 {orderedRightSideBadges.map((badge) =>
                                   renderInteractiveMobileRightReviewBadge(badge),
@@ -16121,17 +16144,29 @@ export default function AuftraegePage() {
                               </span>
                             </span>
                           )}
+                          {appointmentBadges.slice(0, 1).map((badge) => (
+                            <span
+                              key={`expanded_mobile_appointment_wrap_${badge.key}`}
+                              className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden"
+                            >
+                              {renderResponsiveAppointmentBadge(
+                                badge,
+                                "expanded_mobile_appointment",
+                                "left",
+                              )}
+                            </span>
+                          ))}
                         </div>
 
 
-                        <div className="relative mt-2 flex min-h-12 items-start justify-between gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
-                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" />
+                        <div className="relative mt-2 flex min-h-0 items-start justify-end gap-3 border-t border-slate-200 pt-2 dark:border-slate-700 sm:min-h-12 sm:justify-between">
+                          <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
 
-                          <div className="ml-auto flex shrink-0 flex-col items-end gap-2 border-l border-slate-200 pl-3 dark:border-slate-700">
+                          <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
                             {appointmentBadges.slice(0, 1).map((badge) => (
                               <span
                                 key={`mobile_appointment_wrap_${badge.key}`}
-                                className="inline-flex min-w-0 items-center justify-center self-end"
+                                className="hidden min-w-0 items-center justify-center self-end sm:inline-flex"
                               >
                                 {renderResponsiveAppointmentBadge(
                                   badge,

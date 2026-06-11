@@ -2554,7 +2554,7 @@ export default function AngebotePage() {
   const getEmptyItem = (): OfferItem => ({
     description: "",
     quantity: "",
-    unit: "Stunde",
+    unit: "",
     unitPrice: "",
   });
 
@@ -5194,7 +5194,7 @@ export default function AngebotePage() {
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ||
                     serviceReview.blockerCount > 0 ? (
-                      <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
+                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
                         <span className="inline-flex items-center gap-1.5">
                           {renderOfferCompactReviewChip(
                             "yellow",
@@ -5334,7 +5334,7 @@ export default function AngebotePage() {
                                   toggleOfferCard(off.id);
                                 }}
                               >
-                                <div className="relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1">
+                                <div className="relative grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                                   <div className="min-w-0">
                                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-visible md:flex-nowrap md:pr-[40%]">
                                       <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground sm:text-[11px]">
@@ -5445,9 +5445,55 @@ export default function AngebotePage() {
                                       </select>
                                       {renderOfferCompactFunctionalChips()}
                                       {renderOfferCompactServiceReviewChip()}
+                                      {appointmentDisplayLabel && (
+                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                          <button
+                                            type="button"
+                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onTouchStart={(event) => event.stopPropagation()}
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                              if (useTouchChipPopovers) {
+                                                toggleOfferMobileTooltip(
+                                                  {
+                                                    key: `${off.id}:compact-mobile-appointment`,
+                                                    text: appointmentDisplayLabel,
+                                                  },
+                                                  event,
+                                                );
+                                              } else {
+                                                openOfferSection(
+                                                  off,
+                                                  "details",
+                                                  appointmentDisplayLabel,
+                                                );
+                                              }
+                                            }}
+                                            className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                            aria-label={appointmentDisplayLabel}
+                                          >
+                                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                            {!useTouchChipPopovers && (
+                                              <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
+                                            )}
+                                          </button>
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-end gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:hidden">
+                                      <div className="shrink-0 text-right">
+                                        <div className="font-mono text-sm font-bold tabular-nums">
+                                          {formatCurrency(
+                                            Number(off?.total ?? 0),
+                                            off.currency === "EUR" ? "EUR" : "CHF",
+                                          )}
+                                        </div>
+                                      </div>
+                                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                                     </div>
                                   </div>
-                                  <div className="ml-auto flex min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700">
+                                  <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
                                     {appointmentDisplayLabel && (
                                       <span className="inline-flex min-w-0 items-center justify-center self-end">
                                         <button
@@ -5855,7 +5901,7 @@ export default function AngebotePage() {
 
                                   {(serviceReview.reviewCount > 0 ||
                                     serviceReview.blockerCount > 0) && (
-                                    <span className="ml-auto inline-flex items-center border-l border-slate-200 pl-3 dark:border-slate-700 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                                    <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                                       <span className="inline-flex items-center gap-1.5">
                                         {renderOfferCompactReviewChip(
                                           "yellow",
@@ -5868,14 +5914,45 @@ export default function AngebotePage() {
                                       </span>
                                     </span>
                                   )}
+                                  {appointmentDisplayLabel && (
+                                    <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onTouchStart={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          useTouchChipPopovers
+                                            ? toggleOfferMobileTooltip(
+                                                {
+                                                  key: `${off.id}:expanded-mobile-appointment`,
+                                                  text: appointmentDisplayLabel,
+                                                },
+                                                event,
+                                              )
+                                            : openOfferChipTarget(
+                                                "details",
+                                                event,
+                                                appointmentDisplayLabel,
+                                              )
+                                        }
+                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-700 shadow-sm hover:bg-violet-100"
+                                        aria-label={appointmentDisplayLabel}
+                                      >
+                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                        {!useTouchChipPopovers && (
+                                          <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
+                                        )}
+                                      </button>
+                                    </span>
+                                  )}
                                 </div>
 
-                                <div className="relative mt-2 flex min-h-12 items-start justify-between gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
-                                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" />
+                                <div className="relative mt-2 flex min-h-0 items-start justify-end gap-3 border-t border-slate-200 pt-2 dark:border-slate-700 sm:min-h-12 sm:justify-between">
+                                  <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
 
-                                  <div className="ml-auto flex shrink-0 flex-col items-end gap-2 border-l border-slate-200 pl-3 dark:border-slate-700">
+                                  <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
                                     {appointmentDisplayLabel && (
-                                      <span className="inline-flex min-w-0 items-center justify-center self-end">
+                                      <span className="hidden min-w-0 items-center justify-center self-end sm:inline-flex">
                                         <button
                                           type="button"
                                           onPointerDown={(event) => event.stopPropagation()}
@@ -7240,15 +7317,16 @@ export default function AngebotePage() {
                                     <Label className="text-xs">Einheit</Label>
                                     <select
                                       className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                      value={item?.unit ?? "Stunde"}
+                                      value={item?.unit ?? ""}
                                       onChange={(event) =>
                                         updateItem(
                                           idx,
                                           "unit",
-                                          event.target.value || "Stunde",
+                                          event.target.value,
                                         )
                                       }
                                     >
+                                      <option value="">Einheit prüfen</option>
                                       <option value="Stunde">Stunde</option>
                                       <option value="Tag">Tag</option>
                                       <option value="Pauschal">Pauschal</option>
