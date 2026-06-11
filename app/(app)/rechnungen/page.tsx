@@ -1550,6 +1550,16 @@ export default function RechnungenPage() {
   const [invoiceCardInitialStateApplied, setInvoiceCardInitialStateApplied] = useState(false);
   const [expandedInvoiceServiceCardIds, setExpandedInvoiceServiceCardIds] = useState<Set<string>>(new Set());
   const [invoiceServiceOverviewOpen, setInvoiceServiceOverviewOpen] = useState(false);
+  const [useTouchChipPopovers, setUseTouchChipPopovers] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(pointer: coarse)");
+    const update = () => setUseTouchChipPopovers(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
 
   useEffect(() => {
     if (!dialogOpen) return;
@@ -3686,8 +3696,8 @@ export default function RechnungenPage() {
                       <span
                         className={
                           placement === "compact"
-                            ? "ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
-                            : "ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
+                            ? "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
+                            : "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
                         }
                       >
                         <span className="inline-flex items-center gap-1.5">
@@ -3918,28 +3928,63 @@ export default function RechnungenPage() {
                                         ))}
                                       </select>
                                       {renderInvoiceCompactFunctionalChips()}
-                                      {renderInvoiceServicesChip("compact")}
-                                      {invoiceAppointmentDisplayLabel && (
-                                        <span className={`${invoiceYellowReviewEntries.length > 0 || invoiceBlockerEntries.length > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}>
-                                          <button
-                                            type="button"
-                                            onPointerDown={(event) => event.stopPropagation()}
-                                            onTouchStart={(event) => event.stopPropagation()}
-                                            onClick={(event) => {
-                                              event.preventDefault();
-                                              event.stopPropagation();
-                                            }}
-                                            className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
-                                            aria-label={invoiceAppointmentDisplayLabel}
-                                          >
-                                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                            <InvoiceViewportTooltip preferredWidth={320}>
-                                              <InvoiceAppointmentTooltipContentV17_90L169
-                                                text={invoiceAppointmentDisplayLabel}
-                                              />
-                                            </InvoiceViewportTooltip>
-                                          </button>
-                                        </span>
+                                      {useTouchChipPopovers ? (
+                                        (invoiceYellowReviewEntries.length > 0 ||
+                                          invoiceBlockerEntries.length > 0 ||
+                                          Boolean(invoiceAppointmentDisplayLabel)) && (
+                                          <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                            <span className="inline-flex items-center gap-1.5">
+                                              {renderInvoiceCompactReviewChip("yellow")}
+                                              {renderInvoiceCompactReviewChip("red")}
+                                              {invoiceAppointmentDisplayLabel && (
+                                                <button
+                                                  type="button"
+                                                  onPointerDown={(event) => event.stopPropagation()}
+                                                  onTouchStart={(event) => event.stopPropagation()}
+                                                  onClick={(event) => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                  }}
+                                                  className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                  aria-label={invoiceAppointmentDisplayLabel}
+                                                >
+                                                  <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                  <InvoiceViewportTooltip preferredWidth={320}>
+                                                    <InvoiceAppointmentTooltipContentV17_90L169
+                                                      text={invoiceAppointmentDisplayLabel}
+                                                    />
+                                                  </InvoiceViewportTooltip>
+                                                </button>
+                                              )}
+                                            </span>
+                                          </span>
+                                        )
+                                      ) : (
+                                        <>
+                                          {renderInvoiceServicesChip("compact")}
+                                          {invoiceAppointmentDisplayLabel && (
+                                            <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                              <button
+                                                type="button"
+                                                onPointerDown={(event) => event.stopPropagation()}
+                                                onTouchStart={(event) => event.stopPropagation()}
+                                                onClick={(event) => {
+                                                  event.preventDefault();
+                                                  event.stopPropagation();
+                                                }}
+                                                className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                aria-label={invoiceAppointmentDisplayLabel}
+                                              >
+                                                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                <InvoiceViewportTooltip preferredWidth={320}>
+                                                  <InvoiceAppointmentTooltipContentV17_90L169
+                                                    text={invoiceAppointmentDisplayLabel}
+                                                  />
+                                                </InvoiceViewportTooltip>
+                                              </button>
+                                            </span>
+                                          )}
+                                        </>
                                       )}
                                     </div>
                                     <div className="mt-2 flex items-center justify-end gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:hidden">
@@ -3953,7 +3998,7 @@ export default function RechnungenPage() {
                                     </div>
                                   </div>
                                   <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
-                                    {invoiceAppointmentDisplayLabel && (
+                                    {!useTouchChipPopovers && invoiceAppointmentDisplayLabel && (
                                       <span className="inline-flex min-w-0 items-center justify-center self-end">
                                         <button
                                         type="button"
@@ -4167,28 +4212,63 @@ export default function RechnungenPage() {
                                   ))}
                                 </select>
                                 {renderInvoiceCompactFunctionalChips()}
-                                {renderInvoiceServicesChip("expanded")}
-                                {invoiceAppointmentDisplayLabel && (
-                                  <span className={`${invoiceYellowReviewEntries.length > 0 || invoiceBlockerEntries.length > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}>
-                                    <button
-                                      type="button"
-                                      onPointerDown={(event) => event.stopPropagation()}
-                                      onTouchStart={(event) => event.stopPropagation()}
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                      }}
-                                      className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
-                                      aria-label={invoiceAppointmentDisplayLabel}
-                                    >
-                                      <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                      <InvoiceViewportTooltip preferredWidth={320}>
-                                        <InvoiceAppointmentTooltipContentV17_90L169
-                                          text={invoiceAppointmentDisplayLabel}
-                                        />
-                                      </InvoiceViewportTooltip>
-                                    </button>
-                                  </span>
+                                {useTouchChipPopovers ? (
+                                  (invoiceYellowReviewEntries.length > 0 ||
+                                    invoiceBlockerEntries.length > 0 ||
+                                    Boolean(invoiceAppointmentDisplayLabel)) && (
+                                    <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                      <span className="inline-flex items-center gap-1.5">
+                                        {renderInvoiceCompactReviewChip("yellow")}
+                                        {renderInvoiceCompactReviewChip("red")}
+                                        {invoiceAppointmentDisplayLabel && (
+                                          <button
+                                            type="button"
+                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onTouchStart={(event) => event.stopPropagation()}
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                            }}
+                                            className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                            aria-label={invoiceAppointmentDisplayLabel}
+                                          >
+                                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                            <InvoiceViewportTooltip preferredWidth={320}>
+                                              <InvoiceAppointmentTooltipContentV17_90L169
+                                                text={invoiceAppointmentDisplayLabel}
+                                              />
+                                            </InvoiceViewportTooltip>
+                                          </button>
+                                        )}
+                                      </span>
+                                    </span>
+                                  )
+                                ) : (
+                                  <>
+                                    {renderInvoiceServicesChip("expanded")}
+                                    {invoiceAppointmentDisplayLabel && (
+                                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                        <button
+                                          type="button"
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onTouchStart={(event) => event.stopPropagation()}
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                          }}
+                                          className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                          aria-label={invoiceAppointmentDisplayLabel}
+                                        >
+                                          <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                          <InvoiceViewportTooltip preferredWidth={320}>
+                                            <InvoiceAppointmentTooltipContentV17_90L169
+                                              text={invoiceAppointmentDisplayLabel}
+                                            />
+                                          </InvoiceViewportTooltip>
+                                        </button>
+                                      </span>
+                                    )}
+                                  </>
                                 )}
                                 {dueLabel && (
                                   <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] font-medium text-muted-foreground md:absolute md:right-0 md:ml-0">
@@ -4200,7 +4280,7 @@ export default function RechnungenPage() {
                               <div className="relative mt-3 flex min-h-0 items-start justify-end gap-3 border-t pt-2 sm:min-h-12 sm:justify-between sm:pt-3">
                                 <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
                                 <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
-                                  {invoiceAppointmentDisplayLabel && (
+                                  {!useTouchChipPopovers && invoiceAppointmentDisplayLabel && (
                                   <span className="hidden min-w-0 items-center justify-center self-end sm:inline-flex">
                                     <button
                                       type="button"

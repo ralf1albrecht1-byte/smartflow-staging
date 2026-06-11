@@ -15949,27 +15949,50 @@ export default function AuftraegePage() {
                                 {mobileActionBadges.map((badge) =>
                                   renderInteractiveMobileActionBadge(badge),
                                 )}
-                                {orderedRightSideBadges.length > 0 && (
-                                  <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
-                                    <span className="inline-flex items-center gap-1.5">
-                                      {orderedRightSideBadges.map((badge) =>
-                                        renderInteractiveMobileRightReviewBadge(badge),
-                                      )}
+                                {useTouchChipPopovers ? (
+                                  (orderedRightSideBadges.length > 0 || appointmentBadges.length > 0) && (
+                                    <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                      <span className="inline-flex items-center gap-1.5">
+                                        {orderedRightSideBadges.map((badge) =>
+                                          renderInteractiveMobileRightReviewBadge(badge),
+                                        )}
+                                        {appointmentBadges.slice(0, 1).map((badge) => (
+                                          <span key={`compact_touch_appointment_${badge.key}`} className="inline-flex shrink-0">
+                                            {renderResponsiveAppointmentBadge(
+                                              badge,
+                                              "compact_touch_appointment",
+                                              "left",
+                                            )}
+                                          </span>
+                                        ))}
+                                      </span>
                                     </span>
-                                  </span>
-                                )}
-                                {appointmentBadges.slice(0, 1).map((badge) => (
-                                  <span
-                                    key={`compact_mobile_appointment_wrap_${badge.key}`}
-                                    className={`${orderedRightSideBadges.length > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}
-                                  >
-                                    {renderResponsiveAppointmentBadge(
-                                      badge,
-                                      "compact_mobile_appointment",
-                                      "left",
+                                  )
+                                ) : (
+                                  <>
+                                    {orderedRightSideBadges.length > 0 && (
+                                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
+                                        <span className="inline-flex items-center gap-1.5">
+                                          {orderedRightSideBadges.map((badge) =>
+                                            renderInteractiveMobileRightReviewBadge(badge),
+                                          )}
+                                        </span>
+                                      </span>
                                     )}
-                                  </span>
-                                ))}
+                                    {appointmentBadges.slice(0, 1).map((badge) => (
+                                      <span
+                                        key={`compact_mobile_appointment_wrap_${badge.key}`}
+                                        className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden"
+                                      >
+                                        {renderResponsiveAppointmentBadge(
+                                          badge,
+                                          "compact_mobile_appointment",
+                                          "left",
+                                        )}
+                                      </span>
+                                    ))}
+                                  </>
+                                )}
                               </div>
                               <div className="mt-2 flex items-center justify-end gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:hidden">
                                 <div className="shrink-0 text-right">
@@ -15984,18 +16007,19 @@ export default function AuftraegePage() {
                               </div>
                             </div>
                             <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
-                              {appointmentBadges.slice(0, 1).map((badge) => (
-                                <span
-                                  key={`compact_appointment_wrap_${badge.key}`}
-                                  className="inline-flex min-w-0 items-center justify-center self-end"
-                                >
-                                  {renderResponsiveAppointmentBadge(
-                                    badge,
-                                    "compact_header_appointment",
-                                    "left",
-                                  )}
-                                </span>
-                              ))}
+                              {!useTouchChipPopovers &&
+                                appointmentBadges.slice(0, 1).map((badge) => (
+                                  <span
+                                    key={`compact_appointment_wrap_${badge.key}`}
+                                    className="inline-flex min-w-0 items-center justify-center self-end"
+                                  >
+                                    {renderResponsiveAppointmentBadge(
+                                      badge,
+                                      "compact_header_appointment",
+                                      "left",
+                                    )}
+                                  </span>
+                                ))}
                               <div className="flex min-w-0 items-center justify-end gap-2 self-end">
                                 <div className="shrink-0 text-right">
                                   <div className="font-mono text-sm font-bold tabular-nums">
@@ -16135,27 +16159,50 @@ export default function AuftraegePage() {
                             renderInteractiveMobileActionBadge(badge),
                           )}
 
-                          {orderedRightSideBadges.length > 0 && (
-                            <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
-                              <span className="inline-flex items-center gap-1.5">
-                                {orderedRightSideBadges.map((badge) =>
-                                  renderInteractiveMobileRightReviewBadge(badge),
-                                )}
+                          {useTouchChipPopovers ? (
+                            (orderedRightSideBadges.length > 0 || appointmentBadges.length > 0) && (
+                              <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                <span className="inline-flex items-center gap-1.5">
+                                  {orderedRightSideBadges.map((badge) =>
+                                    renderInteractiveMobileRightReviewBadge(badge),
+                                  )}
+                                  {appointmentBadges.slice(0, 1).map((badge) => (
+                                    <span key={`expanded_touch_appointment_${badge.key}`} className="inline-flex shrink-0">
+                                      {renderResponsiveAppointmentBadge(
+                                        badge,
+                                        "expanded_touch_appointment",
+                                        "left",
+                                      )}
+                                    </span>
+                                  ))}
+                                </span>
                               </span>
-                            </span>
-                          )}
-                          {appointmentBadges.slice(0, 1).map((badge) => (
-                            <span
-                              key={`expanded_mobile_appointment_wrap_${badge.key}`}
-                              className={`${orderedRightSideBadges.length > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}
-                            >
-                              {renderResponsiveAppointmentBadge(
-                                badge,
-                                "expanded_mobile_appointment",
-                                "left",
+                            )
+                          ) : (
+                            <>
+                              {orderedRightSideBadges.length > 0 && (
+                                <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    {orderedRightSideBadges.map((badge) =>
+                                      renderInteractiveMobileRightReviewBadge(badge),
+                                    )}
+                                  </span>
+                                </span>
                               )}
-                            </span>
-                          ))}
+                              {appointmentBadges.slice(0, 1).map((badge) => (
+                                <span
+                                  key={`expanded_mobile_appointment_wrap_${badge.key}`}
+                                  className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden"
+                                >
+                                  {renderResponsiveAppointmentBadge(
+                                    badge,
+                                    "expanded_mobile_appointment",
+                                    "left",
+                                  )}
+                                </span>
+                              ))}
+                            </>
+                          )}
                         </div>
 
 
@@ -16163,18 +16210,19 @@ export default function AuftraegePage() {
                           <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
 
                           <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
-                            {appointmentBadges.slice(0, 1).map((badge) => (
-                              <span
-                                key={`mobile_appointment_wrap_${badge.key}`}
-                                className="hidden min-w-0 items-center justify-center self-end sm:inline-flex"
-                              >
-                                {renderResponsiveAppointmentBadge(
-                                  badge,
-                                  "mobile_appointment",
-                                  "left",
-                                )}
-                              </span>
-                            ))}
+                            {!useTouchChipPopovers &&
+                              appointmentBadges.slice(0, 1).map((badge) => (
+                                <span
+                                  key={`mobile_appointment_wrap_${badge.key}`}
+                                  className="hidden min-w-0 items-center justify-center self-end sm:inline-flex"
+                                >
+                                  {renderResponsiveAppointmentBadge(
+                                    badge,
+                                    "mobile_appointment",
+                                    "left",
+                                  )}
+                                </span>
+                              ))}
 
                             <div className="shrink-0 whitespace-nowrap text-right leading-tight">
                               <div className="font-mono text-[16px] font-bold tabular-nums">

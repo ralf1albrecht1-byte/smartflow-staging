@@ -5194,7 +5194,7 @@ export default function AngebotePage() {
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ||
                     serviceReview.blockerCount > 0 ? (
-                      <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
+                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
                         <span className="inline-flex items-center gap-1.5">
                           {renderOfferCompactReviewChip(
                             "yellow",
@@ -5444,41 +5444,72 @@ export default function AngebotePage() {
                                         ))}
                                       </select>
                                       {renderOfferCompactFunctionalChips()}
-                                      {renderOfferCompactServiceReviewChip()}
-                                      {appointmentDisplayLabel && (
-                                        <span className={`${serviceReview.reviewCount > 0 || serviceReview.blockerCount > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}>
-                                          <button
-                                            type="button"
-                                            onPointerDown={(event) => event.stopPropagation()}
-                                            onTouchStart={(event) => event.stopPropagation()}
-                                            onClick={(event) => {
-                                              event.preventDefault();
-                                              event.stopPropagation();
-                                              if (useTouchChipPopovers) {
-                                                toggleOfferMobileTooltip(
-                                                  {
-                                                    key: `${off.id}:compact-mobile-appointment`,
-                                                    text: appointmentDisplayLabel,
-                                                  },
-                                                  event,
-                                                );
-                                              } else {
-                                                openOfferSection(
-                                                  off,
-                                                  "details",
-                                                  appointmentDisplayLabel,
-                                                );
-                                              }
-                                            }}
-                                            className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
-                                            aria-label={appointmentDisplayLabel}
-                                          >
-                                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                            {!useTouchChipPopovers && (
-                                              <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                            )}
-                                          </button>
-                                        </span>
+                                      {useTouchChipPopovers ? (
+                                        (serviceReview.reviewCount > 0 ||
+                                          serviceReview.blockerCount > 0 ||
+                                          Boolean(appointmentDisplayLabel)) && (
+                                          <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                            <span className="inline-flex items-center gap-1.5">
+                                              {renderOfferCompactReviewChip(
+                                                "yellow",
+                                                "compact-touch-service-review",
+                                              )}
+                                              {renderOfferCompactReviewChip(
+                                                "red",
+                                                "compact-touch-service-blocker",
+                                              )}
+                                              {appointmentDisplayLabel && (
+                                                <button
+                                                  type="button"
+                                                  onPointerDown={(event) => event.stopPropagation()}
+                                                  onTouchStart={(event) => event.stopPropagation()}
+                                                  onClick={(event) => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                    toggleOfferMobileTooltip(
+                                                      {
+                                                        key: `${off.id}:compact-touch-appointment`,
+                                                        text: appointmentDisplayLabel,
+                                                      },
+                                                      event,
+                                                    );
+                                                  }}
+                                                  className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                  aria-label={appointmentDisplayLabel}
+                                                >
+                                                  <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                </button>
+                                              )}
+                                            </span>
+                                          </span>
+                                        )
+                                      ) : (
+                                        <>
+                                          {renderOfferCompactServiceReviewChip()}
+                                          {appointmentDisplayLabel && (
+                                            <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                              <button
+                                                type="button"
+                                                onPointerDown={(event) => event.stopPropagation()}
+                                                onTouchStart={(event) => event.stopPropagation()}
+                                                onClick={(event) => {
+                                                  event.preventDefault();
+                                                  event.stopPropagation();
+                                                  openOfferSection(
+                                                    off,
+                                                    "details",
+                                                    appointmentDisplayLabel,
+                                                  );
+                                                }}
+                                                className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 shadow-sm hover:bg-violet-100"
+                                                aria-label={appointmentDisplayLabel}
+                                              >
+                                                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                                <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
+                                              </button>
+                                            </span>
+                                          )}
+                                        </>
                                       )}
                                     </div>
                                     <div className="mt-2 flex items-center justify-end gap-2 border-t border-slate-200 pt-2 dark:border-slate-700 sm:hidden">
@@ -5494,7 +5525,7 @@ export default function AngebotePage() {
                                     </div>
                                   </div>
                                   <div className="ml-auto hidden min-w-[74px] shrink-0 flex-col items-end justify-between gap-2 self-stretch border-l border-slate-200 pl-3 dark:border-slate-700 sm:flex">
-                                    {appointmentDisplayLabel && (
+                                    {!useTouchChipPopovers && appointmentDisplayLabel && (
                                       <span className="inline-flex min-w-0 items-center justify-center self-end">
                                         <button
                                           type="button"
@@ -5503,21 +5534,11 @@ export default function AngebotePage() {
                                           onClick={(event) => {
                                             event.preventDefault();
                                             event.stopPropagation();
-                                            if (useTouchChipPopovers) {
-                                              toggleOfferMobileTooltip(
-                                                {
-                                                  key: `${off.id}:compact-appointment`,
-                                                  text: appointmentDisplayLabel,
-                                                },
-                                                event,
-                                              );
-                                            } else {
-                                              openOfferSection(
-                                                off,
-                                                "details",
-                                                appointmentDisplayLabel,
-                                              );
-                                            }
+                                            openOfferSection(
+                                              off,
+                                              "details",
+                                              appointmentDisplayLabel,
+                                            );
                                           }}
                                           className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-800 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                                         >
@@ -5528,9 +5549,7 @@ export default function AngebotePage() {
                                             </span>
                                           )}
                                           <span className="sr-only">{appointmentChipLabels.full}</span>
-                                          {!useTouchChipPopovers && (
-                                            <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                          )}
+                                          <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
                                         </button>
                                       </span>
                                     )}
@@ -5899,51 +5918,82 @@ export default function AngebotePage() {
                                   ))}
 
 
-                                  {(serviceReview.reviewCount > 0 ||
-                                    serviceReview.blockerCount > 0) && (
-                                    <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
-                                      <span className="inline-flex items-center gap-1.5">
-                                        {renderOfferCompactReviewChip(
-                                          "yellow",
-                                          "expanded-service-review",
-                                        )}
-                                        {renderOfferCompactReviewChip(
-                                          "red",
-                                          "expanded-service-blocker",
-                                        )}
+                                  {useTouchChipPopovers ? (
+                                    (serviceReview.reviewCount > 0 ||
+                                      serviceReview.blockerCount > 0 ||
+                                      Boolean(appointmentDisplayLabel)) && (
+                                      <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700">
+                                        <span className="inline-flex items-center gap-1.5">
+                                          {renderOfferCompactReviewChip(
+                                            "yellow",
+                                            "expanded-touch-service-review",
+                                          )}
+                                          {renderOfferCompactReviewChip(
+                                            "red",
+                                            "expanded-touch-service-blocker",
+                                          )}
+                                          {appointmentDisplayLabel && (
+                                            <button
+                                              type="button"
+                                              onPointerDown={(event) => event.stopPropagation()}
+                                              onTouchStart={(event) => event.stopPropagation()}
+                                              onClick={(event) =>
+                                                toggleOfferMobileTooltip(
+                                                  {
+                                                    key: `${off.id}:expanded-touch-appointment`,
+                                                    text: appointmentDisplayLabel,
+                                                  },
+                                                  event,
+                                                )
+                                              }
+                                              className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-700 shadow-sm hover:bg-violet-100"
+                                              aria-label={appointmentDisplayLabel}
+                                            >
+                                              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                            </button>
+                                          )}
+                                        </span>
                                       </span>
-                                    </span>
-                                  )}
-                                  {appointmentDisplayLabel && (
-                                    <span className={`${serviceReview.reviewCount > 0 || serviceReview.blockerCount > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}>
-                                      <button
-                                        type="button"
-                                        onPointerDown={(event) => event.stopPropagation()}
-                                        onTouchStart={(event) => event.stopPropagation()}
-                                        onClick={(event) =>
-                                          useTouchChipPopovers
-                                            ? toggleOfferMobileTooltip(
-                                                {
-                                                  key: `${off.id}:expanded-mobile-appointment`,
-                                                  text: appointmentDisplayLabel,
-                                                },
-                                                event,
-                                              )
-                                            : openOfferChipTarget(
+                                    )
+                                  ) : (
+                                    <>
+                                      {(serviceReview.reviewCount > 0 ||
+                                        serviceReview.blockerCount > 0) && (
+                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                                          <span className="inline-flex items-center gap-1.5">
+                                            {renderOfferCompactReviewChip(
+                                              "yellow",
+                                              "expanded-service-review",
+                                            )}
+                                            {renderOfferCompactReviewChip(
+                                              "red",
+                                              "expanded-service-blocker",
+                                            )}
+                                          </span>
+                                        </span>
+                                      )}
+                                      {appointmentDisplayLabel && (
+                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                          <button
+                                            type="button"
+                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onTouchStart={(event) => event.stopPropagation()}
+                                            onClick={(event) =>
+                                              openOfferChipTarget(
                                                 "details",
                                                 event,
                                                 appointmentDisplayLabel,
                                               )
-                                        }
-                                        className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-700 shadow-sm hover:bg-violet-100"
-                                        aria-label={appointmentDisplayLabel}
-                                      >
-                                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                                        {!useTouchChipPopovers && (
-                                          <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                        )}
-                                      </button>
-                                    </span>
+                                            }
+                                            className="group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-700 shadow-sm hover:bg-violet-100"
+                                            aria-label={appointmentDisplayLabel}
+                                          >
+                                            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                                            <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
+                                          </button>
+                                        </span>
+                                      )}
+                                    </>
                                   )}
                                 </div>
 
@@ -5951,26 +6001,18 @@ export default function AngebotePage() {
                                   <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex" />
 
                                   <div className="ml-auto flex shrink-0 items-end gap-3 sm:flex-col sm:items-end sm:gap-2 sm:border-l sm:border-slate-200 sm:pl-3 sm:dark:border-slate-700">
-                                    {appointmentDisplayLabel && (
+                                    {!useTouchChipPopovers && appointmentDisplayLabel && (
                                       <span className="hidden min-w-0 items-center justify-center self-end sm:inline-flex">
                                         <button
                                           type="button"
                                           onPointerDown={(event) => event.stopPropagation()}
                                           onTouchStart={(event) => event.stopPropagation()}
                                           onClick={(event) =>
-                                            useTouchChipPopovers
-                                              ? toggleOfferMobileTooltip(
-                                                  {
-                                                    key: `${off.id}:appointment`,
-                                                    text: appointmentDisplayLabel,
-                                                  },
-                                                  event,
-                                                )
-                                              : openOfferChipTarget(
-                                                  "details",
-                                                  event,
-                                                  appointmentDisplayLabel,
-                                                )
+                                            openOfferChipTarget(
+                                              "details",
+                                              event,
+                                              appointmentDisplayLabel,
+                                            )
                                           }
                                           className={`group relative inline-flex h-8 w-8 min-w-0 max-w-full shrink items-center justify-center rounded-full border border-violet-300 bg-violet-50 px-0 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100 ${appointmentChipLabels.dateOnly ? "md:w-auto md:px-2.5" : "md:w-8 md:px-0"}`}
                                         >
@@ -5981,9 +6023,7 @@ export default function AngebotePage() {
                                             </span>
                                           )}
                                           <span className="sr-only">{appointmentChipLabels.full}</span>
-                                          {!useTouchChipPopovers && (
-                                            <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
-                                          )}
+                                          <OfferAppointmentTooltipV17_90L169 text={appointmentDisplayLabel} />
                                         </button>
                                       </span>
                                     )}
