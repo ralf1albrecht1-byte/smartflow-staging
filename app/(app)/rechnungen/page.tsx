@@ -3658,9 +3658,25 @@ export default function RechnungenPage() {
         body: JSON.stringify({ status }),
       });
       if (!response.ok) throw new Error("status_update_failed");
-      toast.success(
-        movesToArchive ? "Rechnung archiviert" : "Status aktualisiert",
-      );
+      if (movesToArchive) {
+        toast.success("Rechnung archiviert");
+      } else if (status === "Bezahlt") {
+        toast.success("Rechnung als bezahlt markiert.", {
+          duration: 8000,
+          action: {
+            label: "Archivieren",
+            onClick: () => {
+              void updateStatus(
+                { stopPropagation: () => {} } as any,
+                id,
+                "Erledigt",
+              );
+            },
+          },
+        });
+      } else {
+        toast.success("Status aktualisiert");
+      }
     } catch {
       if (movesToArchive) {
         restoreInvoiceInActiveList(previousInvoice, previousIndex);
@@ -4028,6 +4044,47 @@ export default function RechnungenPage() {
                   const hasMergedContactReview =
                     mergedCount > 1 && mergedContactEntries.length > 1;
 
+                  const renderInvoiceQuickActions = () => (
+                    <div
+                      className="inline-flex shrink-0 items-center gap-1"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onTouchStart={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={(event) => downloadPdf(event, inv.id)}
+                        className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 text-[10px] font-semibold text-blue-700 shadow-sm hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-900/50"
+                        title="PDF herunterladen"
+                        aria-label="PDF herunterladen"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        <span className="hidden lg:inline">PDF</span>
+                      </button>
+                      {whatsappEnabled && businessWhatsappNumber && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void sendPdfToWhatsApp(inv);
+                          }}
+                          disabled={downloading === inv.id}
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:ring-offset-1 disabled:cursor-wait disabled:opacity-60 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
+                          title="PDF an WhatsApp senden"
+                          aria-label="PDF an WhatsApp senden"
+                        >
+                          {downloading === inv.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          )}
+                          <span className="hidden xl:inline">WhatsApp</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+
                   const renderInvoiceCompactFunctionalChips = () => (
                     <div
                       className="mr-1 inline-flex min-w-0 flex-wrap items-center gap-1.5 border-r border-slate-200 pr-2 empty:hidden dark:border-slate-700 [&_svg]:h-[18px] [&_svg]:w-[18px]"
@@ -4250,100 +4307,58 @@ export default function RechnungenPage() {
                               >
                                 <MoreVertical className="w-4 h-4" />
                               </summary>
-                              <div className="hidden group-open:block absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border rounded-lg shadow-lg py-1 min-w-[190px]">
+                              <div className="absolute left-0 top-full z-50 mt-1 hidden min-w-[190px] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl group-open:block dark:border-slate-700 dark:bg-gray-900">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu =
-                                      e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
                                     openEditInvoice(inv);
                                   }}
-                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                                 >
-                                  <FileText className="w-3.5 h-3.5 text-primary" />{" "}
+                                  <FileText className="h-4 w-4 text-primary" />
                                   Bearbeiten
                                 </button>
+                                <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu =
-                                      e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
-                                    downloadPdf(
-                                      { stopPropagation: () => {} } as any,
-                                      inv.id,
-                                    );
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    void updateStatus(e, inv.id, "Erledigt");
                                   }}
-                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                                 >
-                                  <Download className="w-3.5 h-3.5 text-green-600" />{" "}
-                                  PDF herunterladen
-                                </button>
-                                {whatsappEnabled && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const menu =
-                                        e.currentTarget.closest("details");
-                                      if (menu instanceof HTMLDetailsElement)
-                                        menu.open = false;
-                                      sendPdfToWhatsApp(inv);
-                                    }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                  >
-                                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />{" "}
-                                    PDF an WhatsApp senden
-                                  </button>
-                                )}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const menu =
-                                      e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
-                                    updateStatus(e, inv.id, "Erledigt");
-                                  }}
-                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                                >
-                                  <Archive className="w-3.5 h-3.5 text-amber-600" />{" "}
+                                  <Archive className="h-4 w-4 text-amber-600" />
                                   Archivieren
                                 </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu =
-                                      e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
                                     revertToOffer(inv);
                                   }}
-                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                                 >
-                                  <Undo2 className="w-3.5 h-3.5 text-amber-600" />{" "}
+                                  <Undo2 className="h-4 w-4 text-amber-600" />
                                   {inv.sourceOfferId
                                     ? "Zurück zu Angebot"
                                     : "Zurück zu Auftrag"}
                                 </button>
-                                <div className="border-t my-1" />
+                                <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const menu =
-                                      e.currentTarget.closest("details");
-                                    if (menu instanceof HTMLDetailsElement)
-                                      menu.open = false;
-                                    remove(
-                                      { stopPropagation: () => {} } as any,
-                                      inv.id,
-                                    );
+                                    const menu = e.currentTarget.closest("details");
+                                    if (menu instanceof HTMLDetailsElement) menu.open = false;
+                                    remove({ stopPropagation: () => {} } as any, inv.id);
                                   }}
-                                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 flex items-center gap-2"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" /> Papierkorb
+                                  <Trash2 className="h-4 w-4" />
+                                  Papierkorb
                                 </button>
                               </div>
                             </details>
@@ -4426,11 +4441,9 @@ export default function RechnungenPage() {
                                         onChange={(event) =>
                                           updateStatus(event, inv.id, event.target.value)
                                         }
-                                        className="h-7 rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-                                        style={getStatusStyle(
-                                          INVOICE_STATUS_STYLES,
-                                          effectiveStatus,
-                                        )}
+                                        className={`h-7 rounded-full border px-2 text-[10px] font-semibold outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+                                          statusColors[effectiveStatus] || statusColors.Entwurf
+                                        }`}
                                         aria-label={`Status bearbeiten: ${effectiveStatus}`}
                                       >
                                         {invoiceStatuses.map((status) => (
@@ -4439,6 +4452,7 @@ export default function RechnungenPage() {
                                           </option>
                                         ))}
                                       </select>
+                                      {renderInvoiceQuickActions()}
                                       {renderInvoiceCompactFunctionalChips()}
                                       {useTouchChipPopovers ? (
                                         (invoiceYellowReviewEntries.length > 0 ||
@@ -4652,11 +4666,9 @@ export default function RechnungenPage() {
                               <div className="relative mt-1.5 flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 overflow-visible">
                                 <select
                                   onClick={(event) => event.stopPropagation()}
-                                  className="h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium"
-                                  style={getStatusStyle(
-                                    INVOICE_STATUS_STYLES,
-                                    effectiveStatus,
-                                  )}
+                                  className={`h-8 shrink-0 rounded-lg border px-2 text-[11px] font-medium ${
+                                    statusColors[effectiveStatus] || statusColors.Entwurf
+                                  }`}
                                   value={effectiveStatus}
                                   onChange={(event) =>
                                     updateStatus(event, inv.id, event.target.value)
@@ -4674,6 +4686,7 @@ export default function RechnungenPage() {
                                     </option>
                                   ))}
                                 </select>
+                                {renderInvoiceQuickActions()}
                                 {renderInvoiceCompactFunctionalChips()}
                                 {useTouchChipPopovers ? (
                                   (invoiceYellowReviewEntries.length > 0 ||
