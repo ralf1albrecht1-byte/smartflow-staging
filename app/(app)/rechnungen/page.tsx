@@ -3686,8 +3686,8 @@ export default function RechnungenPage() {
                       <span
                         className={
                           placement === "compact"
-                            ? "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
-                            : "inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
+                            ? "ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3"
+                            : "ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3"
                         }
                       >
                         <span className="inline-flex items-center gap-1.5">
@@ -3920,7 +3920,7 @@ export default function RechnungenPage() {
                                       {renderInvoiceCompactFunctionalChips()}
                                       {renderInvoiceServicesChip("compact")}
                                       {invoiceAppointmentDisplayLabel && (
-                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                        <span className={`${invoiceYellowReviewEntries.length > 0 || invoiceBlockerEntries.length > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}>
                                           <button
                                             type="button"
                                             onPointerDown={(event) => event.stopPropagation()}
@@ -4169,7 +4169,7 @@ export default function RechnungenPage() {
                                 {renderInvoiceCompactFunctionalChips()}
                                 {renderInvoiceServicesChip("expanded")}
                                 {invoiceAppointmentDisplayLabel && (
-                                  <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                  <span className={`${invoiceYellowReviewEntries.length > 0 || invoiceBlockerEntries.length > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}>
                                     <button
                                       type="button"
                                       onPointerDown={(event) => event.stopPropagation()}

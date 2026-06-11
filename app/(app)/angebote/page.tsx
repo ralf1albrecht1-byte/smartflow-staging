@@ -5194,7 +5194,7 @@ export default function AngebotePage() {
                   const renderOfferCompactServiceReviewChip = () =>
                     serviceReview.reviewCount > 0 ||
                     serviceReview.blockerCount > 0 ? (
-                      <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
+                      <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:bottom-0 md:left-[61%] md:right-48 md:ml-0 md:justify-center md:pr-3">
                         <span className="inline-flex items-center gap-1.5">
                           {renderOfferCompactReviewChip(
                             "yellow",
@@ -5446,7 +5446,7 @@ export default function AngebotePage() {
                                       {renderOfferCompactFunctionalChips()}
                                       {renderOfferCompactServiceReviewChip()}
                                       {appointmentDisplayLabel && (
-                                        <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                        <span className={`${serviceReview.reviewCount > 0 || serviceReview.blockerCount > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}>
                                           <button
                                             type="button"
                                             onPointerDown={(event) => event.stopPropagation()}
@@ -5901,7 +5901,7 @@ export default function AngebotePage() {
 
                                   {(serviceReview.reviewCount > 0 ||
                                     serviceReview.blockerCount > 0) && (
-                                    <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:ml-auto sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
+                                    <span className="ml-auto inline-flex shrink-0 items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:pl-3 md:absolute md:left-[61%] md:right-48 md:top-1/2 md:ml-0 md:-translate-y-1/2 md:justify-center md:pr-3">
                                       <span className="inline-flex items-center gap-1.5">
                                         {renderOfferCompactReviewChip(
                                           "yellow",
@@ -5915,7 +5915,7 @@ export default function AngebotePage() {
                                     </span>
                                   )}
                                   {appointmentDisplayLabel && (
-                                    <span className="inline-flex items-center border-l border-slate-200 pl-2 dark:border-slate-700 sm:hidden">
+                                    <span className={`${serviceReview.reviewCount > 0 || serviceReview.blockerCount > 0 ? "" : "ml-auto border-l border-slate-200 pl-2 dark:border-slate-700"} inline-flex shrink-0 items-center sm:hidden`}>
                                       <button
                                         type="button"
                                         onPointerDown={(event) => event.stopPropagation()}
