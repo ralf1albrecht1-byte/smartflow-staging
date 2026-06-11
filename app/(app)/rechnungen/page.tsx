@@ -234,6 +234,43 @@ function InvoicePdfDocumentIcon({
   );
 }
 
+function InvoiceDirectPdfIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6 shrink-0"
+      aria-hidden="true"
+    >
+      <path
+        d="M6.5 2.75h7l4 4v14.5h-11z"
+        fill="white"
+        stroke="#dc2626"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.5 2.75v4h4"
+        fill="none"
+        stroke="#dc2626"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <rect x="4.15" y="11" width="15.7" height="6.45" rx="1.25" fill="#dc2626" />
+      <text
+        x="12"
+        y="15.55"
+        textAnchor="middle"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="4.75"
+        fontWeight="800"
+        fill="white"
+      >
+        PDF
+      </text>
+    </svg>
+  );
+}
+
 function InvoicePdfWhatsAppIcon() {
   return (
     <span className="relative inline-flex h-5 w-6 shrink-0 items-center justify-start">
@@ -4361,7 +4398,7 @@ export default function RechnungenPage() {
                         title="PDF herunterladen"
                         aria-label="PDF herunterladen"
                       >
-                        <InvoicePdfDocumentIcon withDownload />
+                        <InvoiceDirectPdfIcon />
                       </button>
                       {whatsappEnabled && businessWhatsappNumber && (
                         <button
