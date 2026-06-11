@@ -14500,19 +14500,61 @@ export default function AuftraegePage() {
   };
 
   const [archiveId, setArchiveId] = useState<string | null>(null);
+  // V17.90L192: Auftragsstatus ohne vollständiges Neuladen aktualisieren.
+  // Bei einem API-Fehler wird der vorherige Auftrag exakt wiederhergestellt.
   const updateOrderStatus = async (
     e: React.ChangeEvent<HTMLSelectElement>,
     id: string,
     status: string,
   ) => {
     e.stopPropagation();
-    await fetch(`/api/orders/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    toast.success("Status aktualisiert");
-    load();
+
+    const previousOrder = orders.find((order) => order.id === id);
+    if (!previousOrder || previousOrder.status === status) return;
+
+    setOrders((current) =>
+      current.map((order) =>
+        order.id === id ? { ...order, status } : order,
+      ),
+    );
+
+    try {
+      const response = await fetch(`/api/orders/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error || "Auftragsstatus konnte nicht aktualisiert werden.",
+        );
+      }
+
+      setOrders((current) =>
+        current.map((order) =>
+          order.id === id
+            ? {
+                ...order,
+                status: String(result?.status || status),
+              }
+            : order,
+        ),
+      );
+      toast.success("Status aktualisiert");
+    } catch (error) {
+      setOrders((current) =>
+        current.map((order) =>
+          order.id === id ? previousOrder : order,
+        ),
+      );
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Auftragsstatus konnte nicht aktualisiert werden.",
+      );
+    }
   };
 
   const remove = async (id: string) => {
