@@ -4535,14 +4535,56 @@ export default function AngebotePage() {
     }
   };
 
+  // V17.90L191: Angebotsstatus ohne vollständiges Neuladen aktualisieren.
+  // Der vorherige Status wird bei einem API-Fehler exakt wiederhergestellt.
   const updateStatus = async (id: string, status: string) => {
-    await fetch(`/api/offers/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    toast.success("Status aktualisiert");
-    load();
+    const previousOffer = offers.find((offer) => offer.id === id);
+    if (!previousOffer || previousOffer.status === status) return;
+
+    setOffers((current) =>
+      current.map((offer) =>
+        offer.id === id ? { ...offer, status } : offer,
+      ),
+    );
+
+    try {
+      const response = await fetch(`/api/offers/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error || "Angebotsstatus konnte nicht aktualisiert werden.",
+        );
+      }
+
+      setOffers((current) =>
+        current.map((offer) =>
+          offer.id === id
+            ? {
+                ...offer,
+                status: String(result?.status || status),
+                customer: result?.customer || offer.customer,
+              }
+            : offer,
+        ),
+      );
+      toast.success("Status aktualisiert");
+    } catch (error) {
+      setOffers((current) =>
+        current.map((offer) =>
+          offer.id === id ? previousOffer : offer,
+        ),
+      );
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Angebotsstatus konnte nicht aktualisiert werden.",
+      );
+    }
   };
 
   const remove = (id: string) => {

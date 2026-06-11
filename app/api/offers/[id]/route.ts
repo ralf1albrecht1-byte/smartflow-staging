@@ -220,13 +220,28 @@ export async function PUT(
     const needsCustomerSnapshot =
       nextLocked && (!currentLocked || !existing.customerSnapshot);
     if (needsCustomerSnapshot && !activeCustomer) {
+      // V17.90L191: Ein reiner Statuswechsel darf auch bei älteren Angeboten
+      // funktionieren, deren bereits verknüpfter Kunde inzwischen im Papierkorb
+      // liegt. Eine neue Zuweisung zu einem archivierten Kunden bleibt weiterhin
+      // ausgeschlossen und wird oben unverändert blockiert.
+      const changesLinkedCustomer = Boolean(
+        data?.customerId && data.customerId !== existing.customerId,
+      );
       activeCustomer = await prisma.customer.findFirst({
-        where: { id: nextCustomerId, userId, dataScope, deletedAt: null },
+        where: {
+          id: nextCustomerId,
+          userId,
+          dataScope,
+          ...(changesLinkedCustomer ? { deletedAt: null } : {}),
+        },
         select: DOCUMENT_CUSTOMER_SELECT,
       });
       if (!activeCustomer) {
         return NextResponse.json(
-          { error: "Kundendaten für den historischen Angebotsstand konnten nicht geladen werden." },
+          {
+            error:
+              "Kundendaten für den historischen Angebotsstand konnten nicht geladen werden. Der verknüpfte Kunde existiert nicht mehr im aktuellen TEST-/LIVE-Bestand.",
+          },
           { status: 409 },
         );
       }
