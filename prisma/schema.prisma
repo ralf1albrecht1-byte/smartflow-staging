@@ -254,8 +254,10 @@ currency      String   @default("CHF")
   invoiceDate   DateTime @default(now())
   dueDate       DateTime?
   notes         String?
-  customerSnapshot   Json?
-  customerSnapshotAt DateTime?
+  customerSnapshot           Json?
+  customerSnapshotAt         DateTime?
+  archivedCustomerSnapshot   Json?
+  archivedCustomerSnapshotAt DateTime?
   sourceOfferId String?
   userId        String?
   user          User?    @relation(fields: [userId], references: [id])

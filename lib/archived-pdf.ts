@@ -7,7 +7,11 @@ import puppeteer from 'puppeteer';
 import { prisma } from '@/lib/prisma';
 import { uploadBufferToS3, downloadBufferFromS3 } from '@/lib/s3';
 import { generateInvoiceHtml } from '@/lib/pdf-templates';
-import { withDocumentCustomerSnapshot } from '@/lib/document-customer-snapshot';
+import {
+  buildDocumentCustomerSnapshot,
+  parseDocumentCustomerSnapshot,
+  withDocumentCustomerSnapshot,
+} from '@/lib/document-customer-snapshot';
 
 async function generatePdfBuffer(invoice: any, companySettings: any): Promise<Buffer> {
 const invoiceForPdf = withDocumentCustomerSnapshot(invoice, 'invoice');
@@ -160,7 +164,22 @@ export async function createArchivedPdfSnapshot(
       return;
     }
 
-    await getOrCreateArchivedPdf(invoice, companySettings);
+    let invoiceForArchive = invoice;
+    if (!parseDocumentCustomerSnapshot(invoice.archivedCustomerSnapshot)) {
+      const historicalCustomer =
+        parseDocumentCustomerSnapshot(invoice.customerSnapshot) ??
+        buildDocumentCustomerSnapshot(invoice.customer);
+      invoiceForArchive = await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          archivedCustomerSnapshot: historicalCustomer,
+          archivedCustomerSnapshotAt: new Date(),
+        },
+        include: { customer: true, items: true },
+      });
+    }
+
+    await getOrCreateArchivedPdf(invoiceForArchive, companySettings);
   } catch (err) {
     console.error(`[archived-pdf] Snapshot creation failed for invoice ${invoiceId}:`, err);
   }

@@ -93,6 +93,18 @@ export function resolveDocumentCustomer(
     return document?.customer ?? null;
   }
 
+  if (
+    kind === "invoice" &&
+    String(document?.status ?? "").trim() === "Erledigt"
+  ) {
+    return (
+      parseDocumentCustomerSnapshot(document?.archivedCustomerSnapshot) ??
+      parseDocumentCustomerSnapshot(document?.customerSnapshot) ??
+      document?.customer ??
+      null
+    );
+  }
+
   return (
     parseDocumentCustomerSnapshot(document?.customerSnapshot) ??
     document?.customer ??

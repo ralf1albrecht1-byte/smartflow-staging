@@ -156,6 +156,16 @@ interface Customer {
   email?: string | null;
 }
 
+const INVOICE_HISTORICAL_STATUSES = new Set([
+  "Gesendet",
+  "Überfällig",
+  "Bezahlt",
+  "Erledigt",
+]);
+
+const isHistoricalInvoiceStatus = (status: unknown) =>
+  INVOICE_HISTORICAL_STATUSES.has(String(status ?? "").trim());
+
 type InvoiceExecutionSite = {
   siteName?: string | null;
   siteAddress?: string | null;
@@ -1864,6 +1874,7 @@ export default function RechnungenPage() {
   const [loadError, setLoadError] = useState<string[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [editingInvoiceCustomer, setEditingInvoiceCustomer] = useState<Customer | null>(null);
   const initialInvoiceDate = getTodayInvoiceDateInputValue();
   const [defaultPaymentDays, setDefaultPaymentDays] = useState(14);
   const [form, setForm] = useState({
@@ -1875,6 +1886,15 @@ export default function RechnungenPage() {
     notes: "",
     orderIds: [] as string[],
   });
+  const historicalInvoiceCustomerLocked = Boolean(
+    editingInvoice && isHistoricalInvoiceStatus(editingInvoice.status),
+  );
+  const dialogInvoiceCustomer =
+    historicalInvoiceCustomerLocked && editingInvoiceCustomer
+      ? editingInvoiceCustomer
+      : form.customerId
+        ? customers.find((customer) => customer.id === form.customerId) || null
+        : null;
   const getEmptyItem = (): InvoiceItem => ({
     description: "",
     quantity: "",
@@ -2061,6 +2081,12 @@ export default function RechnungenPage() {
     customerIdOverride?: string,
     noteOverride?: string | null,
   ) => {
+    if (historicalInvoiceCustomerLocked) {
+      toast.error(
+        "Gesendete, bezahlte oder archivierte Rechnungen behalten den historischen Kundenstand. Setze die Rechnung zuerst auf Entwurf.",
+      );
+      return;
+    }
     const targetId = customerIdOverride || form.customerId;
     if (!targetId) return;
     let freshCust: Customer | null =
@@ -2139,6 +2165,12 @@ export default function RechnungenPage() {
 
   // Save customer (update or create — merge goes via Sheet)
   const saveCustomer = async () => {
+    if (historicalInvoiceCustomerLocked) {
+      toast.error(
+        "Historische Rechnungsdaten können nicht über dieses Dokument geändert werden. Setze die Rechnung zuerst auf Entwurf.",
+      );
+      return;
+    }
     if (!newCust.name.trim()) {
       toast.error("Name erforderlich");
       return;
@@ -2179,7 +2211,8 @@ export default function RechnungenPage() {
           // Also update nested customer in invoices so list/cards refresh immediately
           setInvoices((prev) =>
             prev.map((inv) =>
-              inv.customerId === updated.id
+              inv.customerId === updated.id &&
+              !isHistoricalInvoiceStatus(inv.status)
                 ? { ...inv, customer: { ...inv.customer, ...updated } }
                 : inv,
             ),
@@ -2308,6 +2341,22 @@ export default function RechnungenPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    const refreshVisibleList = () => {
+      if (!dialogOpen) void load();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshVisibleList();
+    };
+    window.addEventListener("focus", refreshVisibleList);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshVisibleList);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialogOpen]);
+
   // editId logic removed — flow buttons now redirect to list only
 
   // Close native action menus on outside click without touching React state.
@@ -2435,6 +2484,7 @@ export default function RechnungenPage() {
   const openNewInvoice = () => {
     const invoiceDate = getTodayInvoiceDateInputValue();
     setEditingInvoice(null);
+    setEditingInvoiceCustomer(null);
     setVatRate(defaultVatRate);
     setCurrency(currency === "EUR" ? "EUR" : "CHF");
     setForm({
@@ -2476,6 +2526,7 @@ export default function RechnungenPage() {
     },
   ) => {
     setEditingInvoice(inv);
+    setEditingInvoiceCustomer(inv.customer ? { ...inv.customer } : null);
     setDupCheckOpen(false);
     // Reset customer form to prevent stale data leaking between records
     setNewCust({
@@ -2578,8 +2629,10 @@ export default function RechnungenPage() {
         });
       }, 180);
     }
-    // Auto-fill: extract missing customer data from notes and update DB
-    if (inv.customerId) autoFillCustomer(inv.customerId);
+    // Historische Rechnungen dürfen den zentralen Kundenstamm weder nachladen
+    // noch durch Auto-Fill verändern. Entwürfe bleiben live verknüpft.
+    if (inv.customerId && !isHistoricalInvoiceStatus(inv.status))
+      autoFillCustomer(inv.customerId);
   };
 
   // Stage E (deterministic chip flow): runs AFTER the dialog has actually
@@ -4701,9 +4754,8 @@ export default function RechnungenPage() {
                 "Kunde aktualisieren" save button inside the edit section
                 handle all other actions. */}
               {(() => {
-                const cust = form.customerId
-                  ? customers.find((c: Customer) => c.id === form.customerId)
-                  : null;
+                if (historicalInvoiceCustomerLocked) return null;
+                const cust = dialogInvoiceCustomer;
                 // Canonical rule — name/address/plz/city required; phone/email optional.
                 const missingData = !!cust && isCustomerDataIncomplete(cust);
                 if (!linkedOrderData?.needsReview && !missingData) return null;
@@ -4734,8 +4786,17 @@ export default function RechnungenPage() {
               {/* Customer Info / Select / Edit */}
               <div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-1 gap-1">
-                  <Label>Kunde *</Label>
-                  {!showNewCustomer && form.customerId && (
+                  <div className="flex items-center gap-2">
+                    <Label>Kunde *</Label>
+                    {historicalInvoiceCustomerLocked && (
+                      <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        Historischer Kundenstand
+                      </span>
+                    )}
+                  </div>
+                  {!showNewCustomer &&
+                    form.customerId &&
+                    !historicalInvoiceCustomerLocked && (
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
                         className="text-xs text-blue-600 hover:underline flex items-center gap-1"
@@ -4756,9 +4817,7 @@ export default function RechnungenPage() {
                   <>
                     {editingInvoice && form.customerId ? (
                       (() => {
-                        const cust = customers.find(
-                          (c: Customer) => c.id === form.customerId,
-                        );
+                        const cust = dialogInvoiceCustomer;
                         if (!cust) return null;
                         // Required fields: name/address/plz/city — painted red when missing.
                         // Optional fields: phone/email — always neutral (black), never red.
@@ -4890,9 +4949,7 @@ export default function RechnungenPage() {
                         </div>
                         {form.customerId &&
                           (() => {
-                            const cust = customers.find(
-                              (c: Customer) => c.id === form.customerId,
-                            );
+                            const cust = dialogInvoiceCustomer;
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (

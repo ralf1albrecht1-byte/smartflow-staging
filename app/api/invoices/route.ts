@@ -570,13 +570,22 @@ export async function POST(request: Request) {
     }
 
     const requestedStatus = String(data?.status ?? "Entwurf");
-    const customerSnapshotData =
+    const requestedCustomerSnapshot =
       activeCustomer && isCustomerSnapshotStatus("invoice", requestedStatus)
-        ? {
-            customerSnapshot: buildDocumentCustomerSnapshot(activeCustomer),
-            customerSnapshotAt: new Date(),
-          }
-        : {};
+        ? buildDocumentCustomerSnapshot(activeCustomer)
+        : null;
+    const customerSnapshotData = requestedCustomerSnapshot
+      ? {
+          customerSnapshot: requestedCustomerSnapshot,
+          customerSnapshotAt: new Date(),
+          ...(requestedStatus === "Erledigt"
+            ? {
+                archivedCustomerSnapshot: requestedCustomerSnapshot,
+                archivedCustomerSnapshotAt: new Date(),
+              }
+            : {}),
+        }
+      : {};
 
     // Source offer must belong to the same active TEST/LIVE scope.
     if (data?.sourceOfferId) {

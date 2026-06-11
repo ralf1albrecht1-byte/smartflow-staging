@@ -17,6 +17,7 @@ import {
   buildDocumentCustomerSnapshot,
   DOCUMENT_CUSTOMER_SELECT,
   isCustomerSnapshotStatus,
+  parseDocumentCustomerSnapshot,
   withDocumentCustomerSnapshot,
 } from "@/lib/document-customer-snapshot";
 
@@ -251,12 +252,25 @@ export async function PUT(
       }
     }
 
-    const customerSnapshotData = needsCustomerSnapshot
-      ? {
-          customerSnapshot: buildDocumentCustomerSnapshot(activeCustomer),
-          customerSnapshotAt: new Date(),
-        }
-      : {};
+    const nextCustomerSnapshot = needsCustomerSnapshot
+      ? buildDocumentCustomerSnapshot(activeCustomer)
+      : parseDocumentCustomerSnapshot(existing.customerSnapshot);
+    const enteringArchive =
+      nextStatus === "Erledigt" && currentStatus !== "Erledigt";
+    const customerSnapshotData = {
+      ...(needsCustomerSnapshot && nextCustomerSnapshot
+        ? {
+            customerSnapshot: nextCustomerSnapshot,
+            customerSnapshotAt: new Date(),
+          }
+        : {}),
+      ...(enteringArchive && nextCustomerSnapshot
+        ? {
+            archivedCustomerSnapshot: nextCustomerSnapshot,
+            archivedCustomerSnapshotAt: new Date(),
+          }
+        : {}),
+    };
 
     const parsedInvoiceDate =
       data?.invoiceDate !== undefined
@@ -312,8 +326,10 @@ export async function PUT(
     const updateData: any = {};
     if (data?.customerId) updateData.customerId = data.customerId;
     if (isReopen) {
-      // Explicitly null out the archived snapshot — mandatory on reopen
+      // Reopening invalidates both the archived PDF and its immutable customer snapshot.
       updateData.archivedPdfPath = null;
+      updateData.archivedCustomerSnapshot = null;
+      updateData.archivedCustomerSnapshotAt = null;
     }
     if (data?.status !== undefined) updateData.status = data.status;
     Object.assign(updateData, customerSnapshotData);

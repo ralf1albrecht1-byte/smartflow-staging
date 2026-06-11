@@ -178,6 +178,11 @@ interface Customer {
   email?: string | null;
 }
 
+const OFFER_HISTORICAL_STATUSES = new Set(["Gesendet", "Abgelehnt"]);
+
+const isHistoricalOfferStatus = (status: unknown) =>
+  OFFER_HISTORICAL_STATUSES.has(String(status ?? "").trim());
+
 const statusColors: Record<string, string> = {
   Entwurf: "bg-gray-200 text-gray-800 border border-gray-300",
   Gesendet: "bg-blue-200 text-blue-900 border border-blue-300",
@@ -2730,6 +2735,7 @@ export default function AngebotePage() {
   const [loadError, setLoadError] = useState<string[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editOfferId, setEditOfferId] = useState<string | null>(null);
+  const [editingOfferCustomer, setEditingOfferCustomer] = useState<Customer | null>(null);
   const [form, setForm] = useState({
     customerId: "",
     offerDate: new Date().toISOString().split("T")[0],
@@ -2738,6 +2744,15 @@ export default function AngebotePage() {
     notes: "",
     status: "Entwurf",
   });
+  const historicalOfferCustomerLocked = Boolean(
+    editOfferId && isHistoricalOfferStatus(form.status),
+  );
+  const dialogOfferCustomer =
+    historicalOfferCustomerLocked && editingOfferCustomer
+      ? editingOfferCustomer
+      : form.customerId
+        ? customers.find((customer) => customer.id === form.customerId) || null
+        : null;
   const getEmptyItem = (): OfferItem => ({
     description: "",
     quantity: "",
@@ -3030,6 +3045,12 @@ export default function AngebotePage() {
     customerIdOverride?: string,
     noteOverride?: string | null,
   ) => {
+    if (historicalOfferCustomerLocked) {
+      toast.error(
+        "Gesendete oder abgelehnte Angebote behalten den historischen Kundenstand. Setze das Angebot zuerst auf Entwurf.",
+      );
+      return;
+    }
     const targetId = customerIdOverride || form.customerId;
     if (!targetId) return;
     let freshCust: Customer | null =
@@ -3072,6 +3093,12 @@ export default function AngebotePage() {
 
   // Save customer (update or create — merge goes via Sheet)
   const saveCustomer = async () => {
+    if (historicalOfferCustomerLocked) {
+      toast.error(
+        "Historische Angebotsdaten können nicht über dieses Dokument geändert werden. Setze das Angebot zuerst auf Entwurf.",
+      );
+      return;
+    }
     if (!newCust.name.trim()) {
       toast.error("Name erforderlich");
       return;
@@ -3112,7 +3139,8 @@ export default function AngebotePage() {
           // Also update nested customer in offers so list/cards refresh immediately
           setOffers((prev) =>
             prev.map((o) =>
-              o.customerId === updated.id
+              o.customerId === updated.id &&
+              !isHistoricalOfferStatus(o.status)
                 ? { ...o, customer: { ...o.customer, ...updated } }
                 : o,
             ),
@@ -3309,12 +3337,29 @@ export default function AngebotePage() {
     load();
   }, []);
 
+  useEffect(() => {
+    const refreshVisibleList = () => {
+      if (!dialogOpen) void load();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshVisibleList();
+    };
+    window.addEventListener("focus", refreshVisibleList);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshVisibleList);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialogOpen]);
+
   // Auto-open new offer dialog when navigated with ?new=1
   useEffect(() => {
     const isNew = searchParams?.get("new") === "1";
     const custId = searchParams?.get("customerId");
     if (isNew) {
       setEditOfferId(null);
+      setEditingOfferCustomer(null);
       setVatRate(defaultVatRate);
       setCurrency(defaultCurrency);
       const newForm = {
@@ -3862,6 +3907,7 @@ export default function AngebotePage() {
     opts?: { openCustomerSection?: boolean },
   ) => {
     setEditOfferId(off.id);
+    setEditingOfferCustomer(off.customer ? { ...off.customer } : null);
     setServiceOverviewOpen(false);
     setDupCheckOpen(false);
     setEditingExecutionAddress(false);
@@ -3966,8 +4012,10 @@ export default function AngebotePage() {
       setPendingOpenCustomerEditor(null);
     }
     setDialogOpen(true);
-    // Auto-fill: extract missing customer data from notes and update DB
-    if (off.customerId) autoFillCustomer(off.customerId);
+    // Historische Angebote dürfen den zentralen Kundenstamm weder nachladen
+    // noch durch Auto-Fill verändern. Entwürfe bleiben live verknüpft.
+    if (off.customerId && !isHistoricalOfferStatus(off.status))
+      autoFillCustomer(off.customerId);
   };
 
   // Stage E (deterministic chip flow): runs AFTER the dialog has actually
@@ -6739,9 +6787,8 @@ export default function AngebotePage() {
                 "Kunde aktualisieren" save button inside the edit section
                 handle all other actions. */}
               {(() => {
-                const cust = form.customerId
-                  ? customers.find((c: Customer) => c.id === form.customerId)
-                  : null;
+                if (historicalOfferCustomerLocked) return null;
+                const cust = dialogOfferCustomer;
                 // Only real missing billing-customer fields belong in this warning.
                 // Execution-site or intake review flags must not appear as
                 // "Kundendaten prüfen" when the customer master is complete.
@@ -6765,8 +6812,17 @@ export default function AngebotePage() {
               {/* Customer Info / Select / Edit */}
               <div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-1 gap-1">
-                  <Label>Kunde *</Label>
-                  {!showNewCustomer && form.customerId && (
+                  <div className="flex items-center gap-2">
+                    <Label>Kunde *</Label>
+                    {historicalOfferCustomerLocked && (
+                      <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        Historischer Kundenstand
+                      </span>
+                    )}
+                  </div>
+                  {!showNewCustomer &&
+                    form.customerId &&
+                    !historicalOfferCustomerLocked && (
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
                         className="text-xs text-blue-600 hover:underline flex items-center gap-1"
@@ -6787,27 +6843,45 @@ export default function AngebotePage() {
                   <>
                     {editOfferId && form.customerId ? (
                       (() => {
-                        const cust = customers.find(
-                          (c: Customer) => c.id === form.customerId,
-                        );
+                        const cust = dialogOfferCustomer;
                         if (!cust) return null;
                         // Required fields: name/address/plz/city — painted red when missing.
                         // Optional fields: phone/email — always neutral (black), never red.
                         const reqMiss = isRequiredCustomerFieldMissing;
                         return (
                           <div
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openCustomerEditor()}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                openCustomerEditor();
-                              }
-                            }}
-                            title="Kunde bearbeiten"
-                            aria-label="Kunde bearbeiten"
-                            className="rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 cursor-pointer hover:bg-slate-100/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60 dark:border-slate-700 dark:bg-slate-900/30"
+                            role={historicalOfferCustomerLocked ? undefined : "button"}
+                            tabIndex={historicalOfferCustomerLocked ? undefined : 0}
+                            onClick={
+                              historicalOfferCustomerLocked
+                                ? undefined
+                                : () => openCustomerEditor()
+                            }
+                            onKeyDown={
+                              historicalOfferCustomerLocked
+                                ? undefined
+                                : (e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      openCustomerEditor();
+                                    }
+                                  }
+                            }
+                            title={
+                              historicalOfferCustomerLocked
+                                ? "Historischer Kundenstand"
+                                : "Kunde bearbeiten"
+                            }
+                            aria-label={
+                              historicalOfferCustomerLocked
+                                ? "Historischer Kundenstand"
+                                : "Kunde bearbeiten"
+                            }
+                            className={`rounded-xl border border-slate-200 bg-slate-50/70 p-2 sm:p-3 space-y-1.5 min-w-0 transition-colors dark:border-slate-700 dark:bg-slate-900/30 ${
+                              historicalOfferCustomerLocked
+                                ? "cursor-default"
+                                : "cursor-pointer hover:bg-slate-100/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60"
+                            }`}
                           >
                             {isFallbackCustomerName(cust.name) ? (
                               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -6934,9 +7008,7 @@ export default function AngebotePage() {
                         </div>
                         {form.customerId &&
                           (() => {
-                            const cust = customers.find(
-                              (c: Customer) => c.id === form.customerId,
-                            );
+                            const cust = dialogOfferCustomer;
                             if (!cust) return null;
                             const reqMiss = isRequiredCustomerFieldMissing;
                             return (
