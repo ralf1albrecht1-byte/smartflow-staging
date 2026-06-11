@@ -1264,12 +1264,16 @@ function InvoiceViewportTooltip({
   children,
   preferredWidth = 420,
   autoClose = true,
+  mobileDismissOnInteraction = false,
 }: {
   children: any;
   preferredWidth?: number;
   autoClose?: boolean;
+  mobileDismissOnInteraction?: boolean;
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
+  const openRef = useRef(false);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1282,6 +1286,15 @@ function InvoiceViewportTooltip({
     bottom?: number;
   } | null>(null);
 
+  const isMobileDismissMode = () =>
+    mobileDismissOnInteraction &&
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 767px)").matches;
+
+  const setTooltipOpen = (nextOpen: boolean) => {
+    openRef.current = nextOpen;
+    setOpen(nextOpen);
+  };
   const clearOpenTimer = () => {
     if (openTimerRef.current) {
       clearTimeout(openTimerRef.current);
@@ -1300,10 +1313,19 @@ function InvoiceViewportTooltip({
       autoCloseTimerRef.current = null;
     }
   };
+  const closeTooltipImmediately = () => {
+    clearOpenTimer();
+    clearHideTimer();
+    clearAutoCloseTimer();
+    setTooltipOpen(false);
+  };
   const scheduleAutoClose = () => {
     clearAutoCloseTimer();
     if (!autoClose) return;
-    autoCloseTimerRef.current = setTimeout(() => setOpen(false), 3000);
+    autoCloseTimerRef.current = setTimeout(() => {
+      autoCloseTimerRef.current = null;
+      setTooltipOpen(false);
+    }, 3000);
   };
   const calculatePosition = () => {
     const trigger = anchorRef.current?.parentElement as HTMLElement | null;
@@ -1324,7 +1346,6 @@ function InvoiceViewportTooltip({
       0,
       window.innerHeight - rect.bottom - gap - viewportPadding,
     );
-    const desiredHeight = 320;
     const minimumUsableTooltipSpace = 120;
     const openBelow =
       availableAbove >= minimumUsableTooltipSpace
@@ -1348,7 +1369,7 @@ function InvoiceViewportTooltip({
     clearHideTimer();
     const next = calculatePosition();
     if (next) setPosition(next);
-    setOpen(true);
+    setTooltipOpen(true);
   };
   const scheduleShowTooltip = () => {
     clearHideTimer();
@@ -1357,49 +1378,112 @@ function InvoiceViewportTooltip({
       openTimerRef.current = null;
       const next = calculatePosition();
       if (next) setPosition(next);
-      setOpen(true);
+      setTooltipOpen(true);
     }, 300);
   };
   const scheduleHide = () => {
     clearOpenTimer();
     clearHideTimer();
-    hideTimerRef.current = setTimeout(() => setOpen(false), 500);
+    hideTimerRef.current = setTimeout(() => {
+      hideTimerRef.current = null;
+      setTooltipOpen(false);
+    }, 500);
   };
 
   useEffect(() => {
     const trigger = anchorRef.current?.parentElement as HTMLElement | null;
     if (!trigger) return;
+    const pointerEntered = () => {
+      if (isMobileDismissMode()) return;
+      scheduleShowTooltip();
+    };
+    const pointerLeft = () => {
+      if (isMobileDismissMode()) return;
+      scheduleHide();
+    };
+    const focused = () => {
+      if (isMobileDismissMode()) return;
+      openTooltipImmediately();
+    };
     const focusOut = (event: FocusEvent) => {
+      if (isMobileDismissMode()) return;
       if (!trigger.contains(event.relatedTarget as Node | null)) scheduleHide();
     };
-    trigger.addEventListener("pointerenter", scheduleShowTooltip);
-    trigger.addEventListener("pointerleave", scheduleHide);
-    trigger.addEventListener("focusin", openTooltipImmediately);
     const clicked = () => {
+      if (isMobileDismissMode()) {
+        if (openRef.current) {
+          closeTooltipImmediately();
+          return;
+        }
+        openTooltipImmediately();
+        scheduleAutoClose();
+        return;
+      }
       if (open) {
         clearAutoCloseTimer();
-        setOpen(false);
+        setTooltipOpen(false);
         return;
       }
       openTooltipImmediately();
       scheduleAutoClose();
     };
+    trigger.addEventListener("pointerenter", pointerEntered);
+    trigger.addEventListener("pointerleave", pointerLeft);
+    trigger.addEventListener("focusin", focused);
     trigger.addEventListener("focusout", focusOut);
     trigger.addEventListener("click", clicked);
     return () => {
-      trigger.removeEventListener("pointerenter", scheduleShowTooltip);
-      trigger.removeEventListener("pointerleave", scheduleHide);
-      trigger.removeEventListener("focusin", openTooltipImmediately);
+      trigger.removeEventListener("pointerenter", pointerEntered);
+      trigger.removeEventListener("pointerleave", pointerLeft);
+      trigger.removeEventListener("focusin", focused);
       trigger.removeEventListener("focusout", focusOut);
       trigger.removeEventListener("click", clicked);
       clearOpenTimer();
       clearHideTimer();
-      clearAutoCloseTimer();
     };
   }); // Ohne Dependency-Array: bei jedem Render an den aktuell sichtbaren Parent-Chip neu binden.
 
+  useEffect(
+    () => () => {
+      clearOpenTimer();
+      clearHideTimer();
+      clearAutoCloseTimer();
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!open) return;
+
+    if (isMobileDismissMode()) {
+      const dismissOutside = (event: PointerEvent) => {
+        const target = event.target as Node | null;
+        const trigger = anchorRef.current?.parentElement as HTMLElement | null;
+        if (!target) return;
+        if (trigger?.contains(target) || tooltipRef.current?.contains(target)) {
+          return;
+        }
+        closeTooltipImmediately();
+      };
+      const dismissOnViewportMovement = () => closeTooltipImmediately();
+
+      document.addEventListener("pointerdown", dismissOutside, true);
+      window.addEventListener("scroll", dismissOnViewportMovement, true);
+      window.addEventListener("touchmove", dismissOnViewportMovement, {
+        capture: true,
+        passive: true,
+      });
+      window.addEventListener("resize", dismissOnViewportMovement, {
+        passive: true,
+      });
+      return () => {
+        document.removeEventListener("pointerdown", dismissOutside, true);
+        window.removeEventListener("scroll", dismissOnViewportMovement, true);
+        window.removeEventListener("touchmove", dismissOnViewportMovement, true);
+        window.removeEventListener("resize", dismissOnViewportMovement);
+      };
+    }
+
     const update = () => {
       const next = calculatePosition();
       if (next) setPosition(next);
@@ -1410,7 +1494,7 @@ function InvoiceViewportTooltip({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [open, preferredWidth]);
+  }, [open, preferredWidth, mobileDismissOnInteraction]);
 
   return (
     <>
@@ -1420,15 +1504,32 @@ function InvoiceViewportTooltip({
         typeof document !== "undefined" &&
         createPortal(
           <span
+            ref={tooltipRef}
             role="tooltip"
             onPointerEnter={() => {
+              if (isMobileDismissMode()) return;
               clearHideTimer();
               clearAutoCloseTimer();
             }}
-            onPointerDown={clearAutoCloseTimer}
-            onPointerUp={scheduleAutoClose}
-            onScroll={clearAutoCloseTimer}
-            onPointerLeave={scheduleHide}
+            onPointerDown={() => {
+              if (isMobileDismissMode()) return;
+              clearAutoCloseTimer();
+            }}
+            onPointerUp={() => {
+              if (isMobileDismissMode()) return;
+              scheduleAutoClose();
+            }}
+            onScroll={() => {
+              if (isMobileDismissMode()) {
+                closeTooltipImmediately();
+                return;
+              }
+              clearAutoCloseTimer();
+            }}
+            onPointerLeave={() => {
+              if (isMobileDismissMode()) return;
+              scheduleHide();
+            }}
             style={{
               left: position.left,
               width: position.width,
@@ -4603,7 +4704,10 @@ export default function RechnungenPage() {
                               <span className="sr-only">
                                 {invoiceAppointmentChipLabels.full}
                               </span>
-                              <InvoiceViewportTooltip preferredWidth={320}>
+                              <InvoiceViewportTooltip
+                                preferredWidth={320}
+                                mobileDismissOnInteraction
+                              >
                                 <InvoiceAppointmentTooltipContentV17_90L169
                                   text={invoiceAppointmentDisplayLabel}
                                 />
@@ -4879,6 +4983,7 @@ export default function RechnungenPage() {
                                                   <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                                   <InvoiceViewportTooltip
                                                     preferredWidth={320}
+                                                    mobileDismissOnInteraction
                                                   >
                                                     <InvoiceAppointmentTooltipContentV17_90L169
                                                       text={
@@ -5149,6 +5254,7 @@ export default function RechnungenPage() {
                                             <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                                             <InvoiceViewportTooltip
                                               preferredWidth={320}
+                                              mobileDismissOnInteraction
                                             >
                                               <InvoiceAppointmentTooltipContentV17_90L169
                                                 text={
